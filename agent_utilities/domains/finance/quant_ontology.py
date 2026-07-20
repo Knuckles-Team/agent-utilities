@@ -23,77 +23,116 @@ class QuantOntology:
 
     @staticmethod
     def register(engine: Any) -> None:
-        """Register the FIBO-aligned quant ontology schemas in the engine."""
+        """Register the FIBO-aligned quant ontology schemas in the engine.
+
+        Dead-code gotcha found alongside the ``add_node(id=...)`` kwarg-drift
+        bug (kg-exhaustive-batchD.md): every call here used to pass
+        ``properties=[...]`` — a bare list of field-name strings — where
+        ``IntelligenceGraphEngine.add_node`` requires ``properties:
+        dict[str, Any] | None`` (it does ``props["type"] = node_type`` on
+        whatever is passed, which raises on a list). Not currently reachable
+        (nothing in the repo calls ``QuantOntology.register``), but fixed
+        defensively so it doesn't crash the moment something wires it up.
+        Each schema's field-name list is now nested under a ``fields`` key.
+        """
 
         # 1. Strategy & Hypothesis Lifecycle
         engine.add_node(
             "Schema:TradingHypothesis",
             "OntologySchema",
-            properties=["id", "title", "expected_edge", "asset_class", "status"],
+            properties={
+                "fields": ["id", "title", "expected_edge", "asset_class", "status"]
+            },
         )
         engine.add_node(
             "Schema:BacktestResult",
             "OntologySchema",
-            properties=["id", "sharpe", "max_drawdown", "win_rate", "profit_factor"],
+            properties={
+                "fields": [
+                    "id",
+                    "sharpe",
+                    "max_drawdown",
+                    "win_rate",
+                    "profit_factor",
+                ]
+            },
         )
         engine.add_node(
             "Schema:TradingStrategy",
             "OntologySchema",
-            properties=["id", "name", "version", "status", "regime_preference"],
+            properties={
+                "fields": ["id", "name", "version", "status", "regime_preference"]
+            },
         )
 
         # 2. Market State & Alpha
         engine.add_node(
             "Schema:MarketRegime",
             "OntologySchema",
-            properties=["id", "regime_type", "confidence", "start_time"],
+            properties={"fields": ["id", "regime_type", "confidence", "start_time"]},
         )
         engine.add_node(
             "Schema:AlphaFactor",
             "OntologySchema",
-            properties=["id", "name", "ic_mean", "ic_ir", "turnover"],
+            properties={"fields": ["id", "name", "ic_mean", "ic_ir", "turnover"]},
         )
         engine.add_node(
             "Schema:TradingSignal",
             "OntologySchema",
-            properties=["id", "asset", "direction", "conviction", "source"],
+            properties={"fields": ["id", "asset", "direction", "conviction", "source"]},
         )
 
         # 3. Execution & Portfolio
         engine.add_node(
             "Schema:Order",
             "OntologySchema",
-            properties=["id", "asset", "type", "side", "qty", "limit_price", "status"],
+            properties={
+                "fields": [
+                    "id",
+                    "asset",
+                    "type",
+                    "side",
+                    "qty",
+                    "limit_price",
+                    "status",
+                ]
+            },
         )
         engine.add_node(
             "Schema:Portfolio",
             "OntologySchema",
-            properties=["id", "nav", "cash", "margin_utilization", "var_95"],
+            properties={
+                "fields": ["id", "nav", "cash", "margin_utilization", "var_95"]
+            },
         )
 
         # 4. Prediction Markets & Forecasts
         engine.add_node(
             "Schema:PredictionMarket",
             "OntologySchema",
-            properties=[
-                "id",
-                "platform",
-                "event",
-                "implied_probability",
-                "settlement_time",
-            ],
+            properties={
+                "fields": [
+                    "id",
+                    "platform",
+                    "event",
+                    "implied_probability",
+                    "settlement_time",
+                ]
+            },
         )
         engine.add_node(
             "Schema:EnsembleForecast",
             "OntologySchema",
-            properties=[
-                "id",
-                "model_family",
-                "member_count",
-                "mean",
-                "probability",
-                "target_event",
-            ],
+            properties={
+                "fields": [
+                    "id",
+                    "model_family",
+                    "member_count",
+                    "mean",
+                    "probability",
+                    "target_event",
+                ]
+            },
         )
 
         # Define formal relationships

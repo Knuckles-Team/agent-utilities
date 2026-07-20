@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     pass
 
 from pydantic import BaseModel, ConfigDict, Field
-from pydantic_ai import Agent
 
 from .config import *  # noqa: F403
 
@@ -213,43 +212,6 @@ def prune_large_messages(messages: list[Any], max_length: int = 5000) -> list[An
     return pruned_messages
 
 
-def compact_messages(
-    messages: list[Any],
-    max_tokens: int = 8000,
-    strategy: str = "summarize_tools",
-) -> list[Any]:
-    """Token-aware context compaction (backward-compatible wrapper).
-
-    Delegates to :class:`ContextCompactor` for intelligent compaction.
-    Falls back to :func:`prune_large_messages` if the compactor is
-    unavailable.
-
-    CONCEPT:AU-KG.memory.tiered-memory-caching — Token-Aware Context Compaction
-
-    Args:
-        messages: List of message dicts.
-        max_tokens: Target token budget.
-        strategy: Compaction strategy (``summarize_tools``, ``drop_middle``,
-            ``progressive``).
-
-    Returns:
-        Compacted message list.
-    """
-    try:
-        from agent_utilities.knowledge_graph.memory import (
-            ContextCompactor,
-        )
-
-        compactor = ContextCompactor(max_tokens=max_tokens)
-        result = compactor.compact(messages, strategy=strategy)
-        return result.messages
-    except Exception:
-        logger.debug(
-            "ContextCompactor unavailable, falling back to prune_large_messages"
-        )
-        return prune_large_messages(messages)
-
-
 # ---------------------------------------------------------------------------
 # Cross-Session Chat Recall (adapted from Goose's ChatHistorySearch)
 # ---------------------------------------------------------------------------
@@ -426,12 +388,12 @@ def search_chat_history(
         return ChatRecallResults(query=query)
 
 
-async def chat(agent: Agent, prompt: str):
+async def chat(agent: Any, prompt: str):
     result = await agent.run(prompt)
     print(f"Response:\n\n{result.output}", file=sys.stderr)
 
 
-async def node_chat(agent: Agent, prompt: str) -> list:
+async def node_chat(agent: Any, prompt: str) -> list:
     nodes = []
     async with agent.iter(prompt) as agent_run:
         async for node in agent_run:
@@ -440,7 +402,7 @@ async def node_chat(agent: Agent, prompt: str) -> list:
     return nodes
 
 
-async def stream_chat(agent: Agent, prompt: str) -> None:
+async def stream_chat(agent: Any, prompt: str) -> None:
     async with agent.run_stream(prompt) as result:
         async for text_chunk in result.stream_text(delta=True):
             print(text_chunk, end="", flush=True, file=sys.stderr)

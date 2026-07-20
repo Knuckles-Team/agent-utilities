@@ -1,0 +1,158 @@
+connector: clarity-api
+ontology_source: clarity
+schema_version: '1'
+resources:
+- name: BehaviorDimension
+  label: Behavior Dimension
+  id_prefix: behaviordimension
+  relations: []
+- name: BehaviorInsight
+  label: Behavior Insight
+  id_prefix: behaviorinsight
+  relations:
+  - name: brokenDownBy
+    label: broken down by
+    target: BehaviorDimension
+    lpg_rel_type: ''
+- name: ClarityProject
+  label: Clarity Project
+  id_prefix: clarityproject
+  relations:
+  - name: ownedBy
+    label: owned by
+    target: Person
+    lpg_rel_type: ''
+- name: ClaritySession
+  label: Clarity Session Snapshot
+  id_prefix: claritysession
+  relations:
+  - name: hasInsight
+    label: has insight
+    target: BehaviorInsight
+    lpg_rel_type: ''
+  - name: summarizedBy
+    label: summarized by
+    target: Document
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    clarity-insight: metricName
+  title_field:
+    clarity-insight: metricName
+  text_field:
+    clarity-insight: metricName
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  BehaviorDimension:
+    ontology_class: null
+    fields:
+      dimensionName: xsd:string
+      distinctUserCount: xsd:integer
+      externalToolId: xsd:string
+      metricName: xsd:string
+      numOfDays: xsd:integer
+      pagesPerSessionPercentage: xsd:decimal
+      totalBotSessionCount: xsd:integer
+      totalSessionCount: xsd:integer
+  BehaviorInsight:
+    ontology_class: Insight
+    fields:
+      dimensionName: xsd:string
+      distinctUserCount: xsd:integer
+      externalToolId: xsd:string
+      metricName: xsd:string
+      numOfDays: xsd:integer
+      pagesPerSessionPercentage: xsd:decimal
+      totalBotSessionCount: xsd:integer
+      totalSessionCount: xsd:integer
+  ClarityProject:
+    ontology_class: SoftwareProject
+    fields:
+      dimensionName: xsd:string
+      distinctUserCount: xsd:integer
+      externalToolId: xsd:string
+      metricName: xsd:string
+      numOfDays: xsd:integer
+      pagesPerSessionPercentage: xsd:decimal
+      totalBotSessionCount: xsd:integer
+      totalSessionCount: xsd:integer
+  ClaritySession:
+    ontology_class: null
+    fields:
+      dimensionName: xsd:string
+      distinctUserCount: xsd:integer
+      externalToolId: xsd:string
+      metricName: xsd:string
+      numOfDays: xsd:integer
+      pagesPerSessionPercentage: xsd:decimal
+      totalBotSessionCount: xsd:integer
+      totalSessionCount: xsd:integer
+sync:
+- preset: clarity-insights
+  server: clarity-api
+  tool: clarity_insights
+  action: get_data_export
+  records_path: data.data
+  id_field: metricName
+  title_field: metricName
+  text_field: metricName
+  updated_field: null
+  pagination: null
+  doc_type: clarity-insight
+  tool_schema_sha256: e3babeaf7463193911114f36ee5d748f18e290c5d80adef1d44ad399142e73b8
+  raw:
+    server: clarity-api
+    tool: clarity_insights
+    action: get_data_export
+    params:
+      action: get_data_export
+      params_json: '{"number_of_days": 3}'
+    records_path: data.data
+    id_field: metricName
+    title_field: metricName
+    text_field: metricName
+    doc_type: clarity-insight
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - clarity_api/connectors/mcp_source_presets.json
+  - clarity_api/connectors/tool_schema_fingerprints.json
+  - clarity_api/ontology/clarity.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: e2a2d2c5960061f54286e59762ecd99556c9914622e13bcfbc9781672bd3d59f
+    triple_count: 58
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: -YapCx_Zqyaj1X3pQrXKWUSXFtVkvMTPLn0_xhO-S9Y97DY-Gm0b9GYgJ0hf55VIDFw-nMEBVFmrJ79qz_VVAg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'belongsToProject' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.BehaviorDimension.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BehaviorInsight.ontology_class = 'Insight' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ClarityProject.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ClaritySession.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

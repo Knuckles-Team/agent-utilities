@@ -1,151 +1,114 @@
 ---
 name: agent-utilities-deployment
-skill_type: skill
-aliases:
-  - self-setup
-  - deploy-agent-utilities
-description: >
-  One guided, config-complete path to deploy agent-utilities — the single entry
-  point Claude follows to set ITSELF up or stand up a server. Profile-driven
-  (tiny → single-node-prod → enterprise): installs, generates a COMPLETE config.json
-  covering every option (setup-config), resolves secrets from OpenBao/Vault or .env,
-  provisions databases (Stardog + pg-age), launches the graph-os gateway + MCP
-  multiplexer, wires auth/observability, and verifies the whole deployment with a
-  config doctor + MCP reachability + KG smoke test. Delegates the enterprise
-  multi-node swarm tier to the agent-os-genesis (day0) skill rather than duplicating
-  it. Use when the user says "deploy agent-utilities", "set up agent-utilities",
-  "Claude set yourself up", "full install", "generate my config", "stand up the
-  knowledge graph + gateway". Do NOT use for bare-host swarm bootstrap (use
-  agent-os-genesis/day0) or databases-only (use database-environment-setup).
-domain: infrastructure
-tags:
-  - deployment
-  - self-setup
-  - agent-utilities
-  - config
-  - knowledge-graph
-  - gateway
-requires:
-  - graph-os
+description: >-
+  Plan, provision, configure, preflight, verify, migrate, upgrade, or recover an
+  agent-utilities installation from a minimal local profile through a multi-node
+  production profile. Use when deployment profile, topology, infrastructure,
+  identity, secrets, observability, connectors, or installation state may change.
+  For incidents in an already-running Graph-OS runtime that need no deployment
+  change, use graph-runtime-and-governance.
 ---
 
-# Agent-Utilities Deployment (self-setup)
+# Agent Utilities deployment
 
-The one runbook to take agent-utilities from nothing to running, with **every config
-option considered**. It composes existing skills/commands rather than re-implementing
-them — `setup-config` (complete config generation + validation), the
-`database-environment-setup` skill, `secret-vault-manager`, `docker-compose-operator`,
-and — for the enterprise multi-node tier — the **`agent-os-genesis`** (alias `day0`)
-swarm bootstrap.
+Resolve the deployment profile from requirements, produce a reviewable plan,
+apply only authorized steps, and verify the user-visible Graph-OS path.
 
-## Prerequisites
-- **graph-os** (agent-utilities) installed: `pip install agent-utilities[all]` (or a
-  narrower extra set — see Step 1). Provides the `setup-config` / `setup-databases`
-  console scripts and the `graph_configure` MCP tool.
+Keep post-deployment health, trace, audit, and policy diagnosis that does not
+change the manifest or topology in `graph-runtime-and-governance`.
 
-## Profiles (rungs of docs/guides/deployment-configurations.md)
-| Profile | For | Externals |
-|---|---|---|
-| **tiny** | Claude's own laptop self-setup; edge | none (in-process L1 + LadybugDB L2) |
-| **single-node-prod** | one durable host | Postgres/pg-age, optional OpenBao/Langfuse |
-| **enterprise** | multi-node fleet | swarm, Postgres, Kafka, Keycloak, observability |
+## Workflow
 
-## Data source
+### 1. Gather requirements
 
-The repo's **`genesis.yaml`** (root of agent-utilities) is the machine-readable
-manifest for this whole flow: the profiles below, the host preflight, the MCP
-`servers` fleet (with per-profile membership), the optional UI `components`, and the
-`ide_targets` for skill/MCP wiring. Loop it rather than hard-coding lists — it is
-generated from `deploy/mcp-fleet.registry.yml` + the config profiles, so it never
-drifts.
+Confirm:
 
-## Steps
+- expected users, tenants, workload, durability, and recovery objectives;
+- local, single-node, or multi-node topology;
+- existing database, identity, secret-store, ingress, and observability services;
+- allowed deployment mechanism and change window;
+- which connectors and user entry points are in scope.
 
-### Step 0 — Preflight the host (before installing anything)
-Confirm the host has the runtimes/tools for the chosen profile + any UI components:
-```
-agent-utilities-doctor --preflight --profile <tiny|single-node-prod|enterprise> [--component agent-webui|geniusbot|agent-terminal-ui]
-# or, remotely over MCP:  graph_configure(action="preflight", config_key="<profile>")
-```
-It returns ok/warn/fail per dependency with a remediation. Key facts: **no Rust is
-needed** (the epistemic-graph engine ships as a prebuilt wheel — Rust is only a
-fallback); Docker is only required above `tiny`; Node+pnpm only for `agent-webui`; a
-Qt display only for `geniusbot`. The one-command `scripts/install.sh` /
-`scripts/install.ps1` runs this step for you.
+Do not infer permission to create external infrastructure or rotate credentials.
 
-### Step 1 — Choose profile & install
-Ask the user (or infer from context) which profile. Install the matching extras:
-- tiny: `pip install agent-utilities[all]` or run `scripts/bootstrap.sh`.
-- single-node-prod / enterprise: `pip install agent-utilities[all]` plus `[owl,postgres,stardog]` as needed.
+Use the skill directly for a bounded plan, preflight, or health check. Delegate
+dependency-ordered phases for a multi-node rollout or recovery, keeping every
+external change behind the same approval boundary.
 
-### Step 2 — Generate the COMPLETE config (all options)
-Don't hand-author config.json. Generate a full, profile-seeded one covering every
-AgentConfig field:
-```
-setup-config generate --profile <tiny|single-node-prod|enterprise>   # → XDG config.json
-# or MCP: graph_configure(action="generate_config", config_key="<profile>")
-```
-Review/adjust the handful of deployment-varying values it seeds (DSNs, endpoints).
-To see every option grouped by subsystem: `setup-config reference`.
+### 2. Select a profile
 
-### Step 3 — Resolve secrets (OpenBao/Vault, .env fallback)
-For single-node/enterprise, store credentials in OpenBao/Vault (reuse
-**secret-vault-manager** to unseal/seed) and reference them with `vault://` in config;
-otherwise a local `.env`. Never commit real secrets — generated config blanks them.
-Once secrets are seeded, register them with the **`automated-credential-rotation`**
-skill (same OpenBao paths) so they rotate on policy (6-month baseline) — that skill is
-the rotation counterpart to this provisioning step, and agent-os-genesis arms it as
-Step 14b.
+| Profile | Intended shape |
+|---|---|
+| `tiny` | One process, minimal external infrastructure, development or evaluation |
+| `single-node-prod` | Durable engine plus optional mirrors and core services on one node |
+| `enterprise` | Multi-node services, durable queues, identity, policy, and observability |
 
-### Step 4 — Databases (single-node-prod / enterprise)
-Run the **database-environment-setup** skill: provisions Stardog (prod) or local
-SPARQL (dev) + a Postgres with AGE + pgvector + pg_search, wires the durable backend,
-and backfills the graph into AGE. (tiny skips this — LadybugDB L2 is built in.)
+Use the repository's `genesis.yaml` as the deployment manifest. Treat live
+inventory and secret values as operator-owned inputs, never as skill content.
 
-### Step 5 — Launch the runtime
-- KG MCP server / gateway: `graph-os` (and `graph-os-daemon` for the REST gateway).
-- Tool multiplexer: `mcp-multiplexer`.
-- Containerized: use **docker-compose-operator** with `docker/mcp.compose.yml`
-  (+ `docker/pg-age-full.compose.yml` for the durable tier).
+### 3. Preflight and plan
 
-### Step 6 — Auth & observability (enterprise)
-- Identity: set `KG_AUTH_REQUIRED=1` + `AUTH_JWT_JWKS_URI` (Keycloak via
-  **keycloak-client-onboarder**); policy via **eunomia-policy-manager**.
-- Observability: **service-observability-provisioner** wires `/metrics` + LGTM;
-  `OTEL_EXPORTER_OTLP_ENDPOINT` is already in the generated enterprise config.
+- Run the deployment preflight for the selected profile.
+- Generate configuration from the canonical schema instead of hand-authoring a
+  partial file.
+- Resolve each dependency as deploy, reuse, or skip.
+- Present the plan, destructive steps, rollback, and verification before apply.
+- Keep credentials in the configured secret store; pass references, not values.
 
-### Step 7 — Enterprise multi-node → delegate to agent-os-genesis (day0)
-For a multi-host swarm (SSH mesh, placement, overlay networks, ingress, GitOps,
-fleet deploy), hand off to the **`agent-os-genesis`** skill (alias `day0`). This skill
-does NOT reimplement swarm bootstrap — it generates the config and validates the end
-state around it.
+### 4. Deploy in dependency order
 
-### Step 8 — Verify the deployment
-1. **Holistic doctor (run this first):** `agent-utilities-doctor` (or
-   `graph_configure(action="system_doctor")`) — one sweep across config, engine,
-   backend, secrets, auth, MCP fleet, hooks, and observability; each finding carries
-   a remediation + the skill that fixes it. `--live` also probes MCP endpoints;
-   `--fix` runs safe auto-remediations. This composes the focused checks below.
-2. **Config health (focused):** `setup-config doctor --profile <profile>` — required
-   keys, durability rules, secret-ref resolvability.
-3. **MCP reachability:** `python scripts/validate_mcp_config.py --live` (catches 502s).
-4. **KG smoke test:** a `graph_write` + `graph_query` round-trip, and (if databases
-   were set up) confirm backfill consistency via the database skill's report.
+1. engine authority and durable storage;
+2. Graph-OS gateway and workers;
+3. identity, policy, and secret integration;
+4. observability and health reporting;
+5. multiplexer and connector fleet;
+6. optional user interfaces and scheduled ingestion.
 
-Report the final state: profile, config path, SPARQL URL, gateway URL, and any doctor
-findings the operator still needs to resolve.
+Use canary rollout and health gates for multi-node or unfamiliar components.
+Stop a dependent stage when its prerequisite is unhealthy.
 
-### Step 9 — External data sources (optional) → delegate to `agent-utilities-source-integration`
-After the runtime is verified, connect any external sources (LeanIX, Camunda, ARIS,
-ServiceNow, Egeria, …) by running the **`agent-utilities-source-integration`** skill —
-one standardized path that discovers (where a metamodel exists), mirrors, delta-syncs
-(`source_sync`), and optionally backfeeds, per source. It needs only the source's
-credentials + a reachable graph-os. Skip when no external sources are in use.
+### 5. Verify
 
-## Notes
-- No new env flags — `setup-config` operates over the existing AgentConfig schema.
-- Single-purpose delegation: this skill orchestrates; databases live in
-  `database-environment-setup`, swarm in `agent-os-genesis` (`day0`), secrets in
-  `secret-vault-manager`, and external data-source onboarding (LeanIX/Camunda/ARIS/
-  ServiceNow/…) in `agent-utilities-source-integration`.
-  Full narrative: agent-utilities `docs/guides/self-setup.md`.
+- Run `agent-utilities-doctor` and resolve all in-scope failures.
+- Verify configuration validation and engine reachability.
+- Execute a synthetic write/read round trip in an isolated graph when mutation
+  is authorized; otherwise use read-only health checks.
+- Verify REST and MCP reach the same core behavior.
+- Confirm authentication, authorization, audit, metrics, and connector freshness.
+- Record profile, component status, evidence, and remaining operator actions.
+
+### 6. Migrate, recover, or upgrade
+
+Classify the change before applying it:
+
+- A release upgrade replaces current binaries or packages without changing stored
+  data.
+- A configuration migration renders the current typed schema from operator-owned
+  references; it does not retain retired keys or aliases in runtime code.
+- A persisted-format migration transforms durable state once at the deployment
+  boundary. Use the engine's supported migration hook, checkpoint progress, and do
+  not add a permanent read-old/write-new path.
+- An ontology or object-schema migration belongs to
+  `graph-modeling-and-mutation`; coordinate its deployment ordering here.
+
+Capture current health and version state, back up durable data, validate the backup,
+stage the change, and preserve a rollback. Quiesce writers when the migration cannot
+provide transactional or resumable semantics. A binary rollback is insufficient
+after a stored-format change; prove that the data restore path is usable before
+apply. After migration or upgrade, repeat the same user-visible checks and inspect
+migration completion evidence; process health alone is insufficient.
+
+Use an economy model for inventory classification, configuration comparison,
+and checklist execution. Escalate architecture, security, and recovery decisions
+when the evidence is ambiguous or the blast radius is high.
+
+## Guardrails
+
+- Never store or print credentials, tokens, private keys, or recovery material.
+- Never embed hostnames, addresses, inventories, or machine paths in the skill.
+- Do not weaken authentication or policy to pass a health check.
+- Do not keep compatibility shims, retired configuration names, or dual-format
+  readers after the one-time migration boundary.
+- Do not claim deployment success while a required doctor check is failing.
+- Require explicit approval for destructive data, identity, network, or external
+  service changes.

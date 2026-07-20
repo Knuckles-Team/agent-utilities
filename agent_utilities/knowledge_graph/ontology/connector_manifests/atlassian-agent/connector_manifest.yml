@@ -1,0 +1,170 @@
+connector: atlassian-agent
+ontology_source: atlassian
+schema_version: '1'
+resources:
+- name: ConfluencePage
+  label: Confluence Page
+  id_prefix: confluencepage
+  relations: []
+- name: Epic
+  label: Jira Epic
+  id_prefix: epic
+  relations: []
+- name: Issue
+  label: Jira Issue
+  id_prefix: issue
+  relations:
+  - name: assignedTo
+    label: assigned to
+    target: Person
+    lpg_rel_type: ''
+  - name: inEpic
+    label: in epic
+    target: Epic
+    lpg_rel_type: ''
+  - name: inSprint
+    label: in sprint
+    target: Sprint
+    lpg_rel_type: ''
+  - name: reportedBy
+    label: reported by
+    target: Person
+    lpg_rel_type: ''
+- name: Sprint
+  label: Jira Sprint
+  id_prefix: sprint
+  relations: []
+actions: []
+events:
+- name: atlassian-confluence-pages.updated
+  resource: confluence_page
+  description: "Watermark event for 'atlassian-confluence-pages' \u2014 advances on version (mcp_source_presets.json)."
+- name: atlassian-jira-issues.updated
+  resource: jira_issue
+  description: "Watermark event for 'atlassian-jira-issues' \u2014 advances on fields.updated (mcp_source_presets.json)."
+identity:
+  id_field:
+    confluence_page: id
+    jira_issue: key
+  title_field:
+    confluence_page: title
+    jira_issue: key
+  text_field:
+    confluence_page: body
+    jira_issue: fields.summary
+  updated_field:
+    confluence_page: version
+    jira_issue: fields.updated
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ConfluencePage:
+    ontology_class: Document
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Epic:
+    ontology_class: null
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Issue:
+    ontology_class: Incident
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+  Sprint:
+    ontology_class: null
+    fields:
+      issueKey: xsd:string
+      issueType: xsd:string
+      priority: xsd:string
+      status: xsd:string
+      summary: xsd:string
+sync:
+- preset: atlassian-confluence-pages
+  server: atlassian-agent
+  tool: atlassian_confluence_page
+  action: get_pages
+  records_path: data.results
+  id_field: id
+  title_field: title
+  text_field: body
+  updated_field: version
+  pagination: null
+  doc_type: confluence_page
+  tool_schema_sha256: 8c4bda7733728fb8a8ce53211edf69e5931212c088bb7c93ab342e19fdd3e173
+  raw:
+    server: atlassian-agent
+    tool: atlassian_confluence_page
+    action: get_pages
+    records_path: data.results
+    id_field: id
+    title_field: title
+    text_field: body
+    updated_field: version
+    doc_type: confluence_page
+- preset: atlassian-jira-issues
+  server: atlassian-agent
+  tool: atlassian_jira_issue
+  action: search_for_issues_using_jql
+  records_path: data.issues
+  id_field: key
+  title_field: key
+  text_field: fields.summary
+  updated_field: fields.updated
+  pagination: null
+  doc_type: jira_issue
+  tool_schema_sha256: e23246d14d338cc81acbb5920ea81c9ed743e87689e1303229fb0e02a81f93aa
+  raw:
+    server: atlassian-agent
+    tool: atlassian_jira_issue
+    action: search_for_issues_using_jql
+    records_path: data.issues
+    id_field: key
+    title_field: key
+    text_field: fields.summary
+    updated_field: fields.updated
+    doc_type: jira_issue
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - atlassian_agent/connectors/mcp_source_presets.json
+  - atlassian_agent/connectors/tool_schema_fingerprints.json
+  - atlassian_agent/ontology/atlassian.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
+    triple_count: 49
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: _L-LSzs7ahhpnMpxGw4SFGVkGZeX3dQKGcKo8UGtGCzW4jWwHRoPEv_51eyAk5ZxZbxjnn-vsG1rB_7tuHd7Cg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.ConfluencePage.ontology_class = 'Document' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Epic.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Issue.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Sprint.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -1,11 +1,13 @@
 # Creating an Agent with Python
 
-This guide walks you through creating a production-ready AI agent using `agent-utilities`. The canonical reference implementation is [`genius-agent/agent_server.py`](../../agents/genius-agent/genius_agent/agent_server.py).
+This guide walks you through creating a production-ready AI agent using
+`agent-utilities`. The repository-local [reference agent](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/reference_agent/README.md)
+provides a runnable companion implementation.
 
 ## Prerequisites
 
 - Python 3.11+
-- `agent-utilities[agent]` installed (includes `pydantic-ai`, `fastmcp`, `universal-skills`, `skill-graphs`)
+- `agent-utilities[agent-runtime]` installed (includes `pydantic-ai`, `fastmcp`, `universal-skills`, `skill-graphs`)
 - An LLM endpoint (local LM Studio, OpenAI, Anthropic, etc.)
 
 ## Project Structure
@@ -21,7 +23,6 @@ my-agent/
 │   ├── main_agent.json      # Agent identity (name, description, system prompt)
 │   └── mcp_config.json      # MCP server configuration
 ├── pyproject.toml
-├── .env.example
 └── README.md
 ```
 
@@ -49,20 +50,6 @@ This is the heart of your agent. Here is the reference pattern used by all ecosy
 import logging
 import os
 import sys
-import warnings
-
-# Filter RequestsDependencyWarning early to prevent log spam
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    try:
-        from requests.exceptions import RequestsDependencyWarning
-        warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-    except ImportError:
-        pass
-
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
 
 from agent_utilities import (
     build_system_prompt_from_workspace,
@@ -146,23 +133,24 @@ if __name__ == "__main__":
 
 ## Step 3: Configure `mcp_config.json`
 
-List the MCP servers your agent should connect to. Environment variables are automatically expanded:
+Register the already-installed GraphOS command. Configure its JWT validation
+policy and exactly one of `KG_AUTH_TOKEN_REF` or `KG_IDENTITY_OAUTH2` in the XDG
+AgentConfig before launch; no credential, endpoint, or machine path belongs in
+this tracked client file:
 
 ```json
 {
   "mcpServers": {
     "graph-os": {
-      "command": "uv",
-      "args": ["run", "graph-os"],
-      "env": {
-        "WORKSPACE_PATH": "${workspaceFolder}"
-      }
+      "command": "graph-os",
+      "args": ["--transport", "stdio"]
     }
   }
 }
 ```
 
-*Note: When using `kg_get_stats` tools, ensure `WORKSPACE_PATH` points to your project root to enable optimized graph indexing.*
+Run `agent-utilities-doctor --only graph_identity auth secrets` before starting
+the agent. Use the installed console command above in every deployment.
 
 ## Step 4: Set Up `pyproject.toml`
 
@@ -172,7 +160,7 @@ name = "my-agent"
 version = "1.0.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agent-utilities[agent]>=0.2.40",
+    "agent-utilities[agent-runtime]>=1.27.1,<2.0.0",
 ]
 
 [project.scripts]
@@ -192,8 +180,8 @@ uv run my-agent --web --port 8080
 # Using environment variables
 export PROVIDER=openai
 export MODEL_ID=gpt-4o-mini
-export LLM_API_KEY=sk-...
-uv run my-agent
+export LLM_API_KEY_REF=vault://platform/llm#api_key
+uv run my-agent --api-key-ref "$LLM_API_KEY_REF"
 ```
 
 ### CLI Flags Reference
@@ -205,7 +193,7 @@ All agents inherit these flags from `create_agent_parser()`:
 | `--provider` | LLM provider | `openai` |
 | `--model-id` | Model identifier | `llama-3.2-3b-instruct` |
 | `--base-url` | LLM API base URL | `http://host.docker.internal:1234/v1` |
-| `--api-key` | LLM API key | `llama` |
+| `--api-key-ref` | Runtime reference for the LLM API key (`env://`, `vault://`, or `secret://`) | None |
 | `--host` | Server bind address | `0.0.0.0` |
 | `--port` | Server port | `8000` |
 | `--mcp-config` | MCP config file path | `mcp_config.json` |
@@ -213,14 +201,21 @@ All agents inherit these flags from `create_agent_parser()`:
 | `--web` | Enable embedded web UI | `False` |
 | `--debug` | Enable debug logging | `False` |
 | `--otel` | Enable OpenTelemetry | `False` |
+| `--otel-headers-ref` | Runtime reference for OTLP headers | None |
+| `--otel-secret-key-ref` | Runtime reference for the OTLP secret key | None |
 | `--custom-skills-directory` | Custom skills directory | None |
+
+Credential values are deliberately not command-line options because process
+arguments are inspectable. Configure credentials through the model registry or
+pass one of the reference-only options above; the parser resolves the value in
+memory before the existing agent factory is called.
 
 ## Next Steps
 
-- Add MCP tools to your agent: see [Building MCP Servers](../4_ecosystem_and_tooling/building-mcp-servers.md)
+- Add MCP tools to your agent: see [Building MCP Servers](building-mcp-servers.md)
 - Add custom skills: place `.md` files in a directory and pass `--custom-skills-directory`
 - Deploy with Docker: see your agent's `Dockerfile` and `compose.yaml`
-- Learn about the graph orchestration pipeline: see [Architecture](../1_graph_orchestration/architecture.md)
+- Learn about the graph orchestration pipeline: see [Architecture](architecture.md)
 
 
 ## Creating an Agent
@@ -265,4 +260,5 @@ if __name__ == "__main__":
     agent_server()
 ```
 
-> **Full guide**: See [docs/creating-an-agent.md](docs/pillars/4_ecosystem_and_tooling/creating-an-agent.md) for the complete walkthrough including project structure, `main_agent.json`, `mcp_config.json`, `pyproject.toml`, and all CLI flags.
+This page is the complete walkthrough for the project structure,
+`main_agent.json`, `mcp_config.json`, `pyproject.toml`, and CLI flags.

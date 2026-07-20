@@ -13,6 +13,7 @@ KG_AUTO_INGEST_SKILLS=false):
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from ..types import PhaseResult, PipelineContext, PipelinePhase
@@ -29,6 +30,7 @@ async def execute_knowledge_base(
 
     start = time.time()
     kb_results = []
+    from ...ingestion.skill_workflow_ingest import skill_reference
 
     # Auto-ingest ALL discovered skill-graphs (default-on). default_enabled=True so the
     # whole packaged library is ingested, not only env-enabled graphs. We ingest each
@@ -39,8 +41,6 @@ async def execute_knowledge_base(
     # so only the first run is heavy; embedder calls are now bounded (KG-2.48) so a
     # flaky GPU degrades to no-vectors instead of hanging.
     if ctx.config.kb_auto_ingest_skill_graphs:
-        from pathlib import Path as _Path
-
         try:
             from skill_graphs import get_skill_graphs_path
 
@@ -61,12 +61,11 @@ async def execute_knowledge_base(
 
             ie = IngestionEngine(kg_engine=kg_engine)
             for graph_path in enabled_paths:
-                ref = _Path(graph_path) / "reference"
-                target = ref if ref.is_dir() else _Path(graph_path)
+                ref = Path(graph_path) / "reference"
+                target = ref if ref.is_dir() else Path(graph_path)
+                graph_ref = skill_reference(Path(graph_path).name)
                 try:
-                    logger.info(
-                        f"Auto-ingesting skill-graph (document-grade): {graph_path}"
-                    )
+                    logger.info("Auto-ingesting skill-graph: %s", graph_ref)
                     res = await ie.ingest(
                         IngestionManifest(
                             content_type=ContentType.DOCUMENT,
@@ -76,16 +75,24 @@ async def execute_knowledge_base(
                     )
                     kb_results.append(
                         {
-                            "name": _Path(graph_path).name,
+                            "name": Path(graph_path).name,
                             "status": res.status,
                             "nodes": res.nodes_created,
                             "edges": res.edges_created,
                         }
                     )
                 except Exception as e:
-                    logger.warning(f"Failed to ingest skill-graph {graph_path}: {e}")
+                    logger.warning(
+                        "Failed to ingest skill-graph %s (%s)",
+                        graph_ref,
+                        type(e).__name__,
+                    )
                     kb_results.append(
-                        {"path": str(graph_path), "status": "error", "error": str(e)}
+                        {
+                            "name": graph_ref,
+                            "status": "error",
+                            "error": type(e).__name__,
+                        }
                     )
 
     # Auto-ingest the universal-skills corpus (default-on, best-effort): the ATOMIC
@@ -124,7 +131,11 @@ async def execute_knowledge_base(
                     )
                     ingested += res.status == "success"
                 except Exception as e:  # noqa: BLE001 — one bad skill must not abort
-                    logger.debug("atomic skill ingest failed for %s: %s", sd, e)
+                    logger.debug(
+                        "atomic skill ingest failed for %s (%s)",
+                        skill_reference(Path(sd).name),
+                        type(e).__name__,
+                    )
             kb_results.append(
                 {
                     "name": "universal-skills/atomic",
@@ -144,12 +155,15 @@ async def execute_knowledge_base(
                     {"name": "universal-skills/workflows", "status": "complete", **wf}
                 )
         except Exception as e:
-            logger.warning(f"universal-skills workflow auto-ingest failed: {e}")
+            logger.warning(
+                "universal-skills workflow auto-ingest failed (%s)",
+                type(e).__name__,
+            )
             kb_results.append(
                 {
                     "name": "universal-skills/workflows",
                     "status": "error",
-                    "error": str(e),
+                    "error": type(e).__name__,
                 }
             )
 

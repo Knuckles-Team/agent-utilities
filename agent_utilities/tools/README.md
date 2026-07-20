@@ -8,7 +8,10 @@ Tools are grouped by domain and are designed to be easily discovered and bound t
 
 ## Tool Categories
 
-- **Developer Tools (`developer_tools.py`)**: File operations, terminal execution, and codebase manipulation.
+- **Developer Tools (`developer_tools.py`)**: Read-only search and graph utilities;
+  code mutation and command execution use the governed DevWorkspace surface,
+  resource-bounded, secret-free, and approval-required; prefer governed
+  `swe_workspace_tools.py` actions for mutations and execution.
 - **Knowledge Tools (`knowledge_tools.py`)**: Deep integration with the Knowledge Graph (LadybugDB/Neo4j).
 - **SDD Tools (`sdd_tools.py`)**: Tools for managing Specs, Tasks, and Implementation Plans.
 - **Git Tools (`git_tools.py`)**: Branch management, commits, and diffing.

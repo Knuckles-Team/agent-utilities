@@ -33,9 +33,23 @@ L2-normalization used by
 """
 
 from collections.abc import Sequence
+from typing import Any
 
-from agent_utilities.numeric import NDArray, RandomGenerator
-from agent_utilities.numeric import xp as np
+try:
+    from agent_utilities.numeric import NDArray, RandomGenerator
+    from agent_utilities.numeric import xp as np
+except ImportError:
+    # epistemic-graph[numeric] kernel absent (e.g. the messaging socket-listener,
+    # which imports this module transitively via
+    # `knowledge_graph.orchestration.engine_query` but never touches the encoder).
+    # Keep this module IMPORTABLE without the kernel — mirrors the guard in
+    # ``retrieval/capability_index.py``. `NDArray`/`RandomGenerator` are pure type
+    # aliases (Any); the k-means/quantization code paths below use `np` and require
+    # the kernel — they raise a clear error at call time if invoked without it,
+    # rather than trapping every importer at module load.
+    NDArray = Any  # type: ignore[assignment,misc]
+    RandomGenerator = Any  # type: ignore[assignment,misc]
+    np: Any = None  # type: ignore[no-redef]
 
 __all__ = ["TemporalSemanticIdEncoder"]
 

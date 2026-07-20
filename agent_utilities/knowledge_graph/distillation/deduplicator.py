@@ -313,8 +313,7 @@ class KnowledgeDeduplicator:
             return cluster_blocks[0]
 
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
             model = create_model()
@@ -340,7 +339,9 @@ class KnowledgeDeduplicator:
                 "Blocks to merge:\n" + "\n".join(block_summaries)
             )
 
-            agent = Agent(model=model, system_prompt="Return only valid JSON.")
+            agent = create_context_agent(
+                model=model, system_prompt="Return only valid JSON."
+            )
             result = agent.run_sync(prompt)
 
             # Parse the LLM response
@@ -349,7 +350,7 @@ class KnowledgeDeduplicator:
             json_match = re.search(r"\{.*\}", result.output, re.DOTALL)
             if json_match:
                 merged = json.loads(json_match.group())
-                merged["id"] = f"ideablock:{uuid.uuid4().hex[:8]}"
+                merged["id"] = f"ideablock:{uuid.uuid4().hex}"
                 merged["merged_from"] = [b["id"] for b in cluster_blocks]
                 return merged
 

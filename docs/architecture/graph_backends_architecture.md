@@ -10,10 +10,10 @@ Neo4j, FalkorDB, LadybugDB) each implement the same unified `GraphBackend`
 abstract interface (Cypher query execution, vector search, node/edge CRUD, and
 optional SPARQL support), so a mutation runs natively on every store.
 
-The **default** is the engine alone (`GRAPH_BACKEND=epistemic_graph`, also
-`memory`/`file` for snapshot modes) — zero external services. Turn on mirroring
-with `GRAPH_BACKEND=fanout` and name a mirror set; the engine stays the read
-authority and each durable mirror receives the replicated stream. PostgreSQL/
+The engine alone is the zero-external-service default. Declare a non-empty
+`GRAPH_MIRROR_TARGETS` list (or `role=mirror` connections) to attach projections;
+the engine stays the read/write-ack authority and each durable mirror receives
+the replicated stream. PostgreSQL/
 pg-age, Neo4j, and FalkorDB are first-class mirror targets (drivers install as
 optional extras under `backends/contrib/`). There is **no tier vocabulary** —
 it is the engine authority plus mirrors.
@@ -36,11 +36,11 @@ it is the engine authority plus mirrors.
 ```mermaid
 graph TB
     subgraph "IntelligenceGraphEngine"
-        A["KG-2.0: query_cypher()"] --> B["KG-2.0: engine.execute()"]
+        A["KG-2.0: guarded query_cypher()"] --> B["Native Cypher authority adapter"]
         C["KG-2.0: add_node()"] --> B
         D["KG-2.0: link_nodes()"] --> B
         E["KG-2.3: search_hybrid()"] --> F["KG-2.3: engine.semantic_search()"]
-        G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(compute + cache)"]
+        G["KG-2.0: native graph algorithms"] --> H["Rust GraphComputeEngine\n(compute + semantic + durable)"]
         QR["KG-2.7: QueryRouter"] --> B
         QR --> H
         QR --> F
@@ -54,7 +54,7 @@ graph TB
     F --> EG
     H --> EG
 
-    EG -->|"GRAPH_BACKEND=fanout\n(durable outbox · async · lossless)"| OUTBOX["per-mirror outbox\n(replay-on-reconnect)"]
+    EG -->|"configured projections\n(durable outbox · async · lossless)"| OUTBOX["per-mirror outbox\n(replay-on-reconnect)"]
 
     subgraph MIRRORS["GRAPH_MIRROR_TARGETS — optional mirrors (interop · BI · external query · DR)"]
         M_PG["PostgreSQL / pg-age (AGE)\nopenCypher + pgvector + ParadeDB BM25"]
@@ -106,21 +106,21 @@ set `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` on the engine; the local `.mp`
 snapshot + WAL then exist only for fast warm restart. (A build without the `redb`
 feature is non-authoritative and boots clean with no warning.) This is an
 **engine-side** setting (`epistemic-graph-server` env), independent of the
-agent-utilities-side `GRAPH_BACKEND` mirror selection below.
+agent-utilities-side projection declarations below.
 
 ## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:AU-KG.backend.cache-lives-as–2.248)
 
 Auxiliary stores that used to keep their own local SQLite/JSON file *next to* the
 one engine authority now route through the **engine unconditionally** — there is
 **no SQLite/JSON/file fallback**. Each resolves the engine-authority backend (the
-OS-5.63 resolver auto-starts the pi-tier engine in prod; the AU-KG.memory.provides-real-ephemeral-one test fixture
+OS-5.63 resolver auto-starts the mandatory full engine artifact in prod; the AU-KG.memory.provides-real-ephemeral-one test fixture
 provides a real ephemeral one) and raises a clear error if the engine is genuinely
 unreachable. They share the engine-only helpers in
 `knowledge_graph/backends/base.py` — `is_engine_authority_backend` /
 `require_engine_authority_backend` — and persist via the engine node API
 (`add_node` / `get_node_properties` / `nodes_by_label`, deterministic node ids), so
-the reads/writes work against the real engine (the in-process `execute()` Cypher
-subset can't do `WHERE … IN $list` / unscoped `MATCH`).
+the reads/writes work against the real engine without a client-side query
+interpreter or an unscoped graph scan.
 
 | Store | Engine surface (the only store) | Node id / scan | Concept |
 |---|---|---|---|
@@ -149,7 +149,7 @@ stores that receive the replicated write stream for interop/BI/external-query/DR
 | Capability | epistemic-graph (THE authority) | LadybugDB (mirror) | PostgreSQL/pg-age (mirror) | Neo4j (mirror) | FalkorDB (mirror) |
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Role** | **authority · system of record** | mirror (extra) | mirror (extra) | mirror (extra) | mirror (extra) |
-| Cypher Support | subset (id-anchored)¹ | Native (Kuzu) | **Native (AGE)** / transpiled | Native | Native |
+| Cypher Support | **native (`eg-query`)**¹ | Native (Kuzu) | **Native (AGE)** / transpiled | Native | Native |
 | Node props (declared/ad-hoc/nested) | ✅ | ✅ (ad-hoc in `metadata`) | ✅ | ✅ | ✅ |
 | **Edge properties** | ✅ | ✅ (JSON `r.properties`) | ✅ | ✅ | ✅ |
 | Vector Search | ✅ | ✅ | ✅ pgvector | ✅ (`:Embeddable`) | ⚠️ AVX2 host² |
@@ -159,9 +159,9 @@ stores that receive the replicated write stream for interop/BI/external-query/DR
 | Persistence | **durable (built-in, redb-authoritative)** | File | Server | Server | Redis |
 | Zero Config | ✅ | ✅ | — | — | — |
 
-¹ The engine is the authority and serves multi-hop traversal natively from its
-own compute/cache over its durable store; `engine.execute` interprets an
-operational id-anchored Cypher subset on the write path. ² FalkorDB vector search
+¹ The engine is the authority and serves read and durable write modes through
+its own parser/planner over the durable store; Python has no Cypher interpreter
+or mutation compiler. ² FalkorDB vector search
 is code-correct (Cypher `CREATE VECTOR INDEX` + `db.idx.vector.queryNodes`) but
 the `falkordb` image SIGILLs on 768-dim vector ops on non-AVX2 host CPUs.
 
@@ -231,7 +231,7 @@ installed — and, for AGE and pg_search, preloaded:
 > peer of Neo4j/FalkorDB and the **richest mirror target** (full openCypher).
 
 **The curated image bundles all three.** `services/pg-age/` builds
-`registry.arpa/pg-age` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
+`${PG_AGE_IMAGE}` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
 already ships `vector` + `pg_search` — and adds **Apache AGE 1.7.0** (the release
 that introduced PG18 support). The stack `command` sets
 `shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age` and
@@ -249,27 +249,19 @@ requires pgvector; BM25 requires pg_search.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `epistemic_graph` | Engine mode: `epistemic_graph` (default — the engine authority alone, also `memory`/`file` snapshot modes) or `fanout` (engine authority + mirrors). The `tiered`/`GRAPH_BACKEND_L1`/`GRAPH_BACKEND_L2` scheme is **removed**. |
-| `GRAPH_AUTHORITY` | `epistemic_graph` | Read source-of-truth under `fanout`; any named durable connection may be named instead, but the engine is the default |
-| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream; supersedes the removed `GRAPH_BACKEND_L2` |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
-| `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
-| `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
-| `GRAPH_DB_PORT` | `6379`/`7687` | Port for FalkorDB/Neo4j |
-| `GRAPH_DB_USER` | `neo4j` | Username for Neo4j/PostgreSQL |
-| `GRAPH_DB_PASSWORD` | `password` | Password for Neo4j/PostgreSQL |
-| `GRAPH_DB_NAME` | `agent_graph` | Database/graph name |
+| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream. |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | — | Runtime secret reference resolving to a JSON profile containing endpoint, database, identity, credential, local path, and TLS settings |
 | `GRAPH_POOL_MIN` | `2` | PostgreSQL pool minimum connections |
 | `GRAPH_POOL_MAX` | `10` | PostgreSQL pool maximum connections |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age table registration |
-| `GRAPH_FUSEKI_URL` | `http://localhost:3030` | Jena/Apache Fuseki server URL |
+| `KG_FUSEKI_ENDPOINT` | `https://fuseki.example.test` | Runtime-injected Jena/Apache Fuseki server URL — see `docs/architecture/configuration.md`. Superseded/deleted aliases (do not reintroduce): `GRAPH_FUSEKI_URL`, `JENA_FUSEKI_URL`, `FUSEKI_ENDPOINT` |
 | `GRAPH_FUSEKI_DATASET` | `agent_kg` | Fuseki dataset name |
-| `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD` | — | Optional Fuseki credentials |
+| `GRAPH_FUSEKI_USER` / `GRAPH_FUSEKI_PASSWORD_REF` | — | Optional Fuseki username and runtime password reference |
 | `KG_CONNECTIONS` | — | JSON list of named connections for the multi-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry). See below. |
 
 These are the **agent-utilities-side** (mirror-selection) variables. Engine
 durability is configured on the **`epistemic-graph-server`** process itself
-(CONCEPT:AU-KG.backend.backend-modes) and is independent of `GRAPH_BACKEND`:
+(CONCEPT:AU-KG.backend.backend-modes) and is independent of projection declarations:
 
 | Variable (engine-side) | Default | Description |
 |---|---|---|
@@ -288,25 +280,25 @@ any one — or fan out to all — with the backend choice fully abstracted behin
 
 ### Register connections
 
-Declaratively, via `KG_CONNECTIONS` (each entry is `create_backend` kwargs plus a
-`name`):
+Declaratively, via `KG_CONNECTIONS`. Persistent entries contain only a neutral
+name, backend kind, and secret-backed profile reference; endpoints, identities,
+credentials, TLS material, and mappings stay outside the source tree:
 
 ```bash
 export KG_CONNECTIONS='[
-  {"name": "prod-neo4j", "backend": "neo4j", "uri": "bolt://neo4j:7687", "user": "neo4j", "password": "..."},
-  {"name": "team-falkor", "backend": "falkordb", "host": "falkor", "port": 6379},
-  {"name": "pg-main", "backend": "age", "uri": "postgresql://agent:agent@pg:5432/agent_kg"}
+  {"name": "neo4j-mirror", "backend": "neo4j", "connection_profile_ref": "secret://graph-connections/neo4j"},
+  {"name": "falkor-mirror", "backend": "falkordb", "connection_profile_ref": "secret://graph-connections/falkor"},
+  {"name": "age-mirror", "backend": "age", "connection_profile_ref": "secret://graph-connections/age"}
 ]'
 ```
 
 …or at runtime via `graph_configure`:
 
 ```
-graph_configure(action="add_connection", config_key="pg-main",
-                config_value='{"backend":"age","uri":"postgresql://agent:agent@pg:5432/agent_kg"}')
+graph_configure(action="add_connection", config_key="age-mirror",
+                config_value='{"backend":"age","connection_profile_ref":"secret://graph-connections/age"}')
 graph_configure(action="list_connections")          # per-connection health
-graph_configure(action="set_default_connection", config_key="pg-main")
-graph_configure(action="remove_connection", config_key="pg-main")
+graph_configure(action="remove_connection", config_key="age-mirror")
 ```
 
 ### Target a connection
@@ -316,7 +308,7 @@ Every `graph_query` / `graph_search` / `graph_write` (and the heavier
 
 | `target` | Behaviour |
 |---|---|
-| omitted / `""` / `"default"` | the primary engine — **identical to legacy behaviour** (backward compatible) |
+| omitted / `""` / `"default"` | the reserved Epistemic Graph authority |
 | `"pg-main"` | a single named connection; result shape unchanged |
 | `"all"` or `"a,b"` or `["a","b"]` | **fan-out** — per-connection labeled results (`{"targets": {...}, "errors": {...}}`), partial success: one backend failing never aborts the others |
 
@@ -334,7 +326,31 @@ openCypher. Each backend advertises a `cypher_support` tier:
 | neo4j, falkordb | `full` | native Cypher |
 | **Postgres via Apache AGE** (`backend: "age"`) | `full` | native openCypher (`count(r)`, aliases, multi-hop, `-[*1..2]->`, edge props) + pgvector |
 | Postgres regex transpiler (`backend: "postgresql"`) | `subset` | only the bounded operational subset the engine emits; fallback when the AGE extension is absent |
-| epistemic_graph (in-memory) | `subset` | interprets the operational subset directly |
+| epistemic_graph (authority) | `native` | AU-P0-2: every statement reaches the engine's own `eg-query` parser through an explicit `cypher_read` or durable `cypher_write` mode. The Python adapter has no pattern interpreter, scan evaluator, traversal implementation, aggregation implementation, or mutation compiler. Typed node writes persist `id`; typed edges persist `relationship`; connector batches use native `ApplyChangeEnvelope`. |
+
+```mermaid
+flowchart LR
+    Boundary[Verified GraphSession] --> Guard[scope + row policy + audit]
+    Guard --> Read[cypher_read]
+    Internal[Typed internal mutation] --> Write[cypher_write]
+    Connector[Governed connector batch] --> Envelope[ApplyChangeEnvelope]
+    Read --> Engine[Native eg-query authority]
+    Write --> Engine
+    Envelope --> Engine
+    Engine --> Durable[MutationBatch + Raft + durable state]
+```
+
+The modes are not interchangeable. The server reparses the complete statement
+and rejects a mode mismatch before execution. `graph_query` and its REST twin
+can reach only `cypher_read`; query-language mutations are internal and require
+`kg:write`; connector material never uses raw Cypher batching.
+
+Every public Cypher row must retain a governed node identity (an `id` column or
+a returned node containing `id`). Identity-free projections and aggregates are
+rejected because row policy and audit cannot prove which objects contributed to
+them. The guarded service audits the allowed, visible node ids; callers that need
+an aggregate return the contributing node id and aggregate in the governed
+service layer.
 
 **Register Postgres connections as `age`** (not `postgresql`) when you want one
 query to run unchanged across neo4j + falkordb + postgres. `list_connections`
@@ -349,55 +365,61 @@ third-party graph as a data source — not just for mirroring:
 | role | meaning | `target=` writes |
 |---|---|---|
 | `read` (default) | external **data source** — query/profile/imprint only | rejected |
-| `read_write` | full query + write target | allowed |
 | `mirror` | receives fan-out replication of *our* KG | rejected (written only via the outbox) |
 
+Named external connections are read sources or governed outbox mirrors. Direct
+write targeting exists only for the reserved `default` Epistemic Graph authority.
+
 ```jsonc
-// KG_CONNECTIONS entry — role + a secret reference (kept out of config.json)
-{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687",
- "user":"neo4j","password":"vault://agents/kg/neo4j#password","role":"read"}
+// KG_CONNECTIONS entry — only a role and an external connection-profile reference
+{"name":"primary-neo4j","backend":"neo4j",
+ "connection_profile_ref":"secret://graph-connections/primary-neo4j","role":"read"}
 ```
 
-- **Credentials** may be literals *or* `vault://…` / `env://VAR` refs, resolved at
-  connect; `list_connections` redacts them either way.
+- **Credentials and transport fields** live only inside a `vault://…`,
+  `secret://…`, or `env://…` connection profile resolved at connect.
+- **TLS is backend-neutral.** Neo4j and PostgreSQL/AGE receive the same resolved
+  TLS profile contract (named profile, runtime profile ref, optional in-memory
+  profile, and resolver). PostgreSQL applies the resulting verified psycopg
+  options when its pool is first opened; verification is never hardcoded off.
 - **The mirror set is derived from `role=mirror`** connections (`GRAPH_MIRROR_TARGETS`
   stays an optional override) — one registry drives both query targets and mirrors.
 - **Durable + live:** `graph_configure add_connection/remove_connection` persists the
-  list to `config.json` (survives restart). `profile_connection` / `imprint_connection`
-  introspect a foreign graph's schema and write a self-describing
-  `ExternalGraphReference` catalog node, mapping its labels onto our ontology.
+  reference-only list to `config.json` (survives restart). The current
+  discover/propose/approve workflow keeps raw foreign schemas out of the authority.
 - **Generic live config:** `graph_configure get_config|set_config|list_config`
   read/update/list **any** config option (validated against `config_reference`),
   persisted to config.json and applied live; engine-rebuild settings come back with
-  `restart_required: true`. The doctor's `graph_connections` check reports each
-  connection's role + flags stalled mirrors. All of this is exposed on **MCP and the
-  API gateway** (`POST /api/graph/configure`).
+  `restart_required: true`. The doctor's `graph_connections` check validates and
+  validates every declaration, including entries present only in `KG_CONNECTIONS`;
+  `agent-utilities-doctor --live` additionally probes each native read transport.
+  Bad connection, authentication, or TLS refs fail closed. Its public result contains
+  aggregate counts and roles only, while stalled mirrors remain visible as a count.
+  All of this is exposed on **MCP and the API gateway**
+  (`POST /api/graph/configure`).
 
 ## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 
 Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
-mirroring the **default** for every write: one configurable **authority** store
-serves reads and acks writes, and each mutation is replicated — losslessly and
-asynchronously — to any set of durable backends. Turn it on with
-`GRAPH_BACKEND=fanout`; the zero-infra default is unchanged (it is only built
-when you configure a mirror set).
+mirroring automatic for every write whenever projections are declared. The
+fixed epistemic-graph authority serves reads and acks writes, and each mutation
+is replicated — losslessly and asynchronously — to the configured stores. The
+zero-infra default remains the bare engine when the mirror set is empty.
 
 ```bash
 # Authority = epistemic-graph engine (fast in-mem reads + durable); mirror to Postgres-AGE,
 # Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
-export GRAPH_BACKEND=fanout
-export GRAPH_AUTHORITY=epistemic_graph
-export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
+export GRAPH_MIRROR_TARGETS='["age-mirror","neo4j-mirror","falkor-mirror"]'
 export KG_CONNECTIONS='[
-  {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.arpa:5432/agent_kg"},
-  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687","user":"neo4j","password":"…"},
-  {"name":"team-falkor","backend":"falkordb","host":"falkordb.arpa","port":6379}
+  {"name":"age-mirror","backend":"age","connection_profile_ref":"secret://graph-connections/age"},
+  {"name":"neo4j-mirror","backend":"neo4j","connection_profile_ref":"secret://graph-connections/neo4j"},
+  {"name":"falkor-mirror","backend":"falkordb","connection_profile_ref":"secret://graph-connections/falkor"}
 ]'
 ```
 
-You may also set the authority to any durable store (e.g. `GRAPH_AUTHORITY=pg-age`)
-— whichever connection you name becomes the read source-of-truth, and the rest
-are mirrors.
+External stores cannot become the operational authority. Register them as
+read-only source connectors or write projections; epistemic-graph remains the
+sole read and write-ack authority.
 
 ### How it stays lossless
 
@@ -429,7 +451,7 @@ are mirrors.
 **Portability:** use full-openCypher mirrors (Postgres-AGE / Neo4j / FalkorDB) so
 the same mutation runs unchanged on every store — see the `cypher_support` table
 above. **LadybugDB** can be a 4th local-write mirror — config only: add a
-`kg_connections` entry `{"name":"local-ladybug","backend":"ladybug","db_path":"<data_dir>/mirror_ladybug.db"}`
+`kg_connections` entry `{"name":"ladybug-mirror","backend":"ladybug","connection_profile_ref":"secret://graphs/ladybug/connection"}`
 and list it in `GRAPH_MIRROR_TARGETS`. Its single-writer file lock is serialised
 by its one drainer thread; ad-hoc props fold into the `metadata` JSON column and
 edge props into the `properties` JSON column (durably stored, conformance-verified).
@@ -452,7 +474,7 @@ storage:
 * returns exact post-condition drift (`nodes_missing` / `edges_missing`).
 
 This is what **backfills a freshly-added mirror** (`graph_configure(action="reconcile")`
-and `reconcile_to_durable` both delegate to `copy_graph`) and what migrates
+delegates through `FanOutBackend.reconcile()` to `copy_graph`) and what migrates
 data between any two backends (e.g. Neo4j → FalkorDB). It replaced the old reconcile
 that reconstructed `CREATE (n:Label {`k`: $k})` cypher — fragile on native-cypher
 backends (double-escaped reserved keys) and edge-lossy. Parity is proven by
@@ -467,9 +489,8 @@ counts.
 docker compose -f docker/pg-age.compose.yml up -d
 
 # 2. Mirror the engine authority to Postgres-AGE
-export GRAPH_BACKEND=fanout
-export GRAPH_MIRROR_TARGETS='["pg-age"]'
-export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5433/agent_kg"}]'
+export GRAPH_MIRROR_TARGETS='["age-mirror"]'
+export KG_CONNECTIONS='[{"name":"age-mirror","backend":"age","connection_profile_ref":"secret://graph-connections/age"}]'
 
 # 3. Run the graph-os MCP server — engine serves reads, Postgres mirrors writes
 graph-os
@@ -499,7 +520,7 @@ flowchart TB
     BR -->|"per-label fetch, O(#type) not O(graph)"| LABEL
     BR -. "AVOIDS unbounded nodes(data=True)<br/>166K x 1024-dim, 1GB frame, ConnectionReset" .-> GUARD
     GUARD --> CAP
-    GUARD -->|"count > cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
+    GUARD -->|"count exceeds cap"| TOOBIG["RESULT_TOO_LARGE to ResultTooLargeError"]
     BRK -->|"ConnectionReset/BrokenPipe = transient"| RETRY["retry x2, 0.25s backoff<br/>rides client._reconnect, breaker NOT tripped"]
     COAL --> LOCK
 ```

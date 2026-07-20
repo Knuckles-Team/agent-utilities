@@ -29,8 +29,10 @@ Usage::
 """
 
 
+import asyncio
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -145,7 +147,27 @@ class LangfuseTraceBackend(TraceBackend):
     """
 
     def __init__(self) -> None:
+        from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
         self._api: Any = None
+        self._privacy = PersistencePrivacyGuard()
+
+    def _safe_identifier(self, value: str) -> str | None:
+        if not re.fullmatch(r"[A-Za-z0-9._:-]{1,256}", str(value or "")):
+            return None
+        clean, report = self._privacy.sanitize_text(str(value))
+        return None if report.changed else clean
+
+    def _safe_rows(self, value: Any) -> list[dict[str, Any]]:
+        rows = value if isinstance(value, list) else []
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            clean, _ = self._privacy.sanitize(row)
+            if isinstance(clean, dict):
+                out.append(clean)
+        return out
 
     def _get_api(self) -> Any:
         """Lazy-load the Langfuse API client."""
@@ -153,15 +175,23 @@ class LangfuseTraceBackend(TraceBackend):
             try:
                 from langfuse_agent.api_client import LangfuseApi
 
-                if not config.langfuse_public_key or not config.langfuse_secret_key:
-                    raise ValueError(
-                        "LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY not set in configuration."
-                    )
-                host = config.langfuse_host or "https://cloud.langfuse.com"
+                from agent_utilities.observability.langfuse_trust import (
+                    configure_langfuse_trust,
+                    resolve_langfuse_credentials,
+                    resolve_langfuse_host,
+                )
+
+                public_key, secret_key = resolve_langfuse_credentials(
+                    agent_config=config
+                )
+                trust = configure_langfuse_trust(agent_config=config)
+                if not trust.valid:
+                    raise ValueError("Langfuse CA bundle is invalid")
+                host = resolve_langfuse_host()
 
                 self._api = LangfuseApi(
-                    public_key=config.langfuse_public_key,
-                    secret_key=config.langfuse_secret_key,
+                    public_key=public_key,
+                    secret_key=secret_key,
                     host=host,
                 )
                 logger.info("LangfuseTraceBackend: API client initialized.")
@@ -177,34 +207,39 @@ class LangfuseTraceBackend(TraceBackend):
 
         Uses the `tags` filter to match traces tagged with the round_id.
         """
+        safe_round_id = self._safe_identifier(round_id)
+        if safe_round_id is None:
+            return []
         api = self._get_api()
         try:
-            # LangfuseApi.observations_get_many expects trace/observation queries
-            # Wait, api_client.py provides `observations_get_many` which can filter by tag if supported,
-            # or `legacy_observations_v1_get_many`. Actually we can filter by `traceName` or `tags`.
-            # Let's pass the tag or traceName as filter.
             response = api.observations_get_many(
-                type="TRACE", filter=f"tags='{round_id}'", limit=100
+                type="TRACE", filter=f"tags='{safe_round_id}'", limit=100
             )
-            return response.get("data", [])
-        except Exception as e:
-            logger.error(f"LangfuseTraceBackend: Failed to get traces: {e}")
+            return self._safe_rows(response.get("data", []))
+        except Exception as exc:
+            logger.error(
+                "LangfuseTraceBackend: get_traces failed (%s)",
+                type(exc).__name__,
+            )
             return []
 
     async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
         """Get a lightweight trace summary from Langfuse."""
+        safe_trace_id = self._safe_identifier(trace_id)
+        if safe_trace_id is None:
+            return {"id": "[REDACTED]", "error": "unsafe_identifier"}
         api = self._get_api()
         try:
             response = api.observations_get_many(
-                trace_id=trace_id, limit=1, fields="core,basic,metrics"
+                trace_id=safe_trace_id, limit=1, fields="core,basic,metrics"
             )
-            data = response.get("data", [])
+            data = self._safe_rows(response.get("data", []))
             if not data:
-                return {"id": trace_id, "error": "not_found"}
+                return {"id": safe_trace_id, "error": "not_found"}
 
             trace = data[0]
             return {
-                "id": trace.get("id", trace_id),
+                "id": trace.get("id", safe_trace_id),
                 "name": trace.get("name", ""),
                 "status": trace.get("statusMessage") or "unknown",
                 "duration_ms": trace.get("latency", 0),
@@ -217,23 +252,36 @@ class LangfuseTraceBackend(TraceBackend):
                 "score": 0.0,  # Would need a separate score fetch
                 "error": trace.get("statusMessage"),
             }
-        except Exception as e:
-            logger.error(f"LangfuseTraceBackend: Failed to get trace summary: {e}")
-            return {"id": trace_id, "error": str(e)}
+        except Exception as exc:
+            logger.error(
+                "LangfuseTraceBackend: get_trace_summary failed (%s)",
+                type(exc).__name__,
+            )
+            return {"id": safe_trace_id, "error": type(exc).__name__}
 
     async def submit_score(
         self, trace_id: str, name: str, value: float, comment: str | None = None
     ) -> bool:
         """Submit an evaluation score for a trace."""
+        safe_trace_id = self._safe_identifier(trace_id)
+        safe_name, _ = self._privacy.sanitize_text(name)
+        if safe_trace_id is None or not safe_name:
+            return False
+        clean_comment = None
+        if comment:
+            clean_comment = self._privacy.sanitize_text(comment)[0]
         api = self._get_api()
         try:
-            payload = {"traceId": trace_id, "name": name, "value": value}
-            if comment:
-                payload["comment"] = comment
+            payload = {"traceId": safe_trace_id, "name": safe_name, "value": value}
+            if clean_comment:
+                payload["comment"] = clean_comment
             api.legacy_score_v1_create(payload)
             return True
-        except Exception as e:
-            logger.error(f"LangfuseTraceBackend: Failed to submit score: {e}")
+        except Exception as exc:
+            logger.error(
+                "LangfuseTraceBackend: submit_score failed (%s)",
+                type(exc).__name__,
+            )
             return False
 
     async def add_to_dataset(
@@ -244,19 +292,26 @@ class LangfuseTraceBackend(TraceBackend):
         expected_output: Any = None,
     ) -> bool:
         """Add a trace to a Langfuse dataset for continuous learning."""
+        safe_dataset = self._safe_identifier(dataset_name)
+        safe_trace_id = self._safe_identifier(trace_id)
+        if safe_dataset is None or safe_trace_id is None:
+            return False
+        clean_input, _ = self._privacy.sanitize(input_data)
+        clean_expected, _ = self._privacy.sanitize(expected_output)
         api = self._get_api()
         try:
             payload = {
-                "datasetName": dataset_name,
-                "sourceTraceId": trace_id,
-                "input": input_data,
-                "expectedOutput": expected_output,
+                "datasetName": safe_dataset,
+                "sourceTraceId": safe_trace_id,
+                "input": clean_input,
+                "expectedOutput": clean_expected,
             }
             api.dataset_items_create(payload)
             return True
-        except Exception as e:
+        except Exception as exc:
             logger.error(
-                f"LangfuseTraceBackend: Failed to add trace {trace_id} to dataset {dataset_name}: {e}"
+                "LangfuseTraceBackend: add_to_dataset failed (%s)",
+                type(exc).__name__,
             )
             return False
 
@@ -274,19 +329,22 @@ class LangfuseTraceBackend(TraceBackend):
     ) -> list[dict[str, Any]]:
         """Pull ERROR/WARNING observations from Langfuse since ``since``.
 
-        Uses the stable ``/api/public/observations`` endpoint (the ``v2``
-        observations route is absent on older self-hosted versions and 404s).
+        Uses the current cursor-based observations endpoint.
         """
         api = self._get_api()
         try:
-            resp = api.legacy_observations_v1_get_many(
+            resp = api.observations_get_many(
+                fields="core,basic,time",
                 level=level,
                 from_start_time=since,
                 limit=limit,
             )
-            return resp.get("data", []) or []
-        except Exception as e:  # noqa: BLE001
-            logger.error("LangfuseTraceBackend: get_error_observations failed: %s", e)
+            return self._safe_rows(resp.get("data", []) or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "LangfuseTraceBackend: get_error_observations failed (%s)",
+                type(exc).__name__,
+            )
             return []
 
     async def get_low_score_traces(
@@ -307,11 +365,14 @@ class LangfuseTraceBackend(TraceBackend):
                 from_timestamp=since,
                 limit=limit,
             )
-        except Exception as e:  # noqa: BLE001
-            logger.error("LangfuseTraceBackend: get_low_score_traces failed: %s", e)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "LangfuseTraceBackend: get_low_score_traces failed (%s)",
+                type(exc).__name__,
+            )
             return []
         out: list[dict[str, Any]] = []
-        for s in resp.get("data", []) or []:
+        for s in self._safe_rows(resp.get("data", []) or []):
             out.append(
                 {
                     "trace_id": s.get("traceId"),
@@ -365,13 +426,14 @@ class LangfuseTraceBackend(TraceBackend):
             # absent on older self-hosted versions and 404s); the query schema is
             # identical across both routes.
             resp = api.legacy_metrics_v1_metrics(json.dumps(query))
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             logger.error(
-                "LangfuseTraceBackend: get_cost_latency_anomalies failed: %s", e
+                "LangfuseTraceBackend: get_cost_latency_anomalies failed (%s)",
+                type(exc).__name__,
             )
             return []
         out: list[dict[str, Any]] = []
-        for row in resp.get("data", []) or []:
+        for row in self._safe_rows(resp.get("data", []) or []):
             # Langfuse keys aggregated measures as ``{aggregation}_{measure}``;
             # fall back to the bare measure name across API versions.
             lat = _first(row, "p95_latency", "latency", default=0.0)
@@ -408,7 +470,9 @@ class LangfuseTraceBackend(TraceBackend):
             return True
         except Exception as e:  # noqa: BLE001
             # Already-exists is benign — the dataset is reused.
-            logger.debug("create_regression_dataset(%s) note: %s", name, e)
+            logger.debug(
+                "create_regression_dataset(%s) returned %s.", name, type(e).__name__
+            )
             return False
 
     async def get_dataset_run(self, dataset_name: str, run_name: str) -> dict[str, Any]:
@@ -417,14 +481,26 @@ class LangfuseTraceBackend(TraceBackend):
         try:
             return api.datasets_get_run(dataset_name, run_name) or {}
         except Exception as e:  # noqa: BLE001
-            logger.error("get_dataset_run(%s/%s) failed: %s", dataset_name, run_name, e)
+            logger.error(
+                "get_dataset_run(%s/%s) failed (%s).",
+                dataset_name,
+                run_name,
+                type(e).__name__,
+            )
             return {}
 
     async def health_check(self) -> bool:
-        """Check Langfuse API availability."""
+        """Prove Langfuse API authentication with a bounded metadata-only read."""
         try:
-            self._get_api()
-            return True
+            response = await asyncio.to_thread(
+                self._get_api().trace_list,
+                page=1,
+                limit=1,
+                fields="core",
+            )
+            return bool(
+                isinstance(response, dict) and isinstance(response.get("data"), list)
+            )
         except Exception:
             return False
 
@@ -454,9 +530,12 @@ class OTelTraceBackend(TraceBackend):
             return self._read_exported_traces(round_id)
 
         if self.endpoint:
-            import httpx
-
             try:
+                from agent_utilities.core.http_client import create_async_http_client
+                from agent_utilities.observability.custom_observability import (
+                    _resolve_otel_transport,
+                )
+
                 query_url = (
                     self.endpoint.replace("4318", "16686")
                     .replace("4317", "16686")
@@ -464,29 +543,38 @@ class OTelTraceBackend(TraceBackend):
                 )
                 if not query_url.endswith("/api/traces"):
                     query_url += "/api/traces"
-                if not query_url.startswith("http"):
-                    query_url = f"http://{query_url}"
+                if not query_url.startswith(("http://", "https://")):
+                    raise ValueError("OTLP query endpoint requires an HTTP scheme")
 
                 params = {
                     "service": "agent-utilities",
                     "tags": f'{{"round_id":"{round_id}"}}',
                 }
-                async with httpx.AsyncClient() as client:
-                    response = await client.get(query_url, params=params, timeout=5.0)
-                    if response.status_code == 200:
-                        data = response.json()
-                        traces: list[dict[str, Any]] = []
-                        for trace in data.get("data", []):
-                            traces.append(
-                                {
-                                    "id": trace.get("traceID"),
-                                    "round_id": round_id,
-                                    "spans": trace.get("spans", []),
-                                }
-                            )
-                        return traces
+                trust = _resolve_otel_transport(query_url)
+                try:
+                    async with create_async_http_client(
+                        timeout=5.0,
+                        **trust.httpx_kwargs(),
+                    ) as client:
+                        response = await client.get(query_url, params=params)
+                        if response.status_code == 200:
+                            data = response.json()
+                            traces: list[dict[str, Any]] = []
+                            for trace in data.get("data", []):
+                                traces.append(
+                                    {
+                                        "id": trace.get("traceID"),
+                                        "round_id": round_id,
+                                        "spans": trace.get("spans", []),
+                                    }
+                                )
+                            return traces
+                finally:
+                    trust.cleanup()
             except Exception as e:
-                logger.warning(f"Failed to query live OTLP endpoint: {e}")
+                logger.warning(
+                    "Failed to query live OTLP endpoint: %s", type(e).__name__
+                )
 
         logger.warning(
             "OTelTraceBackend: OTLP query could not resolve endpoint or query failed. "
@@ -513,7 +601,9 @@ class OTelTraceBackend(TraceBackend):
                 elif isinstance(data, dict):
                     traces.append(data)
             except Exception as e:
-                logger.warning(f"OTelTraceBackend: Failed to read {path}: {e}")
+                logger.warning(
+                    "OTelTraceBackend: trace read failed (%s)", type(e).__name__
+                )
         return traces
 
     async def get_trace_summary(self, trace_id: str) -> dict[str, Any]:
@@ -536,30 +626,38 @@ class OTelTraceBackend(TraceBackend):
                         ):
                             return self._format_otel_summary(t, trace_id)
                 except Exception as e:
-                    logger.debug(f"Failed to parse trace file {path}: {e}")
+                    logger.debug("Trace-file parse failed (%s)", type(e).__name__)
 
         # 2. If endpoint is configured, try querying the endpoint (e.g. Jaeger API or local server)
         if self.endpoint:
-            import httpx
-
             try:
-                url = f"{self.endpoint.rstrip('/')}/api/traces/{trace_id}"
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(url, timeout=5.0)
-                    if resp.status_code == 200:
-                        t_data = resp.json()
-                        if (
-                            "data" in t_data
-                            and isinstance(t_data["data"], list)
-                            and t_data["data"]
-                        ):
-                            return self._format_otel_summary(
-                                t_data["data"][0], trace_id
-                            )
-            except Exception as e:
-                logger.debug(
-                    f"Failed to fetch trace from endpoint {self.endpoint}: {e}"
+                from agent_utilities.core.http_client import create_async_http_client
+                from agent_utilities.observability.custom_observability import (
+                    _resolve_otel_transport,
                 )
+
+                url = f"{self.endpoint.rstrip('/')}/api/traces/{trace_id}"
+                trust = _resolve_otel_transport(url)
+                try:
+                    async with create_async_http_client(
+                        timeout=5.0,
+                        **trust.httpx_kwargs(),
+                    ) as client:
+                        resp = await client.get(url)
+                        if resp.status_code == 200:
+                            t_data = resp.json()
+                            if (
+                                "data" in t_data
+                                and isinstance(t_data["data"], list)
+                                and t_data["data"]
+                            ):
+                                return self._format_otel_summary(
+                                    t_data["data"][0], trace_id
+                                )
+                finally:
+                    trust.cleanup()
+            except Exception as e:
+                logger.debug("Failed to fetch trace: %s", type(e).__name__)
 
         return {"id": trace_id, "status": "unknown", "error": "trace_not_found"}
 
@@ -661,7 +759,7 @@ class FileTraceBackend(TraceBackend):
             with open(path) as f:
                 data = json.load(f)
         except Exception as e:  # noqa: BLE001
-            logger.debug("FileTraceBackend: failed to read %s: %s", path, e)
+            logger.debug("FileTraceBackend: trace read failed (%s)", type(e).__name__)
             return []
         if isinstance(data, dict):
             data = data.get("data", [])
@@ -713,7 +811,10 @@ class KGTraceBackend(TraceBackend):
     """
 
     def __init__(self, backend: Any = None, *, max_traces: int = 2000) -> None:
+        from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
         self.backend = backend
+        self._privacy = PersistencePrivacyGuard()
         self._traces: dict[str, dict[str, Any]] = {}
         self._max_traces = max_traces  # bound in-memory mirror (oldest evicted)
         # Optional fast hook fired when a ROOT trace completes (set by the
@@ -729,6 +830,35 @@ class KGTraceBackend(TraceBackend):
         # FIFO retention so an always-on in-memory mirror can't grow unbounded.
         while len(self._traces) > self._max_traces:
             self._traces.pop(next(iter(self._traces)))
+
+    def _sanitize_node(self, node: Any) -> Any | None:
+        """Return a privacy-safe model copy, or ``None`` for an unsafe identity.
+
+        Trace identifiers are routing keys and therefore cannot be rewritten
+        without corrupting the subgraph.  Content fields can be safely
+        redacted, so the batch and incremental paths share the same persistence
+        boundary without storing personal or machine-local values.
+        """
+        raw = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        for key in ("id", "trace_id", "parent_span_id", "task_id"):
+            value = raw.get(key)
+            if value in (None, ""):
+                continue
+            _, report = self._privacy.sanitize_text(str(value))
+            if report.changed:
+                return None
+        clean, _ = self._privacy.sanitize(raw)
+        if not isinstance(clean, dict):
+            return None
+        # Preserve validated structural values exactly.  In particular, a
+        # ``StrEnum`` becomes a plain string during text sanitization and
+        # ``model_copy(update=...)`` deliberately does not revalidate it.
+        for key in ("id", "type", "trace_id", "parent_span_id", "task_id"):
+            if key in raw:
+                clean[key] = raw[key]
+        if hasattr(node, "model_copy"):
+            return node.model_copy(update=clean)
+        return clean
 
     def record_event(
         self,
@@ -757,6 +887,26 @@ class KGTraceBackend(TraceBackend):
         and appends the child node, persisting + linking each immediately. The
         always-on tracing sink uses this; ``emit_trace`` remains the batch path.
         """
+        privacy = self._privacy
+
+        for identifier in (trace_id, span_id, parent_span_id):
+            if identifier is None:
+                continue
+            _, identifier_report = privacy.sanitize_text(identifier)
+            if identifier_report.changed:
+                logger.debug("KGTraceBackend event skipped: unsafe identifier")
+                return
+        name = privacy.sanitize_text(name)[0]
+        session_id = (
+            privacy.sanitize_text(session_id)[0] if session_id is not None else None
+        )
+        error = privacy.sanitize_text(error)[0] if error is not None else None
+        model = privacy.sanitize_text(model)[0] if model is not None else None
+        provider = privacy.sanitize_text(provider)[0] if provider is not None else None
+        tags = [privacy.sanitize_text(tag)[0] for tag in (tags or [])]
+        input_text = privacy.sanitize_text(input_text)[0]
+        output_text = privacy.sanitize_text(output_text)[0]
+
         from agent_utilities.models.knowledge_graph import (
             GenerationNode,
             RegistryEdgeType,
@@ -797,7 +947,9 @@ class KGTraceBackend(TraceBackend):
             try:
                 self.backend.add_node(trace_id, **self._node_props(trace))
             except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug("KGTraceBackend trace persist failed: %s", exc)
+                logger.debug(
+                    "KGTraceBackend trace persist failed (%s)", type(exc).__name__
+                )
 
         if is_root:
             # Root span = trace finished. Fire the completion hook (best-effort, fast —
@@ -808,7 +960,9 @@ class KGTraceBackend(TraceBackend):
                 try:
                     cb(trace_id)
                 except Exception as exc:  # pragma: no cover - best-effort
-                    logger.debug("on_trace_complete hook failed: %s", exc)
+                    logger.debug(
+                        "on_trace_complete hook failed (%s)", type(exc).__name__
+                    )
             return
 
         if kind == "llm":
@@ -854,13 +1008,15 @@ class KGTraceBackend(TraceBackend):
                 if callable(link):
                     link(parent_span_id or trace_id, span_id, edge)
             except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug("KGTraceBackend event persist failed: %s", exc)
+                logger.debug(
+                    "KGTraceBackend event persist failed (%s)", type(exc).__name__
+                )
 
     @staticmethod
     def _node_props(node: Any) -> dict[str, Any]:
         d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         d.pop("id", None)
-        d["type"] = str(d.get("type", ""))
+        d["node_type"] = str(d.pop("type", ""))
         return d
 
     @staticmethod
@@ -911,17 +1067,26 @@ class KGTraceBackend(TraceBackend):
             1 for s in spans if getattr(s, "span_kind", None) == "tool"
         )
 
-        self._traces[trace.id] = {
-            "trace": trace,
-            "spans": list(spans),
-            "generations": list(generations),
+        clean_trace = self._sanitize_node(trace)
+        if clean_trace is None:
+            logger.debug("KGTraceBackend batch skipped: unsafe trace identity")
+            return
+        clean_spans = [clean for node in spans if (clean := self._sanitize_node(node))]
+        clean_generations = [
+            clean for node in generations if (clean := self._sanitize_node(node))
+        ]
+
+        self._traces[clean_trace.id] = {
+            "trace": clean_trace,
+            "spans": clean_spans,
+            "generations": clean_generations,
         }
 
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
-                self._persist(trace, spans, generations)
+                self._persist(clean_trace, clean_spans, clean_generations)
             except Exception as exc:  # pragma: no cover - persistence best-effort
-                logger.debug("KGTraceBackend persist failed: %s", exc)
+                logger.debug("KGTraceBackend persist failed (%s)", type(exc).__name__)
 
     def _persist(self, trace: Any, spans: list[Any], generations: list[Any]) -> None:
         from agent_utilities.models.knowledge_graph import RegistryEdgeType
@@ -929,7 +1094,7 @@ class KGTraceBackend(TraceBackend):
         def _props(node: Any) -> dict[str, Any]:
             d = node.model_dump() if hasattr(node, "model_dump") else dict(node)
             d.pop("id", None)
-            d["type"] = str(d.get("type", ""))
+            d["node_type"] = str(d.pop("type", ""))
             return d
 
         self.backend.add_node(trace.id, **_props(trace))
@@ -992,7 +1157,7 @@ def create_trace_backend(
 
     Auto-detects the best backend based on environment if ``backend_type``
     is not specified:
-        1. If ``LANGFUSE_SECRET_KEY`` is set → LangfuseTraceBackend
+        1. If a Langfuse credential pair or reference pair is set → LangfuseTraceBackend
         2. If ``OTEL_EXPORTER_OTLP_ENDPOINT`` is set → OTelTraceBackend
         3. If ``trace_dir`` kwarg is provided → FileTraceBackend
         4. Otherwise → FileTraceBackend with default path
@@ -1016,14 +1181,18 @@ def create_trace_backend(
     # Auto-detect. Langfuse/OTel, when configured, become fan-out sinks; otherwise the
     # KG-native backend is the default so traces are graph-queryable (CONCEPT:AU-OS.config.model-factory-passthrough).
     # An explicit ``trace_dir`` still selects the file backend for offline fixtures.
-    if config.langfuse_secret_key or setting("LANGFUSE_SECRET_KEY"):
+    from agent_utilities.observability.langfuse_trust import (
+        langfuse_credentials_configured,
+    )
+
+    if langfuse_credentials_configured(agent_config=config):
         logger.info("TraceBackend: Auto-detected Langfuse credentials.")
         return LangfuseTraceBackend()
     if config.otel_exporter_otlp_endpoint or setting("OTEL_EXPORTER_OTLP_ENDPOINT"):
         logger.info("TraceBackend: Auto-detected OTel endpoint.")
         return OTelTraceBackend(**kwargs)
     if "trace_dir" in kwargs:
-        logger.info("TraceBackend: file fixtures (%s).", kwargs["trace_dir"])
+        logger.info("TraceBackend: file fixtures configured")
         return FileTraceBackend(trace_dir=kwargs["trace_dir"])
 
     logger.info("TraceBackend: Defaulting to KG-native backend (OS-5.68).")

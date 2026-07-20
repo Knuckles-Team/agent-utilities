@@ -71,23 +71,6 @@ def test_materialize_writes_nodes_and_edges_best_effort():
     assert any(rel == "grounded_in" for _, _, rel in eng.edges)
 
 
-def test_from_research_artifact_lifts_legacy_extraction():
-    class _Legacy:
-        article_id = "2606.11198"
-        title = "Some Paper"
-        summary = "s"
-        key_contributions = ["claim A", "claim B"]
-        methods = ["method X"]
-        suggested_experiments = ["try Y"]
-        authors = ["A. Author"]
-        source_url = "https://arxiv.org/abs/2606.11198"
-
-    art = ResearchArtifact.from_research_artifact(_Legacy())
-    assert len(art.claims) == 2
-    assert len(art.code_specs) == 1
-    assert len(art.exploration) == 1 and art.exploration[0].kind == "experiment"
-
-
 # ── ontology registration (always-on, no facade) ────────────────────────────
 
 

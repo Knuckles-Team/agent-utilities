@@ -36,7 +36,9 @@ async def execute_registry(
             endpoint_url=agent.endpoint_url,
             tool_count=agent.tool_count,
         )
-        graph.add_node(node.id, **node.model_dump())
+        node_data = node.model_dump()
+        node_type = node_data.pop("type")
+        graph.add_node(node.id, node_type=node_type, **node_data)
 
     # Add Tool Nodes and Relationships
     for tool in registry.tools:
@@ -48,14 +50,16 @@ async def execute_registry(
             relevance_score=tool.relevance_score,
             requires_approval=tool.requires_approval,
         )
-        graph.add_node(tool_node.id, **tool_node.model_dump())
+        tool_data = tool_node.model_dump()
+        node_type = tool_data.pop("type")
+        graph.add_node(tool_node.id, node_type=node_type, **tool_data)
 
         # Link Tool to its source Server/Agent
         if tool.mcp_server:
             graph.add_edge(
                 tool.mcp_server,
                 node.id,
-                type=RegistryEdgeType.PROVIDES,
+                relationship=RegistryEdgeType.PROVIDES,
                 weight=1.0,
             )
 

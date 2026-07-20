@@ -679,8 +679,9 @@ async def test_team_add_task_no_engine() -> None:
 
 @pytest.mark.asyncio
 async def test_team_add_task_with_engine_and_team() -> None:
-    """add_task with engine + team creates TaskNode with BELONGS_TO_TEAM edge."""
+    """add_task with engine + team creates an authoritative WorkItem."""
     from agent_utilities.capabilities.teams import TeamCapability
+    from agent_utilities.orchestration.work_item import team_work_item_id
 
     cap = TeamCapability(team_id="team_1")
     ctx = MagicMock()
@@ -690,7 +691,8 @@ async def test_team_add_task_with_engine_and_team() -> None:
     engine.graph.add_node("agent_x")
     ctx.deps = MagicMock(graph_engine=engine, agent_id="orch")
     task_id = await cap.add_task(ctx, "Task1", assigned_to="agent_x")
-    assert task_id in engine.graph.nodes
+    assert team_work_item_id(task_id) in engine.graph.nodes
+    assert task_id not in engine.graph.nodes
 
 
 @pytest.mark.asyncio
@@ -884,11 +886,11 @@ async def test_hooks_for_run_returns_replica() -> None:
 
 
 @pytest.mark.asyncio
-async def test_hooks_before_tool_no_auto_trace() -> None:
-    """auto_graph_trace=False does not write to graph."""
+async def test_hooks_before_tool_passthrough() -> None:
+    """Lifecycle hooks pass through arguments when no hook modifies them."""
     from agent_utilities.capabilities.hooks import HooksCapability
 
-    cap = HooksCapability(auto_graph_trace=False)
+    cap = HooksCapability()
     ctx = MagicMock()
     ctx.deps = MagicMock()  # No graph_engine
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -899,10 +901,10 @@ async def test_hooks_before_tool_no_auto_trace() -> None:
 
 @pytest.mark.asyncio
 async def test_hooks_before_tool_with_graph_engine() -> None:
-    """auto_graph_trace=True writes ToolCallNode to graph."""
+    """Lifecycle hooks never create a second, raw ToolCall persistence path."""
     from agent_utilities.capabilities.hooks import HooksCapability
 
-    cap = HooksCapability(auto_graph_trace=True)
+    cap = HooksCapability()
     ctx = MagicMock()
     engine = MagicMock()
     engine.graph = GraphComputeEngine(backend_type="rust")
@@ -910,7 +912,7 @@ async def test_hooks_before_tool_with_graph_engine() -> None:
     call = MagicMock(tool_name="t", tool_call_id="id1")
     tool_def = MagicMock()
     await cap.before_tool_execute(ctx, call=call, tool_def=tool_def, args={"x": 1})
-    assert "id1" in engine.graph.nodes
+    assert "id1" not in engine.graph.nodes
 
 
 @pytest.mark.asyncio
@@ -921,7 +923,7 @@ async def test_hooks_hook_modifies_args() -> None:
     def my_hook(input: Any) -> HookResult:
         return HookResult(modify_args={"modified": True})
 
-    cap = HooksCapability(hooks=[my_hook], auto_graph_trace=False)
+    cap = HooksCapability(hooks=[my_hook])
     ctx = MagicMock()
     ctx.deps = MagicMock()
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -940,7 +942,7 @@ async def test_hooks_after_tool_modifies_result() -> None:
     def my_hook(input: Any) -> HookResult:
         return HookResult(modify_result="modified")
 
-    cap = HooksCapability(hooks=[my_hook], auto_graph_trace=False)
+    cap = HooksCapability(hooks=[my_hook])
     ctx = MagicMock()
     ctx.deps = MagicMock()
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -960,7 +962,7 @@ async def test_hooks_after_tool_passthrough() -> None:
     """No hook modification -> original result passes through."""
     from agent_utilities.capabilities.hooks import HooksCapability
 
-    cap = HooksCapability(auto_graph_trace=False)
+    cap = HooksCapability()
     ctx = MagicMock()
     ctx.deps = MagicMock()
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -982,7 +984,7 @@ async def test_hooks_hook_raising_is_handled() -> None:
     def ok_hook(inp: Any) -> HookResult:
         return HookResult(modify_args={"y": 2})
 
-    cap = HooksCapability(hooks=[bad_hook, ok_hook], auto_graph_trace=False)
+    cap = HooksCapability(hooks=[bad_hook, ok_hook])
     ctx = MagicMock()
     ctx.deps = MagicMock()
     call = MagicMock(tool_name="t", tool_call_id="id")
@@ -1001,7 +1003,7 @@ async def test_hooks_cancel_branch() -> None:
     def cancel_hook(inp: Any) -> HookResult:
         return HookResult(cancel=True, cancel_reason="not allowed")
 
-    cap = HooksCapability(hooks=[cancel_hook], auto_graph_trace=False)
+    cap = HooksCapability(hooks=[cancel_hook])
     ctx = MagicMock()
     ctx.deps = MagicMock()
     call = MagicMock(tool_name="t", tool_call_id="id")

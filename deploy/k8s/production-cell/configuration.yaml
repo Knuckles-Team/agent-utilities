@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graphos-security-contract
+  namespace: graphos-control
+data:
+  APP_PROFILE: production
+  TRANSPORT: streamable-http
+  HOST: 0.0.0.0
+  PORT: "8000"
+  # The native broker owns tenant-qualified inbox queues without creating one
+  # Kafka consumer group per registered agent. Kafka remains the WorkItem task
+  # queue below; it is not the million-agent AgentBus fan-out plane.
+  AGENT_BUS_LOG_BACKEND: engine
+  MCP_TOOL_MODE: intent
+  MCP_CLIENT_AUTH: oidc-client-credentials
+  LANGFUSE_MCP_ENABLED: "true"
+  TRACE_EXPORT_ENABLED: "true"
+  LANGFUSE_CAPTURE_CONTENT: "false"
+  # Propose-only learning is enabled; every mutating autonomy gate remains off.
+  KG_LOOP: "true"
+  KG_LOOP_BREADTH: "true"
+  KG_LOOP_MINE_DISCOVERY: "true"
+  KG_LOOP_BELIEF_REVISION: "true"
+  KG_LOOP_INSIGHT_VALIDATION: "true"
+  KG_LOOP_TRACE_MINING: "true"
+  KG_OPTIMIZATION_ENABLED: "true"
+  KG_FAILURE_EVOLUTION: "true"
+  KG_FAILURE_REGRESSION_DATASET: "false"
+  KG_LOOP_DISCOVER: "false"
+  KG_LOOP_DISTILL: "false"
+  KG_LOOP_STANDARDIZE: "false"
+  KG_GOLDEN_AUTO_MERGE: "false"
+  KG_AGENT_AUTO_APPLY: "false"
+  KG_LOOP_AUTO_DEVELOP: "false"
+  KG_INSIGHT_AUTONOMY: "false"
+  USAGE_DB_BACKEND: postgres
+  USAGE_TRACKING_ENABLED: "true"
+  USAGE_CONTENT_RETENTION: metadata
+  ENABLE_OTEL: "true"
+  # This is a reference, never key material. The required runtime Secret
+  # provides PERSISTENCE_IDENTITY_HMAC_KEY to the process environment.
+  PERSISTENCE_IDENTITY_HMAC_KEY_REF: env://PERSISTENCE_IDENTITY_HMAC_KEY
+  # Every contact serves the same replicated graph, job, and reasoning authorities.
+  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc:9100
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graphos-cell-contract
+  namespace: graphos-cell
+data:
+  APP_PROFILE: production
+  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc:9100
+  KG_DAEMON_ROLE: client
+  TASK_QUEUE_BACKEND: kafka
+  AGENT_BUS_LOG_BACKEND: engine
+  TRACE_EXPORT_ENABLED: "true"
+  LANGFUSE_CAPTURE_CONTENT: "false"
+  USAGE_DB_BACKEND: postgres
+  USAGE_TRACKING_ENABLED: "true"
+  USAGE_CONTENT_RETENTION: metadata
+  ENABLE_OTEL: "true"
+  PERSISTENCE_IDENTITY_HMAC_KEY_REF: env://PERSISTENCE_IDENTITY_HMAC_KEY
+  # Multi-group is the placement unit; every group is replicated by all three
+  # Raft members. The release campaign may raise this only with online reshard proof.
+  EPISTEMIC_GRAPH_RAFT_GROUPS: "20"
+  EPISTEMIC_GRAPH_PERSIST_BACKEND: redb
+  EPISTEMIC_GRAPH_REQUIRE_VERIFIED_CONTEXT: "1"
+  EPISTEMIC_GRAPH_REQUIRE_SIGNED: "1"
+  EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: "1"
+  EPISTEMIC_GRAPH_MAX_INFLIGHT: "4096"
+  # The authoritative engine coordinates jobs; standalone workers execute them.
+  EG_ANALYTICS_WORKERS: "0"
+  EG_ANALYTICS_TENANT_ACTIVE: "2"
+  EG_ANALYTICS_TENANT_CPU_MS: "600000"
+  # The mounted hot window is bounded; backing object storage owns versioned
+  # long-term retention and cross-cell replication.
+  GRAPHOS_BACKUP_RETENTION_COUNT: "2"
+  # The broker, database, OIDC and trace-service locations are supplied only
+  # from the runtime Secret; no infrastructure endpoint is committed here.

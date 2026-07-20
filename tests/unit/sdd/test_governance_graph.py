@@ -157,7 +157,9 @@ async def test_process_executor_node_logic():
     from agent_utilities.graph.nodes import load_and_execute_process_flow
     from agent_utilities.graph.state import GraphDeps, GraphState
 
-    with patch("agent_utilities.graph.nodes.get_graph_client") as mock_get_client:
+    with patch(
+        "agent_utilities.graph.nodes.get_process_graph_backend"
+    ) as mock_get_client:
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 

@@ -13,7 +13,6 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.connection_profiler import (
     map_labels_to_ontology,
-    profile_and_imprint,
     profile_connection,
 )
 from agent_utilities.knowledge_graph.core.connection_registry import ConnectionRegistry
@@ -48,21 +47,6 @@ class FakeExternalEngine:
         return []
 
 
-class FakeAuthority:
-    """Records imprint writes + supplies our KG's node types."""
-
-    def __init__(self):
-        self.nodes: dict[str, tuple] = {}
-
-    def query_cypher(self, cypher: str):
-        if "DISTINCT n.type" in cypher:
-            return [{"t": "Person"}, {"t": "Document"}, {"t": "Concept"}]
-        return []
-
-    def add_node(self, node_id, node_type, properties=None, **_):
-        self.nodes[node_id] = (node_type, properties or {})
-
-
 def test_profile_connection_reads_schema():
     p = profile_connection(FakeExternalEngine(), name="prod-neo4j")
     assert p["labels"] == ["Company", "Movie", "Person"]  # sorted
@@ -93,37 +77,14 @@ def test_map_labels_exact_plural_fuzzy_novel():
     )
     assert out["Movie"]["method"] == "novel" and out["Movie"]["mapped_to"] is None
 
-
-def test_profile_and_imprint_writes_catalog_node():
-    auth = FakeAuthority()
-    res = profile_and_imprint(
-        FakeExternalEngine(),
-        name="prod-neo4j",
-        spec_summary={"backend": "neo4j", "endpoint": "bolt://host:7687"},
-        authority_engine=auth,
-        interface_names=[],  # vocab = our KG node types only (Person/Document/Concept)
-    )
-    assert res["status"] == "success"
-    assert res["imprint_node"] == "extgraph:prod-neo4j"
-    assert res["label_count"] == 3
-    # Person matches our node types; Movie/Company are novel.
-    assert res["mapped"] == 1 and res["novel"] == 2
-
-    # the catalog node persisted, carrying schema + mappings, no credentials.
-    node_type, props = auth.nodes["extgraph:prod-neo4j"]
-    assert node_type == "ExternalGraphReference"
-    assert props["backend"] == "neo4j"
-    assert props["schema"]["label_count"] == 3
-    assert any(m["external_label"] == "Person" for m in props["ontology_mappings"])
-    assert "password" not in str(props)
-
-
-def test_spec_summary_redacts_credentials():
+def test_spec_summary_never_returns_endpoint_or_database_material():
     reg = ConnectionRegistry()
     reg.register(
         "secure", {"backend": "neo4j", "uri": "bolt://neo4j:s3cret@db.internal:7687"}
     )
     s = reg.spec_summary("secure")
     assert s["backend"] == "neo4j"
-    assert s["endpoint"] == "bolt://***@db.internal:7687"
+    assert s["endpoint_configured"] is True
+    assert "endpoint" not in s
+    assert "db_name" not in s
     assert "s3cret" not in str(s)

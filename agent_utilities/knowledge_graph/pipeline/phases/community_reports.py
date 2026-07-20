@@ -165,7 +165,7 @@ async def execute_community_reports(
         for u, v, data in graph.edges(data=True):
             for c, member_ids in members_by_community.items():
                 if u in member_ids and v in member_ids:
-                    rel = str(data.get("rel_type") or data.get("type") or "related_to")
+                    rel = str(data.get("relationship") or "related_to")
                     edges_by_community[c].append(f"{u} {rel} {v}")
                     break
     except Exception:  # noqa: BLE001
@@ -193,7 +193,7 @@ async def execute_community_reports(
         graph.add_node(
             report_id,
             {
-                "type": "CommunityReport",
+                "node_type": "CommunityReport",
                 "community": community_idx,
                 "level": 0,
                 "member_count": len(members),
@@ -203,7 +203,7 @@ async def execute_community_reports(
             },
         )
         for nid, _props in members:
-            graph.add_edge(nid, report_id, type="PART_OF_COMMUNITY")
+            graph.add_edge(nid, report_id, relationship="PART_OF_COMMUNITY")
         level0_themes.append(theme)
         written += 1
 
@@ -216,7 +216,7 @@ async def execute_community_reports(
         graph.add_node(
             global_id,
             {
-                "type": "CommunityReport",
+                "node_type": "CommunityReport",
                 "level": 1,
                 "member_count": len(level0_themes),
                 "theme": theme or "Global themes",
@@ -228,7 +228,7 @@ async def execute_community_reports(
             graph.add_edge(
                 f"community_report:{community_idx}",
                 global_id,
-                type="PART_OF_COMMUNITY",
+                relationship="PART_OF_COMMUNITY",
             )
         written += 1
 

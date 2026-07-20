@@ -1,12 +1,6 @@
+"""Team coordination uses WorkItem as its only task-state authority."""
+
 from __future__ import annotations
-
-"""CONCEPT:AU-AHE.evaluation.interpretability-tests"""
-
-"""Tests for TeamCapability — team coordination with ACP/A2A.
-
-Concept: team-coordination
-"""
-
 
 from dataclasses import dataclass
 from typing import Any
@@ -15,10 +9,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -39,11 +29,6 @@ class FakeGraphEngine:
         self.graph = GraphComputeEngine(backend_type="rust")
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture()
 def engine() -> FakeGraphEngine:
     return FakeGraphEngine()
@@ -54,82 +39,79 @@ def ctx_with_graph(engine: FakeGraphEngine) -> FakeRunContext:
     return FakeRunContext(FakeDeps(graph_engine=engine))
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.concept("team-coordination")
 @pytest.mark.asyncio
 async def test_message_member_a2a_fallback(engine: FakeGraphEngine) -> None:
-    """When ACP is unavailable, message_member should try A2A fallback."""
     from agent_utilities.capabilities.teams import TeamCapability
 
-    a2a_mock = AsyncMock()
-    a2a_mock.send = AsyncMock(return_value=None)
-
-    deps = FakeDeps(graph_engine=engine, a2a_client=a2a_mock)
-    ctx = FakeRunContext(deps)
-
-    cap = TeamCapability(team_id="team_test", members=["bob"])
-    result = await cap.message_member(ctx, "bob", "hello from A2A")
-
-    assert result is True
-    a2a_mock.send.assert_awaited_once()
-    call_kwargs = a2a_mock.send.call_args
-    assert call_kwargs.kwargs["target_agent"] == "bob"
+    a2a = AsyncMock()
+    a2a.send = AsyncMock(return_value=None)
+    ctx = FakeRunContext(FakeDeps(graph_engine=engine, a2a_client=a2a))
+    cap = TeamCapability(team_id="team_ref", members=["member_ref"])
+    assert await cap.message_member(ctx, "member_ref", "hello")
+    a2a.send.assert_awaited_once()
 
 
-@pytest.mark.concept("team-coordination")
 @pytest.mark.asyncio
 async def test_discover_teams_returns_active(ctx_with_graph: FakeRunContext) -> None:
-    """discover_teams should only return teams with status='active'."""
     from agent_utilities.capabilities.teams import TeamCapability
 
-    g = ctx_with_graph.deps.graph_engine.graph
-    g.add_node("t1", type="team", status="active", name="Alpha", member_count=3)
-    g.add_node("t2", type="team", status="disbanded", name="Beta", member_count=2)
-    g.add_node("t3", type="team", status="active", name="Gamma", member_count=5)
-
-    cap = TeamCapability()
-    teams = await cap.discover_teams(ctx_with_graph)
-
-    assert len(teams) == 2
-    names = {t["name"] for t in teams}
-    assert names == {"Alpha", "Gamma"}
+    graph = ctx_with_graph.deps.graph_engine.graph
+    graph.add_node("t1", type="team", status="active", name="Alpha")
+    graph.add_node("t2", type="team", status="disbanded", name="Beta")
+    teams = await TeamCapability().discover_teams(ctx_with_graph)
+    assert [team["team_id"] for team in teams] == ["t1"]
 
 
-@pytest.mark.concept("team-coordination")
 @pytest.mark.asyncio
-async def test_update_task_status_persists(ctx_with_graph: FakeRunContext) -> None:
-    """update_task_status should change the status in the graph."""
-    from agent_utilities.capabilities.teams import TeamCapability
+async def test_add_task_persists_only_authoritative_work_item(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item
 
-    g = ctx_with_graph.deps.graph_engine.graph
-    g.add_node("task_001", type="task", status="pending", content="Fix bug")
+    task_ref = await TeamCapability(team_id="team_ref").add_task(
+        ctx_with_graph, "do the thing", assigned_to="agent_ref"
+    )
+    graph = ctx_with_graph.deps.graph_engine.graph
+    item_id = work_item.team_work_item_id(task_ref)
+    item = work_item.get_work_item(_GraphComputeWorkItemView(graph), item_id)
+    assert item is not None
+    assert item["kind"] == "team_assignment"
+    assert item["status"] == "ready"
+    assert task_ref not in graph.nodes
 
-    cap = TeamCapability()
-    result = await cap.update_task_status(ctx_with_graph, "task_001", "done")
 
-    assert result is True
-    assert g.nodes["task_001"]["status"] == "done"
-    assert "updated_at" in g.nodes["task_001"]
-
-
-@pytest.mark.concept("team-coordination")
 @pytest.mark.asyncio
-async def test_get_team_members_from_graph(ctx_with_graph: FakeRunContext) -> None:
-    """get_team_members should walk BELONGS_TO_TEAM edges in the graph."""
+async def test_team_transition_changes_only_work_item(
+    ctx_with_graph: FakeRunContext,
+) -> None:
+    from agent_utilities.capabilities.teams import (
+        TeamCapability,
+        _GraphComputeWorkItemView,
+    )
+    from agent_utilities.orchestration import work_item
+
+    cap = TeamCapability(team_id="team_ref")
+    task_ref = await cap.add_task(ctx_with_graph, "do the thing")
+    view = _GraphComputeWorkItemView(ctx_with_graph.deps.graph_engine.graph)
+    item_id = work_item.team_work_item_id(task_ref)
+
+    assert await cap.update_task_status(ctx_with_graph, task_ref, "in_progress")
+    assert work_item.get_work_item(view, item_id)["status"] == "running"
+    assert await cap.update_task_status(ctx_with_graph, task_ref, "completed")
+    assert work_item.get_work_item(view, item_id)["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_team_rejects_noncanonical_transition(
+    ctx_with_graph: FakeRunContext,
+) -> None:
     from agent_utilities.capabilities.teams import TeamCapability
 
-    g = ctx_with_graph.deps.graph_engine.graph
-    g.add_node("team_abc", type="team", status="active", name="Test")
-    g.add_node("agent_1")
-    g.add_node("agent_2")
-    g.add_edge("agent_1", "team_abc", type="BELONGS_TO_TEAM")
-    g.add_edge("agent_2", "team_abc", type="BELONGS_TO_TEAM")
-
-    cap = TeamCapability(team_id="team_abc", members=["fallback"])
-    members = await cap.get_team_members(ctx_with_graph)
-
-    assert set(members) == {"agent_1", "agent_2"}
+    cap = TeamCapability(team_id="team_ref")
+    task_ref = await cap.add_task(ctx_with_graph, "do the thing")
+    with pytest.raises(ValueError, match="WorkItem owns"):
+        await cap.update_task_status(ctx_with_graph, task_ref, "blocked")

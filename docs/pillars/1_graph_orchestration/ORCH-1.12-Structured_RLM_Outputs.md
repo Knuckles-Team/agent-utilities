@@ -55,7 +55,7 @@ relevant = [c for c, keep in zip(chunks, flags) if keep]   # keep is a real bool
 
 ## Wiring (≤3 hops)
 
-`graph_orchestrate(rlm_run)` → `runner.run_rlm` → `predict_rlm`/`repl` → (per code block) `rlm_query`
+`graph_rlm(action="run")` → `runner.run_rlm` → `predict_rlm`/`repl` → (per code block) `rlm_query`
 / `run_parallel_sub_calls` → `SchemaContract.validate`.
 
 ## Tests

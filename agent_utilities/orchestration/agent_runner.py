@@ -1,6 +1,6 @@
 """Agent Runner — CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap KG-to-LLM Execution Bridge.
 
-Bridges the ``graph_orchestrate(action='execute_agent')`` MCP tool to the
+Bridges the ``graph_orchestrate`` MCP tool to the
 pydantic-graph execution infrastructure. Resolves the agent name against
 the Knowledge Graph, materializes a graph with appropriate toolsets, and
 executes it against the configured LLM provider (typically LM Studio via
@@ -24,18 +24,74 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
+import re
 import time
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.orchestration.response_format import (
+    ResponseFormat,
+    validate_response_format,
+)
+from agent_utilities.orchestration.run_identity import new_run_id
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.orchestration.execution_profile import ExecutionProfile
 
 logger = logging.getLogger(__name__)
+
+
+def _render_agent_result(
+    output: Any,
+    *,
+    run_id: str,
+    return_mermaid: bool,
+    mermaid: Any = None,
+    channel_id: str | None = None,
+) -> str:
+    """Render one agent result through the sole public delegation envelope."""
+
+    output_text = str(output)
+    if not return_mermaid and not channel_id:
+        return output_text
+    payload: dict[str, Any] = {"output": output_text, "run_id": run_id}
+    if return_mermaid:
+        payload["mermaid"] = mermaid
+    if channel_id:
+        payload["channel_id"] = channel_id
+    return json.dumps(payload, default=str)
+
+
+def _trace_evidence_for_run(
+    *,
+    model_ref: str,
+    model_class: str,
+    skill_used: str = "",
+    skill_instruction_digest: str = "",
+) -> dict[str, str]:
+    """Build the closed opaque attribution contract exported with a run trace."""
+
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    evidence = {"model_ref": model_ref, "model_class": model_class}
+    if skill_used and skill_instruction_digest:
+        evidence.update(
+            {
+                "skill_ref": persistence_reference(
+                    "skill", skill_used, namespace="execution-trace"
+                ),
+                "skill_body_ref": persistence_reference(
+                    "skill_body",
+                    skill_instruction_digest,
+                    namespace="skill-validation",
+                ),
+            }
+        )
+    return evidence
+
 
 # CONCEPT:AU-ORCH.execution.passthrough-identity — prompt-only universal entrypoints that must flow through the full
 # multi-agent graph AS THEMSELVES, never resolved to a KG specialist. Resolving one is pure
@@ -95,12 +151,15 @@ async def run_agent(
     open_channel: bool = False,
     memento_source: str | None = None,
     execution_profile: str | None = None,
+    reasoning_effort: str | None = None,
+    model_class: str = "standard",
+    response_format: ResponseFormat = "text",
 ) -> str:
     """Execute a named agent using the KG-backed pydantic-graph pipeline.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — KG-to-LLM Execution Bridge
 
-    This is the primary entry point for ``graph_orchestrate(action='execute_agent')``.
+    This is the primary entry point for ``graph_orchestrate``.
     It provides deep KG integration by:
 
     1. Resolving the agent against KG nodes (Server, CallableResource, AgentTemplate).
@@ -115,19 +174,20 @@ async def run_agent(
         max_steps: Maximum graph execution steps (guards against loops).
         engine: Optional pre-initialized IntelligenceGraphEngine instance.
             If not provided, one will be created from the environment.
-        return_mermaid: CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — when True and the routed graph produced a
-            Mermaid diagram, return a JSON string ``{"output", "mermaid"}`` instead of the
-            bare output string. Default False preserves the bare-string contract relied on
+        return_mermaid: CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — when True,
+            return a JSON object containing ``output`` and ``mermaid`` (null when no
+            diagram was produced). Default False preserves the bare-string contract relied on
             by internal callers (e.g. the dynamic-workflow fan-out in
             ``engine.execute_workflow``, which filters on ``isinstance(r, str)``).
 
     Returns:
-        The synthesized result string from the graph execution, or (when
-        ``return_mermaid`` is set and a diagram exists) a JSON string with ``output`` and
+        The synthesized result string from the graph execution, or, when
+        ``return_mermaid`` is set, a JSON string with unconditional ``output`` and
         ``mermaid`` keys.
 
     """
-    run_id = f"run:{uuid.uuid4().hex[:8]}"
+    response_format = validate_response_format(response_format)
+    run_id = new_run_id()
     start_time = time.monotonic()
     logger.info(
         "[ORCH-1.21] Starting agent execution: agent=%s, run_id=%s, task=%.100s...",
@@ -161,18 +221,23 @@ async def run_agent(
                 duration_ms=duration_ms,
                 result_preview=str(pe_result)[:500],
             )
-            return str(pe_result)
+            return _render_agent_result(
+                pe_result, run_id=run_id, return_mermaid=return_mermaid
+            )
         except Exception as e:
             logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
             _record_execution_trace(
                 engine, run_id, "enterprise", task, status="failed", error=str(e)
             )
-            return f"Enterprise execution failed: {e}"
+            return _render_agent_result(
+                f"Enterprise execution failed: {e}",
+                run_id=run_id,
+                return_mermaid=return_mermaid,
+            )
 
     # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
     try:
         import inspect
-        import json
 
         from agent_utilities.core.registry.service_adapter import ServiceRegistry
 
@@ -206,7 +271,9 @@ async def run_agent(
                         if getattr(instance.analyze, "__iscoroutinefunction__", False)
                         else instance.analyze(task_data)
                     )
-                    return str(result)
+                    return _render_agent_result(
+                        result, run_id=run_id, return_mermaid=return_mermaid
+                    )
                 elif hasattr(instance, "select_pattern"):
                     # Specifically for SubagentPatternRouter
                     result = (
@@ -216,21 +283,27 @@ async def run_agent(
                         )
                         else instance.select_pattern(needs_collaboration=True)
                     )
-                    return str(result)
+                    return _render_agent_result(
+                        result, run_id=run_id, return_mermaid=return_mermaid
+                    )
                 elif hasattr(instance, "run"):
                     result = (
                         await instance.run(task)
                         if getattr(instance.run, "__iscoroutinefunction__", False)
                         else instance.run(task)
                     )
-                    return str(result)
+                    return _render_agent_result(
+                        result, run_id=run_id, return_mermaid=return_mermaid
+                    )
                 elif hasattr(instance, "execute"):
                     result = (
                         await instance.execute(task)
                         if getattr(instance.execute, "__iscoroutinefunction__", False)
                         else instance.execute(task)
                     )
-                    return str(result)
+                    return _render_agent_result(
+                        result, run_id=run_id, return_mermaid=return_mermaid
+                    )
     except Exception as e:
         logger.warning(
             "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
@@ -289,7 +362,9 @@ async def run_agent(
         execution_profile=shape,
         recent_mementos=recent_mementos,
         code_context_prime=code_context_prime,
+        model_class=model_class,
     )
+    config["response_format"] = response_format
     # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
     # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
     # from the epistemic-graph and link it to this run's RunTrace for provenance.
@@ -305,7 +380,11 @@ async def run_agent(
                 _add_edge = getattr(engine, "add_edge", None)
                 if callable(_add_edge):
                     with contextlib.suppress(Exception):
-                        _add_edge(f"trace:{run_id}", context_ref, "HAS_CONTEXT")
+                        from agent_utilities.observability.trace_ontology import (
+                            trace_id,
+                        )
+
+                        _add_edge(trace_id(run_id), context_ref, "HAS_CONTEXT")
         except Exception as _ctx_exc:  # noqa: BLE001
             logger.warning(
                 "context_ref %s resolution failed: %s", context_ref, _ctx_exc
@@ -316,8 +395,30 @@ async def run_agent(
         config["invoker_budget_tokens"] = int(budget_tokens)
     if allowed_tools:
         config["invoker_allowed_tools"] = list(allowed_tools)
+    _bind_native_skill_toolset(
+        config=config,
+        agent_meta=agent_meta,
+        agent_name=agent_name,
+    )
     if cred_ref:
         config["invoker_cred_ref"] = cred_ref
+    # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in capability
+    # (like RLM): a run that needs deliberation turns it ON per-execution by passing an
+    # effort ("low"/"medium"/"high"); otherwise the deterministic tool loop leaves it OFF
+    # (the fleet default). Threaded onto config so _execute_single_server can honor it.
+    if reasoning_effort:
+        config["reasoning_effort"] = str(reasoning_effort)
+    # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
+    # of tools; binding every schema to the single-server agent makes the LLM call hang
+    # and the run silently degrade to a hallucinating toolless graph. When the caller
+    # set no explicit allow-list, bind only the top-K task-relevant tools (KG capability
+    # index, bounded; lexical fallback; hard cap). Only for resolved MCP servers.
+    if agent_meta.get("type") == "server" and not config.get("invoker_allowed_tools"):
+        _selected = await _select_relevant_tool_names(
+            engine, task, agent_meta.get("tools") or [], agent_name=agent_name
+        )
+        if _selected:
+            config["invoker_allowed_tools"] = _selected
     # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
     # requested (or when an explicit session_id is given). The id is stamped into config so
     # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
@@ -329,6 +430,33 @@ async def run_agent(
         channel_id = agent_channel.open_channel(engine, session_id or run_id, run_id)
         if channel_id:
             config["message_channel_id"] = channel_id
+
+    # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a package SKILL drove
+    # this run (its SOP is the prompt) and which server's tools it bound (F7), so the
+    # RunTrace records skill utilization: bare skill (prompt-only) has type=="skill";
+    # a skill bound to its server (F7) carries ``skill_of_server``.
+    _skill_used = (
+        agent_name
+        if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
+        else ""
+    )
+    _bound_server = str(agent_meta.get("skill_of_server", "") or "")
+    _skill_id = str(agent_meta.get("skill_id", "") or "")
+    _skill_instruction_digest = str(
+        agent_meta.get("skill_instruction_digest", "") or ""
+    )
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    _model_ref = persistence_reference(
+        "model", config["agent_model"], namespace="orchestration-run"
+    )
+    _model_class = str(config["selected_model_class"])
+    config["trace_evidence"] = _trace_evidence_for_run(
+        model_ref=_model_ref,
+        model_class=_model_class,
+        skill_used=_skill_used,
+        skill_instruction_digest=_skill_instruction_digest,
+    )
 
     # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
     # direct tool loop (bind only that server's toolset, no router); anything else
@@ -363,13 +491,13 @@ async def run_agent(
                     run_id=run_id,
                     max_steps=max_steps,
                     agent_meta=agent_meta,
+                    agent_name=agent_name,
                 )
         elif getattr(shape, "tool_servers", ()):
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
             # server(s), so bind exactly those toolsets and run ONE direct agent loop (parallel
             # tool calls) instead of the planning graph, which over-decomposes a named-tool ask
-            # into a multi-step plan + expert fan-out. A failure (e.g. a server unreachable)
-            # falls through to the full graph rather than erroring the turn.
+            # into a multi-step plan + expert fan-out.
             try:
                 result = await _execute_focused_tools(
                     task=task,
@@ -378,17 +506,32 @@ async def run_agent(
                     agent_name=agent_name,
                     max_steps=max_steps,
                 )
-            except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
+            except Exception as e:  # noqa: BLE001
+                # CONCEPT:AU-ORCH.execution.focused-tools-fail-closed — this branch is entered ONLY
+                # because ``shape.tool_servers`` (the live-KG-ontology lexical match against the
+                # TASK, resolved in ``plan_execution_shape`` independently of ``agent_name``) named
+                # concrete fleet server(s) — that is the branch guard itself, so it is ALWAYS a
+                # server-name delegation, regardless of whether the top-level ``agent_name``
+                # happens to also resolve as a KG ``:Server`` (it usually does NOT: ``agent_name``
+                # is frequently a generic/passthrough identity like the messaging assistant, while
+                # the REAL delegation target is ``shape.tool_servers``). The previous fail-closed
+                # gate tested ``agent_meta.get("type") == "server"`` — the WRONG variable — so a
+                # genuine named-server delegation whose real tools could not be reached (server
+                # never registered / 0 :Server nodes, unreachable, auth failure, ...) silently fell
+                # through to the toolless multi-agent graph and could fabricate a plausible-looking
+                # answer stamped "completed" — exactly the confident-hallucination failure
+                # AU-ORCH.execution.no-silent-hallucination exists to catch. There is no legitimate
+                # fallthrough once a concrete server target is named, so always fail closed here.
+                err = _flatten_exception_group(e)
+                servers = list(getattr(shape, "tool_servers", ()) or ())
                 logger.warning(
-                    "[ORCH-1.74] focused-tools path failed (%s); falling through to the full graph.",
-                    _flatten_exception_group(e),
+                    "[ORCH-1.74] focused-tools path failed for fleet server(s) %s (%s); "
+                    "surfacing degraded instead of hallucinating via the graph.",
+                    servers,
+                    err,
                 )
-                result = await _execute_graph(
-                    config=config,
-                    query=task,
-                    run_id=run_id,
-                    max_steps=max_steps,
-                    agent_meta=agent_meta,
+                result = _fleet_server_failed_result(
+                    agent_name or ",".join(servers), err
                 )
         elif _is_single_server_agent(agent_meta, config):
             result = await _execute_single_server(
@@ -405,6 +548,7 @@ async def run_agent(
                 run_id=run_id,
                 max_steps=max_steps,
                 agent_meta=agent_meta,
+                agent_name=agent_name,
             )
     except BaseException as e:  # noqa: BLE001 — see _flatten_exception_group
         # A remote MCP child (streamable-http/sse) that fails to connect or errors
@@ -433,7 +577,18 @@ async def run_agent(
         )
         # Record failure provenance
         _record_execution_trace(
-            engine, run_id, agent_name, task, status="failed", error=err_msg
+            engine,
+            run_id,
+            agent_name,
+            task,
+            status="failed",
+            error=err_msg,
+            skill_used=_skill_used,
+            bound_server=_bound_server,
+            skill_id=_skill_id,
+            skill_instruction_digest=_skill_instruction_digest,
+            model_ref=_model_ref,
+            model_class=_model_class,
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -449,18 +604,36 @@ async def run_agent(
             latency_s=time.monotonic() - start_time,
             shape=shape,
         )
-        return f"Agent execution failed: {err_msg}"
+        return _render_agent_result(
+            f"Agent execution failed: {err_msg}",
+            run_id=run_id,
+            return_mermaid=return_mermaid,
+            channel_id=channel_id,
+        )
 
-    # Step 5: Record success provenance
+    # Step 5: Record provenance. A delegation that fell through to the graph's "no data"
+    # sentinel (or returned an empty answer) is a DEGRADED outcome, not a success —
+    # returning a confident-empty "completed" is the failure this fixes. Detect it so the
+    # RunTrace status is truthful, the reward/shape learning is not poisoned by a
+    # non-answer, and the failure is fed back so routing self-corrects next time
+    # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
+    degraded = _delegation_degraded(result)
     duration_ms = (time.monotonic() - start_time) * 1000
     _record_execution_trace(
         engine,
         run_id,
         agent_name,
         task,
-        status="completed",
+        status="degraded" if degraded else "completed",
         duration_ms=duration_ms,
         result_preview=str(result)[:500],
+        error="delegation produced no usable data (degraded)" if degraded else None,
+        skill_used=_skill_used,
+        bound_server=_bound_server,
+        skill_id=_skill_id,
+        skill_instruction_digest=_skill_instruction_digest,
+        model_ref=_model_ref,
+        model_class=_model_class,
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -469,18 +642,23 @@ async def run_agent(
         _persist_tool_calls(
             engine, run_id, agent_name, agent_name, result["tool_calls"]
         )
+    # Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded run teaches the
+    # reward-EMA that this agent/task-class produced a non-answer, so routing prefers
+    # actions that actually achieve the goal. Best-effort; never breaks the run.
+    if degraded:
+        _record_degraded_feedback(engine, agent_name, task, result)
     # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): credit the intermediate agent-steps of
     # this run into the capability reward-EMA so routing learns from the steps,
     # not only the final answer. Guarded — never breaks the run path.
-    _write_step_credit(engine, run_id, agent_name, result, success=True)
-    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy this archetype SUCCEEDED for this task-class,
-    # rewarded by speed (success × how little of the budget it spent).
+    _write_step_credit(engine, run_id, agent_name, result, success=not degraded)
+    # CONCEPT:AU-ORCH.execution.shape-policy-learning — teach the shape policy whether this archetype
+    # SUCCEEDED for this task-class, rewarded by speed (success × how little of the budget it spent).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
     record_shape_outcome(
         task,
         execution_profile,
-        success=True,
+        success=not degraded,
         latency_s=duration_ms / 1000.0,
         shape=shape,
     )
@@ -489,10 +667,12 @@ async def run_agent(
     if session_id:
         snode = f"session:{session_id}"
         with contextlib.suppress(Exception):
+            from agent_utilities.observability.trace_ontology import trace_id
+
             engine.add_node(
                 snode, "Session", properties={"id": snode, "session_id": session_id}
             )
-            engine.add_edge(snode, f"trace:{run_id}", "HAS_RUN")
+            engine.add_edge(snode, trace_id(run_id), "HAS_RUN")
 
     logger.info(
         "[ORCH-1.21] Agent execution complete: agent=%s, run_id=%s, duration=%.0fms",
@@ -522,21 +702,20 @@ async def run_agent(
         # prerequisite for async/streaming/steering later. Internal callers
         # (``return_mermaid=False``) keep the bare-string contract bit-for-bit.
         mermaid = result.get("mermaid")
-        if return_mermaid or channel_id:
-            wrapper: dict[str, Any] = {"output": output_str, "run_id": run_id}
-            if return_mermaid and mermaid:
-                wrapper["mermaid"] = mermaid
-            if channel_id:
-                wrapper["channel_id"] = channel_id
-            return json.dumps(wrapper, default=str)
-        return output_str
+        return _render_agent_result(
+            output_str,
+            run_id=run_id,
+            return_mermaid=return_mermaid,
+            mermaid=mermaid,
+            channel_id=channel_id,
+        )
 
-    if return_mermaid or channel_id:
-        wrapper2: dict[str, Any] = {"output": str(result), "run_id": run_id}
-        if channel_id:
-            wrapper2["channel_id"] = channel_id
-        return json.dumps(wrapper2, default=str)
-    return str(result)
+    return _render_agent_result(
+        result,
+        run_id=run_id,
+        return_mermaid=return_mermaid,
+        channel_id=channel_id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -558,8 +737,7 @@ def _get_or_create_engine() -> IntelligenceGraphEngine:
     db_path = setting("GRAPH_PERSISTENCE_PATH", "")
     backend = create_backend(db_path=db_path) if db_path else None
 
-    engine = IntelligenceGraphEngine(backend=backend, db_path=db_path)
-    return engine
+    return IntelligenceGraphEngine.get_or_create(backend=backend, db_path=db_path)
 
 
 def _unresolved_agent_meta() -> dict[str, Any]:
@@ -587,43 +765,26 @@ def _hydrate_skill_runnable(
     *,
     skill_id: str,
     name: str,
-    description: str,
     system_prompt: str,
-    skill_code_path: str,
-    source_is_resource: bool = True,
+    instruction_digest: str,
+    source_ref: str,
 ) -> None:
     """Populate ``meta`` so an ingested skill runs with its own instructions + tools.
 
     CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — sets ``meta['system_prompt']`` (the skill's instruction body)
     and ``meta['tools']`` (its declared ``USES_TOOL`` targets), then binds the skill
-    back into a runnable ``AGENT_SKILL`` CallableResource (idempotent) via
-    :func:`persist_skill_as_runnable` so the next resolution is a pure prop read and
-    the capability fabric carries the skill→tool edges. Best-effort: a binding
-    failure leaves the skill resolvable (it still runs, just un-densified).
-
-    ``source_is_resource`` is True when the node is already a ``CallableResource``
-    (the AGENT_SKILL branch) — the binding updates props on that same node. When
-    False (a bare ``:Skill`` node), writing a CallableResource onto the ``:Skill``
-    id would NOT relabel it, so the runnable resource is written under a distinct
-    ``resource:<skill_id>`` and a ``BINDS_RUNNABLE`` edge links the skill to it.
+    from its already-persisted ``CallableResource``. Local discovery paths are
+    never consulted at execution time: an incomplete resource fails closed.
     """
     body = (system_prompt or "").strip()
-    # Cold AGENT_SKILL nodes carry only a code path — read the SKILL.md body once.
-    if not body and skill_code_path:
-        try:
-            import os
+    if not body or not instruction_digest or not source_ref.startswith("skill://"):
+        raise RuntimeError("runnable skill metadata is incomplete")
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
 
-            if os.path.isfile(skill_code_path):
-                raw = open(  # noqa: SIM115
-                    skill_code_path, encoding="utf-8", errors="replace"
-                ).read()
-                # Strip YAML frontmatter so the prompt is the instruction body.
-                if raw.startswith("---"):
-                    _, _, rest = raw.partition("\n---")
-                    raw = rest.lstrip("\n-") or raw
-                body = raw.strip()
-        except Exception as exc:  # noqa: BLE001 — body read is best-effort
-            logger.debug("[ORCH-1.96] skill body read failed for %s: %s", name, exc)
+    if runnable_skill_digest(body) != instruction_digest:
+        raise RuntimeError("runnable skill instruction digest mismatch")
 
     # Declared tools the skill needs (USES_TOOL edges), if any were materialized.
     tools: list[str] = []
@@ -641,38 +802,14 @@ def _hydrate_skill_runnable(
     except Exception as exc:  # noqa: BLE001
         logger.debug("[ORCH-1.96] skill tool lookup failed for %s: %s", name, exc)
 
-    if body:
-        meta["system_prompt"] = (
-            f"You are the '{name}' skill. Follow these instructions to fulfil the "
-            f"user's request, calling any available tools as needed:\n\n{body}"
-        )
+    meta["system_prompt"] = (
+        f"You are the '{name}' skill. Follow these instructions to fulfil the "
+        f"user's request, calling any available tools as needed:\n\n{body}"
+    )
     meta["tools"] = [{"name": t, "description": t} for t in tools]
     meta["skill_id"] = skill_id
-
-    # Densify: bind the skill into a runnable CallableResource so it persists. An
-    # already-CallableResource node is updated in place; a bare :Skill node gets a
-    # distinct resource:<id> sibling + a BINDS_RUNNABLE edge (a bare node can't be
-    # relabelled to CallableResource on the backend).
-    if body or tools:
-        resource_id = skill_id if source_is_resource else f"resource:{skill_id}"
-        try:
-            from agent_utilities.knowledge_graph.enrichment.execute import (
-                persist_skill_as_runnable,
-            )
-
-            persist_skill_as_runnable(
-                getattr(engine, "backend", engine),
-                skill_id=resource_id,
-                name=name,
-                system_prompt=body,
-                description=description,
-                tools=tools,
-            )
-            if not source_is_resource:
-                with contextlib.suppress(Exception):
-                    engine.link_nodes(skill_id, resource_id, "BINDS_RUNNABLE")
-        except Exception as exc:  # noqa: BLE001 — binding is best-effort
-            logger.debug("[ORCH-1.96] skill→runnable bind failed for %s: %s", name, exc)
+    meta["skill_instruction_digest"] = instruction_digest
+    meta["skill_source_ref"] = source_ref
 
 
 def _resolve_agent_from_kg(
@@ -686,8 +823,8 @@ def _resolve_agent_from_kg(
 
     Returns:
         Dict with keys: ``type`` (server/skill/a2a/unknown), ``server_id``,
-        ``tools`` (list of tool names), ``capabilities``, ``mcp_command``,
-        ``url`` (for A2A agents), ``system_prompt``.
+        ``tools`` (list of tool names), ``capabilities``, ``toolset_id``, and
+        ``system_prompt``. Live transports are resolved from AgentConfig, never KG.
 
     """
     meta: dict[str, Any] = {
@@ -695,9 +832,11 @@ def _resolve_agent_from_kg(
         "server_id": "",
         "tools": [],
         "capabilities": [],
-        "mcp_command": "",
-        "url": "",
+        "toolset_id": "",
+        "endpoint_ref": "",
         "system_prompt": "",
+        "skill_instruction_digest": "",
+        "skill_source_ref": "",
     }
 
     if not engine or not engine.backend:
@@ -708,17 +847,15 @@ def _resolve_agent_from_kg(
     try:
         server_rows = engine.backend.execute(
             "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
-            "RETURN s.id AS sid, s.name AS name, s.url AS url, "
-            "s.command AS cmd, s.args AS args, s.tool_count AS tc, s.env AS env",
+            "RETURN s.id AS sid, s.name AS name, s.server_ref AS server_ref, "
+            "s.tool_count AS tc",
             {"name": agent_name, "sid": f"srv:{agent_name}"},
         )
         if server_rows:
             row = server_rows[0]
             meta["type"] = "server"
             meta["server_id"] = row.get("sid", "")
-            meta["mcp_command"] = row.get("cmd", "")
-            meta["url"] = row.get("url", "")
-            meta["env"] = row.get("env", "")
+            meta["toolset_id"] = row.get("name", "") or agent_name
 
             # Fetch tools provided by this server
             tool_rows = engine.backend.execute(
@@ -744,7 +881,8 @@ def _resolve_agent_from_kg(
         resource_rows = engine.backend.execute(
             "MATCH (r:CallableResource) WHERE r.name = $name "
             "RETURN r.id AS rid, r.resource_type AS rtype, r.description AS description, "
-            "r.skill_code_path AS skill_path, r.system_prompt AS system_prompt",
+            "r.system_prompt AS system_prompt, r.instruction_digest AS instruction_digest, "
+            "r.source_ref AS source_ref, r.endpoint AS endpoint_ref",
             {"name": agent_name},
         )
         if resource_rows:
@@ -752,25 +890,19 @@ def _resolve_agent_from_kg(
             rtype = row.get("rtype", "")
             if rtype == "A2A_AGENT":
                 meta["type"] = "a2a"
-                meta["url"] = row.get(
-                    "description", ""
-                )  # URL stored in description for A2A
+                meta["endpoint_ref"] = row.get("endpoint_ref", "")
             elif rtype == "AGENT_SKILL":
-                # CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — make the ingested skill actually RUNNABLE, not
-                # just resolvable: load its instruction body as the system prompt and
-                # its declared tools so the spawned LLM is primed with the skill's
-                # behaviour. ``ingest_agent_skill`` writes only a ``skill_code_path``,
-                # so read the SKILL.md body on a cold node and bind it back onto the
-                # resource (idempotent) so the next resolution is a pure prop read.
+                # A runnable skill is complete graph state: its instruction body,
+                # digest, and neutral source reference were persisted at ingestion.
                 meta["type"] = "skill"
                 _hydrate_skill_runnable(
                     engine,
                     meta,
                     skill_id=row.get("rid", "") or f"skill:{agent_name}",
                     name=agent_name,
-                    description=row.get("description", "") or "",
                     system_prompt=row.get("system_prompt", "") or "",
-                    skill_code_path=row.get("skill_path", "") or "",
+                    instruction_digest=row.get("instruction_digest", "") or "",
+                    source_ref=row.get("source_ref", "") or "",
                 )
             else:
                 meta["type"] = "resource"
@@ -783,47 +915,6 @@ def _resolve_agent_from_kg(
     except Exception as e:
         logger.debug("Resource lookup failed for '%s': %s", agent_name, e)
 
-    # --- Search 2b: bare ``:Skill`` nodes (CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion) ---------------
-    # ``skill_workflow_ingest`` (KG-2.97) writes plain ``:Skill`` nodes as the
-    # ``USES_SKILL`` targets of workflow steps; they are search corpus, not
-    # CallableResources, so ``run_agent`` could never dispatch them. Bind such a
-    # skill into a runnable ``AGENT_SKILL`` CallableResource on first resolution
-    # (reusing ``persist_skill_as_runnable``) so an ingested skill name becomes a
-    # real dispatch target — closing the "ingested ≠ executable" gap.
-    try:
-        skill_rows = engine.backend.execute(
-            "MATCH (s:Skill) WHERE s.name = $name OR s.id = $sid "
-            "RETURN s.id AS sid, s.name AS name, s.description AS description, "
-            "s.body AS body, s.instruction AS instruction, s.content AS content",
-            {"name": agent_name, "sid": f"skill:{agent_name}"},
-        )
-        if skill_rows:
-            row = skill_rows[0]
-            skill_id = row.get("sid", "") or f"skill:{agent_name}"
-            body = (
-                row.get("body")
-                or row.get("instruction")
-                or row.get("content")
-                or row.get("description")
-                or ""
-            )
-            meta["type"] = "skill"
-            _hydrate_skill_runnable(
-                engine,
-                meta,
-                skill_id=skill_id,
-                name=row.get("name", agent_name) or agent_name,
-                description=row.get("description", "") or "",
-                system_prompt=str(body),
-                skill_code_path="",
-                source_is_resource=False,
-            )
-            logger.info(
-                "[ORCH-1.96] Resolved '%s' as a runnable ingested skill", agent_name
-            )
-            return meta
-    except Exception as e:
-        logger.debug("Skill lookup failed for '%s': %s", agent_name, e)
     # --- Search 2b: AgentTemplate nodes (KG-bound dispatchable personas) ---
     # CONCEPT:AU-ORCH.dispatch.seeded-agent-template — a built-in/seeded AgentTemplate (e.g. the
     # ``agent-utilities-expert``) binds a system-prompt node + toolsets + model
@@ -889,27 +980,43 @@ def _resolve_agent_from_kg(
 # ---------------------------------------------------------------------------
 
 
+def _configured_model_for_class(model_class: str) -> Any:
+    """Resolve an explicit runtime class to one exact AgentConfig model tier."""
+    from agent_utilities.core.config import config as agent_config
+
+    levels = {"economy": "light", "standard": "normal"}
+    requested = str(model_class or "").strip().casefold()
+    if requested not in levels:
+        raise ValueError("model_class must be economy or standard")
+    matches = [
+        model
+        for model in agent_config.chat_models
+        if str(model.intelligence_level).strip().casefold() == levels[requested]
+    ]
+    if not matches:
+        raise RuntimeError(f"configured {requested} model class is unavailable")
+    return matches[0]
+
+
 def _spawn_auth_headers() -> dict[str, str]:
     """Outbound service-account auth for a spawned agent's REMOTE MCP toolsets.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — a spawned agent that binds a jwt-protected
-    fleet server (``*.arpa``) over SSE/streamable-HTTP must carry the same
+    fleet server over SSE/streamable-HTTP must carry the same
     service-account bearer the multiplexer attaches to its children, or the
     call is rejected ``401`` (the toolset connected unauthenticated). Reuses the
     one minting path (``client_credentials.child_auth_header``): opt-in via
-    ``MCP_CLIENT_AUTH=oidc-client-credentials`` (Bearer) or ``basic`` (Basic), an
-    inert ``{}`` otherwise, and a failure degrades to no header (unchanged
-    behaviour when disabled).
+    ``MCP_CLIENT_AUTH=oidc-client-credentials`` (Bearer) or ``basic`` (Basic), and
+    an inert ``{}`` only when authentication is explicitly disabled. Credential
+    or minting failures propagate so a protected toolset is never spawned
+    anonymously.
     """
-    try:
-        from agent_utilities.mcp.client_credentials import child_auth_header
+    from agent_utilities.mcp.client_credentials import child_auth_header
 
-        return child_auth_header(None)
-    except Exception:  # noqa: BLE001 — auth is best-effort; never block a spawn
-        return {}
+    return child_auth_header(None)
 
 
-def _toolset_for_id(engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
+def _toolset_for_id(_engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
     """Resolve ONE AgentTemplate ``toolset_id`` to a live MCP toolset.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam that turns a KG-bound persona's declared
@@ -917,48 +1024,30 @@ def _toolset_for_id(engine: IntelligenceGraphEngine, toolset_id: str) -> Any:
     existing Server/mcp_config + fleet-URL machinery (no new binder, no new
     transport code):
 
-    1. Prefer an explicit served ``url`` on a ``:Server`` node in the KG (the
-       mcp_config-derived registry), when one exists.
-    2. Otherwise fall back to the homelab fleet served-URL convention
-       (``http://<id>.<domain>/mcp``, :func:`_fleet_server_url`) — the same
-       resolution the FOCUSED-TOOLS path (ORCH-1.74) uses; the fleet's ~58
-       ``*-mcp`` servers plus ``graph-os`` and the ``mcp-multiplexer`` are all
-       served there.
+    Resolution uses only the active AgentConfig URL template or the live fleet
+    configuration. KG ``Server.url`` values are opaque provenance references,
+    never transport endpoints.
 
     The toolset carries the OIDC service-account bearer (:func:`_spawn_auth_headers`)
-    so jwt-protected ``*.arpa`` servers don't reject the call ``401``. Returns the
+    so JWT-protected servers don't reject the call ``401``. Returns the
     bound ``MCPToolset`` (id-tagged for filtering), or ``None`` for an empty id.
     """
     tid = (toolset_id or "").strip()
     if not tid:
         return None
 
-    from agent_utilities.core.config import DEFAULT_SSL_VERIFY
     from agent_utilities.mcp.toolset_factory import build_http_toolset
 
-    url = ""
-    # 1. Prefer an explicit served URL recorded on a Server node (mcp_config registry).
-    try:
-        if engine and getattr(engine, "backend", None):
-            rows = engine.backend.execute(
-                "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
-                "RETURN s.url AS url",
-                {"name": tid, "sid": f"srv:{tid}"},
-            )
-            if rows:
-                cand = str(rows[0].get("url") or "").strip()
-                if cand and not cand.startswith("stdio://"):
-                    url = cand
-    except Exception as exc:  # noqa: BLE001 — registry lookup is best-effort
-        logger.debug("[ORCH-1.101] Server-node URL lookup failed for %s: %s", tid, exc)
-
-    # 2. Fleet served-URL convention (the focused-tools resolution).
-    url = url or _fleet_server_url(tid)
+    url = _fleet_server_url(tid)
+    if not url:
+        raise RuntimeError(
+            "toolset endpoint is unresolved; configure FLEET_MCP_URL_TEMPLATE "
+            "or a remote URL in the active MCP fleet configuration"
+        )
 
     return build_http_toolset(
         url,
         headers=_spawn_auth_headers() or None,
-        verify=DEFAULT_SSL_VERIFY,
         timeout=60,
         toolset_id=tid,
     )
@@ -970,19 +1059,15 @@ def _resolve_toolset_ids(
     """Bind an AgentTemplate's ``toolset_ids`` into a list of live MCP toolsets.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — each id is resolved by :func:`_toolset_for_id`; a single
-    id that fails to bind is skipped (logged) rather than dropping the whole set,
-    so the persona still gets every toolset that DID resolve (e.g. ``graph-os``
-    for grounding) even if one server is unreachable.
+    Every declared toolset must resolve. A missing endpoint or credential fails
+    the binding instead of silently running the persona with reduced authority.
     """
     bound: list[Any] = []
     for tid in toolset_ids or []:
-        try:
-            ts = _toolset_for_id(engine, tid)
-        except Exception as exc:  # noqa: BLE001 — one bad id must not drop the rest
-            logger.warning("[ORCH-1.101] failed to bind toolset_id %r: %s", tid, exc)
-            ts = None
-        if ts is not None:
-            bound.append(ts)
+        ts = _toolset_for_id(engine, tid)
+        if ts is None:
+            raise RuntimeError("declared toolset could not be bound")
+        bound.append(ts)
     return bound
 
 
@@ -1006,8 +1091,8 @@ async def _prime_recent_mementos(
         from agent_utilities.knowledge_graph.memory.session_memento_cache import (
             SessionMementoCache,
         )
-    except Exception as e:  # noqa: BLE001
-        logger.debug("Memento priming unavailable: %s", e)
+    except Exception:  # noqa: BLE001
+        logger.debug("Memento priming unavailable")
         return []
 
     cache = SessionMementoCache.instance()
@@ -1017,8 +1102,8 @@ async def _prime_recent_mementos(
 
     try:
         mementos = await asyncio.to_thread(get_recent_mementos, engine, source, limit)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("Failed to prime Mementos for %s: %s", source, e)
+    except Exception:  # noqa: BLE001
+        logger.debug("Failed to prime privacy-safe Mementos")
         return []
     cache.put(source, mementos)
     return mementos
@@ -1069,6 +1154,58 @@ async def _prime_code_context(
     )
 
 
+def _bind_native_skill_toolset(
+    *,
+    config: dict[str, Any],
+    agent_meta: dict[str, Any],
+    agent_name: str,
+) -> None:
+    """Bind exactly the caller-allowed native tools declared by a KG skill.
+
+    Runnable skill instructions and any ``USES_TOOL`` edges are authoritative
+    graph state. Domain skills may receive only a narrower subset of declared
+    tools. Platform skills intentionally own no GraphOS verbs, so their explicit
+    caller allow-list is authorized by the caller session and the spawned signed
+    identity instead. The resulting in-process toolset dispatches through
+    GraphOS's verified tool boundary; no self-HTTP or raw function call exists.
+    """
+
+    if agent_meta.get("type") != "skill":
+        return
+    requested = [
+        str(name).strip()
+        for name in config.get("invoker_allowed_tools") or []
+        if str(name).strip()
+    ]
+    if not requested:
+        return
+    if len(requested) != len(set(requested)):
+        raise ValueError("delegated skill tool allow-list contains duplicates")
+
+    declared = {
+        str(item.get("name") or "").strip()
+        for item in agent_meta.get("tools") or []
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    if declared and not set(requested).issubset(declared):
+        raise PermissionError("delegated skill requested an undeclared tool")
+
+    from agent_utilities.mcp.kg_server import (
+        REGISTERED_TOOLS,
+        build_native_graphos_toolset,
+        ensure_tools_registered,
+    )
+
+    ensure_tools_registered()
+    if "graph_orchestrate" in requested:
+        raise PermissionError("recursive native GraphOS delegation is forbidden")
+    if any(name not in REGISTERED_TOOLS for name in requested):
+        raise RuntimeError("delegated skill native tool is unavailable")
+    config.setdefault("mcp_toolsets", []).append(
+        build_native_graphos_toolset(requested, toolset_id=agent_name)
+    )
+
+
 def _build_execution_config(
     engine: IntelligenceGraphEngine,
     agent_name: str,
@@ -1077,6 +1214,7 @@ def _build_execution_config(
     execution_profile: str | ExecutionProfile | None = None,
     recent_mementos: list[str] | None = None,
     code_context_prime: str | None = None,
+    model_class: str = "standard",
 ) -> dict[str, Any]:
     """Build a graph execution config dict from KG-resolved agent metadata.
 
@@ -1091,8 +1229,8 @@ def _build_execution_config(
     per-surface history query.
 
     CONCEPT:AU-KG.memory.refresh-per-session-memento — ``recent_mementos`` is the already-primed memento list (read
-    off the event loop by :func:`_prime_recent_mementos`). When ``None`` (the legacy
-    direct callers / tests), we fall back to a synchronous fetch here so the function
+    off the event loop by :func:`_prime_recent_mementos`). When ``None`` (direct
+    library callers), we perform a synchronous fetch here so the function
     stays self-contained, but the hot reply path always passes the primed list so no
     blocking backend round-trip runs on the loop.
 
@@ -1103,24 +1241,20 @@ def _build_execution_config(
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
-        DEFAULT_LITE_LLM_MODEL_ID,
-        DEFAULT_LLM_API_KEY,
-        DEFAULT_LLM_BASE_URL,
-        DEFAULT_LLM_PROVIDER,
         DEFAULT_MIN_CONFIDENCE,
-        DEFAULT_ROUTER_MODEL,
-        DEFAULT_SSL_VERIFY,
     )
     from agent_utilities.orchestration.execution_profile import (
         resolve_execution_profile,
     )
 
     profile = resolve_execution_profile(execution_profile)
+    selected_model = _configured_model_for_class(model_class)
+    selected_class = str(model_class).strip().casefold()
 
     # Tag prompts: the agent itself + any capabilities. CONCEPT:AU-ORCH.dispatch.seeded-agent-template — when
     # resolution recovered the agent's real system prompt (e.g. a seeded
     # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
-    # that full persona instead of the bare "Specialized agent" stub.
+    # that full persona instead of the bare generic "Specialized agent" placeholder.
     resolved_prompt = str(agent_meta.get("system_prompt") or "").strip()
     tag_prompts = {
         agent_name: resolved_prompt or f"Specialized agent: {agent_name}",
@@ -1139,14 +1273,14 @@ def _build_execution_config(
             recent_mementos = get_recent_mementos(
                 engine, source=memento_source or agent_name, limit=3
             )
-        except Exception as e:  # noqa: BLE001
-            logger.debug("Failed to fetch Mementos for context: %s", e)
+        except Exception:  # noqa: BLE001
+            logger.debug("Failed to fetch privacy-safe Mementos for context")
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts[
-            "mementos"
-        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
+        tag_prompts["mementos"] = (
+            f"Past Context Mementos (Compressed State):\n{memento_text}"
+        )
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.
@@ -1181,8 +1315,9 @@ def _build_execution_config(
         "mcp_url": "",
         "mcp_config": "",
         "mcp_toolsets": [],
-        "router_model": DEFAULT_ROUTER_MODEL,
-        "agent_model": DEFAULT_LITE_LLM_MODEL_ID,
+        "router_model": selected_model.id,
+        "agent_model": selected_model.id,
+        "selected_model_class": selected_class,
         "router_timeout": router_timeout,
         "verifier_timeout": verifier_timeout,
         "execution_profile": profile.name,
@@ -1191,10 +1326,9 @@ def _build_execution_config(
         "execution_shape": profile,
         "min_confidence": DEFAULT_MIN_CONFIDENCE,
         "valid_domains": tuple(tag_prompts.keys()),
-        "provider": DEFAULT_LLM_PROVIDER,
-        "base_url": DEFAULT_LLM_BASE_URL,
-        "api_key": DEFAULT_LLM_API_KEY,
-        "ssl_verify": DEFAULT_SSL_VERIFY,
+        "provider": selected_model.provider,
+        "base_url": selected_model.base_url,
+        "api_key_ref": selected_model.api_key_ref,
         "nodes": {},
         "sub_agents": {},
         "routing_strategy": "hybrid",
@@ -1202,91 +1336,14 @@ def _build_execution_config(
         "discovery_metadata": {},
     }
 
-    # If the agent has MCP server URL/command, add it as a toolset
-    if agent_meta.get("type") == "server" and agent_meta.get("url"):
-        try:
-            url = agent_meta["url"]
-            if url.startswith("stdio://"):
-                # Stdio-based MCP server — need to parse command
-                from agent_utilities.mcp.toolset_factory import build_stdio_toolset
-
-                parts = url.replace("stdio://", "").split(" ", 1)
-                command = parts[0]
-                args = parts[1].split() if len(parts) > 1 else []
-
-                env_dict = None
-                env_str = agent_meta.get("env", "")
-                if env_str and env_str != "{}":
-                    import json
-
-                    try:
-                        env_dict = json.loads(env_str)
-                    except Exception:  # nosec B110
-                        pass
-
-                if env_dict is not None:
-                    import os
-
-                    # Start with OS environment and ensure VIRTUAL_ENV is present if applicable
-                    env_vars = os.environ.copy()
-
-                    # Force VIRTUAL_ENV injection
-                    venv_path = setting("VIRTUAL_ENV")
-                    if venv_path:
-                        env_vars["VIRTUAL_ENV"] = venv_path
-
-                    # Update with specific tool environment variables
-                    if env_dict:
-                        env_vars.update(env_dict)
-
-                    # Silence FastMCP startup output to prevent stdout pollution
-                    env_vars["FASTMCP_SHOW_SERVER_BANNER"] = "false"
-                    env_vars["FASTMCP_LOG_LEVEL"] = "WARNING"
-
-                    # Prevent spawned MCP servers from acquiring a write lock on the knowledge graph
-                    env_vars["LADYBUG_DB_READ_ONLY"] = "1"
-
-                    # Ensure PATH is correct (uv uses PATH)
-                    if "PATH" in os.environ:
-                        env_vars["PATH"] = setting("PATH")
-
-                    server = build_stdio_toolset(command, args, env=env_vars)
-                    logger.debug(
-                        "[agent_runner] Created stdio MCPToolset command=%s args=%s",
-                        command,
-                        args,
-                    )
-                    config["mcp_toolsets"].append(server)
-                else:
-                    import os
-
-                    merged_env = os.environ.copy()
-                    venv_path = setting("VIRTUAL_ENV")
-                    if venv_path:
-                        merged_env["VIRTUAL_ENV"] = venv_path
-                    merged_env["FASTMCP_SHOW_SERVER_BANNER"] = "false"
-                    merged_env["FASTMCP_LOG_LEVEL"] = "WARNING"
-                    merged_env["LADYBUG_DB_READ_ONLY"] = "1"
-                    for k in ["TERM", "COLORTERM", "FORCE_COLOR"]:
-                        merged_env.pop(k, None)
-                    config["mcp_toolsets"].append(
-                        build_stdio_toolset(command, args, env=merged_env)
-                    )
-            else:
-                from agent_utilities.mcp.toolset_factory import build_http_toolset
-
-                config["mcp_toolsets"].append(
-                    build_http_toolset(
-                        url,
-                        headers=_spawn_auth_headers() or None,
-                        verify=DEFAULT_SSL_VERIFY,
-                        timeout=60,
-                    )
-                )
-        except Exception as e:
-            logger.warning(
-                "[ORCH-1.21] Failed to bind MCP toolset for '%s': %s", agent_name, e
-            )
+    # Bind a server only through the live fleet configuration. KG server nodes
+    # carry capability identity and opaque provenance, never executable transport.
+    if agent_meta.get("type") == "server":
+        toolset_id = str(agent_meta.get("toolset_id") or agent_name)
+        toolset = _toolset_for_id(engine, toolset_id)
+        if toolset is None:
+            raise RuntimeError("server toolset could not be bound")
+        config["mcp_toolsets"].append(toolset)
 
     # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound AgentTemplate (e.g. ``agent-utilities-expert``)
     # declares its toolsets as ``toolset_ids`` (surfaced as ``capabilities`` by
@@ -1306,13 +1363,14 @@ def _build_execution_config(
                 agent_name,
                 agent_meta.get("capabilities"),
             )
-        else:
+        elif agent_meta.get("capabilities"):
             logger.warning(
                 "[ORCH-1.101] AgentTemplate '%s' declared toolsets %s but none bound — "
-                "it will run prompt-only",
+                "execution is rejected",
                 agent_name,
                 agent_meta.get("capabilities"),
             )
+            raise RuntimeError("declared agent-template toolsets could not be bound")
 
     return config
 
@@ -1345,6 +1403,133 @@ def _is_bound_template_agent(
     return bool(
         agent_meta.get("type") == "agent_template" and config.get("mcp_toolsets")
     )
+
+
+# Above this many tools on one server, bind only the task-relevant subset. A fleet
+# server can expose hundreds (container-manager-mcp: 314); handing every schema to one
+# agent makes the LLM call hang and the run silently fall through to a hallucinating
+# toolless graph. Kept as a module constant per Configuration discipline (one correct
+# value, auto-behaviour — not a knob).
+_MAX_BOUND_TOOLS = 20
+
+# Wall-clock budget for a single-server direct tool loop. Generous enough for a
+# legitimate multi-step, multi-tool run, but far below the MCP client timeout so a
+# blocking tool fails loud in minutes instead of hanging for the full client budget
+# (CONCEPT:AU-ORCH.execution.delegation-wall-clock). One correct value, not a knob.
+_EXECUTE_AGENT_WALL_CLOCK_S = 300.0
+
+
+def _fleet_server_failed_result(agent_name: str, error: str) -> dict[str, Any]:
+    """A degraded result for a resolved fleet-server delegation that failed.
+
+    CONCEPT:AU-ORCH.execution.no-silent-hallucination — returned INSTEAD of falling through to the
+    toolless graph, so a named-server delegation that could not run its real tools
+    surfaces the failure (picked up as ``degraded`` by ``_delegation_degraded`` →
+    truthful RunTrace + negative feedback) rather than a confident fabrication.
+    """
+    return {
+        "status": "failed",
+        "results": {
+            "output": (
+                f"Delegation to fleet server '{agent_name}' could not produce a "
+                f"tool-grounded result ({error}). Refusing to fall back to a general "
+                f"answer, which would fabricate tool output."
+            )
+        },
+        "metadata": {"degraded": True, "outcome": "fleet_server_failed"},
+    }
+
+
+def _lexical_top_k_tools(task: str, tools: list[dict[str, Any]], k: int) -> list[str]:
+    """Fast, dependency-free relevance ranking of tool names against the task.
+
+    Scores each tool by task-word overlap on its name (weighted) + description.
+    Returns up to ``k`` names with a non-zero score, most relevant first; ``[]``
+    when nothing matches (caller then hard-caps). No LLM/embedding round-trip, so
+    it can never re-introduce the latency this whole mechanism exists to avoid.
+    """
+    import re
+
+    words = {w for w in re.findall(r"[a-z0-9]{3,}", task.lower())}
+    if not words:
+        return []
+    scored: list[tuple[int, str]] = []
+    for t in tools:
+        name = str(t.get("name") or "")
+        if not name:
+            continue
+        nlow = name.lower()
+        dlow = str(t.get("description") or "").lower()
+        score = sum(1 for w in words if w in dlow) + 3 * sum(
+            1 for w in words if w in nlow
+        )
+        if score:
+            scored.append((score, name))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [n for _s, n in scored][:k]
+
+
+def _match_designated_to_names(ranked_ids: list[str], name_set: set[str]) -> list[str]:
+    """Map KG-designation resource ids back to this server's tool names, in order."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for rid in ranked_ids:
+        rid_s = str(rid)
+        base = rid_s.split(":")[-1].split("/")[-1].split("__")[-1]
+        cand = rid_s if rid_s in name_set else (base if base in name_set else "")
+        if not cand:
+            cand = next((n for n in name_set if n and rid_s.endswith(n)), "")
+        if cand and cand not in seen:
+            seen.add(cand)
+            out.append(cand)
+    return out
+
+
+async def _select_relevant_tool_names(
+    engine: IntelligenceGraphEngine | None,
+    task: str,
+    tools: list[dict[str, Any]],
+    *,
+    agent_name: str = "",
+    max_tools: int = _MAX_BOUND_TOOLS,
+) -> list[str] | None:
+    """Pick the top-K task-relevant tools when a server exposes too many.
+
+    CONCEPT:AU-ORCH.execution.task-aware-tool-selection — returns ``None`` when the server is small
+    enough to bind wholesale. Otherwise: a fast lexical ranker over tool name +
+    description (top-K by task-word overlap), then a hard cap. Always yields a focused,
+    callable set so the single-server agent runs fast instead of stalling on hundreds of
+    schemas.
+
+    NOTE: this deliberately does NOT call the KG capability index on the per-delegation
+    hot path. That index is embedding-backed and builds on first use — a cold-start
+    round-trip that can take tens of seconds, i.e. it re-introduces the exact stall this
+    mechanism exists to prevent, and a thread-bounded timeout still orphans the slow
+    build. Lexical selection is deterministic and sub-millisecond; a pre-warmed
+    capability-index ranker is the right future enhancement, not a live blocking call.
+    """
+    names = [str(t.get("name")) for t in (tools or []) if t.get("name")]
+    if len(names) <= max_tools:
+        return None
+
+    selected = _lexical_top_k_tools(task, tools, max_tools)
+    if selected:
+        logger.info(
+            "[ORCH-tool-select] lexical chose %d/%d tools for '%s'",
+            len(selected),
+            len(names),
+            agent_name,
+        )
+        return selected
+
+    # Hard cap — nothing matched lexically, but never hand the agent hundreds of schemas.
+    logger.info(
+        "[ORCH-tool-select] hard-capped %d/%d tools for '%s'",
+        max_tools,
+        len(names),
+        agent_name,
+    )
+    return names[:max_tools]
 
 
 async def _execute_single_server(
@@ -1413,13 +1598,21 @@ async def _execute_single_server(
         provider=config.get("provider"),
         model_id=config.get("agent_model"),
         base_url=config.get("base_url"),
-        api_key=config.get("api_key"),
-        ssl_verify=config.get("ssl_verify", True),
+        api_key=config.get("api_key_ref"),
         mcp_toolsets=toolsets,
         enable_skills=False,
         enable_universal_tools=False,
         name=agent_name,
         system_prompt=system_prompt,
+        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is a CAPABILITY,
+        # not a default: this deterministic "call the bound tool(s), report the result"
+        # loop leaves it OFF (the fleet default via create_model) so chain-of-thought
+        # doesn't stack ~18x per-turn latency across the model→tool→model turns until the
+        # run blows the wall-clock and is mis-attributed to a blocked tool. An execution
+        # that genuinely needs deliberation opts IN by setting ``reasoning_effort`` on the
+        # run config (e.g. "low"/"high"), mirroring how RLM is enabled when needed — None
+        # here inherits the model/per-agent setting rather than forcing it off.
+        reasoning_effort=config.get("reasoning_effort"),
     )
 
     prompt = task
@@ -1440,7 +1633,23 @@ async def _execute_single_server(
 
         run_kwargs["usage_limits"] = UsageLimits(**limit_kwargs)
 
-    result = await agent.run(prompt, **run_kwargs)
+    # CONCEPT:AU-ORCH.execution.delegation-wall-clock — bound the direct tool loop with a wall-clock.
+    # ``usage_limits`` caps model round-trips but NOT time: a fleet tool that blocks (e.g.
+    # a systems-manager telemetry call shelling to a stuck host command) hangs the whole
+    # delegation for the full client timeout (observed: 1800s) and piles engine
+    # connections. A hung delegation is worse than a failed one — time out and raise so
+    # the caller records it as a degraded/failed run (fail-loud), never an indefinite hang.
+    try:
+        result = await asyncio.wait_for(
+            agent.run(prompt, **run_kwargs),
+            timeout=_EXECUTE_AGENT_WALL_CLOCK_S,
+        )
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"single-server agent '{agent_name}' exceeded the "
+            f"{_EXECUTE_AGENT_WALL_CLOCK_S:.0f}s wall-clock budget — a bound tool likely "
+            f"blocked; failing loud instead of hanging"
+        ) from exc
     output = (
         getattr(result, "output", None)
         if getattr(result, "output", None) is not None
@@ -1469,11 +1678,53 @@ def _fleet_product(server: str) -> str:
 
 
 def _fleet_server_url(server: str) -> str:
-    """Served MCP URL for a fleet server. Homelab convention is
-    ``http://<server>.<domain>/mcp`` (streamable-http); the domain is overridable for
-    other deployments via ``FLEET_MCP_DOMAIN`` (CONCEPT:AU-ORCH.execution.focused-tools-altitude)."""
-    domain = (setting("FLEET_MCP_DOMAIN", "arpa") or "arpa").strip().strip(".")
-    return f"http://{server}.{domain}/mcp"
+    """Resolve a fleet MCP URL exclusively from deployment configuration.
+
+    ``FLEET_MCP_URL_TEMPLATE`` must contain ``{server}``, for example
+    ``https://{server}.example.test/mcp``. No site-specific domain is assumed.
+    """
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", server or ""):
+        raise RuntimeError("fleet MCP server identifier is invalid")
+    template = str(setting("FLEET_MCP_URL_TEMPLATE", "") or "").strip()
+    if template:
+        if "{server}" not in template:
+            raise RuntimeError("FLEET_MCP_URL_TEMPLATE must contain '{server}'")
+        candidate = template.replace("{server}", server).rstrip("/")
+    else:
+        from agent_utilities.mcp.multiplexer import (
+            MCPMultiplexer,
+            _resolve_config_path,
+            _resolve_runtime_value,
+        )
+
+        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
+        config = MCPMultiplexer(config_path).load_catalog().get(server)
+        if not isinstance(config, dict):
+            return ""
+        candidate = _resolve_runtime_value(config.get("url", ""), sensitive=False)
+        if not candidate:
+            return ""
+
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(candidate)
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or len(candidate) > 8_192
+    ):
+        raise RuntimeError("fleet MCP endpoint is invalid")
+    if parsed.scheme.lower() == "http" and parsed.hostname.lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
+        raise RuntimeError("fleet MCP endpoint requires HTTPS outside loopback")
+    return candidate
 
 
 def _focused_tools_prompt(servers: list[str], config: dict[str, Any]) -> str:
@@ -1506,7 +1757,6 @@ async def _execute_focused_tools(
     agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
     Reuses :func:`_execute_single_server` (which binds a LIST of toolsets) for the loop itself.
     """
-    from agent_utilities.core.config import DEFAULT_SSL_VERIFY
     from agent_utilities.mcp.toolset_factory import build_http_toolset
 
     servers = [s for s in (getattr(shape, "tool_servers", ()) or ()) if s]
@@ -1516,11 +1766,14 @@ async def _execute_focused_tools(
     toolsets: list[Any] = []
     for srv in servers:
         url = _fleet_server_url(srv)
+        if not url:
+            raise RuntimeError(
+                "focused-tools delegation requires FLEET_MCP_URL_TEMPLATE"
+            )
         toolsets.append(
             build_http_toolset(
                 url,
                 headers=_spawn_auth_headers() or None,
-                verify=DEFAULT_SSL_VERIFY,
                 timeout=60,
             )
         )
@@ -1554,9 +1807,10 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
     real multi-step work. Reasoning is off by default (fast); the model/timeout come from the
     shape. Returns a GraphResponse-shaped dict.
     """
-    from pydantic_ai import Agent, ModelSettings
+    from pydantic_ai import ModelSettings
 
     from agent_utilities.core.config import DEFAULT_EXTRA_BODY
+    from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.core.model_factory import create_model
 
     model_id = getattr(shape, "model_id", None) if shape is not None else None
@@ -1568,7 +1822,7 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
     ctk = dict(extra.get("chat_template_kwargs") or {})
     ctk["enable_thinking"] = reason_on
     extra["chat_template_kwargs"] = ctk
-    agent = Agent(
+    agent = create_context_agent(
         model=create_model(model_id=model_id),
         system_prompt="You are a helpful assistant. Respond naturally and concisely.",
         model_settings=ModelSettings(
@@ -1589,6 +1843,7 @@ async def _execute_graph(
     run_id: str,
     max_steps: int,
     agent_meta: dict[str, Any],
+    agent_name: str,
 ) -> dict[str, Any]:
     """Materialize a pydantic-graph and execute it.
 
@@ -1611,6 +1866,11 @@ async def _execute_graph(
         from agent_utilities.graph.routing.strategies.fast_path import is_trivial_query
 
         _direct = is_trivial_query(query)
+    # Structured responses have one authority: the graph synthesizer backed by a
+    # Pydantic output schema. The lean chat fast path is intentionally text-only,
+    # so a JSON request must reach GraphDeps and the final synthesizer.
+    if config.get("response_format", "text") == "json":
+        _direct = False
     if _direct:
         try:
             return await _run_direct_completion(query, _shape)
@@ -1632,6 +1892,8 @@ async def _execute_graph(
         routing_strategy=config.get("routing_strategy", "hybrid"),
         router_timeout=config.get("router_timeout"),
         verifier_timeout=config.get("verifier_timeout"),
+        name=agent_name,
+        capabilities=tuple(config.get("invoker_allowed_tools") or ()),
     )
 
     # Merge any additional config keys
@@ -1664,20 +1926,28 @@ async def _execute_graph(
 
 
 def _stamp_run_identity(props: dict[str, Any]) -> None:
-    """Add tenant_id/actor_id + correlation_id to an audit record in place.
+    """Add opaque tenant/actor/correlation references to an audit record.
 
     Best-effort: identity and correlation are ambient context, so any failure
     (no actor in scope, observability not wired) leaves the record unstamped
     rather than failing the write.
     """
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     try:
         from agent_utilities.security.brain_context import current_actor
 
         actor = current_actor()
         if actor.actor_id:
-            props.setdefault("actor_id", actor.actor_id)
+            props.setdefault(
+                "actor_ref",
+                persistence_reference("actor", actor.actor_id, namespace="run-trace"),
+            )
         if actor.tenant_id:
-            props.setdefault("tenant_id", actor.tenant_id)
+            props.setdefault(
+                "tenant_ref",
+                persistence_reference("tenant", actor.tenant_id, namespace="run-trace"),
+            )
     except Exception as exc:  # pragma: no cover - identity best-effort
         logger.debug("run identity stamp skipped: %s", exc)
     try:
@@ -1685,7 +1955,10 @@ def _stamp_run_identity(props: dict[str, Any]) -> None:
 
         cid = get_correlation_id()
         if cid:
-            props.setdefault("correlation_id", cid)
+            props.setdefault(
+                "correlation_ref",
+                persistence_reference("correlation", cid, namespace="run-trace"),
+            )
     except Exception as exc:  # pragma: no cover - correlation best-effort
         logger.debug("correlation stamp skipped: %s", exc)
 
@@ -1699,32 +1972,58 @@ def _record_execution_trace(
     error: str | None = None,
     duration_ms: float | None = None,
     result_preview: str | None = None,
+    skill_used: str = "",
+    bound_server: str = "",
+    skill_id: str = "",
+    skill_instruction_digest: str = "",
+    model_ref: str = "",
+    model_class: str = "",
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
     CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap — Execution provenance tracking.
 
     Creates a ``RunTrace`` node linked to the agent's Server/Resource node,
-    enabling full audit trail of agent invocations.
+    enabling a privacy-safe audit trail of agent invocations. When a package skill
+    drove the run, opaque ``skill_ref``/``server_ref`` properties identify the
+    attribution class and a ``USES_SKILL`` edge is written (CONCEPT:AU-ORCH.execution.skill-utilization-provenance)
+    so "which runs used skill X, and what tools did it drive" is a single traversal.
     """
     if not engine:
         return
 
-    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    trace_id = f"trace:{run_id}"
+    from agent_utilities.observability.trace_ontology import (
+        OUTCOME_NODE_LABEL,
+        TRACE_NODE_LABEL,
+        TRACE_PRODUCED_OUTCOME_EDGE,
+        outcome_id,
+        outcome_properties,
+        trace_properties,
+    )
+    from agent_utilities.observability.trace_ontology import (
+        trace_id as canonical_trace_id,
+    )
 
-    props: dict[str, Any] = {
-        "agent_name": agent_name,
-        "task": task[:500],
-        "status": status,
-        "timestamp": ts,
-    }
-    if error:
-        props["error"] = error[:500]
-    if duration_ms is not None:
-        props["duration_ms"] = round(duration_ms, 1)
-    if result_preview:
-        props["result_preview"] = result_preview[:500]
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    trace_id = canonical_trace_id(run_id)
+    props = trace_properties(
+        run_id=run_id,
+        agent_name=agent_name,
+        task=task,
+        status=status,
+        timestamp=ts,
+        error=error,
+        duration_ms=duration_ms,
+        result_preview=result_preview,
+        skill_used=skill_used,
+        bound_server=bound_server,
+    )
+    if model_ref:
+        props["model_ref"] = model_ref
+    if model_class:
+        props["model_class"] = model_class
+    if skill_instruction_digest:
+        props["skill_instruction_digest"] = skill_instruction_digest
 
     # Stamp the originating identity + correlation so the audit trail answers
     # "which tenant/actor ran this, and which agents share its run?" as a
@@ -1732,109 +2031,220 @@ def _record_execution_trace(
     _stamp_run_identity(props)
 
     try:
-        engine.add_node(trace_id, "RunTrace", properties=props)
+        engine.add_node(trace_id, TRACE_NODE_LABEL, properties=props)
+        oid = outcome_id(run_id)
+        engine.add_node(
+            oid,
+            OUTCOME_NODE_LABEL,
+            properties=outcome_properties(
+                run_id=run_id,
+                status=status,
+                timestamp=ts,
+                event_sequence=int(props["event_sequence"]),
+                feedback=error or status,
+            ),
+        )
+        engine.link_nodes(trace_id, oid, TRACE_PRODUCED_OUTCOME_EDGE)
 
-        # Link to the agent's server node if it exists
-        server_id = f"srv:{agent_name}"
         if engine.backend:
+            # EXECUTED_ON links to the actual server whose tools ran — the bound server
+            # for a skill-driven run (agent_name is the skill, not a Server), else the
+            # agent's own server node.
+            server_name = bound_server or agent_name
             engine.backend.execute(
                 "MATCH (s:Server {id: $sid}), (t:RunTrace {id: $tid}) "
                 "MERGE (t)-[:EXECUTED_ON]->(s)",
-                {"sid": server_id, "tid": trace_id},
+                {"sid": f"srv:{server_name}", "tid": trace_id},
             )
+            # Skill-utilization provenance: which skill's SOP drove this run. Match the
+            # skill node by ID — the engine cannot resolve a node by a non-id property
+            # (name) in a write, which silently dropped this edge; EXECUTED_ON matches by
+            # id and works, so mirror it. Prefer the resolved skill_id; fall back to the
+            # canonical ``resource:skill:<name>`` id.
+            if skill_used:
+                rid = skill_id or f"resource:skill:{skill_used}"
+                engine.backend.execute(
+                    "MATCH (r:CallableResource {id: $rid}), (t:RunTrace {id: $tid}) "
+                    "MERGE (t)-[:USES_SKILL]->(r)",
+                    {"rid": rid, "tid": trace_id},
+                )
     except Exception as e:
         logger.debug("Failed to record execution trace: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Internal: degraded-outcome detection + self-healing feedback
+# (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome / AU-AHE.evaluation.action-outcome-feedback)
+# ---------------------------------------------------------------------------
+
+_DELEGATION_DEGRADED_SENTINELS = (
+    "unable to find specific data",
+    "could not be generated",
+)
+
+
+# Markers of a tool RESULT that is actually an error report (the MCP tool returned an
+# error string as normal content rather than raising) — used to score :ToolCall status
+# and the all-tools-errored degradation signal (CONCEPT:AU-ORCH.execution.all-tool-calls-errored).
+_TOOL_ERROR_MARKERS = (
+    "error executing",
+    "traceback (most recent",
+    "has no attribute",
+    "exception:",
+    "failed:",
+    "is not defined",
+)
+
+
+def _result_looks_like_error(text: str) -> bool:
+    """True when a tool result string is an error report, not real data."""
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return low.startswith("error") or any(m in low for m in _TOOL_ERROR_MARKERS)
+
+
+def _tool_call_errored(tc: Any) -> bool:
+    """True when a captured tool call failed (explicit error, or error-shaped result)."""
+    if not isinstance(tc, dict):
+        return False
+    if tc.get("error"):
+        return True
+    return _result_looks_like_error(str(tc.get("result") or ""))
+
+
+def _delegation_degraded(result: Any) -> bool:
+    """True when a delegation produced a non-answer (no data / empty / sentinel / all tools errored).
+
+    CONCEPT:AU-ORCH.execution.degraded-no-data-outcome — the trust-critical signal: a run that
+    routed through the graph and gathered zero results returns a plausible-but-empty
+    "…unable to find specific data…" sentinel that was previously recorded as
+    ``status="completed"``. Reads the structured ``degraded`` flag the graph
+    synthesizer stamps into ``GraphResponse.metadata``; also flags a run that DID call
+    tools but every call errored (CONCEPT:AU-ORCH.execution.all-tool-calls-errored — no tool-grounded
+    result); falls back to an output-text sentinel / empty-output check so the
+    single-server and focused-tools paths are covered too. Never raises.
+    """
+    try:
+        output = ""
+        if isinstance(result, dict):
+            meta = result.get("metadata")
+            if isinstance(meta, dict) and meta.get("degraded"):
+                return True
+            # A run that called tools but every call errored produced no grounded
+            # result (e.g. 13 k8s calls all 'has no attribute') — degraded, not success.
+            tcs = result.get("tool_calls")
+            if (
+                isinstance(tcs, list)
+                and tcs
+                and all(_tool_call_errored(tc) for tc in tcs)
+            ):
+                return True
+            res = result.get("results")
+            if isinstance(res, dict):
+                output = str(res.get("output") or "")
+            if not output:
+                output = str(result.get("output") or "")
+        else:
+            output = str(result or "")
+        low = output.strip().lower()
+        if not low:
+            return True
+        return any(s in low for s in _DELEGATION_DEGRADED_SENTINELS)
+    except Exception:  # noqa: BLE001 — a detector must never break the run path
+        return False
+
+
+def _record_degraded_feedback(
+    engine: IntelligenceGraphEngine | None,
+    agent_name: str,
+    task: str,
+    result: Any,
+) -> None:
+    """Feed a degraded delegation back as a negative action-outcome.
+
+    CONCEPT:AU-AHE.evaluation.action-outcome-feedback — the self-healing half of fail-loud: a run
+    that produced no usable data records ``success=False`` on the ``agent:<name>``
+    reward-EMA, so routing/optimization learns to prefer delegations that actually
+    achieve the goal instead of silently repeating a non-answer. Best-effort.
+    """
+    if not engine:
+        return
+    try:
+        from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
+
+        feedback = FeedbackService.from_engine(engine)
+    except Exception:  # noqa: BLE001 — feedback is optional
+        return
+    if feedback is None:
+        return
+    output = ""
+    if isinstance(result, dict):
+        res = result.get("results")
+        if isinstance(res, dict):
+            output = str(res.get("output") or "")
+    with contextlib.suppress(Exception):
+        feedback.record_action_outcome(
+            f"agent:{agent_name}",
+            success=False,
+            observed=output[:200],
+            query=task[:200],
+            reason="delegation_degraded_no_data",
+            agent_id=agent_name,
+        )
 
 
 # ---------------------------------------------------------------------------
 # Internal: per-tool-call provenance (CONCEPT:AU-KG.temporal.message-history-read)
 # ---------------------------------------------------------------------------
 
-_TOOL_ARG_SECRET_KEYS = (
-    "password",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "authorization",
-    "bearer",
-    "credential",
-    "private_key",
+# Per-tool-call provenance extraction lives in the shared leaf module
+# (orchestration/tool_provenance.py) so the multi-agent graph executor can surface the
+# SAME :ToolCall provenance as this direct loop without a circular import
+# (CONCEPT:AU-KG.temporal.message-history-read).
+from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
+    extract_tool_calls as _extract_tool_calls,
+)
+from agent_utilities.orchestration.tool_provenance import (  # noqa: E402
+    sanitize_tool_args as _sanitize_tool_args,  # noqa: F401  (re-exported for callers/tests)
+)
+
+# Common id-shaped keys a tool call's sanitized args carry when the call acted on
+# an existing KG entity (an incident, ticket, spec proposal, governance gate, …).
+# Checked in order; the first present, existing node wins (CONCEPT:AU-KG.audit.tool-call-acted-on-reverse-index).
+_TOOL_ARG_TARGET_KEYS = (
+    "node_id",
+    "id",
+    "entity_id",
+    "target_id",
+    "ticket_id",
+    "incident_id",
+    "spec_id",
 )
 
 
-def _sanitize_tool_args(args: Any) -> str:
-    """Render tool-call args as a compact, secret-redacted JSON string.
+def _extract_tool_call_target(args: Any) -> str:
+    """Best-effort candidate target-entity id from a tool call's sanitized args.
 
-    CONCEPT:AU-KG.temporal.message-history-read — the args are persisted for visibility ("what did the local
-    LLM call, with what"), so redact obvious secret-shaped keys and bound the size.
+    ``args`` is the compact, secret-redacted JSON string ``sanitize_tool_args``
+    produces. Returns the first recognizable id-shaped key's value, or ``""`` when
+    none is present / args isn't decodable JSON.
     """
+    if not args or not isinstance(args, str):
+        return ""
     try:
         import json as _json
 
-        if isinstance(args, str):
-            try:
-                args = _json.loads(args)
-            except Exception:
-                return args[:2000]
-        if isinstance(args, dict):
-            red = {
-                k: (
-                    "***"
-                    if any(s in str(k).lower() for s in _TOOL_ARG_SECRET_KEYS)
-                    else v
-                )
-                for k, v in args.items()
-            }
-            return _json.dumps(red, default=str)[:2000]
-        return _json.dumps(args, default=str)[:2000]
+        decoded = _json.loads(args)
     except Exception:  # noqa: BLE001
-        return str(args)[:2000]
-
-
-def _extract_tool_calls(run_result: Any) -> list[dict[str, Any]]:
-    """Pull the (tool_name, args, result/error) of every tool call from a run.
-
-    CONCEPT:AU-KG.temporal.message-history-read — reads the pydantic-ai message history
-    (``all_messages()``): a ``ToolCallPart`` opens a call, its paired
-    ``ToolReturnPart`` (matched by ``tool_call_id``) carries the result, and a
-    ``RetryPromptPart`` carries a tool error. Returns one ordered record per call.
-    Best-effort and version-tolerant (matches on part class name / ``part_kind``)
-    so a pydantic-ai bump can never break the run path.
-    """
-    calls: dict[str, dict[str, Any]] = {}
-    order: list[str] = []
-    try:
-        messages = run_result.all_messages()
-    except Exception:  # noqa: BLE001 — not every result exposes a history
-        return []
-    # Only a real materialized history is iterable here; a mock/coroutine is not.
-    if not isinstance(messages, list | tuple):
-        return []
-    for msg in messages or []:
-        for part in getattr(msg, "parts", None) or []:
-            kind = str(getattr(part, "part_kind", "") or part.__class__.__name__)
-            lk = kind.lower()
-            if "toolcall" in lk or lk == "tool-call":
-                tcid = str(getattr(part, "tool_call_id", "") or f"tc{len(order)}")
-                rec = {
-                    "tool_call_id": tcid,
-                    "tool_name": str(getattr(part, "tool_name", "") or ""),
-                    "args": _sanitize_tool_args(getattr(part, "args", None)),
-                    "result": "",
-                    "error": "",
-                }
-                calls[tcid] = rec
-                order.append(tcid)
-            elif "toolreturn" in lk or lk == "tool-return":
-                tcid = str(getattr(part, "tool_call_id", "") or "")
-                if tcid in calls:
-                    calls[tcid]["result"] = str(getattr(part, "content", ""))[:2000]
-            elif "retryprompt" in lk or lk == "retry-prompt":
-                tcid = str(getattr(part, "tool_call_id", "") or "")
-                if tcid in calls:
-                    calls[tcid]["error"] = str(getattr(part, "content", ""))[:500]
-    return [calls[t] for t in order]
+        return ""
+    if not isinstance(decoded, dict):
+        return ""
+    for key in _TOOL_ARG_TARGET_KEYS:
+        val = decoded.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
 
 
 def _persist_tool_calls(
@@ -1855,8 +2265,17 @@ def _persist_tool_calls(
     """
     if not engine or not tool_calls:
         return 0
+    from agent_utilities.observability.trace_ontology import (
+        TOOL_CALL_NODE_LABEL,
+        TRACE_USED_TOOL_EDGE,
+        tool_call_properties,
+    )
+    from agent_utilities.observability.trace_ontology import (
+        trace_id as canonical_trace_id,
+    )
+
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    trace_id = f"trace:{run_id}"
+    trace_id = canonical_trace_id(run_id)
     written = 0
     try:
         from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
@@ -1865,28 +2284,46 @@ def _persist_tool_calls(
     except Exception:  # noqa: BLE001 — reward is optional
         feedback = None
     for i, tc in enumerate(tool_calls):
-        tc_id = f"toolcall:{run_id.split(':', 1)[-1]}:{i}"
-        ok = not tc.get("error")
-        props: dict[str, Any] = {
-            "run_id": run_id,
-            "agent_name": agent_name,
-            "server": server,
-            "tool_name": tc.get("tool_name", ""),
-            "args": tc.get("args", ""),
-            "result_preview": tc.get("result", "")[:2000],
-            "error": tc.get("error", "")[:500],
-            "status": "ok" if ok else "error",
-            "sequence": i,
-            "timestamp": ts,
-        }
+        tc_id = f"toolcall:{trace_id.removeprefix('trace:')}:{i}"
+        # A tool that returned an error STRING as normal content (the MCP tool caught its
+        # own exception) has no explicit ``error`` but is still a failure — score it as
+        # such so provenance queries can filter real failures (AU-ORCH.execution.all-tool-calls-errored).
+        ok = not _tool_call_errored(tc)
+        props = tool_call_properties(
+            run_id=run_id,
+            tool_name=str(tc.get("tool_name", "")),
+            args=tc.get("args", ""),
+            result=tc.get("result", ""),
+            error=tc.get("error", ""),
+            status="ok" if ok else "error",
+            sequence=i,
+            timestamp=ts,
+        )
         _stamp_run_identity(props)
         try:
-            engine.add_node(tc_id, "ToolCall", properties=props)
+            engine.add_node(tc_id, TOOL_CALL_NODE_LABEL, properties=props)
             # link_nodes writes backend-FIRST (durable), unlike add_edge's
             # best-effort compute-cache path — so the provenance edge survives in
             # the epistemic-graph for graph-os traversal queries.
-            engine.link_nodes(trace_id, tc_id, "MADE_TOOL_CALL")
+            engine.link_nodes(trace_id, tc_id, TRACE_USED_TOOL_EDGE)
             written += 1
+            # CONCEPT:AU-KG.audit.tool-call-acted-on-reverse-index (G23) — when the call's args
+            # name an existing entity, link the ToolCall to it so
+            # Orchestrator.get_tool_calls_for_target can reconstruct "what happened to
+            # X" without a per-call round trip at read time. Best-effort: never fails
+            # the run, and never vivifies a phantom target node.
+            target_id = _extract_tool_call_target(tc.get("args", ""))
+            if target_id and target_id != tc_id:
+                try:
+                    if engine.graph.has_node(target_id):
+                        engine.link_nodes(tc_id, target_id, "ACTED_ON")
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug(
+                        "[KG-2.296] ACTED_ON link skipped (%s -> %s): %s",
+                        tc_id,
+                        target_id,
+                        exc,
+                    )
         except Exception as exc:  # noqa: BLE001
             logger.debug("[KG-2.296] ToolCall persist failed (%s): %s", tc_id, exc)
             continue

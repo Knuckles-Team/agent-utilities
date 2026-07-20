@@ -162,11 +162,11 @@ class TestRLMTriggerThresholds:
     """Test that RLM trigger thresholds are configurable."""
 
     def test_ahe_threshold_configurable(self):
-        config = RLMConfig(ahe_trace_threshold=100)
+        config = RLMConfig(allow_auto_trigger=True, ahe_trace_threshold=100)
         assert config.should_trigger(trace_count=50) is False
         assert config.should_trigger(trace_count=150) is True
 
     def test_kg_threshold_configurable(self):
-        config = RLMConfig(kg_bulk_threshold=200)
+        config = RLMConfig(allow_auto_trigger=True, kg_bulk_threshold=200)
         assert config.should_trigger(kg_node_count=100) is False
         assert config.should_trigger(kg_node_count=300) is True

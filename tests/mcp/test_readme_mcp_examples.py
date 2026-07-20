@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
+from agent_utilities.deployment.codex_registration import graphos_stdio_spec
 from agent_utilities.mcp import readme_mcp_examples as gen
 from agent_utilities.mcp.env_sources import example_env_pairs, is_agent_only
 
@@ -12,6 +14,8 @@ ENV_EXAMPLE = """\
 CONTAINER_MANAGER_TYPE=docker # options: docker, podman
 SYSTEM_TOOLS_ENABLE=False
 INFOTOOL=True
+# DEMO_TOKEN=env://DEMO_TOKEN # resolved by an alias-aware launcher
+# DEMO_URL=env://DEMO_URL # resolved by an alias-aware launcher
 """
 
 PYPROJECT = """\
@@ -26,6 +30,9 @@ demo-agent = "demo_mcp.agent_server:agent_server"
 CODE = (
     "from agent_utilities.core.config import setting\n"
     'setting("CONTAINER_MANAGER_TYPE", "docker")\n'
+    'setting("DEMO_TOKEN", "")\n'
+    'setting("DEMO_URL", "")\n'
+    'setting("EMPTY_RUNTIME_VALUE", "")\n'
     'setting("AGENT_DESCRIPTION", "")\n'
     "def register_info_tools(mcp):\n    pass\n"
 )
@@ -60,19 +67,41 @@ def test_example_env_pairs_canonical_set(tmp_path: Path) -> None:
     assert "SYSTEM_TOOLS_ENABLE" not in names  # companion suite excluded
     # values come from .env.example
     assert dict(pairs)["CONTAINER_MANAGER_TYPE"] == "docker"
+    assert dict(pairs)["DEMO_TOKEN"] == "env://DEMO_TOKEN"
+    assert dict(pairs)["DEMO_URL"] == "env://DEMO_URL"
+    assert "EMPTY_RUNTIME_VALUE" not in dict(pairs)
 
 
 def test_render_examples_has_markers_and_tool_mode(tmp_path: Path) -> None:
     block = gen.render_examples(_make_pkg(tmp_path))
     assert gen.START in block and gen.END in block
-    assert '"MCP_TOOL_MODE": "condensed"' in block
-    assert "demo-mcp[mcp]" in block  # slim extra
+    assert '"MCP_TOOL_MODE": "intent"' in block
+    assert "demo-mcp[mcp]" in block  # connector-focused extra
+    assert "epistemic-graph[full]" in block
+    assert "[agent-runtime]` extra additionally" in block
+    assert "excludes" not in block
     assert "SYSTEM_TOOLS_ENABLE" not in block  # no stale placeholder
     # the stdio JSON block parses and carries the canonical env
     first = block.split("```json", 1)[1].split("```", 1)[0]
     env = json.loads(first)["mcpServers"]["demo-mcp"]["env"]
-    assert env["MCP_TOOL_MODE"] == "condensed"
+    assert env["MCP_TOOL_MODE"] == "intent"
     assert "AGENT_DESCRIPTION" not in env
+    assert env["DEMO_TOKEN"] == "env://DEMO_TOKEN"
+    assert env["DEMO_URL"] == "env://DEMO_URL"
+    assert "EMPTY_RUNTIME_VALUE" not in env
+    assert "Runtime references require an alias-aware launcher" in block
+    assert "docker run -i --rm" in block
+    assert "--read-only" in block
+    assert "--cap-drop=ALL" in block
+    assert "--security-opt=no-new-privileges" in block
+    assert "-e TRANSPORT=stdio" in block
+    assert "registry.example.invalid/demo-mcp@sha256:<digest> demo-mcp" in block
+    assert "-p 127.0.0.1:8000:8000" not in block
+    assert "-e HOST=0.0.0.0" not in block
+    assert "exact `MCP_ALLOWED_HOSTS`" in block
+    assert "authenticated TLS ingress" in block
+    assert "-e DEMO_TOKEN \\" in block
+    assert "-e DEMO_TOKEN=env://" not in block
 
 
 def test_retrofit_replaces_stale_region(tmp_path: Path) -> None:
@@ -117,7 +146,7 @@ def test_sync_mcp_configs_rewrites_env(tmp_path: Path) -> None:
     env = json.loads((root / "mcp_config.json").read_text())["mcpServers"]["demo-mcp"][
         "env"
     ]
-    assert env["MCP_TOOL_MODE"] == "condensed"
+    assert env["MCP_TOOL_MODE"] == "intent"
     assert "AGENT_DESCRIPTION" not in env and "SYSTEM_TOOLS_ENABLE" not in env
     assert json.loads((root / "mcp_config.json").read_text())["mcpServers"]["demo-mcp"][
         "args"
@@ -132,3 +161,35 @@ def test_url_only_server_not_rewritten(tmp_path: Path) -> None:
     cfg = {"mcpServers": {"demo-mcp": {"url": "http://localhost:8000/demo-mcp/mcp"}}}
     (root / "mcp_config.json").write_text(json.dumps(cfg), encoding="utf-8")
     assert gen.sync_mcp_configs(root) == []
+
+
+def _readme_section(heading: str) -> str:
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    return readme.split(heading, 1)[1].split("\n### ", 1)[0]
+
+
+def test_self_contained_readme_uses_installed_portable_entry_point() -> None:
+    section = _readme_section("### Self-hosted, self-contained installation")
+    spec = graphos_stdio_spec()
+    expected = f"codex mcp add graph-os -- {spec['command']} " + " ".join(spec["args"])
+    assert expected in section
+    assert "mcp_config.json" not in section
+    assert "${workspaceFolder}" not in section
+
+
+def test_shared_engine_readme_keeps_host_and_secrets_runtime_only() -> None:
+    section = _readme_section("### Shared engine")
+    assert "codex mcp add graph-os -- graph-os --transport stdio" in section
+    launcher = section.split("The corresponding XDG AgentConfig", 1)[0]
+    assert "GRAPH_SERVICE_ENDPOINTS" not in launcher
+    assert "OIDC_CLIENT_SECRET" not in launcher
+    assert "mcp_config.json" not in launcher
+
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(
+        encoding="utf-8"
+    )
+    assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", readme)
+    retired_codex_json = ".codex" + "/mcp_config.json"
+    assert retired_codex_json not in readme

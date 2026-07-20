@@ -25,7 +25,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.DEVOPS
     description = "Source control — projects, pipelines, and merge requests"
     env_prefix = "GITLAB"
-    default_url = "https://gitlab.local.example.com"
     supports_websocket = False
 
     def get_fields(self) -> list[WidgetField]:
@@ -47,7 +46,11 @@ class Widget(BaseWidget):
         url = self._resolve_url(config)
         token = self._resolve_token(config)
 
-        client = GitLabApi(base_url=url, token=token, verify=False)
+        client = GitLabApi(
+            base_url=url,
+            token=token,
+            verify=self._requests_tls_verify(config),
+        )
 
         projects = 0
         open_mrs = 0
@@ -62,21 +65,21 @@ class Widget(BaseWidget):
                 # Limited fetch — get count from pagination
                 projects = len(project_list)
         except Exception as e:
-            logger.debug("GitLab projects fetch: %s", e)
+            logger.debug("GitLab projects fetch: %s", type(e).__name__)
 
         try:
             mrs = client.get_merge_requests(state="opened", per_page=100)
             if isinstance(mrs, list):
                 open_mrs = len(mrs)
         except Exception as e:
-            logger.debug("GitLab MRs fetch: %s", e)
+            logger.debug("GitLab MRs fetch: %s", type(e).__name__)
 
         try:
             runners = client.get_runners(status="online")
             if isinstance(runners, list):
                 runners_online = len(runners)
         except Exception as e:
-            logger.debug("GitLab runners fetch: %s", e)
+            logger.debug("GitLab runners fetch: %s", type(e).__name__)
 
         return WidgetData(
             fields={

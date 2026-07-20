@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.retrieval.code_context import (
     resolve_anchors,
 )
 
-_CANON = "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/orchestration/engine.py"
+_CANON = "/home/agent-user/workspace/agent-packages/agent-utilities/agent_utilities/orchestration/engine.py"
 _AU = "/au/agent_utilities/orchestration/engine.py"
 
 
@@ -43,7 +43,7 @@ class FakeEngine:
                 self._row("execute_agent", _AU, 71),
                 self._row(
                     "_run_stream_events",
-                    "/home/apps/workspace/open-source-libraries/agent-frameworks/pydantic-ai/x.py",
+                    "/home/agent-user/workspace/open-source-libraries/agent-frameworks/pydantic-ai/x.py",
                     1252,
                 ),
             ]

@@ -14,6 +14,32 @@ from agent_utilities.knowledge_graph.research.cohort import (
 pytestmark = pytest.mark.concept("AU-KG.coordination.research-cohort-barrier")
 
 
+@pytest.fixture(autouse=True)
+def _native_graph_slice(monkeypatch):
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    calls: list[dict] = []
+
+    def _apply(engine, connector, entities, relationships=None, **kwargs):
+        calls.append(
+            {
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships or [],
+                "kwargs": kwargs,
+            }
+        )
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("type")
+            engine.add_node(node_id, node_type=node_type, properties=row)
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _apply)
+    return calls
+
+
 class _Graph:
     def __init__(self, nodes):
         self._n = nodes
@@ -80,12 +106,12 @@ class _FakeEngine:
         self.tasks[job_id]["status"] = status
 
 
-def test_create_cohort_fans_out_and_tags():
+def test_create_cohort_fans_out_and_tags(_native_graph_slice):
     eng = _FakeEngine()
     out = create_cohort(
         eng,
         papers=["https://arxiv.org/abs/2606.18381", "https://arxiv.org/abs/2606.18508"],
-        repos=["/oss/SproutRAG"],
+        repos=["https://example.test/SproutRAG.git"],
         goal="evolve retrieval",
     )
     cid = out["cohort_id"]
@@ -94,6 +120,8 @@ def test_create_cohort_fans_out_and_tags():
     # cohort node created in 'ingesting' state
     assert eng._nodes[cid]["status"] == "ingesting"
     assert eng._nodes[cid]["member_count"] == 3
+    assert _native_graph_slice[0]["connector"] == "scholarx"
+    assert _native_graph_slice[0]["kwargs"]["source_instance"] == "research-cohort"
 
     members = [
         t
@@ -111,13 +139,14 @@ def test_create_cohort_fans_out_and_tags():
     paper = next(t for t in members if t["meta"]["type"] == "research_paper_fetch")
     p = paper["meta"]["paper"]
     assert p["id"] == "2606.18381" and p["url"].startswith("https://arxiv.org")
+    assert "pdf_path" not in p
     # exactly one barrier gate, tagged but not a member
     assert eng.tasks[f"{cid}:synth"]["meta"]["type"] == SYNTHESIZE_TASK_TYPE
 
 
 def test_readiness_terminal_poison_member_and_deadline():
     eng = _FakeEngine()
-    cid = create_cohort(eng, papers=["u1", "u2"], repos=[])["cohort_id"]
+    cid = create_cohort(eng, papers=["2606.10001", "2606.10002"], repos=[])["cohort_id"]
 
     ready, st = cohort_ready(eng, cid, deadline_unix=0.0)
     assert not ready and st["total"] == 2 and st["pending"] == 2
@@ -131,7 +160,7 @@ def test_readiness_terminal_poison_member_and_deadline():
 
 def test_deadline_forces_ready_with_pending_members():
     eng = _FakeEngine()
-    cid = create_cohort(eng, papers=["u1"], repos=[])["cohort_id"]
+    cid = create_cohort(eng, papers=["2606.10001"], repos=[])["cohort_id"]
     # still pending, but a long-past deadline (epoch 1) forces readiness
     ready, _ = cohort_ready(eng, cid, deadline_unix=1.0)
     assert ready

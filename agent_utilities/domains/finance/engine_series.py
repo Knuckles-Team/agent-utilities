@@ -33,15 +33,13 @@ logger = logging.getLogger(__name__)
 
 
 def _client():
-    """A connected engine client, or ``None`` when no engine is reachable."""
+    """A non-owning process-engine view, or ``None`` when unreachable."""
     try:
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        return SyncEpistemicGraphClient.connect(**client_connect_kwargs())
+        return GraphComputeEngine.get_or_create().client
     except Exception as e:  # noqa: BLE001
         logger.debug(
             "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] engine unavailable for series op: %s",
@@ -65,7 +63,6 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
     """
     if series.empty:
         return series
-    own_client = client is None
     client = client or _client()
     if client is None:
         # No engine — degrade to the pandas equivalent so the caller still works.
@@ -73,7 +70,7 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
             series.index.min(), series.index.max(), freq=step, tz="UTC"
         )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
-    sid = f"finseries:{uuid.uuid4().hex[:12]}"
+    sid = f"finseries:{uuid.uuid4().hex}"
     try:
         ns = _to_ns(series.index)
         client.timeseries.append(
@@ -93,12 +90,6 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
             series.index.min(), series.index.max(), freq=step, tz="UTC"
         )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
-    finally:
-        if own_client:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001
-                pass
 
 
 def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
@@ -111,11 +102,10 @@ def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
     """
     if series.empty:
         return pd.Series(index=at, dtype=float, name=series.name)
-    own_client = client is None
     client = client or _client()
     if client is None:
         return series.reindex(series.index.union(at)).ffill().reindex(at)
-    sid = f"finseries:{uuid.uuid4().hex[:12]}"
+    sid = f"finseries:{uuid.uuid4().hex}"
     try:
         ns = _to_ns(series.index)
         client.timeseries.append(
@@ -130,9 +120,3 @@ def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
             e,
         )
         return series.reindex(series.index.union(at)).ffill().reindex(at)
-    finally:
-        if own_client:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001
-                pass

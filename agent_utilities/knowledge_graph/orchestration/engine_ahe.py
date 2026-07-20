@@ -23,6 +23,17 @@ import logging
 import time
 import uuid
 
+from agent_utilities.observability.trace_ontology import (
+    OUTCOME_NODE_LABEL,
+    TRACE_PRODUCED_OUTCOME_EDGE,
+    TRACE_USED_TOOL_EDGE,
+    next_event_sequence,
+    outcome_id,
+    outcome_properties,
+    trace_id,
+    trace_properties,
+)
+
 from ...models.knowledge_graph import (
     CritiqueNode,
     ExperimentNode,
@@ -46,7 +57,7 @@ class AHEMixin(_Base):
         parent_task_id: str | None = None,
     ) -> str:
         """Spawn a specialized sub-agent with a curated toolset and composed prompt."""
-        agent_id = f"spawn:{uuid.uuid4().hex[:8]}"
+        agent_id = f"spawn:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         # Intelligent prompt composition: Find relevant base prompts in the graph
@@ -87,43 +98,61 @@ class AHEMixin(_Base):
 
     def record_outcome(
         self,
-        episode_id: str,
+        run_id: str,
         reward: float,
         feedback: str,
         success_criteria_met: list[str] | None = None,
     ):
-        """Record the outcome and reward for an episode (Lightning step 1)."""
-        eval_id = f"eval:{uuid.uuid4().hex[:8]}"
+        """Record the canonical outcome for a RunTrace (Lightning step 1)."""
+        eval_id = outcome_id(run_id)
+        tid = trace_id(run_id)
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        sequence = next_event_sequence()
+        status = "completed" if reward >= 0.5 else "failed"
+        canonical = outcome_properties(
+            run_id=run_id,
+            status=status,
+            timestamp=ts,
+            event_sequence=sequence,
+            feedback=feedback,
+            reward=reward,
+        )
+        trace = trace_properties(
+            run_id=run_id,
+            agent_name="evaluation-runtime",
+            task="outcome evaluation",
+            status=status,
+            timestamp=ts,
+            event_sequence=sequence,
+        )
+        trace_data = {"id": tid, "type": "RunTrace", **trace}
+        self.graph.add_node(tid, **trace_data)
         node = OutcomeEvaluationNode(
             id=eval_id,
-            name=f"Eval {episode_id}",
-            reward=reward,
+            name="Execution outcome",
+            reward=float(canonical["reward"]),
             success_criteria_met=success_criteria_met or [],
-            feedback_text=feedback,
+            feedback_text=str(canonical["feedback_text"]),
             timestamp=ts,
         )
         # Always add to in-memory graph
-        self.graph.add_node(node.id, **node.model_dump())
+        node_data = {**node.model_dump(), **canonical}
+        self.graph.add_node(node.id, **node_data)
 
         if self.backend:
-            data = self._serialize_node(node, label="OutcomeEvaluation")
-            self._upsert_node("OutcomeEvaluation", eval_id, data)
-            # Ladybug requires labels for relationship creation
-            label = (
-                "Episode"
-                if episode_id.startswith("ep:") or episode_id.startswith("run:")
-                else "ReasoningTrace"
-            )
+            self._upsert_node("RunTrace", tid, trace_data)
+            data = self._serialize_node(node, label=OUTCOME_NODE_LABEL)
+            data.update(canonical)
+            self._upsert_node(OUTCOME_NODE_LABEL, eval_id, data)
             self.backend.execute(
-                f"MATCH (e:{label}), (o:OutcomeEvaluation) WHERE e.id = $eid AND o.id = $oid MERGE (e)-[:PRODUCED_OUTCOME]->(o)",
-                {"eid": episode_id, "oid": eval_id},
+                f"MATCH (r:RunTrace), (o:{OUTCOME_NODE_LABEL}) "
+                f"WHERE r.id = $rid AND o.id = $oid MERGE (r)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o)",
+                {"rid": tid, "oid": eval_id},
             )
 
         # Link in graph compute as well
-        # Note: we don't know the label in NX nodes reliably without checking 'type' property
-        if episode_id in self.graph:
-            self.graph.add_edge(episode_id, eval_id, type="PRODUCED_OUTCOME")
+        if tid in self.graph:
+            self.graph.add_edge(tid, eval_id, relationship=TRACE_PRODUCED_OUTCOME_EDGE)
 
         return eval_id
 
@@ -134,8 +163,13 @@ class AHEMixin(_Base):
         reward: float,
         episode_id: str | None = None,
     ) -> str:
-        """Record an RLM numeric reward signal as a lightweight edge attribute to prevent graph bloat."""
+        """Record an RLM reward with an opaque canonical trace reference.
+
+        ``episode_id`` remains as a compatibility argument; it identifies a
+        ``RunTrace`` and is never persisted verbatim.
+        """
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        trace_ref = trace_id(episode_id) if episode_id else None
         # In memory
         if actor_id in self.graph and optimization_goal_id in self.graph:
             self.graph.add_edge(
@@ -144,18 +178,18 @@ class AHEMixin(_Base):
                 type="optimizesFor",
                 reward_score=reward,
                 timestamp=ts,
-                episode_id=episode_id,
+                trace_id=trace_ref,
             )
 
         if self.backend:
             self.backend.execute(
-                "MATCH (a), (g) WHERE a.id = $aid AND g.id = $gid MERGE (a)-[r:OPTIMIZES_FOR]->(g) SET r.reward_score = $rew, r.timestamp = $ts, r.episode_id = $epid",
+                "MATCH (a), (g) WHERE a.id = $aid AND g.id = $gid MERGE (a)-[r:OPTIMIZES_FOR]->(g) SET r.reward_score = $rew, r.timestamp = $ts, r.trace_id = $trace_id",
                 {
                     "aid": actor_id,
                     "gid": optimization_goal_id,
                     "rew": reward,
                     "ts": ts,
-                    "epid": episode_id,
+                    "trace_id": trace_ref,
                 },
             )
         return "edge_recorded"
@@ -176,12 +210,13 @@ class AHEMixin(_Base):
     def record_self_evaluation(
         self, episode_id: str, confidence: float, difficulty: float
     ):
-        """Record the agent's internal self-evaluation (confidence calibration)."""
-        eval_id = f"self_eval:{uuid.uuid4().hex[:8]}"
+        """Record confidence calibration against the canonical RunTrace."""
+        eval_id = f"self_eval:{uuid.uuid4().hex}"
+        tid = trace_id(episode_id)
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = SelfEvaluationNode(
             id=eval_id,
-            name=f"Self-Eval {episode_id}",
+            name="Trace self-evaluation",
             confidence_calibration=confidence,
             task_difficulty=difficulty,
             timestamp=ts,
@@ -193,12 +228,12 @@ class AHEMixin(_Base):
             data = self._serialize_node(node, label="SelfEvaluation")
             self._upsert_node("SelfEvaluation", eval_id, data)
             self.backend.execute(
-                "MATCH (e:Episode), (s:SelfEvaluation) WHERE e.id = $eid AND s.id = $sid MERGE (e)-[:SELF_REFLECTS_ON]->(s)",
-                {"eid": episode_id, "sid": eval_id},
+                "MATCH (r:RunTrace), (s:SelfEvaluation) WHERE r.id = $rid AND s.id = $sid MERGE (r)-[:SELF_REFLECTS_ON]->(s)",
+                {"rid": tid, "sid": eval_id},
             )
 
-        if episode_id in self.graph:
-            self.graph.add_edge(episode_id, eval_id, type="SELF_REFLECTS_ON")
+        if tid in self.graph:
+            self.graph.add_edge(tid, eval_id, relationship="SELF_REFLECTS_ON")
 
         return eval_id
 
@@ -206,7 +241,7 @@ class AHEMixin(_Base):
         self, name: str, variants: list[str], status: str = "running"
     ):
         """Record a new A/B experiment for prompt or tool variants."""
-        exp_id = f"exp:{uuid.uuid4().hex[:8]}"
+        exp_id = f"exp:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = ExperimentNode(
             id=exp_id,
@@ -226,7 +261,7 @@ class AHEMixin(_Base):
 
     def generate_critique(self, reasoning_trace_id: str, textual_gradient: str) -> str:
         """Generate a critique (textual gradient) for a reasoning trace (Lightning step 2)."""
-        crit_id = f"crit:{uuid.uuid4().hex[:8]}"
+        crit_id = f"crit:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = CritiqueNode(
             id=crit_id,
@@ -246,13 +281,13 @@ class AHEMixin(_Base):
             )
 
         if reasoning_trace_id in self.graph:
-            self.graph.add_edge(reasoning_trace_id, crit_id, type="GENERATED_CRITIQUE")
+            self.graph.add_edge(reasoning_trace_id, crit_id, relationship="GENERATED_CRITIQUE")
 
         return crit_id
 
     def optimize_prompt(self, prompt_id: str, critique_id: str) -> str:
         """Create a new optimized version of a system prompt based on a critique (Lightning step 3)."""
-        new_id = f"prompt:{uuid.uuid4().hex[:8]}"
+        new_id = f"prompt:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if self.backend:
             old_prompt = self.query_cypher(
@@ -293,7 +328,9 @@ class AHEMixin(_Base):
         """Autonomous loop for background optimization (Lightning trainer)."""
         # 1. Pull recent failures (low reward)
         failures = self.query_cypher(
-            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5 RETURN e.id as id, e.description AS descriptionription LIMIT 5"
+            f"MATCH (r:RunTrace)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation) "
+            "WHERE o.reward < 0.5 RETURN r.id AS id, r.task AS task "
+            "ORDER BY r.event_sequence DESC LIMIT 5"
         )
         logger.info(f"Self-improvement cycle: found {len(failures)} failures.")
         for fail in failures:
@@ -301,13 +338,13 @@ class AHEMixin(_Base):
             # 2. Generate pseudo-critique if missing
             crit_id = self.generate_critique(
                 fail["id"],
-                f"Improve the following based on failure: {fail.get('description', '')}",
+                f"Improve the following based on failure: {fail.get('task', '')}",
             )
 
             # 3. Optimize linked prompt
             # Step-by-step traversal for robustness
             agent_res = self.query_cypher(
-                "MATCH (e {id: $eid})-[:EXECUTED_BY]->(a) RETURN a.id as id LIMIT 1",
+                "MATCH (r:RunTrace {id: $eid})-[:EXECUTED_ON]->(a) RETURN a.id as id LIMIT 1",
                 {"eid": fail["id"]},
             )
             prompt = None
@@ -327,7 +364,7 @@ class AHEMixin(_Base):
                 self.optimize_prompt(prompt[0]["id"], crit_id)
             else:
                 logger.warning(
-                    f"No prompt linked to failure {fail['id']} via Episode->Agent->Prompt path."
+                    f"No prompt linked to canonical trace {fail['id']}."
                 )
 
         # 4. Propose new skills
@@ -342,26 +379,26 @@ class AHEMixin(_Base):
         # Removed if not self.backend return to allow NX fallback
 
         # Strategy A: Frequent Tool Sequences
-        # Fetch successful episodes and their tool calls in order
-        query = """
-        MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation)
+        # Fetch successful traces and their tool calls in order.
+        query = f"""
+        MATCH (r:RunTrace)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation)
         WHERE o.reward >= 0.8
-        MATCH (e)-[:USED_TOOL]->(t:ToolCall)
-        RETURN e.id as ep_id, t.tool_name as tool, t.timestamp as ts
-        ORDER BY ep_id, ts
+        MATCH (r)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall)
+        RETURN r.id as trace_id, t.tool_name as tool, t.sequence as tool_sequence
+        ORDER BY trace_id, tool_sequence
         """
         results = self.query_cypher(query)
 
-        episodes: dict[str, list[str]] = {}
+        traces: dict[str, list[str]] = {}
         for row in results:
-            ep_id = row["ep_id"]
-            if ep_id not in episodes:
-                episodes[ep_id] = []
-            episodes[ep_id].append(row["tool"])
+            tid = row["trace_id"]
+            if tid not in traces:
+                traces[tid] = []
+            traces[tid].append(row["tool"])
 
         # Count sequence frequency
         sequences: dict[tuple[str, ...], int] = {}
-        for tools in episodes.values():
+        for tools in traces.values():
             if len(tools) >= 2:
                 # Use window of 2-3 tools
                 for i in range(len(tools) - 1):
@@ -379,7 +416,7 @@ class AHEMixin(_Base):
             return None
 
         # Create ProposedSkillNode
-        skill_id = f"skill_prop:{uuid.uuid4().hex[:8]}"
+        skill_id = f"skill_prop:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         name = f"Sequence: {' -> '.join(best_seq)}"

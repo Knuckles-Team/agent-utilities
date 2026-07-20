@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespaces.yaml
+  - service-accounts.yaml
+  - storage.yaml
+  - configuration.yaml
+  - global-control-plane.yaml
+  - cell-data-plane.yaml
+  - workers.yaml
+  - autoscaling.yaml
+  - disruption-budgets.yaml
+  - network-policies.yaml
+  - mesh-security.yaml
+  - backup-dr.yaml
+  - observability.yaml
+
+# The release renderer replaces both sentinel tags with exact OCI digests from
+# the verified release manifest.  Applying the template directly fails closed:
+# the sentinel registry is intentionally non-resolving.
+images:
+  - name: graph-os-image
+    newName: release-manifest-required.invalid/graph-os
+    newTag: exact-digest-required
+  - name: epistemic-graph-image
+    newName: release-manifest-required.invalid/epistemic-graph
+    newTag: exact-digest-required
+
+commonLabels:
+  app.kubernetes.io/part-of: graph-os
+  app.kubernetes.io/managed-by: kustomize
+
+configMapGenerator:
+  - name: graphos-slo-dashboard
+    namespace: graphos-control
+    options:
+      labels:
+        grafana_dashboard: "1"
+    files:
+      - graphos-slo-dashboard.json

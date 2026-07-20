@@ -7,7 +7,7 @@
   "kg_source_query": null,
   "results": [
     {
-      "source": "/home/apps/workspace/.scholarx/papers/2606.14269_scoregate__adaptive_chunk_selection_for_retrieval_augmented.md",
+      "source": "${WORKSPACE_ROOT}/.scholarx/papers/2606.14269_scoregate__adaptive_chunk_selection_for_retrieval_augmented.md",
       "source_type": "filesystem",
       "concept_id": "",
       "signals": {

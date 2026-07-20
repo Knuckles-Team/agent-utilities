@@ -19,8 +19,7 @@ The matching ontology **interfaces** (``ResearchArtifactShape`` / ``VerifiableCl
 **typed links** (``artifact_contains_claim`` / ``grounds`` / ``implements_claim``) and
 **promotable node/edge types** are registered natively in
 :mod:`...ontology.interfaces`, :mod:`...ontology.links` and ``owl_bridge`` — always on,
-no facade. Populate from :class:`...extraction.fact_extractor` output or the legacy
-:class:`...adaptation.research_artifacts.ResearchArtifact`.
+no facade. Populate from :class:`...extraction.fact_extractor` output.
 
 Concept: research-artifact
 """
@@ -314,39 +313,6 @@ class ResearchArtifact(BaseModel):
             source_url=source_url,
             source_ref=source_ref or (f"article:{article_id}"),
         )
-
-    @classmethod
-    def from_research_artifact(cls, legacy: Any) -> ResearchArtifact:
-        """Lift the legacy :class:`adaptation.research_artifacts.ResearchArtifact`
-        (key_contributions / methods / suggested_experiments) into an OWL-native ARA.
-
-        Contributions become claims, methods become code specs, suggested
-        experiments seed exploration nodes — so existing extracted papers gain a
-        reason-able 4-layer shape without re-extraction.
-        """
-        aid = str(
-            getattr(legacy, "article_id", "") or _slug(getattr(legacy, "title", ""))
-        )
-        contributions = list(getattr(legacy, "key_contributions", []) or [])
-        methods = list(getattr(legacy, "methods", []) or [])
-        experiments = list(getattr(legacy, "suggested_experiments", []) or [])
-        art = cls.from_extracted(
-            aid,
-            str(getattr(legacy, "title", aid)),
-            claims=contributions,
-            code_specs=methods,
-            summary=str(getattr(legacy, "summary", "")),
-            authors=list(getattr(legacy, "authors", []) or []),
-            source_url=str(getattr(legacy, "source_url", "")),
-        )
-        art.exploration = [
-            ExplorationNode(
-                id=f"exploration_node:{aid}:{i}", kind="experiment", text=text
-            )
-            for i, text in enumerate(experiments)
-        ]
-        return art
-
 
 __all__ = [
     "Claim",

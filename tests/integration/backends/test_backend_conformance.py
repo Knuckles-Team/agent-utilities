@@ -3,7 +3,7 @@
 CONCEPT:AU-KG.query.object-graph-mapper / KG-2.7 — Vendor-agnostic Graph Backend parity.
 
 The same assertions run against **every** backend via the ``backend_under_test``
-parametrized fixture (see ``conftest.py``): the zero-dep epistemic-graph L1 and
+parametrized fixture (see ``conftest.py``): the zero-dependency epistemic-graph authority and
 embedded LadybugDB run in the default PR suite; pggraph/Neo4j/FalkorDB run under
 ``pytest -m live`` against throwaway testcontainers. This is the regression net
 behind "an operation that works on pggraph also works on Neo4j/Falkor/Ladybug".
@@ -19,8 +19,8 @@ than false passes):
     ``SCHEMA`` persist, so assertions use declared columns (``name``,
     ``description``, ``importance_score``), never ad-hoc keys.
   * Relationships carry **no properties** on strict-schema backends, and the
-    epistemic-graph L1 keeps edges in the compute layer (not query-able via its
-    backend Cypher); the edge test asserts *existence*, skipping backends that
+    some adapters do not expose relationships through their Cypher surface; the
+    edge test asserts *existence*, skipping backends that
     don't return relationships through ``backend.execute``.
 """
 
@@ -43,11 +43,11 @@ pytestmark = pytest.mark.integration
 def engine(backend_under_test: Any) -> IntelligenceGraphEngine:
     """An ``IntelligenceGraphEngine`` bound to the backend under test (for writes).
 
-    Requires the epistemic-graph compute engine (the L0 scratchpad the engine
-    writes through) — gated on ``GRAPH_SERVICE_SOCKET``.
+    Requires the epistemic-graph compute engine (the native authority the engine
+    writes through) — gated on ``GRAPH_SERVICE_ENDPOINTS``.
     """
-    if not os.environ.get("GRAPH_SERVICE_SOCKET"):
-        pytest.skip("epistemic-graph engine required (GRAPH_SERVICE_SOCKET unset)")
+    if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
+        pytest.skip("epistemic-graph engine required (GRAPH_SERVICE_ENDPOINTS unset)")
     set_active_backend(backend_under_test)
     eng = IntelligenceGraphEngine(backend=backend_under_test)
     IntelligenceGraphEngine.set_active(eng)
@@ -117,7 +117,7 @@ def test_edge_persists_in_backend(
 
     Edges carry no properties on strict-schema backends, so this asserts
     *existence* only. Backends that keep relationships in the compute layer
-    (epistemic-graph L1) rather than the query-able store skip with a reason.
+    rather than their queryable store skip with a reason.
     """
     suffix = uuid.uuid4().hex[:8]
     agent_id, tool_id = f"agent:{suffix}", f"tool:{suffix}"
@@ -288,7 +288,7 @@ def test_write_survives_reconnect(
 ) -> None:
     """Data persists across a close + reopen of the same durable store."""
     if not backend_under_test._parity_durable:
-        pytest.skip("epistemic_graph L1 is in-process/in-memory — nothing to reopen")
+        pytest.skip("this in-process test adapter has no reconnect contract")
 
     from agent_utilities.knowledge_graph.backends import create_backend
 

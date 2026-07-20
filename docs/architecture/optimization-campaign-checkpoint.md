@@ -4,7 +4,7 @@
 > `main`, NOT pushed, NOT redeployed** unless noted. Constraints still in force: never push;
 > OpenBao is secret-source-of-truth (no plaintext secret files); work in git worktrees; never
 > merge from inside a worktree; a **separate session owns the OIDC realm switch** (Keycloak
-> master → homelab) — don't touch auth/keycloak.
+> source → deployment) — preserve the configured authentication boundary.
 
 ## The goal (north star)
 `agent-utilities` is **one pydantic-ai KG orchestrator**; messaging/webui/terminal/geniusbot/
@@ -28,19 +28,25 @@ timeout+fallback + psycopg.
 
 ## 🔬 THE KEY LIVE FINDING (decisive, sharply scopes the next step)
 Tested live after restarting messaging onto the merged code:
-- **vLLM is FAST and healthy**: a direct `vllm.arpa/v1/chat/completions` = **0.87s** (200), serving `qwen/qwen3.5-9b`. GB10 (`10.0.0.18`, SSH works w/ host RSA key) **up ~4 days, 0% GPU, no power fault active** — the "vLLM degraded / GB10 power fault" assumption was STALE.
+- **The configured model endpoint was healthy during validation**: its chat-completions probe returned HTTP 200 within the expected latency budget. Hostnames, addresses, model inventory, SSH state, and hardware telemetry remain deployment evidence and are not committed to public docs.
 - **The universal chat reply STILL takes 45s live** (hits `MESSAGING_REPLY_TIMEOUT`, returns the graceful no-double-LLM message). `_graph_agent_reply(eng,'what is 2 plus 2?',session=...)` → **45.4s**.
 - ∴ **The 45s is 100% orchestration overhead/hang, NOT vLLM.** At 0.87s/call it cannot be "a few LLM rounds" — it's a hang or serial stall in the graph. **The P0/P1 fixes did NOT take effect live**: a trivial question should have hit the single-round fast-path (~1-2s); the chat-profile 12s node caps didn't fail it fast either. The **no-double-LLM fix DID work** live.
 
 ## ⏳ PENDING — resume here (in priority order)
 1. **[P0] LIVE latency debug — THE next action.** Restart messaging, then instrument the live `_graph_agent_reply → execute_agent → run_agent` path (faulthandler / asyncio task-stack dump ~15s into a turn, or stage timing logs) to find WHERE the 45s goes. Specifically verify: (a) is `is_trivial_query`/`needs_full_orchestration` actually classifying a simple question as fast-path live? (b) is the `chat` ExecutionProfile (ORCH-1.62) reaching the graph node timeouts (router/verifier ~12s) or still 300s? (c) is a **sync KG/discovery call hanging** (the engine, `_resolve_agent_from_kg`, the router discovery bundle) that the node timeout doesn't cover? Close the unit↔live gap. This is sharply scoped now: vLLM is fine; the cost is entirely in the graph.
 2. **[feature] Frontend reaction renderers** — `agent-webui` (chips), `agent-terminal-ui` (glyph), `geniusbot` (desktop), `agent_server.py` (response-envelope `reaction` field). NEVER STARTED (the agent was killed by API rate-limiting at spawn, 0 work). Contract is ready in `docs/architecture/reactions.md` — thin renderers off the `AgentReaction` wire-shape, each in its own repo.
-3. **[P2] Rust-offload** — engine `discover(query,k) -> {matched_agents, hybrid_hits, policies, processes}` (one UDS round-trip) to collapse the router N+1; demote `retrieval/capability_index.py` (numpy cosine) + `generative_recommender.py` (np.argsort) behind `semantic_search`. Rate-limited MID-WORK (~80 tool-uses), **NOT merged**. **Leftover `/home/apps/worktrees/epistemic-graph` worktree to inspect/clean.** Contract = `TODO(CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2)` in `graph/routing/_router_impl.py::router_step`. Rust repo: `agent-packages/epistemic-graph` (NOT the broken empty worktree).
+3. **[P2] Rust-offload** — engine `discover(query,k) -> {matched_agents, hybrid_hits, policies, processes}` (one UDS round-trip) to collapse the router N+1; demote `retrieval/capability_index.py` (numpy cosine) + `generative_recommender.py` (np.argsort) behind `semantic_search`. Rate-limited MID-WORK (~80 tool-uses), **NOT merged**. Remove the abandoned engine worktree through normal worktree discovery. Contract = `TODO(CONCEPT:AU-ORCH.execution.chat-profile-timeouts P2)` in `graph/routing/_router_impl.py::router_step`.
 
 ## How to resume / validate live
-- **Reload merged code:** `ssh R820 "docker service update --force agent-utilities-messaging_agent-utilities-messaging --detach"` (and `graph-os_graph-os` / `graph-os-host` likewise). Containers mount `/au` = this canonical checkout, so a restart loads current `main`. Messaging is on `agent-utilities:serving` (slim), placement `node.labels.name == RW710`, manager = R820.
+- **Reload merged code:** use the active supervisor and the health-gated process in
+  [Safely Redeploying graph-os](../guides/redeploy_kg_server.md). Resolve service
+  and placement identities from the deployment registry at runtime.
 - **Timed live test** (in the messaging container): `_graph_agent_reply(IntelligenceGraphEngine.get_active(), 'what is 2 plus 2?', session='messaging:telegram:lat')` wrapped in `asyncio.wait_for`.
 - **Full E2E:** two real Telegram turns → expect (after the latency fix) seconds-not-45s, turn-2 continuity via mementos, and a reaction rendering.
 
 ## Infra snapshot
-5/5 containerized, zero systemd: engine (`ubuntu:26.04`, UDS `/run/epistemic-graph`), graph-os + graph-os-host + messaging (`agent-utilities:serving` 1.11GB torch-free), multiplexer (`python:3.11-slim`). Engine data intact (~72.7K nodes). `graph-os.arpa/health 200`, `mcp-multiplexer.arpa 401` (JWT). Rate-limiting (server-side) was actively killing spawned agents at end of session — relaunch defeated agents when it clears.
+The recorded deployment was fully containerized: engine, graph-os, graph-os-host,
+messaging, and multiplexer. Engine data remained intact and the configured graph
+and multiplexer probes returned their expected authenticated statuses. Server-side
+rate limiting interrupted spawned agents near the end of the session; retry those
+agents only after the limiter reports available capacity.

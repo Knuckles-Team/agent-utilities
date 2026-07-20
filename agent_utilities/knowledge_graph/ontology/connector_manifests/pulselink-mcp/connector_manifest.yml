@@ -1,0 +1,184 @@
+connector: pulselink-mcp
+ontology_source: pulselink
+schema_version: '1'
+resources:
+- name: PulseSource
+  label: Pulse Source
+  id_prefix: pulsesource
+  relations:
+  - name: hasBackend
+    label: has backend
+    target: SourceBackend
+    lpg_rel_type: ''
+- name: SourceBackend
+  label: Source Backend
+  id_prefix: sourcebackend
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: pulselink-hackernews.updated
+  resource: discussion
+  description: "Watermark event for 'pulselink-hackernews' \u2014 advances on created_at (mcp_source_presets.json)."
+- name: pulselink-news.updated
+  resource: news
+  description: "Watermark event for 'pulselink-news' \u2014 advances on created_at (mcp_source_presets.json)."
+- name: pulselink-reddit.updated
+  resource: social
+  description: "Watermark event for 'pulselink-reddit' \u2014 advances on created_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    discussion: id
+    news: id
+    social: id
+  title_field:
+    discussion: title
+    news: title
+    social: title
+  text_field:
+    discussion: text
+    news: text
+    social: text
+  updated_field:
+    discussion: created_at
+    news: created_at
+    social: created_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  PulseSource:
+    ontology_class: null
+    fields:
+      backendName: xsd:string
+      engagement: xsd:string
+      permalink: xsd:string
+      sourceKey: xsd:string
+  SourceBackend:
+    ontology_class: null
+    fields:
+      backendName: xsd:string
+      engagement: xsd:string
+      permalink: xsd:string
+      sourceKey: xsd:string
+sync:
+- preset: pulselink-hackernews
+  server: pulselink-mcp
+  tool: pulse_search
+  action: null
+  records_path: documents
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: created_at
+  pagination: cursor
+  doc_type: discussion
+  tool_schema_sha256: 614e86e2336ad78afc5d04f4a9b15e950e0e5c6d52de6d068ff5a24bec143c71
+  raw:
+    server: pulselink-mcp
+    tool: pulse_search
+    params_style: args
+    params:
+      source: hackernews
+      limit: 25
+    records_path: documents
+    id_field: id
+    title_field: title
+    text_field: text
+    updated_field: created_at
+    pagination: cursor
+    cursor_param: cursor
+    cursor_path: next_cursor
+    doc_type: discussion
+- preset: pulselink-news
+  server: pulselink-mcp
+  tool: pulse_search
+  action: null
+  records_path: documents
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: created_at
+  pagination: cursor
+  doc_type: news
+  tool_schema_sha256: 614e86e2336ad78afc5d04f4a9b15e950e0e5c6d52de6d068ff5a24bec143c71
+  raw:
+    server: pulselink-mcp
+    tool: pulse_search
+    params_style: args
+    params:
+      source: news
+      limit: 25
+    records_path: documents
+    id_field: id
+    title_field: title
+    text_field: text
+    updated_field: created_at
+    pagination: cursor
+    cursor_param: cursor
+    cursor_path: next_cursor
+    doc_type: news
+- preset: pulselink-reddit
+  server: pulselink-mcp
+  tool: pulse_search
+  action: null
+  records_path: documents
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: created_at
+  pagination: cursor
+  doc_type: social
+  tool_schema_sha256: 614e86e2336ad78afc5d04f4a9b15e950e0e5c6d52de6d068ff5a24bec143c71
+  raw:
+    server: pulselink-mcp
+    tool: pulse_search
+    params_style: args
+    params:
+      source: reddit
+      limit: 25
+    records_path: documents
+    id_field: id
+    title_field: title
+    text_field: text
+    updated_field: created_at
+    pagination: cursor
+    cursor_param: cursor
+    cursor_path: next_cursor
+    doc_type: social
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - pulselink_mcp/connectors/mcp_source_presets.json
+  - pulselink_mcp/connectors/tool_schema_fingerprints.json
+  - pulselink_mcp/ontology/pulselink.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: fd2f3c38c4a0340e5e208029d253b399fb77d895d6acabe0ae06de65e30604a5
+    triple_count: 26
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: xSqOS2GBRTubDOGAkxTAeEg9PmD2L-QMp_AE0cDW9aXgThnmak9wub_0JVl3hJjICDB6zWGYXC3x48tVp6kQBg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'authoredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'fromSource' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'servedByBackend' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.PulseSource.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SourceBackend.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

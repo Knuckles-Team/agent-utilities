@@ -1,0 +1,674 @@
+#!/usr/bin/env python3
+"""Regenerate the Capability Power Descriptors (CPD) for the graph-os tool surface.
+
+CONCEPT:AU-KG.retrieval.capability-power-descriptor — Seam 8 Phase 1
+(``plans/program-design-2026-07-11-epistemic-tool-routing.md`` section 2b).
+
+One CPD per canonical core/intent Graph-OS ToolSpec (the granularity the intent
+surface (2a) exposes or routes at — see the CPD module docstring for why),
+enriched with a ``does[]`` entry per action the tool fronts. Every field is
+derived from a live or generated source — see
+``agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py``'s
+module docstring for the full source list. This script is pure orchestration
+(mirrors ``scripts/gen_docs.py`` / ``scripts/check_surface_parity.py``):
+it materializes canonical FastMCP metadata in an isolated registry, locates the EG-P0-1 ledger (live sibling
+checkout or the vendored cache), assembles one CPD per tool, and writes:
+
+* ``docs/capabilities-power.md``  — human/LLM-browsable rendering.
+* ``docs/capabilities-power.json`` — the same data, machine-readable.
+* ``agent_utilities/knowledge_graph/retrieval/capabilities-power.json`` —
+  byte-identical package data used by installed Graph-OS runtimes.
+* ``docs/_vendor_eg_capability_ledger.json`` — a small cache of the EG ledger
+  rows actually used, refreshed whenever a live EG checkout is found, so
+  ``--check`` stays deterministic in an AU-only checkout that has no sibling
+  epistemic-graph clone (EG's ledger is itself a GENERATED artifact of a
+  different repo/build system — this cache is the honest cross-repo analogue
+  of importing a generated module, not a hand-authored duplicate: it is only
+  ever written by copying live ledger rows, never edited).
+
+Usage::
+
+    python scripts/gen_capability_power.py --write
+    python scripts/gen_capability_power.py --check
+    python scripts/gen_capability_power.py --write \
+        --eg-ledger ../epistemic-graph/docs/capabilities.generated.md
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import re
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor import (  # noqa: E402
+    MEASURED_LATENCY_MS,
+    CapabilityPowerDescriptor,
+    LedgerRow,
+    Provenance,
+    aggregate_side_effects,
+    build_does_items,
+    parse_eg_ledger_markdown,
+    render_json,
+    render_markdown,
+    strip_generation_timestamp,
+    truncate_at_word,
+)
+from agent_utilities.mcp.tool_specs import (  # noqa: E402
+    INTENT_VERBS,
+    SUPPORTED_FEATURES,
+    TOOL_VERBS,
+    canonical_tool_names,
+)
+
+MD_PATH = ROOT / "docs" / "capabilities-power.md"
+JSON_PATH = ROOT / "docs" / "capabilities-power.json"
+PACKAGE_JSON_PATH = (
+    ROOT
+    / "agent_utilities"
+    / "knowledge_graph"
+    / "retrieval"
+    / "capabilities-power.json"
+)
+CACHE_PATH = ROOT / "docs" / "_vendor_eg_capability_ledger.json"
+
+# Candidate sibling-checkout locations for the EG-generated ledger, tried in
+# order after an explicit --eg-ledger / $EG_CAPABILITIES_LEDGER. None of these
+# being present is NOT a hard failure — the vendored cache (CACHE_PATH) is the
+# fallback so this script (and its --check gate) stays runnable in an AU-only
+# checkout.
+_CANDIDATE_LEDGER_PATHS = (
+    "../epistemic-graph/docs/capabilities.generated.md",
+    "../../epistemic-graph/docs/capabilities.generated.md",
+)
+_LEDGER_SOURCE_LABEL = "repo://epistemic-graph/docs/capabilities.generated.md"
+
+
+def generation_timestamp() -> str:
+    """Return a reproducible generation instant when SOURCE_DATE_EPOCH is set."""
+
+    from datetime import UTC, datetime
+
+    source_epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if source_epoch is None:
+        instant = datetime.now(UTC)
+    else:
+        try:
+            epoch = int(source_epoch)
+        except ValueError as exc:
+            raise ValueError("SOURCE_DATE_EPOCH must be an integer") from exc
+        if epoch < 0:
+            raise ValueError("SOURCE_DATE_EPOCH must not be negative")
+        instant = datetime.fromtimestamp(epoch, UTC)
+    return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def locate_eg_ledger(explicit: str | None) -> Path | None:
+    if explicit:
+        p = Path(explicit).expanduser()
+        return p if p.exists() else None
+    env = os.environ.get("EG_CAPABILITIES_LEDGER")
+    if env:
+        p = Path(env).expanduser()
+        if p.exists():
+            return p
+    for rel in _CANDIDATE_LEDGER_PATHS:
+        p = (ROOT / rel).resolve() if not rel.startswith("/") else Path(rel)
+        if p.exists():
+            return p
+    return None
+
+
+def load_ledger(
+    explicit: str | None, *, refresh_cache: bool = True, prefer_cache: bool = False
+) -> tuple[dict[str, LedgerRow], str | None, bool]:
+    """Return ``(ledger, path_used, was_live)``.
+
+    Prefers a live EG checkout; refreshes the vendored cache from it when
+    found AND ``refresh_cache`` (the generator's ``--write`` path — a real
+    content change). Falls back to the last-committed cache when no live
+    checkout is reachable — never fabricates ledger rows.
+
+    ``prefer_cache=True`` forces the committed cache to be the ledger source
+    even when a live EG clone IS on disk. This is the REPRODUCIBLE verification
+    path (``scripts/check_cpd.py``): the drift gate must compare against the
+    same committed cache CI sees, not a live EG ledger that only this box
+    happens to have checked out — otherwise on-box `check_cpd` passes while the
+    identical CI gate (cache-only, no EG clone) fails on the exact drift the
+    pre-commit hook was supposed to catch. The live ledger still drives the
+    cache refresh on the ``--write`` path; it just never silently becomes the
+    verification oracle. Cache absent ⇒ falls through to the live/empty paths.
+    """
+    if prefer_cache and CACHE_PATH.exists():
+        cached = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        ledger = {
+            method: LedgerRow(**row) for method, row in cached.get("rows", {}).items()
+        }
+        return ledger, _LEDGER_SOURCE_LABEL, False
+
+    live_path = locate_eg_ledger(explicit)
+    if live_path is not None:
+        text = live_path.read_text(encoding="utf-8")
+        ledger = parse_eg_ledger_markdown(text)
+        if refresh_cache:
+            _write_cache(ledger, _LEDGER_SOURCE_LABEL)
+        return ledger, _LEDGER_SOURCE_LABEL, True
+
+    if CACHE_PATH.exists():
+        cached = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+        ledger = {
+            method: LedgerRow(**row) for method, row in cached.get("rows", {}).items()
+        }
+        return ledger, _LEDGER_SOURCE_LABEL, False
+
+    return {}, None, False
+
+
+def _write_cache(ledger: dict[str, LedgerRow], source_path: str) -> None:
+    payload = {
+        "source_path": source_path,
+        "cached_at": generation_timestamp(),
+        "row_count": len(ledger),
+        "rows": {method: row.to_dict() for method, row in ledger.items()},
+    }
+    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_PATH.write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Action inventory per tool
+# ---------------------------------------------------------------------------
+
+_QUOTED_TOKEN_RE = re.compile(r"'([a-z][a-z0-9_]*)'")
+# Many tool descriptions lead with a bare CONCEPT id ("CONCEPT:AU-KG.foo.bar — ")
+# before the actual power sentence — strip it so `one_line` starts with the
+# actual power statement, not the id.
+_CONCEPT_PREFIX_RE = re.compile(r"^CONCEPT:[\w.\-]+\s*[—-]\s*")
+
+
+def _extract_one_line(description: str) -> str:
+    """The tool's own description, minus a leading CONCEPT id, up to the first sentence."""
+    text = _CONCEPT_PREFIX_RE.sub("", description.strip())
+    # Split on '. ' but require what follows to start a new capitalized clause
+    # (not just a mid-sentence abbreviation like "e.g. ") to avoid truncating
+    # too early.
+    m = re.search(r"\.\s+[A-Z]", text)
+    if m:
+        return text[: m.start() + 1].strip()
+    if len(text) <= 200:
+        return text.strip()
+    # No sentence break within the window — cut at the last whitespace boundary
+    # before the limit so we never split a word in half, leaving a dangling
+    # word fragment that reads as a typo.
+    cut = text[:200]
+    last_space = cut.rfind(" ")
+    if last_space > 0:
+        cut = cut[:last_space]
+    return cut.strip()
+
+
+def _parse_action_tokens_from_text(default: str, description: str) -> list[str]:
+    """Best-effort fallback: pull an action enumeration out of a tool's own
+    ``action`` parameter (default/description) when neither the generated
+    verbose-action manifest nor a literal action-tuple constant covers it
+    (currently just ``graph_ops_causal`` — everything else has a stronger
+    source). Never invents an action not textually present.
+    """
+    quoted = _QUOTED_TOKEN_RE.findall(description)
+    if len(quoted) >= 2:
+        seen: list[str] = []
+        for t in quoted:
+            if t not in seen:
+                seen.append(t)
+        return seen
+    pipe_source = description if "|" in description else ""
+    if pipe_source:
+        toks = [t.strip().strip("'\"") for t in pipe_source.split("|")]
+        toks = [t for t in toks if re.fullmatch(r"[a-z][a-z0-9_]*", t)]
+        if toks:
+            return toks
+    if default:
+        return [default]
+    return []
+
+
+def get_actions_for_tool(
+    tool_name: str,
+    param_schema: dict[str, Any],
+    manifest_by_tool: dict[str, list[str | None]],
+) -> list[str]:
+    # The checked-in generated manifest is the distribution-owned action
+    # contract. Never prefer a client module imported from the ambient Python
+    # environment: an editable sibling, an older wheel, and CI could otherwise
+    # render different CPDs from the same source snapshot.
+    if tool_name in manifest_by_tool:
+        actions = [a for a in manifest_by_tool[tool_name] if a is not None]
+        if actions:
+            return sorted(actions)
+        return []  # action=None recorded: single-operation tool, no sub-actions
+    action_field = (param_schema or {}).get("properties", {}).get("action") or {}
+    return _parse_action_tokens_from_text(
+        str(action_field.get("default", "")), str(action_field.get("description", ""))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Typed I/O + examples from the live FastMCP tool schema
+# ---------------------------------------------------------------------------
+
+
+def build_typed_io(tool: Any, rest_route: str) -> dict[str, Any]:
+    schema = tool.parameters or {}
+    props = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    params = [
+        {
+            "name": name,
+            "type": spec.get("type", "any"),
+            "required": name in required,
+            "default": spec.get("default"),
+            "description": spec.get("description", ""),
+        }
+        for name, spec in props.items()
+    ]
+    return {
+        "rest_route": rest_route,
+        "tags": sorted(tool.tags or []),
+        "input_params": params,
+        "input_schema": schema,
+        "output": "JSON string (json.dumps result) — see each tool's docstring/description "
+        "for the returned shape; no formal output JSON Schema is declared "
+        "server-side today (all graph-os tools return `str`).",
+    }
+
+
+def build_examples(
+    tool_name: str,
+    one_line: str,
+    does: list[dict[str, Any]],
+    *,
+    action_routed: bool,
+) -> list[str]:
+    """A few intent-phrasing examples, DERIVED from the tool's own action names
+    (not hand-authored copy) — the X-4/2c resolver few-shot signal.
+    """
+    examples = [f"{tool_name}: {truncate_at_word(one_line, 80)}"]
+    if not action_routed:
+        return examples
+    for d in does[:3]:
+        examples.append(f"{tool_name} action={d['action']}")
+    return examples
+
+
+def build_when_hints(tool_name: str, tags: set[str]) -> tuple[list[str], list[str]]:
+    when_to_use: list[str] = []
+    when_not: list[str] = []
+    if "engine" in tags:
+        when_to_use.append(
+            "You need the raw, low-level engine primitive directly (1:1 over the "
+            "epistemic-graph wire protocol) — precise control, or the condensed "
+            "`graph_*` tool doesn't expose the operation you need."
+        )
+        when_not.append(
+            "A condensed `graph_*` tool already covers your intent — prefer it "
+            "first; the `engine_*` surface is the escape hatch, not the default."
+        )
+    if "mutation" in tags or "write" in tags or "write_ingest" in tags:
+        when_not.append(
+            "You only need to read/inspect — use the matching read-only "
+            "`graph_query`/`graph_search`/`graph_analyze` capability instead."
+        )
+    if not when_to_use:
+        when_to_use.append(
+            "Your intent matches one of this capability's `does` actions."
+        )
+    if not when_not:
+        when_not.append(
+            "Another capability's `does` list is a closer match to your intent "
+            "— check the index for a more specific fit."
+        )
+    return when_to_use, when_not
+
+
+# ---------------------------------------------------------------------------
+# Eligibility predicates (X-4 formula, described; live-evaluated when possible)
+# ---------------------------------------------------------------------------
+
+
+def build_eligibility_predicates(tool_name: str, tags: set[str]) -> dict[str, Any]:
+    return {
+        "formula": (
+            "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, "
+            "required) AND tenant_match(candidate.tenant, caller.tenant) AND "
+            "policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by "
+            "cosine(embedding) + reward_weight*(bandit_reward-0.5)"
+        ),
+        "source": (
+            "agent_utilities.graph.routing.enrichers.capability_routing."
+            "explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)"
+        ),
+        "live_evaluation": None,
+        "note": (
+            "not live-evaluated in this static generation pass — "
+            "explain_routing_eligibility() needs a reachable engine AND a "
+            "populated capability_type/ontology assignment for this tool's node; "
+            "call it directly against a live engine for a per-request eligibility "
+            "proof rather than trusting a value baked in here"
+        ),
+        "candidate_tags": sorted(tags),
+    }
+
+
+# ---------------------------------------------------------------------------
+# CPD assembly
+# ---------------------------------------------------------------------------
+
+
+def intent_verbs_for_tool(tool_name: str) -> list[str]:
+    """Return the one ordered intent-verb authority for ``tool_name``.
+
+    Intent entry points describe themselves. Granular tools use the deliberate
+    routing order in :data:`tool_specs.TOOL_VERBS`; tags and names are not a
+    second inference path because they can silently disagree with runtime
+    dispatch policy.
+    """
+
+    if tool_name in INTENT_VERBS:
+        return [tool_name]
+
+    verbs = TOOL_VERBS.get(tool_name)
+    if verbs is None:
+        raise RuntimeError(
+            f"GraphOS intent-verb authority is missing canonical tool: {tool_name}"
+        )
+    if (
+        not verbs
+        or len(set(verbs)) != len(verbs)
+        or not set(verbs) <= set(INTENT_VERBS)
+    ):
+        raise RuntimeError(
+            f"GraphOS intent-verb authority is invalid for {tool_name}: {verbs!r}"
+        )
+    return list(verbs)
+
+
+def build_cpd(
+    tool: Any,
+    action_tool_routes: dict[str, str],
+    ledger: dict[str, LedgerRow],
+    ledger_path: str | None,
+    ledger_live: bool,
+    manifest_by_tool: dict[str, list[str | None]],
+) -> CapabilityPowerDescriptor:
+    name = tool.name
+    tags = set(tool.tags or [])
+    rest_route = action_tool_routes.get(name, "")
+    actions = get_actions_for_tool(
+        name,
+        tool.parameters or {},
+        manifest_by_tool,
+    )
+    if not actions:
+        actions = [name]  # single-operation tool: the tool itself is the one "action"
+    does = build_does_items(name, actions, ledger)
+    side_effects = aggregate_side_effects(does)
+
+    # cost/latency: only ever set from MEASURED_LATENCY_MS, keyed by a matched
+    # EG Method — never estimated for an unmatched action.
+    latency: dict[str, Any] = {}
+    for d in does:
+        m = d.get("eg_method")
+        if m and m in MEASURED_LATENCY_MS:
+            latency[d["action"]] = {
+                "eg_method": m,
+                **MEASURED_LATENCY_MS[m],
+                "kind": "measured",
+            }
+
+    one_line = _extract_one_line(tool.description or "")
+    if not one_line:
+        one_line = f"{name} — see `does` for its actions."
+    when_to_use, when_not = build_when_hints(name, tags)
+
+    return CapabilityPowerDescriptor(
+        id=name,
+        title=name.replace("_", " "),
+        one_line=one_line,
+        intent_verbs=intent_verbs_for_tool(name),
+        does=does,
+        typed_io=build_typed_io(tool, rest_route),
+        side_effects=side_effects,
+        scopes=sorted({d["authz_action"] for d in does if d.get("authz_action")}),
+        policy={
+            "approval_class": "human_approval_required" if "admin" in tags else "auto",
+            "note": "coarse default from MCP tags; see side_effects/does for the "
+            "per-action ledger authz_action, which is the authoritative scope",
+        },
+        cost={},  # no cost-unit telemetry source exists yet; left empty, not guessed
+        latency=latency,
+        reliability={},  # requires a live engine's bandit reward; empty here, not guessed
+        preconditions=(
+            [
+                "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+            ]
+        ),
+        when_to_use=when_to_use,
+        when_not=when_not,
+        examples=build_examples(
+            name,
+            one_line,
+            does,
+            action_routed="action" in (tool.parameters or {}).get("properties", {}),
+        ),
+        eligibility_predicates=build_eligibility_predicates(name, tags),
+        calibrated_outcomes={},
+        provenance=Provenance(
+            source_method_eg=(
+                does[0].get("eg_method")
+                if len(does) == 1 and does[0].get("eg_method")
+                else None
+            ),
+            eg_ledger_path=ledger_path,
+            eg_ledger_available=ledger_live or bool(ledger),
+        ),
+    )
+
+
+async def _list_tools(mcp: Any) -> list[Any]:
+    return await mcp.list_tools()
+
+
+@contextmanager
+def _canonical_tool_metadata(*, features: frozenset[str]):
+    """Build canonical FastMCP metadata without leaking process-global state.
+
+    Runtime tool callables and REST routes are mutable execution tables.  The
+    catalog needs their descriptions and schemas, but it must neither inherit a
+    previous server build nor alter a process that imports the generator in a
+    test.  Build the explicit intent profile in a temporary registry, project
+    it through the immutable ToolSpec profile, then restore both dictionaries
+    exactly.
+    """
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tool_specs import SUPPORTED_FEATURES
+
+    unknown = features - SUPPORTED_FEATURES
+    if unknown:
+        raise ValueError(f"unknown Graph-OS features: {sorted(unknown)}")
+
+    registered_before = dict(kg_server.REGISTERED_TOOLS)
+    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
+    try:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
+        _args, mcp, _mw = kg_server._build_server(
+            bootstrap=False,
+            tool_profile="intent",
+            canonical_surface=True,
+        )
+        tools_by_name = {tool.name: tool for tool in asyncio.run(_list_tools(mcp))}
+        expected = canonical_tool_names(features=features, include_intent=True)
+        all_known = canonical_tool_names(
+            features=SUPPORTED_FEATURES, include_intent=True
+        )
+        unknown_runtime = sorted(set(tools_by_name) - all_known)
+        missing = sorted(expected - set(tools_by_name))
+        if unknown_runtime or missing:
+            details = []
+            if missing:
+                details.append(f"missing={missing}")
+            if unknown_runtime:
+                details.append(f"unknown={unknown_runtime}")
+            raise RuntimeError(
+                "canonical Graph-OS metadata build disagrees with ToolSpec universe: "
+                + "; ".join(details)
+            )
+        routes = {
+            name: kg_server.ACTION_TOOL_ROUTES[name]
+            for name in sorted(expected)
+            if name in kg_server.ACTION_TOOL_ROUTES
+        }
+        missing_routes = sorted(expected - set(routes))
+        if missing_routes:
+            raise RuntimeError(
+                f"canonical Graph-OS tools lack REST routes: {missing_routes}"
+            )
+        yield [tools_by_name[name] for name in sorted(expected)], routes
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(registered_before)
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
+
+
+def generate(
+    eg_ledger_arg: str | None,
+    *,
+    refresh_cache: bool = True,
+    prefer_cache: bool = False,
+    features: frozenset[str] = SUPPORTED_FEATURES,
+) -> tuple[list[CapabilityPowerDescriptor], str]:
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+
+    manifest_by_tool: dict[str, list[str | None]] = {}
+    for entry in GRAPHOS_ACTIONS:
+        manifest_by_tool.setdefault(entry["tool"], []).append(entry["action"])
+
+    ledger, ledger_path, ledger_live = load_ledger(
+        eg_ledger_arg, refresh_cache=refresh_cache, prefer_cache=prefer_cache
+    )
+    # Canonicalize ledger order so the AU-action→EG-Method matcher is
+    # order-INVARIANT. A live EG clone yields the ledger in document order; the
+    # vendored cache round-trips it in sorted-key order (`json.dumps(sort_keys)`).
+    # The fuzzy matcher breaks ties by iteration order, so those two orderings
+    # produced DIFFERENT matches (`commit`→`Commit` vs `BlobCommit`) for the same
+    # rows — making a doc generated on-box (live) irreproducible from the cache CI
+    # uses. Sorting here fixes it at the source: every environment matches against
+    # the same canonical order, so live-render == cache-render byte-for-byte.
+    ledger = dict(sorted(ledger.items()))
+
+    with _canonical_tool_metadata(features=features) as (tools, routes):
+        cpds = [
+            build_cpd(
+                tool,
+                routes,
+                ledger,
+                ledger_path,
+                ledger_live,
+                manifest_by_tool,
+            )
+            for tool in tools
+        ]
+    generated_at = generation_timestamp()
+    return cpds, generated_at
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--write", action="store_true", help="Write docs/capabilities-power.{md,json}."
+    )
+    ap.add_argument(
+        "--check", action="store_true", help="Exit non-zero if checked-in docs drift."
+    )
+    ap.add_argument(
+        "--eg-ledger", default=None, help="Explicit path to the EG generated ledger."
+    )
+    args = ap.parse_args()
+
+    if not args.write and not args.check:
+        args.check = True  # default: safe, side-effect-free
+
+    cpds, generated_at = generate(
+        args.eg_ledger,
+        refresh_cache=args.write,
+    )
+    md = render_markdown(cpds, generated_at=generated_at)
+    js = render_json(cpds, generated_at=generated_at)
+
+    if args.write:
+        MD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PACKAGE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MD_PATH.write_text(md, encoding="utf-8")
+        JSON_PATH.write_text(js, encoding="utf-8")
+        PACKAGE_JSON_PATH.write_text(js, encoding="utf-8")
+        print(
+            f"Wrote {len(cpds)} CPDs to {MD_PATH}, {JSON_PATH}, and {PACKAGE_JSON_PATH}"
+        )
+        return 0
+
+    # --check: regenerate (content only, ignoring the generation timestamp,
+    # which appears both as a JSON `generated_at` field and inline markdown
+    # prose) and diff against what's committed.
+    ok = True
+    if not MD_PATH.exists() or not JSON_PATH.exists() or not PACKAGE_JSON_PATH.exists():
+        print("capabilities-power catalog output missing — run --write first.")
+        return 1
+    if strip_generation_timestamp(
+        MD_PATH.read_text(encoding="utf-8")
+    ) != strip_generation_timestamp(md):
+        print(
+            f"DRIFT: {MD_PATH} does not match the canonical ToolSpec universe + ledger."
+        )
+        ok = False
+    if strip_generation_timestamp(
+        JSON_PATH.read_text(encoding="utf-8")
+    ) != strip_generation_timestamp(js):
+        print(
+            f"DRIFT: {JSON_PATH} does not match the canonical ToolSpec universe + ledger."
+        )
+        ok = False
+    if strip_generation_timestamp(
+        PACKAGE_JSON_PATH.read_text(encoding="utf-8")
+    ) != strip_generation_timestamp(js):
+        print(
+            f"DRIFT: {PACKAGE_JSON_PATH} does not match the canonical "
+            "ToolSpec universe + ledger."
+        )
+        ok = False
+    if JSON_PATH.read_bytes() != PACKAGE_JSON_PATH.read_bytes():
+        print(f"DRIFT: {PACKAGE_JSON_PATH} is not byte-identical to {JSON_PATH}.")
+        ok = False
+    if ok:
+        print(
+            "CPD set is in sync with the canonical ToolSpec universe "
+            f"({len(cpds)} capabilities)."
+        )
+        return 0
+    print("Run: python scripts/gen_capability_power.py --write")
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

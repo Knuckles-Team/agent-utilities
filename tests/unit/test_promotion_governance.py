@@ -291,7 +291,19 @@ class TestGateRecording:
         )
 
         eng = _Engine()
-        analyzer = FailureAnalyzer(eng, trace_backend=None)
+
+        def graph_writer(entities, relationships):
+            assert relationships == []
+            for entity in entities:
+                row = dict(entity)
+                node_id = row.pop("id")
+                node_type = row.pop("type")
+                eng.add_node(node_id, node_type, properties=row)
+            return {"status": "success"}
+
+        analyzer = FailureAnalyzer(
+            eng, trace_backend=None, graph_writer=graph_writer
+        )
         check = analyzer.make_regression_check(
             [{"workflow": "wf", "occurrences": 2, "signature": "s", "id": "g"}]
         )
@@ -301,4 +313,4 @@ class TestGateRecording:
         ]
         assert len(recorded) == 1
         assert recorded[0]["result"] == "pass"
-        assert recorded[0]["proposal_id"] == str(_strong_team().id)
+        assert recorded[0]["proposal_id"].startswith("pref_proposal_")

@@ -10,21 +10,20 @@ data-level ACLs, tenancy) were fully implemented and unit-tested but **never
 instantiated in the live read/write path** — the only `CompanyBrain()` call was a
 docstring example. The reward/eval machinery existed but learned only from
 execution success, not human corrections; retrieval had no token budget. This
-runtime activates all of it, behind a single flag, without breaking the existing
-default behaviour.
+runtime activates all of it as a mandatory graph contract.
 
 ## The enforcement boundary
 
-Everything is gated by **`KG_BRAIN_ENFORCE`** (default **off**). Off → byte-identical
-to before. On → trust/permission/tenant enforcement engages. Provenance and
-conflict logging are recorded when the guard is active.
+Trust, permission, tenant enforcement, provenance, and conflict logging are
+always active. A graph operation without verified actor/session authority, a
+tenant, an explicit ACL, or its authorization infrastructure fails closed.
 
-| Concern | Off (default) | On (`KG_BRAIN_ENFORCE=1`) |
-|---|---|---|
-| `create_backend()` | raw backend | wrapped in `BrainGuardedBackend` |
-| Writes | unchanged | provenance + source-authority arbitration |
-| Reads (`facade.designate`/`query`) | unchanged | ACL filter + tenant scope + audit |
-| Identity | `SYSTEM_ACTOR` | per-call `ActorContext` |
+| Concern | Current contract |
+|---|---|
+| `create_backend()` | wrapped in `BrainGuardedBackend` |
+| Writes | provenance + source-authority arbitration |
+| Reads (`facade.designate`/`query`) | ACL filter + tenant scope + mandatory audit |
+| Identity | verified per-call `ActorContext` and immutable `GraphSession` |
 
 ## Components
 
@@ -104,7 +103,9 @@ via `KG_TRUST_HIERARCHY` / `config.json`.
 (hardened, injection-safe tenant isolation), and `provenance.record_read` (audit,
 mandatory for RESTRICTED). `owl_bridge` propagates the **most-restrictive** parent
 classification onto inferred facts so reasoning can't leak a RESTRICTED node.
-MCP callers set identity via `_actor`/`_roles`/`_tenant` on any `graph_*` tool.
+MCP and REST callers inherit identity, tenant, scopes, audience, and policy
+revision from the verified ambient `GraphSession`; payload authority fields are
+rejected.
 
 ### Layer 5/6 — Feedback → rule → eval
 The **`graph_feedback`** MCP tool routes to **`FeedbackService`**:
@@ -156,19 +157,17 @@ pytest tests/unit/knowledge_graph/test_brain_guarded_backend.py \
        tests/unit/knowledge_graph/test_retrieval_budget.py \
        tests/unit/knowledge_graph/test_stream_adapters.py \
        tests/unit/knowledge_graph/test_insight_extraction.py -q
-# End-to-end (enforcement on)
+# End-to-end mandatory enforcement
 pytest tests/integration/knowledge_graph/test_company_brain_e2e.py -q
 # Eval gate
 python scripts/check_eval_corpus.py
 ```
 
-## Enabling in a deployment
+## Deployment configuration
 
 ```bash
-export KG_BRAIN_ENFORCE=1          # turn on trust + permission enforcement
 export KG_TRUST_HIERARCHY='[...]'  # optional: override source authority (JSON)
 ```
-MCP callers pass identity per call: `{"_actor": "agent:mk", "_roles": "marketing",
-"_tenant": "acme", ...}`. Tool access remains governed by Eunomia; this adds
-**data** access control on top.
-```
+Callers authenticate with a Bearer token (or the stdio process token). Tool
+access remains governed by Eunomia; the Company Brain adds **data** access
+control on top of the same verified session.

@@ -1,171 +1,139 @@
-# Worked Example: Minting and Validating a JWT for KG_AUTH_REQUIRED Mode
+# Worked example: verified GraphOS authority
 
-**What this demonstrates.** CONCEPT:AU-OS.identity.authenticated-identity-enforcement, authenticated identity
-enforcement: with `KG_AUTH_REQUIRED=1` the gateway mints the request's
-`ActorContext` (actor / roles / tenant) **server-side** from a validated JWT —
-caller-supplied `_actor`/`_roles`/`_tenant` kwargs are ignored — and requests
-without a valid Bearer token are rejected 401, fail-closed, with only health
-probes and `/metrics` exempt. You mint a token, call the gateway with it, and
-see every failure mode. Deep dives:
-[Autonomous governance and zero trust](../architecture/autonomous_governance_and_zero_trust.md),
-[Configuration](../architecture/configuration.md).
+Every served graph operation requires a server-minted `GraphSession`. There is
+no anonymous or caller-asserted identity mode: REST and network MCP requests use
+a validated Bearer JWT. Stdio normally uses a validated external process token,
+with one narrow zero-infrastructure exception for tiny packaged-local GraphOS.
+Every resulting session contains an authenticated subject, tenant, audience, and
+policy revision.
 
-**Prerequisites (ladder rung).** The secured rung of
-[Deployment configurations](../guides/deployment-configurations.md): the REST gateway
-(`python -m agent_utilities`) plus an identity provider that serves a JWKS endpoint
-(Keycloak, Azure AD, Okta, Auth0 — anything OIDC). For a self-contained demo,
-any static HTTP server hosting a JWKS JSON works; that is exactly what the
-smoke run below did.
+Caller payload fields named `_actor`, `_roles`, or `_tenant` are rejected. They
+cannot override identity or tenancy.
 
----
+## Tiny packaged-local stdio
 
-## 1. Server configuration
-
-The relevant typed flags (`agent_utilities/core/config.py`):
+The only graph process that needs no external identity provider is:
 
 ```bash
-# .env on the gateway
-KG_AUTH_REQUIRED=1                     # enforce server-validated identity (default 0)
-AUTH_JWT_JWKS_URI=https://idp.example.test/realms/agents/protocol/openid-connect/certs
-AUTH_JWT_ISSUER=https://idp.example.test/realms/agents     # optional but recommended
-AUTH_JWT_AUDIENCE=graph-os                                  # optional but recommended
-
-# stdio MCP servers have no Authorization header; their process identity comes
-# from a validated token instead (only consulted when KG_AUTH_REQUIRED is on):
-# KG_AUTH_TOKEN=<jwt>
+setup-config generate --profile tiny
+agent-utilities-doctor --only graph_identity auth
+graph-os --transport stdio
 ```
 
-Facts to know, verified against `agent_utilities/security/auth.py` and
-`agent_utilities/security/request_identity.py`:
+This contract also requires `GRAPH_SERVICE_ENDPOINTS`, `KG_AUTH_TOKEN_REF`, and
+`KG_IDENTITY_OAUTH2` to remain unset. GraphOS generates an asymmetric key in
+memory, signs a short-lived JWT containing fixed neutral service claims, and
+validates it through the same decoder used for external tokens. That ephemeral
+key and JWT are a one-time proof only: both are destroyed before GraphOS returns
+the process-lifetime session. It does not place a user name, host name, endpoint,
+filesystem path, credential, or other local identifier in the claims or
+persistent state.
 
-- Validation is **JWKS-based** (`AUTH_JWT_JWKS_URI`, fetched over HTTP and
-  cached for 5 minutes). There is no shared-secret (HS256) server option on
-  this path — keys come from the JWKS document, and the `joserfc` library
-  (the `auth` extra) verifies the signature.
-- Accepted claims: `exp`/`iat` are validated with 30s leeway; `iss` must equal
-  `AUTH_JWT_ISSUER` and `aud` must equal/contain `AUTH_JWT_AUDIENCE` when those
-  are configured.
-- The claims-to-actor mapping (`actor_from_claims`, first match wins):
-  - `actor_id` ← `sub` | `client_id` | `azp`
-  - `roles` ← `roles` | `realm_access.roles` (Keycloak) | space-separated
-    `scope`/`scp`
-  - `tenant_id` ← `tenant_id` | `tenant` | `org_id` | `tid`
-  - `actor_type` ← HUMAN when an `email` claim is present, else
-    AUTOMATED_SERVICE (provenance only)
-  - the minted actor carries `authenticated=True`
-- An **invalid** token is always 401 — even when `KG_AUTH_REQUIRED=0`.
-- With `KG_AUTH_REQUIRED=1`, requests with **no** token are 401 except the
-  exempt paths: `/health`, `/healthz`, `/api/health`, `/api/healthz` and
-  `/metrics` (scrapers cannot mint JWTs; `/metrics` carries only aggregate
-  counters).
-- With `KG_AUTH_REQUIRED=0` (the default), unauthenticated requests pass
-  through with a one-time prominent startup warning — the legacy honor-system
-  mode.
+This is not a fallback. Selecting a network transport, a non-tiny profile, an
+explicit engine endpoint, or either external process-identity source disables the
+local authority. Missing, ambiguous, unresolved, or invalid external authority
+then aborts startup.
 
-## 2. Mint a token and call the gateway (Python)
+## External authority configuration
 
-The token below was minted with **PyJWT** and validated through the tree's real
-code path (`actor_from_bearer_token`) in the smoke run:
+All other GraphOS shapes require exactly one external process identity source and
+the server validation policy:
+
+```bash
+AUTH_JWT_JWKS_URI=https://idp.example.test/realms/agents/protocol/openid-connect/certs
+AUTH_JWT_ISSUER=https://idp.example.test/realms/agents
+AUTH_JWT_AUDIENCE=graph-os
+KG_POLICY_VERSION=policy-v1
+
+# Configure exactly one runtime source; no token is stored in AgentConfig.
+# Network calls still require their own per-request Bearer identity.
+KG_AUTH_TOKEN_REF=secret://graph-os/stdio-token
+# Or: KG_IDENTITY_OAUTH2={"token_url":"https://identity.example.test/token",...}
+```
+
+For external authority, `AUTH_JWT_JWKS_URI`, `AUTH_JWT_AUDIENCE`, and
+`KG_POLICY_VERSION` are mandatory inputs. `AUTH_JWT_ISSUER` should also be
+pinned. Private PKI is supported through the runtime TLS profile or CA bundle;
+certificate verification is never disabled in code.
+
+The validated claims map as follows:
+
+- subject: `sub`, `client_id`, or `azp`
+- capabilities: role, scope, and configured group mappings
+- tenant: `tenant_id`, `tenant`, `org_id`, `tid`, or `org`
+- audience: the server-configured expected JWT audience
+- policy revision: the server-configured `KG_POLICY_VERSION`
+
+Only the literal effective capability `kg:admin` grants graph administration.
+It may be supplied directly by a validated token or produced by
+`IDENTITY_GROUP_CAPABILITY_MAP`. A generic application role named `admin` is not
+an alias and never grants graph administration.
+
+## External stdio authority lifetime
+
+An external stdio process session never outlives its validated token silently.
+GraphOS records the bounded expiry in a thread-safe in-memory lease shared by the
+main tool boundary and captured background workers; the lease contains no token
+or identity material. Before expiry, GraphOS reacquires and validates a token
+from the configured source. Renewal succeeds only when subject, actor type,
+capabilities, tenant, authentication state, and groups exactly match the original
+authority. Identity drift is rejected.
+
+Renewal failures are retried without extending the old lease. Once that lease
+expires, tool dispatch and background graph work fail closed until the same
+authority is successfully renewed. A static `KG_AUTH_TOKEN_REF` must therefore be
+rotated by its runtime secret provider; `KG_IDENTITY_OAUTH2` can reacquire through
+the configured client-credentials flow.
+
+## Call the gateway
+
+In production, obtain the token from the IdP using the appropriate interactive
+or client-credentials flow.
 
 ```python
-import time
-
 import httpx
-import jwt  # pyjwt
 
-PRIVATE_KEY_PEM = open("demo_rsa_private.pem").read()  # pair of the JWKS key
-now = int(time.time())
-token = jwt.encode(
-    {
-        "sub": "agent:harvest-runner",
-        "iss": "https://idp.example.test/realms/agents",   # must match AUTH_JWT_ISSUER
-        "aud": "graph-os",                                 # must match AUTH_JWT_AUDIENCE
-        "iat": now,
-        "exp": now + 3600,
-        "roles": ["kg.writer", "workflow.executor"],
-        "tenant_id": "acme",
-    },
-    PRIVATE_KEY_PEM,
-    algorithm="RS256",
-    headers={"kid": "demo-key-1"},  # kid should match a key in the JWKS
-)
-
-resp = httpx.post(
-    "http://localhost:9000/api/graph/query",
+token = "<validated IdP token>"
+response = httpx.post(
+    "https://graph.example.test/api/graph/query",
     headers={"Authorization": f"Bearer {token}"},
-    json={"cypher": "MATCH (n) RETURN count(n) AS c"},
+    json={"cypher": "MATCH (n) RETURN count(n) AS count"},
     timeout=30,
 )
-print(resp.status_code, resp.json())
+print(response.status_code, response.json())
 ```
 
-(In production the IdP mints the token — client-credentials grant for service
-actors — and you never hold the private key yourself.)
-
-**Expected actor** minted server-side from this token (captured from the smoke
-run):
-
-```python
-{"actor_id": "agent:harvest-runner",
- "roles": ["kg.writer", "workflow.executor"],
- "tenant_id": "acme",
- "authenticated": True,
- "actor_type": "automated_service"}
-```
-
-Every KG read/write in the request is scoped to that actor: ontology
-permissioning rows, audit attribution, and (with `KG_BRAIN_ENFORCE` on) the
-fail-closed ACL gate all see it. Under `KG_AUTH_REQUIRED=1`, any
-`_actor`/`_roles`/`_tenant` tool kwargs a caller supplies are ignored entirely.
-
-## 3. The same call with curl
+The same request with curl:
 
 ```bash
-TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlbW8ta2V5LTEi..."  # from your IdP  # sanitizer:ignore
-curl -s http://localhost:9000/api/graph/query \
+curl https://graph.example.test/api/graph/query \
   -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
-  -d '{"cypher": "MATCH (n) RETURN count(n) AS c"}'
+  -d '{"cypher": "MATCH (n) RETURN count(n) AS count"}'
 ```
 
-## 4. Failure modes
+## Failure contract
 
-All captured by driving `ActorIdentityMiddleware` directly in the smoke run
-(`KG_AUTH_REQUIRED=1`, JWKS configured):
+| Condition | Result |
+| --- | --- |
+| Missing Bearer token | `401` with a generic verified-identity error |
+| Malformed, forged, expired, wrong-issuer, or wrong-audience token | `401` without validator detail |
+| Verified token without tenant | `403` |
+| Missing configured audience or policy revision | request/session mint fails closed |
+| Caller supplies `_actor`, `_roles`, or `_tenant` | tool dispatch rejects the request |
+| Generic `admin` role without effective `kg:admin` | no graph-administration scope is granted |
+| External process-authority renewal changes identity or capabilities | renewal is rejected; the old lease is not extended |
+| External process-authority renewal fails through lease expiry | tool and background graph work fail closed; renewal continues retrying |
+| Exact tiny, packaged-local stdio boundary with both external sources unset | one neutral in-memory proof is validated and destroyed; a process-lifetime session is returned |
+| Missing/ambiguous external process identity, acquisition failure, or token validation failure | graph-os startup aborts; there is no local fallback |
+| Unauthenticated health probe | allowed on `/health`, `/healthz`, `/api/health`, and `/api/healthz` only; status-only JSON with `Cache-Control: no-store`, never readiness/topology detail |
+| Unauthenticated `/metrics` | `401` on the gateway; standalone remote metrics require their configured bearer token |
 
-| Request | Status | Body |
-| --- | --- | --- |
-| No `Authorization` header | `401` | `{"error": "Authentication required (KG_AUTH_REQUIRED=1): provide a valid JWT Bearer token"}` |
-| Malformed/forged token | `401` | `{"error": "Invalid token signature"}` |
-| Expired token | `401` | `{"error": "Token has expired"}` |
-| Wrong `iss`/`aud` | `401` | `{"error": "Invalid token claim: ..."}` |
-| No token, `GET /health` | `200` | (exempt) |
-| No token, `GET /metrics` | `200` | (exempt) |
-| Valid token | `200` | (request proceeds as the minted actor) |
-| `KG_AUTH_REQUIRED=1` but `AUTH_JWT_JWKS_URI` unset, no token | `401` | `{"error": "Authentication required (KG_AUTH_REQUIRED=1): provide a valid JWT Bearer token (server misconfigured: AUTH_JWT_JWKS_URI unset)"}` |
+All authentication failures use privacy-safe messages. They do not include token
+content, subject, tenant, endpoint, local paths, or policy values. Resource-level
+authorization still applies after identity validation through GraphSession scopes,
+tenant isolation, and the ontology/ACL policy layer.
 
-All 401 responses carry a `WWW-Authenticate: Bearer` header. Note that this
-identity layer answers in `401` terms (who are you); resource-level **denials**
-for an authenticated actor surface from the ontology permissioning gate as
-`PermissionError` inside the tool/endpoint result (e.g. the AU-ORCH.execution.ontology-validation-execution-path workflow
-permission gate — see the
-[ontology-to-workflow example](ontology-to-workflow.md)), not as an HTTP 403
-from this middleware.
-
-Stdio MCP servers: with `KG_AUTH_REQUIRED=1` and no valid `KG_AUTH_TOKEN`, the
-process identity falls back to a restricted read-only system actor — write
-tools are gated until a validated token identity exists.
-
----
-
-*Verification: smoke-run against this tree (2026-06-11). Executed:
-`python3 -m pytest tests/unit/core/test_request_identity.py -q` (passed, 38
-combined with the evolution-bridge suite), plus a live one-off that generated
-an RSA keypair, served its JWKS from a local HTTP server, minted the exact
-token above with PyJWT 2.10.1, validated it through the real
-`actor_from_bearer_token` path (actor dict above captured verbatim), and drove
-`ActorIdentityMiddleware` for the no-token / bad-token / health / metrics /
-valid-token rows of the failure table (statuses and bodies captured verbatim).
-The expired-token and wrong-claim rows are from `_decode_jwt`'s explicit
-error branches in `agent_utilities/security/auth.py`, exercised by the unit
-suite rather than the one-off.*
+See [Identity inheritance](../architecture/identity-inheritance.md) for role and
+group normalization and [Configuration](../architecture/configuration.md) for the
+complete runtime contract.

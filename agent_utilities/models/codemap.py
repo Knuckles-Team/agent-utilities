@@ -5,10 +5,11 @@ from __future__ import annotations
 CONCEPT:AU-KG.query.object-graph-mapper
 """
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import UTC, datetime
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CodemapNode(BaseModel):
@@ -24,6 +25,19 @@ class CodemapNode(BaseModel):
     importance: float = Field(
         0.0, ge=0.0, le=1.0, description="PageRank / centrality score"
     )
+
+    @field_validator("file")
+    @classmethod
+    def _relative_source_path_only(cls, value: str) -> str:
+        """Reject host-local paths at the durable artifact boundary."""
+        normalized = str(value or "").replace("\\", "/")
+        if (
+            PurePosixPath(normalized).is_absolute()
+            or PureWindowsPath(value).is_absolute()
+            or ".." in PurePosixPath(normalized).parts
+        ):
+            raise ValueError("codemap file must be a repository-relative source path")
+        return normalized
 
 
 class CodemapEdge(BaseModel):
@@ -57,10 +71,15 @@ class CodemapArtifact(BaseModel):
     """The complete shareable codemap artifact."""
 
     id: str = Field(..., description="Unique codemap UUID or slug")
-    prompt: str = Field(..., description="The user prompt that generated this map")
+    prompt_ref: str = Field(
+        ..., min_length=1, description="Opaque reference to the transient task prompt"
+    )
+    workspace_ref: str | None = Field(
+        default=None, description="Opaque reference to the source workspace"
+    )
+    display_label: str = Field(default="Codemap", min_length=1, max_length=120)
     mode: Literal["fast", "smart"] = Field(...)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    repo_root: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Hierarchical outline (what humans read first)
     hierarchy: list[HierarchicalSection] = Field(default_factory=list)
@@ -69,14 +88,11 @@ class CodemapArtifact(BaseModel):
     nodes: list[CodemapNode] = Field(default_factory=list)
     edges: list[CodemapEdge] = Field(default_factory=list)
 
-    # Metadata for agents & sharing
-    version: str = "1.0"
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    model_config = {
-        "json_encoders": {datetime: lambda v: v.isoformat()},
-        "populate_by_name": True,
-    }
+    # Privacy-safe evidence and generation metadata.
+    evidence_refs: list[str] = Field(default_factory=list)
+    subgraph_node_count: int = Field(default=0, ge=0)
+    generator_id: str = "agent-utilities-codemap"
+    version: str = "2.0"
 
     def to_json(self) -> str:
         return self.model_dump_json(indent=2)
@@ -85,7 +101,7 @@ class CodemapArtifact(BaseModel):
         """Generate a Mermaid flowchart for the codemap graph."""
         from agent_utilities.observability.mermaid import FlowchartBuilder
 
-        builder = FlowchartBuilder(title=f"Codemap: {self.prompt}")
+        builder = FlowchartBuilder(title=self.display_label)
 
         # Add nodes
         for node in self.nodes:

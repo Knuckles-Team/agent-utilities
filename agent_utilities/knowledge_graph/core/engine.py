@@ -1,23 +1,14 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unified Intelligence Graph Engine — Tiered Architecture.
+"""Unified Intelligence Graph Engine.
 
 This module provides the high-level interface for querying the unified knowledge graph,
 supporting structural Cypher queries, topological impact analysis, and hybrid search.
 
-Architecture (Two-Tier Graph Engine):
-    - **Tier 1 (Source of Truth)**: A persistent Cypher-capable backend
-      (LadybugDB/Neo4j/PostgreSQL) handles all CRUD, schema enforcement,
-      vector indexing, and filtered queries.
-    - **Tier 2 (Compute Scratchpad)**: GraphComputeEngine (Rust-native) is
-      loaded on-demand via ``load_subgraph()`` for graph algorithms (PageRank,
-      VF2, spectral clustering, causal reasoning) that databases cannot
-      perform natively.
-
-    When no persistent backend is available (``GRAPH_BACKEND=memory``),
-    the engine falls back to using ``self.graph`` (GraphComputeEngine) as
-    both storage and compute — suitable for testing and small graphs only.
+GraphComputeEngine is the single operational authority for storage, retrieval,
+and native graph algorithms. Optional backends are explicit interoperability or
+mirror targets; they do not introduce a second read authority.
 
 The engine is composed of focused mixins for maintainability:
 - ``engine_query.py``: Query, search, and retrieval methods.
@@ -31,15 +22,18 @@ import contextlib
 import json
 import logging
 import math
-from enum import Enum, StrEnum
-from typing import Any, Literal
+import threading
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Literal
 
-from agent_utilities.core.config import setting
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
+from ..orchestration.engine_enterprise import EnterpriseEngineMixin
 from ..orchestration.engine_federation import FederationMixin
 from ..orchestration.engine_finance import FinanceEngineMixin
 from ..orchestration.engine_infra import InfrastructureEngineMixin
@@ -72,18 +66,6 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot_product / (magnitude1 * magnitude2)
 
 
-class RoutingStrategy(StrEnum):
-    """Controls how queries are routed between the persistent backend and the
-    Rust compute engine.
-
-    Set via ``GRAPH_ROUTING_STRATEGY`` environment variable.
-    """
-
-    BACKEND = "backend"  # All ops → LadybugDB only
-    COMPUTE = "compute"  # All ops → Rust only (testing/ephemeral)
-    HYBRID = "hybrid"  # Writes → backend-first, reads → compute-first
-
-
 # implements core.execution.ExecutionEngine
 class IntelligenceGraphEngine(
     QueryMixin,
@@ -95,9 +77,9 @@ class IntelligenceGraphEngine(
     FederationMixin,
     AHEMixin,
     InfrastructureEngineMixin,
-    # CONCEPT:AU-KG.domains.lazy-symbol-loading — finance + ML/RLM domain methods composed onto the engine, so
-    # callers use engine.fit_markov_regime(...) / engine.register_rlm_actor(...) directly
-    # instead of instantiating the abstract mixins standalone (the prior workaround).
+    # CONCEPT:AU-KG.domains.lazy-symbol-loading — domain methods are composed onto
+    # the engine so current surfaces invoke one real engine capability directly.
+    EnterpriseEngineMixin,
     FinanceEngineMixin,
     MachineLearningEngineMixin,
 ):
@@ -106,24 +88,25 @@ class IntelligenceGraphEngine(
     Composed of focused mixins for maintainability. All 49+ existing importers
     continue to work since IntelligenceGraphEngine is still the single public class.
 
-    Tiered Architecture:
-        - Writes go to the persistent backend (Tier 1) when available.
-        - ``self.graph`` (GraphComputeEngine, Rust-native) is the fallback
-          when no backend exists, AND the compute scratchpad for graph
-          algorithms via ``load_subgraph()``.
-        - Dual-writes are avoided to prevent OOM at enterprise scale (100K+ nodes).
+    ``self.graph`` and ``self.graph_compute`` name the same native graph
+    authority. Optional mirrors are owned and reconciled by ``FanOutBackend``.
     """
 
     _ACTIVE_ENGINE: IntelligenceGraphEngine | None = None
+    _ACTIVE_ENGINE_LOCK = threading.RLock()
 
     def __init__(
         self,
         backend: GraphBackend | None = None,
         db_path: str | None = None,
-        external_ontologies: list[str] | None = None,
         graph: Any = None,
         schema_pack: Any = None,
     ):
+        if IntelligenceGraphEngine._ACTIVE_ENGINE is not None:
+            raise RuntimeError(
+                "A process-owned graph engine already exists; production code "
+                "must acquire it through IntelligenceGraphEngine.get_or_create()"
+            )
         # Use provided backend, or check for an active one, or create one from factory
         if backend is not None:
             self.backend = backend
@@ -142,55 +125,58 @@ class IntelligenceGraphEngine(
                         "A persistent graph backend is required. Memory-only mode is no longer supported."
                     )
 
-        # Initialize compiled / optimized Graph Compute Engine (Rust/epistemic-graph)
+        # Reuse the authority backend's own compute client when it has one.  An
+        # EpistemicGraphBackend (including one wrapped by FanOutBackend) already
+        # owns a GraphComputeEngine; constructing another here opened a second
+        # socket and every write was then applied twice to the same authority.
+        # Non-engine stores still receive one bounded compute scratch client.
+        backend_graph = getattr(self.backend, "graph", None)
         self.graph_compute = (
             graph
             if graph is not None
-            else GraphComputeEngine(backend_type="epistemic_graph")
+            else (
+                backend_graph
+                if backend_graph is not None
+                else GraphComputeEngine.get_or_create(backend_type="epistemic_graph")
+            )
         )
         self.graph = self.graph_compute
+        self._compute_is_authority = self.graph_compute is backend_graph
+        self._process_owned = True
 
-        strategy_str = setting("GRAPH_ROUTING_STRATEGY", "hybrid").lower()
-        try:
-            self.routing_strategy = RoutingStrategy(strategy_str)
-        except ValueError:
-            logger.warning(
-                "Unknown GRAPH_ROUTING_STRATEGY=%r, defaulting to hybrid", strategy_str
-            )
-            self.routing_strategy = RoutingStrategy.HYBRID
-
-        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control-plane / content-plane write isolation.
-        # The scheduler, the per-task claim CAS, status flips, the reaper resets,
-        # the promotion sweep, and the :Schedule store all funnel through ONE
-        # engine graph ('__commons__') with a single per-graph write lock. Under
-        # sustained codebase ingestion that lock is held for long stretches and
-        # STARVES the control plane (claims/collapse/scheduler block on it). Bind
-        # a dedicated control backend to a separate '__control__' engine graph so
-        # the control plane has its own write lock, never contended by content
-        # ingestion. The durable L3 stays the SAME Postgres (row-level locking →
-        # no cross-graph contention there). Falls back to ``self.backend`` if the
-        # control backend can't be built (degrade, never crash).
+        # CONCEPT:AU-KG.backend.schedule-on-control-graph — bind the sole native
+        # WorkItem authority and :Schedule store. The single-client production
+        # profile shares one process-owned engine authority; graph-scoped profiles
+        # bind its ``__control__`` view. Construction fails if neither contract is
+        # available, preventing a silent second work-state location.
         self.control_backend = self._build_control_backend()
 
         super().__init__()
 
-        # Start workers if there are pending tasks in the database natively
+        # Start workers when native WorkItems report an ingestion backlog.
         if self.backend:
             try:
-                # Lightweight check to avoid locking if queue is empty
-                pending = self.query_cypher(
-                    "MATCH (t:Task {status: 'pending'}) RETURN count(t) as c"
-                )
-                if pending and pending[0]["c"] > 0:
+                if self.ingest_queue_depth() > 0:
                     self.start_task_workers()
             except Exception:
                 logger.debug(
                     "Failed to start task workers on initialization", exc_info=True
                 )
 
-        # Auto-register as active if none exists to support singleton pattern
-        if IntelligenceGraphEngine._ACTIVE_ENGINE is None:
-            IntelligenceGraphEngine._ACTIVE_ENGINE = self
+        with IntelligenceGraphEngine._ACTIVE_ENGINE_LOCK:
+            active = IntelligenceGraphEngine._ACTIVE_ENGINE
+            if active is None:
+                IntelligenceGraphEngine._ACTIVE_ENGINE = self
+            elif active is not self:
+                raise RuntimeError(
+                    "Concurrent duplicate graph engine construction was rejected"
+                )
+        # Model transport is evidence-governed process-wide. Register the
+        # operational authority at the same lifecycle boundary as _ACTIVE_ENGINE.
+        from agent_utilities.core.contextual_model import set_context_compiler_engine
+
+        set_context_compiler_engine(self)
+        self._bind_policy_stores()
 
         from ..retrieval.hybrid_retriever import HybridRetriever  # type: ignore
         from .inference_engine import InferenceEngine  # type: ignore
@@ -218,47 +204,19 @@ class IntelligenceGraphEngine(
         self._services_registered = False
 
     def _build_control_backend(self) -> GraphBackend:
-        """Construct the dedicated control-plane backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
+        """Return the operational backend that owns native WorkItems.
 
-        Returns a backend bound to the ``__control__`` engine graph so the
-        scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
-        writes run on a *separate* per-graph write lock from sustained content
-        ingestion (which holds ``__commons__``'s lock and otherwise starves the
-        control plane).
-
-        The engine is the one database, so the control backend is always an
-        isolated engine graph — ``EpistemicGraphBackend(graph_name='__control__')``
-        — regardless of whether ``self.backend`` is the bare engine or a
-        :class:`FanOutBackend` (engine authority + mirrors). Mirrors don't carry
-        control-plane state; only the engine authority does. Any failure (engine
-        not reachable for the named graph) degrades to ``self.backend`` so the
-        control plane keeps working on ``__commons__`` exactly as before — never
-        crash.
+        Native WorkItem lifecycle methods remain the only writable work-state
+        There is no separate control store, graph client, or fallback authority.
         """
-        try:
-            from ..backends.epistemic_graph_backend import EpistemicGraphBackend
+        return self.backend
 
-            base = self.backend
-            # The engine is the one database, so the control plane is simply an
-            # isolated engine graph (``__control__``) on the same authority — its
-            # writes use a separate per-graph write lock and never contend with
-            # ``__commons__`` content ingestion. (Mirrors don't carry control-plane
-            # state; only the engine authority does.)
-            control = EpistemicGraphBackend(graph_name="__control__")
-            logger.info(
-                "[CONCEPT:AU-KG.backend.schedule-on-control-graph] control backend bound to '__control__' "
-                "(isolated engine graph; content backend=%s)",
-                type(base).__name__,
-            )
-            return control
-        except Exception as e:  # noqa: BLE001 — degrade, never crash the engine
-            logger.warning(
-                "[CONCEPT:AU-KG.backend.schedule-on-control-graph] could not build isolated control backend "
-                "(%s); falling back to the shared content backend (__commons__). "
-                "Control-plane writes will contend with ingestion as before.",
-                e,
-            )
-            return self.backend
+    def _bind_policy_stores(self) -> None:
+        """Bind mandatory policy state to the one authoritative graph backend."""
+
+        from ..ontology.permissioning import set_marking_store
+
+        set_marking_store(self.backend)
 
     def register_services(self) -> int:
         """Register all services with the KG for orchestrator discovery.
@@ -315,9 +273,96 @@ class IntelligenceGraphEngine(
         return cls._ACTIVE_ENGINE
 
     @classmethod
+    def get_or_create(
+        cls,
+        factory: Any | None = None,
+        **kwargs: Any,
+    ) -> IntelligenceGraphEngine:
+        """Acquire the one process-owned operational graph engine.
+
+        ``factory`` is an explicit dependency-injection seam for tests and
+        launchers. It executes at most once under the process lock. Public
+        routes and background services use this method instead of constructing
+        overlapping clients ad hoc.
+        """
+        active = cls._ACTIVE_ENGINE
+        if active is not None:
+            return active
+        with cls._ACTIVE_ENGINE_LOCK:
+            active = cls._ACTIVE_ENGINE
+            if active is not None:
+                return active
+            created = factory() if factory is not None else cls(**kwargs)
+            registered = cls._ACTIVE_ENGINE
+            if registered is None:
+                cls._ACTIVE_ENGINE = created
+                registered = created
+            elif registered is not created:
+                raise RuntimeError(
+                    "The graph client factory attempted to replace the process authority"
+                )
+            return registered
+
+    def for_graph(self, graph_name: str) -> IntelligenceGraphEngine:
+        """Return a graph-scoped facade over the one process client.
+
+        The returned object is a lightweight view: no backend factory, socket,
+        event-loop thread, mirror drainer, worker, or schema listener is
+        created.  It is therefore safe for unified read fan-out and routed
+        ingestion while preserving the one-client-per-process invariant.
+        """
+        target = str(graph_name or getattr(self.graph_compute, "graph_name", ""))
+        if target == getattr(self.graph_compute, "graph_name", ""):
+            return self
+
+        backend_view_factory = getattr(self.backend, "for_graph", None)
+        if not callable(backend_view_factory):
+            authority = getattr(self.backend, "_authority", None)
+            backend_view_factory = getattr(authority, "for_graph", None)
+        if not callable(backend_view_factory):
+            raise RuntimeError(
+                f"backend {type(self.backend).__name__} has no named-graph view"
+            )
+
+        view = object.__new__(type(self))
+        view.__dict__ = self.__dict__.copy()
+        view.backend = backend_view_factory(target)
+        # The backend view already owns the graph-compute view. Reuse that
+        # exact object so authority identity remains true and facade writes are
+        # not mirrored into a second wrapper over the same engine graph.
+        view.graph_compute = getattr(view.backend, "graph", None)
+        if view.graph_compute is None:
+            view.graph_compute = self.graph_compute.for_graph(target)
+        view.graph = view.graph_compute
+        view._compute_is_authority = (
+            getattr(view.backend, "graph", None) is view.graph_compute
+        )
+        view._process_owned = False
+        view._process_root = getattr(self, "_process_root", self)
+
+        from ..retrieval.hybrid_retriever import HybridRetriever
+        from .inference_engine import InferenceEngine
+
+        view.hybrid_retriever = HybridRetriever(
+            view, schema_pack=getattr(self, "active_schema_pack", None)
+        )
+        view.inference_engine = InferenceEngine(view)
+        return view
+
+    @classmethod
     def set_active(cls, engine: IntelligenceGraphEngine | None):
-        """Explicitly set the active engine instance."""
-        cls._ACTIVE_ENGINE = engine
+        """Explicit dependency-injection/reset seam (primarily for tests)."""
+        with cls._ACTIVE_ENGINE_LOCK:
+            cls._ACTIVE_ENGINE = engine
+        from agent_utilities.core.contextual_model import set_context_compiler_engine
+
+        set_context_compiler_engine(engine)
+        if engine is None:
+            from ..ontology.permissioning import clear_markings
+
+            clear_markings()
+        else:
+            engine._bind_policy_stores()
 
     def _normalize_label(self, label: str) -> str:
         """Find canonical case for a label from the schema. Delegates to the one
@@ -375,11 +420,12 @@ class IntelligenceGraphEngine(
     # not a declared column is an error, so props must be filtered (extras are
     # routed to the catch-all ``metadata`` column). Schemaless backends
     # (epistemic_graph/neo4j/falkordb) accept arbitrary properties as-is.
-    _SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend", "TieredGraphBackend"}
+    _SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend"}
 
     # Drivers that reject map/list-of-map property values (openCypher property
     # values must be primitives or arrays of primitives). Nested dict/list props
-    # are JSON-encoded for these so a write never throws (CONCEPT:AU-KG.compute.bidirectional-sync parity).
+    # are JSON-encoded for these so a write remains portable across explicit mirrors
+    # (CONCEPT:AU-KG.backend.mirror-health-repair).
     _NESTED_UNSAFE = {"Neo4jBackend", "FalkorDBBackend"}
 
     # Fields stored as native arrays (not JSON-encoded) across backends.
@@ -427,10 +473,10 @@ class IntelligenceGraphEngine(
     ) -> dict[str, Any]:
         """Backend-aware serialization of node props for ``backend.execute``.
 
-        Guarantees no property is silently dropped on the durable tier and that no
+        Guarantees no property is silently dropped on a configured mirror and that no
         write throws on a map-rejecting driver:
 
-        * schema-backed (Ladybug/PostgreSQL/Tiered): keep declared columns and fold
+        * schema-backed mirrors (Ladybug/PostgreSQL): keep declared columns and fold
           any ad-hoc keys into the ``metadata`` JSON column; JSON-encode nested
           declared values. Applied on BOTH update and create (previously only on
           create — re-writes silently dropped extras).
@@ -438,8 +484,7 @@ class IntelligenceGraphEngine(
           dict/list props so the openCypher write never throws.
         * schemaless map-safe (epistemic_graph): pass through (native dicts ok).
 
-        The full native property set still reaches ``graph_compute`` separately, so
-        the compute layer is unaffected.
+        The full native property set still reaches the graph authority.
         """
         import json
 
@@ -482,29 +527,48 @@ class IntelligenceGraphEngine(
         return prepared
 
     def _upsert_node(self, label: str, node_id: str, data: dict[str, Any]):
-        """Perform an idempotent upsert of a node via MERGE on the inline id map.
+        """Perform an idempotent node upsert through the backend's native seam.
 
         Properties are folded/serialized ONCE (``_prepare_node_props``) and applied
-        with a single MERGE + SET, so ad-hoc and nested props survive a re-write on
-        every backend (no data loss on the durable tier).
+        through the typed mutation API when Epistemic Graph is the authority.  This
+        preserves arrays and nested values without compiling them into the native
+        Cypher subset (whose ``SET`` grammar intentionally accepts scalar bare-name
+        properties only).  Native proxy backends such as the governance guard and
+        ``FanOutBackend`` expose the same typed seam; FanOut records the structured
+        mutation in its mirror outbox.
 
-        The MERGE-on-``{id: $id}`` form is required for correctness: the previous
-        MATCH/WHERE-then-``CREATE (n:Label {..map..})`` fallback silently no-op'd on
-        the epistemic_graph backend (a bare CREATE with a property map does not
-        persist there and raises no error), which dropped every node written through
-        this helper — CallableResource, ToolMetadata, Episode, and the rest. MERGE on
-        the inline-map id is the proven-persistent write (identical to how Server
-        nodes are written) and stays idempotent — update-or-create in one statement.
+        External Cypher stores retain the portable ``MERGE`` + ``SET`` statement.
         """
         if not self.backend:
-            return
+            return None
 
         label = self._normalize_label(label)
         prepared = self._prepare_node_props(label, data)
 
+        typed_support = getattr(self.backend, "typed_mutation_support", "")
+        if typed_support == "native":
+            typed_add = getattr(self.backend, "add_node", None)
+            if not callable(typed_add):
+                raise RuntimeError(
+                    "native graph authority does not expose typed node mutations"
+                )
+            typed_add(
+                node_id,
+                **{
+                    **prepared,
+                    "id": node_id,
+                    "node_type": label,
+                },
+            )
+            return None
+        if getattr(self.backend, "cypher_support", "full") == "native":
+            raise RuntimeError(
+                "native graph authority did not declare lossless typed mutations"
+            )
+
         set_clause = self._get_set_clause(prepared, label=label)
         merge_query = f"MERGE (n:{label} {{id: $id}}) {set_clause}".rstrip()
-        self.backend.execute(merge_query, prepared)
+        return self.backend.execute(merge_query, prepared)
 
     def link_nodes(
         self,
@@ -513,14 +577,26 @@ class IntelligenceGraphEngine(
         rel_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ):
         """Create a relationship between two nodes in the graph.
 
-        Write ordering: backend-first, then graph_compute.
-        This prevents sync drift — the persistent layer is always the
-        canonical state. The compute scratchpad is updated afterward
-        as a real-time cache.
+        Write ordering follows the configured authority contract. When a native
+        graph view is distinct from that backend, it is updated after the
+        authoritative write succeeds.
+
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1). See :meth:`add_node` for the ambient-actor
+                scoping this enables downstream.
         """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:write")
+
         if rel_type:
             # Flag edge types outside an EXCLUSIVE pack before normalising case
             # (observe-only; no-op under the default core pack) (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
@@ -540,12 +616,17 @@ class IntelligenceGraphEngine(
 
         stamp_bitemporal(props, event_time=props.get("event_time"))
 
-        if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST (backend-only).
-            self._upsert_edge(source_id, target_id, rel_type, props)
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                # The configured backend is the write authority for this operation.
+                self._upsert_edge(source_id, target_id, rel_type, props)
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        self.graph_compute.add_edge(source_id, target_id, {"type": rel_type, **props})
+            # An EpistemicGraphBackend write already passed through this exact
+            # compute client. Other durable stores retain a bounded scratchpad.
+            if ephemeral or not self._compute_is_authority:
+                self.graph_compute.add_edge(
+                    source_id, target_id, {"relationship": rel_type, **props}
+                )
 
     def _upsert_edge(
         self,
@@ -575,6 +656,32 @@ class IntelligenceGraphEngine(
         """
         if not self.backend:
             return
+
+        # Epistemic Graph's typed mutation carries the complete property value
+        # domain (including arrays/nested values) and avoids two label-lookup
+        # queries plus a scalar-only Cypher ``SET``.  Native proxy backends retain
+        # governance and mirror-outbox behavior through this same method.
+        typed_support = getattr(self.backend, "typed_mutation_support", "")
+        if typed_support == "native":
+            typed_add = getattr(self.backend, "add_edge", None)
+            if not callable(typed_add):
+                raise RuntimeError(
+                    "native graph authority does not expose typed edge mutations"
+                )
+            typed_add(
+                source_id,
+                target_id,
+                **{
+                    **props,
+                    "relationship": rel_type,
+                },
+            )
+            return
+        if getattr(self.backend, "cypher_support", "full") == "native":
+            raise RuntimeError(
+                "native graph authority did not declare lossless typed mutations"
+            )
+
         _backend_name = self.backend.__class__.__name__
         if _backend_name == "LadybugBackend":
             set_clause = " SET r.`properties` = $properties"
@@ -635,6 +742,8 @@ class IntelligenceGraphEngine(
         rel_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ) -> bool:
         """Lightweight cross-entity relationship resolution.
 
@@ -643,6 +752,11 @@ class IntelligenceGraphEngine(
         down to Cypher to avoid O(N) memory scans on large enterprise graphs.
         """
 
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:write")
         if self.backend and not ephemeral:
             # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
             props = properties or {}
@@ -659,7 +773,8 @@ class IntelligenceGraphEngine(
                 "target": target_name,
             }
             params.update(props)
-            res = self.backend.execute(q, params)
+            with use_actor(session.actor):
+                res = self.backend.execute(q, params)
             return len(res) > 0
 
         return False
@@ -716,6 +831,8 @@ class IntelligenceGraphEngine(
         node_type: str,
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ):
         """Add a generic node to the graph.
 
@@ -723,20 +840,44 @@ class IntelligenceGraphEngine(
         Pydantic model (e.g. council verdicts, ad-hoc decision nodes).
 
         Write ordering: backend-first, then graph_compute.
+
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1 — the one currency). When omitted, one is derived
+                from today's ambient actor via ``GraphSession.from_ambient()``.
+                The write executes with that session's actor scoped ambiently
+                (``use_actor``) for its duration, so any provenance/ownership
+                stamping downstream that still reads the ambient actor
+                (e.g. the write-path Company Brain guard) attributes correctly
+                — existing callers that never pass ``session`` see identical
+                behaviour.
         """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:write")
+
         node_type = self._normalize_label(node_type)
-        props = properties or {}
-        props["type"] = node_type
+        props = dict(properties or {})
+        if "type" in props:
+            raise ValueError(
+                "node property 'type' is retired; use the node_type argument"
+            )
+        props["node_type"] = node_type
         # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
 
-        if self.backend and not ephemeral:
-            # Tier 1: Backend is source of truth — write here FIRST
-            data = {"id": node_id, **props}
-            self._upsert_node(node_type, node_id, data)
+        with use_actor(session.actor):
+            result: Any = None
+            if self.backend and not ephemeral:
+                # The configured backend is the write authority for this operation.
+                data = {"id": node_id, **props}
+                result = self._upsert_node(node_type, node_id, data)
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        self.graph_compute.add_node(node_id, props)
+            if ephemeral or not self._compute_is_authority:
+                self.graph_compute.add_node(node_id, props)
+            return result if result is not None else {"id": node_id, **props}
 
     def add_edge(
         self,
@@ -744,6 +885,8 @@ class IntelligenceGraphEngine(
         target: str,
         rel_type: str = "",
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
         **properties: Any,
     ) -> None:
         """Add a generic edge between two nodes (backend-first, then graph_compute).
@@ -751,36 +894,73 @@ class IntelligenceGraphEngine(
         Convenience for ad-hoc relationships (e.g. provenance links like
         ``RunTrace -[:HAS_CONTEXT]-> ContextBlob``, CONCEPT:AU-ORCH.session.invoker-agent-handoff) where there is no typed
         model. Best-effort: a missing backend/compute method is tolerated.
-        """
-        if self.backend and not ephemeral:
-            _be = getattr(self.backend, "add_edge", None)
-            if callable(_be):
-                with contextlib.suppress(Exception):
-                    _be(source, target, rel_type, **properties)
-        _ge = getattr(self.graph_compute, "add_edge", None)
-        if callable(_ge):
-            with contextlib.suppress(Exception):
-                _ge(source, target, {"rel_type": rel_type, **properties})
 
-    def get_blast_radius(self, node_id: str, depth: int) -> list[dict[str, Any]]:
+        Args:
+            session: Explicit :class:`~.session.GraphSession` this write runs
+                under (CONCEPT:AU-P0-1). See :meth:`add_node` for the ambient-actor
+                scoping this enables downstream.
+        """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:write")
+
+        if not str(rel_type).strip():
+            raise ValueError("rel_type is required")
+
+        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
+            properties
+        )
+        if aliases:
+            names = ", ".join(sorted(aliases))
+            raise ValueError(
+                f"edge relationship aliases are retired ({names}); "
+                "use the rel_type argument"
+            )
+
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                _be = getattr(self.backend, "add_edge", None)
+                if callable(_be):
+                    with contextlib.suppress(Exception):
+                        _be(source, target, rel_type, **properties)
+            _ge = getattr(self.graph_compute, "add_edge", None)
+            if callable(_ge) and (ephemeral or not self._compute_is_authority):
+                with contextlib.suppress(Exception):
+                    _ge(source, target, {"relationship": rel_type, **properties})
+
+    def get_blast_radius(
+        self,
+        node_id: str,
+        depth: int,
+        *,
+        session: GraphSession | None = None,
+    ) -> list[dict[str, Any]]:
         """Retrieve the blast radius (dependencies) from a starting node.
 
         Uses the high-performance GraphComputeEngine with compiled Rust and
         epistemic-graph backend for fast traversals.
         """
+        from agent_utilities.security.brain_context import use_actor
+
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:read")
         if self.backend:
             # Cypher-powered query: handles millions of nodes directly in the database
             query = f"""
             MATCH (s {{id: $node_id}})-[*1..{depth}]->(t)
             WITH s, t, shortestPath((s)-[*1..{depth}]->(t)) as p
-            RETURN distinct t.id as id, labels(t)[0] as type, length(p) as depth
+            RETURN distinct t.id as id, labels(t)[0] as node_type, length(p) as depth
             """
             try:
-                results = self.backend.execute(query, {"node_id": node_id})
+                with use_actor(session.actor):
+                    results = self.backend.execute(query, {"node_id": node_id})
                 return [
                     {
                         "id": r["id"],
-                        "type": r.get("type", "Node"),
+                        "node_type": r.get("node_type", "Node"),
                         "depth": r["depth"],
                     }
                     for r in results
@@ -792,146 +972,60 @@ class IntelligenceGraphEngine(
 
         return self.graph_compute.get_blast_radius(node_id, depth)
 
-    # --- Tier 2: Compute Scratchpad (Rust-native on-demand loading) ---
-
-    def load_subgraph(
-        self, query: str, params: dict[str, Any] | None = None
-    ) -> GraphComputeEngine:
-        """Dynamically load a specialized subgraph from the persistent backend.
-
-        This is the formal gateway from Tier 1 (persistent storage) to Tier 2
-        (compute scratchpad). It prevents OOM bottlenecks by loading ONLY the
-        relevant nodes/edges needed for a specific graph algorithm.
-
-        The Cypher query must RETURN nodes 'n' and relationships 'r'.
-
-        When no backend exists (memory-only mode), returns the full local graph.
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
+        across the storage boundary): the engine reads ``derived_id``'s OWN
+        already-stored provenance (its ``invalidation_deps`` property plus any
+        outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a dependency set and
+        tracks it so ANY subsequent committed change to a dependency (through the
+        normal write path) automatically marks it stale, with no polling. Call
+        this ONCE, right after writing a derived node (a mined claim, a computed
+        capability index entry, ...) plus its provenance edges. Thin passthrough
+        to :meth:`GraphComputeEngine.register_materialization`; requires an engine
+        built with the ``epistemic-tms`` feature (opt-in, not part of ``full``).
         """
-        if not self.backend:
-            raise RuntimeError("Backend required for load_subgraph")
+        return self.graph_compute.register_materialization(derived_id)
 
-        subgraph = GraphComputeEngine(backend_type="rust")
-        results = self.backend.execute(query, params or {})
-        for row in results:
-            n = row.get("n")
-            if n and isinstance(n, dict) and "id" in n:
-                props = {k: v for k, v in n.items() if k != "id"}
-                subgraph.add_node(n["id"], props)
-
-            # Simple relationship extraction
-            r = row.get("r")
-            if r and isinstance(r, dict) and "source" in r and "target" in r:
-                subgraph.add_edge(
-                    r["source"], r["target"], {"type": r.get("type", "UNKNOWN")}
-                )
-
-        return subgraph
-
-    def checkout_subgraph(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None,
-        *,
-        durable: Any | None = None,
-    ) -> Any:
-        """Check out a bounded subgraph as a write-back-capable working copy.
-
-        Like :meth:`load_subgraph`, but returns a
-        :class:`~agent_utilities.knowledge_graph.core.subgraph_checkout.CheckedOutSubgraph`
-        that tracks mutations and can flush **only the deltas** back to the durable
-        tier — instead of the detached, load-only scratchpad ``load_subgraph``
-        returns. This closes the checkout → mutate → write-back loop without a
-        full-graph enumeration. (CONCEPT:AU-KG.compute.bidirectional-sync P2 — bounded checkout + delta
-        write-back.)
-
-        The Cypher query must ``RETURN`` nodes ``n`` (and optionally relationships
-        ``r``). ``durable`` defaults to this engine's backend (the durable tier).
-        """
-        if not self.backend:
-            raise RuntimeError("Backend required for checkout_subgraph")
-
-        from .subgraph_checkout import CheckedOutSubgraph
-
-        inner = GraphComputeEngine(backend_type="rust")
-        baseline: dict[str, str] = {}
-        results = self.backend.execute(query, params or {})
-        for row in results:
-            n = row.get("n")
-            if n and isinstance(n, dict) and "id" in n:
-                props = {k: v for k, v in n.items() if k != "id"}
-                inner.add_node(n["id"], props)
-                baseline[n["id"]] = CheckedOutSubgraph._version_of(props)
-            r = row.get("r")
-            if r and isinstance(r, dict) and "source" in r and "target" in r:
-                inner.add_edge(
-                    r["source"], r["target"], {"type": r.get("type", "UNKNOWN")}
-                )
-
-        return CheckedOutSubgraph(
-            inner,
-            durable=durable if durable is not None else self.backend,
-            baseline=baseline,
-        )
-
-    def load_for_centrality(
-        self, node_types: list[str] | None = None
-    ) -> GraphComputeEngine:
-        """Load a focused subgraph for centrality/PageRank computation.
-
-        Args:
-            node_types: Optional filter by node types. If None, loads all nodes.
-        """
-        if not self.backend or not node_types:
-            return self.load_subgraph("MATCH (n)-[r]->(m) RETURN n, r, m")
-        return self.load_subgraph(
-            "MATCH (n)-[r]->(m) WHERE n.type IN $types OR m.type IN $types RETURN n, r, m",
-            {"types": node_types},
-        )
-
-    def load_for_impact_analysis(self, target_id: str) -> GraphComputeEngine:
-        """Load neighbors within 3 hops of target for impact analysis."""
-        if not self.backend:
-            raise RuntimeError("Backend required for load_for_impact_analysis")
-        return self.load_subgraph(
-            "MATCH path = (n)-[*1..3]-(t {id: $target}) "
-            "UNWIND nodes(path) AS n UNWIND relationships(path) AS r "
-            "RETURN DISTINCT n, r",
-            {"target": target_id},
-        )
+    def materialization_status(self, id: str) -> str | None:
+        """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
+        never registered) of a materialization tracked on the same index
+        :meth:`register_materialization` writes to. Thin passthrough to
+        :meth:`GraphComputeEngine.materialization_status`."""
+        return self.graph_compute.materialization_status(id)
 
     # --- Background Analysis Methods ---
 
     def execute_deep_analysis(self, query: str, max_depth: int = 2) -> dict[str, Any]:
         """Perform a native background deep analysis of a concept.
 
-        Architecture (Hybrid L1 + Free-Text LLM):
-            - **L1 (Structured)**: The ``discover_innovations`` engine provides
+        Architecture (native signals plus free-text synthesis):
+            - **Structured discovery**: ``discover_innovations`` provides
               structured domain signals, scores, biomimicry mappings, and
               innovation claims natively — no LLM needed.
-            - **L2 (Free-Text Synthesis)**: The LLM generates a natural language
+            - **Free-text synthesis**: The LLM generates a natural-language
               synthesis summary. This plays to any model's strength (text gen)
               and eliminates JSON schema validation failures entirely.
-            - **KG Writeback**: Domain recommendations from L1 are written as
+            - **KG writeback**: Native domain recommendations are written as
               ``ANALOGOUS_TO`` edges. The LLM summary is stored as a semantic
               ``Memory`` node for future retrieval.
         """
-
-        from pydantic_ai import Agent
 
         from agent_utilities.core.config import (
             DEFAULT_KG_MODEL_ID,
             DEFAULT_LLM_PROVIDER,
         )
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
-        # ── L1: Structured Discovery (no LLM, instant) ──────────────
+        # Structured discovery (no LLM).
         l1_results = self.discover_innovations(query, top_k=10)
         enriched = l1_results.get("results", [])
         domain_recs = l1_results.get("domain_recommendations", [])
         if not enriched:
             return {"status": "skipped", "reason": "No initial concepts found"}
 
-        # Build compact context for LLM from L1 signals
+        # Build compact context for the LLM from native signals.
         match_lines = []
         for r in enriched[:7]:
             match_lines.append(
@@ -970,7 +1064,7 @@ class IntelligenceGraphEngine(
             "Write in clear, structured markdown. Be specific and actionable."
         )
 
-        # ── L2: Free-Text LLM Synthesis ─────────────────────────────
+        # Free-text LLM synthesis.
         llm_summary = ""
         try:
             from ...core.event_loop import allow_nested_run_sync
@@ -980,7 +1074,7 @@ class IntelligenceGraphEngine(
             model = create_model(
                 provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
             )
-            agent = Agent(
+            agent = create_context_agent(
                 model,
                 system_prompt=(
                     "You are an expert software architect analyzing research papers "
@@ -991,11 +1085,11 @@ class IntelligenceGraphEngine(
 
             result = agent.run_sync(prompt)
             llm_summary = str(result.output)
-            logger.info(f"L2 synthesis complete: {len(llm_summary)} chars generated")
+            logger.info("Synthesis complete: %d chars generated", len(llm_summary))
         except Exception as e:
-            logger.warning(f"L2 LLM synthesis failed (non-fatal): {e}")
+            logger.warning("LLM synthesis failed (non-fatal): %s", e)
             llm_summary = (
-                f"[LLM synthesis unavailable — L1 signals preserved]\n\n"
+                f"[LLM synthesis unavailable — native signals preserved]\n\n"
                 f"Query: {query}\n"
                 f"Matches: {len(enriched)}\n"
                 f"Top domains: {', '.join(d['domain'] for d in domain_recs[:5])}"
@@ -1007,7 +1101,7 @@ class IntelligenceGraphEngine(
         )
 
         new_concepts = []
-        # Write ANALOGOUS_TO edges from L1 domain recommendations
+        # Write ANALOGOUS_TO edges from native domain recommendations.
         for d in domain_recs:
             if d.get("priority") in ("high", "medium"):
                 success = self.resolve_and_link(
@@ -1067,29 +1161,46 @@ class IntelligenceGraphEngine(
             success=analysis.get("status") == "success",
         )
 
-    def delete_node(self, node_id: str, ephemeral: bool = False) -> None:
-        """Remove a node and its associated relationships from the graph.
+    def delete_node(
+        self,
+        node_id: str,
+        ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
+    ) -> None:
+        """Remove a node through the session-owned graph authority."""
+        from agent_utilities.security.brain_context import use_actor
 
-        Write ordering: backend-first, then graph_compute.
-        """
-        if self.backend and not ephemeral:
-            try:
-                self.backend.execute(
-                    "MATCH (n {id: $id}) DETACH DELETE n",
-                    {"id": node_id},
-                )
-            except Exception as e:
-                logger.warning(f"Backend delete_node failed: {e}")
+        from .session import resolve_session
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        try:
-            self.graph_compute.remove_node(node_id)
-        except Exception as e:
-            logger.debug(f"graph_compute remove_node failed or node not found: {e}")
+        session = resolve_session(session, required_scope="kg:write")
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                try:
+                    self.backend.execute(
+                        "MATCH (n {id: $id}) DETACH DELETE n",
+                        {"id": node_id},
+                    )
+                except Exception as e:
+                    logger.warning(f"Backend delete_node failed: {e}")
 
-    def remove_node(self, node_id: str, ephemeral: bool = False) -> None:
-        """Remove a node — delegates to delete_node."""
-        self.delete_node(node_id, ephemeral)
+            if ephemeral or not self._compute_is_authority:
+                try:
+                    self.graph_compute.remove_node(node_id)
+                except Exception as e:
+                    logger.debug(
+                        f"graph_compute remove_node failed or node not found: {e}"
+                    )
+
+    def remove_node(
+        self,
+        node_id: str,
+        ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
+    ) -> None:
+        """Remove a node — delegates to :meth:`delete_node`."""
+        self.delete_node(node_id, ephemeral, session=session)
 
     def delete_edge(
         self,
@@ -1097,185 +1208,36 @@ class IntelligenceGraphEngine(
         target_id: str,
         rel_type: str | None = None,
         ephemeral: bool = False,
+        *,
+        session: GraphSession | None = None,
     ) -> None:
-        """Remove a relationship between two nodes in the graph.
+        """Remove a relationship through the session-owned graph authority."""
+        from agent_utilities.security.brain_context import use_actor
 
-        Write ordering: backend-first, then graph_compute.
-        """
-        if self.backend and not ephemeral:
-            try:
-                if rel_type:
-                    rel_type = rel_type.upper()
-                    query = (
-                        f"MATCH (s {{id: $sid}})-[r:{rel_type}]->(t {{id: $tid}}) "
-                        "DELETE r"
+        from .session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:write")
+        with use_actor(session.actor):
+            if self.backend and not ephemeral:
+                try:
+                    if rel_type:
+                        rel_type = rel_type.upper()
+                        query = (
+                            f"MATCH (s {{id: $sid}})-[r:{rel_type}]->(t {{id: $tid}}) "
+                            "DELETE r"
+                        )
+                    else:
+                        query = "MATCH (s {id: $sid})-[r]->(t {id: $tid}) DELETE r"
+                    self.backend.execute(
+                        query, {"sid": source_id, "tid": target_id}
                     )
-                else:
-                    query = "MATCH (s {id: $sid})-[r]->(t {id: $tid}) DELETE r"
-                self.backend.execute(query, {"sid": source_id, "tid": target_id})
-            except Exception as e:
-                logger.warning(f"Backend delete_edge failed: {e}")
+                except Exception as e:
+                    logger.warning(f"Backend delete_edge failed: {e}")
 
-        # Tier 2: Update graph_compute cache after backend succeeds
-        try:
-            self.graph_compute.remove_edge(source_id, target_id)
-        except Exception as e:
-            logger.debug(f"graph_compute remove_edge failed or edge not found: {e}")
-
-    # ── Startup Hydration & Sync ───────────────────────────────────────
-
-    def hydrate_compute_engine(self, limit: int = 50000) -> int:
-        """Rebuild the Rust compute engine state from the persistent backend.
-
-        CONCEPT:AU-KG.compute.bidirectional-sync — On startup (or after a Rust service restart), the
-        in-memory graph is empty. This method queries the backend for all
-        nodes and edges, then replays them into the compute engine via
-        ``batch_update()`` to restore full state parity.
-
-        Args:
-            limit: Maximum number of nodes to hydrate (safety cap).
-
-        Returns:
-            Total number of operations replayed.
-        """
-        if not self.backend:
-            logger.warning("No backend available for hydration")
-            return 0
-
-        ops: list[dict[str, Any]] = []
-
-        # 1. Hydrate nodes
-        try:
-            node_results = self.backend.execute(
-                f"MATCH (n) RETURN n.id as id, labels(n)[0] as lbl LIMIT {limit}",
-                {},
-            )
-            for row in node_results:
-                node_id = row.get("id")
-                if node_id:
-                    ops.append(
-                        {
-                            "op": "add_node",
-                            "node_id": node_id,
-                            "properties_json": json.dumps(
-                                {"type": row.get("lbl", "Node")}
-                            ),
-                        }
+            if ephemeral or not self._compute_is_authority:
+                try:
+                    self.graph_compute.remove_edge(source_id, target_id)
+                except Exception as e:
+                    logger.debug(
+                        f"graph_compute remove_edge failed or edge not found: {e}"
                     )
-        except Exception as e:
-            logger.warning(f"Node hydration query failed: {e}")
-
-        # 2. Hydrate edges
-        try:
-            edge_results = self.backend.execute(
-                f"MATCH (s)-[r]->(t) RETURN s.id as sid, t.id as tid, type(r) as rel LIMIT {limit}",
-                {},
-            )
-            for row in edge_results:
-                sid = row.get("sid")
-                tid = row.get("tid")
-                if sid and tid:
-                    ops.append(
-                        {
-                            "op": "add_edge",
-                            "source_id": sid,
-                            "target_id": tid,
-                            "properties_json": json.dumps(
-                                {"type": row.get("rel", "RELATED_TO")}
-                            ),
-                        }
-                    )
-        except Exception as e:
-            logger.warning(f"Edge hydration query failed: {e}")
-
-        if not ops:
-            logger.info("No data to hydrate")
-            return 0
-
-        # 3. Replay via batch_update for efficiency
-        try:
-            self.graph_compute.batch_update(ops)
-            logger.info(f"Hydrated compute engine with {len(ops)} operations")
-        except Exception as e:
-            logger.error(f"Batch hydration failed: {e}")
-            return 0
-
-        return len(ops)
-
-    def sync_embeddings(
-        self,
-        direction: str = "backend_to_rust",
-        limit: int = 10000,
-    ) -> int:
-        """Synchronize vector embeddings between LadybugDB and Rust SemanticStore.
-
-        CONCEPT:AU-KG.compute.bidirectional-sync — Bidirectional sync to ensure both the persistent
-        VECTOR index (LadybugDB) and the in-memory SemanticStore (Rust) have
-        the same embeddings.
-
-        Args:
-            direction: ``backend_to_rust`` or ``rust_to_backend``.
-            limit: Maximum embeddings to sync per call.
-
-        Returns:
-            Number of embeddings synced.
-        """
-        if not self.backend:
-            logger.warning("No backend available for embedding sync")
-            return 0
-
-        count = 0
-
-        if direction == "backend_to_rust":
-            # Pull embeddings from LadybugDB and push to Rust
-            try:
-                results = self.backend.execute(
-                    f"MATCH (n) WHERE n.embedding IS NOT NULL "
-                    f"RETURN n.id as id, n.embedding as emb LIMIT {limit}",
-                    {},
-                )
-                for row in results:
-                    node_id = row.get("id")
-                    embedding = row.get("emb")
-                    if node_id and embedding and isinstance(embedding, list):
-                        try:
-                            self.graph_compute.add_node(
-                                node_id,
-                                {"embedding": [float(x) for x in embedding]},
-                            )
-                            count += 1
-                        except Exception as e:
-                            logger.debug(f"Failed to push embedding for {node_id}: {e}")
-            except Exception as e:
-                logger.warning(f"Backend embedding query failed: {e}")
-
-        elif direction == "rust_to_backend":
-            # Pull from Rust ledger and push to LadybugDB
-            # The Rust side stores embeddings in SemanticStore, accessible via
-            # the ledger — any AddEmbedding operations are logged there.
-            try:
-                ledger = self.graph_compute.get_ledger()
-                for entry_str in ledger:
-                    try:
-                        entry = json.loads(entry_str)
-                        if entry.get("op") == "add_embedding":
-                            node_id = entry.get("node_id")
-                            embedding = entry.get("embedding")
-                            if node_id and embedding:
-                                self.backend.execute(
-                                    "MATCH (n {id: $id}) SET n.embedding = $emb",
-                                    {"id": node_id, "emb": embedding},
-                                )
-                                count += 1
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-            except Exception as e:
-                logger.warning(f"Rust→backend embedding sync failed: {e}")
-        else:
-            raise ValueError(
-                f"Invalid direction '{direction}'. "
-                "Use 'backend_to_rust' or 'rust_to_backend'."
-            )
-
-        logger.info(f"Synced {count} embeddings ({direction})")
-        return count

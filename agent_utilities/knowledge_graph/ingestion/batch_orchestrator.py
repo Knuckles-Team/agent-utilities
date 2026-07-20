@@ -15,7 +15,7 @@ Design (Phase-4 scale-out of ``.specify/specs/ecosystem-evolution``):
     skipped in memory, no per-repo round-trip. This is the resumability spine: a
     crashed run resumes by re-reading the manifest and re-skipping recorded repos.
   - **Backpressure** — never dumps all N tasks at once; maintains a target
-    in-flight depth (``KG_INGEST_INFLIGHT``) by polling the ``:Task`` queue, so
+    in-flight depth (``KG_INGEST_INFLIGHT``) from the native WorkItem queue, so
     the auto-scaling workers and the Rust engine stay within their op budget.
   - **Idempotent submit** — ``engine.submit_task`` already dedupes in-flight by
     target; the manifest is recorded at submit time keyed by ``head_sha`` so a
@@ -90,38 +90,15 @@ def _inflight_count(engine: Any) -> int | None:
 
     Prefers the engine's uniform :meth:`ingest_queue_depth` (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer):
     the selected queue backend's not-yet-claimed backlog (Kafka = ``kg-ingest``
-    consumer-group lag; SQLite/Postgres = row count) PLUS pending/running
-    ``:Task`` nodes — so backpressure sees work the graph poll alone would miss
-    (e.g. unconsumed Kafka messages). Falls back to the :Task count for engines
-    without the method.
+    consumer-group lag; SQLite/Postgres = row count) plus native WorkItems.
     """
     depth_fn = getattr(engine, "ingest_queue_depth", None)
     if callable(depth_fn):
         try:
             return int(depth_fn())
-        except Exception:  # noqa: BLE001 — fall through to the :Task count
-            pass
-    q = getattr(engine, "query_cypher", None)
-    if not callable(q):
-        return None
-    try:
-        rows = q(
-            "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
-            "RETURN count(t) AS c"
-        )
-    except Exception:  # noqa: BLE001
-        return None
-    if not rows:
-        return 0
-    row = rows[0]
-    if isinstance(row, dict):
-        return int(row.get("c", 0) or 0)
-    if isinstance(row, list | tuple):
-        return int(row[0]) if row else 0
-    try:
-        return int(row)
-    except (TypeError, ValueError):
-        return 0
+        except Exception:  # noqa: BLE001
+            return None
+    return None
 
 
 class RepoBatchIngestor:
@@ -199,20 +176,15 @@ class RepoBatchIngestor:
 
     def status(self) -> dict[str, int]:
         """Return queue counts by task status (``pending``/``running``/...)."""
-        q = getattr(self.engine, "query_cypher", None)
-        out: dict[str, int] = {}
-        if not callable(q):
-            return out
         try:
-            rows = q("MATCH (t:Task) RETURN t.status AS s, count(t) AS c")
+            grouped = self.engine.list_tasks()
         except Exception:  # noqa: BLE001
-            return out
-        for row in rows or []:
-            if isinstance(row, dict):
-                out[str(row.get("s", "unknown"))] = int(row.get("c", 0) or 0)
-            elif isinstance(row, list | tuple) and len(row) >= 2:
-                out[str(row[0])] = int(row[1])
-        return out
+            return {}
+        return {
+            str(status): len(items)
+            for status, items in grouped.items()
+            if isinstance(items, list)
+        }
 
 
 __all__ = ["RepoRef", "BatchProgress", "RepoBatchIngestor"]

@@ -13,8 +13,8 @@ from agent_utilities.harness.trace_backend import LangfuseTraceBackend
 
 @pytest.fixture
 def mock_langfuse_config(monkeypatch):
-    monkeypatch.setattr(config, "langfuse_secret_key", "sk-lf-test")
-    monkeypatch.setattr(config, "langfuse_public_key", "pk-lf-test")
+    monkeypatch.setattr(config, "langfuse_secret_key_ref", "env://TEST_LANGFUSE_SECRET")
+    monkeypatch.setattr(config, "langfuse_public_key_ref", "env://TEST_LANGFUSE_PUBLIC")
     monkeypatch.setattr(config, "langfuse_dataset_capture_threshold", 0.5)
 
 

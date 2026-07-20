@@ -11,7 +11,10 @@ import math
 import pytest
 
 from agent_utilities.domains.finance import crypto_connector as cc
-from agent_utilities.domains.finance.errors import ProviderNotConfigured
+from agent_utilities.domains.finance.errors import (
+    ProviderNotConfigured,
+    ProviderRequestError,
+)
 from agent_utilities.domains.finance.signal_fusion import AlphaCombinationEngine
 
 # ---- signal_fusion -----------------------------------------------------------
@@ -49,6 +52,27 @@ def test_alpha_weights_reject_degenerate_input():
 def test_get_tvl_parses_defillama(monkeypatch):
     monkeypatch.setattr(cc, "_http_get_json", lambda url, timeout=10.0: 1234567.5)
     assert cc.OnChainAnalytics().get_tvl("aave") == pytest.approx(1234567.5)
+
+
+def test_http_boundary_is_bounded_and_redacts_failure_details(monkeypatch):
+    captured = {}
+
+    def safe_get(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(cc, "safe_get_json", safe_get)
+    assert cc._http_get_json("https://public.example.invalid/data") == {"ok": True}
+    assert captured["max_bytes"] == 2 * 1024 * 1024
+    assert captured["max_redirects"] == 0
+
+    def rejected(*_args, **_kwargs):
+        raise cc.SourceEgressError("sensitive endpoint details")
+
+    monkeypatch.setattr(cc, "safe_get_json", rejected)
+    with pytest.raises(ProviderRequestError, match="finance provider request failed") as exc:
+        cc._http_get_json("https://public.example.invalid/data")
+    assert "sensitive" not in str(exc.value)
 
 
 def test_get_dex_volume_parses_defillama(monkeypatch):

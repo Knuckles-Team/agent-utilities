@@ -81,13 +81,16 @@ async def transcribe_voice(url: str) -> str:
     if not _enabled() or not url:
         return ""
     try:
-        import httpx
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            safe_get_bytes_async,
+        )
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
+        content, _encoding = await safe_get_bytes_async(
+            url, timeout=30.0, **configured_source_http_policy()
+        )
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as fh:
-            fh.write(resp.content)
+            fh.write(content)
             path = fh.name
         try:
             # Whisper load/transcribe is blocking — run off the event loop.
@@ -105,7 +108,7 @@ async def transcribe_voice(url: str) -> str:
                 pass
     except Exception as e:  # noqa: BLE001
         logger.warning(
-            "[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed: %s",
-            e,
+            "[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed (%s)",
+            type(e).__name__,
         )
         return ""

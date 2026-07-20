@@ -1,8 +1,8 @@
 """Contract test: the MCP tool surface and the REST gateway must stay in lockstep.
 
 Both surfaces dispatch through ``_execute_tool`` against the same in-process
-engine, so ``_execute_tool`` is the single source of truth. This test enforces
-that every action-routed MCP tool in ``REGISTERED_TOOLS`` has exactly one
+engine, while the immutable ToolSpec universe is the capability source of
+truth. This test enforces that every canonical profile tool has exactly one
 collapsed REST twin (via ``ACTION_TOOL_ROUTES``) and that the twin is actually
 mounted by ``_mount_rest_routes`` — and vice versa. If a new MCP tool is added
 without a REST route (or a route is added for a non-existent tool), this fails,
@@ -12,6 +12,11 @@ preventing the two surfaces from drifting.
 from __future__ import annotations
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.tool_specs import (
+    INTENT_VERBS,
+    TOOL_SPECS_BY_NAME,
+    canonical_tool_names,
+)
 
 
 class _RecordingApp:
@@ -31,10 +36,27 @@ def _mounted_paths(prefix: str = "") -> set[str]:
     return {path for path, _methods in app.routes}
 
 
+def _canonical_runtime_names() -> frozenset[str]:
+    tools = set(kg_server.REGISTERED_TOOLS)
+    unknown = tools - set(TOOL_SPECS_BY_NAME)
+    assert not unknown, (
+        f"runtime registered unknown ToolSpec families: {sorted(unknown)}"
+    )
+    features = frozenset(
+        spec.feature
+        for name, spec in TOOL_SPECS_BY_NAME.items()
+        if name in tools and spec.feature is not None
+    )
+    include_intent = set(INTENT_VERBS) <= tools
+    return canonical_tool_names(features=features, include_intent=include_intent)
+
+
 def test_every_mcp_tool_has_a_rest_route():
     kg_server.ensure_tools_registered()
     tools = set(kg_server.REGISTERED_TOOLS)
     mapped = set(kg_server.ACTION_TOOL_ROUTES)
+
+    assert tools == set(_canonical_runtime_names())
 
     missing = tools - mapped
     assert not missing, (
@@ -47,6 +69,8 @@ def test_no_phantom_routes_for_missing_tools():
     kg_server.ensure_tools_registered()
     tools = set(kg_server.REGISTERED_TOOLS)
     mapped = set(kg_server.ACTION_TOOL_ROUTES)
+
+    assert tools == set(_canonical_runtime_names())
 
     phantom = mapped - tools
     assert not phantom, (
@@ -70,36 +94,36 @@ def test_prefix_is_applied_to_mounted_routes():
         assert ("/api" + path) in paths
 
 
-# ── Third leg: MCP verb ⇄ kg-* skill coverage (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage) ──────────────
-# Beyond REST⇄MCP parity, every graph-os verb must also be wrapped by a
-# discoverable ``kg-*`` skill (and no skill may reference a dead verb), so the
-# operator-facing skill suite can never silently drift from the tool surface. The
-# contract itself lives in ``agent_utilities.mcp.skill_coverage`` (shared by the
-# ``kg-coverage-doctor`` skill CLI); this test is its CI/pre-commit enforcement.
+# ── Third leg: MCP verb ⇄ domain-skill coverage (CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage) ──
+# Beyond REST⇄MCP parity, every Graph-OS verb must be claimed explicitly by a
+# retained workflow skill's ``agents/graph-os.yaml`` sidecar. The contract lives
+# in ``agent_utilities.mcp.skill_coverage`` and has no slug inference or waivers.
 
 
-def test_every_verb_has_a_wrapping_kg_skill():
+def test_every_verb_has_explicit_domain_skill_coverage():
     from agent_utilities.mcp import skill_coverage
 
     report = skill_coverage.compute_coverage()
     assert not report.uncovered, (
-        "graph-os verbs with no wrapping kg-* skill: "
-        f"{report.uncovered}. Author a kg-<slug> skill (slug = verb minus "
-        "'graph_', '_'→'-'), fold it into an existing skill's `wraps:` list, or "
-        "add it to skill_coverage.INTENTIONALLY_UNSKILLED with a reason."
+        "Graph-OS verbs missing from every domain skill sidecar: "
+        f"{report.uncovered}. Add each verb to the owning workflow skill's "
+        "agents/graph-os.yaml file."
     )
 
 
-def test_no_orphan_kg_skills():
+def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
     from agent_utilities.mcp import skill_coverage
 
     report = skill_coverage.compute_coverage()
     assert not report.orphans, (
-        "kg-* skills whose slug/`wraps:` points at a non-existent verb: "
-        f"{report.orphans}. Fix the slug/wraps, or tag the skill "
-        "`tier: meta|surface` if it is not a verb wrapper."
+        "Domain skills claiming verbs outside the live Graph-OS surface: "
+        f"{report.orphans}. Fix the explicit sidecar claim."
     )
-    assert not report.bad_tiers, (
-        f"kg-* skills with an invalid `tier:` value: {report.bad_tiers}. "
-        "Use one of core|modality|meta|surface."
+    assert not report.duplicates, (
+        "Graph-OS verbs with ambiguous domain ownership: "
+        f"{report.duplicates}. Keep each verb in exactly one domain sidecar."
+    )
+    assert not report.invalid_sidecars, (
+        "Invalid agents/graph-os.yaml sidecars: "
+        f"{report.invalid_sidecars}. Follow the closed version-2 schema."
     )

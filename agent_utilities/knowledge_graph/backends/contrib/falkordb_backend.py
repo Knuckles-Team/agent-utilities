@@ -52,11 +52,23 @@ class FalkorDBBackend(GraphBackend):
         self.db_name = db_name
         self.client = FalkorDB(host=host, port=port)
         self.graph = self.client.select_graph(db_name)
-        logger.info(f"Initialized FalkorDB backend at {host}:{port}")
+        logger.info("Initialized FalkorDB backend")
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
+            # primitive on this backend; degrade to ``[]`` per the ABC contract.
+            logger.debug(
+                "FalkorDBBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         # coerce_cypher_property first (Map/nested → JSON string so FalkorDB doesn't
         # reject a Map-valued prop and stall a mirror), then strip control chars.
         params = {
@@ -83,6 +95,35 @@ class FalkorDBBackend(GraphBackend):
                     row_dict[header] = val.properties
                 else:
                     row_dict[header] = val
+            output.append(row_dict)
+        return output
+
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute with FalkorDB's read-only query command."""
+        if include_epistemic:
+            return []
+        read_query = getattr(self.graph, "ro_query", None)
+        if not callable(read_query):
+            raise RuntimeError("FalkorDB read-only query support is unavailable")
+        cleaned = {
+            key: _clean_param_value(coerce_cypher_property(value))
+            for key, value in (params or {}).items()
+        }
+        result = read_query(query, cleaned or None)
+        output: list[dict[str, Any]] = []
+        for row in result.result_set:
+            row_dict: dict[str, Any] = {}
+            for index, value in enumerate(row):
+                header = result.header[index][1]
+                row_dict[header] = (
+                    value.properties if hasattr(value, "properties") else value
+                )
             output.append(row_dict)
         return output
 

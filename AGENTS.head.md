@@ -45,28 +45,28 @@ you loop over). The whole thing is built to need only this repo URL.
    into every agent tool on the host, wires the `graph-os` MCP server, and generates a
    complete config. For a curl-first machine:
    `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh`.
-4. **Run the right skill to finish wiring.** `single-node-prod`/`tiny` →
-   **`agent-utilities-deployment`** (self-setup: full config → secrets → databases →
-   launch). `enterprise` → **`agent-os-genesis`** (bare-host swarm → Vault/DNS/SSO/
-   ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the `servers`
-   and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
+4. **Run `agent-utilities-deployment` to finish wiring.** It handles every profile:
+   self-setup for `tiny` and `single-node-prod`, plus bare-host Kubernetes/RKE2 (or
+   Swarm, when selected), Vault-protocol(OpenBao), DNS, Keycloak SSO, ingress, and the
+   *-mcp fleet for `enterprise`. Loop the `servers` and `components` in `genesis.yaml`;
+   resolve secrets through AgentConfig runtime references and the configured
+   secret provider.
 5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** The very
-> first move (even before full deploy) is **`agent-utilities install-skills`**: it drops
-> the skill toolkit — including the **`agent-utilities` skill-graph** (the platform's own
-> reference manual) plus the `agent-utilities-deployment` / `agent-os-genesis` /
-> evolution / KG skills — into the calling agent tool and the agent-utilities XDG skills
-> dir, where agents auto-load them. `agent-utilities-doctor`'s `skills` check flags it if
-> absent. These skills are how an agent learns to drive the rest of the platform.
+> first move (even before full deploy) is **`agent-utilities install`**: it drops
+> ten domain workflow skills — spanning query, ingestion, modeling, research,
+> orchestration, runtime governance, engine modalities, development, deployment, and
+> evolution — into the calling agent tool and the agent-utilities XDG skills dir, where
+> agents auto-load them. `agent-utilities-doctor`'s `skills` check flags it if absent.
 
 | Profile | Infra | MCP fleet | Secrets | Skill |
 |---|---|---|---|---|
-| `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
-| `single-node-prod` | Postgres/pg-age mirror (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
-| `enterprise` | Swarm · Vault · SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
+| `tiny` | bundled Rust engine child (private local transport) | none | AgentConfig references | `agent-utilities-deployment` |
+| `single-node-prod` | bundled/shared Rust engine + optional Postgres/pg-age mirror | core connectors | OpenBao references | `agent-utilities-deployment` |
+| `enterprise` | Kubernetes(RKE2)/Swarm · Vault(OpenBao) · Keycloak SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-utilities-deployment` |
 
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
@@ -150,9 +150,9 @@ Before doing a task yourself, delegate it:
   `source_sync source=all mode=delta` first; close the loop with
   `graph_feedback correction_type=reads_avoided` (AU-AHE.evaluation.reads-avoided-feedback).
 - **Doing a task** an ingested skill / workflow / agent can already do →
-  `graph_orchestrate action=execute_agent` / `action=execute_workflow` on the
-  local LLM — the `agent-utilities-expert` agent for ecosystem work, or the right
-  ingested skill / workflow. The local qwen executes; you orchestrate. Reach the
+  `graph_orchestrate` for one named agent, `graph_agents` for a collective, or
+  `graph_workflows action=execute` for an ingested workflow on the local LLM.
+  The `agent-utilities-expert` handles ecosystem work. The local model executes; you orchestrate. Reach the
   rest of the fleet through the full `engine_<domain>` MCP surface + the
   multiplexer meta-tools (`find_tools` / `load_tools`).
 - **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
@@ -196,9 +196,38 @@ case itself next time. The goal is orchestrating completely off the harness.
   `core/owl_bridge.py` (+ SHACL gate) is the semantic layer over it. Writes fan out
   to optional durable **mirrors** under `backends/` (Postgres/pg-age primary;
   neo4j/falkordb/ladybug under `backends/contrib/`) for interop/BI/DR — there is
-  **no L0/L1/L2/L3 tier vocabulary**. `retrieval/capability_index.py`
-  (`CapabilityIndex`, HNSW) powers `designate()` and reward write-back
-  (`record_outcome`).
+  **no numeric graph-storage hierarchy**. `retrieval/capability_index.py`
+  (`CapabilityIndex`, HNSW; process-local, not yet distributed) powers `designate()`
+  and reward write-back (`record_outcome`). Cypher is executed only by the
+  **engine's own native parser/executor** through explicit read/write wire modes.
+  `backends/epistemic_graph_backend.py` contains no regex matcher, graph scan,
+  traversal interpreter, aggregation evaluator, or mutation compiler. Typed
+  node writes persist the native identity as `id`; typed edges use the sole
+  `relationship` property. Raw batches are rejected and connector graphs commit
+  atomically through `ApplyChangeEnvelope`.
+- **Session currency (authoritative).** `knowledge_graph/core/session.py`
+  (`GraphSession`, AU-P0-1) is the single identity, tenant, scope, graph,
+  placement epoch, transaction, policy, audience, and trace currency for graph
+  work. MCP/REST dispatch and stdio process identity mint the immutable verified
+  session before graph code runs; caller payloads cannot construct or override
+  it. `use_session()` propagates it through async work, and `require_scope()`
+  fails closed. `from_ambient()` exists only for isolated in-process harnesses;
+  served operations never synthesize privileged authority. The sole local
+  bootstrap is `graph-os --transport stdio` with `DEPLOYMENT_PROFILE=tiny`, no
+  `GRAPH_SERVICE_ENDPOINTS`, and neither external process-identity source set.
+  That path signs and validates a short-lived JWT with an in-memory key as a
+  one-time proof, uses neutral service claims, destroys the proof key and token,
+  and returns a process-lifetime session; it persists no user, host, endpoint,
+  filesystem identity, token, or proof material. Every
+  network transport, non-tiny profile, explicit engine endpoint, or configured
+  external identity uses exactly one external authority, and failure never
+  falls back to the local bootstrap. External stdio sessions carry one bounded,
+  renewable, shared in-memory expiry lease. Renewal accepts only the same
+  subject, actor type, capabilities, tenant, authentication state, and groups;
+  drift is rejected, failed renewal is retried without extending the lease, and
+  all graph work fails closed after expiry. Only an explicit or
+  identity-mapped `kg:admin` grants graph administration; a generic `admin`
+  role never does.
 - **Routing.** `graph/routing/` is a strategy package (`Router`/`RoutingStrategy`)
   stranglering the monolith `graph/_router_impl.py`; strategies under
   `routing/strategies/` (fast_path, workflow_context, policy). `graph/planning/`
@@ -219,6 +248,16 @@ case itself next time. The goal is orchestrating completely off the harness.
   in the module docstring and name from purpose, not the vendor; surface new capability over the
   `ontology_*` MCP tools (`mcp/kg_server.py`) and the agent-webui `/api/enhanced/ontology/*`
   routes (ObjectExplorer/Object/Vertex views).
+- **Connector ACL defaults are fail-closed (AU-P0-4).** An unknown/unconfigured
+  connector ACL now defaults to `ExternalAccess.quarantined()` (deny-by-default,
+  `protocols/source_connectors/base.py`), never `.public()`. Every non-test
+  connector activation must resolve a signed capability manifest and pass its
+  schema/tool/ontology contract before records can be applied; no profile or
+  source allowlist can bypass that gate. `source_sync._reconcile` never
+  tombstones on a failed/skipped live-id fetch, and only tombstones a genuinely
+  empty snapshot for a source named in `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`
+  (empty by default) — see [`configuration.md`](docs/architecture/configuration.md)
+  and [`kg_connectors_and_ingestion.md`](docs/architecture/kg_connectors_and_ingestion.md).
 - **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
   Identity: every gateway request is scoped to a server-minted JWT
   `ActorContext` with fail-closed permissioning and HMAC engine auth
@@ -303,7 +342,8 @@ unless it's a genuinely new domain registered into the ontology library + gate. 
 per-feature `.ttl`; don't redefine a class that already exists — extend it.
 
 **Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
-the graph-os MCP surface, the multiplexer, the ingest/dispatch workers, and ~62 `*-mcp` services. A
+the GraphOS MCP surface with its embedded fleet gateway, the ingest/dispatch workers, and ~62
+`*-mcp` services. A
 new capability is almost always **a new action/tool on an existing service**, or a **connector
 preset** (CONCEPT:AU-KG.ingest.mcp-tool-connector `mcp_tool` — external sources are declarative presets, NEVER new connector
 modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
@@ -371,69 +411,36 @@ field or `config.setting(...)`. (`setting()` lives in the dependency-free
 
 ## Secrets & credential retrieval — where they live, how to get them (READ before any auth/secret task)
 
-Secrets are **never stored in the repo** (`.env` holds non-secret defaults + the
-*names* of vars; the `.claude/` deny-rules block reading `.env`/secret files). When
-you need a real credential — to run, to debug an auth path, to reach a
-jwt-protected fleet server — retrieve it from its store; do not grep it out of
-another process's memory.
+Secrets are **never stored in the repo or durable AgentConfig**. XDG
+`config.json` stores only `env://`, `secret://`, or `vault://` references. The
+configured `SecretsClient` backend owns provider-specific addresses, mounts,
+namespaces, authentication, and secret paths; feature code must not call a secret
+provider's HTTP API or assume a deployment layout. Runtime orchestration may inject
+the referenced value into the process boundary, but code and reports never persist,
+echo, or infer it. Repository `.env` files are not a deployment configuration path.
 
-**Source of truth = OpenBao (Vault).** Runtime/fleet secrets live in **OpenBao at
-`openbao.arpa`** (`OPENBAO_URL=http://openbao.arpa` + `OPENBAO_TOKEN`). Retrieve via,
-in order of preference: the **`openbao-mcp`** MCP tools, the **`secret-vault-manager`**
-skill, or the raw API / `bao` CLI. Deployed stacks inject these into each service's env
-from OpenBao at deploy time (the `agents/*` connectors read their creds from env — e.g.
-`GITLAB_TOKEN`, `OPENBAO_TOKEN`, provider keys — never from a file).
+**MCP service-account auth (spawned-agent / GraphOS fleet gateway → jwt-protected fleet).**
+A server that calls a private fleet MCP (or a `graph_orchestrate` delegation
+spawn that binds one) must present an OIDC provider client-credentials bearer. The
+typed settings are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET_REF`, `OIDC_AUDIENCE`, and exactly configured
+`OIDC_TOKEN_URL` or `OIDC_ISSUER`. Durable configuration stores only the secret
+reference. `mcp/client_credentials.py` resolves it at request time, attaches the
+bearer to children, and fails closed when any required field is absent. Spawned
+agents inherit delegated authority through the same boundary.
 
-**Standardized KV layout (where every secret lives — READ THIS to find one fast).**
-App/service secrets are a **KV v2 engine mounted at `apps/`**, one path per service:
-
-> `apps/<service>` — e.g. `apps/ciso-assistant`, `apps/keycloak-mcp`,
-> `apps/agent-utilities/*`, `apps/mcp-multiplexer/*`, `apps/homelab/*`.
-
-- **API paths (KV v2):** read/write data at `apps/data/<service>`, metadata/list at
-  `apps/metadata/<service>`. CLI: `bao kv get apps/<service>` / `bao kv put apps/<service> KEY=VAL …`.
-  Raw: `curl -H "X-Vault-Token: $OPENBAO_TOKEN" $OPENBAO_URL/v1/apps/data/<service>`
-  (POST `{"data":{…}}` to write). List services: `LIST apps/metadata`.
-- **Policy / token:** the `OPENBAO_TOKEN` injected into each `*-mcp`/service stack
-  carries the **`agent-apps-rw`** policy = `create/read/update/delete` on `apps/data/*`
-  (+ list `apps/metadata/*`). It is scoped to `apps/` only — it **cannot** read
-  `sys/mounts`, other mounts (`secret/`), or its own policy doc, so a `403` there is
-  expected, not a misconfig. The token value lives in each deployed service's stack env
-  (e.g. the `openbao-mcp` service env), sourced from OpenBao at deploy.
-- **Convention for new services:** store secrets at `apps/<service>` with the same key
-  names used in the service's `.env`; the `.env` (homelab `services/*` plaintext
-  convention) and OpenBao are mirrors. A service's bootstrap/genesis step writes both
-  (see e.g. `services/ciso-assistant/bootstrap.sh`, genesis Step 14c).
-
-**MCP service-account auth (spawned-agent / multiplexer → jwt-protected fleet).**
-A server that calls a `*.arpa` fleet MCP (or a `graph_orchestrate execute_agent`
-spawn that binds one) must present a Keycloak client-credentials bearer. The
-controlling vars are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
-`OIDC_CLIENT_SECRET`, `OIDC_AUDIENCE`, `OIDC_TOKEN_URL` (`keycloak.arpa/.../token`).
-They are **injected into each MCP server's `env`**, not committed:
-- **Deployed fleet:** the stack env, sourced from OpenBao.
-- **Local Claude Code sessions:** the MCP server `env` block in `~/.claude.json`
-  (e.g. `mcpServers.mcp-multiplexer.env`). The mint path is
-  `mcp/client_credentials.py` (`bearer_header`/`get_token`); the multiplexer
-  attaches it to children and spawned agents inherit it
-  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap/AU-OS.identity.so-jwt-protected-children).
-
-**To run/debug an authenticated path** (e.g. `execute_agent` against a `*.arpa`
-server): the creds must be present in the debug process's env — export them from
-OpenBao (`bao kv get`) or reuse the session MCP config — and set
-`MCP_CLIENT_AUTH=oidc-client-credentials`. A standalone debug `graph-os` also
-needs `KG_SERVED_PROFILE=0` to accept local unauthenticated inbound calls. Never
-echo a secret value into logs, command output, or a committed file.
-
-A reusable harness for this lives at **`scripts/dev_execute_agent.py`** — it runs
-one `execute_agent` against a named fleet server through a throwaway `graph-os`
-and prints the result + masked server stderr. It reads creds from
-``/tmp/oidc.env`` (or the env), which you populate from the store above; it holds
-no credential-store path itself. **Credential access stays human-gated by
-design**: in auto-accept mode the agent cannot read a secret or grant itself that
-access, so a human performs the one-time cred load (or pre-authorizes the
-specific command in their own `.claude/settings.local.json`). This boundary is
-intentional and is not something to engineer around.
+**To run/debug an authenticated path** (e.g. `execute_agent` against a remote
+server): configure `OIDC_CLIENT_SECRET_REF` for the selected secret provider in
+XDG AgentConfig and set the explicit client ID, audience, and issuer or token URL.
+Run the `outbound_auth` doctor check before launching the fleet. Network transports
+never accept an unauthenticated debug profile. The only credential-free graph
+process session is tiny, packaged-local GraphOS over stdio; all other boundaries
+require their configured external identity. Never echo a secret value into logs,
+command output, graph properties, traces, or a committed file. Use
+`scripts/validate_prebundled_skills_runtime.py` for the synthetic, read-only
+GraphOS delegation and trace proof; it retains only opaque evidence references.
+Unauthenticated HTTP liveness paths are status-only (`{"status":"ok"}`), carry
+`Cache-Control: no-store`, and expose no readiness, component, or topology data.
 
 ## Reward / preference / RL-method primitives (AU-AHE.optimization.telemetry-optimization) — conventions
 
@@ -590,22 +597,23 @@ agent-utilities is both the **hub** that discovers fleet-contributed skills/prom
 (`core/providers.py` → `agent_utilities.skill_providers` / `agent_utilities.prompt_providers`)
 **and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
-- Its unique skills live in **`agent_utilities/skills/`** (atomic skills at the top level,
-  the genesis workflow under `skills/workflows/agent-os-genesis/`, and the `agent-utilities`
-  skill-graph under `skills/skill_graphs/agent-utilities/`). They are declared via the single
+- Its ten domain workflow skills live directly in **`agent_utilities/skills/`**. Every skill
+  has a standard `SKILL.md`, an `agents/openai.yaml` interface, and an
+  `agents/graph-os.yaml` coverage sidecar. They are declared via the single
   `[project.entry-points."agent_utilities.skill_providers"]` = `agent_utilities.skills` group and
-  shipped through package-data `skills/**`, so `install-skills` (and the quick
-  `agent-utilities install-skills` command) drops them into the XDG skills dir exactly like any
-  other package. **Add a new AU-specific skill here**, not in universal-skills; generic/standalone
-  skills (and the authoring builders + `kg-delegate`) stay in universal-skills.
+  shipped through package-data `skills/**`, so the `agent-utilities install`
+  command drops them into the XDG skills dir exactly like any
+  other package. Extend an existing workflow unless a truly distinct end-to-end domain requires
+  a new AU-specific skill; generic/standalone authoring skills stay in universal-skills.
 - The hub deliberately does **NOT** declare a `prompt_providers` entry-point for itself: its
   `prompts/*.json` are already the packaged BASE layer (`registry_builder._iter_prompt_sources`
   ingests them with bare `prompt:<name>` ids and `source: agent-utilities:base`). A self-pointing
   provider would re-ingest every base prompt under a second `prompt:agent-utilities/<name>`
   namespace — so it is intentionally one-sided vs the `agents/*` pattern.
 
-**MCP parity waiver.** The three FastMCP servers (`mcp/kg_server.py`, `mcp/multiplexer.py`,
-`mcp/harness_server.py`) already follow mcp-builder's **tool-surface** conventions: built via
+**MCP parity waiver.** GraphOS and the harness server (`mcp/kg_server.py`,
+`mcp/harness_server.py`) follow mcp-builder's **tool-surface** conventions, while
+`mcp/multiplexer.py` is GraphOS's internal fleet-loader implementation. They are built via
 `create_mcp_server` (`mcp/server_factory.py`), the graph-os surface via the one-call
 `register_tool_surface` (`mcp/verbose_tools.py`) owning `MCP_TOOL_MODE`, and every feature on the
 REST **and** MCP surface over one `_execute_tool` core. The hub explicitly **WAIVES** the
@@ -693,9 +701,9 @@ So the default for any non-trivial change is:
 1. **Work in a dedicated git worktree**, not the main checkout. The worktree is a *physically
    separate directory* on its own branch, immune to branch switches in the main clone:
    ```
-   git worktree add /home/apps/worktrees/<repo>-<topic> -b feat/<topic> main
+   git worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>-<topic> -b feat/<topic> main
    ```
-   Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
+   Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
 3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
@@ -770,8 +778,8 @@ pip install .[all]
 pre-commit run --all-files
 
 # Execution Commands
-# agent-utilities-kg
-agent_utilities.mcp.kg_server:main
+# GraphOS
+graph-os
 
 # Run the native compute backend daemon
 cargo run -p epistemic-graph
@@ -839,7 +847,8 @@ async def my_tool(param: str) -> str:
 **Don't:**
 - Use `cd` commands in scripts; use absolute paths or relative to project root.
 - Add new dependencies to `dependencies` in `pyproject.toml` without checking `optional-dependencies` first.
-- Hardcode secrets; use environment variables or `.env` files.
+- Hardcode secrets or write repository `.env` files; use AgentConfig runtime
+  secret references.
 
 ## Safety & Boundaries
 **Always do:**
@@ -879,8 +888,8 @@ config, docs, lockfiles). The only hidden directories allowed at root are
 **Why:** scratch at the root leaks private paths/credentials, bloats the tree,
 breaks the anti-sprawl gate, and erodes a pristine codebase.
 
-**Where scratch goes instead:** `~/workspace/scratch/` (experiments),
-`~/workspace/reports/` (command output); tests go in `tests/` (pytest).
+**Where scratch goes instead:** the configured XDG state scratch directory
+(experiments) and report directory (command output); tests go in `tests/` (pytest).
 The `.gitignore` already blocks the scratch dirs above — do not force-add them.
 Before finishing a task, run `git status` and confirm no stray root files were added.
 
@@ -926,23 +935,23 @@ is confirmed green. If a gate cannot pass, stop and explain; never disable or
 ## Working with Git Worktrees (multi-session)
 
 Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
-edit the canonical checkout** (`/home/apps/workspace/agent-packages/<repo>`) — a
+edit the canonical checkout** (`agent-packages/<repo>`) — a
 background `repository-manager` sync can reset its working tree and discard
 uncommitted edits. Take your own git worktree on your own branch instead:
 
 ```bash
 # preferred — repository-manager MCP:
-rm_worktree add <repo> <your-branch>      # -> /home/apps/worktrees/<repo>/<your-branch>
+rm_worktree add <repo> <your-branch>      # -> ${XDG_STATE_HOME}/repository-worktrees/<repo>/<your-branch>
 
 # raw-git fallback:
 git -C agent-packages/<repo> checkout main
-git -C agent-packages/<repo> worktree add /home/apps/worktrees/<repo>/<branch> -b <branch>
+git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch>
 ```
 
 Work in the worktree and **commit often** (commits survive a working-tree reset).
 Each session must use a **distinct branch** — git allows a branch in only one
 worktree, which is what keeps concurrent sessions from colliding. Worktrees live
-under `/home/apps/worktrees/` (outside the workspace scan, so the sync leaves them
+under `${XDG_STATE_HOME}/repository-worktrees/` (outside the workspace scan, so the sync leaves them
 alone).
 
 **Finishing work in a worktree** — run this sequence before calling it done:

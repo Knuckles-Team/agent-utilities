@@ -263,7 +263,8 @@ class EntityClaimExtractor:
         # Persist entities to KG
         entity_id_map: dict[str, str] = {}
         for entity in result.entities:
-            entity_id = f"entity:{hashlib.md5(entity.name.encode(), usedforsecurity=False).hexdigest()[:8]}"
+            digest = hashlib.sha256(entity.name.encode()).hexdigest()[:32]
+            entity_id = f"entity:{digest}"
             entity_id_map[entity.name] = entity_id
 
             node = EntityNode(
@@ -284,7 +285,7 @@ class EntityClaimExtractor:
 
         # Persist claims to KG
         for claim in result.claims:
-            claim_id = f"claim:{uuid.uuid4().hex[:8]}"
+            claim_id = f"claim:{uuid.uuid4().hex}"
 
             node = ClaimNode(  # type: ignore[assignment]
                 id=claim_id,

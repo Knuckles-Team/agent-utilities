@@ -13,6 +13,9 @@ Reference connectors:
     CONCEPT:AU-KG.enrichment.multimodal-readers).
   * :mod:`filesystem` — directory walk (``filesystem``).
   * :mod:`rest` — paginated JSON endpoint (``rest``).
+  * :mod:`graphql_document` — secret-profiled GraphQL document responses
+    (``graphql_document``), with runtime mappings and TLS profiles sanitized
+    before persistence. No source schema or endpoint is bundled.
   * :mod:`mcp_package` — adapter over the agent-package fleet (``mcp:<pkg>``).
   * :mod:`mcp_tool` — any MCP server's record-listing tool as a paginated,
     checkpointed ingestion source (``mcp_tool``, CONCEPT:AU-KG.ingest.mcp-tool-connector).

@@ -2,6 +2,7 @@
 
 import json
 import time
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -13,7 +14,6 @@ from agent_utilities.knowledge_graph.retrieval.reasoning_reranker import (
     ReasoningAwareReranker,
 )
 from agent_utilities.mcp import kg_server
-from unittest.mock import MagicMock
 
 
 @pytest.fixture

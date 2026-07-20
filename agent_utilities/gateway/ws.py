@@ -14,9 +14,11 @@ Usage in agent-webui::
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -35,6 +37,11 @@ class ConnectionManager:
         self.active: list[WebSocket] = []
 
     async def connect(self, ws: WebSocket) -> None:
+        from agent_utilities.core.config import config
+
+        if len(self.active) >= min(config.server_max_connections, 512):
+            await ws.close(code=4429, reason="connection limit reached")
+            raise RuntimeError("WebSocket connection limit reached")
         await ws.accept()
         self.active.append(ws)
         logger.info("WebSocket client connected (%d total)", len(self.active))
@@ -81,7 +88,76 @@ async def dashboard_ws(ws: WebSocket) -> None:
         {"type": "refresh"}
         {"type": "interval", "seconds": 10}
     """
-    await _manager.connect(ws)
+    from agent_utilities.core.config import config
+    from agent_utilities.security.auth import authenticate_header_values
+    from agent_utilities.security.http_boundary import normalize_origins
+
+    def header_values(name: bytes) -> list[bytes]:
+        return [
+            bytes(value)
+            for key, value in ws.scope.get("headers", ())
+            if bytes(key).lower() == name
+        ]
+
+    origins = [
+        value.strip()
+        for value in str(config.allowed_origins or "").split(",")
+        if value.strip()
+    ]
+    supplied_origins = header_values(b"origin")
+    try:
+        if supplied_origins:
+            if len(supplied_origins) != 1:
+                raise PermissionError("ambiguous origin")
+            supplied = normalize_origins([supplied_origins[0].decode("ascii")])
+            configured = normalize_origins(origins)
+            local_same_origin = False
+            if not configured and supplied:
+                host_values = header_values(b"host")
+                parsed_origin = urlsplit(next(iter(supplied)))
+                try:
+                    local_host = parsed_origin.hostname == "localhost" or ipaddress.ip_address(
+                        str(parsed_origin.hostname)
+                    ).is_loopback
+                except ValueError:
+                    local_host = False
+                local_same_origin = bool(
+                    local_host
+                    and len(host_values) == 1
+                    and parsed_origin.netloc.casefold()
+                    == host_values[0].decode("ascii").casefold()
+                )
+            if not supplied or not (
+                supplied.issubset(configured) or local_same_origin
+            ):
+                raise PermissionError("origin rejected")
+        identity = await authenticate_header_values(
+            authorization=header_values(b"authorization"),
+        )
+        if identity and identity.get("auth_type") == "jwt":
+            from agent_utilities.security.identity import (
+                base_capabilities,
+                normalize_identity,
+            )
+
+            capabilities = set(
+                base_capabilities(
+                    normalize_identity(identity),
+                    config.identity_group_capability_map,
+                )
+            )
+            if not capabilities.intersection(
+                {"gateway:read", "gateway:write", "gateway:admin", "admin"}
+            ):
+                raise PermissionError("dashboard capability required")
+    except Exception:  # noqa: BLE001 - every boundary failure rejects the upgrade
+        await ws.close(code=4401, reason="authentication or origin rejected")
+        return
+
+    try:
+        await _manager.connect(ws)
+    except RuntimeError:
+        return
     aggregator = _get_aggregator()
 
     interval = 15.0  # Default stream interval
@@ -101,13 +177,32 @@ async def dashboard_ws(ws: WebSocket) -> None:
             # Wait for client message or timeout (send update)
             try:
                 raw = await asyncio.wait_for(ws.receive_text(), timeout=interval)
+                if len(raw.encode("utf-8")) > 65_536:
+                    await ws.close(code=4400, reason="message too large")
+                    break
                 msg = json.loads(raw)
+                if not isinstance(msg, dict) or len(msg) > 16:
+                    await ws.close(code=4400, reason="invalid message")
+                    break
 
                 msg_type = msg.get("type", "")
 
                 if msg_type == "subscribe":
-                    subscribed_services = set(msg.get("services", []))
-                    logger.debug("Client subscribed to: %s", subscribed_services)
+                    services = msg.get("services", [])
+                    if (
+                        not isinstance(services, list)
+                        or len(services) > 128
+                        or not all(
+                            isinstance(service, str)
+                            and 1 <= len(service) <= 128
+                            and all(character.isalnum() or character in "-_.:" for character in service)
+                            for service in services
+                        )
+                    ):
+                        await ws.close(code=4400, reason="invalid subscription")
+                        break
+                    subscribed_services = set(services)
+                    logger.debug("WebSocket subscription updated")
 
                 elif msg_type == "refresh":
                     # Force immediate refresh
@@ -119,6 +214,9 @@ async def dashboard_ws(ws: WebSocket) -> None:
 
             except TimeoutError:
                 pass
+            except (TypeError, ValueError):
+                await ws.close(code=4400, reason="invalid message")
+                break
 
             # Fetch and send update
             all_data = await aggregator.fetch_all()
@@ -138,7 +236,8 @@ async def dashboard_ws(ws: WebSocket) -> None:
             )
 
     except WebSocketDisconnect:
-        _manager.disconnect(ws)
-    except Exception as e:
-        logger.error("WebSocket error: %s", e, exc_info=True)
+        pass
+    except Exception as exc:
+        logger.error("WebSocket error (exception_type=%s)", type(exc).__name__)
+    finally:
         _manager.disconnect(ws)

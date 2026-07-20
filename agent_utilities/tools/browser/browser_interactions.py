@@ -12,7 +12,25 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from ...models import AgentDeps
-from .browser_manager import get_browser_manager
+from ...security.persistence_privacy import PersistencePrivacyGuard
+from .browser_manager import browser_fetch_enabled, get_browser_manager
+
+_MAX_SELECTOR_BYTES = 4 * 1024
+_MAX_INPUT_BYTES = 1024 * 1024
+_MAX_TEXT_RESULT_BYTES = 64 * 1024
+
+
+def _enabled_input(value: str, *, max_bytes: int) -> bool:
+    return (
+        browser_fetch_enabled()
+        and isinstance(value, str)
+        and bool(value)
+        and len(value.encode("utf-8")) <= max_bytes
+    )
+
+
+def _disabled() -> dict[str, Any]:
+    return {"success": False, "error": "Browser interaction was rejected by policy."}
 
 
 async def click_element(ctx: RunContext[AgentDeps], selector: str) -> dict[str, Any]:
@@ -26,12 +44,14 @@ async def click_element(ctx: RunContext[AgentDeps], selector: str) -> dict[str, 
         A dictionary indicating the success of the operation.
 
     """
+    if not _enabled_input(selector, max_bytes=_MAX_SELECTOR_BYTES):
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.click(selector)
-    return {"success": True, "message": f"Clicked element: {selector}"}
+    return {"success": True, "message": "Element clicked."}
 
 
 async def type_text(
@@ -48,12 +68,16 @@ async def type_text(
         A dictionary indicating the success of the operation.
 
     """
+    if not _enabled_input(
+        selector, max_bytes=_MAX_SELECTOR_BYTES
+    ) or not _enabled_input(text, max_bytes=_MAX_INPUT_BYTES):
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.type(selector, text)
-    return {"success": True, "message": f"Typed text into: {selector}"}
+    return {"success": True, "message": "Text entered."}
 
 
 async def get_element_text(ctx: RunContext[AgentDeps], selector: str) -> dict[str, Any]:
@@ -67,12 +91,24 @@ async def get_element_text(ctx: RunContext[AgentDeps], selector: str) -> dict[st
         A dictionary containing the extracted text.
 
     """
+    if not _enabled_input(selector, max_bytes=_MAX_SELECTOR_BYTES):
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
-    text = await page.inner_text(selector)
-    return {"success": True, "text": text}
+    text = str(await page.inner_text(selector))
+    encoded = text.encode("utf-8")
+    truncated = len(encoded) > _MAX_TEXT_RESULT_BYTES
+    if truncated:
+        text = encoded[:_MAX_TEXT_RESULT_BYTES].decode("utf-8", errors="ignore")
+    clean, report = PersistencePrivacyGuard().sanitize_text(text)
+    return {
+        "success": True,
+        "text": clean,
+        "truncated": truncated,
+        "privacy_redactions": report.redactions,
+    }
 
 
 async def select_option(
@@ -89,9 +125,13 @@ async def select_option(
         A dictionary indicating the success of the operation.
 
     """
+    if not _enabled_input(
+        selector, max_bytes=_MAX_SELECTOR_BYTES
+    ) or not _enabled_input(value, max_bytes=_MAX_INPUT_BYTES):
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.select_option(selector, value)
-    return {"success": True, "message": f"Selected option: {value}"}
+    return {"success": True, "message": "Option selected."}

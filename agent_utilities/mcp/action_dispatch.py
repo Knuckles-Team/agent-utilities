@@ -12,10 +12,12 @@ names. These helpers standardize three behaviours across the fleet:
 3. **Did-you-mean** — an unknown action raises a rich error with close matches and
    a pointer to ``list_actions``.
 
-Two entry points cover the two dispatch shapes in the fleet:
+Three entry points cover the two dispatch shapes in the fleet:
 
 - :func:`dispatch` — for **getattr-dynamic** servers (``getattr(client, action)``).
   A full drop-in that introspects the client, resolves, calls, and errors richly.
+- :func:`dispatch_async` — the async entry point used by MCP handlers. Native
+  async SDK methods are awaited and synchronous SDK methods run off-loop.
 - :func:`resolve_action` — for **explicit if/elif** servers. Call it at the top of
   the tool with the known action list; it returns the discovery payload, the
   canonical action string (which the existing if/elif then handles), or raises.
@@ -26,11 +28,25 @@ CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 from __future__ import annotations
 
 import difflib
+import inspect
+import json
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
+from agent_utilities.mcp.concurrency import _wrap_data_kwargs, invoke_client_method
+from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
+
 #: Action strings that request the list of valid actions instead of executing one.
 DISCOVERY_ACTIONS = ("list_actions", "help", "actions")
+
+# JSON tool arguments are control-plane input, not a bulk-upload surface. A
+# fixed bound prevents a caller from forcing an unbounded parse before normal
+# request limits can apply.
+_MAX_JSON_OBJECT_INPUT = 64 * 1024
+
+_DESTRUCTIVE_ACTION_TOKENS = frozenset(
+    {"deactivate", "delete", "destroy", "drop", "purge", "remove"}
+)
 
 
 def public_actions(client: Any) -> list[str]:
@@ -40,6 +56,43 @@ def public_actions(client: Any) -> list[str]:
         for name in dir(client)
         if not name.startswith("_") and callable(getattr(client, name, None))
     )
+
+
+def parse_json_object(
+    value: str | bytes | bytearray | None,
+    parameter: str = "params_json",
+) -> dict[str, Any]:
+    """Parse one bounded JSON object without echoing caller input on failure."""
+    if value is None or (
+        isinstance(value, (str, bytes, bytearray)) and not value.strip()
+    ):
+        return {}
+    if not isinstance(value, (str, bytes, bytearray)):
+        raise ValueError(f"{parameter} must be valid JSON")
+    if len(value) > _MAX_JSON_OBJECT_INPUT:
+        raise ValueError(
+            f"{parameter} exceeds the {_MAX_JSON_OBJECT_INPUT}-unit input limit"
+        )
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+        raise ValueError(f"{parameter} must be valid JSON") from None
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{parameter} must decode to a JSON object")
+    return parsed
+
+
+def is_destructive_action(
+    action: str,
+    operation: Mapping[str, Any] | None = None,
+) -> bool:
+    """Classify an action using explicit metadata, then exact name tokens."""
+    if operation:
+        if operation.get("destructive") is not None:
+            return bool(operation["destructive"])
+        if str(operation.get("http", "")).upper() == "DELETE":
+            return True
+    return bool(_DESTRUCTIVE_ACTION_TOKENS.intersection(action.casefold().split("_")))
 
 
 def suggest(action: str, valid: Iterable[str], *, n: int = 3) -> list[str]:
@@ -141,7 +194,52 @@ def dispatch(
         raise unknown_action_error(action, actions, target=target)
 
     method = getattr(client, canonical)
-    result = method(**(dict(kwargs) if kwargs else {}))
+    # Self-heal the REST-body calling convention the same way run_blocking does:
+    # fold an LLM's flat fields into the method's single body param
+    # (data/payload/body) so getattr-dynamic create/update dispatch doesn't crash
+    # on `unexpected keyword argument`. No-op for methods without a body param.
+    call_kwargs = _wrap_data_kwargs(method, (), dict(kwargs) if kwargs else {})
+    result = method(**call_kwargs)
     if result_coercer is not None:
         return result_coercer(result)
     return result
+
+
+async def dispatch_async(
+    client: Any,
+    action: str,
+    kwargs: Mapping[str, Any] | None = None,
+    *,
+    aliases: Mapping[str, str] | None = None,
+    service: str = "",
+    result_coercer: Callable[[Any], Any] | None = None,
+    ctx: Any = None,
+    operation: Mapping[str, Any] | None = None,
+) -> Any:
+    """Resolve and execute an action without blocking the MCP event loop.
+
+    Destructive actions require an affirmative live-context elicitation. A
+    missing context or elicitation failure cancels the operation; it never
+    silently converts an unattended call into write authority.
+    """
+    actions = public_actions(client)
+    target = service or type(client).__name__
+    if action in DISCOVERY_ACTIONS:
+        return {"service": service or target, "actions": actions}
+
+    canonical = canonicalize(action, actions, aliases=aliases)
+    if canonical is None:
+        raise unknown_action_error(action, actions, target=target)
+
+    if is_destructive_action(
+        canonical, operation
+    ) and not await ctx_confirm_destructive(ctx, canonical):
+        return {"cancelled": True, "operation": canonical}
+
+    result = await invoke_client_method(
+        getattr(client, canonical), **(dict(kwargs) if kwargs else {})
+    )
+    if result_coercer is None:
+        return result
+    coerced = result_coercer(result)
+    return await coerced if inspect.isawaitable(coerced) else coerced

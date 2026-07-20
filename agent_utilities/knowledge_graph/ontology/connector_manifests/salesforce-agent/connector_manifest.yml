@@ -1,0 +1,234 @@
+connector: salesforce-agent
+ontology_source: salesforce
+schema_version: '1'
+resources:
+- name: Account
+  label: Account
+  id_prefix: account
+  relations: []
+- name: Campaign
+  label: Campaign
+  id_prefix: campaign
+  relations: []
+- name: Case
+  label: Case
+  id_prefix: case
+  relations:
+  - name: caseForAccount
+    label: case for account
+    target: Account
+    lpg_rel_type: ''
+- name: Contact
+  label: Contact
+  id_prefix: contact
+  relations:
+  - name: worksAtAccount
+    label: works at account
+    target: Account
+    lpg_rel_type: ''
+- name: Lead
+  label: Lead
+  id_prefix: lead
+  relations:
+  - name: convertedToAccount
+    label: converted to account
+    target: Account
+    lpg_rel_type: ''
+  - name: convertedToOpportunity
+    label: converted to opportunity
+    target: Opportunity
+    lpg_rel_type: ''
+- name: Opportunity
+  label: Opportunity
+  id_prefix: opportunity
+  relations:
+  - name: opportunityForAccount
+    label: opportunity for account
+    target: Account
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    salesforce_account: Id
+    salesforce_opportunity: Id
+  title_field:
+    salesforce_account: Name
+    salesforce_opportunity: Name
+  text_field:
+    salesforce_account: Description
+    salesforce_opportunity: Description
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Account:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+  Campaign:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+  Case:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+  Contact:
+    ontology_class: Person
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+  Lead:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+  Opportunity:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:date
+      email: xsd:string
+      industry: xsd:string
+      leadStatus: xsd:string
+      salesforceId: xsd:string
+      stageName: xsd:string
+sync:
+- preset: salesforce-accounts
+  server: salesforce-agent
+  tool: salesforce_soql
+  action: query
+  records_path: records
+  id_field: Id
+  title_field: Name
+  text_field: Description
+  updated_field: null
+  pagination: null
+  doc_type: salesforce_account
+  tool_schema_sha256: e4ddfa83b19760793b7278dfa11bc9b89688dba3ef109ed92d67450cbc6d5880
+  raw:
+    server: salesforce-agent
+    tool: salesforce_soql
+    action: query
+    params:
+      params_json: '{"soql": "SELECT Id, Name, Industry, Type, Website, Description FROM Account"}'
+    records_path: records
+    id_field: Id
+    title_field: Name
+    text_field: Description
+    doc_type: salesforce_account
+- preset: salesforce-opportunities
+  server: salesforce-agent
+  tool: salesforce_soql
+  action: query
+  records_path: records
+  id_field: Id
+  title_field: Name
+  text_field: Description
+  updated_field: null
+  pagination: null
+  doc_type: salesforce_opportunity
+  tool_schema_sha256: e4ddfa83b19760793b7278dfa11bc9b89688dba3ef109ed92d67450cbc6d5880
+  raw:
+    server: salesforce-agent
+    tool: salesforce_soql
+    action: query
+    params:
+      params_json: '{"soql": "SELECT Id, Name, StageName, Amount, CloseDate, Description FROM Opportunity"}'
+    records_path: records
+    id_field: Id
+    title_field: Name
+    text_field: Description
+    doc_type: salesforce_opportunity
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - salesforce_agent/connectors/mcp_source_presets.json
+  - salesforce_agent/connectors/tool_schema_fingerprints.json
+  - salesforce_agent/ontology/salesforce.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 391c839a601d69d241efdce3ed5e6e1da188e304b4ae36e3892de465d57c5cc2
+    triple_count: 64
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Gfm3lNHuq6H0KfpF-LCcl-qd9vjueJdzpBnv_OWLQU3tHWrtRBUxMe2rlQzwErTe0khlxO2_Pra9o1bvmQCIDA
+policy:
+  pii_fields:
+    Account:
+    - email
+    Campaign:
+    - email
+    Case:
+    - email
+    Contact:
+    - email
+    Lead:
+    - email
+    Opportunity:
+    - email
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.pii_fields was populated by a field-NAME heuristic (['address', 'birthdate', 'card_number',\
+  \ 'credit_card', 'date_of_birth', 'dateofbirth', 'dob', 'email', 'email_address', 'first_name', 'full_name',\
+  \ 'home_address', 'ip', 'ip_address', 'last_name', 'mobile', 'national_id', 'passport', 'phone', 'phone_number',\
+  \ 'social_security_number', 'ssn']) \u2014 verify against the actual data before relying on it for redaction/RLS."
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'ownedBy' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'primaryContact' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'sourcedByCampaign' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Account.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Campaign.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Case.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Contact.ontology_class = 'Person' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Lead.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Opportunity.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

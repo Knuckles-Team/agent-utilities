@@ -73,7 +73,7 @@ sequenceDiagram
 ```
 
 RLM (`rlm/repl.py`) threads a depth-tiered profile explicitly: the root is the strong
-proposer (`rlm-proposer` → reasoning profile), recursive sub-calls are deterministic
+reasoner (`rlm-root` → reasoning profile), recursive sub-calls are deterministic
 executors (`rlm-executor` → code profile).
 
 ## Layer B — task-aware selection (CONCEPT:AU-ORCH.routing.sampling-profile-selection)

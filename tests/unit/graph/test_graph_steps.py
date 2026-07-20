@@ -6,8 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # CONCEPT:AU-AHE.harness.harness-evolution — Exception Handling & Recovery
 import pytest
 
-from agent_utilities.graph import steps
+from agent_utilities.graph.lifecycle import usage_guard_step
+from agent_utilities.graph.routing import router_step
 from agent_utilities.graph.state import GraphState
+from agent_utilities.graph.verification import synthesizer_step
 
 
 @pytest.mark.asyncio
@@ -17,7 +19,7 @@ async def test_usage_guard_step():
     ctx.deps = MagicMock()
     ctx.deps.event_queue = None
 
-    result = await steps.usage_guard_step(ctx)
+    result = await usage_guard_step(ctx)
     assert result == "router"
 
 
@@ -38,11 +40,13 @@ async def test_router_step_never_returns_end():
     mock_resp = MagicMock()
     mock_resp.output = "hi there"
 
-    with patch("agent_utilities.graph._router_impl.Agent") as mock_agent_class:
+    with patch(
+        "agent_utilities.graph._router_impl.create_context_agent"
+    ) as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run = AsyncMock(return_value=mock_resp)
 
-        result = await steps.router_step(ctx)
+        result = await router_step(ctx)
 
     assert not isinstance(result, End)  # routes onward, never terminates the graph
 
@@ -77,11 +81,13 @@ async def test_synthesizer_step():
             return False
 
     ctx.deps.agent_model = MagicMock()
-    with patch("agent_utilities.graph.verification.Agent") as mock_agent_class:
+    with patch(
+        "agent_utilities.graph.verification.create_context_agent"
+    ) as mock_agent_class:
         mock_agent = mock_agent_class.return_value
         mock_agent.run_stream.return_value = MockStreamContext()
 
-        result = await steps.synthesizer_step(ctx)
+        result = await synthesizer_step(ctx)
 
     assert type(result).__name__ == "End"
     assert result.data.results["output"] == "final answer"

@@ -1,8 +1,8 @@
 # Graph-OS MCP Server Examples
 
-The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. It exposes the core tools that allow LLMs and automated pipelines to manipulate knowledge, orchestrate agents, and manage the workspace: the 9 documented below plus `graph_sessions` (durable session management), `graph_goals` (autonomous background loops), and `graph_hydrate` (instant KG hydration from external connectors).
+The `graph-os` MCP server is the unified entrypoint for interacting with the Intelligence Graph Engine. Intent mode starts with exactly six intent tools and five control tools. Granular capabilities such as those below are not part of that initial surface: discover them through `list_catalog`, load only the required capability with `load_tools`, use it, and release it with `unload_tools`.
 
-Below are exhaustive examples of every possible tool configuration you can execute.
+The following are selected examples of dynamically loaded granular capabilities, not an exhaustive startup-tool inventory.
 
 ## 1. `mcp_graph-os_graph_ingest`
 
@@ -22,7 +22,7 @@ Trigger full AST parsing and semantic chunking of a repository.
 ```json
 {
   "action": "ingest",
-  "target_path": "/home/apps/workspace/my-repo",
+  "target_path": "${WORKSPACE_ROOT}/my-repo",
   "max_depth": 3
 }
 ```
@@ -191,7 +191,7 @@ Manage backend configurations, system credentials, and tool registration.
 {
   "action": "set_secret",
   "config_key": "API_KEY_OPENAI",
-  "config_value": "{\"token\": \"sk-...\"}"
+  "config_value": "{\"token\": \"env://OPENAI_API_KEY\"}"
 }
 ```
 
@@ -217,11 +217,11 @@ persisted in the epistemic-graph so a *separately*-spawned agent can read it by 
   "action": "put",
   "session_id": "sess-42",
   "key": "brief",
-  "content": "Deployment target is R820. Use the 9B model. Read-only task."
+  "content": "Deployment target is compute-node. Use the 9B model. Read-only task."
 }
 ```
 Returns `{"context_id": "ctx:sess-42:brief", "session_id": "sess-42"}`. Pass that `context_id` to
-`graph_orchestrate(action="execute_agent", context_ref="ctx:sess-42:brief")`.
+`graph_orchestrate(context_ref="context:<opaque-id>")`.
 
 **Example 2: List all context for a session**
 ```json
@@ -249,7 +249,7 @@ is deterministic: `orch:{session_id}:{run_id}`.
 { "action": "open", "session_id": "sess-42", "run_id": "run-abc1" }
 ```
 Returns `{"channel_id": "orch:sess-42:run-abc1"}`. (Or pass `open_channel=true` to
-`graph_orchestrate(action="execute_agent")` and read `channel_id` from its response.)
+`graph_orchestrate(open_channel=true)` and read `channel_id` from its response.)
 
 **Example 2: Send a message (the sender auto-joins)**
 ```json

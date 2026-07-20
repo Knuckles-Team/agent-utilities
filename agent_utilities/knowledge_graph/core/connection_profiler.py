@@ -14,11 +14,9 @@ re-introspecting every time:
 * **map** — deterministically map each external label onto the closest class in
   our ontology vocabulary (interfaces + our KG's own node types) by name; the
   unmatched ones are flagged ``novel`` (candidates for a new ontology class).
-* **imprint** — write a single ``ExternalGraphReference`` catalog node into our
-  authority KG carrying the schema + mappings (no credentials), so the foreign
-  graph becomes self-describing to the rest of the system. The schema is stored as
-  a nested property — which now mirrors losslessly thanks to the KG-2.74
-  Cypher-property coercion fix.
+Raw discovery and mappings are stored only by the governed workflow in
+:mod:`knowledge_graph.ingestion.external_graph_schema`; public/catalog state contains
+only digests, counts, and pseudonyms.
 """
 
 from __future__ import annotations
@@ -60,8 +58,8 @@ def _q(engine: Any, cypher: str) -> list[dict[str, Any]]:
     """Run one read-only introspection query, returning [] on any failure."""
     try:
         return _rows(engine.query_cypher(cypher))
-    except Exception as e:  # noqa: BLE001 — introspection is best-effort per query
-        logger.debug("introspection query failed (%.60s): %s", cypher, e)
+    except Exception as exc:  # noqa: BLE001 - query material must not enter logs
+        logger.debug("introspection query failed: error_type=%s", type(exc).__name__)
         return []
 
 
@@ -78,7 +76,11 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
 def profile_connection(
     engine: Any, *, name: str = "", max_labels: int = 200, sample_props: bool = True
 ) -> dict[str, Any]:
-    """Introspect an external graph's schema. Read-only and bounded."""
+    """Introspect an external graph's schema. Read-only, bounded, and transient.
+
+    Do not persist or log this raw return. Public GraphOS actions use the
+    metadata-only summary from ``discover_external_schema`` instead.
+    """
     # ── labels ────────────────────────────────────────────────────────────
     labels: list[str] = []
     for r in _q(engine, "CALL db.labels() YIELD label RETURN label"):
@@ -214,62 +216,9 @@ def _our_ontology_vocabulary(
             pass
     if authority_engine is not None:
         for r in _q(
-            authority_engine, "MATCH (n) RETURN DISTINCT n.type AS t LIMIT 500"
+            authority_engine, "MATCH (n) RETURN DISTINCT n.node_type AS t LIMIT 500"
         ):
             t = _first(r, "t")
             if t:
                 vocab.append(str(t))
     return sorted({v for v in vocab if v})
-
-
-def profile_and_imprint(
-    external_engine: Any,
-    *,
-    name: str,
-    spec_summary: dict[str, Any] | None = None,
-    authority_engine: Any = None,
-    interface_names: list[str] | None = None,
-    max_labels: int = 200,
-) -> dict[str, Any]:
-    """Profile ``name``, map its labels to our ontology, and imprint a catalog node.
-
-    Returns the profile + mappings; writes one ``ExternalGraphReference`` node into
-    the authority KG (credentials are never stored — only the redacted summary).
-    """
-    spec_summary = spec_summary or {}
-    profile = profile_connection(external_engine, name=name, max_labels=max_labels)
-    vocab = _our_ontology_vocabulary(authority_engine, interface_names)
-    mappings = map_labels_to_ontology(profile["labels"], vocab)
-    mapped = sum(1 for m in mappings if m["mapped_to"])
-    novel = sum(1 for m in mappings if not m["mapped_to"])
-
-    node_id = f"extgraph:{name}"
-    props = {
-        "name": name,
-        "backend": spec_summary.get("backend"),
-        "endpoint": spec_summary.get("endpoint"),
-        "schema": profile,
-        "ontology_mappings": mappings,
-        "mapped": mapped,
-        "novel": novel,
-        "profiled_at": profile["profiled_at"],
-    }
-    imprinted = False
-    if authority_engine is not None:
-        try:
-            authority_engine.add_node(node_id, "ExternalGraphReference", props)
-            imprinted = True
-        except Exception as e:  # noqa: BLE001 — return the profile even if write fails
-            logger.warning("imprint add_node failed for %s: %s", name, e)
-
-    return {
-        "status": "success",
-        "connection": name,
-        "imprint_node": node_id if imprinted else None,
-        "label_count": profile["label_count"],
-        "relationship_type_count": len(profile["relationship_types"]),
-        "mapped": mapped,
-        "novel": novel,
-        "schema": profile,
-        "ontology_mappings": mappings,
-    }

@@ -1,0 +1,106 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphos-front
+  namespace: graphos-control
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: graphos-front}
+  minReplicas: 3
+  maxReplicas: 50
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 60}
+        - {type: Pods, value: 5, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies: [{type: Percent, value: 20, periodSeconds: 60}]
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: 65}
+    - type: External
+      external:
+        metric: {name: agent_utilities_gateway_request_p99_seconds}
+        target: {type: Value, value: "2"}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphos-dispatch-worker
+  namespace: graphos-cell
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: graphos-dispatch-worker}
+  minReplicas: 3
+  maxReplicas: 800
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
+        - {type: Pods, value: 25, periodSeconds: 30}
+    scaleDown:
+      stabilizationWindowSeconds: 900
+      policies: [{type: Percent, value: 10, periodSeconds: 60}]
+  metrics:
+    - type: External
+      external:
+        metric: {name: agent_utilities_dispatch_queue_depth}
+        target: {type: AverageValue, averageValue: "25"}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphos-ingest-worker
+  namespace: graphos-cell
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: graphos-ingest-worker}
+  minReplicas: 3
+  maxReplicas: 200
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 60}
+        - {type: Pods, value: 10, periodSeconds: 60}
+    scaleDown:
+      stabilizationWindowSeconds: 900
+      policies: [{type: Percent, value: 10, periodSeconds: 60}]
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: agent_utilities_kg_ingest_consumer_lag
+          selector:
+            matchLabels: {group: kg-ingest}
+        target: {type: AverageValue, averageValue: "100"}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: graphos-analytics-worker
+  namespace: graphos-cell
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: graphos-analytics-worker}
+  minReplicas: 3
+  maxReplicas: 200
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - {type: Percent, value: 100, periodSeconds: 30}
+        - {type: Pods, value: 10, periodSeconds: 30}
+    scaleDown:
+      stabilizationWindowSeconds: 900
+      policies: [{type: Percent, value: 10, periodSeconds: 60}]
+  metrics:
+    - type: External
+      external:
+        metric: {name: epistemic_graph_analytics_jobs_ready}
+        target: {type: AverageValue, averageValue: "2"}

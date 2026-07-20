@@ -31,8 +31,10 @@ Design:
 import abc
 import base64
 import json
+import re
 import threading
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, Field
@@ -54,6 +56,7 @@ __all__ = [
 
 # Refresh an OAuth token this many seconds before it actually expires.
 _EXPIRY_SKEW_S = 30.0
+_SECRET_REF_RE = re.compile(r"^(?:vault|secret|env)://[A-Za-z0-9_./#-]+$")
 
 
 class AuthMaterial(BaseModel):
@@ -84,9 +87,16 @@ class AuthMaterial(BaseModel):
 
 
 def _resolve(secrets: SecretsClient | None, ref: str | None) -> str | None:
-    """Resolve a secret URI ref (``vault://``/``env://``/``sqlite://``/plain)."""
+    """Resolve one bounded runtime secret reference."""
     if not ref:
         return None
+    if (
+        not isinstance(ref, str)
+        or len(ref.encode("utf-8")) > 1_024
+        or _SECRET_REF_RE.fullmatch(ref) is None
+        or ".." in ref.partition("://")[2].split("/")
+    ):
+        raise ValueError("source credential must use a runtime secret reference")
     if secrets is None:
         return None
     return secrets.resolve_ref(ref)
@@ -198,7 +208,6 @@ class CookieSessionCredential(SourceCredential):
     Descriptor fields:
         secret: URI ref resolving to either a JSON object of cookies, or a raw
             ``"name=value; name2=value2"`` cookie string.
-        cookies: an inline ``{name: value}`` mapping (alternative to ``secret``).
     """
 
     type_name: ClassVar[str] = "cookie_session"
@@ -218,9 +227,7 @@ class CookieSessionCredential(SourceCredential):
         return bool(self.cookies)
 
     @staticmethod
-    def _parse(raw: str | None, inline: dict[str, str] | None) -> dict[str, str]:
-        if inline:
-            return dict(inline)
+    def _parse(raw: str | None) -> dict[str, str]:
         if not raw:
             return {}
         raw = raw.strip()
@@ -244,8 +251,10 @@ class CookieSessionCredential(SourceCredential):
     def from_descriptor(
         cls, descriptor: dict[str, Any], secrets: SecretsClient | None
     ) -> CookieSessionCredential:
+        if "cookies" in descriptor:
+            raise ValueError("inline cookie material is unsupported")
         raw = _resolve(secrets, descriptor.get("secret"))
-        return cls(cls._parse(raw, descriptor.get("cookies")))
+        return cls(cls._parse(raw))
 
 
 class BasicAuthCredential(SourceCredential):
@@ -311,8 +320,11 @@ class OAuth2Credential(SourceCredential):
         client_secret: str | None = None,
         scope: str | None = None,
         expires_at: float = 0.0,
-        verify: bool = True,
         timeout: int = 15,
+        tls_service: str = "oauth2-token",
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
+        tls_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self.access_token = access_token
         self.refresh_token = refresh_token
@@ -322,8 +334,11 @@ class OAuth2Credential(SourceCredential):
         self.scope = scope
         # ``expires_at`` is a ``time.monotonic`` deadline; 0 means "unknown".
         self._expires_at = expires_at
-        self.verify = verify
         self.timeout = timeout
+        self.tls_service = tls_service
+        self.tls_profile = tls_profile
+        self.tls_profile_ref = tls_profile_ref
+        self._tls_resolver = tls_resolver
         self._lock = threading.Lock()
 
     def _needs_refresh(self) -> bool:
@@ -337,7 +352,10 @@ class OAuth2Credential(SourceCredential):
         with self._lock:
             if not (self.refresh_token and self.token_url and self.client_id):
                 return
-            import requests
+            from agent_utilities.core.http_client import create_http_client
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
 
             data = {
                 "grant_type": "refresh_token",
@@ -351,15 +369,22 @@ class OAuth2Credential(SourceCredential):
                 if self.client_secret is not None
                 else None
             )
-            resp = requests.post(
-                self.token_url,
-                data=data,
-                auth=auth,
-                verify=self.verify,
-                timeout=self.timeout,
+            trust = resolve_configured_tls_profile(
+                self.tls_service,
+                profile_name=self.tls_profile,
+                profile_ref=self.tls_profile_ref,
+                resolver=self._tls_resolver,
             )
-            resp.raise_for_status()
-            payload = resp.json()
+            try:
+                with create_http_client(
+                    timeout=self.timeout,
+                    **trust.httpx_kwargs(),
+                ) as client:
+                    resp = client.post(self.token_url, data=data, auth=auth)
+                    resp.raise_for_status()
+                    payload = resp.json()
+            finally:
+                trust.cleanup()
             self.access_token = payload["access_token"]
             if payload.get("refresh_token"):
                 self.refresh_token = payload["refresh_token"]
@@ -384,7 +409,9 @@ class OAuth2Credential(SourceCredential):
     ) -> OAuth2Credential:
         raw = _resolve(secrets, descriptor.get("secret"))
         access_token: str | None = raw
-        refresh_token: str | None = descriptor.get("refresh_token")
+        if "refresh_token" in descriptor:
+            raise ValueError("inline refresh-token material is unsupported")
+        refresh_token: str | None = None
         expires_at = 0.0
         if raw and raw.strip().startswith("{"):
             try:
@@ -398,7 +425,14 @@ class OAuth2Credential(SourceCredential):
                 pass
         if descriptor.get("refresh_token_secret"):
             refresh_token = _resolve(secrets, descriptor["refresh_token_secret"])
-        verify = bool(descriptor.get("verify", True))
+        if "verify" in descriptor or "allow_insecure" in descriptor:
+            raise ValueError("boolean TLS verification controls are retired")
+        tls_profile = descriptor.get("tls_profile")
+        tls_profile_ref = descriptor.get("tls_profile_ref")
+        if tls_profile and tls_profile_ref:
+            raise ValueError("OAuth2 TLS profile source is ambiguous")
+        if tls_profile_ref:
+            _resolve(None, str(tls_profile_ref))
         return cls(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -407,7 +441,10 @@ class OAuth2Credential(SourceCredential):
             client_secret=_resolve(secrets, descriptor.get("client_secret_secret")),
             scope=descriptor.get("scope"),
             expires_at=expires_at,
-            verify=verify,
+            tls_service=str(descriptor.get("tls_service") or "oauth2-token"),
+            tls_profile=str(tls_profile) if tls_profile else None,
+            tls_profile_ref=str(tls_profile_ref) if tls_profile_ref else None,
+            tls_resolver=secrets.resolve_ref if secrets is not None else None,
         )
 
 

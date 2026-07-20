@@ -7,13 +7,13 @@ Orchestrates the end-to-end research ingestion cycle:
   ScholarX Discovery → Relevance Scoring → Tiered Ingestion → OWL Enrichment → Digest
 
 Architecture:
-    - **ResearchPipelineRunner**: Main orchestrator wiring ScholarX, KBIngestionEngine,
-      and OWL reasoning into a single automated flow.
+    - **ResearchPipelineRunner**: Main orchestrator wiring ScholarX discovery,
+      native ChangeEnvelope ingestion, and OWL reasoning into one automated flow.
     - **PipelineConfig**: Configurable thresholds, categories, and watchlists.
     - **PipelineReport**: Structured output of each pipeline run.
 
 Tiered Ingestion (per user specification):
-    - **Relevant** (score ≥ 3.0): Full PDF download + KG ingestion + SQLite doc storage.
+    - **Relevant** (score ≥ 3.0): Full PDF + native Article/Document/Chunk ingestion.
       ArticleNode importance_score = 0.8.
     - **Marginal** (score ≥ 1.0): Abstract + metadata only (no PDF download).
       ArticleNode importance_score = 0.5. Serves as memory to avoid re-fetching.
@@ -28,18 +28,34 @@ See docs/pillars/2_epistemic_knowledge_graph.md §CONCEPT:AU-KG.research.researc
 
 
 import logging
+import re
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.orchestration.run_identity import new_run_id
+
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
+
+_PUBLIC_PAPER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _durable_paper_key(paper_id: str) -> str:
+    """Return a stable public identifier or a non-reversible durable reference."""
+    candidate = str(paper_id or "").strip().replace(":", "-")
+    if _PUBLIC_PAPER_ID_RE.fullmatch(candidate):
+        return candidate
+
+    from ..security.persistence_privacy import persistence_reference
+
+    return persistence_reference("research_paper", paper_id, namespace="scholarx")
+
 
 # Default arXiv categories to monitor
 DEFAULT_CATEGORIES = [
@@ -472,7 +488,7 @@ class PipelineReport(BaseModel):
         duration_seconds: Total execution time.
     """
 
-    run_id: str = Field(default_factory=lambda: f"run:{uuid.uuid4().hex[:8]}")
+    run_id: str = Field(default_factory=new_run_id)
     timestamp: str = Field(
         default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     )
@@ -485,6 +501,187 @@ class PipelineReport(BaseModel):
     records: list[IngestedPaperRecord] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     duration_seconds: float = 0.0
+
+
+def _commit_research_paper_slice(
+    engine: Any,
+    *,
+    paper_id: str,
+    title: str,
+    abstract: str,
+    authors: list[str],
+    source_url: str,
+    relevance_score: float,
+    domains: list[str] | None,
+    tier: str,
+) -> str:
+    """Atomically commit a paper, source, and pseudonymous author topology.
+
+    The native ChangeEnvelope transaction is the graph authority for both full
+    and marginal papers. Author display names/emails never cross the persistence
+    boundary: stable HMAC references preserve co-authorship topology without
+    retaining personal identifiers.
+    """
+    from ..knowledge_graph.ingestion.envelope_ingest import ingest_graph_slice
+    from ..models.knowledge_graph import (
+        ArticleNode,
+        PersonNode,
+        RegistryEdgeType,
+        SourceNode,
+    )
+    from ..security.persistence_privacy import (
+        PersistencePrivacyGuard,
+        persistence_reference,
+    )
+
+    safe_id = _durable_paper_key(paper_id)
+    article_id = f"article:scholarx:{safe_id}"
+    source_id = f"source:scholarx:{safe_id}"
+    importance = 0.8 if tier == "full" else 0.5
+    source_importance = 0.5 if tier == "full" else 0.3
+
+    author_refs: list[str] = []
+    author_terms: list[str] = []
+    for raw_author in authors[:10]:
+        author = str(raw_author or "").strip()
+        if not author:
+            continue
+        author_terms.append(author)
+        ref = persistence_reference("research_author", author, namespace="scholarx")
+        if ref and ref not in author_refs:
+            author_refs.append(ref)
+
+    privacy = PersistencePrivacyGuard(deny_terms=author_terms)
+    safe_title, _ = privacy.sanitize_text(title)
+    safe_abstract, _ = privacy.sanitize_text(abstract)
+
+    article = ArticleNode(
+        id=article_id,
+        name=safe_title,
+        description=safe_abstract[:500],
+        summary=safe_abstract[:500],
+        content=safe_abstract,
+        importance_score=importance,
+        tags=domains or [],
+        metadata={
+            "ingestion_tier": tier,
+            "relevance_score": float(relevance_score),
+        },
+    ).model_dump(mode="json")
+    source = SourceNode(
+        id=source_id,
+        source_id=source_id,
+        name=f"Source: {safe_title[:60]}",
+        url=source_url,
+        description=f"Research paper source ({tier}): {safe_title}",
+        authors=author_refs,
+        importance_score=source_importance,
+        metadata={"author_count": len(author_refs)},
+    ).model_dump(mode="json")
+
+    for entity in (article, source):
+        entity["node_type"] = entity.pop("type")
+    entities = [article, source]
+    relationships: list[dict[str, Any]] = [
+        {
+            "source": article_id,
+            "target": source_id,
+            "relationship": RegistryEdgeType.CITES.value,
+        }
+    ]
+    for author_ref in author_refs:
+        person = PersonNode(
+            id=author_ref,
+            person_id=author_ref,
+            name="[REDACTED_PERSON]",
+            description="Pseudonymous research author reference",
+            importance_score=0.4,
+            metadata={"identity_storage": "non_reversible_reference"},
+        ).model_dump(mode="json")
+        person["node_type"] = person.pop("type")
+        entities.append(person)
+        relationships.append(
+            {
+                "source": article_id,
+                "target": author_ref,
+                "relationship": RegistryEdgeType.AUTHORED.value,
+            }
+        )
+
+    applied = ingest_graph_slice(
+        engine,
+        "scholarx",
+        entities,
+        relationships,
+        source_instance="research",
+    )
+    if applied.get("status") not in {"success", "skipped"}:
+        raise RuntimeError(
+            "native research ChangeEnvelope failed: "
+            f"{applied.get('error') or applied.get('status')}"
+        )
+    return article_id
+
+
+def _persist_paper_document(
+    engine: Any,
+    *,
+    paper_id: str,
+    title: str,
+    pdf_path: str,
+    extracted_text: str | None,
+    authors: list[str],
+    article_id: str,
+    relevance_score: float,
+    domains: list[str] | None,
+) -> None:
+    """Materialize full paper text through DocumentProcessor's native boundary.
+
+    The local path is used only to read bytes and is never supplied as durable
+    provenance. This is a post-article document/chunk projection; a projection
+    failure cannot turn a committed paper into an uncommitted one.
+    """
+    from ..knowledge_graph.ontology.document_processing import DocumentProcessor
+    from ..models.knowledge_graph import RegistryEdgeType
+    from ..security.persistence_privacy import PersistencePrivacyGuard
+
+    safe_id = _durable_paper_key(paper_id)
+    document_id = f"document:scholarx:{safe_id}"
+    if extracted_text is None:
+        from ..knowledge_graph.extraction.readers import read_any
+
+        extracted_text = (read_any(str(pdf_path)) or "").strip()
+    author_terms = [str(value).strip() for value in authors if str(value).strip()]
+    privacy = PersistencePrivacyGuard(deny_terms=author_terms)
+    safe_text, _ = privacy.sanitize_text(extracted_text)
+    safe_title, _ = privacy.sanitize_text(title)
+    processor = DocumentProcessor(
+        getattr(engine, "backend", None),
+        engine=engine,
+        contextual=True,
+    )
+    processor.process(
+        Path(pdf_path),
+        document_id=document_id,
+        title=safe_title,
+        doc_type="research_paper",
+        text=safe_text,
+        source="scholarx-paper",
+        metadata={
+            "article_id": article_id,
+            "relevance_score": float(relevance_score),
+            "domains": domains or [],
+        },
+        connector="scholarx",
+        source_instance="research",
+        extra_edges=[
+            {
+                "source": document_id,
+                "target": article_id,
+                "relationship": RegistryEdgeType.WAS_DERIVED_FROM.value,
+            }
+        ],
+    )
 
 
 @dataclass
@@ -506,33 +703,6 @@ class ResearchPipelineRunner:
 
     engine: IntelligenceGraphEngine | None = None
     config: PipelineConfig = field(default_factory=PipelineConfig)
-
-    def _get_kb_engine(self):
-        """Lazily construct KBIngestionEngine from the graph engine."""
-        if not self.engine:
-            return None
-        try:
-            from ..knowledge_graph.kb.ingestion import KBIngestionEngine
-
-            return KBIngestionEngine(
-                graph=self.engine.graph,
-                backend=self.engine.backend,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to create KBIngestionEngine: {e}")
-            return None
-
-    def _get_scholarx_bridge(self):
-        """Lazily construct ScholarXKGBridge if scholarx is available."""
-        if not self.engine:
-            return None
-        try:
-            from scholarx.kg_integration import ScholarXKGBridge
-
-            return ScholarXKGBridge(self.engine)
-        except ImportError:
-            logger.info("ScholarX not installed — using direct KG ingestion")
-            return None
 
     def _load_watchlists_from_kg(self) -> list[dict[str, Any]]:
         """Load custom research watchlists from KG PolicyNodes.
@@ -597,7 +767,7 @@ class ResearchPipelineRunner:
         if not self.engine:
             return False
 
-        safe_id = paper_id.replace(":", "-")
+        safe_id = _durable_paper_key(paper_id)
         article_id = f"article:scholarx:{safe_id}"
         # Per-id membership probe — NOT ``in graph.nodes``, which materializes the
         # whole node list (a gigabyte-scale payload on the live multi-tenant engine
@@ -619,7 +789,7 @@ class ResearchPipelineRunner:
         relevance_score: float = 0.0,
         domains: list[str] | None = None,
     ) -> str:
-        """Fully ingest a paper: PDF parsing + KG + SQLite doc storage.
+        """Fully ingest a paper through native Article and Document graph slices.
 
         Args:
             paper_id: External paper identifier.
@@ -634,9 +804,9 @@ class ResearchPipelineRunner:
         Returns:
             The KG article node ID.
         """
-        safe_id = paper_id.replace(":", "-")
+        safe_id = _durable_paper_key(paper_id)
         article_id = f"article:scholarx:{safe_id}"
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        extracted_text: str | None = None
 
         # When invoked with only an id + a PDF (a research cohort, CONCEPT:AU-KG.research.so-cohort),
         # title/abstract arrive empty — extract them from the PDF so the Article node
@@ -647,123 +817,64 @@ class ResearchPipelineRunner:
             try:
                 from ..knowledge_graph.extraction.readers import read_any
 
-                full = (read_any(str(pdf_path)) or "").strip()
-                if full:
+                extracted_text = (read_any(str(pdf_path)) or "").strip()
+                if extracted_text:
                     if not title.strip():
                         first = next(
-                            (ln.strip() for ln in full.splitlines() if ln.strip()), ""
+                            (
+                                ln.strip()
+                                for ln in extracted_text.splitlines()
+                                if ln.strip()
+                            ),
+                            "",
                         )
                         title = first[:300] or paper_id
                     if not abstract.strip():
-                        abstract = full[:6000]
+                        abstract = extracted_text[:6000]
             except Exception as e:  # noqa: BLE001 — best-effort; fall back to id-only
                 logger.warning(f"cohort PDF text extraction failed for {paper_id}: {e}")
 
-        # Try ScholarX bridge first (handles PersonNodes, SourceNodes)
-        bridge = self._get_scholarx_bridge()
-        if bridge:
-            try:
-                from scholarx.models import Paper
+        # One native graph authority for the paper/source/author topology. The
+        # historical ScholarX bridge and direct graph/_upsert fallbacks are not
+        # invoked because they cannot participate in ApplyChangeEnvelope.
+        if self.engine is None:
+            raise RuntimeError("research paper ingestion requires a graph engine")
+        article_id = _commit_research_paper_slice(
+            self.engine,
+            paper_id=paper_id,
+            title=title,
+            abstract=abstract,
+            authors=authors,
+            source_url=source_url,
+            relevance_score=relevance_score,
+            domains=domains,
+            tier="full",
+        )
 
-                paper_obj = Paper(
-                    id=paper_id,
+        # PDF content is a separate Document/Chunk projection, also committed
+        # natively. Never persist the local path or hand graph authority to the
+        # legacy KB/ScholarX bridge.
+        if pdf_path and Path(pdf_path).is_file():
+            try:
+                _persist_paper_document(
+                    self.engine,
+                    paper_id=paper_id,
                     title=title,
-                    abstract=abstract,
+                    pdf_path=pdf_path,
+                    extracted_text=extracted_text,
                     authors=authors,
-                    url=source_url,
-                    source="arxiv",
+                    article_id=article_id,
+                    relevance_score=relevance_score,
+                    domains=domains,
                 )
-                if pdf_path:
-                    result = await bridge.ingest_paper(paper_obj, pdf_path=pdf_path)
-                else:
-                    result = await bridge.ingest_paper_abstract_only(paper_obj)
-                if result.get("status") == "ingested":
-                    return result.get("article_id", article_id)
-            except Exception as e:
-                logger.warning(f"ScholarX bridge ingestion failed, falling back: {e}")
-
-        # Direct KG ingestion fallback
-        if self.engine:
-            from ..models.knowledge_graph import (
-                ArticleNode,
-                RegistryEdgeType,
-                SourceNode,
-            )
-
-            article_node = ArticleNode(
-                id=article_id,
-                name=title,
-                description=abstract[:500],
-                summary=abstract[:500],
-                content=abstract,
-                importance_score=0.8,
-                timestamp=timestamp,
-                tags=domains or [],
-            )
-            self.engine.graph.add_node(article_id, **article_node.model_dump())
-
-            # Create source node
-            source_id = f"source:scholarx:{safe_id}"
-            source_node = SourceNode(
-                id=source_id,
-                source_id=source_id,
-                name=f"Source: {title[:60]}",
-                url=source_url,
-                description=f"Research paper: {title}",
-                authors=authors,
-                importance_score=0.5,
-                timestamp=timestamp,
-            )
-            self.engine.graph.add_node(source_id, **source_node.model_dump())
-            self.engine.graph.add_edge(
-                article_id, source_id, type=RegistryEdgeType.CITES
-            )
-
-            # Create author PersonNodes
-            for author in authors[:10]:
-                author_id = (
-                    f"person:{author.lower().replace(' ', '-').replace('.', '')[:40]}"
+            except Exception as e:  # noqa: BLE001 — post-commit projection
+                logger.warning(
+                    "native document projection failed for %s: %s", paper_id, e
                 )
-                if author_id not in self.engine.graph.nodes:
-                    from ..models.knowledge_graph import PersonNode
-
-                    person_node = PersonNode(
-                        id=author_id,
-                        person_id=author_id,
-                        name=author,
-                        description=f"Author of: {title[:60]}",
-                        importance_score=0.4,
-                        timestamp=timestamp,
-                    )
-                    self.engine.graph.add_node(author_id, **person_node.model_dump())
-                if not self.engine.graph.has_edge(article_id, author_id):
-                    self.engine.graph.add_edge(
-                        article_id, author_id, type=RegistryEdgeType.AUTHORED
-                    )
-
-            # Persist to backend
-            if self.engine.backend:
-                self.engine._upsert_node(
-                    "Article",
-                    article_id,
-                    self.engine._serialize_node(article_node, "Article"),
-                )
-
-        # If PDF exists, also ingest through KBIngestionEngine for full vectorization
-        kb_engine = self._get_kb_engine()
-        if kb_engine and pdf_path and Path(pdf_path).exists():
-            try:
-                await kb_engine.ingest_directory(
-                    Path(pdf_path).parent,
-                    kb_name="scholarx-research",
-                    topic=f"Research: {title[:80]}",
-                    force=False,
-                )
-            except Exception as e:
-                logger.warning(f"KB full ingestion failed for {paper_id}: {e}")
 
         logger.info(
-            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: {title[:60]} → {article_id}"
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Fully ingested: %s",
+            article_id,
         )
         return article_id
 
@@ -794,54 +905,25 @@ class ResearchPipelineRunner:
         Returns:
             The KG article node ID.
         """
-        safe_id = paper_id.replace(":", "-")
+        safe_id = _durable_paper_key(paper_id)
         article_id = f"article:scholarx:{safe_id}"
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-        if self.engine:
-            from ..models.knowledge_graph import (
-                ArticleNode,
-                RegistryEdgeType,
-                SourceNode,
-            )
-
-            article_node = ArticleNode(
-                id=article_id,
-                name=title,
-                description=abstract[:500],
-                summary=abstract[:500],
-                content=abstract,
-                importance_score=0.5,  # Lower for marginal
-                timestamp=timestamp,
-                tags=domains or [],
-            )
-            self.engine.graph.add_node(article_id, **article_node.model_dump())
-
-            source_id = f"source:scholarx:{safe_id}"
-            source_node = SourceNode(
-                id=source_id,
-                source_id=source_id,
-                name=f"Source: {title[:60]}",
-                url=source_url,
-                description=f"Marginal relevance paper: {title}",
-                authors=authors,
-                importance_score=0.3,
-                timestamp=timestamp,
-            )
-            self.engine.graph.add_node(source_id, **source_node.model_dump())
-            self.engine.graph.add_edge(
-                article_id, source_id, type=RegistryEdgeType.CITES
-            )
-
-            if self.engine.backend:
-                self.engine._upsert_node(
-                    "Article",
-                    article_id,
-                    self.engine._serialize_node(article_node, "Article"),
-                )
+        if self.engine is None:
+            raise RuntimeError("research paper ingestion requires a graph engine")
+        article_id = _commit_research_paper_slice(
+            self.engine,
+            paper_id=paper_id,
+            title=title,
+            abstract=abstract,
+            authors=authors,
+            source_url=source_url,
+            relevance_score=relevance_score,
+            domains=domains,
+            tier="marginal",
+        )
 
         logger.info(
-            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Marginal ingested: {title[:60]} → {article_id}"
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Marginal ingested: %s",
+            article_id,
         )
         return article_id
 
@@ -862,26 +944,36 @@ class ResearchPipelineRunner:
             topic: Topic description.
 
         Returns:
-            The KB ID.
+            The native Document node ID.
         """
         file_path = Path(file_path)
         if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
+            raise FileNotFoundError("research input file not found")
 
-        kb_engine = self._get_kb_engine()
-        if not kb_engine:
-            raise RuntimeError("No KG engine available for ingestion")
+        if not file_path.is_file():
+            raise ValueError("research local ingestion accepts one file at a time")
+        if self.engine is None:
+            raise RuntimeError("research document ingestion requires a graph engine")
 
-        result = await kb_engine.ingest_directory(
-            file_path.parent if file_path.is_file() else file_path,
-            kb_name=kb_name,
-            topic=topic or f"Research: {file_path.stem}",
-            force=False,
+        from ..knowledge_graph.ontology.document_processing import DocumentProcessor
+
+        result = DocumentProcessor(
+            getattr(self.engine, "backend", None),
+            engine=self.engine,
+            contextual=True,
+        ).process(
+            file_path,
+            title=topic,
+            source="configured-research-document",
+            metadata={"knowledge_base": kb_name},
+            connector="scholarx",
+            source_instance="local-document",
         )
         logger.info(
-            f"[CONCEPT:AU-KG.research.research-pipeline-runner] Local file ingested: {file_path.name} → {result.id}"
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Local document ingested: %s",
+            result.document_id,
         )
-        return result.id
+        return result.document_id
 
     async def ingest_url(
         self,
@@ -897,22 +989,50 @@ class ResearchPipelineRunner:
             topic: Topic description.
 
         Returns:
-            The KB ID.
+            The native Document node ID.
         """
-        kb_engine = self._get_kb_engine()
-        if not kb_engine:
-            raise RuntimeError("No KG engine available for ingestion")
+        if self.engine is None:
+            raise RuntimeError("research URL ingestion requires a graph engine")
+        if not str(url).startswith(("https://", "http://")):
+            raise ValueError("research URL ingestion requires an HTTP(S) source")
 
-        result = await kb_engine.ingest_url(
-            url=url,
-            kb_name=kb_name,
-            topic=topic or f"Web article: {url[:60]}",
-            force=False,
+        from ..knowledge_graph.ingestion.web_fetch import resolve_web_fetch
+        from ..knowledge_graph.ontology.document_processing import DocumentProcessor
+        from ..security.persistence_privacy import (
+            PersistencePrivacyGuard,
+            persistence_reference,
+        )
+
+        page = resolve_web_fetch(url)
+        if page is None:
+            raise RuntimeError("research URL could not be fetched")
+        privacy = PersistencePrivacyGuard()
+        text, _ = privacy.sanitize_text(page.markdown)
+        title, _ = privacy.sanitize_text(topic or page.title or "Research document")
+        source_ref = persistence_reference("research_url", url, namespace="scholarx")
+        result = DocumentProcessor(
+            getattr(self.engine, "backend", None),
+            engine=self.engine,
+            contextual=True,
+        ).process(
+            text,
+            document_id=f"document:{source_ref}",
+            title=title,
+            doc_type="web_research",
+            source="external-research-page",
+            metadata={
+                "knowledge_base": kb_name,
+                "source_reference": source_ref,
+                "fetch_backend": page.backend,
+            },
+            connector="scholarx",
+            source_instance="web-document",
         )
         logger.info(
-            f"[CONCEPT:AU-KG.research.research-pipeline-runner] URL ingested: {url[:60]} → {result.id}"
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Web document ingested: %s",
+            result.document_id,
         )
-        return result.id
+        return result.document_id
 
     def _run_owl_enrichment(self) -> int:
         """Run OWL reasoning cycle to discover new inferences from ingested papers."""

@@ -1,0 +1,17 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - graph_audit
+    - graph_compliance
+    - graph_configure
+    - graph_governance
+    - graph_incident
+    - graph_kvcache
+    - graph_observe
+    - graph_secret
+    - graph_sessions
+    - graph_traces
+    - manage
+    - usage_query
+  features: {}

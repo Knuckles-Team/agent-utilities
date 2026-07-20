@@ -9,6 +9,7 @@ context initialization and page tracking.
 """
 
 import logging
+from urllib.parse import urlsplit
 
 from playwright.async_api import (
     Browser,
@@ -19,6 +20,38 @@ from playwright.async_api import (
 )
 
 logger = logging.getLogger(__name__)
+
+_NAVIGATION_TIMEOUT_MS = 30_000
+
+
+def browser_fetch_enabled() -> bool:
+    """Return whether the larger browser egress surface is explicitly enabled."""
+    from agent_utilities.core.config import config
+
+    return bool(config.source_http_allow_browser_fetch)
+
+
+def require_safe_browser_url(url: str) -> None:
+    """Apply the shared source-egress policy before Playwright sees a URL.
+
+    Playwright is deliberately not treated as a generic local browser: ``file:``
+    and other non-HTTP schemes are rejected, private destinations require an
+    exact operator allowlist entry, and DNS is checked for every request hop.
+    """
+    if not browser_fetch_enabled():
+        raise PermissionError("browser-backed source access is disabled by policy")
+    if not isinstance(url, str) or len(url.encode("utf-8")) > 8_192:
+        raise ValueError("browser URL is invalid")
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.http_safety import (
+        require_safe_source_url,
+    )
+
+    require_safe_source_url(
+        url,
+        allowed_private_hosts=config.source_http_allowed_private_hosts,
+        resolve_dns=True,
+    )
 
 
 class BrowserManager:
@@ -48,24 +81,61 @@ class BrowserManager:
         if self._initialized:
             return
 
-        self.playwright = await async_playwright().start()
+        require_safe_browser_url(self.homepage)
+        if self.browser_type not in {"chromium", "firefox", "webkit"}:
+            raise ValueError("Unsupported browser type")
 
-        if self.browser_type == "chromium":
-            self.browser = await self.playwright.chromium.launch(headless=self.headless)
-        elif self.browser_type == "firefox":
-            self.browser = await self.playwright.firefox.launch(headless=self.headless)
-        elif self.browser_type == "webkit":
-            self.browser = await self.playwright.webkit.launch(headless=self.headless)
-        else:
-            raise ValueError(f"Unsupported browser type: {self.browser_type}")
+        try:
+            self.playwright = await async_playwright().start()
 
-        if self.browser is None:
-            raise RuntimeError("Failed to launch browser")
-        self.context = await self.browser.new_context()
-        page: Page = await self.context.new_page()
-        await page.goto(self.homepage)
-        self.pages.append(page)
-        self._initialized = True
+            if self.browser_type == "chromium":
+                self.browser = await self.playwright.chromium.launch(
+                    headless=self.headless
+                )
+            elif self.browser_type == "firefox":
+                self.browser = await self.playwright.firefox.launch(
+                    headless=self.headless
+                )
+            else:
+                self.browser = await self.playwright.webkit.launch(
+                    headless=self.headless
+                )
+
+            if self.browser is None:
+                raise RuntimeError("Failed to launch browser")
+            self.context = await self.browser.new_context(
+                accept_downloads=False,
+                service_workers="block",
+            )
+
+            async def _guard_request(route, request) -> None:
+                # Route interception covers redirects, frames, scripts, images and
+                # script-initiated fetches.  ``data:``/``blob:`` are local browser
+                # objects and carry no network destination; every other non-HTTP
+                # scheme (especially ``file:``) is denied.
+                scheme = urlsplit(request.url).scheme.lower()
+                if scheme in {"data", "blob"}:
+                    await route.continue_()
+                    return
+                try:
+                    require_safe_browser_url(request.url)
+                except (PermissionError, ValueError):
+                    await route.abort("blockedbyclient")
+                    return
+                await route.continue_()
+
+            await self.context.route("**/*", _guard_request)
+            page: Page = await self.context.new_page()
+            await page.goto(
+                self.homepage,
+                timeout=_NAVIGATION_TIMEOUT_MS,
+                wait_until="domcontentloaded",
+            )
+            self.pages.append(page)
+            self._initialized = True
+        except Exception:
+            await self.close()
+            raise
 
     async def get_current_page(self) -> Page | None:
         """Retrieve the last active page in the current context.
@@ -90,23 +160,39 @@ class BrowserManager:
             await self.async_initialize()
         if self.context is None:
             raise RuntimeError("Browser context not initialized")
+        if url:
+            require_safe_browser_url(url)
         page = await self.context.new_page()
         if url:
-            await page.goto(url)
+            await self.navigate(page, url)
         self.pages.append(page)
         return page
+
+    async def navigate(self, page: Page, url: str) -> None:
+        """Navigate one page through the browser egress policy."""
+        require_safe_browser_url(url)
+        await page.goto(
+            url,
+            timeout=_NAVIGATION_TIMEOUT_MS,
+            wait_until="domcontentloaded",
+        )
 
     async def close(self) -> None:
         """Shutdown the browser engine and release all system resources.
 
         Closes all contexts and pages, and stops the Playwright driver.
         """
-        if self.browser:
-            await self.browser.close()
-        if self.playwright:
-            await self.playwright.stop()
-        self._initialized = False
-        self.pages = []
+        try:
+            if self.browser:
+                await self.browser.close()
+        finally:
+            if self.playwright:
+                await self.playwright.stop()
+            self._initialized = False
+            self.pages = []
+            self.context = None
+            self.browser = None
+            self.playwright = None
 
 
 _BROWSER_MANAGER: BrowserManager | None = None

@@ -12,8 +12,10 @@ exact operation directly. It is the same client methods exposed one-to-one
 instead of folded behind an ``action`` switch; nothing is reimplemented.
 
 Selection is governed by one knob, :func:`tool_mode`
-(``MCP_TOOL_MODE`` ∈ ``condensed`` | ``verbose`` | ``both``, default
-``condensed``). Every verbose tool is tagged ``"verbose"`` (plus its domain) so
+(``MCP_TOOL_MODE`` ∈ ``condensed`` | ``verbose`` | ``both`` | ``intent``, default
+``intent`` — the collapsed intent-verb surface; the full granular/verbose tools
+are loaded on demand via the multiplexer's ``load_tools``). Every verbose tool is
+tagged ``"verbose"`` (plus its domain) so
 the existing ``DynamicVisibilityTransform`` (``--tools`` / tags / HTTP query)
 can still slice the set per request.
 
@@ -30,7 +32,6 @@ CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization (
 from __future__ import annotations
 
 import inspect
-import json
 import keyword
 import logging
 import re
@@ -40,14 +41,38 @@ from fastmcp import Context
 from fastmcp.dependencies import Depends
 from pydantic import Field
 
-from agent_utilities.mcp.action_dispatch import DISCOVERY_ACTIONS, public_actions
-from agent_utilities.mcp.concurrency import run_blocking
+from agent_utilities.mcp.action_dispatch import (
+    DISCOVERY_ACTIONS,
+    is_destructive_action,
+    parse_json_object,
+    public_actions,
+)
+from agent_utilities.mcp.concurrency import invoke_client_method
 from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 
 logger = logging.getLogger(__name__)
 
-VALID_TOOL_MODES = ("condensed", "verbose", "both")
-_DEFAULT_MODE = "condensed"
+VALID_TOOL_MODES = ("condensed", "verbose", "both", "intent")
+# Default to the collapsed INTENT surface (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse,
+# Seam 8): a small set of intent-verb tools (ask/write/act/find/manage/why) instead
+# of the ~100 granular/condensed tools, which blow past the client tool cap and cost
+# attention (worst for small/local models). Nothing is lost — the full granular +
+# verbose surface stays registered (REST + `_execute_tool` + REGISTERED_TOOLS
+# unaffected) and is loaded on demand via the multiplexer's `load_tools`.
+_DEFAULT_MODE = "intent"
+
+#: Tag stamped on EVERY condensed/verbose tool (any mode) so a deployment can
+#: statically shrink the LLM-visible surface via the pre-existing
+#: ``MCP_DISABLED_TAGS``/``DynamicVisibilityTransform`` knob (no new env var —
+#: CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) without touching REGISTERED_TOOLS/REST.
+GRANULAR_TAG = "granular"
+
+#: Tag stamped ONLY when ``MCP_TOOL_MODE=intent`` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse):
+#: marks a tool as held back from the DEFAULT session view. It stays fully
+#: registered (REST + ``_execute_tool`` + REGISTERED_TOOLS unaffected) — the
+#: fleet ``load_tools`` meta-tool reveals it per-session (see
+#: :func:`agent_utilities.mcp.multiplexer.attach_fleet_loader`).
+GATED_TAG = "gated"
 
 #: OpenAPI/JSON-schema primitive -> Python type for synthesized typed signatures.
 _PY_TYPES: dict[str, type] = {
@@ -58,18 +83,6 @@ _PY_TYPES: dict[str, type] = {
     "array": list,
     "object": dict,
 }
-
-#: Method-name prefixes that mark a write that destroys data (used when a
-#: manifest doesn't carry explicit ``http``/``destructive`` metadata).
-_DESTRUCTIVE_PREFIXES = (
-    "delete_",
-    "remove_",
-    "destroy_",
-    "purge_",
-    "drop_",
-    "deactivate_",
-)
-
 
 #: Reserved parameter names a synthesized verbose signature already uses.
 _RESERVED_PARAM_NAMES = frozenset({"client", "ctx", "self"})
@@ -111,27 +124,24 @@ def _is_typeable_param(param: dict) -> bool:
     )
 
 
-def _is_destructive(method_name: str, op: dict | None) -> bool:
-    """Whether an operation destroys data — gates a Context elicitation guard.
-
-    Prefers explicit manifest metadata (``destructive`` flag, then an HTTP
-    ``DELETE``); otherwise falls back to the method-name prefix.
-    """
-    if op:
-        if op.get("destructive") is not None:
-            return bool(op["destructive"])
-        if str(op.get("http", "")).upper() == "DELETE":
-            return True
-    return method_name.startswith(_DESTRUCTIVE_PREFIXES)
-
-
 def tool_mode() -> str:
-    """Return the configured MCP tool surface: ``condensed`` | ``verbose`` | ``both``.
+    """Return the configured MCP tool surface: ``condensed``|``verbose``|``both``|``intent``.
 
     Reads ``MCP_TOOL_MODE`` through the shared config layer (so it is driven by
-    the one XDG ``config.json``). Defaults to ``condensed`` — the small,
-    action-routed surface — so existing deployments are unchanged. An
-    unrecognized value falls back to ``condensed`` with a warning.
+    the one XDG ``config.json``). Defaults to ``intent`` — the collapsed
+    intent-verb surface (the full granular set is loaded on demand via
+    ``load_tools``). An unrecognized value falls back to ``intent`` with a warning.
+
+    ``intent`` (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — Seam 8) is the
+    default (and the "small/cheap-LLM") profile: the condensed action-routed tools still register
+    (REST + ``_execute_tool`` + REGISTERED_TOOLS are unaffected — nothing is
+    lost), but they are additionally tagged :data:`GATED_TAG` and held back from
+    a session's default tool list; a handful of thin ``ask``/``find``/``write``/
+    ``act``/``manage``/``why`` intent-verb tools (``mcp/tools/intent_tools.py``)
+    become the default surface instead, resolving a natural-language intent to
+    the right granular tool and dispatching through the SAME ``_execute_tool``
+    core. ``load_tools`` (the fleet meta-tool) remains the escape hatch to any
+    exact granular tool, gated or not.
     """
     # Imported lazily: config pulls in the whole settings stack, and tool_mode is
     # also called from module-load paths in the agents.
@@ -243,11 +253,11 @@ def _build_params_json_tool(method_name: str, get_client: Any, *, destructive: b
         client=Depends(get_client),
         ctx: Context | None = None,
     ) -> Any:
-        kwargs = json.loads(params_json) if params_json else {}
+        kwargs = parse_json_object(params_json)
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         if destructive and not await ctx_confirm_destructive(ctx, method_name):
             return {"cancelled": True, "operation": method_name}
-        return await run_blocking(getattr(client, method_name), **kwargs)
+        return await invoke_client_method(getattr(client, method_name), **kwargs)
 
     return _tool
 
@@ -271,7 +281,7 @@ def _build_typed_tool(
         kwargs = {k: v for k, v in call.items() if v is not None}
         if destructive and not await ctx_confirm_destructive(ctx, method_name):
             return {"cancelled": True, "operation": method_name}
-        return await run_blocking(getattr(client, method_name), **kwargs)
+        return await invoke_client_method(getattr(client, method_name), **kwargs)
 
     sig_params: list[inspect.Parameter] = []
     annotations: dict[str, Any] = {}
@@ -331,10 +341,11 @@ def register_verbose_tools(
     """Register one verbose MCP tool per public domain method of ``client_cls``.
 
     Each tool is named ``<prefix>_<method>``, tagged ``{"verbose", <domain>}`` and
-    dispatches to ``getattr(client, method)(**params)`` off the event loop via
-    :func:`run_blocking`. The live client is bound per-call through
-    ``Depends(get_client)`` — the class is introspected only for names, docs, and
-    domain grouping, so no credentials are needed at registration time.
+    dispatches through :func:`invoke_client_method`, which awaits asynchronous
+    SDK methods and offloads synchronous methods. The live client is bound
+    per-call through ``Depends(get_client)`` — the class is introspected only for
+    names, docs, and domain grouping, so no credentials are needed at
+    registration time.
 
     **Fidelity is hybrid, decided per method:**
 
@@ -402,7 +413,7 @@ def register_verbose_tools(
         else:
             tool_name = f"{prefix}_{method_name}"
         params = (op or {}).get("params") or []
-        destructive = _is_destructive(method_name, op)
+        destructive = is_destructive_action(method_name, op)
 
         # Typed tier only when every param name is a usable Python identifier — some
         # specs carry body fields like ``urn:ietf:...:Group`` (SCIM) that cannot be a
@@ -428,7 +439,7 @@ def register_verbose_tools(
 
         tool_fn.__name__ = tool_name
         tool_fn.__doc__ = doc or f"Invoke the {method_name} operation."
-        mcp.tool(name=tool_name, tags={"verbose", domain})(tool_fn)
+        mcp.tool(name=tool_name, tags={"verbose", domain, GRANULAR_TAG})(tool_fn)
         registered.append(tool_name)
 
     logger.debug(
@@ -505,7 +516,10 @@ def _resolve_action_provider(provider: Any) -> list[str]:
             candidates = provider
         names = [str(a) for a in (candidates or []) if isinstance(a, str) and a]
     except Exception as exc:  # pragma: no cover - defensive per-provider
-        logger.warning("verbose autowire: action provider failed: %s", exc)
+        logger.warning(
+            "verbose autowire: action provider failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         return []
     # Drop discovery keywords (list_actions/help/actions) and de-dup, stable-sorted.
     return sorted({n for n in names if n not in _NON_OPERATION_ACTIONS})
@@ -591,7 +605,9 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         from fastmcp.tools.tool_transform import ArgTransform
     except Exception as exc:  # pragma: no cover - defensive (older FastMCP)
         logger.warning(
-            "autowire_verbose_from_condensed: FastMCP transforms unavailable: %s", exc
+            "autowire_verbose_from_condensed: FastMCP transforms unavailable "
+            "(exception_type=%s)",
+            type(exc).__name__,
         )
         return []
 
@@ -624,9 +640,9 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
                 mcp.add_tool(verbose_tool)
             except Exception as exc:  # pragma: no cover - defensive per-action
                 logger.warning(
-                    "autowire_verbose_from_condensed: could not derive %s: %s",
-                    verbose_name,
-                    exc,
+                    "autowire_verbose_from_condensed: could not derive tool "
+                    "(exception_type=%s)",
+                    type(exc).__name__,
                 )
                 continue
             derived.append(verbose_name)
@@ -684,6 +700,20 @@ def _condensed_entries(
     return entries
 
 
+def gated_tool_names(mcp: Any) -> set[str]:
+    """Tool names held back from the default session view by ``MCP_TOOL_MODE=intent``.
+
+    Populated by :func:`register_tool_surface` as it stamps :data:`GATED_TAG`;
+    empty in every other mode. The graph-os entry point
+    (``mcp/kg_server.py::mcp_server``) reads this after building the server to
+    seed the fleet multiplexer's local-tool gate
+    (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse), so ``load_tools`` can reveal one of
+    these exact granular tools for a session without mounting anything (they are
+    already registered locally — just hidden by default).
+    """
+    return set(getattr(mcp, "_intent_gated_tools", ()) or ())
+
+
 def register_tool_surface(
     mcp: Any,
     *,
@@ -699,6 +729,8 @@ def register_tool_surface(
     verbose_register: Any = None,
     autowire_condensed: bool = True,
     action_providers: dict[str, Any] | None = None,
+    mode_override: str | None = None,
+    force_condensed_registration: bool = False,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -744,7 +776,11 @@ def register_tool_surface(
     """
     from agent_utilities.core.config import setting
 
-    mode = tool_mode()
+    if mode_override is not None and mode_override not in VALID_TOOL_MODES:
+        raise ValueError(
+            f"mode_override must be one of {VALID_TOOL_MODES}, got {mode_override!r}"
+        )
+    mode = mode_override or tool_mode()
     registered_tags: list[str] = []
 
     targets = verbose_targets
@@ -759,15 +795,22 @@ def register_tool_surface(
         ]
     has_verbose = bool(targets) or verbose_register is not None
 
-    # Condensed registers in condensed/both — and ALSO in verbose mode when the
-    # agent has no verbose surface at all, so a condensed-only server is never
+    # Condensed registers in condensed/both/intent — and ALSO in verbose mode when
+    # the agent has no verbose surface at all, so a condensed-only server is never
     # left empty by a deployment-wide MCP_TOOL_MODE=verbose meant for connectors.
-    if mode in ("condensed", "both") or (mode == "verbose" and not has_verbose):
+    # ``intent`` registers the SAME condensed tools (REST/_execute_tool/
+    # REGISTERED_TOOLS are unaffected — they are the backing surface the intent
+    # verbs dispatch into) but additionally gates them from the default session
+    # view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
+    if mode in ("condensed", "both", "intent") or (
+        mode == "verbose" and not has_verbose
+    ):
         toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
+        gated: set[str] = getattr(mcp, "_intent_gated_tools", set())
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
-            if not setting(env_var, True):
+            if not force_condensed_registration and not setting(env_var, True):
                 continue
             before = set(_provider_tools(mcp))
             register_fn(mcp)
@@ -780,10 +823,16 @@ def register_tool_surface(
                 tags_attr = getattr(after[name], "tags", None)
                 if isinstance(tags_attr, set):
                     tags_attr.add(tag)
+                    tags_attr.add(GRANULAR_TAG)
+                    if mode == "intent":
+                        tags_attr.add(GATED_TAG)
+                        gated.add(name)
                 toggles[name] = env_var
             registered_tags.append(tag)
         if toggles:
             mcp._condensed_tool_toggles = toggles
+        if gated:
+            mcp._intent_gated_tools = gated
 
     if mode in ("verbose", "both"):
         for target in targets or []:

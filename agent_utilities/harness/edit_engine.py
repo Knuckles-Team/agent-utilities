@@ -8,8 +8,7 @@ optional post-edit verification gate.
 
 Motivation
 ----------
-The simple :func:`agent_utilities.tools.developer_tools.replace_in_file` does a
-single *exact* ``str.replace(old, new, 1)``. Any whitespace drift between what the
+An exact ``str.replace(old, new, 1)`` operation is brittle. Any whitespace drift between what the
 model emitted and what is on disk makes it fail, with no recovery. Production coding
 harnesses (e.g. aider) instead parse one of a few well-known edit formats and apply
 them with a ladder of increasingly-forgiving matchers, then *reflect* on failures by

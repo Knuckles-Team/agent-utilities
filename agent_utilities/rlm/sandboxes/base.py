@@ -45,9 +45,8 @@ class SandboxCapabilities:
     """What a backend can run — the sole input to routing decisions.
 
     ``preference_rank`` orders candidates the router considers equally capable: lower wins.
-    It encodes "fastest *acceptable* tier first", which is why ``local`` (fast but
-    unsandboxed) is ranked LAST despite its speed — it is the always-available floor, not a
-    preferred destination.
+    It encodes "fastest *acceptable* tier first". Every registered backend must provide an
+    approved confinement boundary.
     """
 
     host_callbacks: bool
@@ -61,7 +60,7 @@ class SandboxCapabilities:
     network: bool
     """Code can reach the network (false = isolated egress)."""
     isolated: bool
-    """Provides a real isolation boundary (false only for ``local`` exec)."""
+    """Provides a real isolation boundary; the router rejects false values."""
     preference_rank: int
     """Lower = preferred when multiple backends satisfy the requirements."""
     workspace: bool = False
@@ -84,15 +83,12 @@ class SandboxEnv:
 
     ``vars`` is the persistent REPL namespace (read in, synced back out). ``helpers`` are the
     host callbacks a ``host_callbacks`` backend wires up (monty as ``external_functions``,
-    Docker via the UDS bridge). ``local_globals`` are objects only the in-process ``local``
-    backend can inject (live module/class refs like ``json``, ``asyncio``,
-    ``GraphComputeEngine``) — isolated backends ignore them.
+    Docker via the UDS bridge).
     """
 
     vars: dict[str, Any]
     tool_sources: dict[str, str] = field(default_factory=dict)
     helpers: dict[str, Callable[..., Any]] = field(default_factory=dict)
-    local_globals: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -186,9 +182,11 @@ def _noop_close() -> None:
 
 @dataclass
 class ParentHandle:
-    """A live warmed parent a backend forks children from. ``ref`` is backend-private (a
-    forkserver context, a warmed container id, a microVM snapshot tag). Borrow/idle accounting
-    is the warm-parent registry's job; ``close`` tears the parent down (sync, idempotent)."""
+    """A live warmed parent a backend forks children from.
+
+    ``ref`` is backend-private, such as a microVM snapshot tag. Borrow/idle accounting is the
+    warm-parent registry's job; ``close`` tears the parent down (sync, idempotent).
+    """
 
     backend: str
     spec: WarmSpec
@@ -238,6 +236,16 @@ class ForkableSandbox(Sandbox):
         hands back an already-warmed parent across calls, so only the first ``execute`` pays
         start-up and every subsequent one is a cheap fork.
         """
+        if not self.capabilities.isolated:
+            from ..telemetry import SandboxFatalError
+
+            raise SandboxFatalError(
+                "sandbox backend lacks an approved isolation boundary"
+            )
+        if not self.is_available():
+            from ..telemetry import SandboxFatalError
+
+            raise SandboxFatalError("sandbox backend is unavailable")
         from agent_utilities.runtime.warm_registry import WarmParentRegistry
 
         registry = WarmParentRegistry.get()

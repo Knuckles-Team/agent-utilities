@@ -6,10 +6,9 @@ These Pydantic-AI tools translate the model's tool calls into typed runtime acti
 the workspace mirrors every action to the KG (KG-2.64) and gates mutations via ``ActionPolicy``
 (OS-5.24), the agent inherits provenance and governance for free.
 
-A new tool surface (rather than re-pointing ``developer_tools.py``) keeps existing non-SWE
-callers of those host-FS tools untouched — the SWE profile binds *these*, the general profile
-keeps the host-FS ones. (Distinct from ``workspace_tools.py``, which manages SKILL.md/core-file
-metadata — a different "workspace".)
+This is the sole mutation and execution surface. General developer tools remain
+read-only. It is distinct from ``workspace_tools.py``, which manages SKILL.md and
+project-memory metadata.
 """
 
 from __future__ import annotations
@@ -40,6 +39,13 @@ def _ws(ctx: RunContext[AgentDeps]):
     return getattr(ctx.deps, "workspace", None)
 
 
+def _safe_text(value: object) -> str:
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    clean, _ = PersistencePrivacyGuard().sanitize_text(str(value or ""))
+    return clean
+
+
 @trace(name="run_command", trace_type="TOOL")
 @tool_version("1.0.0")
 async def run_command(
@@ -50,11 +56,11 @@ async def run_command(
     if ws is None:
         return _NO_WS
     obs = await ws.act(CmdRunAction(command=command, timeout=timeout))
-    parts = [f"exit_code={obs.exit_code}", f"cwd={obs.cwd}"]
+    parts = [f"exit_code={obs.exit_code}"]
     if obs.stdout:
-        parts.append(f"stdout:\n{obs.stdout}")
+        parts.append(f"stdout:\n{_safe_text(obs.stdout)}")
     if obs.stderr:
-        parts.append(f"stderr:\n{obs.stderr}")
+        parts.append(f"stderr:\n{_safe_text(obs.stderr)}")
     return "\n".join(parts)
 
 
@@ -72,8 +78,8 @@ async def read_file(
         return _NO_WS
     obs = await ws.act(FileReadAction(path=path, start=start, end=end))
     if obs.kind == "error":
-        return f"ERROR: {obs.message}"
-    return obs.content
+        return "ERROR: governed workspace read failed."
+    return _safe_text(obs.content)
 
 
 @trace(name="write_file", trace_type="TOOL")
@@ -85,8 +91,8 @@ async def write_file(ctx: RunContext[AgentDeps], path: str, content: str) -> str
         return _NO_WS
     obs = await ws.act(FileWriteAction(path=path, content=content))
     if obs.kind == "error":
-        return f"ERROR: {obs.message}"
-    return f"Wrote {obs.bytes_written} bytes to {obs.path}."
+        return "ERROR: governed workspace write failed."
+    return f"Wrote {obs.bytes_written} bytes in the governed workspace."
 
 
 @trace(name="edit_file", trace_type="TOOL")
@@ -103,8 +109,8 @@ async def edit_file(
         FileEditAction(path=path, old=old, new=new, replace_all=replace_all)
     )
     if obs.kind == "error":
-        return f"ERROR: {obs.message}"
-    return f"Applied {obs.replacements} replacement(s) to {obs.path}:\n{obs.diff}"
+        return "ERROR: governed workspace edit failed."
+    return f"Applied {obs.replacements} replacement(s):\n{_safe_text(obs.diff)}"
 
 
 @trace(name="run_tests", trace_type="TOOL")
@@ -117,7 +123,7 @@ async def run_tests(
     if ws is None:
         return _NO_WS
     obs = await ws.act(TestRunAction(selector=selector, framework=framework))
-    return f"{obs.report}\n{obs.raw[-4000:]}"
+    return _safe_text(f"{obs.report}\n{obs.raw[-4000:]}")
 
 
 @trace(name="browse", trace_type="TOOL")
@@ -130,8 +136,8 @@ async def browse(ctx: RunContext[AgentDeps], url: str, interaction: str = "") ->
         return _NO_WS
     obs = await ws.act(BrowseAction(url=url, interaction=interaction))
     if obs.error:
-        return f"BROWSER: {obs.error}"
-    return f"[{obs.status}] {obs.title}\n{obs.text[:4000]}"
+        return "BROWSER: governed browser action failed."
+    return _safe_text(f"[{obs.status}] {obs.title}\n{obs.text[:4000]}")
 
 
 SWE_WORKSPACE_TOOLS = [run_command, read_file, write_file, edit_file, run_tests, browse]

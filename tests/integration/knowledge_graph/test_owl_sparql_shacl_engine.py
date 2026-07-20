@@ -18,8 +18,8 @@ so its client carries the ``.rdf`` namespace), seed a tiny graph, and assert the
 engine-native semantic surface. There is NO SQLite and no per-module engine spawn;
 when no real engine is reachable the conftest hermetic-skip turns the connection
 error into a clean skip. The ``rdf``/``sparql``/``owl`` features are part of the
-lean ``pi``-tier the fixture builds, so the engine path is exercised on any dev/CI
-box that has (or can build) the engine.
+mandatory ``epistemic-graph[full]>=2.23.1,<3.0.0`` artifact, so the engine path is
+exercised wherever that hard-base runtime is installed.
 """
 
 from __future__ import annotations
@@ -146,13 +146,13 @@ def test_shacl_gate_data_graph_from_engine(owl_graph):
     from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
 
     # Build the data graph via the engine triples path (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
-    data = shacl_gate._data_graph_from_engine_triples(owl_graph)
+    data = shacl_gate._data_graph_from_engine_rdf(owl_graph)
     assert data is not None, "engine triple path returned no data graph"
 
     # An inline shape: every Agent must have a name. alice/bob HAVE names, so add a
     # nameless Agent and prove the engine-sourced data graph carries the violation.
     owl_graph.add_node("ghost", type="Agent")
-    data2 = shacl_gate._data_graph_from_engine_triples(owl_graph)
+    data2 = shacl_gate._data_graph_from_engine_rdf(owl_graph)
     import rdflib
 
     shapes = rdflib.Graph()

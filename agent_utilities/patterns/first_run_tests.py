@@ -7,13 +7,10 @@ This module provides tools to run existing tests in a workspace and feed the
 results back to the agent (Planner/Verifier).
 """
 
-import asyncio
-import logging
-import os
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
-logger = logging.getLogger(__name__)
+from agent_utilities.runtime.events import ErrorObservation, TestRunAction
 
 
 @dataclass
@@ -23,63 +20,62 @@ class TestResult:
     success: bool
     output: str
     exit_code: int
-    command: str
+    selector: str | None
+    framework: str
 
 
 async def run_first_tests(
-    workspace_path: Path,
-    test_command: str = "uv run pytest",
+    workspace: Any,
+    *,
+    selector: str | None = None,
+    framework: str = "pytest",
+    cwd: str | None = None,
 ) -> TestResult:
-    """Run tests in the workspace and capture results.
+    """Run tests through the governed developer workspace.
 
     Args:
-        workspace_path: Path to the workspace/project root.
-        test_command: The command to run tests.
+        workspace: A started or startable :class:`DevWorkspace`.
+        selector: Optional framework-native test selector.
+        framework: Registered test framework name.
+        cwd: Optional workspace-relative working directory.
 
     Returns:
         A TestResult object containing the outcome.
     """
-    logger.info(f"Running first tests in {workspace_path} with command: {test_command}")
-
-    # Ensure workspace exists
-    if not workspace_path.exists():
+    if workspace is None or not callable(getattr(workspace, "act", None)):
         return TestResult(
             success=False,
-            output=f"Error: Workspace path {workspace_path} does not exist.",
+            output="Error: governed developer workspace is unavailable.",
             exit_code=1,
-            command=test_command,
+            selector=selector,
+            framework=framework,
         )
 
-    try:
-        # Run the test command asynchronously
-        process = await asyncio.create_subprocess_shell(
-            test_command,
-            cwd=str(workspace_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=os.environ.copy(),
+    result = await workspace.act(
+        TestRunAction(
+            selector=selector,
+            framework=framework,
+            cwd=cwd,
+            timeout=600.0,
         )
-
-        stdout, stderr = await process.communicate()
-        output = stdout.decode() + stderr.decode()
-        exit_code = process.returncode if process.returncode is not None else 1
-
-        success = exit_code == 0
-
-        if success:
-            logger.info("First tests passed successfully.")
-        else:
-            logger.warning(f"First tests failed with exit code {exit_code}.")
-
-        return TestResult(
-            success=success, output=output, exit_code=exit_code, command=test_command
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to execute tests: {e}")
+    )
+    if isinstance(result, ErrorObservation):
         return TestResult(
             success=False,
-            output=f"Execution Error: {str(e)}",
+            output=result.message,
             exit_code=1,
-            command=test_command,
+            selector=selector,
+            framework=framework,
         )
+
+    exit_code = int(getattr(result, "exit_code", 1))
+    report = str(getattr(result, "report", ""))
+    raw = str(getattr(result, "raw", ""))
+    output = report if not raw else f"{report}\n{raw}" if report else raw
+    return TestResult(
+        success=exit_code == 0,
+        output=output,
+        exit_code=exit_code,
+        selector=selector,
+        framework=framework,
+    )

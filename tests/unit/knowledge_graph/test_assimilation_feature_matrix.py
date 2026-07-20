@@ -5,6 +5,8 @@ Materializes the post-assimilation graph (coverage edges + leverage + synergy)
 into one queryable + rendered deliverable.
 """
 
+from typing import Any
+
 import pytest
 
 from agent_utilities.knowledge_graph.assimilation import (
@@ -66,11 +68,21 @@ def _f(concept, sources=(), name=""):
 def _engine():
     eng = _Engine(
         {
-            "f_kg": _f("AU-KG.memory.tiered-memory-caching", sources=["paperA"], name="Latent rollout memory"),
-            "f_orch": _f(
-                "AU-ORCH.adapter.hot-cache-invalidation", sources=["paperA", "paperB"], name="Diverse query"
+            "f_kg": _f(
+                "AU-KG.memory.tiered-memory-caching",
+                sources=["paperA"],
+                name="Latent rollout memory",
             ),
-            "f_ahe": _f("AU-AHE.harness.harness-evolution", sources=["paperB"], name="Cache-tier reward"),
+            "f_orch": _f(
+                "AU-ORCH.adapter.hot-cache-invalidation",
+                sources=["paperA", "paperB"],
+                name="Diverse query",
+            ),
+            "f_ahe": _f(
+                "AU-AHE.harness.harness-evolution",
+                sources=["paperB"],
+                name="Cache-tier reward",
+            ),
         }
     )
     # f_kg → related (novel-but-relevant) with a recorded novelty
@@ -82,7 +94,10 @@ def _engine():
     )
     # f_ahe → covered (we already built this)
     eng.link_nodes(
-        "f_ahe", "AU-AHE.harness.harness-evolution", "SATISFIED_BY", properties={"_rel": "SATISFIED_BY"}
+        "f_ahe",
+        "AU-AHE.harness.harness-evolution",
+        "SATISFIED_BY",
+        properties={"_rel": "SATISFIED_BY"},
     )
     # cross-pillar synergy: KG ~ ORCH
     eng.link_nodes("f_kg", "f_orch", "SIMILAR_TO", properties={"_rel": "SIMILAR_TO"})
@@ -140,6 +155,120 @@ def test_materialize_writes_feature_matrix_node_idempotently():
     s2 = materialize_feature_matrix(eng, matrix)
     assert s2["node_id"] == s1["node_id"] == "feature_matrix:latest"
     assert s2["counts"] == s1["counts"]
+
+
+# ---------------------------------------------------------------------------
+# X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): the matrix node is
+# a materialized JOIN over the summarized features/concepts — it registers as
+# a live TruthMaintenance materialization and ACTUALLY goes Stale when one of
+# those base facts changes.
+# ---------------------------------------------------------------------------
+
+
+class _TmsAwareEngine(_Engine):
+    """``_Engine`` + ``add_edge`` + a minimal, faithful in-process
+    TruthMaintenance index (same contract as ``test_insight_validation.py``'s
+    ``_TmsAwareInsightStubEngine``): every ``add_node`` bumps that id's
+    version; ``register_materialization`` snapshots the CURRENT version of
+    every ``:DerivedFrom`` target; ``materialization_status`` reports "Stale"
+    the instant a snapshotted dependency's version has since moved."""
+
+    def __init__(self, nodes):
+        super().__init__(nodes)
+        self.edges: list[tuple[str, str, dict[str, Any]]] = []
+        self._versions: dict[str, int] = {nid: 1 for nid in nodes}
+        self._materializations: dict[str, dict[str, int]] = {}
+
+    def add_node(self, node_id, node_type=None, properties=None, **_kw):
+        super().add_node(node_id, node_type, properties, **_kw)
+        self._versions[node_id] = self._versions.get(node_id, 0) + 1
+
+    def add_edge(self, source, target, rel_type="", **properties):
+        self.edges.append((source, target, {"rel_type": rel_type, **properties}))
+
+    def register_materialization(self, derived_id):
+        deps = {
+            target
+            for source, target, props in self.edges
+            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+        }
+        self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
+        return {
+            "id": derived_id,
+            "depends_on": sorted(deps),
+            "generating_activity": None,
+        }
+
+    def materialization_status(self, derived_id):
+        snapshot = self._materializations.get(derived_id)
+        if snapshot is None:
+            return None
+        for dep, ver in snapshot.items():
+            if self._versions.get(dep, 0) != ver:
+                return "Stale"
+        return "Fresh"
+
+
+def _tms_engine():
+    eng = _TmsAwareEngine(
+        {
+            "f_kg": _f(
+                "AU-KG.memory.tiered-memory-caching",
+                sources=["paperA"],
+                name="Latent rollout memory",
+            ),
+            "f_orch": _f(
+                "AU-ORCH.adapter.hot-cache-invalidation",
+                sources=["paperA", "paperB"],
+                name="Diverse query",
+            ),
+            "f_ahe": _f(
+                "AU-AHE.harness.harness-evolution",
+                sources=["paperB"],
+                name="Cache-tier reward",
+            ),
+        }
+    )
+    eng.link_nodes(
+        "f_kg",
+        "AU-KG.ontology.kg-3",
+        "RELATES_TO",
+        properties={"_rel": "RELATES_TO", "novelty": 0.7},
+    )
+    eng.link_nodes(
+        "f_ahe",
+        "AU-AHE.harness.harness-evolution",
+        "SATISFIED_BY",
+        properties={"_rel": "SATISFIED_BY"},
+    )
+    eng.link_nodes("f_kg", "f_orch", "SIMILAR_TO", properties={"_rel": "SIMILAR_TO"})
+    return eng
+
+
+def test_materialize_registers_and_goes_stale_when_a_summarized_feature_changes():
+    eng = _tms_engine()
+    matrix = build_feature_matrix(eng)
+    materialize_feature_matrix(eng, matrix)
+
+    assert eng.materialization_status("feature_matrix:latest") == "Fresh"
+
+    # A summarized feature is later revised through the normal write path.
+    eng.add_node("f_kg", "capability", properties={"revised": True})
+
+    assert eng.materialization_status("feature_matrix:latest") == "Stale"
+
+
+def test_materialize_registration_failure_does_not_break_the_persist():
+    class _BoomEngine(_TmsAwareEngine):
+        def register_materialization(self, derived_id):
+            raise RuntimeError("kg unreachable")
+
+    eng = _BoomEngine(
+        {"f_kg": _f("AU-KG.memory.tiered-memory-caching", sources=["paperA"])}
+    )
+    matrix = build_feature_matrix(eng)
+    summary = materialize_feature_matrix(eng, matrix)
+    assert summary["persisted"] is True  # unaffected by the registration failure
 
 
 def test_scoped_matrix_restricts_to_cohort_sources():

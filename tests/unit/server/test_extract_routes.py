@@ -6,6 +6,8 @@ the endpoints must degrade gracefully (``unavailable``), never 500.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.server.routers import enhanced
@@ -30,6 +32,7 @@ async def test_extract_jobs_graceful_when_cold(monkeypatch) -> None:
     # Force the "engine cold" path; the endpoint must answer, not raise.
     monkeypatch.setattr(enhanced, "_active_engine", lambda: None)
     enhanced._EXTRACTION_MANAGER = None
-    res = await enhanced.extract_jobs()
+    request = SimpleNamespace(state=SimpleNamespace(user_claims=None))
+    res = await enhanced.extract_jobs(request)
     assert res["status"] == "unavailable"
     assert res["jobs"] == []

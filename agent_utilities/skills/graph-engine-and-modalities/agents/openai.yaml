@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Engine and Modalities"
+  short_description: "Low-level engine data, compute, and cluster operations"
+  default_prompt: "Use $graph-engine-and-modalities to select the low-level native engine domain, execute bounded work, and verify the output."

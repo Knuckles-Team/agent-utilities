@@ -406,12 +406,14 @@ def ingest_commit_history(
 # ── Evolution query surface (CONCEPT:AU-KG.enrichment.query-ingested-commit-history) ───────────────────────────────
 
 
-def _rows(backend: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """Read-only query helper, tolerant of the engine read API; never raises."""
+def _rows(
+    query_service: Any, cypher: str, params: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Read through the guarded graph-query service; never expose a backend."""
     try:
-        ex = getattr(backend, "execute", None)
-        if callable(ex):
-            return list(ex(cypher, params) or [])
+        query_cypher = getattr(query_service, "query_cypher", None)
+        if callable(query_cypher):
+            return list(query_cypher(cypher, params) or [])
     except Exception:  # pragma: no cover - read best-effort by design
         return []
     return []
@@ -425,7 +427,7 @@ def _as_int(v: Any) -> int:
 
 
 def query_evolution(
-    backend: Any, mode: str, target: str = "", limit: int = 20
+    query_service: Any, mode: str, target: str = "", limit: int = 20
 ) -> dict[str, Any]:
     """Answer codebase-evolution questions over the ingested history graph.
 
@@ -441,21 +443,21 @@ def query_evolution(
     """
     mode = (mode or "file").strip().lower()
     if mode == "hotspots":
-        node_rows: list[tuple[Any, dict[str, Any] | None]] = []
-        scan = getattr(backend, "nodes_by_label", None)
-        if callable(scan):
-            try:
-                node_rows = scan("File") or []
-            except Exception:  # noqa: BLE001
-                node_rows = []
+        node_rows = _rows(
+            query_service,
+            "MATCH (f:File) RETURN f.id AS id, f.path AS path, "
+            "f.churn AS churn, f.commit_count AS commit_count, "
+            "f.author_count AS author_count",
+            {},
+        )
         files: list[dict[str, Any]] = [
             {
-                "file": (p or {}).get("path") or nid,
-                "churn": _as_int((p or {}).get("churn")),
-                "commits": _as_int((p or {}).get("commit_count")),
-                "authors": _as_int((p or {}).get("author_count")),
+                "file": row.get("path") or row.get("id"),
+                "churn": _as_int(row.get("churn")),
+                "commits": _as_int(row.get("commit_count")),
+                "authors": _as_int(row.get("author_count")),
             }
-            for nid, p in node_rows
+            for row in node_rows
         ]
         files.sort(key=lambda d: d["churn"], reverse=True)
         return {"mode": mode, "hotspots": files[:limit]}
@@ -464,10 +466,11 @@ def query_evolution(
         if not target:
             return {"mode": mode, "error": "owners needs a path substring in target"}
         rows = _rows(
-            backend,
+            query_service,
             "MATCH (c)-[r]->(f) WHERE type(r) IN ['TOUCHED','touched'] "
             "AND f.path CONTAINS $p "
-            "RETURN c.sha AS sha, c.author_email AS email, c.author_name AS name",
+            "RETURN c.id AS id, c.sha AS sha, c.author_email AS email, "
+            "c.author_name AS name",
             {"p": target},
         )
         by_author: dict[str, dict[str, Any]] = {}
@@ -494,7 +497,7 @@ def query_evolution(
         if not target:
             return {"mode": mode, "error": "coupled needs a file path in target"}
         rows = _rows(
-            backend,
+            query_service,
             "MATCH (a)-[r]-(b) WHERE type(r) IN ['FILE_CHANGES_WITH','file_changes_with'] "
             "AND (a.path = $fp OR a.id = $fid OR a.id CONTAINS $fp) "
             "RETURN DISTINCT b.path AS path, b.id AS id, r.support AS support",
@@ -511,10 +514,10 @@ def query_evolution(
     if not target:
         return {"mode": "file", "error": "file mode needs a file path in target"}
     rows = _rows(
-        backend,
+        query_service,
         "MATCH (c)-[r]->(f) WHERE type(r) IN ['TOUCHED','touched'] "
         "AND (f.path = $fp OR f.id = $fid) "
-        "RETURN c.sha AS sha, c.iso_date AS date, c.timestamp AS ts, "
+        "RETURN c.id AS id, c.sha AS sha, c.iso_date AS date, c.timestamp AS ts, "
         "c.author_name AS author, c.message AS message, "
         "r.insertions AS ins, r.deletions AS dels",
         {"fp": target, "fid": f"file:{target}"},

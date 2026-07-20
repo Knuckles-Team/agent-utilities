@@ -1,173 +1,130 @@
-"""Loop engine — develop/skill execution stages + unified dispatch (CONCEPT:AU-KG.research.these-properties-carry L3)."""
+"""Live-path execution tests for native WorkItem-backed Loops."""
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.research.loop_controller import LoopController
-from agent_utilities.knowledge_graph.research.loops import (
-    mark_loop_status,
-    submit_loop,
+from agent_utilities.knowledge_graph.research.loop_controller import (
+    LoopController,
+    _default_develop_runner,
 )
+from agent_utilities.knowledge_graph.research.loops import claim_loop, submit_loop
+from agent_utilities.orchestration import work_item as wi
+from tests.unit.knowledge_graph.test_loops import LoopEngine, _authority
 
 
-class _Engine:
-    def __init__(self):
-        self.nodes: dict[str, dict] = {}
-        self._rows: list[dict] = []
-
-    def add_node(self, nid, ntype, properties=None):
-        # upsert/merge by id (mirrors backend upsert semantics)
-        cur = self.nodes.get(nid, {})
-        cur.update({"type": ntype, **(properties or {})})
-        self.nodes[nid] = cur
-
-    def query_cypher(self, q, params=None):
-        return self._rows
+def _submit(engine: LoopEngine, objective: str, **kwargs):
+    with _authority():
+        return submit_loop(engine, objective, **kwargs)
 
 
-class _CASBackend:
-    """Engine backend exposing a controllable compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library)."""
-
-    def __init__(self, win: bool):
-        self._win = win
-        self.calls: list[tuple[str, dict, dict]] = []
-
-    def compare_and_set_node_fields(self, node_id, conditions, updates):
-        self.calls.append((node_id, dict(conditions), dict(updates)))
-        return self._win
-
-
-class _CASEngine(_Engine):
-    def __init__(self, backend):
-        super().__init__()
-        self.backend = backend
-
-
-def _controller(eng, **kw):
-    return LoopController(eng, **kw)
-
-
-# ── status lifecycle ────────────────────────────────────────────────────────
-
-
-def test_mark_loop_status_upserts_lifecycle():
-    eng = _Engine()
-    submit_loop(eng, "do a thing", kind="develop", loop_id="loop:develop:x")
-    assert mark_loop_status(eng, "loop:develop:x", "completed", iteration=2)
-    node = eng.nodes["loop:develop:x"]
-    assert node["status"] == "completed" and node["iteration"] == 2
-    # objective preserved through the status upsert (merge, not replace)
-    assert node["objective"] == "do a thing"
-
-
-# ── develop stage ───────────────────────────────────────────────────────────
-
-
-def test_develop_completes_on_validation_success():
-    eng = _Engine()
-    c = _controller(eng, develop_runner=lambda cmd, cwd: (True, "exit=0"))
-    out = c._run_execute_loops(
-        [{"id": "loop:develop:x", "kind": "develop", "validation_cmd": "pytest -q"}]
+def test_develop_completion_commits_the_native_work_item():
+    engine = LoopEngine()
+    loop = _submit(
+        engine,
+        "validate",
+        kind="develop",
+        validation_cmd="pytest -q",
+        loop_id="loop:develop:complete",
     )
-    assert out["develop"] == 1 and out["completed"] == 1
-    assert eng.nodes["loop:develop:x"]["status"] == "completed"
+    controller = LoopController(engine, develop_runner=lambda _cmd, _cwd: (True, "ok"))
+    with _authority():
+        report = controller._run_execute_loops([loop])
+
+    item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
+    assert report["completed"] == 1
+    assert item is not None and item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert "status" not in engine.nodes[loop["id"]]
 
 
-def test_develop_stays_active_on_validation_failure():
-    eng = _Engine()
-    c = _controller(eng, develop_runner=lambda cmd, cwd: (False, "exit=1"))
-    out = c._run_execute_loops(
-        [{"id": "loop:develop:x", "kind": "develop", "validation_cmd": "pytest -q"}]
+def test_develop_pending_retains_the_native_lease_for_the_driver():
+    engine = LoopEngine()
+    loop = _submit(
+        engine,
+        "retry",
+        kind="develop",
+        validation_cmd="pytest -q",
+        loop_id="loop:develop:pending",
     )
-    assert out["completed"] == 0
-    assert eng.nodes["loop:develop:x"]["status"] == "pending"
+    controller = LoopController(engine, develop_runner=lambda _cmd, _cwd: (False, "no"))
+    with _authority():
+        report = controller._run_execute_loops([loop])
+
+    item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
+    assert report["completed"] == 0
+    assert item is not None and item["status"] == wi.WorkItemStatus.LEASED.value
 
 
-# ── skill stage ─────────────────────────────────────────────────────────────
-
-
-def test_skill_completes_on_runner_success():
-    eng = _Engine()
-    c = _controller(eng, skill_runner=lambda ref, obj: (True, "ran"))
-    out = c._run_execute_loops(
-        [
-            {
-                "id": "loop:skill:y",
-                "kind": "skill",
-                "skill_ref": "deploy",
-                "objective": "go",
-            }
-        ]
+def test_skill_completion_uses_the_same_work_item_path():
+    engine = LoopEngine()
+    loop = _submit(
+        engine,
+        "deploy",
+        kind="skill",
+        skill_ref="runtime-governance",
+        loop_id="loop:skill:complete",
     )
-    assert out["skill"] == 1 and out["completed"] == 1
-    assert eng.nodes["loop:skill:y"]["status"] == "completed"
+    controller = LoopController(engine, skill_runner=lambda _ref, _obj: (True, "ran"))
+    with _authority():
+        report = controller._run_execute_loops([loop])
+    item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
+    assert report["skill"] == 1 and report["completed"] == 1
+    assert item is not None and item["status"] == wi.WorkItemStatus.SUCCEEDED.value
 
 
-def test_skill_without_ref_fails():
-    eng = _Engine()
-    _controller(eng)._run_execute_loops([{"id": "loop:skill:z", "kind": "skill"}])
-    assert eng.nodes["loop:skill:z"]["status"] == "failed"
-
-
-# ── CAS-arbitrated execute claim (CONCEPT:AU-KG.compute.user-override-prompt-library) ──────────────────────────
-
-
-def test_execute_claims_via_cas_when_backend_supports_it():
-    backend = _CASBackend(win=True)
-    eng = _CASEngine(backend)
-    c = _controller(eng, develop_runner=lambda cmd, cwd: (True, "ok"))
-    out = c._run_execute_loops(
-        [{"id": "loop:develop:x", "kind": "develop", "validation_cmd": "true"}]
+def test_second_driver_cannot_execute_an_owned_loop():
+    engine = LoopEngine()
+    loop = _submit(
+        engine,
+        "single owner",
+        kind="develop",
+        validation_cmd="true",
+        loop_id="loop:develop:owned",
     )
-    # The loop was advanced — and the claim went through the engine CAS
-    # (status pending → running) before the iterate, not a blind flip.
-    assert out["completed"] == 1 and out.get("skipped", 0) == 0
-    assert backend.calls, "expected a compare_and_set claim"
-    assert backend.calls[0][2]["status"] == "running"
+    with _authority():
+        assert claim_loop(engine, loop["id"])
+    calls = 0
+
+    def runner(_cmd, _cwd):
+        nonlocal calls
+        calls += 1
+        return True, "ok"
+
+    with _authority():
+        report = LoopController(engine, develop_runner=runner)._run_execute_loops(
+            [loop]
+        )
+    assert report["skipped"] == 1
+    assert calls == 0
 
 
-def test_execute_skips_loop_when_claim_lost():
-    # CAS always loses → a peer/cycle already owns the loop → we must NOT drive
-    # it (no double-drive) and must NOT mark it completed.
-    backend = _CASBackend(win=False)
-    eng = _CASEngine(backend)
-    ran = {"n": 0}
+def test_default_develop_runner_requires_explicit_host_permission(monkeypatch):
+    from agent_utilities.core.config import config
 
-    def _runner(cmd, cwd):
-        ran["n"] += 1
-        return (True, "ok")
+    monkeypatch.setattr(config, "kg_loop_allow_host_validation", False)
+    ok, output = _default_develop_runner("pytest -q", ".")
+    assert ok is False
+    assert "disabled" in output
 
-    c = _controller(eng, develop_runner=_runner)
-    out = c._run_execute_loops(
-        [{"id": "loop:develop:x", "kind": "develop", "validation_cmd": "true"}]
+
+def test_host_validation_rejects_shell_wrappers(monkeypatch):
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_loop_allow_host_validation", True)
+    monkeypatch.setattr(config, "kg_loop_host_validation_executables", "pytest,sh,bash")
+    ok, output = _default_develop_runner("sh -c 'echo unsafe'", ".")
+    assert ok is False
+    assert "not operator-allowlisted" in output
+
+
+def test_develop_runner_output_is_privacy_sanitized():
+    controller = LoopController(
+        LoopEngine(),
+        develop_runner=lambda _cmd, _cwd: (
+            False,
+            "contact local.person@example.com with token sk-example-secret-value-123456",
+        ),
     )
-    assert out["completed"] == 0 and out["skipped"] == 1
-    assert ran["n"] == 0, "a lost claim must not run the develop iteration"
-    # The loop was never written to completed/running by us.
-    assert "loop:develop:x" not in eng.nodes
-
-
-# ── one hot path: a single cycle advances research + develop + skill ─────────
-
-
-def test_run_one_cycle_advances_non_research_loops():
-    eng = _Engine()
-    # active_loops returns a develop + skill loop (research path is a no-op w/o sources)
-    eng._rows = []  # addressed query empty
-    c = _controller(
-        eng,
-        develop_runner=lambda cmd, cwd: (True, "ok"),
-        skill_runner=lambda ref, obj: (True, "ok"),
-    )
-    topics = [
-        {"id": "loop:develop:a", "kind": "develop", "validation_cmd": "true"},
-        {"id": "loop:skill:b", "kind": "skill", "skill_ref": "s"},
-    ]
-    rep = c.run_one_cycle(
-        topics=topics,
-        assimilate=False,
-        reason=False,
-        synthesize=False,
-        breadth=False,
-    )
-    assert rep["executed"]["completed"] == 2
-    assert {r["status"] for r in rep["executed"]["results"]} == {"completed"}
+    output = controller._advance_develop(
+        {"kind": "develop", "validation_cmd": "pytest -q"}
+    )["output"]
+    assert "local.person@example.com" not in output
+    assert "sk-example-secret-value-123456" not in output

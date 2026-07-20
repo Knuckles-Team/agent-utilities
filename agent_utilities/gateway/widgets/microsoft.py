@@ -41,8 +41,8 @@ class Widget(BaseWidget):
             mail = client.get_unread_count() or 0
             events = client.get_today_events() or []
         except Exception as e:
-            logger.debug("Microsoft fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Microsoft fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

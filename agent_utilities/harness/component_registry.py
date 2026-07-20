@@ -116,7 +116,7 @@ class HarnessComponentRegistry:
             description=description,
         )
         self._save()
-        logger.info(f"Registered component: {file_path} as {component_type.value}")
+        logger.info("Registered component type=%s", component_type.value)
 
     def register_defaults(self) -> None:
         """Register the standard agent-utilities components.
@@ -186,9 +186,9 @@ class HarnessComponentRegistry:
             ),
             # Sub-Agents
             (
-                "agent_utilities/graph/steps.py",
+                "agent_utilities/graph/hsm.py",
                 ComponentType.SUB_AGENT,
-                "HSM graph step definitions",
+                "HSM specialist lifecycle definitions",
             ),
             # Long-Term Memory
             (
@@ -287,7 +287,7 @@ class HarnessComponentRegistry:
                     )
             return entries
         except Exception as e:
-            logger.warning(f"Failed to get git log for {file_path}: {e}")
+            logger.warning("Failed to get component git log (%s)", type(e).__name__)
             return []
 
     def rollback_component(self, file_path: str, to_commit: str) -> bool:
@@ -313,13 +313,15 @@ class HarnessComponentRegistry:
                 timeout=10,
             )
             if result.returncode == 0:
-                logger.info(f"Rolled back {file_path} to commit {to_commit[:8]}")
+                logger.info("Rolled back registered component")
                 return True
             else:
-                logger.error(f"Rollback failed for {file_path}: {result.stderr}")
+                logger.error("Registered-component rollback failed")
                 return False
         except Exception as e:
-            logger.error(f"Rollback exception for {file_path}: {e}")
+            logger.error(
+                "Registered-component rollback failed (%s)", type(e).__name__
+            )
             return False
 
     def get_current_manifest(self) -> ChangeManifest:

@@ -1,0 +1,128 @@
+connector: paperless-ngx-mcp
+ontology_source: paperless
+schema_version: '1'
+resources:
+- name: PaperlessCorrespondentReference
+  label: Opaque Paperless-ngx correspondent reference
+  id_prefix: paperlesscorrespondentreference
+  relations: []
+- name: PaperlessDocumentReference
+  label: Opaque Paperless-ngx document reference
+  id_prefix: paperlessdocumentreference
+  relations:
+  - name: hasCorrespondentReference
+    label: Has Correspondent Reference
+    target: PaperlessCorrespondentReference
+    lpg_rel_type: ''
+  - name: hasDocumentTypeReference
+    label: Has Document Type Reference
+    target: PaperlessDocumentTypeReference
+    lpg_rel_type: ''
+  - name: hasStoragePathReference
+    label: Has Storage Path Reference
+    target: PaperlessStoragePathReference
+    lpg_rel_type: ''
+  - name: hasTagReference
+    label: Has Tag Reference
+    target: PaperlessTagReference
+    lpg_rel_type: ''
+- name: PaperlessDocumentTypeReference
+  label: Opaque Paperless-ngx document-type reference
+  id_prefix: paperlessdocumenttypereference
+  relations: []
+- name: PaperlessStoragePathReference
+  label: Opaque Paperless-ngx storage-path reference
+  id_prefix: paperlessstoragepathreference
+  relations: []
+- name: PaperlessTagReference
+  label: Opaque Paperless-ngx tag reference
+  id_prefix: paperlesstagreference
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    paperless-document-reference: id
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  PaperlessCorrespondentReference:
+    ontology_class: null
+    fields: {}
+  PaperlessDocumentReference:
+    ontology_class: Document
+    fields: {}
+  PaperlessDocumentTypeReference:
+    ontology_class: Document
+    fields: {}
+  PaperlessStoragePathReference:
+    ontology_class: null
+    fields: {}
+  PaperlessTagReference:
+    ontology_class: null
+    fields: {}
+sync:
+- preset: paperless-document-structure
+  server: paperless-ngx-mcp
+  tool: paperless_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: paperless-document-reference
+  tool_schema_sha256: 03ec5eaab6d51c0db66889da13114a6d7d33c90f1a6e8b4c2606ef1131a27d92
+  raw:
+    server: paperless-ngx-mcp
+    tool: paperless_ingestion_projection
+    params_style: args
+    params:
+      params_json: '{"max_pages":1,"page_size":100}'
+    records_path: records
+    id_field: id
+    doc_type: paperless-document-reference
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - paperless_ngx_mcp/connectors/mcp_source_presets.json
+  - paperless_ngx_mcp/connectors/tool_schema_fingerprints.json
+  - paperless_ngx_mcp/ontology/paperless.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: b23d9d6d30379acaafa964fb47a13097010dfd70f7decc48cef1ef004f50849f
+    triple_count: 37
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 1lOAKXnxCEsNue7ruWk7rgy2PpOxzwrsDtoqHvpusTxsnA5q6Wa6hrZiqV3hK2CZKbvx4NCLAEFi6eFytfAqCg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.PaperlessCorrespondentReference.ontology_class = None [UNRESOLVED \u2014 no crosswalk\
+  \ found by any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PaperlessDocumentReference.ontology_class = 'Document' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.PaperlessDocumentTypeReference.ontology_class = 'Document' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.PaperlessStoragePathReference.ontology_class = None [UNRESOLVED \u2014 no crosswalk\
+  \ found by any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PaperlessTagReference.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."

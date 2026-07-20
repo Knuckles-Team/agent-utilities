@@ -11,6 +11,7 @@ import typing
 
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
+    from ..core.session import GraphSession
 
     _Base = _EngineProtocol
 else:
@@ -28,12 +29,12 @@ from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
 
-# CONCEPT:AU-KG.backend.schedule-on-control-graph — the labels that live on the isolated ``__control__`` engine
-# graph (the scheduler / task control plane). A read whose node labels are ALL in
-# this set is a control-plane read and is routed to the control backend; anything
-# else (content labels, or a label-less pattern that might match content) stays on
-# the content backend.
-_CONTROL_PLANE_LABELS = frozenset({"task", "schedule", "loop", "deadlettertask"})
+# CONCEPT:AU-KG.backend.schedule-on-control-graph — current control-plane labels.
+# WorkItem is the sole writable work-state authority. Schedule is desired state,
+# and ProfileSpan is immutable operational evidence. Loop definitions remain
+# content-plane concepts; their execution lifecycle lives exclusively on the
+# corresponding WorkItem.
+_CONTROL_PLANE_LABELS = frozenset({"workitem", "schedule", "profilespan"})
 # Node-pattern label extractor: matches the label after a ':' inside a
 # ``(var:Label`` / ``(:Label`` pattern (Cypher node patterns only).
 _NODE_LABEL_RE = re.compile(r"\(\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
@@ -63,6 +64,9 @@ class QueryMixin(_Base):
         params: dict[str, Any] | None = None,
         clearance_level: int = 999,
         as_of: str | None = None,
+        *,
+        session: GraphSession | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query against the persistent Graph store.
 
@@ -75,9 +79,34 @@ class QueryMixin(_Base):
         (``valid_from <= as_of < valid_to``) contains that instant. Rows without temporal
         metadata pass through unchanged. This answers "what was true as of date T" — something
         Quarq's flat storage-ordered files cannot do.
+
+        Args:
+            session: Explicit :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+                this read runs under (CONCEPT:AU-P0-1 — the one currency: identity + policy +
+                trace in one object). When omitted, one is derived from today's
+                ambient actor via ``GraphSession.from_ambient()`` so existing
+                callers are unaffected.
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended to the MCP-facing Cypher
+                surface). Default ``False`` — byte-for-byte the same
+                ``list[dict]`` rows as before this parameter existed. When
+                ``True``, the SAME rows (after ``as_of``/visibility filtering)
+                are currency-upgraded via :func:`~agent_utilities.knowledge_graph
+                .core.epistemic_row.attach_epistemic_rows` into
+                :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+                results — confidence, bitemporal valid/tx window, evidence
+                provenance, policy labels — resolved server-side via the read
+                backend's own ``explain_provenance_by_ids``, never fabricated.
+                Degrades to ``[]`` (never raises) when the backend has no such
+                primitive, mirroring :meth:`KnowledgeGraph.query`'s documented
+                contract.
         """
         if params is None:
             params = {}
+
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:read")
 
         # Inject clearance level for the backend parser to utilize
         params["_clearance_level"] = clearance_level
@@ -86,61 +115,71 @@ class QueryMixin(_Base):
         )
 
         # Tenant scoping + owner/scope visibility on the MCP/orchestration read
-        # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). No-op unless KG_BRAIN_ENFORCE is
-        # on and a non-privileged tenant actor is in scope, so the existing
-        # suite and single-tenant/local paths are unchanged. This is what
-        # isolates ``graph_query`` on a shared backend graph (the named-graph
-        # physical partition only applies in sharded / direct-L1 paths).
-        scoped_query = query
+        # chokepoint (CONCEPT:AU-KG.query.skip-assimilated-papers + KG-2.60). Mandatory
+        # This isolates ``graph_query`` on a shared backend graph (the named-graph
+        # physical partition only applies in sharded/direct-engine paths).
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import scope
 
-            scoped_query = scope(query)
-        except Exception as exc:  # pragma: no cover - never break a read
-            logger.debug("query scope() skipped: %s", exc)
+            scoped_query = scope(query, session.actor)
+        except Exception as exc:
+            raise PermissionError("Graph query scoping failed") from exc
 
-        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control-plane / content-plane read isolation. The
-        # control plane (:Task / :Schedule) is stored on the isolated
-        # ``__control__`` engine graph (see engine._build_control_backend), so a
-        # query that targets ONLY those labels must read from the control backend
-        # — otherwise external callers (job_status, ops_context, fleet, deploy
-        # watch, …) would read the content graph (``__commons__``) and find no
-        # tasks/schedules. Content queries (and any query that also touches a
-        # content label) stay on ``self.backend``. Degrades to ``self.backend``
-        # whenever no isolated control backend exists, so behaviour is unchanged
-        # on deployments where it could not be built.
-        read_backend = self.backend
-        ctrl = getattr(self, "control_backend", None)
-        if (
-            ctrl is not None
-            and ctrl is not self.backend
-            and _is_control_plane_query(scoped_query)
-        ):
-            read_backend = ctrl
+        # CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
+        # isolation. A query containing only current control-plane labels must
+        # use the configured control authority. Missing control authority is a
+        # hard configuration error: reading the content graph would return a
+        # misleading empty result and silently split operational truth.
+        is_control_query = _is_control_plane_query(scoped_query)
+        if is_control_query:
+            read_backend = getattr(self, "control_backend", None)
+            if read_backend is None:
+                raise RuntimeError(
+                    "Control-plane query requires the configured WorkItem authority"
+                )
+        else:
+            read_backend = self.backend
 
         if not read_backend:
-            logger.warning(
-                "GraphBackend not initialized; using basic graph compute fallback for Cypher query."
-            )
-            rows = self._query_nx_fallback(scoped_query, params, clearance_level)
-        else:
-            rows = read_backend.execute(scoped_query, params)
+            raise RuntimeError("The authoritative graph read service is unavailable")
+        rows = read_backend.execute_read(scoped_query, params)
 
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import (
+                audit_read,
                 filter_rows,
+                row_node_ids,
                 visible,
             )
 
-            rows = visible(filter_rows(rows))
-        except Exception as exc:  # pragma: no cover - never break a read
-            logger.debug("query row filtering skipped: %s", exc)
+            rows = visible(filter_rows(rows, session.actor), session.actor)
+            # The engine also emits its protocol audit. This service-level
+            # record proves the guarded GraphSession/query boundary ran without
+            # persisting raw query text or parameters.
+            audit_read(
+                row_node_ids(rows),
+                summary="native-cypher-read",
+                actor=session.actor,
+            )
+        except Exception as exc:
+            raise PermissionError(
+                "Graph row-policy or audit enforcement failed"
+            ) from exc
 
         if as_of:
             from agent_utilities.knowledge_graph.core.bitemporal import filter_as_of
 
             rows = filter_as_of(rows, as_of)
-        return rows
+        if not include_epistemic:
+            return rows
+
+        from agent_utilities.knowledge_graph.core.epistemic_row import (
+            attach_epistemic_rows,
+        )
+
+        graph = getattr(read_backend, "graph", None)
+        fetch = getattr(graph, "explain_provenance_by_ids", None)
+        return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
 
     def sql(self, query: str) -> list[dict[str, Any]]:
         """Run read-only SQL over the KG via the engine's DataFusion surface (KG-2.243).
@@ -237,7 +276,9 @@ class QueryMixin(_Base):
             logger.debug("sparql() row filtering skipped: %s", exc)
         return rows
 
-    def uql(self, query: str) -> list[dict[str, Any]]:
+    def uql(
+        self, query: str, *, include_epistemic: bool = False
+    ) -> list[dict[str, Any]]:
         """Run a UQL text query over the KG via the engine's unified surface (KG-2.214).
 
         CONCEPT:AU-KG.query.au-engine-execution-path — the AU→engine execution path for the engine's native
@@ -255,6 +296,17 @@ class QueryMixin(_Base):
         UQL surface (server built without the ``query`` feature, or a pure-Postgres
         mirror) raises a clear error rather than silently returning nothing — symmetric
         with :meth:`sql` / :meth:`sparql`.
+
+        Args:
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended to this cross-modal surface).
+                Default ``False`` — byte-for-byte the same ``[{"id", "score"}]``
+                rows. When ``True``, currency-upgrades the SAME ids (SAME order)
+                via the engine's ``explain_provenance_by_ids`` into
+                :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+                results. Degrades to ``[]`` (never raises) when the backend's
+                ``GraphComputeEngine`` has no ``explain_provenance_by_ids`` —
+                mirroring :meth:`KnowledgeGraph.query`'s documented contract.
         """
         graph = getattr(self.backend, "graph", None)
         client = getattr(graph, "_client", None)
@@ -266,7 +318,27 @@ class QueryMixin(_Base):
                 "UQL-on-the-KG requires the engine backend (build with the "
                 "'query' feature)."
             )
-        return list(uql_fn(query) or [])
+        rows = list(uql_fn(query) or [])
+        fetch = getattr(graph, "explain_provenance_by_ids", None)
+        if include_epistemic:
+            from agent_utilities.knowledge_graph.core.epistemic_row import (
+                attach_epistemic_rows,
+            )
+
+            return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
+        from agent_utilities.core.config import config as _app_config
+        from agent_utilities.knowledge_graph.core.epistemic_row import (
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
+        )
+
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(rows, fetch)
+        return rows
 
     def resolve_temporal_contradiction(
         self,
@@ -313,75 +385,6 @@ class QueryMixin(_Base):
             "loser": loser["id"],
             "valid_to": loser.get("valid_to"),
         }
-
-    def _query_nx_fallback(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None,
-        clearance_level: int = 999,
-    ) -> list[dict[str, Any]]:
-        """Basic fallback to graph compute for simple Cypher queries (MATCH ... RETURN)."""
-        query_lower = query.lower()
-        results = []
-
-        # Case 1: Pull recent failures
-        if "o:outcomeevaluation" in query_lower and "reward < 0.5" in query_lower:
-            # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward < 0.5
-            for node_id in self.graph.node_ids():
-                data = self.graph._get_node_properties(node_id)
-                for succ in self.graph.get_successors(node_id):
-                    if (
-                        data.get("type") == RegistryNodeType.OUTCOME_EVALUATION
-                        and data.get("reward", 1.0) < 0.5
-                    ):
-                        e_data = self.graph._get_node_properties(node_id)
-                        results.append(
-                            {
-                                "id": node_id,
-                                "description": e_data.get("description", ""),
-                            }
-                        )
-            return results
-
-        # Case 2: Frequent tool sequences (handled in propose_new_skill_from_experience)
-        if (
-            "e:episode" in query_lower
-            and "o:outcomeevaluation" in query_lower
-            and "reward >= 0.8" in query_lower
-        ):
-            logger.info("NX Fallback: Searching for successful episodes...")
-            # MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) WHERE o.reward >= 0.8
-            # MATCH (e)-[:USED_TOOL]->(t:ToolCall)
-            for e_id in self.graph.node_ids():
-                e_data = self.graph._get_node_properties(e_id)
-                n_type = str(e_data.get("type", "")).lower()
-                if n_type == "episode" or "episode" in n_type:
-                    # Check reward
-                    has_reward = False
-                    for v in self.graph.get_successors(e_id):
-                        o_data = self.graph._get_node_properties(v)
-                        logger.info(
-                            f"  Checking edge {e_id}->{v} reward={o_data.get('reward')}"
-                        )
-                        if o_data.get("reward", 0.0) >= 0.8:
-                            has_reward = True
-                            break
-                    if has_reward:
-                        logger.info(f"GCE Fallback: Found successful episode {e_id}")
-                        for v2 in self.graph.get_successors(e_id):
-                            t_data = self.graph._get_node_properties(v2)
-                            if str(t_data.get("type", "")).lower() == "tool_call":
-                                results.append(
-                                    {
-                                        "ep_id": e_id,
-                                        "tool": t_data.get("tool_name", ""),
-                                        "ts": t_data.get("timestamp", ""),
-                                    }
-                                )
-            logger.info(f"GCE Fallback: Found {len(results)} tool calls.")
-            return results
-
-        return []
 
     def _search_keyword(
         self, query: str, top_k: int = 10, clearance_level: int = 999
@@ -762,10 +765,10 @@ class QueryMixin(_Base):
         This enables multi-hop reasoning: "What papers cite the same methods?"
         or "Which concepts are connected through shared implementations?"
 
-        Operates in 3 layers (matching our existing L1/L2/L3 pipeline):
-            L1: Initial vector seed (fast, same as search_hybrid).
-            L2: Graph neighbor expansion — retrieve 1-hop neighbors of L1 results.
-            L3: Multi-hop traversal — follow edges up to ``max_hops`` deep,
+        Operates in three explicit stages:
+            Seed: initial vector retrieval (same as search_hybrid).
+            Neighbors: graph expansion around seed results.
+            Multi-hop: follow edges up to ``max_hops`` deep,
                 building an evidence chain that tracks the traversal path.
 
         Args:
@@ -781,7 +784,7 @@ class QueryMixin(_Base):
                 - ``evidence_path``: List of (node_id, edge_type) tuples
                   showing how this result was reached (if evidence_chain=True).
         """
-        # L1: Vector seed — fast retrieval
+        # Vector seed — fast retrieval.
         seeds = self.search_hybrid(query, top_k=min(top_k, 5))
         if not seeds:
             return []
@@ -800,7 +803,7 @@ class QueryMixin(_Base):
             seed["evidence_path"] = [(sid, "seed")]
             results.append(seed)
 
-        # L2+L3: Graph traversal — expand outward from seeds
+        # Graph traversal — expand outward from seeds.
         frontier = [
             (str(s.get("id", "")), s.get("evidence_path", []))
             for s in seeds
@@ -884,41 +887,14 @@ class QueryMixin(_Base):
     def find_path(self, source: str, target: str) -> list[str]:
         """Find the shortest logical path between two nodes.
 
-        CONCEPT:EG-KG.compute.graph-compute-engine (Plan 08 Synergy 4): offload the traversal to the Rust
-        L0 compute tier in a single round-trip via ``GraphComputeEngine`` rather
-        than a Python BFS that issues one L0 call per edge. Falls back to a
-        local BFS only if the compiled shortest-path is unavailable.
+        The native engine performs the traversal in one bounded round trip.
+        Transport and capability errors propagate instead of selecting a hidden
+        Python implementation with different limits or semantics.
         """
         if not self.graph.has_node(source) or not self.graph.has_node(target):
             return []
-
-        # Primary: single-call Rust L0 shortest path.
-        try:
-            path = self.graph.get_shortest_path(source, target)
-            if path is not None:
-                return list(path)
-        except Exception as e:
-            logger.debug("L0 shortest_path unavailable, falling back to BFS: %s", e)
-
-        # Fallback: backend-agnostic BFS over the in-memory graph.
-        from collections import deque
-
-        visited: set[str] = {source}
-        queue: deque[list[str]] = deque([[source]])
-        while queue:
-            path_so_far = queue.popleft()
-            current = path_so_far[-1]
-            if current == target:
-                return path_so_far
-            for neighbor in self.graph.get_successors(current):
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(path_so_far + [neighbor])
-        return []
-
-    def get_shortest_path(self, source: str, target: str) -> list[str]:
-        """Alias for find_path."""
-        return self.find_path(source, target)
+        path = self.graph.get_shortest_path(source, target)
+        return list(path) if path is not None else []
 
     def get_agent_tools(self, agent_name: str) -> list[str]:
         """Get all tools provided by a specific agent."""
@@ -1113,23 +1089,22 @@ class QueryMixin(_Base):
         query: str,
         views: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Perform policy-guided retrieval across orthogonal MAGMA views.
-
-        V1 views: ``semantic``, ``temporal``, ``causal``, ``entity``.
-        V2 views (stubs): ``place``, ``epistemic`` — see
-        ``docs/KG_V2_DESIGN.md`` §5. These currently return empty lists;
-        the full Cypher-backed implementations land in a follow-up.
-        """
+        """Perform policy-guided retrieval across all orthogonal MAGMA views."""
         if views is None:
-            # V1 default preserved for backward compatibility. V2 callers
-            # should pass views=["place","epistemic",...] explicitly.
-            views = ["semantic", "temporal", "causal", "entity"]
+            views = [
+                "semantic",
+                "temporal",
+                "causal",
+                "entity",
+                "place",
+                "epistemic",
+            ]
         context: dict[str, Any] = {"query": query, "views": {}}
         if "semantic" in views:
             context["views"]["semantic"] = self.search_hybrid(query, top_k=5)
         if "temporal" in views:
             context["views"]["temporal"] = self.query_cypher(
-                "MATCH (e:Episode) RETURN e ORDER BY e.timestamp DESC LIMIT 5"
+                "MATCH (r:RunTrace) RETURN r ORDER BY r.event_sequence DESC LIMIT 5"
             )
         if "causal" in views:
             context["views"]["causal"] = self.query_cypher(
@@ -1631,7 +1606,9 @@ class QueryMixin(_Base):
                         len(assimilated_paths),
                     )
             except Exception as exc:
-                logger.warning("Failed to load assimilated paths: %s", exc)
+                logger.warning(
+                    "Failed to load assimilated paths (%s)", type(exc).__name__
+                )
 
         # 1. Run hybrid vector search with low threshold to cast wide net
         raw_results = self.search_hybrid(

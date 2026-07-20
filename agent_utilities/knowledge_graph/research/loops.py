@@ -18,9 +18,9 @@ whatever its kind. This generalizes the old separate Concept-topic intake
 (``topic_resolver.unresolved_topics``), the ``failure_gap`` topic
 (``failure_analyzer.file_gap_topic``), and the ``GoalNode`` execution spec.
 
-A Loop is stored as a ``Concept`` node (so the existing graph-compute middle —
-dedup / gap / synergy / ConceptMatcher — applies unchanged) carrying ``loop_kind``,
-``status``, ``objective`` and the kind-specific completion fields.
+A Loop definition is projected as a ``Concept`` node (so dedup / gap / synergy /
+ConceptMatcher still apply), while its deterministic WorkItem is the only
+writable lifecycle/claim/lease authority.
 
 Concept: loop
 """
@@ -36,13 +36,6 @@ LoopKind = Literal["research", "develop", "skill"]
 
 #: statuses from which a Loop never needs more work.
 TERMINAL_STATUS = frozenset({"completed", "failed", "cancelled", "rejected"})
-
-#: Loop statuses from which a develop/skill Loop may be CLAIMED for advancement.
-#: ``orphaned`` is a Loop whose previous driver crashed mid-run (the durable
-#: rehydration marks it so) — re-claimable. ``""``/missing reads as a fresh
-#: pending Loop. A ``running`` Loop is owned by a live driver and is NOT
-#: claimable. (CONCEPT:AU-KG.compute.user-override-prompt-library)
-CLAIMABLE_STATUS = frozenset({"", "pending", "orphaned"})
 
 
 def _prio_bucket(value: Any, default: int = 2) -> int:
@@ -95,7 +88,6 @@ def submit_loop(
         "name": objective or skill_ref,
         "objective": objective,
         "loop_kind": kind,
-        "status": "pending",
         "source": source,
         "max_iterations": int(max_iterations),
         # Claim/intake priority bucket (0=critical .. 3=background); active_loops
@@ -112,12 +104,21 @@ def submit_loop(
         props["validation_cmd"] = validation_cmd
     if skill_ref:
         props["skill_ref"] = skill_ref
+    from agent_utilities.orchestration.work_item import ensure_loop_work_item
+
+    ensure_loop_work_item(
+        engine,
+        oid,
+        priority=_prio_bucket(prio_bucket),
+        max_attempts=max(1, int(max_iterations)),
+    )
+    # Concept is immutable lifecycle-neutral definition/content. The WorkItem
+    # created above is the only place scheduling and lifecycle state exist.
     try:
         engine.add_node(oid, "Concept", properties=props)
-    except Exception as e:  # noqa: BLE001 — best-effort persist
-        logger.debug("submit_loop persist failed: %s", e)
-        return None
-    return _loop_dict(oid, props)
+    except Exception as e:  # noqa: BLE001 — definition persistence is reported
+        logger.debug("submit_loop definition persist failed: %s", e)
+    return {**_loop_dict(oid, props), "status": "submitted"}
 
 
 def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -125,9 +126,9 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
         "id": oid,
         "name": data.get("name") or data.get("objective") or oid,
         "kind": data.get("loop_kind") or "research",
-        # Normalized through the ONE shared bucket normalizer (default 2); it
-        # preserves bucket 0 (critical, which is falsy) and maps any legacy
-        # ``priority`` string a Concept might carry. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
+        # Validated through the ONE shared bucket normalizer (default 2); it
+        # preserves bucket 0, which is falsy.
+        # (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
         "prio_bucket": _prio_bucket(data.get("prio_bucket")),
     }
     for k in (
@@ -135,7 +136,6 @@ def _loop_dict(oid: str, data: dict[str, Any]) -> dict[str, Any]:
         "end_state",
         "validation_cmd",
         "skill_ref",
-        "status",
         "spec_id",
     ):
         v = data.get(k)
@@ -155,26 +155,29 @@ def mark_loop_status(
 ) -> bool:
     """Advance a Loop's lifecycle state (CONCEPT:AU-KG.research.these-properties-carry).
 
-    The single shared status-transition path for every kind — the controller's
-    develop/skill stages and the ``graph_loops(action="cancel")`` entrypoint all
-    call this. Upserts the status (+ optional iteration / last output) onto the
-    Loop node; best-effort (a failed persist returns ``False``, never raises).
+    The controller's develop/skill stages and the
+    ``graph_loops(action="cancel")`` entrypoint all call this. Definition nodes
+    are never mutated with lifecycle state.
     """
-    props: dict[str, Any] = {
-        "status": status,
-        "timestamp": _now_iso(),
-        "last_source": source,
-    }
-    if iteration is not None:
-        props["iteration"] = int(iteration)
-    if output:
-        props["last_output"] = output[:2000]
-    try:
-        engine.add_node(loop_id, "Concept", properties=props)
-        return True
-    except Exception as e:  # noqa: BLE001 — best-effort
-        logger.debug("mark_loop_status persist failed: %s", e)
-        return False
+    from agent_utilities.orchestration.work_item import transition_loop_work_item
+
+    result_ref = (
+        f"loop:{loop_id}:completed" if status in {"completed", "succeeded"} else None
+    )
+    error_ref = (
+        f"loop:{loop_id}:{status}"
+        if status in {"failed", "rejected", "cancelled"}
+        else None
+    )
+    transitioned = transition_loop_work_item(
+        engine,
+        loop_id,
+        status,
+        result_ref=result_ref,
+        error_ref=error_ref,
+    )
+    del iteration, output, source
+    return transitioned
 
 
 def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
@@ -184,71 +187,25 @@ def prioritize_loop(engine: Any, loop_id: str, prio_bucket: int) -> bool:
     bucket 0/1 advances it ahead of background loops on the next cycle.
     Best-effort: a failed persist returns ``False``, never raises.
     """
-    try:
-        engine.add_node(
-            loop_id, "Concept", properties={"prio_bucket": _prio_bucket(prio_bucket)}
-        )
-        return True
-    except Exception as e:  # noqa: BLE001 — best-effort
-        logger.debug("prioritize_loop persist failed: %s", e)
+    from agent_utilities.orchestration import work_item as _wi
+
+    item_id = _wi.loop_work_item_id(loop_id)
+    item = _wi.get_work_item(engine, item_id)
+    if item is None or item.get("kind") != "goal_loop":
         return False
+    bucket = _prio_bucket(prio_bucket)
+    return _wi.set_work_item_priority(engine, item_id, bucket)
 
 
-def claim_loop(engine: Any, loop_id: str, *, current_status: str = "") -> bool:
-    """Atomically claim a develop/skill Loop for advancement (CONCEPT:AU-KG.compute.user-override-prompt-library).
+def claim_loop(engine: Any, loop_id: str) -> bool:
+    """Acquire the existing Loop's native WorkItem lease.
 
-    The single cross-host-safe Loop claim, mirroring the engine ``:Task`` claim
-    (``_claim_next_task``): flip the Loop's ``status`` from a *claimable* state
-    (``pending``/``orphaned``/unset) to ``running`` via the engine's
-    compare-and-set, which holds the graph write lock for the flip. Returns
-    ``True`` only if THIS caller won the flip; ``False`` means a concurrent
-    driver (another daemon cycle, a ``graph_loops`` run, or a peer host) already
-    claimed it — the caller must then skip the Loop instead of double-driving it.
-
-    Replaces the former non-atomic "claim" (a blind ``mark_loop_status(...,
-    'running')`` after an intake-time status read), which had a TOCTOU window:
-    two cycles could both intake the same pending Loop and both flip it to
-    running. ``intake`` (``active_loops``) still pre-filters running loops; this
-    CAS is the authoritative arbiter that closes the race.
-
-    The CAS conditions a *single* expected status (the engine primitive matches
-    equality, ``missing ≡ null``). We try the caller's observed status first
-    (typically from intake), then the other claimable states, so a Loop is
-    claimable whether it was seen as ``pending``, freshly created (unset), or
-    left ``orphaned`` by a crashed driver. Best-effort: if the backend lacks the
-    CAS primitive (older engine) we fall back to the legacy blind flip so the
-    single-host path keeps working.
+    A negative native claim is final; no definition status can substitute for
+    the engine-issued lease.
     """
-    backend = getattr(engine, "backend", None)
-    cas = getattr(backend, "compare_and_set_node_fields", None)
-    if not callable(cas):
-        # Older engine without the CAS primitive: preserve the single-host
-        # behavior (blind flip). No cross-host guarantee, but no regression.
-        return mark_loop_status(engine, loop_id, "running")
+    from agent_utilities.orchestration.work_item import claim_loop_work_item
 
-    # Try the caller's observed status first (the common, cheap win), then the
-    # remaining claimable states. Each is ONE equality CAS; ``""`` matches a
-    # node with no ``status`` field (the engine reads missing as null).
-    candidates: list[str] = []
-    seen = (current_status or "").lower()
-    if seen in CLAIMABLE_STATUS:
-        candidates.append(seen)
-    candidates.extend(s for s in CLAIMABLE_STATUS if s != seen)
-
-    updates = {
-        "status": "running",
-        "timestamp": _now_iso(),
-        "last_source": "loop_engine",
-    }
-    for status in candidates:
-        try:
-            if cas(loop_id, {"status": status}, updates):
-                return True
-        except Exception as e:  # noqa: BLE001 — one failed CAS never blocks the rest
-            logger.debug(
-                "claim_loop CAS (%s→running) failed for %s: %s", status, loop_id, e
-            )
-    return False
+    return claim_loop_work_item(engine, loop_id) is not None
 
 
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
@@ -256,7 +213,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
 
     Generalizes ``unresolved_topics``: a Loop is *active* when
 
-    - it is a ``research`` Loop (or a legacy bare Concept topic / failure_gap) with
+    - it is a ``research`` Loop with
       no ``ADDRESSED_BY`` source, OR
     - it is a ``develop`` / ``skill`` Loop whose ``status`` is not terminal.
 
@@ -278,7 +235,7 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
     try:
         rows = engine.query_cypher(
             "MATCH (c:Concept) RETURN c.id AS id, c.name AS name, "
-            "c.loop_kind AS loop_kind, c.status AS status, "
+            "c.loop_kind AS loop_kind, "
             "c.objective AS objective, c.validation_cmd AS validation_cmd, "
             "c.skill_ref AS skill_ref, c.end_state AS end_state, "
             "c.spec_id AS spec_id, c.prio_bucket AS prio_bucket LIMIT $limit",
@@ -288,27 +245,53 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         logger.debug("active_loops: concept query failed: %s", e)
         return []
 
+    from agent_utilities.orchestration.work_item import (
+        TERMINAL_WORK_ITEM_STATUSES,
+        WorkItemStatus,
+        claim_loop_work_item,
+        get_work_item,
+        loop_work_item_id,
+        transition_loop_work_item,
+    )
+
     out: list[dict[str, Any]] = []
     for r in rows or []:
         if not isinstance(r, dict) or not r.get("id"):
             continue
         cid = r["id"]
-        kind = (r.get("loop_kind") or "research") or "research"
-        status = (r.get("status") or "").lower()
-        if status in TERMINAL_STATUS:
+        kind = str(r.get("loop_kind") or "")
+        if kind not in {"research", "develop", "skill"}:
             continue
-        if kind in ("develop", "skill") and status == "running":
+        item_id = loop_work_item_id(cid)
+        item = get_work_item(engine, item_id)
+        if item is None or item.get("kind") != "goal_loop":
+            continue
+        status = str(item.get("status") or "")
+        if status in TERMINAL_WORK_ITEM_STATUSES:
+            continue
+        if kind in ("develop", "skill") and status in {
+            WorkItemStatus.LEASED.value,
+            WorkItemStatus.RUNNING.value,
+        }:
             # In-flight: a run_loop / goal driver owns it. Excluding it from intake
             # keeps the daemon cycle from double-driving the same iteration; a crash
             # leaves it 'orphaned' (rehydrated, re-intakeable). (CONCEPT:AU-KG.research.these-properties-carry)
             continue
         if kind == "research" and cid in addressed:
-            continue  # research loop already addressed → resolved
-        out.append(_loop_dict(cid, r))
-    # Priority-ordered intake: the L1 interpreter strips ORDER BY, so we sort the
-    # already-fetched candidate set in-memory by claim bucket (0 first) before
-    # the limit cutoff — a hot loop is advanced ahead of background ones. Each
-    # dict's ``prio_bucket`` is already normalized by ``_loop_dict``.
+            # Addressed evidence is the research completion condition. Settle
+            # the WorkItem before dropping the Concept from intake.
+            claim = claim_loop_work_item(engine, cid)
+            if claim is not None:
+                transition_loop_work_item(
+                    engine,
+                    cid,
+                    "completed",
+                    result_ref=f"loop:{cid}:addressed",
+                )
+            continue
+        out.append({**_loop_dict(cid, r), "status": status})
+    # Priority-ordered intake is normalized once after the bounded native read,
+    # so every query backend shares the same integer bucket semantics.
     out.sort(key=lambda d: _prio_bucket(d.get("prio_bucket")))
     return out[:limit]
 
@@ -316,7 +299,6 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
 __all__ = [
     "LoopKind",
     "TERMINAL_STATUS",
-    "CLAIMABLE_STATUS",
     "submit_loop",
     "active_loops",
     "mark_loop_status",

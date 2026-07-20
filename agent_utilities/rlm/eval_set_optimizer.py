@@ -12,9 +12,9 @@ harness is just tuned against it.
 
 CONCEPT:AU-ORCH.execution.eval-set-optimization-compounding — Eval-Set Optimization & Compounding Learning Loop.
 
-This complements :class:`agent_utilities.rlm.gepa.GEPAOptimizer`, which optimizes
-PROMPTS. Here we optimize the EVAL SET (the source of truth) and close the
-trace -> eval -> re-optimize loop so each failure permanently sharpens the bar.
+This module optimizes the EVAL SET (the source of truth), not prompts or programs.
+Program optimization is owned exclusively by the native epistemic-graph optimizer;
+the trace -> eval loop here only sharpens the evaluation bar.
 
 Design constraints (repo policy):
     - No ``os.environ``, no stubs / ``NotImplementedError``, no back-compat shims.

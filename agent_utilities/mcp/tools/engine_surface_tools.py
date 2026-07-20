@@ -45,12 +45,15 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import uuid
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 # CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
 # a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
@@ -63,6 +66,10 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
 )
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     call_tool_once,
+)
+from agent_utilities.security.error_surface import (
+    public_error_json,
+    public_error_payload,
 )
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
@@ -185,6 +192,20 @@ def _degraded(surface: str, action: str, tried: list[str]) -> str:
     )
 
 
+def _surface_error(
+    exc: BaseException,
+    *,
+    surface: str,
+    action: str = "",
+    code: str = "operation_failed",
+    context: dict[str, Any] | None = None,
+) -> str:
+    """Return a stable protocol failure without copying request metadata."""
+
+    del surface, action, context
+    return public_error_json(exc, code=code)
+
+
 def _resolve(client: Any, candidates: tuple[tuple[str, str], ...]) -> Any:
     """Return the first callable ``client.<sub>.<method>`` among ``candidates``.
 
@@ -218,12 +239,11 @@ def _invoke(
     try:
         client = _client(graph)
     except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
-        return json.dumps(
-            {
-                "surface": surface,
-                "action": action,
-                "error": f"engine unavailable: {exc}",
-            }
+        return _surface_error(
+            exc,
+            surface=surface,
+            action=action,
+            code="dependency_unavailable",
         )
     fn = _resolve(client, candidates)
     if fn is None:
@@ -231,11 +251,11 @@ def _invoke(
     try:
         result = fn(**params)
     except TypeError as exc:
-        return json.dumps(
-            {"surface": surface, "action": action, "error": f"bad arguments: {exc}"}
+        return _surface_error(
+            exc, surface=surface, action=action, code="invalid_request"
         )
     except Exception as exc:  # noqa: BLE001 — surface engine errors as data
-        return json.dumps({"surface": surface, "action": action, "error": str(exc)})
+        return _surface_error(exc, surface=surface, action=action)
     return json.dumps(
         {"surface": surface, "action": action, "result": result}, default=_json_default
     )
@@ -305,7 +325,7 @@ def _memory_crud(action: str, params: dict[str, Any]) -> str:
     try:
         result = _run_coro(kg_server._execute_tool("graph_write", **call))
     except Exception as exc:  # noqa: BLE001 — surface engine/core errors as data
-        return json.dumps({"surface": "memory", "action": action, "error": str(exc)})
+        return _surface_error(exc, surface="memory", action=action)
     return json.dumps(
         {"surface": "memory", "action": action, "result": result}, default=_json_default
     )
@@ -355,16 +375,14 @@ def _fork_fanout(branches: list[Any], seed_vars: dict[str, Any], preferred: str)
                 "surface": "fork",
                 "degraded": True,
                 "error": (
-                    "no warm-fork rung available on this host (forkserver needs a "
-                    "POSIX-fork-capable interpreter; container_fork needs a docker "
-                    "runtime; firecracker needs a reachable forkd + KVM), and the "
+                    "no warm-fork rung available on this host (firecracker needs a "
+                    "reachable governed forkd controller + KVM), and the "
                     "epistemic-graph engine client exposes no warm-fork primitive"
                 ),
                 "followup": (
                     "spike: surface a first-class engine warm-fork/KV-cache-fork op "
                     "on the epistemic_graph client (LMCacheMPConnector snapshot → "
-                    "branch), then route graph_fork to it when present, keeping the "
-                    "local ForkableSandbox rungs as the fallback"
+                    "branch), then route graph_fork to that governed primitive"
                 ),
                 "branch_count": len(branches),
             }
@@ -388,14 +406,18 @@ def _fork_fanout(branches: list[Any], seed_vars: dict[str, Any], preferred: str)
                     "vars": result.updated_vars,
                 }
             except Exception as exc:  # noqa: BLE001 — one branch never fails the set
-                return {"index": idx, "ok": False, "error": str(exc)}
+                return {
+                    "index": idx,
+                    "ok": False,
+                    **public_error_payload(exc),
+                }
 
         return await asyncio.gather(*(_one(i, s) for i, s in enumerate(branches)))
 
     try:
         results = _run_coro(_run_all())
     except Exception as exc:  # noqa: BLE001 — infra death → structured error, no crash
-        return json.dumps({"surface": "fork", "sandbox": sb.name, "error": str(exc)})
+        return _surface_error(exc, surface="fork")
     return json.dumps(
         {
             "surface": "fork",
@@ -425,9 +447,7 @@ def _crossmodal_fork_fanout(
     try:
         from agent_utilities.runtime.crossmodal_fork import CrossModalForkFanout
     except Exception as exc:  # noqa: BLE001 — capability unimportable ⇒ degrade cleanly
-        return json.dumps(
-            {"surface": "fork", "context_query": context_query, "error": str(exc)}
-        )
+        return _surface_error(exc, surface="fork", code="dependency_unavailable")
 
     fanout = CrossModalForkFanout()
 
@@ -443,9 +463,7 @@ def _crossmodal_fork_fanout(
     try:
         res = _run_coro(_run())
     except Exception as exc:  # noqa: BLE001 — engine/infra death → structured error, no crash
-        return json.dumps(
-            {"surface": "fork", "context_query": context_query, "error": str(exc)}
-        )
+        return _surface_error(exc, surface="fork")
     return json.dumps(
         {
             "surface": "fork",
@@ -520,12 +538,28 @@ def _gather_kg_feature_rows(
     the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
     """
     node_label = source.get("node_label")
-    if not node_label:
+    if not isinstance(node_label, str) or not _CYPHER_IDENTIFIER.fullmatch(node_label):
         raise ValueError("source.node_label is required")
     fields = source.get("fields") or []
-    if not fields:
+    if (
+        not isinstance(fields, list)
+        or not fields
+        or len(fields) > 64
+        or any(
+            not isinstance(field, str) or not _CYPHER_IDENTIFIER.fullmatch(field)
+            for field in fields
+        )
+    ):
         raise ValueError("source.fields (a list of property names) is required")
-    limit = int(source.get("limit", 200))
+    raw_limit = source.get("limit", 200)
+    if isinstance(raw_limit, bool):
+        raise ValueError("source.limit must be between 1 and 10000")
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source.limit must be between 1 and 10000") from exc
+    if not 1 <= limit <= 10_000:
+        raise ValueError("source.limit must be between 1 and 10000")
     projections = ", ".join(f"n.{f} AS f{i}" for i, f in enumerate(fields))
     cypher = f"MATCH (n:{node_label}) RETURN n.id AS id, {projections} LIMIT {limit}"
     raw = _run_coro(
@@ -535,7 +569,7 @@ def _gather_kg_feature_rows(
     )
     payload = json.loads(raw) if isinstance(raw, str) else raw
     if isinstance(payload, dict) and "error" in payload:
-        raise RuntimeError(payload["error"])
+        raise RuntimeError("graph feature query failed")
     if not isinstance(payload, list):
         raise RuntimeError(
             f"unexpected graph_query result shape: {type(payload).__name__}"
@@ -551,7 +585,7 @@ def _deep_write_node(node_type: str, properties: dict[str, Any], graph: str) -> 
     """Materialize one delegated-deep-mining result row as a typed KG node
     (CONCEPT:AU-KG.mining.foldback-typed-nodes). Best-effort — never raises, since a foldback
     failure must not fail the already-completed delegated call. Returns the new node id."""
-    node_id = f"{node_type.lower()}_dsm_{uuid.uuid4().hex[:12]}"
+    node_id = f"{node_type.lower()}_dsm_{uuid.uuid4().hex}"
     try:
         _run_coro(
             kg_server._execute_tool(
@@ -685,9 +719,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "broker", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="broker", code="invalid_request")
         if not isinstance(extra, dict):
             return json.dumps(
                 {"surface": "broker", "error": "params_json must decode to an object"}
@@ -741,12 +773,11 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             backend = _kv_backend()
         except Exception as exc:  # noqa: BLE001 — mis-config degrades, never raises
-            return json.dumps(
-                {
-                    "surface": "kvcache",
-                    "action": action,
-                    "error": f"kvcache unavailable: {exc}",
-                }
+            return _surface_error(
+                exc,
+                surface="kvcache",
+                action=action,
+                code="dependency_unavailable",
             )
         try:
             if action == "get":
@@ -771,8 +802,8 @@ def register_engine_surface_tools(mcp) -> None:
                 try:
                     raw = base64.b64decode(value_b64) if value_b64 else b""
                 except (ValueError, TypeError) as exc:
-                    return json.dumps(
-                        {"surface": "kvcache", "error": f"invalid value_b64: {exc}"}
+                    return _surface_error(
+                        exc, surface="kvcache", code="invalid_request"
                     )
                 return json.dumps(
                     {
@@ -847,8 +878,8 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "federated_search", "error": f"invalid params_json: {exc}"}
+            return _surface_error(
+                exc, surface="federated_search", code="invalid_request"
             )
         if not isinstance(extra, dict):
             return json.dumps(
@@ -906,9 +937,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "promql", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="promql", code="invalid_request")
         if not isinstance(extra, dict):
             return json.dumps(
                 {"surface": "promql", "error": "params_json must decode to an object"}
@@ -971,9 +1000,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             extra = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "traces", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="traces", code="invalid_request")
         if not isinstance(extra, dict):
             return json.dumps(
                 {"surface": "traces", "error": "params_json must decode to an object"}
@@ -1037,9 +1064,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "gis", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="gis", code="invalid_request")
         if not isinstance(params, dict):
             return json.dumps(
                 {"surface": "gis", "error": "params_json must decode to an object"}
@@ -1106,9 +1131,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "memory", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="memory", code="invalid_request")
         if not isinstance(params, dict):
             return json.dumps(
                 {"surface": "memory", "error": "params_json must decode to an object"}
@@ -1252,9 +1275,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "mining", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="mining", code="invalid_request")
         if not isinstance(params, dict):
             return json.dumps(
                 {"surface": "mining", "error": "params_json must decode to an object"}
@@ -1353,12 +1374,11 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "error": f"invalid params_json: {exc}",
-                }
+            return _surface_error(
+                exc,
+                surface="mining_deep",
+                action=action,
+                code="invalid_request",
             )
         if not isinstance(params, dict):
             return json.dumps(
@@ -1375,9 +1395,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             tool_params, node_ids = _prepare_deep_delegation(action, params, graph)
         except Exception as exc:  # noqa: BLE001 — bad input / feature-gathering failure is data
-            return json.dumps(
-                {"surface": "mining_deep", "action": action, "error": str(exc)}
-            )
+            return _surface_error(exc, surface="mining_deep", action=action)
 
         try:
             raw = _run_async(
@@ -1389,17 +1407,26 @@ def register_engine_surface_tools(mcp) -> None:
                 )
             )
         except Exception as exc:  # noqa: BLE001 — the delegate being unreachable degrades cleanly
-            return json.dumps(
-                {
-                    "surface": "mining_deep",
-                    "action": action,
-                    "provider": _DSM_SERVER_NAME,
-                    "delegated": True,
-                    "available": False,
-                    "error": f"delegated-unavailable: {exc}",
-                }
+            return _surface_error(
+                exc,
+                surface="mining_deep",
+                action=action,
+                code="dependency_unavailable",
+                context={"delegated": True, "available": False},
             )
 
+        # BUG-7: ``call_tool_once``'s decoder prefers a FastMCP result's
+        # structured ``.data`` verbatim (``mcp_package._decode``) — when the
+        # delegate's tool itself returns an already-JSON-encoded string (this
+        # repo's own tool convention: ``return json.dumps(...)``), ``.data`` IS
+        # that raw string, not the parsed object, so ``raw`` arrives here as a
+        # ``str`` even though the delegate answered normally. Align the parse
+        # here instead of failing on a shape mismatch that isn't a real outage.
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except (TypeError, ValueError):
+                pass  # genuinely not JSON — falls through to the shape error below
         if not isinstance(raw, dict):
             return json.dumps(
                 {
@@ -1530,9 +1557,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "graphlearn", "error": f"invalid params_json: {exc}"}
-            )
+            return _surface_error(exc, surface="graphlearn", code="invalid_request")
         if not isinstance(params, dict):
             return json.dumps(
                 {
@@ -1565,8 +1590,8 @@ def register_engine_surface_tools(mcp) -> None:
             "computations concurrently and return each branch's result. Provide either "
             "'branches_json' (a JSON list of per-branch code snippets) or 'code' + 'n' "
             "(run the same snippet across n branches); 'vars_json' seeds the shared "
-            "namespace forked into every branch; 'sandbox' optionally pins a rung "
-            "(forkserver | container_fork | firecracker), else the cheapest available "
+            "namespace forked into every branch; 'sandbox' optionally pins the "
+            "firecracker rung, else the cheapest available "
             "warm-fork rung is used. Set 'context_query' to retrieve an engine cross-modal "
             "candidate set (vector+graph+text fusion) ONCE and fork it into every branch as "
             "'candidate_var' (default 'candidates') — the branches reuse that one context with "
@@ -1611,9 +1636,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             branches = json.loads(branches_json) if branches_json else []
         except (TypeError, ValueError) as exc:
-            return json.dumps(
-                {"surface": "fork", "error": f"invalid branches_json: {exc}"}
-            )
+            return _surface_error(exc, surface="fork", code="invalid_request")
         if not isinstance(branches, list):
             return json.dumps(
                 {"surface": "fork", "error": "branches_json must decode to a list"}
@@ -1631,7 +1654,7 @@ def register_engine_surface_tools(mcp) -> None:
         try:
             seed_vars = json.loads(vars_json) if vars_json else {}
         except (TypeError, ValueError) as exc:
-            return json.dumps({"surface": "fork", "error": f"invalid vars_json: {exc}"})
+            return _surface_error(exc, surface="fork", code="invalid_request")
         if not isinstance(seed_vars, dict):
             return json.dumps(
                 {"surface": "fork", "error": "vars_json must decode to an object"}

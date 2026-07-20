@@ -53,13 +53,13 @@ engineered to use *all* the cores/RAM of whatever it runs on, from a Raspberry P
   serve from `begin_read()` concurrently with the single writer, and **parallel cross-shard
   read fan-out** (`CONCEPT:AU-KG.backend.roadmap-f-parallel-cross`) reads K shards in parallel — a read never forces a
   group-commit or routes through a writer thread.
-- **Scales pi → node → cluster.** **openraft 0.10 multi-Raft** for HA (`CONCEPT:AU-KG.ontology.manage-arbitrary-273`)
+- **Scales from one constrained host to multi-node clusters.** **openraft 0.10 multi-Raft** for HA (`CONCEPT:AU-KG.ontology.manage-arbitrary-273`)
   and the **elastic M3 spine** — tenant catalog, online resharding, rebalancer, cold-tenant
   offload, BLOB streaming (`CONCEPT:EG-KG.sharding.atomic-shard-swap..043`) — let the same engine grow horizontally.
 
 → **Read:** [Engine Scaling Program (M1/M2/M3)](https://knuckles-team.github.io/epistemic-graph/architecture/scaling-program/)
 (epistemic-graph repo) and its sub-docs (`engine.md`, `write-coalescer.md`,
-`m2-raft-status.md`, `m3-resharding.md`, `tiers.md`).
+`m2-raft-status.md`, `m3-resharding.md`).
 
 ---
 
@@ -112,12 +112,12 @@ endpoint can OOM a shared card:
 - **LLM/embedding server-capacity guard** (`CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103`, `AU-KG.compute.same-semantics-as`): a
   per-endpoint `server_ceiling` (the model *server's* real capacity, not the local host's)
   and a **joint `GPU_CONCURRENCY_BUDGETS` / `gpu_group`** so multiple endpoints sharing one
-  physical GPU share one budget — the fix for the GB10 OOM where independent per-endpoint
+  physical accelerator share one budget — preventing OOM when independent per-endpoint
   caps summed past GPU memory — plus a capacity-aware circuit breaker.
   → [LLM Server-Capacity Guard](llm-server-capacity-guard.md)
-- **Embedding failover + split-GPU architecture** (`CONCEPT:AU-KG.enrichment.each-call-resolves-active/2.300`): GR1080 runs
-  Infinity embeddings (Pascal needs Infinity + FP32), GB10 runs the qwen LLM; embeds fail
-  over GR1080 → GB10 with **capacity-guard inheritance** so a failover can't OOM the
+- **Embedding failover + split-accelerator architecture** (`CONCEPT:AU-KG.enrichment.each-call-resolves-active/2.300`): a dedicated endpoint runs
+  embeddings and a shared endpoint runs the chat model; embeds fail
+  over dedicated → shared with **capacity-guard inheritance** so a failover cannot OOM the
   fallback GPU.
   → [Distributed Multi-GPU Concurrency](distributed_gpu_concurrency.md)
 

@@ -15,9 +15,14 @@ import json
 import logging
 from collections.abc import AsyncIterator, Iterable, Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 from agent_utilities.core.execution.adapters.base import ExecEvent, ExecEventType
-from agent_utilities.security.egress import EgressDecision, validate_base_url_resolved
+from agent_utilities.security.egress import (
+    EgressDecision,
+    validate_base_url,
+    validate_base_url_resolved,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +83,11 @@ def normalize_chunk(provider: str, raw: str) -> list[ExecEvent]:
             return [
                 ExecEvent(
                     ExecEventType.ERROR,
-                    text=str(obj.get("error", {}).get("message", "error")),
+                    # Upstream messages can contain echoed prompt fragments,
+                    # endpoint details, request identifiers, or credentials.
+                    # Keep the public normalization boundary deliberately
+                    # content-free while retaining the typed failure signal.
+                    text="provider error",
                 )
             ]
         return []
@@ -119,11 +128,18 @@ def event_to_sse(ev: ExecEvent) -> str:
 
 
 def check_egress(
-    base_url: str | None, *, allow_loopback: bool = True
+    base_url: str | None,
+    *,
+    allow_loopback: bool = False,
+    allowed_private_hosts: Iterable[str] = (),
 ) -> EgressDecision:
     """Validate a custom ``base_url`` (DNS-resolved SSRF guard) before any upstream fetch."""
     if not base_url:
         return EgressDecision(True, "no custom base_url")
+    host = (urlsplit(str(base_url)).hostname or "").lower().rstrip(".")
+    allowed = {str(item).strip().lower().rstrip(".") for item in allowed_private_hosts}
+    if host in allowed:
+        return validate_base_url(str(base_url), allow_loopback=True)
     return validate_base_url_resolved(base_url, allow_loopback=allow_loopback)
 
 

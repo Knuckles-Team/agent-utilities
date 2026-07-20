@@ -2,9 +2,8 @@
 
 CONCEPT:AU-ORCH.execution.orchestration — Orchestration Engine
 
-This module replaces the legacy fragmented orchestrators (AgentOrchestrationEngine,
-KGDrivenExecutionEngine, run_graph, ParallelEngine, WorkflowRunner, SDDOrchestrator,
-and DynamicToolOrchestrator) with a single, coherent execution kernel.
+This module provides the single execution kernel for graph, streaming, dynamic,
+parallel, workflow, SDD, and research execution.
 """
 
 from __future__ import annotations
@@ -20,15 +19,14 @@ logger = logging.getLogger(__name__)
 import asyncio
 import contextlib
 import json
+import secrets
 import time
 from pathlib import Path
-from uuid import uuid4
 
 from agent_utilities.core.config import (
     DEFAULT_LLM_MODEL_ID,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_ROUTER_MODEL,
-    GET_DEFAULT_SSL_VERIFY,
 )
 
 DEFAULT_ENABLE_LLM_VALIDATION = True
@@ -37,7 +35,6 @@ DEFAULT_GRAPH_PERSISTENCE_PATH = ".agent_utilities/graph_persistence"
 DEFAULT_GRAPH_ROUTER_TIMEOUT = 120000
 DEFAULT_GRAPH_VERIFIER_TIMEOUT = 120000
 DEFAULT_PROVIDER = DEFAULT_LLM_PROVIDER
-DEFAULT_SSL_VERIFY = GET_DEFAULT_SSL_VERIFY()
 
 # Wall-clock budget (seconds) for a single spawned agent in a workflow fan-out.
 # CONCEPT:AU-ORCH.execution.dynamic-workflows — ``max_steps`` bounds interaction ROUNDS, not time: a spawned
@@ -50,7 +47,7 @@ AGENT_WALLCLOCK_TIMEOUT_S = 120.0
 from agent_utilities.core.config import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
-    load_node_agents_registry,
+    get_discovery_registry,
 )
 from agent_utilities.core.model_factory import create_model
 
@@ -204,33 +201,25 @@ class AgentOrchestrationEngine:
         PyO3/FFI, not scipy/sklearn), which bounds the candidate agents to the domain
         sub-graph. The agent roster and each agent's tools are then resolved from the
         graph store, and when a ``delegated_authority`` is supplied the roster is
-        restricted to agents authorised for it (CONCEPT:AU-ORCH.execution.execution-budget-caps governance). Replaces
-        legacy AgentOrchestrationEngine team synthesis.
+        restricted to agents authorised for it (CONCEPT:AU-ORCH.execution.execution-budget-caps governance).
         """
         logger.info(f"Synthesizing team for {domain} (complexity: {complexity})")
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for team synthesis"
-
-        import uuid
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for team synthesis"
+        )
 
         from agent_utilities.models.knowledge_graph import TeamComposition
 
-        # Epistemic-graph compute: scope candidate agents to the domain's blast radius.
-        # Coerce to a concrete id list so a missing/short-circuited compute layer simply
-        # widens the roster query rather than raising.
-        try:
-            candidate_ids = [
-                n.get("id") if isinstance(n, dict) else str(n)
-                for n in (
-                    self.engine.graph_compute.get_blast_radius(
-                        f"domain:{domain}", max_depth=2
-                    )
-                    or []
+        # Epistemic-graph compute scopes candidates to the domain's blast radius.
+        candidate_ids = [
+            n.get("id") if isinstance(n, dict) else str(n)
+            for n in (
+                self.engine.graph_compute.get_blast_radius(
+                    f"domain:{domain}", max_depth=2
                 )
-            ]
-        except Exception:  # noqa: BLE001 - Rust compute unavailable → domain-wide roster
-            candidate_ids = []
+                or []
+            )
+        ]
 
         # Resolve the agent roster from the graph store. With a delegated authority,
         # restrict to agents authorised for it; otherwise scope by domain.
@@ -238,14 +227,14 @@ class AgentOrchestrationEngine:
             agent_query = (
                 "MATCH (a:Agent)-[:HAS_DELEGATED_AUTHORITY_FROM|AUTHORIZED_FOR]->"
                 "(auth {id: $delegated_authority}) "
-                "WHERE size($candidate_ids) = 0 OR a.agent_id IN $candidate_ids "
+                "WHERE a.agent_id IN $candidate_ids "
                 "RETURN a.agent_id AS agent_id, a.role AS role, a.name AS name"
             )
         else:
             agent_query = (
                 "MATCH (a:Agent) "
                 "WHERE a.domain = $domain "
-                "AND (size($candidate_ids) = 0 OR a.agent_id IN $candidate_ids) "
+                "AND a.agent_id IN $candidate_ids "
                 "RETURN a.agent_id AS agent_id, a.role AS role, a.name AS name"
             )
         params = {
@@ -279,17 +268,10 @@ class AgentOrchestrationEngine:
             )
 
         if not agents:
-            agents.append(
-                {
-                    "role": "general",
-                    "agent_id": "general_agent",
-                    "tools": [],
-                    "system_prompt": "You are a general agent.",
-                }
-            )
+            raise LookupError("no authorized agents are available for the domain")
 
         return TeamComposition(
-            team_id=f"team:{uuid.uuid4().hex[:12]}",
+            team_id=f"team:{secrets.token_hex(16)}",
             adaptive_agent_router=agents,
             execution_mode=(
                 "parallel" if (complexity > 1 or len(agents) > 1) else "sequential"
@@ -311,9 +293,9 @@ class AgentOrchestrationEngine:
         Replaces KGDrivenExecutionEngine routing logic.
         """
         # Call into rust to evaluate next hops based on semantic edges
-        assert (
-            self.engine is not None
-        ), "IntelligenceGraphEngine is required for node determination"
+        assert self.engine is not None, (
+            "IntelligenceGraphEngine is required for node determination"
+        )
         successors = self.engine.graph_compute.get_successors(current_node)
         return successors[0] if successors else "END"
 
@@ -364,7 +346,7 @@ class AgentOrchestrationEngine:
 
         """
         if run_id is None:
-            run_id = uuid4().hex
+            run_id = secrets.token_hex(16)
 
         # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
@@ -384,30 +366,7 @@ class AgentOrchestrationEngine:
                     f"```mermaid\n{get_graph_mermaid(graph, config)}\n```\n\n"
                 )
 
-        state = GraphState(
-            query=query,
-            query_parts=query_parts or [],
-            mode=mode,
-            topology=topology,
-            invoker_context=config.get(
-                "invoker_context", ""
-            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_budget_tokens=config.get(
-                "invoker_budget_tokens"
-            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_allowed_tools=config.get(
-                "invoker_allowed_tools"
-            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_cred_ref=config.get(
-                "invoker_cred_ref"
-            ),  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            invoker_channel_id=config.get(
-                "message_channel_id"
-            ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
-        )
-
         _custom_headers = config.get("custom_headers")
-        _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
 
         deps = GraphDeps(
             tag_prompts=config.get("tag_prompts", {}),
@@ -425,7 +384,6 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             agent_model=create_model(
                 model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
@@ -433,7 +391,6 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             nodes=config.get("nodes", {}),
             min_confidence=config.get("min_confidence", 0.6),
@@ -441,7 +398,6 @@ class AgentOrchestrationEngine:
             provider=config.get("provider", DEFAULT_PROVIDER),
             base_url=config.get("base_url"),
             api_key=config.get("api_key"),
-            ssl_verify=_ssl_verify,
             event_queue=eq,
             router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
             verifier_timeout=config.get(
@@ -458,6 +414,10 @@ class AgentOrchestrationEngine:
             approval_manager=config.get("approval_manager"),
             model_registry=config.get("model_registry"),
             requested_model_id=requested_model_id,
+            permissions_kernel=config.get("permissions_kernel"),
+            agent_identity=config.get("agent_identity"),
+            knowledge_engine=config.get("knowledge_engine"),
+            response_format=config.get("response_format", "text"),
         )
 
         state = GraphState(
@@ -540,17 +500,12 @@ class AgentOrchestrationEngine:
 
             # Standardize tag_prompts from the registry for high-fidelity routing.
             # We merge existing prompts with registry-provided domain tags.
-            registry = load_node_agents_registry()
+            registry = get_discovery_registry()
             for agent in registry.agents:
                 # Domain tags (like 'git_operations') are the primary routing targets
                 # MCPAgent uses 'name' as the primary identifier
                 if agent.name and agent.name not in deps.tag_prompts:
                     deps.tag_prompts[agent.name] = agent.description or agent.name
-
-                # Legacy node mapping (by name)
-                node_id = agent.name.lower().replace(" ", "_")
-                if node_id not in deps.tag_prompts:
-                    deps.tag_prompts[node_id] = agent.description or agent.name
 
             emit_graph_event(
                 deps.event_queue,
@@ -641,7 +596,10 @@ class AgentOrchestrationEngine:
                         )
                         result = "timeout"
             except Exception as e:
-                logger.error(f"run_graph: CRITICAL ERROR during graph execution: {e}")
+                logger.error(
+                    "run_graph: critical graph execution failure (%s)",
+                    type(e).__name__,
+                )
                 emit_graph_event(
                     deps.event_queue, "graph_complete", run_id=run_id, status="error"
                 )
@@ -694,10 +652,19 @@ class AgentOrchestrationEngine:
                         status="success" if result else "timeout",
                         duration_ms=(time.perf_counter() - _graph_run_start) * 1000.0,
                         token_usage=_usage,
+                        model=str(config.get("agent_model") or ""),
                         metadata={"domain": state.routed_domain},
+                        evidence=(
+                            config.get("trace_evidence")
+                            if isinstance(config.get("trace_evidence"), dict)
+                            else None
+                        ),
                     )
             except Exception as _lf_exc:  # noqa: BLE001 — export must never crash a run
-                logger.debug("run_graph: Langfuse export skipped: %s", _lf_exc)
+                logger.debug(
+                    "run_graph: Langfuse export skipped (%s).",
+                    type(_lf_exc).__name__,
+                )
 
             # --- Self-ingest RunTrace telemetry (CONCEPT:AU-KG.ingest.attaching-this-root-logger) ---
             # Dogfooding: ship this graph run's RunTrace into the epistemic-graph
@@ -730,6 +697,8 @@ class AgentOrchestrationEngine:
                     _md = result.get("metadata", {}) or {}
                     _rt_usage = _md.get("token_usage", {}) or {}
                     _rt_model = str(_md.get("model", "") or "")
+                from agent_utilities.security.brain_context import current_actor
+
                 get_usage_recorder().record_run(
                     run_id=run_id,
                     query=query,
@@ -738,13 +707,22 @@ class AgentOrchestrationEngine:
                     token_usage=_rt_usage,
                     model=_rt_model,
                     project=str(state.routed_domain or ""),
+                    tenant_id=current_actor().tenant_id,
                 )
             except Exception as _ur_exc:  # noqa: BLE001 — recorder must never crash a run
-                logger.debug("run_graph: usage record skipped: %s", _ur_exc)
+                logger.debug(
+                    "run_graph_usage_record_skipped error_type=%s",
+                    type(_ur_exc).__name__,
+                )
 
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
             result.metadata.update({"run_id": run_id, "domain": state.routed_domain})
+            # Surface the graph run's accumulated tool calls so run_agent persists them
+            # as :ToolCall provenance (CONCEPT:AU-KG.temporal.message-history-read) — the multi-agent path
+            # previously wrote none, unlike the direct single-server loop.
+            if not result.tool_calls and getattr(state, "tool_calls", None):
+                result.tool_calls = list(state.tool_calls)
             return result.model_dump()
 
         # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
@@ -755,13 +733,10 @@ class AgentOrchestrationEngine:
             logger.error(
                 f"run_graph: graph.run() returned node label '{result}' instead of GraphResponse. "
                 f"This indicates the graph terminated unexpectedly. "
-                f"Registry keys: {list(state.results_registry.keys())}, "
-                f"Results keys: {list(state.results.keys())}"
+                f"Registry keys: {list(state.results_registry.keys())}"
             )
-            # Priority: results_registry (plan-based) → results (domain-based) → error message
             output = (
                 next(iter(state.results_registry.values()), None)
-                or next(iter(state.results.values()), None)
                 or f"Graph terminated unexpectedly at node '{result}'. No results were generated."
             )
             return GraphResponse(
@@ -773,6 +748,7 @@ class AgentOrchestrationEngine:
                     "domain": state.routed_domain,
                     "terminated_at": result,
                 },
+                tool_calls=list(getattr(state, "tool_calls", []) or []),
             ).model_dump()
 
         return GraphResponse(
@@ -780,6 +756,7 @@ class AgentOrchestrationEngine:
             results={"output": str(result)},
             mermaid=mermaid_prefix if mermaid_prefix else None,
             metadata={"run_id": run_id, "domain": state.routed_domain},
+            tool_calls=list(getattr(state, "tool_calls", []) or []),
         ).model_dump()
 
     async def stream_graph(
@@ -823,10 +800,9 @@ class AgentOrchestrationEngine:
         """
         import asyncio
         from pathlib import Path
-        from uuid import uuid4
 
         if run_id is None:
-            run_id = uuid4().hex
+            run_id = secrets.token_hex(16)
 
         # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
@@ -851,7 +827,6 @@ class AgentOrchestrationEngine:
         )
 
         _custom_headers = config.get("custom_headers")
-        _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
 
         deps = GraphDeps(
             tag_prompts=config.get("tag_prompts", {}),
@@ -869,7 +844,6 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             agent_model=create_model(
                 model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
@@ -877,14 +851,12 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             min_confidence=config.get("min_confidence", 0.6),
             sub_agents=config.get("sub_agents", {}),
             provider=config.get("provider", DEFAULT_PROVIDER),
             base_url=config.get("base_url"),
             api_key=config.get("api_key"),
-            ssl_verify=_ssl_verify,
             event_queue=eq,
             router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
             verifier_timeout=config.get(
@@ -900,6 +872,10 @@ class AgentOrchestrationEngine:
             approval_manager=config.get("approval_manager"),
             model_registry=config.get("model_registry"),
             requested_model_id=requested_model_id,
+            permissions_kernel=config.get("permissions_kernel"),
+            agent_identity=config.get("agent_identity"),
+            knowledge_engine=config.get("knowledge_engine"),
+            response_format=config.get("response_format", "text"),
         )
 
         state = GraphState(
@@ -990,12 +966,9 @@ class AgentOrchestrationEngine:
 
         await task
 
-        # Extract the best available output with fallback mechanisms
+        # Extract the best available output.
         # 1. Graph End result (verifier's synthesized GraphResponse)
-        # 2. state.results keyed by routed_domain (set by expert executor)
-        # 3. First value in results_registry (plan-based, set by any step)
-        # 4. First value in state.results (domain-based)
-        # 5. Fallback message
+        # 2. First value in results_registry (plan-based, set by any step)
         final_output = None
         graph_result = graph_result_holder.get("value")
         if graph_result is not None:
@@ -1008,13 +981,7 @@ class AgentOrchestrationEngine:
             elif result_data:
                 final_output = str(result_data)
         if not final_output:
-            final_output = (
-                state.results.get(state.routed_domain) if state.routed_domain else None
-            )
-        if not final_output:
             final_output = next(iter(state.results_registry.values()), None)
-        if not final_output:
-            final_output = next(iter(state.results.values()), None)
         if not final_output:
             final_output = "No output generated."
         yield f"data: {json.dumps({'type': 'final_output', 'content': final_output})}\n\n"
@@ -1080,13 +1047,10 @@ class AgentOrchestrationEngine:
 
         """
 
-        try:
-            from pydantic_graph import EndMarker  # v2: promoted to top level
-        except ImportError:  # pydantic-graph v1
-            from pydantic_graph.beta.graph import EndMarker
+        from pydantic_graph import EndMarker
 
         if run_id is None:
-            run_id = uuid4().hex
+            run_id = secrets.token_hex(16)
 
         # CONCEPT:AU-OS.observability.run-wide-correlation-id — establish a run-wide correlation id so every nested
         # agent/span/side-effect in this run is joinable. Idempotent: nested
@@ -1105,7 +1069,6 @@ class AgentOrchestrationEngine:
         )
 
         _custom_headers = config.get("custom_headers")
-        _ssl_verify = config.get("ssl_verify", DEFAULT_SSL_VERIFY)
 
         deps = GraphDeps(
             tag_prompts=config.get("tag_prompts", {}),
@@ -1123,7 +1086,6 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             agent_model=create_model(
                 model_id=config.get("agent_model", DEFAULT_GRAPH_AGENT_MODEL),
@@ -1131,7 +1093,6 @@ class AgentOrchestrationEngine:
                 base_url=config.get("base_url"),
                 custom_headers=_custom_headers,
                 provider=config.get("provider", DEFAULT_PROVIDER),
-                ssl_verify=_ssl_verify,
             ),
             nodes=config.get("nodes", {}),
             min_confidence=config.get("min_confidence", 0.6),
@@ -1139,7 +1100,6 @@ class AgentOrchestrationEngine:
             provider=config.get("provider", DEFAULT_PROVIDER),
             base_url=config.get("base_url"),
             api_key=config.get("api_key"),
-            ssl_verify=_ssl_verify,
             event_queue=eq,
             router_timeout=config.get("router_timeout", DEFAULT_GRAPH_ROUTER_TIMEOUT),
             verifier_timeout=config.get(
@@ -1155,6 +1115,10 @@ class AgentOrchestrationEngine:
             approval_manager=config.get("approval_manager"),
             model_registry=config.get("model_registry"),
             requested_model_id=requested_model_id,
+            permissions_kernel=config.get("permissions_kernel"),
+            agent_identity=config.get("agent_identity"),
+            knowledge_engine=config.get("knowledge_engine"),
+            response_format=config.get("response_format", "text"),
         )
 
         state = GraphState(
@@ -1180,7 +1144,7 @@ class AgentOrchestrationEngine:
         )
 
         # Merge registry tags into deps (same as run_graph)
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         for agent in registry.agents:
             if agent.name and agent.name not in deps.tag_prompts:
                 deps.tag_prompts[agent.name] = agent.description or agent.name
@@ -1350,7 +1314,7 @@ class AgentOrchestrationEngine:
         info["mcp_toolset_count"] = len(mcp_toolsets)
 
         # MCP agents from registry
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         info["mcp_agent_count"] = len(registry.agents)
         info["mcp_agents"] = [
             {
@@ -1466,8 +1430,10 @@ class AgentOrchestrationEngine:
             return json.dumps({"error": str(e), "agent": agent_name})
 
     # --- Workflow Execution ---
-    async def execute_workflow(self, workflow_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Execute a dynamic workflow by ID. Replaces WorkflowRunner.
+    async def execute_workflow(
+        self, workflow_id: str, *, completion_state: str, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Execute a dynamic workflow by ID toward a required completion state.
 
         CONCEPT:AU-ORCH.execution.dynamic-workflows - Dynamic Workflows
         Supports autonomous adversarial loops converging on a completion state,
@@ -1478,32 +1444,19 @@ class AgentOrchestrationEngine:
         logger.info(f"Executing dynamic workflow: {workflow_id}")
 
         task = kwargs.get("task", "")
-        completion_state = kwargs.get("completion_state", "")
+        if not completion_state.strip():
+            raise ValueError("completion_state is required")
         max_fan_out = kwargs.get("max_fan_out", 5)
         max_iterations = kwargs.get("max_iterations", 5)
 
-        # 1. Base task setup
-        # If there is no explicit completion state, we do standard linear execution (fallback)
         # Per-spawned-agent wall-clock budget. Honour a caller-supplied override
-        # (kwargs / a threaded ``budget_tokens``-style timeout) before falling back
+        # (kwargs / a threaded ``budget_tokens``-style timeout) before using
         # to the module default (CONCEPT:AU-ORCH.execution.dynamic-workflows).
         agent_timeout = float(
             kwargs.get("agent_timeout_s") or AGENT_WALLCLOCK_TIMEOUT_S
         )
 
-        if not completion_state:
-            logger.info(
-                "No completion_state provided. Falling back to standard execution."
-            )
-
-            result = await self._run_agent_bounded(
-                agent_name="dynamic_worker",
-                task=task,
-                timeout_s=agent_timeout,
-            )
-            return {"workflow_id": workflow_id, "status": "executed", "output": result}
-
-        # 2. Dynamic Workflow Loop
+        # Dynamic Workflow Loop
         logger.info(
             f"Starting Dynamic Workflow '{workflow_id}' aimed at completion_state: '{completion_state}'"
         )

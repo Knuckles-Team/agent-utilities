@@ -16,7 +16,7 @@ Design — reuse, don't reinvent:
 
 * Each acquisition routes to machinery that already exists: the source-connector
   registry (``protocols.source_connectors`` — web/reader/rest/database/mcp_tool),
-  ``markitdown``/``pymupdf4llm`` for documents, and :class:`SkillGraphDistiller`
+  bounded pypdf/``markitdown`` for documents, and :class:`SkillGraphDistiller`
   for KG subgraphs.
 * KG enrichment is **hybrid-auto**: the offline corpus is always produced; when the
   graph daemon is reachable the tree is *also* ingested (so the KG can reason over
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 # Source kinds whose freshness can be re-checked without network I/O.
 _LOCAL_KINDS = frozenset({"dir", "pdf", "office", "generated"})
-# Document file extensions converted to markdown via markitdown/pymupdf4llm.
+# Document file extensions converted through bounded pypdf or markitdown.
 _DOC_EXTS = (".pdf", ".docx", ".pptx", ".xlsx", ".csv")
 
 # Shrink guard (re-fetch): a re-crawl that returns far less content than the graph
@@ -256,6 +256,15 @@ def _crawl_via_script(
                     or 1000
                 )
             ),
+            # This subprocess is an internal acquisition backend — the crawl4ai
+            # single-page resolver (``web_fetch._fetch_via_crawl4ai``, which itself
+            # backs ``ingest_url``) AND the skill-graph corpus builder (which runs
+            # its own separate ``sources.json``-tracked KG ingestion afterward).
+            # The web-crawler skill's own KG ingestion defaults ON for direct/
+            # user-facing runs — force it OFF here so neither caller recurses into
+            # ``ingest_url`` (which would call back into this same resolver) or
+            # double-ingests the acquired pages under a different granularity.
+            "--no-kg-ingest",
         ]
         if spec.options.get("disable_magic_js"):
             cmd.append("--disable-magic-js")
@@ -296,23 +305,19 @@ def _crawl_via_script(
 def _http_get(
     url: str, *, timeout: float = 25.0, max_bytes: int = 25_000_000
 ) -> str | None:
-    """Plain bounded HTTP GET → text, or None on any non-200/error. No deps."""
-    import urllib.error
-    import urllib.request
-    from urllib.parse import urlparse
+    """DNS-pinned bounded HTTP GET, or ``None`` on policy/network errors."""
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.http_safety import safe_get_text
 
-    # Enforce http(s) only — reject file:/ftp:/custom schemes so a crafted source
-    # spec can't make us read local files via urlopen (the B310 concern).
-    if urlparse(url).scheme not in ("http", "https"):
-        return None
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "skill-graph-builder"})
-        with urllib.request.urlopen(  # noqa: S310 # nosec B310 — scheme guarded to http(s) above
-            req, timeout=timeout
-        ) as r:
-            if getattr(r, "status", 200) != 200:
-                return None
-            return r.read(max_bytes).decode("utf-8", "replace")
+        return safe_get_text(
+            url,
+            headers={"User-Agent": "skill-graph-builder"},
+            timeout=timeout,
+            max_bytes=max_bytes,
+            max_redirects=0,
+            allowed_private_hosts=config.source_http_allowed_private_hosts,
+        )
     except Exception:  # noqa: BLE001 — unreachable/404/timeout → caller falls back
         return None
 
@@ -723,24 +728,40 @@ class SkillGraphPipeline:
     def _acquire_document(self, spec: SourceSpec) -> AcquiredBundle:
         """Convert a single PDF/Office file (local path or http URL) to markdown."""
         uri = spec.uri
+        source_uri = uri
         if uri.startswith("http"):
-            import requests
+            from agent_utilities.protocols.source_connectors.http_safety import (
+                configured_source_http_policy,
+                safe_get_bytes,
+            )
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
 
-            resp = requests.get(uri, timeout=60)
-            resp.raise_for_status()
+            content, _encoding = safe_get_bytes(
+                uri, timeout=60, **configured_source_http_policy()
+            )
             ext = Path(uri.split("?")[0]).suffix.lower() or ".pdf"
             with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                tmp.write(resp.content)
+                tmp.write(content)
                 local = tmp.name
             stem = Path(uri.split("?")[0]).stem or "document"
+            source_uri = persistence_reference(
+                "distillation_source", uri, namespace="document"
+            )
         else:
             local = uri
             stem = Path(uri).stem
-        text = _convert_document(local)
-        if uri.startswith("http"):
-            Path(local).unlink(missing_ok=True)
+        try:
+            text = _convert_document(local)
+        finally:
+            if uri.startswith("http"):
+                Path(local).unlink(missing_ok=True)
         doc = AcquiredDoc(
-            rel_path=f"{_slug(stem)}.md", text=text, title=stem, source_uri=uri
+            rel_path=f"{_slug(stem)}.md",
+            text=text,
+            title=stem,
+            source_uri=source_uri,
         )
         return AcquiredBundle(spec, [doc], extractor="markitdown")
 
@@ -1300,165 +1321,6 @@ class SkillGraphPipeline:
             version=version,
         )
 
-    # ── legacy migration ──────────────────────────────────────────────────────
-
-    def classify_legacy(self, skill_dir: str | Path) -> dict[str, Any]:
-        """Classify a (possibly legacy) skill-graph for migration to the contract.
-
-        Modes: ``managed`` (already has sources.json — nothing to do),
-        ``reacquire`` (legacy ``source_url`` in SKILL.md → rebuild from those URLs),
-        ``wrap`` (no source_url but has a ``reference/`` corpus → re-package the
-        existing markdown as a ``dir`` source, preserving content), or ``native``
-        (hand-authored / nested, no corpus → leave alone).
-        """
-        d = Path(skill_dir)
-        skill_md = d / "SKILL.md"
-        fm = (
-            parse_frontmatter(skill_md.read_text(encoding="utf-8"))
-            if skill_md.exists()
-            else {}
-        )
-        ref = d / "reference"
-        md_count = len(list(ref.rglob("*.md"))) if ref.is_dir() else 0
-        source_url = fm.get("source_url")
-        if isinstance(source_url, list):
-            source_url = ", ".join(source_url)
-        if (d / "sources.json").exists():
-            mode = "managed"
-        elif source_url:
-            mode = "reacquire"
-        elif md_count:
-            mode = "wrap"
-        else:
-            mode = "native"
-        return {
-            "name": d.name,
-            "mode": mode,
-            "source_url": source_url or "",
-            "crawl_depth": fm.get("crawl_depth") or "",
-            "file_count": md_count,
-            "description": fm.get("description") or "",
-        }
-
-    @staticmethod
-    def _specs_from_source_url(source_url: str, depth: int) -> list[SourceSpec]:
-        specs: list[SourceSpec] = []
-        for raw in (u.strip() for u in source_url.split(",")):
-            if not raw:
-                continue
-            low = raw.lower().split("?")[0]
-            if raw.startswith("http") and low.endswith(_DOC_EXTS):
-                specs.append(
-                    SourceSpec("pdf" if low.endswith(".pdf") else "office", raw)
-                )
-            elif raw.startswith("http"):
-                specs.append(SourceSpec("web", raw, {"max_depth": depth}))
-            else:
-                specs.append(SourceSpec("dir", raw))
-        return specs
-
-    def migrate_legacy(
-        self,
-        skill_dir: str | Path,
-        *,
-        mode: str = "auto",
-        kg_enrich: bool | None = None,
-        shrink_guard: bool = True,
-        detect: bool = True,
-    ) -> dict[str, Any]:
-        """Migrate one legacy skill-graph in place to the standardized contract.
-
-        ``mode='auto'`` follows :meth:`classify_legacy`; ``reacquire`` re-crawls the
-        legacy ``source_url``; ``wrap`` re-packages the existing ``reference/`` tree
-        (offline, content-preserving). The first standardized build is versioned
-        ``1.0.0``. With ``shrink_guard`` a reacquire that crawls far less than the
-        existing corpus (a moved source_url) keeps the old content and reports
-        ``stale_url``. Returns the build result (or a ``skipped`` record for natives).
-        """
-        d = Path(skill_dir)
-        info = self.classify_legacy(d)
-        chosen = info["mode"] if mode == "auto" else mode
-        if chosen in ("managed", "native"):
-            return {"name": d.name, "skipped": True, "reason": chosen}
-
-        depth = int(info["crawl_depth"] or 2)
-        scrape_profile: dict[str, Any] = {}
-        if chosen == "reacquire":
-            specs = self._specs_from_source_url(info["source_url"], depth)
-            if not specs:
-                return {
-                    "name": d.name,
-                    "skipped": True,
-                    "reason": "no usable source_url",
-                }
-            # SiteProfiler: probe the primary URL and prefer the best strategy
-            # (llms.txt/llms-full.txt → sitemap → recursive render) over a blind crawl.
-            if detect:
-                primary = next(
-                    (s.uri for s in specs if s.uri.startswith("http")), specs[0].uri
-                )
-                best, scrape_profile = detect_scrape_strategy(primary)
-                if best.kind == "web":
-                    best.options.setdefault("max_depth", depth)
-                specs = [best]
-            try:
-                bundles = [self.acquire(s) for s in specs]
-            except Exception as exc:  # noqa: BLE001 — crawl failed → keep content
-                return {
-                    "name": d.name,
-                    "status": "failed",
-                    "reason": str(exc)[:200],
-                    "scrape_profile": scrape_profile,
-                }
-            if shrink_guard and _is_shrink(
-                _ref_bytes(d / "reference"), _bundle_bytes(bundles)
-            ):
-                return {
-                    "name": d.name,
-                    "status": "stale_url",
-                    "existing_bytes": _ref_bytes(d / "reference"),
-                    "new_bytes": _bundle_bytes(bundles),
-                    "reason": "re-crawl far smaller than existing — source_url likely moved",
-                    "scrape_profile": scrape_profile,
-                }
-            result = self._build_from_bundles(
-                name=d.name,
-                bundles=bundles,
-                out_dir=d.parent,
-                description=info["description"] or None,
-                max_file_kb=50,
-                kg_enrich=kg_enrich,
-                version="1.0.0",
-                record_specs=None,
-            )
-            # Stamp the chosen strategy into the manifest (the per-graph ledger entry).
-            if scrape_profile:
-                mpath = d / "sources.json"
-                if mpath.exists():
-                    data = json.loads(mpath.read_text(encoding="utf-8"))
-                    data["scrape_profile"] = scrape_profile
-                    mpath.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                result["scrape_profile"] = scrape_profile
-        else:  # wrap — adopt the existing corpus in place. build() acquires into memory
-            # BEFORE wiping reference/, so the graph's own reference/ is a safe dir
-            # source (no temp copy). Record the upstream web sources (not the local
-            # dir) so the wrapped graph stays re-crawlable via status/rebuild.
-            specs = [SourceSpec("dir", str(d / "reference"))]
-            record_specs = (
-                self._specs_from_source_url(info["source_url"], depth) or None
-            )
-            result = self.build(
-                name=d.name,
-                specs=specs,
-                out_dir=d.parent,
-                description=info["description"] or None,
-                kg_enrich=kg_enrich,
-                version="1.0.0",
-                record_specs=record_specs,
-            )
-        result["migrated_mode"] = chosen
-        return result
-
     # ── periodic refresh (re-download + delta re-ingest) ──────────────────────
 
     def refresh_one(
@@ -1836,20 +1698,18 @@ def _unique_rel(rel: str, used: set[str]) -> str:
 
 
 def _convert_document(path: str) -> str:
-    """PDF/Office → markdown via markitdown, falling back to pymupdf4llm."""
+    """Convert PDF through bounded pypdf and Office files through markitdown."""
+    if Path(path).suffix.casefold() == ".pdf":
+        from ..extraction.pdf import read_pdf_text
+
+        return read_pdf_text(path)
     try:
         from markitdown import MarkItDown
 
         return MarkItDown().convert(path).text_content
-    except ImportError:
-        pass
-    try:
-        import pymupdf4llm
-
-        return pymupdf4llm.to_markdown(path)
     except ImportError as exc:
         raise RuntimeError(
-            "Document conversion needs 'markitdown' or 'pymupdf4llm'. "
+            "Office document conversion needs 'markitdown'. "
             "Install with: pip install 'universal-skills[skill-graph-builder]'"
         ) from exc
 
@@ -1873,12 +1733,11 @@ def _corpus_digest(ref: Path, max_chars: int = 24000, per_file: int = 900) -> st
 
 def _default_distill(name: str, digest: str) -> str:
     """Distill a corpus digest into an OVERVIEW.md via the role-resolved chat model."""
-    from pydantic_ai import Agent
-
+    from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.core.model_factory import create_model
 
     title = name.replace("-", " ").replace("docs", "").strip().title()
-    agent = Agent(
+    agent = create_context_agent(
         create_model(role="generator"),
         system_prompt=(
             "You distill a documentation corpus into a concise, high-signal OVERVIEW "
@@ -1905,11 +1764,10 @@ def _default_generate(spec: SourceSpec) -> list[AcquiredDoc]:
     prompt = spec.options.get("prompt") or spec.uri
     if not prompt:
         raise ValueError("generated source needs options.prompt or uri (the topic)")
-    from pydantic_ai import Agent
-
+    from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.core.model_factory import create_model
 
-    agent = Agent(
+    agent = create_context_agent(
         create_model(role="generator"),
         system_prompt=(
             "You are a technical writer. Produce a thorough, well-structured Markdown "
@@ -2165,57 +2023,6 @@ def _iter_graph_dirs(root: Path):
         yield skill_md.parent
 
 
-def _cmd_plan(args: argparse.Namespace) -> int:
-    """Scan a skill_graphs root and print a migration plan (classification table)."""
-    pipe = SkillGraphPipeline(kg_enrich=False)
-    rows = [pipe.classify_legacy(d) for d in _iter_graph_dirs(Path(args.root))]
-    counts: dict[str, int] = {}
-    for r in rows:
-        counts[r["mode"]] = counts.get(r["mode"], 0) + 1
-    if args.json:
-        print(json.dumps({"counts": counts, "graphs": rows}, indent=2))
-        return 0
-    print(f"Migration plan for {args.root}\n")
-    print(f"{'MODE':<10} {'FILES':>6}  NAME")
-    for r in sorted(rows, key=lambda x: (x["mode"], x["name"])):
-        print(f"{r['mode']:<10} {r['file_count']:>6}  {r['name']}")
-    print("\nTotals: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    print(
-        "\nLegend: reacquire=re-crawl source_url · wrap=re-package existing reference/ "
-        "· managed=already on contract · native=hand-authored, left alone"
-    )
-    return 0
-
-
-def _cmd_migrate(args: argparse.Namespace) -> int:
-    pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
-    guard = not args.no_shrink_guard
-    if args.dir:
-        result = pipe.migrate_legacy(args.dir, mode=args.mode, shrink_guard=guard)
-        print(json.dumps(result, indent=2))
-        return 0 if not result.get("validation_errors") else 1
-    # Batch over a root.
-    root = Path(args.root)
-    only = {n.strip() for n in (args.only or "").split(",") if n.strip()}
-    targets = [d for d in _iter_graph_dirs(root) if not only or d.name in only]
-    results = []
-    migrated = 0
-    for d in targets:
-        info = pipe.classify_legacy(d)
-        if info["mode"] in ("managed", "native") and args.mode == "auto":
-            continue
-        if not args.apply:
-            results.append({"name": d.name, "would_migrate": info["mode"]})
-            continue
-        res = pipe.migrate_legacy(d, mode=args.mode, shrink_guard=guard)
-        results.append(res)
-        migrated += 0 if res.get("skipped") else 1
-        if args.limit and migrated >= args.limit:
-            break
-    print(json.dumps({"applied": args.apply, "results": results}, indent=2))
-    return 0
-
-
 def _cmd_refresh(args: argparse.Namespace) -> int:
     pipe = SkillGraphPipeline(kg_enrich=not args.no_kg)
     guard = not args.no_shrink_guard
@@ -2290,41 +2097,6 @@ def main() -> None:
     r.add_argument("--dir", required=True)
     r.add_argument("--no-kg", action="store_true")
     r.set_defaults(func=_cmd_rebuild)
-
-    p = sub.add_parser(
-        "plan", help="Classify every skill-graph under a root for migration."
-    )
-    p.add_argument("--root", required=True, help="A skill_graphs/ directory.")
-    p.add_argument("--json", action="store_true")
-    p.set_defaults(func=_cmd_plan)
-
-    m = sub.add_parser(
-        "migrate",
-        help="Migrate legacy skill-graph(s) to the standardized contract.",
-    )
-    mg = m.add_mutually_exclusive_group(required=True)
-    mg.add_argument("--dir", help="Migrate a single skill-graph directory.")
-    mg.add_argument("--root", help="Batch over every skill-graph under this root.")
-    m.add_argument(
-        "--mode",
-        choices=["auto", "reacquire", "wrap"],
-        default="auto",
-        help="auto follows classification; reacquire re-crawls; wrap re-packages.",
-    )
-    m.add_argument(
-        "--apply",
-        action="store_true",
-        help="With --root: actually migrate (default is a dry-run preview).",
-    )
-    m.add_argument("--only", default="", help="Comma-separated graph names to migrate.")
-    m.add_argument("--limit", type=int, default=0, help="Max graphs to migrate.")
-    m.add_argument("--no-kg", action="store_true")
-    m.add_argument(
-        "--no-shrink-guard",
-        action="store_true",
-        help="Overwrite even when a reacquire crawls far less than the existing corpus.",
-    )
-    m.set_defaults(func=_cmd_migrate)
 
     rf = sub.add_parser(
         "refresh",

@@ -12,6 +12,7 @@ path is inert/safe when auth is disabled.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -51,23 +52,35 @@ def test_spawn_auth_headers_inert_when_disabled(
     assert agent_runner._spawn_auth_headers() == {}
 
 
-def test_spawn_auth_headers_degrades_on_error(
+def test_spawn_auth_headers_fails_closed_on_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(_existing: Any) -> dict[str, str]:
         raise RuntimeError("mint failed")
 
-    monkeypatch.setattr("agent_utilities.mcp.client_credentials.child_auth_header", _boom)
-    assert agent_runner._spawn_auth_headers() == {}
+    monkeypatch.setattr(
+        "agent_utilities.mcp.client_credentials.child_auth_header", _boom
+    )
+    with pytest.raises(RuntimeError, match="mint failed"):
+        agent_runner._spawn_auth_headers()
 
 
 def _remote_meta() -> dict[str, Any]:
     return {
         "type": "server",
-        "url": "http://repository-manager-mcp.arpa/mcp",  # streamable-http branch
+        "toolset_id": "repository-manager-mcp",
         "tools": [],
         "capabilities": [],
     }
+
+
+def _configured_model() -> SimpleNamespace:
+    return SimpleNamespace(
+        id="synthetic-standard",
+        provider="openai",
+        base_url=None,
+        api_key=None,
+    )
 
 
 def test_remote_toolset_carries_bearer_when_enabled(
@@ -76,6 +89,14 @@ def test_remote_toolset_carries_bearer_when_enabled(
     monkeypatch.setattr(
         "agent_utilities.mcp.client_credentials.child_auth_header",
         lambda _existing: {"Authorization": "Bearer TESTTOKEN"},
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_fleet_server_url",
+        lambda _server: "https://fleet.example.invalid/mcp",
+    )
+    monkeypatch.setattr(
+        agent_runner, "_configured_model_for_class", lambda _class: _configured_model()
     )
 
     config = agent_runner._build_execution_config(
@@ -92,6 +113,14 @@ def test_remote_toolset_no_bearer_when_disabled(
 ) -> None:
     monkeypatch.setattr(
         "agent_utilities.mcp.client_credentials.child_auth_header", lambda _existing: {}
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_fleet_server_url",
+        lambda _server: "https://fleet.example.invalid/mcp",
+    )
+    monkeypatch.setattr(
+        agent_runner, "_configured_model_for_class", lambda _class: _configured_model()
     )
 
     config = agent_runner._build_execution_config(

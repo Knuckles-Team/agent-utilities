@@ -1,10 +1,9 @@
 """Automatic embedder endpoint failover (CONCEPT:AU-KG.enrichment.each-call-resolves-active).
 
-The embedding plane runs against a **primary** embedder endpoint (e.g. a dedicated
-``gr1080-embed.arpa`` box, ``gpu_group="gr1080"``). When that endpoint is down or
-unreachable, embeds must not simply fail — they transparently **fail over to a
-configured fallback** endpoint (e.g. the shared ``vllm-embed.arpa`` on the GB10,
-``gpu_group="gb10"``), and route **back automatically** once the primary recovers.
+The embedding plane runs against a configured **primary** embedder endpoint. When
+that endpoint is down or unreachable, embeds transparently **fail over to a
+configured fallback** endpoint and route **back automatically** once the primary
+recovers.
 
 This module is the single resolver of *which* embedder endpoint is active right
 now. It is consulted by:
@@ -17,8 +16,8 @@ now. It is consulted by:
   whole capacity guard (server_ceiling / adaptive capacity / GPU-group budget)
   resolve the active endpoint's config. In fallback mode the key is
   ``embedding:fallback`` → ``Config.gpu_group`` returns the fallback's ``gpu_group``
-  (``gb10``), so the fan-out shares the GB10 **joint budget** with the generator and
-  can never OOM the shared box — exactly the operator's requirement.
+  group, so the fan-out shares that accelerator's **joint budget** with the
+  generator and cannot overcommit the shared device.
 
 **The failover trigger reuses the existing per-endpoint circuit breaker**
 (CONCEPT:AU-ORCH.routing.load-shedding-backoff): the PRIMARY embedder's breaker (keyed ``embedding``) is fed by
@@ -67,14 +66,13 @@ class EmbeddingEndpoint:
     model_id: str | None
     provider: str | None
     base_url: str | None
-    api_key: str | None
+    api_key_ref: str | None
     oauth2: dict[str, object] | None
     gpu_group: str | None
     is_fallback: bool
     #: Static per-endpoint HTTP headers + TLS policy (CONCEPT:AU-KG.enrichment.each-call-resolves-active),
     #: so a failed-over embedder carries its OWN gateway headers / CA while active.
-    headers: dict[str, str] | None = None
-    ssl_verify: bool | str | None = None
+    headers_ref: str | None = None
 
 
 # --- observability: track + log endpoint transitions ------------------------
@@ -133,12 +131,11 @@ def _endpoint_from_cfg(
         model_id=getattr(cfg, "id", None),
         provider=getattr(cfg, "provider", None),
         base_url=getattr(cfg, "base_url", None),
-        api_key=getattr(cfg, "api_key", None),
+        api_key_ref=getattr(cfg, "api_key_ref", None),
         oauth2=getattr(cfg, "oauth2", None),
         gpu_group=gpu_group,
         is_fallback=is_fallback,
-        headers=getattr(cfg, "headers", None) or None,
-        ssl_verify=getattr(cfg, "ssl_verify", None),
+        headers_ref=getattr(cfg, "headers_ref", None),
     )
 
 
@@ -165,10 +162,11 @@ def active_embedding_endpoint() -> EmbeddingEndpoint:
             model_id=None,
             provider=None,
             base_url=None,
-            api_key=None,
+            api_key_ref=None,
             oauth2=None,
             gpu_group=None,
             is_fallback=False,
+            headers_ref=None,
         )
 
     primary = _endpoint_from_cfg(PRIMARY_KEY, cfg, is_fallback=False)

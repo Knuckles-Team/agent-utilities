@@ -12,12 +12,33 @@ output_style, checkpoint_store, include_teams.
 
 
 import argparse
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from agent_utilities.agent import factory as agent_factory
+
+
+@pytest.fixture(autouse=True)
+def governed_mcp_context(monkeypatch: pytest.MonkeyPatch):
+    """Keep factory tests hermetic while asserting the security choke points."""
+
+    context = SimpleNamespace(kernel=MagicMock(), identity=MagicMock())
+    resolver = MagicMock(return_value=context)
+    guard = MagicMock(
+        side_effect=lambda toolsets, **_kwargs: [
+            MagicMock(spec=[]) for _toolset in toolsets
+        ]
+    )
+    monkeypatch.setattr(
+        "agent_utilities.security.permissions_kernel.resolve_permission_context",
+        resolver,
+    )
+    monkeypatch.setattr(agent_factory, "flag_mcp_tool_definitions", guard)
+    return SimpleNamespace(resolver=resolver, guard=guard)
+
 
 # ---------------------------------------------------------------------------
 # create_agent_parser (lines 113-222)
@@ -84,13 +105,12 @@ def test_parser_debug_boolean_optional() -> None:
     assert args.debug is False
 
 
-def test_parser_reload_flag() -> None:
-    """--reload is a store_true flag."""
+@pytest.mark.parametrize("retired_flag", ["--reload", "--evolve"])
+def test_parser_rejects_unimplemented_runtime_flags(retired_flag) -> None:
+    """Dead runtime flags are not retained as misleading compatibility surface."""
     parser = agent_factory.create_agent_parser()
-    args = parser.parse_args(["--reload"])
-    assert args.reload is True
-    args = parser.parse_args([])
-    assert args.reload is False
+    with pytest.raises(SystemExit):
+        parser.parse_args([retired_flag])
 
 
 def test_parser_web_flag() -> None:
@@ -113,13 +133,6 @@ def test_parser_terminal_aliases() -> None:
     assert args.terminal is False
 
 
-def test_parser_insecure_flag() -> None:
-    """--insecure flag."""
-    parser = agent_factory.create_agent_parser()
-    args = parser.parse_args(["--insecure"])
-    assert args.insecure is True
-
-
 def test_parser_otel_boolean_optional() -> None:
     """--otel / --no-otel BooleanOptionalAction."""
     parser = agent_factory.create_agent_parser()
@@ -129,19 +142,22 @@ def test_parser_otel_boolean_optional() -> None:
     assert args.otel is False
 
 
-def test_parser_otel_endpoint_options() -> None:
+def test_parser_otel_endpoint_options(monkeypatch: pytest.MonkeyPatch) -> None:
     """OTEL endpoint and related options parse correctly."""
+    monkeypatch.setenv("TEST_OTEL_HEADERS", "key=value")
+    monkeypatch.setenv("TEST_OTEL_PUBLIC", "pub123")
+    monkeypatch.setenv("TEST_OTEL_SECRET", "sec456")
     parser = agent_factory.create_agent_parser()
     args = parser.parse_args(
         [
             "--otel-endpoint",
             "https://example.com/otlp",
-            "--otel-headers",
-            "key=value",
-            "--otel-public-key",
-            "pub123",
-            "--otel-secret-key",
-            "sec456",
+            "--otel-headers-ref",
+            "env://TEST_OTEL_HEADERS",
+            "--otel-public-key-ref",
+            "env://TEST_OTEL_PUBLIC",
+            "--otel-secret-key-ref",
+            "env://TEST_OTEL_SECRET",
             "--otel-protocol",
             "http/protobuf",
         ]
@@ -384,30 +400,17 @@ def test_create_agent_with_custom_eviction_threshold(
 
 
 # ---------------------------------------------------------------------------
-# create_agent: tool_guard_mode
+# create_agent: mandatory tool guard
 # ---------------------------------------------------------------------------
 
 
-def test_create_agent_tool_guard_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """tool_guard_mode='off' skips apply_tool_guard_approvals."""
+def test_create_agent_always_applies_tool_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The generic served-agent factory has no guard-off construction path."""
     with patch.object(agent_factory, "apply_tool_guard_approvals") as mock_guard:
         agent, _ = agent_factory.create_agent(
-            name="TestGuardOff",
-            tool_guard_mode="off",
-            skill_types=[],
-            enable_skills=False,
-            enable_universal_tools=False,
-        )
-        mock_guard.assert_not_called()
-    assert agent is not None
-
-
-def test_create_agent_tool_guard_strict(monkeypatch: pytest.MonkeyPatch) -> None:
-    """tool_guard_mode='strict' calls apply_tool_guard_approvals."""
-    with patch.object(agent_factory, "apply_tool_guard_approvals") as mock_guard:
-        agent, _ = agent_factory.create_agent(
-            name="TestGuardStrict",
-            tool_guard_mode="strict",
+            name="TestMandatoryGuard",
             skill_types=[],
             enable_skills=False,
             enable_universal_tools=False,
@@ -610,6 +613,22 @@ def test_create_agent_mcp_url_isolate_mcp(
 # ---------------------------------------------------------------------------
 
 
+def test_load_mcp_servers_uses_path_aware_loader(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The factory delegates an explicit path to the path-aware MCP loader."""
+    config_path = tmp_path / "mcp_config.json"
+    config_path.write_text('{"mcpServers": {}}')
+    loader = MagicMock(return_value=[])
+    monkeypatch.setattr(
+        "agent_utilities.core.config.load_mcp_servers_from_config",
+        loader,
+    )
+
+    assert agent_factory.load_mcp_servers(str(config_path)) == []
+    loader.assert_called_once_with(str(config_path))
+
+
 def test_create_agent_mcp_config_resolve_and_load(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
@@ -721,6 +740,39 @@ def test_create_agent_external_mcp_toolsets(monkeypatch: pytest.MonkeyPatch) -> 
     )
     assert agent is not None
     assert len(initialized) == 1
+
+
+def test_create_agent_external_mcp_toolsets_use_verified_context(
+    monkeypatch: pytest.MonkeyPatch,
+    governed_mcp_context,
+) -> None:
+    monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
+    monkeypatch.setattr(
+        "agent_utilities.agent.capability_resolver.register_capability_tools",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active",
+        MagicMock(return_value=None),
+    )
+    fake = MagicMock(spec=["list_tools"])
+
+    _agent, initialized = agent_factory.create_agent(
+        name="TestGovernedExternalToolsets",
+        mcp_toolsets=[fake],
+        capabilities=["read_*"],
+        skill_types=[],
+        enable_skills=False,
+        enable_universal_tools=False,
+    )
+
+    governed_mcp_context.resolver.assert_called_once()
+    governed_mcp_context.guard.assert_called_once()
+    call = governed_mcp_context.resolver.call_args_list[0]
+    assert call.kwargs["agent_subject"] == "TestGovernedExternalToolsets"
+    assert call.kwargs["capabilities"] == ["read_*"]
+    assert len(initialized) == 1
+    assert initialized[0] is not fake
 
 
 def test_create_agent_external_mcp_toolsets_fastmcp(

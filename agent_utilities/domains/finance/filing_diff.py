@@ -184,12 +184,11 @@ class FilingDiffAgent:
         diff = diff_filing_sections(section, this_year_text, last_year_text)
 
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 output_type=FilingDiffResult,
                 system_prompt=(

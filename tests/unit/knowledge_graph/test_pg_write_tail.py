@@ -1,6 +1,6 @@
 """Bound the PostgreSQL authority-write tail (CONCEPT:AU-KG.backend.authority-write-tail).
 
-Profiling showed the authority (L3, pg-age) write path is the ingestion ceiling:
+Profiling showed the PostgreSQL authority write path is the ingestion ceiling:
 ``write[authority:PostgreSQLBackend]`` p50 ~3ms but MAX 11.7-16.4s under sustained
 codebase ingest, while the mirrors stayed p50 ~3ms / max <9ms and mirror lag was 0.
 The tail was NOT the SQL — it was connection-pool starvation: every lane worker +

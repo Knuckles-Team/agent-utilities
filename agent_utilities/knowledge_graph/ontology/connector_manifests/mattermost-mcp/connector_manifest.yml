@@ -1,0 +1,170 @@
+connector: mattermost-mcp
+ontology_source: mattermost
+schema_version: '1'
+resources:
+- name: Bot
+  label: Bot
+  id_prefix: bot
+  relations: []
+- name: Channel
+  label: Channel
+  id_prefix: channel
+  relations:
+  - name: inTeam
+    label: in team
+    target: Team
+    lpg_rel_type: ''
+- name: Team
+  label: Team
+  id_prefix: team
+  relations: []
+actions: []
+events:
+- name: mattermost-channels.updated
+  resource: channel
+  description: "Watermark event for 'mattermost-channels' \u2014 advances on update_at (mcp_source_presets.json)."
+- name: mattermost-teams.updated
+  resource: team
+  description: "Watermark event for 'mattermost-teams' \u2014 advances on update_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    channel: id
+    team: id
+  title_field:
+    channel: display_name
+    team: display_name
+  text_field:
+    channel: purpose
+    team: description
+  updated_field:
+    channel: update_at
+    team: update_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Bot:
+    ontology_class: null
+    fields:
+      channelType: xsd:string
+      displayName: xsd:string
+      header: xsd:string
+      messageType: xsd:string
+      purpose: xsd:string
+      teamType: xsd:string
+      username: xsd:string
+  Channel:
+    ontology_class: null
+    fields:
+      channelType: xsd:string
+      displayName: xsd:string
+      header: xsd:string
+      messageType: xsd:string
+      purpose: xsd:string
+      teamType: xsd:string
+      username: xsd:string
+  Team:
+    ontology_class: Team
+    fields:
+      channelType: xsd:string
+      displayName: xsd:string
+      header: xsd:string
+      messageType: xsd:string
+      purpose: xsd:string
+      teamType: xsd:string
+      username: xsd:string
+sync:
+- preset: mattermost-channels
+  server: mattermost-mcp
+  tool: mattermost_mcp_channels
+  action: get_all_channels
+  records_path: data
+  id_field: id
+  title_field: display_name
+  text_field: purpose
+  updated_field: update_at
+  pagination: page
+  doc_type: channel
+  tool_schema_sha256: 3d902155dd8368ab24efbf0b8d18f4fdb50053e943a7dfb294032e58de6a4a36
+  raw:
+    server: mattermost-mcp
+    tool: mattermost_mcp_channels
+    action: get_all_channels
+    records_path: data
+    id_field: id
+    title_field: display_name
+    text_field: purpose
+    updated_field: update_at
+    pagination: page
+    page_kind: page
+    page_param: page
+    page_size_param: per_page
+    doc_type: channel
+- preset: mattermost-teams
+  server: mattermost-mcp
+  tool: mattermost_mcp_teams
+  action: get_all_teams
+  records_path: data
+  id_field: id
+  title_field: display_name
+  text_field: description
+  updated_field: update_at
+  pagination: page
+  doc_type: team
+  tool_schema_sha256: 360d48a2ef75a69e692004d092c812db4dfece974dd5f41a7499430713494b76
+  raw:
+    server: mattermost-mcp
+    tool: mattermost_mcp_teams
+    action: get_all_teams
+    records_path: data
+    id_field: id
+    title_field: display_name
+    text_field: description
+    updated_field: update_at
+    pagination: page
+    page_kind: page
+    page_param: page
+    page_size_param: per_page
+    doc_type: team
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - mattermost_mcp/connectors/mcp_source_presets.json
+  - mattermost_mcp/connectors/tool_schema_fingerprints.json
+  - mattermost_mcp/ontology/mattermost.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 523e80a3a8db0f56473f667276fcfc58ce5858bd3ebffb31284d3f11a22cf117
+    triple_count: 39
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: GKk86YZcZDpMKhDDhqtthcSQ9UKPGUQ6aDHVvi1dH1DcTlsuWHDn_ZeVVMaboYSvnB1x0OvJK5h5ABqweDbcBw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'authoredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hasAttachment' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'memberOfChannel' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'memberOfTeam' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'postedInChannel' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'repliesTo' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Bot.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Channel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Team.ontology_class = 'Team' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."

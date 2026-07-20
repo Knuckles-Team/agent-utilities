@@ -4,8 +4,8 @@ from __future__ import annotations
 
 Standardized helpers for the FastMCP ``Context`` object. Every MCP server
 in the agent-packages ecosystem should import these instead of hand-rolling
-ctx interactions. All helpers are safe when *ctx* is ``None`` (backward
-compatible with callers that do not inject a context).
+ctx interactions. Read-only helpers are no-ops when *ctx* is ``None``;
+destructive confirmation fails closed.
 
 CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
@@ -13,6 +13,8 @@ CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 
 import logging
 from typing import Any
+
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +39,8 @@ async def ctx_confirm_destructive(
     """Standard elicitation guard for destructive operations.
 
     When a ``Context`` is available this asks the human user to confirm
-    before proceeding.  If no context is provided (e.g. headless / test
-    invocation) the operation is allowed by default.
+    before proceeding. Missing context and elicitation failures deny the
+    operation because unattended execution is not write authorization.
 
     Args:
         ctx: FastMCP ``Context`` (may be ``None``).
@@ -50,7 +52,7 @@ async def ctx_confirm_destructive(
 
     """
     if not ctx:
-        return True  # No context → allow (headless / test mode)
+        return False
     try:
         result = await ctx.elicit(
             f"⚠️ Are you sure you want to {action_description}?",
@@ -58,8 +60,11 @@ async def ctx_confirm_destructive(
         )
         return result.action == "accept" and bool(result.data)
     except Exception as exc:
-        logger.warning("Elicitation failed (%s); allowing operation by default.", exc)
-        return True
+        logger.warning(
+            "Elicitation failed; destructive operation denied (exception_type=%s)",
+            type(exc).__name__,
+        )
+        return False
 
 
 def ctx_log(
@@ -124,7 +129,10 @@ async def ctx_set_state(
             namespaced = f"{project}_{key}"
             await ctx.session.set_state(namespaced, value)
         except Exception as exc:
-            logger.debug("ctx_set_state failed for %s_%s: %s", project, key, exc)
+            logger.debug(
+                "ctx_set_state failed (exception_type=%s)",
+                type(exc).__name__,
+            )
 
 
 async def ctx_get_state(
@@ -202,7 +210,7 @@ async def ctx_sample(
         logger.debug("mcp.types not available — sampling disabled.")
         return None
     except Exception as exc:
-        logger.debug("ctx_sample failed: %s", exc)
+        logger.debug("ctx_sample failed (exception_type=%s)", type(exc).__name__)
         return None
 
 
@@ -238,7 +246,7 @@ async def ctx_graphql_list_types(
             res = execute_gql_fn(query)
         return res
     except Exception as exc:
-        return {"error": f"Failed to list GraphQL types: {str(exc)}"}
+        return public_error_payload(exc, logger=logger)
 
 
 async def ctx_graphql_get_type_details(
@@ -298,4 +306,4 @@ async def ctx_graphql_get_type_details(
             res = execute_gql_fn(query, variables=variables)
         return res
     except Exception as exc:
-        return {"error": f"Failed to get details for type {type_name}: {str(exc)}"}
+        return public_error_payload(exc, logger=logger)

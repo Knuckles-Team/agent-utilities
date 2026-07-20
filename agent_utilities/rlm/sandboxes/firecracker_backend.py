@@ -5,8 +5,8 @@ The strongest-isolation rung of the warm-fork ladder: each child is its own Fire
 peer-backend wrapper around **forkd** (open-source-libraries/forkd, the project that motivated
 this whole ladder; see reports/forkd-comparative-analysis-2026-06-22.md): a warm parent snapshot
 is booted once and children fork from its copy-on-write guest RAM. We drive forkd's controller
-over its REST API with stdlib ``urllib`` only (no new dependency — forkd's own Python SDK is
-likewise pure-stdlib), so nothing heavy lands in core.
+through the shared bounded HTTP boundary, so controller calls inherit exact-host egress, DNS
+pinning, redirect denial, response limits, and the operator's TLS profile.
 
 Hard constraints (why this rung is detection-gated and ranked last):
 * **x86_64 + KVM, single-host.** The CoW mmap can't cross the wire, and microVMs need ``/dev/kvm``
@@ -23,12 +23,18 @@ mid-execution), the one warm-fork verb ``os.fork`` can't provide. It lives only 
 
 from __future__ import annotations
 
-import json
 import logging
-import urllib.error
-import urllib.request
+from urllib.parse import urlsplit
 
-from agent_utilities.core.config import setting
+from agent_utilities.core.config import config, setting
+from agent_utilities.protocols.source_connectors.http_safety import (
+    SourceEgressError,
+    require_safe_source_url,
+    safe_delete_json,
+    safe_get_bytes,
+    safe_get_json,
+    safe_post_json,
+)
 
 from ..telemetry import SandboxFatalError
 from .base import (
@@ -43,29 +49,111 @@ from .base import (
 logger = logging.getLogger(__name__)
 
 
+def _forkd_identifier(value: object) -> str:
+    rendered = str(value or "")
+    if (
+        not 1 <= len(rendered) <= 128
+        or not rendered[0].isalnum()
+        or any(not (character.isalnum() or character in "._:-") for character in rendered)
+    ):
+        raise SandboxFatalError("forkd returned an invalid sandbox identifier")
+    return rendered
+
+
 class _ForkdClient:
-    """Thin stdlib HTTP client for the forkd controller REST API (bearer auth)."""
+    """Bounded HTTP client for the forkd controller REST API (bearer auth)."""
 
     def __init__(self, base_url: str, token: str, timeout: float = 120.0) -> None:
-        self.base_url = base_url.rstrip("/")
+        candidate = str(base_url).rstrip("/")
+        parsed = urlsplit(candidate)
+        host = parsed.hostname or ""
+        if (
+            parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise SourceEgressError("Forkd controller URL must be an HTTP origin")
+        allowed_hosts = set(config.source_http_allowed_private_hosts)
+        if host.casefold().rstrip(".") in {"localhost", "127.0.0.1", "::1"}:
+            allowed_hosts.add(host)
+        require_safe_source_url(
+            candidate,
+            allowed_private_hosts=allowed_hosts,
+            resolve_dns=False,
+        )
+        self.base_url = candidate
         self._token = token
         self.timeout = timeout
+        self._allowed_private_hosts = tuple(allowed_hosts)
 
-    def request(self, method: str, path: str, body: dict | None = None) -> dict:
-        url = f"{self.base_url}{path}"
-        data = json.dumps(body).encode() if body is not None else None
-        headers = {"Content-Type": "application/json"}
-        if self._token:
-            headers["Authorization"] = f"Bearer {self._token}"
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # nosec B310 - fixed scheme
-            raw = resp.read().decode()
-        return json.loads(raw) if raw else {}
+    @staticmethod
+    def _validated_path(path: str) -> str:
+        if (
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or path.startswith("//")
+            or len(path) > 2_048
+            or "\\" in path
+            or any(ord(character) < 32 or ord(character) == 127 for character in path)
+        ):
+            raise ValueError("Forkd request path is invalid")
+        parsed = urlsplit(path)
+        if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+            raise ValueError("Forkd request path is invalid")
+        if any(segment in {"", ".", ".."} for segment in path.split("/")[1:]):
+            raise ValueError("Forkd request path is invalid")
+        return path
+
+    def _headers(self) -> dict[str, str]:
+        if not self._token:
+            return {}
+        return {"Authorization": f"Bearer {self._token}"}
+
+    def request(
+        self, method: str, path: str, body: dict | None = None
+    ) -> dict | list:
+        selected_method = str(method).upper()
+        url = f"{self.base_url}{self._validated_path(path)}"
+        kwargs = {
+            "headers": self._headers(),
+            "timeout": self.timeout,
+            "max_bytes": 4 * 1024 * 1024,
+            "allowed_private_hosts": self._allowed_private_hosts,
+            "tls_service": "forkd",
+        }
+        if selected_method == "GET":
+            if body is not None:
+                raise ValueError("Forkd GET requests cannot contain a body")
+            response = safe_get_json(url, max_redirects=0, **kwargs)
+        elif selected_method == "POST":
+            response = safe_post_json(
+                url,
+                body or {},
+                max_request_bytes=4 * 1024 * 1024,
+                **kwargs,
+            )
+        elif selected_method == "DELETE":
+            if body is not None:
+                raise ValueError("Forkd DELETE requests cannot contain a body")
+            response = safe_delete_json(url, **kwargs)
+        else:
+            raise ValueError("Unsupported forkd HTTP method")
+        if not isinstance(response, (dict, list)):
+            raise SourceEgressError("Forkd controller returned an invalid JSON envelope")
+        return response
 
     def healthy(self) -> bool:
         try:
-            urllib.request.urlopen(  # nosec B310 - fixed loopback controller URL
-                f"{self.base_url}/healthz", timeout=5
+            safe_get_bytes(
+                f"{self.base_url}/healthz",
+                headers=self._headers(),
+                timeout=5,
+                max_bytes=64 * 1024,
+                max_redirects=0,
+                allowed_private_hosts=self._allowed_private_hosts,
+                tls_service="forkd",
             )
             return True
         except Exception:  # noqa: BLE001 - any failure => not reachable
@@ -130,12 +218,14 @@ class FirecrackerSandbox(ForkableSandbox):
             }
             if tags and tag not in tags:
                 raise SandboxFatalError(
-                    f"forkd snapshot {tag!r} not found (build it: `forkd from-image` / `forkd pull`)"
+                    "configured forkd snapshot was not found"
                 )
         except SandboxFatalError:
             raise
-        except Exception as e:  # noqa: BLE001
-            raise SandboxFatalError(f"forkd controller unreachable: {e}") from e
+        except Exception as exc:  # noqa: BLE001
+            raise SandboxFatalError(
+                f"forkd controller unreachable ({type(exc).__name__})"
+            ) from exc
         return ParentHandle(backend=self.name, spec=spec, ref={"snapshot": tag})
 
     async def run_forked(
@@ -160,7 +250,9 @@ class FirecrackerSandbox(ForkableSandbox):
             )
             if not children:
                 raise SandboxFatalError("forkd returned no child sandbox")
-            child_id = children[0].get("id")
+            if not isinstance(children[0], dict):
+                raise SandboxFatalError("forkd returned an invalid child sandbox")
+            child_id = _forkd_identifier(children[0].get("id"))
             res = self._client.request(
                 "POST", f"/v1/sandboxes/{child_id}/eval", {"code": code}
             )
@@ -171,8 +263,10 @@ class FirecrackerSandbox(ForkableSandbox):
             )
         except SandboxFatalError:
             raise
-        except Exception as e:  # noqa: BLE001 - committed to the microVM path => infra failure
-            raise SandboxFatalError(f"firecracker sandbox failed: {e}") from e
+        except Exception as exc:  # noqa: BLE001 - committed to the microVM path => infra failure
+            raise SandboxFatalError(
+                f"firecracker sandbox failed ({type(exc).__name__})"
+            ) from exc
         finally:
             if child_id:
                 try:
@@ -190,6 +284,8 @@ class FirecrackerSandbox(ForkableSandbox):
         """
         import asyncio
 
+        child_id = _forkd_identifier(child_id)
+
         def _branch() -> ParentHandle:
             try:
                 self._client.request(
@@ -197,8 +293,10 @@ class FirecrackerSandbox(ForkableSandbox):
                     f"/v1/sandboxes/{child_id}/branch",
                     {"tag": tag, "mode": mode},
                 )
-            except Exception as e:  # noqa: BLE001
-                raise SandboxFatalError(f"forkd branch failed: {e}") from e
+            except Exception as exc:  # noqa: BLE001
+                raise SandboxFatalError(
+                    f"forkd branch failed ({type(exc).__name__})"
+                ) from exc
             spec = WarmSpec(backend=self.name, extra=(("snapshot", tag),))
             return ParentHandle(backend=self.name, spec=spec, ref={"snapshot": tag})
 

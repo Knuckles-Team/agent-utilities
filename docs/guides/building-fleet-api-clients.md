@@ -17,7 +17,7 @@ timeout, TLS verification on, standard `User-Agent`, optional
 from agent_utilities.http import BaseApiClient, TokenAuth
 
 client = BaseApiClient(
-    "https://portainer.arpa/api",
+    "https://portainer.example.test/api",
     auth=TokenAuth(api_key, header="X-API-Key", prefix=None),
 )
 envelope = client.get("stacks")          # relative endpoints join base_url
@@ -111,32 +111,26 @@ client.guard_destructive("delete_stack")  # raises DestructiveOperationError
 Gate every HTTP `DELETE`-class action behind `guard_destructive()` and let
 operators enable it explicitly, as dockerhub-api and okta-agent do.
 
-## Retry: ResiliencePolicy vs RetryManager (the rule)
+## Retry policy
 
-Two retry mechanisms exist in agent-utilities. They are **not** redundant —
-they retry different things:
-
-| | `ResiliencePolicy` (AU-ORCH.execution.retry-predicate-raised-treating) | `RetryManager`/`RetryConfig` (ORCH-1.3) |
-|---|---|---|
-| Retries | one **in-process callable** | a whole **agent execution** |
-| Verified by | the exception raised | shell `SuccessCheck` commands |
-| Lives in | `agent_utilities.orchestration.resilience` | `agent_utilities.security.execution_stability_engine` |
-| For HTTP | **yes** — pass `retry=http_retry_policy(...)` to retry transport failures (connect errors, resets, timeouts) | **no** — never wrap HTTP requests in it |
+Use `ResiliencePolicy` (AU-ORCH.execution.retry-predicate-raised-treating)
+for bounded in-process retries. Pass `retry=http_retry_policy(...)` to retry
+transport failures such as connect errors, resets, and timeouts.
 
 HTTP status handling is layered separately: 429 backoff is built into the
 client (rate-limit aware), and other 4xx/5xx raise mapped exceptions for the
-caller. `RetryManager`/`RetryConfig` are exported from
-`agent_utilities.http` (and `agent_utilities.security`) because the audit
-found them unexported — use them for orchestration-level run-until-green
-loops with `on_failure` remediation hooks, not for network calls.
+caller. Test execution is admitted through the typed developer-workspace
+runtime and its action policy.
 
 ## Migrating from `requests.Session`
 
 The fleet's older copies wrapped `requests.Session`; this base is
 httpx-only for one-stack coherence with the core factory:
 
-- `session.verify = False` → `verify=False` constructor argument (keep it
-  `True` unless a site has an explicit, justified insecure flag);
+- `session.verify = False` → remove the source-level override and configure a
+  named `ResolvedTLSProfile` through `AgentConfig`. Install deployment trust via
+  the profile's runtime secret reference; certificate and hostname verification
+  remain mandatory;
 - `session.headers.update({...})` → `headers={...}` or override
   `default_headers()`;
 - `session.auth = (user, pass)` → `auth=BasicAuth(user, pass)`;

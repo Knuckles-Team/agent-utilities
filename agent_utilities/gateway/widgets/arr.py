@@ -42,8 +42,8 @@ class Widget(BaseWidget):
         try:
             status = client.get_system_status() or {}
         except Exception as e:
-            logger.debug("Arr fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Arr fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={"monitored": 0, "missing": 0, "queued": 0, "indexers": 0},

@@ -136,22 +136,22 @@ class TestElasticContext:
 
     def test_skip_operator(self):
         from agent_utilities.knowledge_graph.memory import (
+            AgentContextManager,
             ContextOperator,
-            ElasticContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         msgs = self._make_messages(5)
         result = ecm.apply(ContextOperator.SKIP, msgs, indices=[1, 3])
         assert len(result.messages) == 3
 
     def test_compress_operator(self):
         from agent_utilities.knowledge_graph.memory import (
+            AgentContextManager,
             ContextOperator,
-            ElasticContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         msgs = self._make_messages(5)
         result = ecm.apply(ContextOperator.COMPRESS, msgs, indices=[1, 2, 3])
         assert len(result.messages) == 3  # 0, compressed, 4
@@ -159,22 +159,22 @@ class TestElasticContext:
 
     def test_delete_operator(self):
         from agent_utilities.knowledge_graph.memory import (
+            AgentContextManager,
             ContextOperator,
-            ElasticContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         msgs = self._make_messages(5)
         result = ecm.apply(ContextOperator.DELETE, msgs, indices=[0, 4])
         assert len(result.messages) == 3
 
     def test_rollback(self):
         from agent_utilities.knowledge_graph.memory import (
+            AgentContextManager,
             ContextOperator,
-            ElasticContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         msgs = self._make_messages(5)
         ecm.checkpoint(msgs)
         deleted = ecm.apply(ContextOperator.DELETE, msgs, indices=[0, 1, 2])
@@ -184,11 +184,11 @@ class TestElasticContext:
 
     def test_snippet_operator(self):
         from agent_utilities.knowledge_graph.memory import (
+            AgentContextManager,
             ContextOperator,
-            ElasticContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         msgs = [
             {
                 "role": "tool",
@@ -207,10 +207,10 @@ class TestElasticContext:
 
     def test_rollback_no_checkpoint_raises(self):
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        ecm = ElasticContextManager()
+        ecm = AgentContextManager()
         with pytest.raises(ValueError, match="No checkpoints"):
             ecm.rollback()
 

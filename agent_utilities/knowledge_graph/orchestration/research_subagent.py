@@ -22,8 +22,10 @@ import hashlib
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 from agent_utilities.models.knowledge_graph import (
     CitationEdgeNode,
@@ -34,6 +36,7 @@ from agent_utilities.models.knowledge_graph import (
     ResearchSessionNode,
     SourceNode,
 )
+from agent_utilities.protocols.source_connectors.http_safety import safe_get_json
 from agent_utilities.security.execution_stability_engine import DoomLoopDetector
 
 logger = logging.getLogger(__name__)
@@ -42,6 +45,10 @@ logger = logging.getLogger(__name__)
 _S2_RATE_LIMIT_SECONDS = 3.1
 _S2_API_BASE = "https://api.semanticscholar.org/graph/v1"
 _S2_FIELDS = "paperId,title,abstract,year,citationCount,influentialCitationCount,authors,citations,references"
+_MAX_PAPER_ID_BYTES = 256
+_MAX_CITATION_DEPTH = 8
+_MAX_CITATIONS_PER_LEVEL = 100
+_MAX_PAPER_CACHE_ENTRIES = 4096
 
 
 class CitationGraphWalker:
@@ -67,7 +74,7 @@ class CitationGraphWalker:
         self._api_key = api_key
         self._rate_limit = rate_limit_seconds
         self._last_request_time = 0.0
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
     def _rate_limit_wait(self) -> None:
         """Wait if needed to respect API rate limits."""
@@ -84,29 +91,40 @@ class CitationGraphWalker:
         Returns:
             Paper metadata dict or None if not found.
         """
-        if paper_id in self._cache:
-            return self._cache[paper_id]
+        normalized_id = str(paper_id).strip()
+        if not normalized_id or len(normalized_id.encode("utf-8")) > _MAX_PAPER_ID_BYTES:
+            return None
+        if any(ord(character) < 32 for character in normalized_id):
+            return None
+        if normalized_id in self._cache:
+            self._cache.move_to_end(normalized_id)
+            return self._cache[normalized_id]
 
         self._rate_limit_wait()
 
         try:
-            import urllib.request
-
-            url = f"{_S2_API_BASE}/paper/{paper_id}?fields={_S2_FIELDS}"
-            req = urllib.request.Request(url)
+            url = f"{_S2_API_BASE}/paper/{quote(normalized_id, safe='')}"
+            headers = {"User-Agent": "agent-utilities/1.0"}
             if self._api_key:
-                req.add_header("x-api-key", self._api_key)
-            req.add_header("User-Agent", "agent-utilities/1.0")
-
-            with urllib.request.urlopen(req, timeout=30) as response:  # nosec
-                import json
-
-                data = json.loads(response.read().decode())
-                self._cache[paper_id] = data
-                self._last_request_time = time.time()
-                return data
+                headers["x-api-key"] = self._api_key
+            data = safe_get_json(
+                url,
+                params={"fields": _S2_FIELDS},
+                headers=headers,
+                timeout=30,
+                max_bytes=4 * 1024 * 1024,
+                max_redirects=0,
+            )
+            if not isinstance(data, dict):
+                return None
+            self._cache[normalized_id] = data
+            self._cache.move_to_end(normalized_id)
+            while len(self._cache) > _MAX_PAPER_CACHE_ENTRIES:
+                self._cache.popitem(last=False)
+            self._last_request_time = time.time()
+            return data
         except Exception as e:
-            logger.warning("Failed to fetch paper %s: %s", paper_id, e)
+            logger.warning("Paper metadata fetch failed: error_type=%s", type(e).__name__)
             self._last_request_time = time.time()
             return None
 
@@ -126,6 +144,10 @@ class CitationGraphWalker:
         Returns:
             List of CitationEdgeNode instances.
         """
+        if not 0 <= max_depth <= _MAX_CITATION_DEPTH:
+            raise ValueError("max_depth is outside the supported boundary")
+        if not 1 <= max_per_level <= _MAX_CITATIONS_PER_LEVEL:
+            raise ValueError("max_per_level is outside the supported boundary")
         edges: list[CitationEdgeNode] = []
         visited: set[str] = set()
         self._walk_citations(paper_id, 0, max_depth, max_per_level, visited, edges)
@@ -157,7 +179,7 @@ class CitationGraphWalker:
                 continue
 
             edge = CitationEdgeNode(
-                id=f"cite_{uuid.uuid4().hex[:8]}",
+                id=f"cite_{uuid.uuid4().hex}",
                 name=f"Citation: {paper.get('title', '')[:50]} → {cite.get('title', '')[:50]}",
                 citing_paper_id=cited_id,
                 cited_paper_id=paper_id,
@@ -180,7 +202,7 @@ class CitationGraphWalker:
                 continue
 
             edge = CitationEdgeNode(
-                id=f"cite_{uuid.uuid4().hex[:8]}",
+                id=f"cite_{uuid.uuid4().hex}",
                 name=f"Reference: {paper.get('title', '')[:50]} ← {ref.get('title', '')[:50]}",
                 citing_paper_id=paper_id,
                 cited_paper_id=ref_id,
@@ -216,7 +238,7 @@ class ResearchSubagent:
         token_budget_max: int = 190_000,
         s2_api_key: str | None = None,
     ):
-        self._session_id = session_id or f"rs_{uuid.uuid4().hex[:8]}"
+        self._session_id = session_id or f"rs_{uuid.uuid4().hex}"
         self._query = query
         self._token_budget_warn = token_budget_warn
         self._token_budget_max = token_budget_max
@@ -269,10 +291,10 @@ class ResearchSubagent:
             The created EvidenceNode.
         """
         finding = EvidenceNode(
-            id=f"ev_{uuid.uuid4().hex[:8]}",
+            id=f"ev_{uuid.uuid4().hex}",
             name=f"Finding: {claim[:80]}",
             description=claim,
-            evidence_id=f"ev_{hashlib.md5(claim.encode(), usedforsecurity=False).hexdigest()[:8]}",
+            evidence_id=f"ev_{hashlib.sha256(claim.encode()).hexdigest()[:32]}",
             claim=claim,
             confidence_score=confidence,
             timestamp=datetime.now(UTC).isoformat(),

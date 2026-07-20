@@ -18,7 +18,8 @@ narrative guides in [`docs/recipes/`](../../docs/recipes/) for `.env`/`config.js
 # Durable KG tier
 docker compose -f docker/pg-age.compose.yml up -d
 # KG MCP gateway over streamable-http
-GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5432/agent_kg \
+test -n "${GRAPH_DB_URI:?inject GRAPH_DB_URI from the secret provider}"
+GRAPH_DB_URI="$GRAPH_DB_URI" \
   docker compose -f docker/mcp.compose.yml up -d
 # Core connectors (single-node-prod profile) — per-service stacks from the registry
 #   python scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents --out deploy/mcp-fleet.registry.yml
@@ -27,7 +28,7 @@ GRAPH_DB_URI=postgresql://agent:REDACTED@localhost:5432/agent_kg \
 
 ## Enterprise
 
-Use the `agent-os-genesis` (alias `day0`) skill-workflow (enterprise profile). It
+Use the `agent-utilities-deployment` skill-workflow (enterprise profile). It
 provisions the swarm, core services, and binds every connector stack from the
 registry to Git for Portainer GitOps auto-sync. Backend composes
 (`pg-age`, `kafka-kraft`) are deployed as swarm stacks; integrations

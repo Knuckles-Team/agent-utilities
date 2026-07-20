@@ -188,7 +188,7 @@ class CapabilityRatchet:
 
         try:
             self.engine.add_node(
-                f"capability_baseline:{uuid.uuid4().hex[:12]}",
+                f"capability_baseline:{uuid.uuid4().hex}",
                 "CapabilityScoreVector",
                 properties={
                     "scores_json": json.dumps(scores),
@@ -205,7 +205,7 @@ class CapabilityRatchet:
 
         try:
             self.engine.add_node(
-                f"capability_ratchet:{uuid.uuid4().hex[:12]}",
+                f"capability_ratchet:{uuid.uuid4().hex}",
                 "CapabilityRatchetResult",
                 properties={
                     "proposal_id": proposal_id,

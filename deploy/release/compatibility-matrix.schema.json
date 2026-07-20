@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/compatibility-matrix-v2.json",
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "artifactKind"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^==[0-9]+(?:\\.[0-9]+)*(?:[a-z0-9.-]+)?$"},
+        "artifactKind": {"enum": ["oci", "catalog"]},
+        "dependsOn": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "pattern": "^==[0-9]+(?:\\.[0-9]+)*(?:[a-z0-9.-]+)?$"}
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "exactEntries": {"type": "integer", "minimum": 1},
+        "canonicalization": {"type": "string", "minLength": 1},
+        "migrationMode": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "matrixVersion", "runtime", "protocol", "components", "releaseTrain"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "CompatibilityMatrix"},
+    "matrixVersion": {"const": 2},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pythonVersion", "baseImage", "pythonDependencyMode", "offlineTargets"],
+      "properties": {
+        "pythonVersion": {"const": "3.12"},
+        "baseImage": {"const": "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"},
+        "pythonDependencyMode": {"const": "offline-hash-locked-wheelhouse"},
+        "offlineTargets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["epistemic-graph", "agent-utilities", "langfuse-agent"],
+          "properties": {
+            "epistemic-graph": {"const": "release-local"},
+            "agent-utilities": {"const": "agent-local"},
+            "langfuse-agent": {"const": "mcp-local"}
+          }
+        }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "schemas"],
+      "properties": {
+        "name": {"const": "epistemic-operations"},
+        "version": {"const": "1"},
+        "schemas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requestContext", "mutationBatch", "changeEnvelope", "workItem", "artifact", "knowledgeBatch", "analyticsJob", "traceOutcome", "placementRoute", "claimWorkItem", "evidenceBundle", "operationResult"],
+          "properties": {
+            "requestContext": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "mutationBatch": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "changeEnvelope": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "workItem": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "artifact": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "knowledgeBatch": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "analyticsJob": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "traceOutcome": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "placementRoute": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "claimWorkItem": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "evidenceBundle": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+            "operationResult": {"type": "string", "pattern": "^[1-9][0-9]*$"}
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "minProperties": 8,
+      "maxProperties": 8,
+      "required": ["epistemic-operations-protocol", "epistemic-graph", "agent-utilities", "langfuse-agent", "connector-bundles", "prebundled-skills", "ontology-lock", "index-migrations"],
+      "propertyNames": {"enum": ["epistemic-operations-protocol", "epistemic-graph", "agent-utilities", "langfuse-agent", "connector-bundles", "prebundled-skills", "ontology-lock", "index-migrations"]},
+      "properties": {
+        "epistemic-operations-protocol": {"allOf": [{"$ref": "#/$defs/component"}, {"not": {"required": ["dependsOn"]}, "properties": {"version": {"const": "==1"}, "artifactKind": {"const": "catalog"}}}]},
+        "epistemic-graph": {"allOf": [{"$ref": "#/$defs/component"}, {"not": {"required": ["dependsOn"]}, "properties": {"version": {"const": "==2.23.1"}, "artifactKind": {"const": "oci"}}}]},
+        "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["dependsOn"], "properties": {"version": {"const": "==1.27.1"}, "artifactKind": {"const": "oci"}, "dependsOn": {"const": {"epistemic-graph": "==2.23.1"}}}}]},
+        "langfuse-agent": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["dependsOn"], "properties": {"version": {"const": "==1.0.3"}, "artifactKind": {"const": "oci"}, "dependsOn": {"const": {"agent-utilities": "==1.27.1"}}}}]},
+        "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["dependsOn", "exactEntries"], "properties": {"version": {"const": "==1"}, "artifactKind": {"const": "catalog"}, "dependsOn": {"const": {"agent-utilities": "==1.27.1", "epistemic-graph": "==2.23.1"}}, "exactEntries": {"const": 65}}}]},
+        "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["dependsOn", "exactEntries"], "properties": {"version": {"const": "==1"}, "artifactKind": {"const": "catalog"}, "dependsOn": {"const": {"agent-utilities": "==1.27.1"}}, "exactEntries": {"const": 10}}}]},
+        "ontology-lock": {"allOf": [{"$ref": "#/$defs/component"}, {"not": {"required": ["dependsOn"]}, "required": ["canonicalization"], "properties": {"version": {"const": "==1"}, "artifactKind": {"const": "catalog"}, "canonicalization": {"const": "urdna2015-sha256"}}}]},
+        "index-migrations": {"allOf": [{"$ref": "#/$defs/component"}, {"not": {"required": ["dependsOn"]}, "required": ["migrationMode", "exactEntries"], "properties": {"version": {"const": "==1"}, "artifactKind": {"const": "catalog"}, "migrationMode": {"const": "one-time-persisted-state"}, "exactEntries": {"const": 1}}}]}
+      },
+      "additionalProperties": false
+    },
+    "releaseTrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assemblyOrder", "activationMode", "stateMigrationMode", "rollbackRequires"],
+      "properties": {
+        "assemblyOrder": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "prefixItems": [
+            {"const": "epistemic-operations-protocol"},
+            {"const": "epistemic-graph"},
+            {"const": "agent-utilities"},
+            {"const": "langfuse-agent"},
+            {"const": "connector-bundles"},
+            {"const": "prebundled-skills"},
+            {"const": "ontology-lock"},
+            {"const": "index-migrations"}
+          ],
+          "items": false
+        },
+        "activationMode": {"const": "atomic-exact-release"},
+        "stateMigrationMode": {"const": "one-time-persisted-state"},
+        "rollbackRequires": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {"enum": ["signed-pre-cutover-snapshot", "verified-state-migration", "prior-exact-release-manifest", "prior-ontology-lock", "prior-connector-catalog"]}
+        }
+      }
+    }
+  }
+}

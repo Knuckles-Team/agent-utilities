@@ -80,11 +80,11 @@ alerts read naturally. These two series also feed the autoscaler's zero-infra
 | `agent_utilities_kg_ingest_queue_depth` | Gauge | `backend` | Pending KG ingest tasks in the selected durable task queue | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
 | `agent_utilities_kg_ingest_consumer_lag` | Gauge | `topic`, `group` | Total kg-ingest consumer-group lag (unconsumed messages) per topic | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
 
-## MCP multiplexer child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client)
+## Embedded MCP fleet child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client)
 
 One series per aggregated child server (~50, bounded by `mcp_config.json`).
-The multiplexer runs standalone; like every series here these degrade to
-no-ops when the `metrics` extra is absent.
+GraphOS emits these from its embedded fleet gateway; like every series here,
+they degrade to no-ops when the `metrics` extra is absent.
 
 | Name | Type | Labels | Meaning | Emitted by (module) | Since (concept id) |
 |---|---|---|---|---|---|

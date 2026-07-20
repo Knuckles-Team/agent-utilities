@@ -1,122 +1,114 @@
-# Tenant-Partitioned Engine Sharding
+# Authoritative engine placement and sharding
 
-> CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw (sharding) · CONCEPT:AU-OS.scaling.shard-topology-visibility-per (topology visibility)
+Production GraphOS uses one Epistemic Graph cluster per cell. The cluster owns
+placement, fencing and routing epochs; Agent Utilities consumes that authority and
+must not invent a second client-side placement map.
 
-Stage-2 scaling for the epistemic-graph compute tier: run **N independent
-engine processes ("shards")** and let every client route to the right one —
-no proxy hop, no coordinator, no engine changes.
+## Production topology
 
-## The partition model in one line
+The production cell runs three Epistemic Graph members. Every configured MultiRaft
+group is replicated across those three members, and a tenant graph resolves to one
+group through the authoritative placement catalog. The group is the ordering and
+transaction boundary. Cross-group writes use the engine's durable coordinator and
+retained prepare/decision records.
 
-```
-tenant  →  named graph  →  HRW (rendezvous hash)  →  shard endpoint
-```
-
-- **The named graph is the partition unit.** Each engine process keeps its own
-  string-keyed named-graph registry; a graph lives wholly on exactly one
-  shard, so single-graph operations never need cross-shard coordination.
-- **Tenancy enters only by choosing the graph name.** When a caller does not
-  target an explicit graph and the ambient `ActorContext` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
-  carries a tenant, the default graph is mapped to
-  `tenant__<tenant>__<base>` by `tenant_graph_name()`
-  (`knowledge_graph/core/shard_topology.py`, also exported from
-  `agent_utilities.knowledge_graph` and as `KnowledgeGraph.tenant_graph()`).
-- **Shard choice is a pure function of the graph name.** The sync client path
-  (`GraphComputeEngine`) delegates to the exact HRW implementation in
-  `epistemic_graph.pool.ShardRouter`, so sync and async callers can never
-  disagree on placement.
-
-## Configuration
-
-| Flag (on `AgentConfig`) | Default | Meaning |
-|---|---|---|
-| `GRAPH_SERVICE_ENDPOINTS` | unset | Comma-separated or JSON list of shard endpoints (`unix://` / `tcp://`). Unset or one entry = today's single-engine behaviour (zero-infra preserved); 2+ entries enable sharding. |
-| `KG_DEFAULT_GRAPH` | `__bus__` | The default named graph; the ambient tenant maps onto `tenant__<t>__<default>` in sharded mode only. |
-
-Routing-key resolution (`resolve_routing_graph`):
-
-1. explicit, non-default graph name → used verbatim;
-2. ambient `ActorContext` tenant → `tenant_graph_name(tenant, default)`;
-3. otherwise → the configured default graph.
-
-Endpoint strings are hashed **verbatim** — configure every client with the
-*identical* list (order does not matter; HRW is order-independent) and with
-explicit schemes.
-
-## Operational semantics
-
-- **Autostart is local-only.** `EPISTEMIC_GRAPH_AUTOSTART=1` may spawn an
-  engine only for a local (`unix://`) endpoint. In sharded mode an
-  unreachable remote (`tcp://`) shard is a **fail-loud `ConnectionError`**
-  naming the shard, the graph it owns, and the remediation — the same
-  hard-contract convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task queue. Auto-starting a
-  local stand-in would silently split that shard's graphs into invisible
-  islands.
-- **The flock host role is per-host.** `host_lock.py` elects ONE daemon owner
-  per host for the *local* engine; remote shards are reported by the status
-  surfaces, never managed.
-- **Auth is fleet-wide.** All shards and all clients must share ONE
-  `GRAPH_SERVICE_AUTH_SECRET` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Set it explicitly in
-  multi-host deployments — the auto-generated per-install secret only covers
-  one host.
-
-## Rebalancing (out of scope — the honest caveat)
-
-HRW keeps key movement minimal when a shard is added or removed (~1/N of
-graphs change owner), but **no data moves automatically**. A graph whose HRW
-winner changed re-creates **empty** on its new shard until you migrate it
-manually with the existing snapshot tooling:
-
-1. quiesce writers for that graph;
-2. export from the old shard (`lifecycle.to_msgpack` /
-   `GraphComputeEngine.to_msgpack()`, or copy its `--persist-dir` checkpoint);
-3. import on the new shard (`from_msgpack`) **after** the endpoint list
-   changed everywhere;
-4. delete the stale copy from the old shard.
-
-Durable mirrors (e.g. pg-age) are unaffected — they are not partitioned by this
-mechanism.
-
-## Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
-
-- `shard_topology_status()` → shard mode, per-endpoint transport-level
-  reachability probe, locality, and circuit-breaker state. Surfaced on:
-  - the unified daemon status (`unified_daemon_status()["shards"]`, i.e.
-    `GET /daemon/status` and `python -m agent_utilities.gateway.daemon --status`);
-  - the gateway dashboard route `GET /daemon/shards`;
-  - graph-os `GET /health` (cheap config-only summary: `shard_mode`,
-    `shard_count` — no probe on the liveness path).
-- Prometheus (AU-OS.observability.no-op-without-metrics registry, `agent_utilities/observability/gateway_metrics.py`):
-  - `agent_utilities_engine_shard_up{endpoint}` — 1/0, refreshed on every real
-    client connect and by the status probe;
-  - `agent_utilities_engine_shard_requests_total{endpoint,outcome}` — the
-    engine-call outcomes (`ok | connection_error | error | short_circuited`)
-    split per shard;
-  - the existing `agent_utilities_gateway_engine_breaker_state{endpoint}` is
-    already per-endpoint, so each shard gets its own circuit breaker for free.
-- Each engine process can additionally expose its own native metrics with
-  `--metrics-addr` (`epistemic_graph_*` series, one scrape target per shard).
-
-## Worked example — 3 shards on one host
-
-See [`docker/engine-shards.compose.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/docker/engine-shards.compose.yml)
-for the runnable compose file (3 engines, distinct ports + persist dirs +
-metrics listeners, one shared secret), or by hand:
-
-```bash
-export GRAPH_SERVICE_AUTH_SECRET="$(openssl rand -hex 32)"
-for i in 1 2 3; do
-  epistemic-graph-server \
-    --tcp-addr "127.0.0.1:910${i}" \
-    --persist-dir "/var/lib/epistemic-graph/shard-${i}" \
-    --metrics-addr "127.0.0.1:911${i}" &
-done
-
-# Every agent-utilities client / gateway / ingest worker:
-export GRAPH_SERVICE_ENDPOINTS="tcp://127.0.0.1:9101,tcp://127.0.0.1:9102,tcp://127.0.0.1:9103"
+```text
+verified request
+  -> stable cell coordinator
+  -> placement catalog (graph, tenant, epoch)
+  -> MultiRaft group
+  -> three replicated members
 ```
 
-Multi-host is the same picture with one engine (or a few, on big hosts) per
-machine and hostnames in the endpoint list. Capacity planning for shard
-counts lives in [`docs/scaling/capacity_model.md`](../scaling/capacity_model.md)
-(`RESIDENTS_PER_L0_SHARD`).
+`EPISTEMIC_GRAPH_RAFT_GROUPS` establishes the group ring. An explicit catalog
+assignment overrides the ring. Placement responses include an epoch; a stale request
+is redirected or rejected so a move cannot silently write to its former owner.
+Agent Utilities obtains this route through the engine `PlacementRoute` RPC and
+re-resolves after a stale-epoch response.
+
+`ResolvedEngine` and the middleware-minted `GraphSession` retain the returned group
+and catalog epoch. The Python client surfaces a structured `StaleRouteError`; the
+GraphSession-routed transport refreshes placement and retries once with the original
+idempotency key. Engine-native change envelopes are rebound to the refreshed epoch
+and group fence before that retry.
+
+The production templates deliberately configure one
+`GRAPH_SERVICE_ENDPOINTS` value: the stable coordinator Service. That Service selects
+StatefulSet pod index zero because analytics jobs and admin mutation recovery are
+durable non-Raft ledgers today. Load-balancing requests across separate copies of
+those ledgers would split authority. MultiRaft still replicates graph state across all
+three members; loss of the coordinator pod is recovered by StatefulSet recreation and
+reattachment of its retained claim. The certification campaign measures this recovery
+time rather than claiming instantaneous failover.
+
+If a non-production topology exposes groups through distinct client endpoints,
+configure a JSON `GRAPH_RAFT_GROUP_ENDPOINTS` map keyed by group id. An endpointless
+catalog result in a multi-endpoint deployment without that map fails closed. It never
+falls back to an invented group-to-host rule.
+
+## Tenant and graph resolution
+
+The named graph remains the isolation key. A verified `ActorContext` supplies the
+tenant, scopes and policy version, while an explicit graph name selects the logical
+graph within that policy boundary. The engine enforces row-level policy and rejects a
+stale placement epoch or fencing token.
+
+Production invariants are:
+
+- every request carries verified identity and tenant context;
+- placement is returned by the engine, not reconstructed from an endpoint list;
+- all clients in a cell use the same coordinator authority;
+- a catalog move preserves graph identity, durable rows, audit chain and replay state;
+- projection, indexing and reasoning advance only after authoritative state is
+  durable.
+
+There is no client-side placement mode. Multiple configured endpoints are ordered
+coordinator contacts; they are never interpreted as a hash ring. If the engine
+authority or group-to-endpoint topology is unavailable, the request fails closed.
+
+## Online movement and rebalancing
+
+Two related engine mechanisms move load without changing the client contract:
+
+1. MultiRaft placement can repoint a graph to another group under a per-tenant
+   migration fence. Because groups share the authoritative durable graph registry,
+   the move checkpoints, changes the catalog route and resumes at a new epoch.
+2. A durable multi-shard redb deployment can execute snapshot-plus-delta resharding.
+   It bulk-copies a stable snapshot while writes continue, quiesces only for the delta
+   and catalog flip, then purges the old copy after the new route is durable.
+
+The rebalance planner is deterministic and bounded. Execution applies one graph move
+at a time and resolves current placement before each move, so a stale plan cannot
+blindly overwrite newer placement. Operators must use the governed
+`engine_resharding` admin surface with `kg:admin`; direct catalog mutation is not an
+operational procedure.
+
+Before and after a move, prove:
+
+- quorum and checkpoint health;
+- no active incompatible release, ontology or index migration;
+- the placement epoch advanced exactly once;
+- acknowledged writes, auxiliary authority and audit continuity survived;
+- projection/index cursors do not lead authoritative state;
+- tenant policy, deletion and stale-fence rejection remain effective.
+
+Online reshard and rebalance are mandatory scenarios in the exact-release
+certification campaign.
+
+## Capacity and observability
+
+The engine StatefulSet is not HPA-scaled. Adding or removing a voting member is a
+quorum operation; changing group count or tenant placement is a governed resharding
+operation. Stateless frontends and standalone dispatch, ingest and analytics workers
+scale independently from p99 latency, queue depth, consumer lag and authoritative job
+backlog.
+
+Production quorum health comes from ready StatefulSet members plus native
+`epistemic_graph_*` Raft, WAL and checkpoint metrics. The
+`agent_utilities_engine_shard_up{endpoint}` gauge describes configured coordinator
+endpoints; with one stable coordinator it must not be interpreted as a Raft member
+count.
+
+See [capacity planning](../scaling/capacity_model.md), the
+[production cell runbook](../operations/production-cell-runbook.md), and
+[disaster recovery](../operations/disaster-recovery.md).

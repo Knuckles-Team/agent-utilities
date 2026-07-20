@@ -1,7 +1,36 @@
 # agent-utilities C4 Architecture
 
-This document provides formal C4 architecture diagrams showing how the 6 pillars
+This document provides formal C4 architecture diagrams showing how the 5 pillars
 of `agent-utilities` interconnect with each other and with external IDE consumers.
+
+## Current authority flow (normative)
+
+The detailed C4 views below inventory capability ownership. They do not create
+alternate graph, identity, work-state, model-context, or connector authorities.
+Every supported entry path converges on this flow:
+
+```mermaid
+flowchart LR
+    CLIENT["Library · MCP · REST · delegated skill"] --> ID["Verified identity boundary"]
+    ID --> SESSION["GraphSession<br/>actor · tenant · graph · scopes · policy"]
+    SESSION --> ACTION["GraphOS action core"]
+    SESSION --> CONTEXT["ContextCompiler<br/>mandatory before model execution"]
+    CONTEXT --> ACTION
+    ACTION --> CLIENT1["One process-wide<br/>GraphComputeEngine client"]
+    CLIENT1 --> ENGINE["epistemic-graph<br/>sole graph and durable-work authority"]
+    ACTION --> WORK["Engine-native WorkItem<br/>claim · lease · fence · result"]
+    WORK --> ENGINE
+    PROFILE["Runtime secret and TLS profile refs"] --> DISCOVERY["External schema discovery<br/>mapping proposal · approval · drift check"]
+    DISCOVERY --> ENVELOPE["ChangeEnvelope / MutationBatch"]
+    ENVELOPE --> CLIENT1
+    ACTION -. "metadata-only traces" .-> TRACE["Langfuse through resolved TLS profile"]
+    ENGINE -. "async governed projection" .-> MIRROR["Optional mirrors<br/>never an authority"]
+```
+
+See [Graph Authority Convergence](../architecture/graph-authority-convergence.md),
+[Mandatory ContextCompiler](../architecture/mandatory-context-compiler.md), and
+[Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+for the executable contracts behind the diagram.
 
 > [!NOTE]
 > Components marked with 🔬 are research-backed additions from the
@@ -39,9 +68,9 @@ C4Context
     Rel(claude, au, "MCP: shared KG read/write")
     Rel(opencode, au, "MCP: shared KG read")
     Rel(devin, au, "MCP: shared KG read")
-    Rel(terminal, au, "Direct Python API (zero-copy)")
+    Rel(terminal, au, "Library API through the shared GraphOS runtime")
     Rel(webui, au, "ACP/AG-UI protocol")
-    Rel(geniusbot, au, "Direct Python API & AgentBridge (asynchronous)")
+    Rel(geniusbot, au, "Library API & AgentBridge through the shared runtime")
     Rel(skills, au, "DSTDD pipeline, skill ingestion")
     Rel(agent, au, "Orchestrated execution")
     Rel(au, enterprise, "Vendor adapters lift REST APIs → canonical ArchiMate nodes; virtual REST federation queries live data (KG-2.9 / KG-2.1)")
@@ -59,7 +88,7 @@ C4Container
 
     System_Boundary(au, "agent-utilities") {
         Container(orch, "ORCH: Orchestration Engine", "Python", "Router, Planner, Dispatcher, Capability Wiring; queue-driven turn dispatch (ORCH-1.45)")
-        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets / TCP)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval; HRW shard routing (AU-KG.sharding.tenant-partitioned-sharding-hrw)")
+        Container(kg, "KG: Knowledge Graph", "Python + epistemic-graph (Unix Sockets / TCP)", "Native graph-os ingestion, OWL ontology via Rust-compiled Datalog, hybrid retrieval; engine-authoritative placement")
         Container(ahe, "AHE: Agentic Harness", "Python", "Self-model, TeamConfig, evolution, evaluation; governed branch publication (AHE-3.21)")
         Container(eco, "ECO: Ecosystem Peripherals", "Python + FastMCP", "MCP server factory, A2A, skill management; hardened multiplexer (AU-ECO.mcp.profile-differences-from-client)")
         Container(os_k, "OS: Agent OS Kernel", "Python + FastAPI", "JWT-minted identity (OS-5.14), guardrails, lifecycle, telemetry, Prometheus /metrics, rate limiting, GATEWAY_WORKERS (AU-OS.observability.no-op-without-metrics)")
@@ -78,7 +107,7 @@ C4Container
     Rel(queues, workers, "Claims: at-least-once, idempotent")
     Rel(workers, kg, "Executes as engine clients (HMAC auth)")
     Rel(workers, statedb, "Durable write-back + heartbeats")
-    Rel(kg, kgdb, "Cypher queries / persistence (HRW graph → shard)")
+    Rel(kg, kgdb, "Governed queries / persistence (catalog route → Raft group)")
     Rel(os_k, statedb, "Sessions, goals, leadership, approvals")
     Rel(autonomy, os_k, "Fleet events in; approvals out (/api/fleet/*)")
     Rel(kg, ahe, "Feeds Self-Model & TeamConfig")
@@ -174,7 +203,7 @@ C4Component
         Component(db_schema, "Database Schema Hydrator", "Python", "KG-2.7: Extracts SQL schema relations and auto-aligns with infrastructure ontology")
         Component(process_mod, "Process Modeling Engine", "Python", "KG-2.7: Maps individual workflow steps directly to process_step nodes via :precedes edges")
         Component(cache_fabric, "Shared Ephemeral Cache Fabric", "Valkey / Redis / Filesystem", "Memory sharing between agents with TTL-based decay")
-        Component(dspy_bridge, "DSPy KG Bridge", "Python", "KG-2.2: Instantly persists evolved prompts and optimization traces")
+        Component(program_jobs, "Native Program Jobs", "Rust", "Persists governed candidates and optimization evidence")
         Component(align_bridge, "Ontology Alignment Bridge", "Python", "KG-2.7: Unifies disparate silos (Enterprise Architecture Repositories [EARs], ServiceNow) via cosine_similarity & owl:sameAs")
         Component(entail_scope, "Entailment-Aware Permission Scoper", "Python", "KG-2.7: Intersects security classifications for Rust Datalog inferred edges")
         Component(crosswalk, "Vendor-Neutral Crosswalk", "OWL/Turtle", "KG-2.9: ontology_archimate.ttl — binds each vendor class (ServiceNow :Incident, ERPNext :ErpNextIssue, Camunda :BusinessTask) to one canonical ArchiMate concept via subClassOf/equivalentClass")
@@ -182,7 +211,7 @@ C4Component
         Component(realizes, "Code→Capability Bridge", "Python", "KG-2.8: realizes.py — REALIZES edges from code features to BusinessCapability (match / mint / curated)")
         Component(cap_wb, "Capability Write-Back", "Python", "KG-2.8: Pushes provisional/derived capabilities back to Archi (add_element) & LeanIX (postbusinesscapability)")
         Component(rest_fed, "Virtual REST Federation", "Python", "KG-2.1: register_rest_source — query live REST systems on-demand via extractors, TTL-cached")
-        Component(brain_guard, "Brain-Guarded Backend", "Python", "KG-2.6: write-path provenance + source-authority arbitration (trust decay). Installed when KG_BRAIN_ENFORCE=1")
+        Component(brain_guard, "Brain-Guarded Backend", "Python", "KG-2.6: mandatory write-path provenance + source-authority arbitration (trust decay)")
         Component(secured, "Secured Reads", "Python", "KG-2.6: read-path ACL filter + tenant scope + read audit; entailment-aware ACL inheritance")
         Component(feedback, "Feedback Service", "Python", "KG-2.8: human correction → reward / durable governance rule / eval case (graph_feedback tool)")
         Component(govrules, "Governance Rules", "Python", "KG-2.8: rules consulted at retrieval time to filter/re-rank designations")
@@ -218,14 +247,14 @@ C4Component
     Rel(stream_ingest, align_bridge, "Resolves topological alignments for disparate systems")
     Rel(ontology, entail_scope, "Delegates security classification filtering for inferred graphs")
     Rel(engine, cache_fabric, "Stores and invalidates ephemeral agent contexts with dynamic TTL tracking")
-    Rel(dspy_bridge, engine, "Fast-path Cypher MERGE")
+    Rel(program_jobs, engine, "Persists typed results and evidence")
     Rel(vendor_ext, engine, "Writes canonical GraphNodes via single backend interface")
     Rel(vendor_ext, crosswalk, "Emits canonical types bound by the crosswalk")
     Rel(crosswalk, ontology, "Loaded as a sibling ontology; HermiT propagates rdf:type to canonical concepts")
     Rel(realizes, engine, "Writes REALIZES edges + provisional capabilities")
     Rel(realizes, cap_wb, "Hands minted capabilities for write-back")
     Rel(rest_fed, vendor_ext, "Invokes extractors at query-time (TTL-cached, no materialization)")
-    Rel(brain_guard, backend, "Wraps the store: provenance + authority-arbitrated writes (KG_BRAIN_ENFORCE)")
+    Rel(brain_guard, backend, "Wraps the store: mandatory provenance + authority-arbitrated writes")
     Rel(secured, engine, "Filters/scopes/audits reads on the facade path")
     Rel(feedback, govrules, "Persists rules consumed by")
     Rel(govrules, retrieval, "Re-ranks/filters designations at retrieval time")
@@ -278,7 +307,7 @@ C4Component
         Component(sdd, "DSTDD Manager", "Python", "Design-Spec-Test pipeline")
         Component(dasm, "🔬 Distributed Agent State Manager", "Python", "AU-AHE.harness.concept-2: Optimistic locking with optional Redis support")
         Component(distill, "Workflow Distillation Hook", "Python", "ORCH-1.8: Auto-promotes successful patterns to Workflow Skills")
-        Component(dspy, "DSPy Compiler", "Python", "AHE-3.1: Mathematical prompt optimization")
+        Component(program_optimizer, "Native Program Optimizer", "Rust", "AHE-3.1: Governed program optimization")
         Component(physdistill, "🔬 Physical Knowledge Distiller", "Python", "AHE-3.9: Distills evolved prompts/tools to physical git-tracked files")
         Component(dynoptimizer, "🔬 Dynamic Optimizer Selector", "Python", "AHE-3.10: Dynamically selects optimal optimizer (MIPROv2, FewShot, etc.) based on cluster scale")
         Component(gitops_bound, "🔬 GitOps Evolution Boundary", "Python", "AU-AHE.optimization.gitops-commit-automation: Enforces git boundaries and registers evolutionary changes in KG")
@@ -298,7 +327,7 @@ C4Component
     Rel(team, dasm, "Syncs concurrent agent state")
     Rel(distill, team, "Promotes proven team compositions")
     Rel(distill, evolve, "Feeds back distilled patterns")
-    Rel(evolve, dspy, "Offloads trace-based tuning to DSPy")
+    Rel(evolve, program_optimizer, "Submits trace-derived governed program jobs")
     Rel(evolve, physdistill, "Offloads evolved structures for physical write")
     Rel(physdistill, gitops_bound, "Triggers git changes and commits via boundaries")
     Rel(evolve, dynoptimizer, "Selects dynamic optimizer strategy based on failure characteristics")
@@ -348,7 +377,7 @@ C4Component
     Rel(toolkit_ingest, mcp_discover, "Delegates live tool discovery")
     Rel(toolkit_ingest, skill_mgr, "Ingests skill directories")
     Rel(toolkit_ingest, a2a, "Fetches A2A agent cards")
-    Rel(mcp_discover, mcp_factory, "Connects to MCP servers via stdio")
+    Rel(mcp_discover, mcp_factory, "Uses the canonical bounded stdio/HTTP/SSE child probe")
     Rel(dataflows, quant_micro, "Feeds tick-level order book")
     Rel(quant_micro, quant_arb, "Provides micro-price edges")
     Rel(quant_arb, quant_mcp, "Generates stat-arb signals")
@@ -371,7 +400,7 @@ C4Component
         Component(metrics, "Gateway Metrics + Rate Limit", "Python ASGI", "AU-OS.observability.no-op-without-metrics: Prometheus /metrics (agent_utilities_* series), per-tenant token buckets, engine circuit breaker, GATEWAY_WORKERS")
         Component(paths, "XDG Paths Module", "Python + platformdirs", "Centralized path resolution")
         Component(gateway, "Gateway Service Dashboard", "Python + FastAPI", "AU-OS.config.gateway-service-dashboard: 50-widget registry, aggregator, REST+WS API, MCP auto-discovery; daemon/shards topology view (AU-OS.scaling.shard-topology-visibility-per)")
-        Component(statestore, "State Store Seam", "Python", "AU-OS.state.unified-durable-state-externalization: STATE_DB_URI — shared Postgres for checkpoints/sessions/queues; AU-OS.state.cross-host-daemon-leadership advisory-lock leadership")
+        Component(statestore, "State Store Seam", "Python", "AU-OS.state.unified-durable-state-externalization: STATE_DB_URI — shared Postgres for sessions/turns/queue delivery; native WorkItems retain checkpoints; AU-OS.state.cross-host-daemon-leadership advisory-lock leadership")
         Component(fleetapi, "Fleet Supervisory Plane", "Python", "AU-OS.config.fleet-event-ingress/AU-OS.state.fleet-supervisory-plane-at: /api/fleet/* — health, topology, events ingress, pause/kill, approvals")
         Component(actionpolicy, "ActionPolicy Decision Point", "Python", "OS-5.24: per-action autonomy tiers, durable rate limits, blast-radius caps; fail-closed; ActionDecision audit")
         Component(reconciler, "Fleet Reconciler + Autoscaler", "Python", "AU-OS.config.desired-state-fleet-reconciler/OS-5.29: desired-state convergence + target-tracking scaling, leader-only, dry-run actuator default")
@@ -568,7 +597,7 @@ flowchart LR
 
         subgraph QUEUE_DISPATCH ["Queue-Driven Dispatch Flow (ORCH-1.45)"]
             direction LR
-            QD_CALL["ORCH-1.0: graph_orchestrate dispatch / goal loop"] -->|"AGENT_DISPATCH_BACKEND=queue"| QD_ENV["ORCH-1.45: AgentTurnEnvelope (job id, session id, payload ref)"]
+            QD_CALL["ORCH-1.0: graph_orchestrate dispatch / goal loop"] -->|"queue-only"| QD_ENV["ORCH-1.45: AgentTurnEnvelope (job id, session id, payload ref)"]
             QD_ENV -->|"key = session:&lt;id&gt;"| QD_TOPIC["KG-2.55: agent_turns queue (Kafka / Postgres / SQLite)"]
             QD_TOPIC -->|"claim under session lock"| QD_WORKER["ORCH-1.45: agent-dispatch-worker"]
             QD_WORKER -->|"rehydrate + execute existing body"| QD_RUN["ORCH-1.21: run_goal_loop / orchestration manager"]
@@ -584,14 +613,14 @@ flowchart LR
             IS_WORKER -->|"idempotent job_id claims"| IS_ENGINE["KG-2.7: epistemic-graph engine"]
             IS_TOPIC -.->|"lag + depth gauges"| IS_METRICS["AU-OS.observability.no-op-without-metrics: /metrics"]
             IS_WORKER -->|"contextvar IngestProfile: stages_ms + tokens/cost"| IS_PROFILE["AU-OS.observability.ingestion-profile-report/70/71: graph_ingest action=profile → profile_report (p50/p95, parallelism_factor, dead_letter)"]
-            IS_ENGINE -.->|"GetNodes count > 50000"| IS_GUARD["EG-KG.ingest.resets-socket-so-assimilation: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
+            IS_ENGINE -.->|"GetNodes count exceeds 50000"| IS_GUARD["EG-KG.ingest.resets-socket-so-assimilation: RESULT_TOO_LARGE guard + EG-011 write-lock wait/hold histograms"]
             IS_ENGINE -->|"per-graph write lock contention"| IS_COAL["EG-KG.sharding.per-graph-write-coalescer: write-coalescer (N writes → 1 txn) + __control__ split"]
         end
 
         subgraph SHARDING ["Engine Sharding Flow (AU-KG.sharding.tenant-partitioned-sharding-hrw / AU-OS.scaling.shard-topology-visibility-per)"]
             direction LR
-            SH_REQ["KG-2.0: graph operation"] -->|"graph name / tenant"| SH_ROUTE["AU-KG.sharding.tenant-partitioned-sharding-hrw: HRW ShardRouter"]
-            SH_ROUTE -->|"owning shard"| SH_ENG["KG-2.7: engine shard 1..N (GRAPH_SERVICE_ENDPOINTS)"]
+            SH_REQ["KG-2.0: graph operation"] -->|"verified graph / tenant"| SH_ROUTE["PlacementRoute: group + epoch + fence"]
+            SH_ROUTE -->|"authoritative group"| SH_ENG["KG-2.7: MultiRaft engine cluster"]
             SH_ENG -.->|"reachability + breaker state"| SH_TOPO["AU-OS.scaling.shard-topology-visibility-per: daemon status + dashboard daemon/shards"]
         end
 
@@ -770,8 +799,8 @@ C4Container
         Container(dispatchworkers, "agent-dispatch-worker fleet", "Python", "Claims session-keyed agent turns; durable write-back (ORCH-1.45)")
         Container(ingestworkers, "kg-ingest-worker fleet", "Python", "kg-ingest consumer group; engine clients (AU-KG.ingest.decoupled-kg-ingest-consumer)")
         ContainerQueue(topics, "Kafka topics", "kg_tasks + agent_turns", "Keyed partitions; Postgres/SQLite fallbacks")
-        ContainerDb(shards, "epistemic-graph engine shards", "Rust", "1..N tenant-partitioned shards, HRW-routed (AU-KG.sharding.tenant-partitioned-sharding-hrw)")
-        ContainerDb(state, "Shared state store", "PostgreSQL (STATE_DB_URI)", "Sessions, goals, checkpoints, queues")
+        ContainerDb(shards, "epistemic-graph cell", "Rust", "catalog-routed, fenced MultiRaft groups")
+        ContainerDb(state, "Shared support-state store", "PostgreSQL (STATE_DB_URI)", "Sessions, turns, fleet metadata, queue delivery")
     }
 
     System_Ext(mcp, "MCP Servers", "Contextual tools (GitHub, Slack, etc.) behind the hardened multiplexer (AU-ECO.mcp.profile-differences-from-client)")
@@ -788,7 +817,7 @@ C4Container
     Rel(topics, ingestworkers, "Tenant/repo-keyed claims", "at-least-once")
     Rel(dispatchworkers, state, "Rehydrate + durable write-back")
     Rel(ingestworkers, shards, "Ingest as engine clients", "MessagePack + HMAC")
-    Rel(orchestrator, shards, "Graph ops, HRW-routed", "MessagePack/UDS or TCP")
+    Rel(orchestrator, shards, "Graph ops, placement-epoch routed", "MessagePack/UDS or TCP")
     Rel(gateway, state, "Sessions, goals, approvals, leadership")
     Rel(orchestrator, subagent, "Delegates", "Parallel Execution")
     Rel(subagent, mcp, "Invokes Tools", "JSON-RPC (stdio/SSE)")

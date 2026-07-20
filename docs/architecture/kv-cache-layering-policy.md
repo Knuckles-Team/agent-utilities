@@ -11,7 +11,7 @@
 
 ## Why
 
-The fleet's GB10 vLLM can offload attention-KV **and** Mamba/GDN state to a
+The fleet's configured vLLM can offload attention-KV **and** Mamba/GDN state to a
 decoupled `lmcache server` (L1 CPU + L2 epistemic-graph). LMCache **retrieval** is
 already opportunistic — on a token-prefix hash hit it reuses, otherwise it just
 misses. The only lever worth pulling per request is the **store** side: writing a
@@ -24,7 +24,7 @@ and skip it for one-off short single-shot prompts.
 
 ## The per-request control surface (validated)
 
-Per-request KV control **exists** in the `registry.arpa/vllm-lmcache:latest`
+Per-request KV control **exists** in the `${MODEL_SERVER_IMAGE}`
 image and is what this policy drives:
 
 | Layer | Evidence |

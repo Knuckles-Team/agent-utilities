@@ -2,11 +2,11 @@
 """Validate an mcp_config.json against a Caddyfile (and optionally live endpoints).
 
 The MCP multiplexer fans out to many child servers declared by ``url`` in an
-``mcp_config.json``. Each ``url`` is expected to be a streamable-http endpoint
-reverse-proxied by Caddy on the ``.arpa`` domain. This tool reconciles the two:
+``mcp_config.json``. Managed ``url`` values are streamable-http endpoints
+reverse-proxied by Caddy. This tool reconciles the two:
 
   * every streamable-http ``url`` host must map to a Caddy reverse_proxy route;
-  * Caddy ``*-mcp.arpa`` routes with no config entry are reported (coverage gap);
+  * Caddy routes under an optional managed suffix with no config entry are reported;
   * with ``--live`` each endpoint is probed with an MCP ``initialize`` and must
     answer (HTTP 200), catching routed-but-dead backends (e.g. a 502).
 
@@ -26,10 +26,14 @@ Examples
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import os
 import re
+import ssl
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 # A streamable-http transport is implied by a ``url`` or one of these transports.
 _REMOTE_TRANSPORTS = {"streamable-http", "streamable_http", "http", "sse"}
@@ -45,6 +49,45 @@ _INITIALIZE = json.dumps(
         },
     }
 ).encode()
+_MAX_PROBE_RESPONSE_BYTES = 1 * 1024 * 1024
+
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise RuntimeError("remote redirect was rejected")
+
+
+def _tls_context() -> ssl.SSLContext:
+    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
+    capath = os.environ.get("SSL_CERT_DIR")
+    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
+
+
+def _validated_probe_host(url: str) -> str:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return ""
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or not (1 <= port <= 65_535)
+        or len(url) > 8_192
+    ):
+        return ""
+    if parsed.scheme == "http":
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host == "localhost"
+        if not loopback:
+            return ""
+    return host
 
 
 def parse_caddy_hosts(caddyfile_text: str) -> dict[str, str | None]:
@@ -91,6 +134,9 @@ def config_url_entries(config: dict) -> dict[str, str]:
 def live_probe(url: str, timeout: float) -> tuple[bool, str]:
     """POST an MCP ``initialize`` and report (ok, detail). A healthy
     streamable-http server answers 200 (text/event-stream)."""
+    host = _validated_probe_host(url)
+    if not host or not 0.1 <= timeout <= 120:
+        return False, "endpoint policy rejected"
     req = urllib.request.Request(
         url,
         data=_INITIALIZE,
@@ -100,13 +146,22 @@ def live_probe(url: str, timeout: float) -> tuple[bool, str]:
             "Content-Type": "application/json",
         },
     )
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        urllib.request.HTTPSHandler(context=_tls_context()),
+        _RejectRedirects(),
+    )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
+            if _validated_probe_host(resp.geturl()) != host:
+                return False, "endpoint origin changed"
+            if len(resp.read(_MAX_PROBE_RESPONSE_BYTES + 1)) > _MAX_PROBE_RESPONSE_BYTES:
+                return False, "response exceeded boundary"
             return (200 <= resp.status < 300), f"HTTP {resp.status}"
     except urllib.error.HTTPError as e:
         return False, f"HTTP {e.code}"
-    except Exception as e:  # connection refused, DNS, timeout, …
-        return False, f"{type(e).__name__}: {e}"
+    except Exception:  # connection refused, DNS, timeout, …
+        return False, "request failed"
 
 
 def validate(
@@ -115,6 +170,7 @@ def validate(
     *,
     live: bool = False,
     timeout: float = 10.0,
+    managed_suffix: str = "",
 ) -> dict:
     """Reconcile config urls against Caddy; optionally live-probe each endpoint."""
     entries = config_url_entries(config)
@@ -124,7 +180,7 @@ def validate(
 
     for name, url in sorted(entries.items()):
         host = _host_of(url)
-        if host.endswith(".arpa") and host not in caddy_hosts:
+        if host not in caddy_hosts:
             invalid[name] = url
             continue
         if live:
@@ -134,10 +190,13 @@ def validate(
                 continue
         ok.append(name)
 
-    # Caddy *-mcp.arpa routes with no config entry — a coverage gap.
+    # Managed Caddy routes with no config entry — a coverage gap.
     config_hosts = {_host_of(u) for u in entries.values()}
+    suffix = managed_suffix.strip().lower()
     missing = sorted(
-        h for h in caddy_hosts if h.endswith("-mcp.arpa") and h not in config_hosts
+        h
+        for h in caddy_hosts
+        if suffix and h.lower().endswith(suffix) and h not in config_hosts
     )
 
     return {
@@ -178,6 +237,11 @@ def main(argv: list[str] | None = None) -> int:
         "--live", action="store_true", help="also probe each endpoint (MCP initialize)"
     )
     p.add_argument("--timeout", type=float, default=10.0, help="per-probe timeout (s)")
+    p.add_argument(
+        "--managed-suffix",
+        default="",
+        help="optional hostname suffix whose Caddy routes must all appear in config",
+    )
     p.add_argument("--json", action="store_true", help="emit the report as JSON")
     args = p.parse_args(argv)
 
@@ -186,7 +250,13 @@ def main(argv: list[str] | None = None) -> int:
     with open(args.caddyfile, encoding="utf-8") as f:
         caddy_hosts = parse_caddy_hosts(f.read())
 
-    report = validate(config, caddy_hosts, live=args.live, timeout=args.timeout)
+    report = validate(
+        config,
+        caddy_hosts,
+        live=args.live,
+        timeout=args.timeout,
+        managed_suffix=args.managed_suffix,
+    )
     print(json.dumps(report, indent=2) if args.json else _render(report, args.live))
     return 0 if report["passed"] else 1
 

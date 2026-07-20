@@ -6,7 +6,7 @@
 
 ## Summary
 
-- Scan root: `/home/apps/workspace/agent-packages`
+- Scan root: `${WORKSPACE_ROOT}/agent-packages`
 - Total `CONCEPT:` markers scanned: **6474**
 - Unique concept ids: **1114**
 - Projects/repos with markers: **8**

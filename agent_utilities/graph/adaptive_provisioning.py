@@ -8,8 +8,6 @@ an execution context strictly based on real-time Knowledge Graph lookups.
 import logging
 from typing import Any
 
-from pydantic_ai import Agent
-
 from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
@@ -63,7 +61,7 @@ class AdaptiveProvisioner:
         )
         return {"tools": tools_to_inject, "resources": []}
 
-    def inject_into_context(self, agent: Agent, provisioned: dict[str, Any]):
+    def inject_into_context(self, agent: Any, provisioned: dict[str, Any]):
         """Inject provisioned tools into an active pydantic-ai Agent instance."""
         logger.info(
             f"[ECO-4.6] Injecting tools into agent context: {[t['name'] for t in provisioned['tools']]}"

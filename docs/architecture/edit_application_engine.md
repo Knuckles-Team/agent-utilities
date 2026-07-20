@@ -8,7 +8,7 @@
 
 ## Why
 
-The original `tools/developer_tools.py::replace_in_file` did a single **exact**
+An exact host-file replacement implementation performs a single **exact**
 `str.replace(old, new, 1)`. Any whitespace drift between what the model emitted and
 what is on disk made it fail silently, with no recovery — the single weakest link
 for any coding agent. Production coding harnesses (e.g. aider) instead parse a
@@ -76,9 +76,8 @@ sequenceDiagram
 
 ## Surface
 
-- **Tool:** `apply_edits(edits, root=".", fmt="auto")` in
-  `tools/developer_tools.py` (registered in the `developer_tools` toolset).
-  `replace_in_file` is kept for the trivial exact-match path.
+- **Runtime:** the governed DevWorkspace edit action invokes the edit engine
+  inside its policy and provenance boundary.
 - **Library:** `agent_utilities.harness.edit_engine` —
   `parse_edits`, `apply_edits`, `apply_with_reflection`, `Edit`, `EditOutcome`,
   `EditResult`. Re-exported from `agent_utilities.harness`.
@@ -88,7 +87,7 @@ sequenceDiagram
 - `agent_utilities/harness/edit_engine.py` — parsers, the matching ladder
   (`_perfect_replace`, `_replace_flexible_ws`, `_replace_closest`), nearest-line
   hints, and `apply_with_reflection`.
-- `agent_utilities/tools/developer_tools.py` — the `apply_edits` tool wrapper.
+- `agent_utilities/tools/swe_workspace_tools.py` — the governed edit tool wrapper.
 
 ## Relationship to other concepts
 

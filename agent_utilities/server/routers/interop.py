@@ -5,6 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 
+from agent_utilities.security.error_surface import public_error_payload
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Interoperability"])
@@ -67,17 +69,17 @@ async def reload_mcp_config(request: Request):
         from agent_utilities.core.workspace import resolve_mcp_config_path
         from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
-        from ...graph_orchestration import load_node_agents_registry
+        from ...core.config import get_discovery_registry
 
         mcp_config = getattr(request.app.state, "mcp_config", "mcp_config.json")
         _mcp_cfg_path = resolve_mcp_config_path(mcp_config or "mcp_config.json")
         if _mcp_cfg_path:
             await sync_mcp_agents(config_path=_mcp_cfg_path)
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         return {
             "status": "reloaded",
             "agents": len(registry.agents),
             "tools": len(registry.tools),
         }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except Exception as exc:
+        return public_error_payload(exc, logger=logger)

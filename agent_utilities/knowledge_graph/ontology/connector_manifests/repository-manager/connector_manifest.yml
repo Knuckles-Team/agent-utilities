@@ -1,0 +1,155 @@
+connector: repository-manager
+ontology_source: repository
+schema_version: '1'
+resources:
+- name: GitRepository
+  label: Git Repository
+  id_prefix: gitrepository
+  relations: []
+- name: Project
+  label: Project
+  id_prefix: project
+  relations:
+  - name: projectOfRepository
+    label: project of repository
+    target: GitRepository
+    lpg_rel_type: ''
+- name: Worktree
+  label: Worktree
+  id_prefix: worktree
+  relations:
+  - name: worktreeOf
+    label: worktree of
+    target: GitRepository
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    repository: path
+  title_field:
+    repository: branch
+  text_field:
+    repository: repo
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  GitRepository:
+    ontology_class: SoftwareProject
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+  Project:
+    ontology_class: SoftwareProject
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+  Worktree:
+    ontology_class: null
+    fields:
+      aheadCount: xsd:integer
+      archived: xsd:boolean
+      behindCount: xsd:integer
+      branchName: xsd:string
+      cloneUrl: xsd:string
+      defaultBranch: xsd:string
+      dirty: xsd:boolean
+      fullPath: xsd:string
+      headSha: xsd:string
+      lastActivityAt: xsd:string
+      projectPath: xsd:string
+      repoWebUrl: xsd:string
+      validationStatus: xsd:string
+      vcs: xsd:string
+      worktreePath: xsd:string
+      worktreeStatus: xsd:string
+sync:
+- preset: repository-worktrees
+  server: repository-manager
+  tool: rm_worktree
+  action: list
+  records_path: worktrees
+  id_field: path
+  title_field: branch
+  text_field: repo
+  updated_field: null
+  pagination: null
+  doc_type: repository
+  tool_schema_sha256: 32a9d56b6b468dd37af05dee6884c7ba1616dc14a8ec6c6feb4d7e7ca82418e8
+  raw:
+    server: repository-manager
+    tool: rm_worktree
+    params_style: args
+    action: list
+    records_path: worktrees
+    id_field: path
+    title_field: branch
+    text_field: repo
+    doc_type: repository
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - repository_manager/connectors/mcp_source_presets.json
+  - repository_manager/connectors/tool_schema_fingerprints.json
+  - repository_manager/ontology/repository.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
+    triple_count: 71
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 3aA7ONlQIDt1PfRZopYOZO4FCNP21BbN4pPSiHbj_QY4MYBRLyr3hVSBljETKaAFhMmT3XG1msorJsJooIiEBA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'authoredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.GitRepository.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Project.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Worktree.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -42,33 +42,32 @@ def _chain(router: SandboxRouter) -> list[str]:
 
 def test_no_reward_fn_is_pure_rank():
     backends = [
-        _backend("local", 30),
+        _backend("firecracker", 25),
         _backend("docker", 20),
-        _backend("forkserver", 15),
+        _backend("wasm", 10),
     ]
-    assert _chain(SandboxRouter(backends)) == ["forkserver", "docker", "local"]
+    assert _chain(SandboxRouter(backends)) == ["wasm", "docker", "firecracker"]
 
 
 def test_neutral_reward_preserves_rank_order():
     backends = [
-        _backend("local", 30),
+        _backend("firecracker", 25),
         _backend("docker", 20),
-        _backend("forkserver", 15),
+        _backend("wasm", 10),
     ]
     router = SandboxRouter(backends, reward_fn=lambda _n: 0.5)
-    assert _chain(router) == ["forkserver", "docker", "local"]
+    assert _chain(router) == ["wasm", "docker", "firecracker"]
 
 
 def test_broken_rung_is_routed_around():
     backends = [
-        _backend("local", 30),
+        _backend("firecracker", 25),
         _backend("docker", 20),
-        _backend("forkserver", 15),
     ]
-    rewards = {"forkserver": 0.0, "docker": 1.0, "local": 0.5}
+    rewards = {"docker": 0.0, "firecracker": 1.0}
     router = SandboxRouter(backends, reward_fn=lambda n: rewards.get(n, 0.5))
-    # forkserver (rank 15) fully broken, docker (rank 20) healthy -> docker is tried first.
-    assert _chain(router)[0] == "docker"
+    # Docker (rank 20) fully broken, Firecracker (rank 25) healthy -> Firecracker is tried first.
+    assert _chain(router)[0] == "firecracker"
 
 
 def test_reward_shift_is_bounded_to_about_one_tier():

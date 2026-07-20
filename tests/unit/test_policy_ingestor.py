@@ -289,6 +289,27 @@ class TestPolicyIngestor:
         ]
         assert len(project_nodes) == 1
 
+    def test_constitution_persistence_uses_opaque_source_reference(
+        self, ingestor, engine, tmp_path
+    ):
+        specify_dir = tmp_path / ".specify" / "memory"
+        specify_dir.mkdir(parents=True)
+        (specify_dir / "constitution.md").write_text(SAMPLE_CONSTITUTION)
+
+        ingestor.ingest_constitution(str(tmp_path))
+
+        policy_data = [
+            data
+            for _, data in engine.graph.nodes(data=True)
+            if data.get("type") == "policy"
+        ]
+        assert policy_data
+        for data in policy_data:
+            metadata = data["metadata"]
+            assert "constitution_path" not in metadata
+            assert metadata["constitution_ref"].startswith("pref_constitution_")
+        assert str(tmp_path) not in json.dumps(policy_data, default=str)
+
     def test_ingest_constitution_normative_priority(self, ingestor, engine, tmp_path):
         """Test that normative (MUST) policies get higher priority."""
         specify_dir = tmp_path / ".specify" / "memory"
@@ -421,7 +442,7 @@ class TestPolicyIngestor:
     def test_real_constitution_parse(self):
         """Test parsing the actual agent-utilities constitution if it exists."""
         const_path = Path(
-            "/home/apps/workspace/agent-packages/agent-utilities/.specify/memory/constitution.md"
+            "/home/agent-user/workspace/agent-packages/agent-utilities/.specify/memory/constitution.md"
         )
         if not const_path.exists():
             pytest.skip("agent-utilities constitution not found")

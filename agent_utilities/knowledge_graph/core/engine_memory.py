@@ -24,6 +24,10 @@ from datetime import UTC
 from typing import Any
 
 from ...models.knowledge_graph import MemoryNode
+from ...security.persistence_privacy import (
+    persistence_reference,
+    sanitize_for_persistence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +211,7 @@ class MemoryMixin(_Base):
         tags: list[str] | None = None,
     ) -> str:
         """Add a new memory to the unified graph."""
-        memory_id = f"mem:{uuid.uuid4().hex[:8]}"
+        memory_id = f"mem:{uuid.uuid4().hex}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = MemoryNode(
@@ -227,7 +231,7 @@ class MemoryMixin(_Base):
                 )
             except Exception as e:
                 logger.warning(
-                    f"Failed to generate embedding for memory {node.id}: {e}"
+                    "Failed to generate memory embedding (%s)", type(e).__name__
                 )
 
         # Tiered write: backend is source of truth, NX is fallback
@@ -286,7 +290,7 @@ class MemoryMixin(_Base):
             rel_type = rel_type.upper()
         props = properties or {}
         if source_id in self.graph and target_id in self.graph:
-            self.graph.add_edge(source_id, target_id, type=rel_type, **props)
+            self.graph.add_edge(source_id, target_id, relationship=rel_type, **props)
 
         if self.backend:
             set_clause = self._get_set_clause(props, alias="r", label=rel_type)
@@ -365,7 +369,18 @@ class MemoryMixin(_Base):
         Returns:
             Memory node ID.
         """
-        memory_id = _memory_id or f"mem:{uuid.uuid4().hex[:8]}"
+        memory_id = _memory_id or f"mem:{uuid.uuid4().hex}"
+        safe_content, _content_privacy = sanitize_for_persistence(content)
+        safe_name, _name_privacy = sanitize_for_persistence(name)
+        safe_tags, _tags_privacy = sanitize_for_persistence(list(tags or []))
+        safe_extra_props, _props_privacy = sanitize_for_persistence(
+            dict(extra_props or {})
+        )
+        agent_ref = persistence_reference("memory_agent", agent_id, namespace="memory")
+        content = str(safe_content or "")
+        name = str(safe_name or "")
+        tags = [str(tag) for tag in safe_tags] if isinstance(safe_tags, list) else []
+        extra_props = safe_extra_props if isinstance(safe_extra_props, dict) else {}
 
         if not _local:
             from agent_utilities.knowledge_graph.core.host_lock import (
@@ -377,7 +392,7 @@ class MemoryMixin(_Base):
                     self.submit_task(  # type: ignore[attr-defined]  # TaskManagerMixin, composed onto the engine
                         target_path=memory_id,
                         is_codebase=False,
-                        provenance={"source": "store_memory", "agent_id": agent_id},
+                        provenance={"source": "store_memory", "agent_ref": agent_ref},
                         task_type="kg_memory",
                         extra_meta={
                             "payload": {
@@ -387,18 +402,20 @@ class MemoryMixin(_Base):
                                 "name": name,
                                 "tags": list(tags or []),
                                 "trust_score": trust_score,
-                                "agent_id": agent_id,
+                                "agent_ref": agent_ref,
                                 "extra_props": dict(extra_props or {}),
                             }
                         },
                     )
                     return memory_id
-                except Exception as e:  # noqa: BLE001 — last resort: write inline
-                    logger.warning(
-                        "[CONCEPT:AU-KG.memory.ingestion-serving-separation] memory ingest enqueue failed; "
-                        "writing inline: %s",
-                        e,
+                except Exception as e:  # noqa: BLE001 — fail closed at the plane boundary
+                    logger.error(
+                        "memory ingest enqueue failed (%s)", type(e).__name__
                     )
+                    raise RuntimeError(
+                        "memory ingest authority unavailable; "
+                        f"error_type={type(e).__name__}"
+                    ) from None
 
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -419,7 +436,7 @@ class MemoryMixin(_Base):
                 )
             except Exception as e:
                 logger.warning(
-                    f"Failed to generate embedding for memory {node.id}: {e}"
+                    "Failed to generate memory embedding (%s)", type(e).__name__
                 )
 
         # Add trust and provenance metadata
@@ -432,8 +449,8 @@ class MemoryMixin(_Base):
         data["trust_score"] = trust_score
         data["access_count"] = 0
         data["last_accessed"] = timestamp
-        if agent_id:
-            data["agent_id"] = agent_id
+        if agent_ref:
+            data["agent_ref"] = agent_ref
         # Merge caller-supplied flat, indexable scalars for cheap exact-match filtering.
         for _k, _v in (extra_props or {}).items():
             if isinstance(_v, str | int | float | bool):
@@ -559,7 +576,7 @@ class MemoryMixin(_Base):
                     reverse=True,
                 )
             except Exception as e:
-                logger.warning(f"Task-context reranking failed: {e}")
+                logger.warning("Task-context reranking failed (%s)", type(e).__name__)
 
         # Context budget compaction (CONCEPT:AU-KG.memory.parammem — Research: 2604.20874v1)
         # Apply Root Theorem: compact results if they exceed budget

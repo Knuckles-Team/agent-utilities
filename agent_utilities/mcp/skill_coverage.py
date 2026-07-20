@@ -1,106 +1,93 @@
 #!/usr/bin/python
-"""CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — kg-* skill ↔ graph-os verb coverage doctor.
+"""CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — Graph-OS domain-skill coverage.
 
-The graph-os MCP surface — every tool in :data:`kg_server.REGISTERED_TOOLS` — must
-be mirrored by a discoverable ``kg-*`` skill, so a new verb cannot ship without a
-skill (operators can't discover it) and a skill cannot point at a dead verb. This
-module computes that coverage; ``tests/unit/test_gateway_mcp_parity.py`` asserts it
-(the third parity leg, alongside the tool⇄REST-route legs) and the
-``kg-coverage-doctor`` skill runs it as a CLI (``python -m
-agent_utilities.mcp.skill_coverage``).
+The bundled skill suite is intentionally small: one workflow skill owns many
+related Graph-OS verbs. Coverage therefore cannot be inferred from a skill slug.
+Each participating skill declares its machine-readable contract in
+``agents/graph-os.yaml`` while ``SKILL.md`` keeps the portable ``name`` and
+``description`` frontmatter required by agent clients.
 
-Naming contract (user-locked): ``kg-<capability>`` where ``<capability>`` = the MCP
-verb minus the ``graph_`` prefix with ``_``→``-`` (``graph_ontology`` →
-``kg-ontology``). So the common case needs no configuration — the skill's slug alone
-maps it to its verb. Two escape hatches for the surface that isn't 1:1:
-
-* ``wraps: [verb, ...]`` frontmatter — a skill that fronts *several* verbs declares
-  them explicitly (e.g. ``kg-ingest`` wraps ``graph_ingest`` + ``source_sync`` +
-  ``source_drain`` + ``source_connector`` + ``document_process``; ``kg-ontology``
-  wraps ``graph_ontology`` + every ``ontology_*`` + ``object_*`` verb; each
-  ``kg-modality-*`` wraps its ``engine_*`` domains).
-* ``tier: meta|surface`` frontmatter — a skill that is not a verb wrapper at all
-  (``kg-mux-use``, ``kg-capability-builder``, the ``kg-webui-*`` skills). Exempt
-  from both coverage and orphan checks.
-
-Discovery is filesystem-based (walk each installed skill-provider package's dir for
-``SKILL.md``) rather than pure entry-point metadata, because editable/worktree
-installs routinely carry stale ``entry_points()`` metadata in this workspace — the
-package is importable but its ``agent_utilities.skill_providers`` entry-point is not
-yet re-registered. We union the live entry-point dirs with a direct import-path
-resolve of the known provider modules so the gate is stable in dev and CI alike.
+This module discovers those sidecars across installed skill providers, validates
+their schema, and compares their claims with the immutable canonical ToolSpec
+universe. There are no naming fallbacks, frontmatter fallbacks, or
+intentionally-unskilled waivers: every required core verb and every
+feature-qualified optional verb must be claimed explicitly by exactly one valid
+domain sidecar.
 """
 
 from __future__ import annotations
 
-import importlib.util
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-# Verbs deliberately NOT surfaced as a kg-* skill. Keep this list tiny and
-# justified — every entry weakens the gate. A new registered tool must either get a
-# skill or be added here with a reason.
-INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
-    {
-        # ``quant`` is the emerald-exchange finance domain tool, not part of the
-        # generic graph-os surface; it carries a pre-existing surface-parity waiver.
-        "quant",
-    }
+from agent_utilities.mcp.tool_specs import (
+    SUPPORTED_FEATURES,
+    TOOL_SPECS_BY_NAME,
+    canonical_tool_names,
 )
 
-# Known skill-provider packages resolved directly by import path (belt-and-braces
-# against stale entry-point metadata). The hub's own provider + the three fleet
-# providers that ship kg-* skills.
-_PROVIDER_MODULES: tuple[str, ...] = (
-    "agent_utilities.skills",
-    "universal_skills",
-    "epistemic_graph.skills",
-    "agent_webui.skills",
-)
-
-_VALID_TIERS: frozenset[str] = frozenset({"core", "modality", "meta", "surface"})
-_WRAPPER_TIERS: frozenset[str] = frozenset({"core", "modality"})
+GRAPH_OS_SIDECAR = Path("agents") / "graph-os.yaml"
+GRAPH_OS_SCHEMA_VERSION = 2
+VALID_TIERS: frozenset[str] = frozenset({"domain", "platform"})
+_SIDECAR_KEYS: frozenset[str] = frozenset({"schema_version", "tier", "claims"})
+_CLAIMS_KEYS: frozenset[str] = frozenset({"core", "features"})
 
 
 @dataclass(frozen=True)
 class SkillMeta:
-    """A discovered ``kg-*`` skill's coverage-relevant frontmatter."""
+    """Coverage metadata discovered from one ``agents/graph-os.yaml`` sidecar."""
 
     name: str
-    tier: str  # "" if unset
-    wraps: tuple[str, ...]
+    tier: str
+    core_claims: tuple[str, ...]
+    feature_claims: tuple[tuple[str, tuple[str, ...]], ...]
     path: Path
+    errors: tuple[str, ...] = ()
+
+    @property
+    def wraps(self) -> tuple[str, ...]:
+        """All claims, retained as one deterministic validation projection."""
+        optional = (tool for _feature, tools in self.feature_claims for tool in tools)
+        return tuple(sorted((*self.core_claims, *optional)))
+
+    def claims_for(self, features: frozenset[str]) -> tuple[str, ...]:
+        """Claims enabled by an explicit feature profile."""
+        enabled = [*self.core_claims]
+        for feature, tools in self.feature_claims:
+            if feature in features:
+                enabled.extend(tools)
+        return tuple(sorted(enabled))
 
 
 @dataclass
 class CoverageReport:
-    uncovered: list[str] = field(default_factory=list)  # verbs with no skill
-    orphans: list[tuple[str, str]] = field(default_factory=list)  # (skill, bad_verb)
-    bad_tiers: list[tuple[str, str]] = field(default_factory=list)  # (skill, tier)
-    covered: dict[str, list[str]] = field(default_factory=dict)  # verb -> [skills]
+    """Difference between valid sidecar claims and a canonical ToolSpec profile."""
+
+    uncovered: list[str] = field(default_factory=list)
+    orphans: list[tuple[str, str]] = field(default_factory=list)
+    duplicates: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    invalid_sidecars: list[tuple[str, str]] = field(default_factory=list)
+    covered: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
-        return not (self.uncovered or self.orphans or self.bad_tiers)
+        return not (
+            self.uncovered or self.orphans or self.duplicates or self.invalid_sidecars
+        )
 
 
-def slug_to_verb(slug: str) -> str:
-    """``kg-ontology`` → ``graph_ontology`` (the default 1:1 inference)."""
-    cap = slug[len("kg-") :] if slug.startswith("kg-") else slug
-    return "graph_" + cap.replace("-", "_")
+def verb_universe(
+    *, features: frozenset[str] = frozenset(), include_intent: bool = True
+) -> set[str]:
+    """Return the canonical Graph-OS surface for an explicit feature profile."""
+    return set(canonical_tool_names(features=features, include_intent=include_intent))
 
 
-def verb_universe() -> set[str]:
-    """The live graph-os verb surface every skill set must cover."""
-    from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    return set(kg_server.REGISTERED_TOOLS)
-
-
-def _parse_frontmatter(text: str) -> dict:
+def _parse_frontmatter(text: str) -> dict[str, Any]:
+    """Parse only enough portable frontmatter to identify a skill."""
     if not text.startswith("---"):
         return {}
     end = text.find("---", 3)
@@ -108,115 +95,255 @@ def _parse_frontmatter(text: str) -> dict:
         return {}
     try:
         data = yaml.safe_load(text[3:end])
-        return data if isinstance(data, dict) else {}
     except yaml.YAMLError:
         return {}
+    return data if isinstance(data, dict) else {}
+
+
+def parse_graph_os_sidecar(path: Path, *, skill_name: str) -> SkillMeta:
+    """Load and validate one Graph-OS coverage sidecar.
+
+    The schema is deliberately small and closed:
+
+    ``schema_version: 2``
+        Identifies the contract version.
+    ``tier: domain|platform``
+        A domain skill must claim verbs; a platform workflow must not.
+    ``claims.core: [verb, ...]``
+        Sorted, unique required ToolSpec names.
+    ``claims.features.<feature>: [verb, ...]``
+        Sorted, unique optional ToolSpec names enabled by that feature.
+    """
+    errors: list[str] = []
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        return SkillMeta(
+            skill_name,
+            "",
+            (),
+            (),
+            path,
+            (f"sidecar is unreadable: {type(exc).__name__}",),
+        )
+
+    if not isinstance(raw, dict):
+        return SkillMeta(skill_name, "", (), (), path, ("sidecar must be a mapping",))
+
+    extra = sorted(set(raw) - _SIDECAR_KEYS)
+    missing = sorted(_SIDECAR_KEYS - set(raw))
+    if extra:
+        errors.append(f"unsupported keys: {extra}")
+    if missing:
+        errors.append(f"missing keys: {missing}")
+
+    version = raw.get("schema_version")
+    if version != GRAPH_OS_SCHEMA_VERSION:
+        errors.append(
+            f"schema_version must be {GRAPH_OS_SCHEMA_VERSION}, got {version!r}"
+        )
+
+    tier = raw.get("tier")
+    if not isinstance(tier, str) or tier not in VALID_TIERS:
+        errors.append(f"tier must be one of {sorted(VALID_TIERS)}, got {tier!r}")
+        tier = str(tier or "")
+
+    claims_raw = raw.get("claims")
+    core_claims: tuple[str, ...] = ()
+    feature_claims: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    if not isinstance(claims_raw, dict):
+        errors.append("claims must be a mapping")
+    else:
+        claim_extra = sorted(set(claims_raw) - _CLAIMS_KEYS)
+        claim_missing = sorted(_CLAIMS_KEYS - set(claims_raw))
+        if claim_extra:
+            errors.append(f"claims has unsupported keys: {claim_extra}")
+        if claim_missing:
+            errors.append(f"claims is missing keys: {claim_missing}")
+
+        core_raw = claims_raw.get("core")
+        if not isinstance(core_raw, list) or not all(
+            isinstance(item, str) and item for item in core_raw
+        ):
+            errors.append("claims.core must be a list of non-empty strings")
+        else:
+            core_claims = tuple(core_raw)
+            if len(core_claims) != len(set(core_claims)):
+                errors.append("claims.core must not contain duplicates")
+            if list(core_claims) != sorted(core_claims):
+                errors.append("claims.core must be sorted")
+            for tool in core_claims:
+                spec = TOOL_SPECS_BY_NAME.get(tool)
+                if spec is None:
+                    errors.append(f"claims.core contains unknown tool {tool!r}")
+                elif spec.feature is not None:
+                    errors.append(
+                        f"claims.core tool {tool!r} requires feature {spec.feature!r}"
+                    )
+
+        features_raw = claims_raw.get("features")
+        parsed_features: list[tuple[str, tuple[str, ...]]] = []
+        if not isinstance(features_raw, dict):
+            errors.append("claims.features must be a mapping")
+        else:
+            if list(features_raw) != sorted(features_raw):
+                errors.append("claims.features keys must be sorted")
+            for feature, tools_raw in features_raw.items():
+                if not isinstance(feature, str) or feature not in SUPPORTED_FEATURES:
+                    errors.append(
+                        f"claims.features contains unsupported feature {feature!r}"
+                    )
+                    continue
+                if not isinstance(tools_raw, list) or not all(
+                    isinstance(item, str) and item for item in tools_raw
+                ):
+                    errors.append(
+                        f"claims.features.{feature} must be a list of non-empty strings"
+                    )
+                    continue
+                tools = tuple(tools_raw)
+                if len(tools) != len(set(tools)):
+                    errors.append(
+                        f"claims.features.{feature} must not contain duplicates"
+                    )
+                if list(tools) != sorted(tools):
+                    errors.append(f"claims.features.{feature} must be sorted")
+                for tool in tools:
+                    spec = TOOL_SPECS_BY_NAME.get(tool)
+                    if spec is None:
+                        errors.append(
+                            f"claims.features.{feature} contains unknown tool {tool!r}"
+                        )
+                    elif spec.feature != feature:
+                        errors.append(
+                            f"claims.features.{feature} tool {tool!r} belongs to "
+                            f"feature {spec.feature!r}"
+                        )
+                parsed_features.append((feature, tools))
+        feature_claims = tuple(parsed_features)
+
+    has_claims = bool(core_claims) or any(tools for _feature, tools in feature_claims)
+    if tier == "domain" and not has_claims:
+        errors.append("domain skills must claim at least one verb")
+    if tier == "platform" and has_claims:
+        errors.append("platform skills must use empty core and feature claims")
+
+    return SkillMeta(
+        skill_name,
+        tier,
+        core_claims,
+        feature_claims,
+        path,
+        tuple(errors),
+    )
 
 
 def _provider_dirs() -> list[Path]:
-    """Skill-provider dirs, unioning entry-point discovery with import-path resolve."""
-    dirs: dict[str, Path] = {}
-    try:
-        from agent_utilities.core.providers import (
-            SKILL_PROVIDER_GROUP,
-            iter_provider_dirs,
-        )
+    """Return the unified resolver's current, validated skill directories."""
+    from agent_utilities.core.providers import resolve_skill_provider_dirs
 
-        for _name, path in iter_provider_dirs(SKILL_PROVIDER_GROUP):
-            dirs[str(path)] = path
-    except Exception:  # noqa: BLE001 — discovery must never hard-fail the gate
-        pass
-    for mod in _PROVIDER_MODULES:
-        try:
-            spec = importlib.util.find_spec(mod)
-        except (ImportError, ValueError):
-            continue
-        if spec is None:
-            continue
-        locs = list(spec.submodule_search_locations or [])
-        if not locs and spec.origin:
-            locs = [str(Path(spec.origin).parent)]
-        for loc in locs:
-            p = Path(loc)
-            if p.is_dir():
-                dirs[str(p)] = p
-    return list(dirs.values())
+    # Resolution deliberately fails closed on ambiguous global skill identities.
+    # There is no direct-import fallback because it could revive retired provider
+    # roots or bypass the distribution-ownership and generation checks.
+    return [path for _provider, path in resolve_skill_provider_dirs()]
 
 
-def discover_skills() -> list[SkillMeta]:
-    """Every ``kg-*`` skill discoverable across the installed provider packages."""
-    out: dict[str, SkillMeta] = {}  # de-dupe by name (first wins, stable)
-    for root in _provider_dirs():
-        for md in sorted(root.rglob("SKILL.md")):
-            fm = _parse_frontmatter(md.read_text(encoding="utf-8", errors="ignore"))
-            name = str(fm.get("name") or md.parent.name)
-            if not name.startswith("kg-"):
+def discover_skills(roots: list[Path] | None = None) -> list[SkillMeta]:
+    """Discover every skill that opts into Graph-OS coverage by sidecar."""
+    discovered: list[SkillMeta] = []
+    seen: set[str] = set()
+    for root in roots or _provider_dirs():
+        for sidecar in sorted(root.rglob(str(GRAPH_OS_SIDECAR))):
+            key = str(sidecar.resolve())
+            if key in seen:
                 continue
-            if name in out:
-                continue
-            wraps_raw = fm.get("wraps") or []
-            wraps = (
-                tuple(str(w) for w in wraps_raw) if isinstance(wraps_raw, list) else ()
+            seen.add(key)
+            skill_dir = sidecar.parent.parent
+            skill_md = skill_dir / "SKILL.md"
+            frontmatter = (
+                _parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+                if skill_md.is_file()
+                else {}
             )
-            out[name] = SkillMeta(
-                name=name,
-                tier=str(fm.get("tier") or ""),
-                wraps=wraps,
-                path=md,
-            )
-    return list(out.values())
+            name = str(frontmatter.get("name") or skill_dir.name)
+            meta = parse_graph_os_sidecar(sidecar, skill_name=name)
+            if not skill_md.is_file():
+                meta = SkillMeta(
+                    meta.name,
+                    meta.tier,
+                    meta.core_claims,
+                    meta.feature_claims,
+                    meta.path,
+                    (*meta.errors, "SKILL.md is missing"),
+                )
+            discovered.append(meta)
+    return discovered
 
 
-def compute_coverage() -> CoverageReport:
-    """Diff the live verb surface against the discovered kg-* skill set."""
-    universe = verb_universe()
-    skills = discover_skills()
+def compute_coverage(
+    roots: list[Path] | None = None,
+    *,
+    features: frozenset[str] | None = None,
+) -> CoverageReport:
+    """Compare explicit domain-skill claims with one canonical ToolSpec profile.
+
+    ``features=None`` validates the distribution's complete contract, including
+    every known optional feature.  Passing an explicit set validates that
+    deployment profile without treating disabled optional claims as orphans.
+    """
+    selected_features = SUPPORTED_FEATURES if features is None else features
+    universe = verb_universe(features=selected_features)
     report = CoverageReport()
-
     covered: dict[str, list[str]] = {}
-    for s in skills:
-        if s.tier and s.tier not in _VALID_TIERS:
-            report.bad_tiers.append((s.name, s.tier))
-        # meta/surface skills are not verb wrappers — exempt from both checks.
-        if s.tier in ("meta", "surface"):
-            continue
-        # A wrapper skill covers its explicit `wraps:` list, else its slug-inferred verb.
-        claimed = list(s.wraps) if s.wraps else [slug_to_verb(s.name)]
-        real = [v for v in claimed if v in universe]
-        bad = [v for v in claimed if v not in universe]
-        for v in bad:
-            report.orphans.append((s.name, v))
-        for v in real:
-            covered.setdefault(v, []).append(s.name)
 
-    report.covered = covered
-    required = universe - INTENTIONALLY_UNSKILLED
-    report.uncovered = sorted(required - set(covered))
+    for skill in discover_skills(roots):
+        for error in skill.errors:
+            report.invalid_sidecars.append((skill.name, error))
+        if skill.errors or skill.tier != "domain":
+            continue
+        for verb in skill.claims_for(selected_features):
+            if verb not in universe:
+                report.orphans.append((skill.name, verb))
+            else:
+                covered.setdefault(verb, []).append(skill.name)
+
+    report.covered = {verb: sorted(skills) for verb, skills in sorted(covered.items())}
+    report.duplicates = [
+        (verb, tuple(skills))
+        for verb, skills in report.covered.items()
+        if len(skills) > 1
+    ]
+    report.uncovered = sorted(universe - set(covered))
+    report.orphans.sort()
+    report.invalid_sidecars.sort()
     return report
 
 
 def main() -> int:
+    """Run the coverage gate and print a concise deterministic report."""
     report = compute_coverage()
     if report.ok:
-        n = len(report.covered)
         print(
-            f"kg-coverage-doctor OK — {n} graph-os verbs each wrapped by a kg-* skill."
+            "Graph-OS skill coverage OK — "
+            f"{len(report.covered)} canonical tools explicitly covered by domain skills."
         )
         return 0
     if report.uncovered:
-        print(
-            "VERBS WITH NO kg-* SKILL (add a skill or add to INTENTIONALLY_UNSKILLED):"
-        )
-        for v in report.uncovered:
-            print(f"  - {v}")
+        print("UNCOVERED GRAPH-OS VERBS:")
+        for verb in report.uncovered:
+            print(f"  - {verb}")
     if report.orphans:
-        print("ORPHAN kg-* SKILLS (wrap/slug points at a non-existent verb):")
+        print("SIDECAR CLAIMS FOR UNKNOWN VERBS:")
         for skill, verb in report.orphans:
             print(f"  - {skill} -> {verb}")
-    if report.bad_tiers:
-        print("INVALID tier: values (use core|modality|meta|surface):")
-        for skill, tier in report.bad_tiers:
-            print(f"  - {skill}: {tier}")
+    if report.duplicates:
+        print("GRAPH-OS VERBS WITH MULTIPLE DOMAIN OWNERS:")
+        for verb, skills in report.duplicates:
+            print(f"  - {verb}: {', '.join(skills)}")
+    if report.invalid_sidecars:
+        print("INVALID GRAPH-OS SIDECARS:")
+        for skill, error in report.invalid_sidecars:
+            print(f"  - {skill}: {error}")
     return 1
 
 

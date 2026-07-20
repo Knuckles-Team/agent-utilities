@@ -5,37 +5,21 @@ CONCEPT:AU-ORCH.routing.resolve-body-single-canonical. Validates every ``"type":
 ``agent_utilities/prompts/`` against ``validate_canonical`` (the ONE validator
 shared with ``prompt-builder/validate_prompt.py`` and per-package
 ``test_prompt_parity``), and asserts the generated ``prompt.schema.json`` is
-current. Baseline-gated like ``check_no_env_sprawl.py``: files listed in
-``scripts/prompt_schema_baseline.txt`` are grandfathered (report-only) so a
-migration can burn the list down to empty without breaking CI on day one.
+current. Every violation fails the gate.
 
 Usage::
 
-    python scripts/check_prompt_schema.py            # report mode (baseline-gated)
-    python scripts/check_prompt_schema.py --strict   # fail on ANY non-canonical file
-    python scripts/check_prompt_schema.py --update-baseline
+    python scripts/check_prompt_schema.py
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PROMPTS_DIR = REPO / "agent_utilities" / "prompts"
-BASELINE = REPO / "scripts" / "prompt_schema_baseline.txt"
-
-
-def _load_baseline() -> set[str]:
-    if not BASELINE.exists():
-        return set()
-    return {
-        line.strip()
-        for line in BASELINE.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    }
 
 
 def _scan() -> dict[str, list[str]]:
@@ -52,29 +36,19 @@ def _scan() -> dict[str, list[str]]:
             continue
         if not isinstance(data, dict) or data.get("type") != "prompt":
             continue
-        errs = validate_canonical(data, strict=True)
+        errs = validate_canonical(data)
         if errs:
             offenders[pfile.name] = errs
     return offenders
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--strict", action="store_true")
-    parser.add_argument("--update-baseline", action="store_true")
-    args = parser.parse_args(argv)
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments:
+        print("check_prompt_schema accepts no options", file=sys.stderr)
+        return 2
 
     offenders = _scan()
-
-    if args.update_baseline:
-        BASELINE.write_text(
-            "# Non-canonical prompt blueprints grandfathered by check_prompt_schema.\n"
-            "# Burn this down to empty. CONCEPT:AU-ORCH.routing.resolve-body-single-canonical\n"
-            + "".join(f"{name}\n" for name in sorted(offenders)),
-            encoding="utf-8",
-        )
-        print(f"Wrote baseline with {len(offenders)} entries.")
-        return 0
 
     # Schema currency check (regenerate-in-memory and diff).
     from gen_prompt_schema import SCHEMA_PATH, render_schema  # type: ignore
@@ -90,14 +64,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as e:  # pragma: no cover - defensive
         print(f"WARNING: could not verify prompt.schema.json currency: {e}")
 
-    baseline = _load_baseline()
-    new_offenders = {k: v for k, v in offenders.items() if k not in baseline}
-
     if offenders:
         print("Non-canonical prompt blueprints:")
         for name, errs in sorted(offenders.items()):
-            tag = "" if name not in baseline else "  (baseline)"
-            print(f"  {name}{tag}: {'; '.join(errs)}")
+            print(f"  {name}: {'; '.join(errs)}")
 
     if schema_stale:
         print(
@@ -105,17 +75,17 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    fail = schema_stale or (offenders if args.strict else new_offenders)
+    fail = schema_stale or offenders
     if fail:
         print(
-            f"\nFAIL: {len(new_offenders)} new non-canonical prompt(s)"
+            f"\nFAIL: {len(offenders)} non-canonical prompt(s)"
             + (", schema stale" if schema_stale else "")
             + ".",
             file=sys.stderr,
         )
         return 1
 
-    print(f"OK: {len(offenders)} grandfathered, 0 new non-canonical prompts.")
+    print("OK: all prompt blueprints are canonical.")
     return 0
 
 

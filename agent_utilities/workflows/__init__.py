@@ -18,10 +18,10 @@ executing reusable agent workflows:
                                   └─────────────────┘
 
 External consumers (other agents, UIs, CI) can:
-    - Discover workflows via ``graph_orchestrate(action='list_workflows')``
-    - Execute them via ``graph_orchestrate(action='execute_workflow')``
-    - Export as JSON via ``graph_orchestrate(action='export_workflow')``
-    - Create new ones via ``graph_orchestrate(action='compile_workflow')``
+    - Discover workflows via ``graph_workflows(action='list')``
+    - Execute them via ``graph_workflows(action='execute')``
+    - Export as JSON via ``graph_workflows(action='export')``
+    - Create new ones via ``graph_workflows(action='compile')``
 """
 
 from typing import Any

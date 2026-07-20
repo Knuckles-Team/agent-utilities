@@ -1,18 +1,10 @@
-"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime / ORCH-1.13 — RLM-GEPA live entry-point glue.
-
-Verifies the dynamic signature builder, the default GEPA evaluator (pure), and that the entry
-functions return structured dicts without raising (robust MCP/CLI surface).
-"""
+"""Live Predict-RLM entry-point contract."""
 
 from __future__ import annotations
 
 import pytest
 
-from agent_utilities.rlm.runner import (
-    _default_evaluator,
-    _dynamic_signature,
-    run_rlm,
-)
+from agent_utilities.rlm.runner import _dynamic_signature, run_rlm
 
 
 @pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")
@@ -24,22 +16,6 @@ def test_dynamic_signature_has_input_and_output():
     # input_text marked input; summary marked output.
     assert fields["input_text"].json_schema_extra.get("is_input") is True  # type: ignore[union-attr]
     assert fields["summary"].json_schema_extra.get("is_output") is True  # type: ignore[union-attr]
-
-
-@pytest.mark.concept(id="AU-ORCH.optimization.optimize-skill-prompt-gepa")
-def test_default_evaluator_scores_match():
-    class _Inst:
-        reference_output = "Paris"
-
-    hit = _default_evaluator(_Inst(), "The answer is Paris.", "prompt")
-    miss = _default_evaluator(_Inst(), "I don't know", "prompt")
-    assert hit["accuracy"] == 1.0 and "matched" in hit["feedback"]
-    assert miss["accuracy"] == 0.0 and "missing" in miss["feedback"]
-    # Efficiency rewards shorter prompts.
-    assert (
-        _default_evaluator(_Inst(), "x", "a")["efficiency"]
-        > _default_evaluator(_Inst(), "x", "a" * 5000)["efficiency"]
-    )
 
 
 @pytest.mark.concept(id="AU-ORCH.execution.predict-rlm-runtime")

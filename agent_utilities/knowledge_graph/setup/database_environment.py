@@ -8,12 +8,12 @@ composes existing capabilities:
 
 - **Postgres extension check** — :class:`PostgreSQLBackend` extension probes
   (``pggraph_available`` / ``pgvector_available`` / ``paradedb_available``).
-- **Backend selection** — writes the existing ``GRAPH_DB_URI`` / ``GRAPH_PG_AGE``
-  / ``GRAPH_BACKEND`` keys (no new env flags) so the graph durably lands in AGE.
+- **Projection setup** — persists the runtime connection-profile reference,
+  native AGE mode, and the external mirror declaration.
 - **Ontology distribution (KG-2.6)** — :class:`OntologyPublisher` push to Stardog
   (prod) or Jena Fuseki (dev), with the built-in ``/api/sparql`` endpoint already
   serving the dev case with zero infra.
-- **Durable backfill (KG-2.7)** — :meth:`TieredGraphBackend.reconcile_to_durable`.
+- **Durable backfill (KG-2.7)** — authority-to-mirror reconciliation.
 
 Two environment shapes are supported:
 
@@ -65,12 +65,11 @@ def _config_json_path() -> Path:
 
 
 def _persist_settings(values: dict[str, str]) -> str:
-    """Merge ``values`` into config.json and the live process env.
+    """Apply values live and persist only non-secret selection settings.
 
-    config.json keeps the choice across restarts (the gateway/daemon reads it at
-    boot); the ``os.environ`` write makes it take effect for the current process
-    (an env *write* for cross-process signalling, which configuration discipline
-    permits). Keys are the canonical env var names (e.g. ``GRAPH_DB_URI``).
+    Credentials and connection strings are runtime secret material. They are
+    never copied into ``config.json``; the deployment must reinject them after a
+    restart. Non-secret mode and mirror-selection keys remain durable.
     """
     cfg_path = _config_json_path()
     data: dict[str, Any] = {}
@@ -78,11 +77,17 @@ def _persist_settings(values: dict[str, str]) -> str:
         try:
             data = json.loads(cfg_path.read_text())
         except Exception as exc:  # noqa: BLE001 — a corrupt file shouldn't block setup
-            logger.warning("config.json unreadable (%s); recreating", exc)
+            logger.warning(
+                "config.json unreadable (%s); recreating", type(exc).__name__
+            )
             data = {}
+    secret_keys = {"STATE_DB_URI"}
+    for key in secret_keys:
+        data.pop(key, None)
     for key, val in values.items():
-        data[key] = val
         os.environ[key] = val
+        if key not in secret_keys:
+            data[key] = val
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
     cfg_path.write_text(json.dumps(data, indent=4))
 
@@ -92,31 +97,49 @@ def _persist_settings(values: dict[str, str]) -> str:
 
         _cfg.reload()
     except Exception as exc:  # noqa: BLE001 — reload is best-effort; env is already set
-        logger.debug("config reload after persist failed: %s", exc)
-    return str(cfg_path)
+        logger.debug("config reload after persist failed: %s", type(exc).__name__)
+    return "xdg://agent-utilities/config.json"
 
 
-def _resolve_dsn(dsn: str | None) -> str:
-    """The Postgres DSN, falling back to the existing GRAPH_DB_URI / PGGRAPH_DSN."""
-    return (
-        dsn
-        or setting("GRAPH_DB_URI", "")
-        or setting("PGGRAPH_DSN", "")
-        or "postgresql://agent:agent@localhost:5432/agent_kg"
+def _resolve_dsn(connection_profile_ref: str | None) -> str:
+    """Resolve a required Postgres DSN from the runtime connection profile."""
+
+    reference = connection_profile_ref or setting(
+        "GRAPH_DB_CONNECTION_PROFILE_REF", ""
     )
+    if not reference:
+        raise ValueError(
+            "Postgres connection profile is not configured; inject "
+            "GRAPH_DB_CONNECTION_PROFILE_REF"
+        )
+    from agent_utilities.knowledge_graph.backends import _resolve_connection_profile
+
+    profile = _resolve_connection_profile(str(reference))
+    resolved = str(profile.get("uri") or "")
+    if not resolved:
+        raise ValueError("graph connection profile does not contain a Postgres URI")
+    return resolved
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # Step 1 — verify Postgres extensions
 # ──────────────────────────────────────────────────────────────────────────
-def verify_postgres(dsn: str | None = None) -> dict[str, Any]:
+def verify_postgres(connection_profile_ref: str | None = None) -> dict[str, Any]:
     """Probe a Postgres for the AGE / pgvector / pg_search extensions.
 
     Returns a report with per-extension availability and a ``ready`` flag (all
     three present). Connection failures are returned as ``status='error'`` rather
     than raised, so the caller can surface a clear remediation message.
     """
-    resolved = _resolve_dsn(dsn)
+    try:
+        resolved = _resolve_dsn(connection_profile_ref)
+    except ValueError:
+        return {
+            "status": "error",
+            "dsn_configured": False,
+            "error": "Postgres DSN is not configured",
+            "hint": "Inject GRAPH_DB_CONNECTION_PROFILE_REF.",
+        }
     try:
         from agent_utilities.knowledge_graph.backends.postgresql_backend import (
             PostgreSQLBackend,
@@ -131,15 +154,16 @@ def verify_postgres(dsn: str | None = None) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — connection/driver problems are expected
         return {
             "status": "error",
-            "dsn": _redact(resolved),
-            "error": str(exc),
+            "dsn_configured": True,
+            "error": "Postgres verification failed",
+            "error_type": type(exc).__name__,
             "hint": "Check the DSN, that Postgres is reachable, and psycopg is installed.",
         }
 
     missing = [name for name in _REQUIRED_EXTENSIONS if not extensions[name]]
     report: dict[str, Any] = {
         "status": "success",
-        "dsn": _redact(resolved),
+        "dsn_configured": True,
         "extensions": extensions,
         "ready": not missing,
         "missing": missing,
@@ -159,31 +183,37 @@ def verify_postgres(dsn: str | None = None) -> dict[str, Any]:
 # Step 2 — wire the backend so writes backfill into AGE
 # ──────────────────────────────────────────────────────────────────────────
 def configure_backend(
-    dsn: str | None = None,
+    connection_profile_ref: str | None = None,
     *,
     enable_age: bool = True,
-    backend: str = "fanout",
     mirror_targets: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Wire pg-age as a mirror of the engine authority by persisting the graph keys.
+    """Wire pg-age as a projection of the fixed engine authority.
 
-    Sets ``GRAPH_DB_URI`` (the pg-age mirror DSN), ``GRAPH_PG_AGE`` (native
-    openCypher on AGE) and ``GRAPH_BACKEND`` (``fanout`` by default — the
-    epistemic-graph engine is the authority and writes fan out to pg-age). Records
-    ``GRAPH_MIRROR_TARGETS`` (KG-2.74). The active backend is reset so the next
-    :func:`create_backend` rebuilds against the new config; a running
-    gateway/daemon applies it on restart.
+    Persists ``GRAPH_DB_CONNECTION_PROFILE_REF``, ``GRAPH_PG_AGE`` (native
+    openCypher on AGE), and ``GRAPH_MIRROR_TARGETS`` (KG-2.74). A non-empty
+    mirror set automatically enables projection fan-out; there is no operational
+    backend or authority selector. The active backend is reset so the next
+    :func:`create_backend` rebuilds against the new config.
     """
-    resolved = _resolve_dsn(dsn)
+    try:
+        _resolve_dsn(connection_profile_ref)
+    except ValueError:
+        return {
+            "status": "error",
+            "dsn_configured": False,
+            "error": "Postgres DSN is not configured",
+        }
     values: dict[str, str] = {
-        "GRAPH_DB_URI": resolved,
-        "GRAPH_BACKEND": backend,
+        "GRAPH_DB_CONNECTION_PROFILE_REF": str(
+            connection_profile_ref
+            or setting("GRAPH_DB_CONNECTION_PROFILE_REF", "")
+        ),
     }
     if enable_age:
         values["GRAPH_PG_AGE"] = "1"
-    # Default the mirror target to pg-age when fanout is requested without an
-    # explicit set, so the DSN above is actually mirrored to.
-    if not mirror_targets and backend == "fanout":
+    # Default to pg-age so the resolved connection is actually projected to.
+    if not mirror_targets:
         mirror_targets = ["age"]
     if mirror_targets:
         values["GRAPH_MIRROR_TARGETS"] = json.dumps(mirror_targets)
@@ -196,13 +226,14 @@ def configure_backend(
 
         set_active_backend(None)
     except Exception as exc:  # noqa: BLE001
-        logger.debug("could not reset active backend: %s", exc)
+        logger.debug("could not reset active backend: %s", type(exc).__name__)
 
     return {
         "status": "success",
         "config_path": cfg_path,
-        "applied": {**values, "GRAPH_DB_URI": _redact(resolved)},
-        "note": "A running gateway/daemon picks this up on restart.",
+        "applied_settings": sorted(values),
+        "dsn_configured": True,
+        "note": "The connection profile is resolved only at runtime.",
     }
 
 
@@ -272,27 +303,27 @@ def publish_ontology(
 def register_stardog_mirror(
     name: str = "stardog",
     *,
-    endpoint: str | None = None,
-    database: str | None = None,
-    username: str | None = None,
-    password: str | None = None,
+    endpoint_ref: str = "env://STARDOG_ENDPOINT",
+    database_ref: str = "env://STARDOG_DATABASE",
+    username_ref: str = "env://STARDOG_USER",
+    password_ref: str = "env://STARDOG_PASSWORD",
 ) -> dict[str, Any]:
     """Register Stardog as a ``role="mirror"`` graph connection (CONCEPT:AU-KG.backend.connection-registry).
 
-    Once registered, ``_build_mirror_set`` auto-includes it, so under
-    ``GRAPH_BACKEND=fanout`` every KG write (incl. LeanIX/ServiceNow
-    ingests) replicates into Stardog via the durable fan-out outbox. Credentials
-    default to the existing ``STARDOG_*`` settings. The connection is persisted to
-    config.json so it survives restart. Pair with :func:`backfill_to_age`'s
-    reconcile to backfill the existing graph into a freshly added mirror.
+    Once registered, ``_build_mirror_set`` auto-includes it, so every governed KG
+    write replicates into Stardog via the durable fan-out outbox. Endpoint,
+    database, and identity material remain
+    behind runtime secret references; no literal connection material crosses into
+    ``config.json``. Pair with :func:`backfill_to_age`'s reconcile to backfill the
+    existing graph into a freshly added mirror.
     """
     spec: dict[str, Any] = {
         "backend": "stardog",
         "role": "mirror",
-        "endpoint": endpoint or setting("STARDOG_ENDPOINT", "http://localhost:5820"),
-        "database": database or setting("STARDOG_DATABASE", "agent_kg"),
-        "user": username or setting("STARDOG_USER", "admin"),
-        "password": password or setting("STARDOG_PASSWORD", "admin"),
+        "endpoint": endpoint_ref,
+        "database": database_ref,
+        "user": username_ref,
+        "password": password_ref,
     }
     try:
         from agent_utilities.core.config import save_config_item
@@ -301,8 +332,12 @@ def register_stardog_mirror(
         registry = kg_server.get_connection_registry()
         registered = registry.register(name, spec)
         save_config_item("kg_connections", registry.export_specs())
-    except Exception as exc:  # noqa: BLE001 — surface a clear failure to the operator
-        return {"status": "error", "error": str(exc), "connection": name}
+    except Exception as exc:  # noqa: BLE001 — source-safe diagnostic only
+        return {
+            "status": "error",
+            "error": "mirror registration failed",
+            "error_type": type(exc).__name__,
+        }
 
     # Force the next backend build to include the new mirror.
     try:
@@ -310,16 +345,14 @@ def register_stardog_mirror(
 
         set_active_backend(None)
     except Exception as exc:  # noqa: BLE001
-        logger.debug("could not reset active backend: %s", exc)
+        logger.debug("could not reset active backend: %s", type(exc).__name__)
 
     return {
         "status": "success",
         "connection": registered,
         "role": "mirror",
-        "endpoint": spec["endpoint"],
-        "database": spec["database"],
         "persisted": True,
-        "note": "KG writes now fan out to Stardog (GRAPH_BACKEND=fanout). "
+        "note": "KG writes now fan out to the Stardog projection. "
         "Run 'reconcile' (or backfill_to_age) to backfill existing data.",
     }
 
@@ -342,26 +375,38 @@ def backfill_to_age() -> dict[str, Any]:
             "error": "No fanout (engine + pg-age mirror) backend active. Run configure_backend first.",
         }
     try:
-        summary = backend.reconcile_to_durable()
+        summary = backend.reconcile()
         stats = backend.durability_stats()
-    except Exception as exc:  # noqa: BLE001 — surface a clear failure to the operator
-        return {"status": "error", "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001 — source-safe diagnostic only
+        return {
+            "status": "error",
+            "error": "mirror reconciliation failed",
+            "error_type": type(exc).__name__,
+        }
     return {
         "status": "success",
         "reconcile": summary,
         "durability": stats,
-        "consistent": summary.get("nodes_missing", 0) == 0
-        and summary.get("edges_missing", 0) == 0,
+        "consistent": bool(summary)
+        and all(
+            isinstance(report, dict)
+            and "error" not in report
+            and report.get("nodes_missing", 0) == 0
+            and report.get("edges_missing", 0) == 0
+            and report.get("errors", 0) == 0
+            for report in summary.values()
+        ),
     }
 
 
 def _resolve_reconcilable_backend() -> Any:
-    """Find an active backend exposing ``reconcile_to_durable`` (unwrap proxies)."""
+    """Resolve the active ``FanOutBackend`` after unwrapping policy proxies."""
     from agent_utilities.knowledge_graph.backends import (
         create_backend,
         get_active_backend,
         set_active_backend,
     )
+    from agent_utilities.knowledge_graph.backends.fanout_backend import FanOutBackend
 
     backend = get_active_backend()
     if backend is None:
@@ -369,10 +414,12 @@ def _resolve_reconcilable_backend() -> Any:
             backend = create_backend()
             set_active_backend(backend)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("create_backend during backfill failed: %s", exc)
+            logger.warning(
+                "create_backend during backfill failed: %s", type(exc).__name__
+            )
             return None
     cand = getattr(backend, "inner", backend)  # unwrap a BrainGuarded proxy
-    if hasattr(cand, "reconcile_to_durable"):
+    if isinstance(cand, FanOutBackend):
         return cand
     return None
 
@@ -411,7 +458,7 @@ def verify_sparql(
                 }
             result = SPARQLEndpoint(bridge).execute(q)
             if "error" in result:
-                return {"status": "error", "error": result["error"]}
+                return {"status": "error", "error": "SPARQL query failed"}
             rows = len(result.get("results", {}).get("bindings", []))
             return {
                 "status": "success",
@@ -420,47 +467,64 @@ def verify_sparql(
                 "url": "/api/sparql",
             }
         except Exception as exc:  # noqa: BLE001
-            return {"status": "error", "error": str(exc)}
-
-    # HTTP triple stores (Stardog / Fuseki).
-    try:
-        import requests
-    except ImportError:
-        return {"status": "error", "error": "requests not installed."}
+            return {
+                "status": "error",
+                "error": "built-in SPARQL verification failed",
+                "error_type": type(exc).__name__,
+            }
 
     if kind == "stardog":
-        url = (endpoint or setting("STARDOG_ENDPOINT", "http://localhost:5820")).rstrip(
-            "/"
-        )
+        url = str(endpoint or setting("STARDOG_ENDPOINT", "") or "").rstrip("/")
+        username = str(setting("STARDOG_USER", "") or "")
+        password = str(setting("STARDOG_PASSWORD", "") or "")
+        if not url or not username or not password:
+            return {
+                "status": "error",
+                "error": "Stardog endpoint and credentials are not configured",
+            }
         db = database or setting("STARDOG_DATABASE", "agent_kg")
         query_url = f"{url}/{db}/query"
-        auth = (
-            setting("STARDOG_USER", "admin"),
-            setting("STARDOG_PASSWORD", "admin"),
-        )
+        auth = (username, password)
     elif kind == "fuseki":
-        url = (endpoint or setting("FUSEKI_ENDPOINT", "http://localhost:3030")).rstrip(
-            "/"
-        )
+        if endpoint is None:
+            from agent_utilities.core.config import config as _cfg
+
+            endpoint = _cfg.kg_fuseki_endpoint
+        if not endpoint:
+            return {"status": "error", "error": "Fuseki endpoint is not configured"}
+        url = endpoint.rstrip("/")
         query_url = f"{url}/{dataset}/query"
         auth = None
     else:
         return {"status": "error", "error": f"Unknown SPARQL kind: {kind}"}
 
     try:
-        resp = requests.get(
-            query_url,
-            params={"query": q},
-            headers={"Accept": "application/sparql-results+json"},
-            auth=auth,
-            timeout=30,
+        from agent_utilities.core.http_client import create_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
         )
-        resp.raise_for_status()
-        data = resp.json()
+
+        trust = resolve_configured_tls_profile(kind)
+        try:
+            with create_http_client(
+                timeout=30,
+                headers={"Accept": "application/sparql-results+json"},
+                auth=auth,
+                **trust.httpx_kwargs(),
+            ) as client:
+                resp = client.get(query_url, params={"query": q})
+                resp.raise_for_status()
+                data = resp.json()
+        finally:
+            trust.cleanup()
         rows = len(data.get("results", {}).get("bindings", []))
-        return {"status": "success", "kind": kind, "rows": rows, "url": query_url}
+        return {"status": "success", "kind": kind, "rows": rows}
     except Exception as exc:  # noqa: BLE001
-        return {"status": "error", "error": str(exc), "url": query_url}
+        return {
+            "status": "error",
+            "error": "SPARQL verification failed",
+            "error_type": type(exc).__name__,
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -470,7 +534,7 @@ def setup_environment(
     profile: str = "dev",
     *,
     postgres_mode: str = "managed_image",
-    dsn: str | None = None,
+    connection_profile_ref: str | None = None,
     sparql_target: str | None = None,
     mirror_targets: list[str] | None = None,
     do_backfill: bool = True,
@@ -482,7 +546,7 @@ def setup_environment(
         profile: ``"prod"`` (Stardog) or ``"dev"`` (local SPARQL).
         postgres_mode: ``"managed_image"`` (combined pg-age-full image) or
             ``"existing"`` (connect-only; report missing extensions honestly).
-        dsn: Postgres DSN; falls back to ``GRAPH_DB_URI`` / ``PGGRAPH_DSN``.
+        connection_profile_ref: Runtime secret reference for the Postgres profile.
         sparql_target: override the publish/verify host
             (``stardog``/``fuseki``/``builtin``); defaults from ``profile``.
         mirror_targets: optional fanout mirror connection names (KG-2.74).
@@ -503,7 +567,7 @@ def setup_environment(
     }
 
     # 1. Postgres extensions.
-    pg = verify_postgres(dsn)
+    pg = verify_postgres(connection_profile_ref)
     report["steps"]["verify_postgres"] = pg
     if postgres_mode == "existing" and pg.get("missing"):
         report["warnings"] = [
@@ -515,7 +579,7 @@ def setup_environment(
 
     # 2. Backend wiring (only meaningful when AGE is present, but record the choice).
     report["steps"]["configure_backend"] = configure_backend(
-        dsn,
+        connection_profile_ref,
         enable_age=pg.get("extensions", {}).get("age", True),
         mirror_targets=mirror_targets,
     )
@@ -546,15 +610,3 @@ def setup_environment(
         else "partial"
     )
     return report
-
-
-def _redact(dsn: str) -> str:
-    """Hide the password in a DSN for safe logging/reporting."""
-    if "@" not in dsn or "://" not in dsn:
-        return dsn
-    scheme, rest = dsn.split("://", 1)
-    creds, _, host = rest.partition("@")
-    if ":" in creds:
-        user = creds.split(":", 1)[0]
-        return f"{scheme}://{user}:***@{host}"
-    return dsn

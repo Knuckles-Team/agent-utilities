@@ -8,7 +8,7 @@ from agent_utilities.graph.executor import (  # type: ignore[attr-defined]
     GraphDeps,
     GraphState,
 )
-from agent_utilities.graph.steps import router_step
+from agent_utilities.graph.routing import router_step
 
 
 @pytest.mark.asyncio

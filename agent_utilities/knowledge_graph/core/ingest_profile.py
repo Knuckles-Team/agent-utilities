@@ -161,10 +161,10 @@ def estimate_tokens(text: str) -> int:
 
 def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None:
     """Persist an OFF-QUEUE ingest profile as a ``:ProfileSpan`` so ``profile_report``
-    covers paths that never become ``:Task`` nodes — the embed-backfill, the
+    covers paths that do not create WorkItems — the embed-backfill, the
     concept-registry embedding, the assimilation passes (CONCEPT:AU-OS.observability.embed-stage-profile).
 
-    Written to the control graph alongside ``:Task`` with a task-shaped metadata
+    Written to the control graph as immutable evidence with a work-shaped metadata
     envelope (``type='offqueue:<kind>'`` + ``profile`` + ``duration_ms``) so the
     report aggregates it through the SAME path. Best-effort: it logs the profile
     regardless, and never raises into the pass it is measuring.
@@ -191,7 +191,7 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
             "completed_at": now,
         }
         span_id = f"profilespan:{kind}:{int(_time.time() * 1000)}"
-        EpistemicGraphBackend(graph_name="__control__").add_node(
+        EpistemicGraphBackend().for_graph("__control__").add_node(
             span_id, type="ProfileSpan", metadata=_json.dumps(envelope)
         )
     except Exception:  # noqa: BLE001 — persistence is best-effort; the log remains

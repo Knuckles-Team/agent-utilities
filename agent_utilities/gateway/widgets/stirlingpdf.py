@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.PRODUCTIVITY
     description = "PDF toolkit — merge, split, convert, and OCR documents"
     env_prefix = "STIRLINGPDF"
-    default_url = "https://stirlingpdf.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -31,15 +30,14 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        import httpx
-
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/api/v1/info/status", timeout=5.0, verify=False)  # nosec B501
+            with self._http_client(config, timeout=5.0) as client:
+                resp = client.get(f"{url}/api/v1/info/status")
             online = resp.status_code == 200
         except Exception as e:
-            logger.debug("Stirling PDF fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Stirling PDF fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={"status": "Online" if online else "Offline", "tools": 40},

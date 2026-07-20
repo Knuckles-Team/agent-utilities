@@ -17,7 +17,6 @@ graph TD
         IGE["IntelligenceGraphEngine"]
         TM["TaskManager"]
         AHE["AHE Harness"]
-        SYNC["KafkaGraphSyncDaemon"]
     end
 
     subgraph EventBackend["Event Backbone (Protocol)"]
@@ -34,8 +33,7 @@ graph TD
     end
 
     subgraph Consumers
-        L1["GraphComputeEngine authority<br/>(via SyncDaemon)"]
-        WSM["WorkingSetManager"]
+        OBS["Post-commit mutation observers"]
         TELE["Telemetry Pipeline"]
         EVOL["Evolution Engine"]
     end
@@ -43,9 +41,7 @@ graph TD
     IGE -->|publish| T1
     TM -->|publish| T2
     AHE -->|publish| T5
-    T1 -->|subscribe| SYNC
-    SYNC -->|apply mutations| L1
-    T2 -->|subscribe| WSM
+    T1 -->|subscribe| OBS
     T4 -->|subscribe| TELE
     T5 -->|subscribe| EVOL
 
@@ -58,7 +54,7 @@ graph TD
 | Topic | Purpose | Retention | Cleanup Policy |
 |-------|---------|-----------|---------------|
 | `kg.mutations` | Graph CRUD events (add/update/delete node/edge) | 7 days | compact + delete |
-| `kg.tasks` | Task queue scheduling and completion | 3 days | delete |
+| `kg.tasks` | WorkItem notification and completion events | 3 days | delete |
 | `kg.staging` | Staged graph payloads awaiting write | 1 day | delete |
 | `kg.telemetry` | Agent traces, latency, error rates | 1 day | delete |
 | `kg.evolution` | Self-improvement triggers, AHE cycle events | 7 days | compact + delete |
@@ -110,36 +106,36 @@ backend = create_event_backend("redpanda", bootstrap_servers="redpanda:9092")
 | `REDPANDA_CONSUMER_GROUP` | `agent-utilities` | Default consumer group |
 | `REDPANDA_SECURITY_PROTOCOL` | `PLAINTEXT` | Security protocol |
 
-## Graph Sync Daemon
+## Authority and mirror consistency
 
-The `KafkaGraphSyncDaemon` (in `core/kafka_graph_sync.py`) keeps the Rust
-GraphComputeEngine authority and any optional mirror (persistent backend)
-synchronized:
+The Rust engine is the sole graph authority. Writes commit as governed
+`ChangeEnvelope` operations; optional mirrors receive the same acknowledged
+mutations through the durable per-mirror `FanOutBackend` outbox. Pub/sub events
+are post-commit notifications and never form an alternate replication path.
 
 ```mermaid
 sequenceDiagram
     participant ENG as Engine authority (Rust)
-    participant EB as EventBackend
-    participant SD as SyncDaemon
+    participant FO as FanOutBackend
+    participant OB as Durable mirror outbox
     participant MIR as Mirror (persistent backend)
 
-    ENG->>EB: publish(kg.mutations, {add_node...})
-    EB->>SD: on_mutation(topic, event)
-    Note over SD: Buffer (100ms batch)
-    SD->>MIR: flush_batch() → add_node(id, props)
-    Note over SD: Every 5 min
-    SD->>MIR: reconcile() → diff authority vs mirror
-    SD->>MIR: repair drift
+    FO->>ENG: ApplyChangeEnvelope
+    ENG-->>FO: durable acknowledgement
+    FO->>OB: append mutation per mirror
+    OB->>MIR: ordered replay
+    MIR-->>OB: advance durable cursor
+    Note over FO,MIR: Periodic reconcile repairs drift from authority
 ```
 
 ### Failure Modes
 
 | Failure Mode | Mitigation |
 |-------------|-----------|
-| Redpanda unavailable | Auto-fallback to MemoryEventBackend |
-| Consumer lag > 10K | Circuit breaker → full mirror reload from the engine authority |
-| Authority↔mirror drift | 5-minute reconciliation daemon |
-| Duplicate events | Idempotent dedup via (action, id, timestamp) key |
+| Redpanda unavailable | Auto-fallback to MemoryEventBackend for notifications |
+| Mirror unavailable | Durable outbox retains its unapplied ordered tail |
+| Authority↔mirror drift | Explicit authority-to-mirror reconciliation repairs drift |
+| Duplicate delivery | Governed mutation identity and mirror cursors keep replay idempotent |
 
 ## Docker Deployment
 
@@ -186,13 +182,15 @@ Selection contract (KG-2.55):
 ### Partition-key hierarchy (KG-2.56)
 
 Producers key every `kg_tasks` message; Kafka guarantees ordering per key
-without serializing unrelated work. First match wins:
+without serializing unrelated work. Ingestion producers derive an opaque
+`partition_ref` from the privacy-normalized target and tenant; the notification
+does not contain the target definition. For generic queue envelopes, first
+match wins:
 
 1. `tenant:<id>` — ambient `ActorContext.tenant_id` (multi-tenant ordering);
-2. `corpus:<repo>` — the ingest target's repo/corpus identifier (batch-ingest
-   provenance `full_path`, else the path-derived repo root) — per-repo
-   ordering for codebase fan-out;
-3. `type:<task_type>` — coarsest bucket for everything else.
+2. `work:<opaque-ref>` — durable ingestion partition reference;
+3. `corpus:<repo>` — portable corpus identifiers on non-ingestion envelopes;
+4. `type:<task_type>` — coarsest bucket for everything else.
 
 `kg_tasks` is ensured idempotently at startup with `KG_TASKS_PARTITIONS`
 partitions (default 6). **Grow-only**: raising the flag adds partitions; an
@@ -203,17 +201,15 @@ maximum parallelism.
 
 - **At-least-once delivery.** Offsets are committed only after a task
   completes (or is durably marked failed); worker crashes redeliver.
-- **Idempotent claims.** `job_id` is the idempotency key: a consumer claims by
-  MERGE-ing the `:Task` node to `running` (skipping jobs already
-  running/completed/failed/cancelled), guarded cross-host by the AU-KG.ingest.cross-host-safe-kg
-  `state_claim_guard` advisory lock when `STATE_DB_URI` is set. Graph writes
-  are MERGE-based, so rare duplicate executions converge.
+- **Idempotent claims.** `job_id` addresses a deterministic ingestion
+  `WorkItem`. Every consumer must win native `ClaimWorkItem`; lease epoch and
+  fencing token reject duplicate or stale execution. There is no graph-field
+  claim fallback or advisory-lock authority.
 - **Per-key ordering only.** There is no global order and no cross-partition
   priority lane (the graph-polling modes' `priority=high` fast path does not
   apply in Kafka mode).
-- **Zombie recovery.** Uncommitted offsets redeliver automatically; the task
-  reaper additionally re-publishes reaped orphans to the topic (in Kafka mode
-  nothing polls `pending` nodes).
+- **Lease recovery.** Uncommitted offsets redeliver automatically; native
+  `ClaimWorkItem` atomically reclaims expired leases when the item is eligible.
 
 ### Worker deployment shape
 
@@ -222,9 +218,10 @@ maximum parallelism.
 TASK_QUEUE_BACKEND=kafka KAFKA_BOOTSTRAP_SERVERS=kafka:9092 graph-os-daemon
 
 # Scale out: N decoupled workers, any host, NO KG host role required.
-# Each is an engine *client* (Rust daemon over TCP/UDS + OS-5.14 HMAC secret).
-GRAPH_SERVICE_TCP_ADDR=engine-host:9100 \
-GRAPH_SERVICE_AUTH_SECRET=... \
+# Each is an engine *client* (existing Rust daemon over TLS + OS-5.14 HMAC secret).
+GRAPH_SERVICE_ENDPOINTS=tls://engine.example.test:9100 \
+ENGINE_TLS_PROFILE_REF=vault://platform/engine/tls-profile \
+GRAPH_SERVICE_AUTH_SECRET="${GRAPH_SERVICE_AUTH_SECRET_FROM_SUPERVISOR}" \
 KAFKA_BOOTSTRAP_SERVERS=kafka:9092 \
 kg-ingest-worker            # or: python -m agent_utilities.knowledge_graph.ingest_worker
 ```
@@ -244,6 +241,6 @@ publishes to the AU-OS.observability.no-op-without-metrics gateway Prometheus re
   group lag on `kg_tasks` (Kafka mode).
 
 The batch orchestrator's deferral and the maintenance bulk-defer gate read the
-same uniform number via `engine.ingest_queue_depth()` (queue backlog + in-graph
-pending/running `:Task` nodes), so backpressure behaves identically in all
-three modes.
+same uniform number via `engine.ingest_queue_depth()`, which counts each
+non-terminal ingestion WorkItem exactly once, so backpressure does not double
+count a Kafka notification and its authoritative work record.

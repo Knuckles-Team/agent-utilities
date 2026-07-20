@@ -260,7 +260,7 @@ class GraphLock(BaseModel):
         is_active: Whether the lock is currently active.
     """
 
-    lock_id: str = Field(default_factory=lambda: f"lock:{uuid.uuid4().hex[:12]}")
+    lock_id: str = Field(default_factory=lambda: f"lock:{uuid.uuid4().hex}")
     target_id: str
     holder_id: str
     holder_type: ActorType = ActorType.AI_AGENT
@@ -315,7 +315,7 @@ class TenantNode(BaseModel):
         metadata: Additional tenant metadata.
     """
 
-    tenant_id: str = Field(default_factory=lambda: f"tenant:{uuid.uuid4().hex[:8]}")
+    tenant_id: str = Field(default_factory=lambda: f"tenant:{uuid.uuid4().hex}")
     name: str
     parent_tenant_id: str = ""
     description: str = ""
@@ -386,7 +386,7 @@ class ConflictNode(BaseModel):
     """
 
     conflict_id: str = Field(
-        default_factory=lambda: f"conflict:{uuid.uuid4().hex[:10]}"
+        default_factory=lambda: f"conflict:{uuid.uuid4().hex}"
     )
     node_id: str
     field_name: str
@@ -439,7 +439,7 @@ class ProvenanceRecord(BaseModel):
         tenant_id: Tenant scope of this write.
     """
 
-    record_id: str = Field(default_factory=lambda: f"prov:{uuid.uuid4().hex[:10]}")
+    record_id: str = Field(default_factory=lambda: f"prov:{uuid.uuid4().hex}")
     node_id: str
     actor_id: str
     actor_type: ActorType = ActorType.AI_AGENT
@@ -508,7 +508,7 @@ class ReadAuditEntry(BaseModel):
         tenant_id: Tenant context of the read.
     """
 
-    entry_id: str = Field(default_factory=lambda: f"read:{uuid.uuid4().hex[:10]}")
+    entry_id: str = Field(default_factory=lambda: f"read:{uuid.uuid4().hex}")
     actor_id: str
     actor_type: ActorType = ActorType.AI_AGENT
     query_type: str = "traversal"
@@ -543,7 +543,7 @@ class EventStreamConfig(BaseModel):
         created_at: ISO timestamp.
     """
 
-    stream_id: str = Field(default_factory=lambda: f"stream:{uuid.uuid4().hex[:8]}")
+    stream_id: str = Field(default_factory=lambda: f"stream:{uuid.uuid4().hex}")
     name: str
     source_type: EventSourceType
     endpoint: str = ""
@@ -575,7 +575,7 @@ class WebhookEvent(BaseModel):
         retry_count: Number of ingestion attempts.
     """
 
-    event_id: str = Field(default_factory=lambda: f"evt:{uuid.uuid4().hex[:10]}")
+    event_id: str = Field(default_factory=lambda: f"evt:{uuid.uuid4().hex}")
     source_type: str
     event_type: str
     payload: dict[str, Any] = Field(default_factory=dict)

@@ -22,12 +22,14 @@ the retrieval path.
 Concept: retrieval-reranking
 """
 
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 _WORD = re.compile(r"[a-z0-9]+")
+logger = logging.getLogger(__name__)
 # A tiny stoplist so query/document overlap reflects content words, not glue.
 _STOP = frozenset(
     "a an the of to in on for and or is are be was were with as at by from this that "
@@ -118,7 +120,7 @@ class LexicalRelevanceScorer:
 def _auto_scorer() -> RerankScorer:
     """Default rerank scorer: the dependency-free lexical scorer (CONCEPT:AU-KG.retrieval.unset-dependency-free).
 
-    All heavy inference runs on the remote vllm endpoint (embeddings/LLM); the reranker does
+    Heavy inference runs on the configured remote model endpoint; the reranker does
     NOT load a local model by default — a bundled cross-encoder both pins a GPU/CPU baseline
     (it SIGILLs on hosts whose CPU lacks the build's instructions — uncatchable, so the probe's
     try/except can't save us) and contradicts the "everything on vllm" rule. The local neural
@@ -127,14 +129,18 @@ def _auto_scorer() -> RerankScorer:
     """
     from agent_utilities.core.config import config, setting
 
-    # 1) Remote reranker on vLLM when a model is configured — the default once you point
+    # 1) Remote reranker when a model and endpoint are configured.
     # KG_RERANK_MODEL at a served reranker (e.g. bge-reranker). No local model.
     if config.kg_rerank_model:
         from .neural_reranker import RemoteRerankScorer
 
-        base = (
-            config.kg_rerank_base_url or config.openai_base_url or "http://vllm.arpa/v1"
-        )
+        base = config.kg_rerank_base_url or config.openai_base_url
+        if not base:
+            logger.warning(
+                "remote reranker model is configured without an endpoint; "
+                "using the dependency-free lexical reranker"
+            )
+            return LexicalRelevanceScorer()
         # RemoteRerankScorer implements the RerankScorer scoring interface at runtime.
         return RemoteRerankScorer(config.kg_rerank_model, base)  # type: ignore[return-value]
 

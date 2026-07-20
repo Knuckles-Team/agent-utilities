@@ -172,7 +172,7 @@ class SpectralClusterNavigator:
         if n < 2:
             return [
                 ClusterResult(
-                    cluster_id=f"sc_{uuid.uuid4().hex[:8]}",
+                    cluster_id=f"sc_{uuid.uuid4().hex}",
                     label=f"{domain}_singleton",
                     indices=list(range(n)),
                     centroid=arr[0].tolist() if n > 0 else [],
@@ -221,7 +221,7 @@ class SpectralClusterNavigator:
 
             results.append(
                 ClusterResult(
-                    cluster_id=f"sc_{uuid.uuid4().hex[:8]}",
+                    cluster_id=f"sc_{uuid.uuid4().hex}",
                     label=f"{domain}_cluster_{cluster_idx}",
                     indices=member_indices,
                     centroid=centroid,

@@ -7,7 +7,7 @@
 
 LLM/embedding fan-out (`map_concurrent` / `map_concurrent_sync`) is gated by a
 **static** per-model capacity: `Config.model_capacity` =
-`parallel_instances × max_parallel_calls` (default 1, live homelab value ~4). That
+`parallel_instances × max_parallel_calls` (default 1; deployment values vary). That
 number is a *guess* baked into config — it cannot grow when a beefier GPU or an
 extra vLLM instance is added, and it cannot tell when the serving tier is actually
 saturated. So fan-out either under-utilises new hardware (a hardcoded ceiling that
@@ -43,8 +43,9 @@ flowchart TD
 
 The model's `/metrics` URL is derived from its `base_url`:
 `http://host/v1` → `http://host/metrics` (drop a trailing `/v1`, append
-`/metrics`). E.g. embedding `bge-m3` at `http://vllm-embed.arpa/v1` →
-`http://vllm-embed.arpa/metrics`.
+`/metrics`). For example, an embedding service at
+`https://embedding-api.example.test/v1` maps to
+`https://embedding-api.example.test/metrics`.
 
 ### Signals (per `model_name` label)
 

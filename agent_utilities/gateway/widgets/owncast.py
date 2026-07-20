@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.MEDIA
     description = "Live streaming — broadcast status, viewers, and chat"
     env_prefix = "OWNCAST"
-    default_url = "https://owncast.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -44,8 +43,8 @@ class Widget(BaseWidget):
             viewers = status.get("viewerCount", 0)
             peak = status.get("overallMaxViewerCount", 0)
         except Exception as e:
-            logger.debug("Owncast fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Owncast fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

@@ -47,7 +47,7 @@ Every concept has 1:1:1 traceability across:
 | `ORCH-1.31` | Graph-Native Optimization State 🔬 | 1 | 1 | [ORCH-1.31](pillars/1_graph_orchestration/ORCH-1.31-Graph_Native_Optimization_State.md) |
 | `ORCH-1.32` | KG-Governed Agent Swarm 🔬 | 3 | 1 | [ORCH-1.32](pillars/1_graph_orchestration/ORCH-1.32-KG_Governed_Agent_Swarm.md) |
 
-Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `Planner` facade), `graph/routing/` (`Router`/`RoutingStrategy` strategy package over `graph/_router_impl.py`), `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, `rlm/predict_rlm.py`, `rlm/gepa.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
+Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `Planner` facade), `graph/routing/` (`Router`/`RoutingStrategy` strategy package over `graph/_router_impl.py`), `graph/executor.py`, `graph/hsm.py`, `graph/lifecycle.py`, `core/default_catalog.py`, `capabilities/checkpointing.py`, `sdd/orchestrator.py`, `graph/kg_graph_factory.py`, `orchestration/agent_runner.py`, `graph/parallel_engine.py`, `graph/manifest_generators.py`, `models/execution_manifest.py`, `graph/reactive/ledger.py`, `graph/reactive/dispatcher.py`, `core/wasm_runner.py`, `rlm/predict_rlm.py`, `harness/optimization_backend.py`, 🔬 `graph/coordination.py`, 🔬 `orchestration/prediction_linkage.py`
 
 ---
 
@@ -57,13 +57,13 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `P
 |----|---------------|:---:|:---:|---|
 | `KG-2.0` | Active Knowledge Graph | 42 | 24 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
 | `KG-2.1` | Tiered Memory & Context 🔬 | 17 | 8 | [KG-2.1](pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md) |
-| `KG-2.2` | Ontology, Epistemics & DSPy Integration | 27 | 6 | [KG-2.2](pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) |
+| `KG-2.2` | Ontology, Epistemics & Native Program Integration | 27 | 6 | [KG-2.2](pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) |
 | `KG-2.3` | Unified Retrieval & Graph Integrity 🔬 | 15 | 4 | [KG-2.3](pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md) |
 | `KG-2.4` | Inductive Knowledge | 12 | 5 | [KG-2.4](pillars/2_epistemic_knowledge_graph/KG-2.4-Inductive_Knowledge_And_Hypergraphs.md) |
 | `KG-2.5` | Topological Analysis | 11 | 4 | [KG-2.5](pillars/2_epistemic_knowledge_graph/KG-2.5-Topological_Analysis.md) |
 | `KG-2.6` | Domain Ontologies & Vertical Subgraphs | 53 | 34 | [KG-2.6](pillars/2_epistemic_knowledge_graph/KG-2.6-Domain_Finance.md) |
 | `KG-2.6` | Memory Stability | 13 | 2 | [Pillar Summary](pillars/2_epistemic_knowledge_graph.md) |
-| `KG-2.7` | Multi-Domain Architecture | 6 | 2 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.7-Quant_Orchestration.md) |
+| `KG-2.7` | Multi-Domain Architecture | 6 | 2 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.8-Quant_Orchestration.md) |
 | `KG-2.7` | Centralized Epistemic Gateway & Transaction Proxy | 3 | 3 | [KG-2.7](centralized_kg_coordination.md) |
 | `KG-2.7` | Rust-Native High-Performance Compute (FFI) 🔬 | 3 | 3 | [OS-5.5](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) |
 | `KG-2.7` | Speculative Graph Brancher 🔬 | 1 | 1 | [KG-2.7](pillars/2_epistemic_knowledge_graph/KG-2.7-Speculative_Graph_Brancher.md) |
@@ -107,7 +107,7 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `P
 > `knowledge_graph/retrieval/{autocut,relational_intent}.py`,
 > `knowledge_graph/kb/link_inference.py`, and the `research-state` pack.
 
-Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/synthesis.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `mcp/kg_coordinator.py`, `knowledge_graph/backends/epistemic_graph_backend.py`, `knowledge_graph/backends/postgresql_backend.py`, `knowledge_graph/backends/fanout_backend.py`, `knowledge_graph/backends/contrib/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
+Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memory.py`, `knowledge_graph/core/engine_tasks.py`, `knowledge_graph/core/graph_compute.py`, `knowledge_graph/core/topological_analysis_engine.py`, `knowledge_graph/research/research_intelligence_engine.py`, `knowledge_graph/memory/synthesis.py`, `knowledge_graph/memory/memory_materializer.py`, `knowledge_graph/memory/observer.py`, `knowledge_graph/memory/reflector.py`, `knowledge_graph/memory/startup_context.py`, `knowledge_graph/ontology.ttl`, `knowledge_graph/retrieval/retrieval_quality.py`, `knowledge_graph/pipeline/document_deletion.py`, `knowledge_graph/pipeline/document_update.py`, `domains/finance/`, `knowledge_graph/orchestration/engine_enterprise.py`, `knowledge_graph/pipeline/phases/external_graphs.py`, `knowledge_graph/ingestion/engine.py`, `scripts/install_git_hooks.py`, `scripts/submit_diff.py`, `mcp/kg_server.py`, `knowledge_graph/backends/epistemic_graph_backend.py`, `knowledge_graph/backends/postgresql_backend.py`, `knowledge_graph/backends/fanout_backend.py`, `knowledge_graph/backends/contrib/ladybug_backend.py`, 🔬 `knowledge_graph/core/ar_graph.py`, 🔬 `knowledge_graph/core/time_series_graph.py`
 
 ---
 
@@ -116,7 +116,7 @@ Key modules: `knowledge_graph/core/engine.py`, `knowledge_graph/core/engine_memo
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
 | `AHE-3.0` | Agentic Harness Core | 16 | 3 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
-| `AHE-3.1` | Continuous Evaluation & DSPy Math Optimization | 17 | 7 | [AHE-3.1](pillars/3_agentic_harness_engineering/AHE-3.1-Continuous_Evaluation_Engine.md) |
+| `AHE-3.1` | Continuous Evaluation & Native Program Optimization | 17 | 7 | [AHE-3.1](pillars/3_agentic_harness_engineering/AHE-3.1-Continuous_Evaluation_Engine.md) |
 | `AHE-3.2` | Agentic Evolution Engine | 16 | 5 | [AHE-3.2](pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md) |
 | `AHE-3.3` | Team & Synergy Optimization | 14 | 5 | [Pillar Summary](pillars/3_agentic_harness_engineering.md) |
 | `AHE-3.4` | Distributed Agentic Evolution | 11 | 1 | [AHE-3.4](pillars/3_agentic_harness_engineering/AHE-3.4-Distributed_Agentic_Evolution.md) |
@@ -147,10 +147,10 @@ Key modules: `harness/evaluation_engine.py`, `harness/agentic_evolution_engine.p
 | `AU-OS.deployment.infra-orchestration` | Company Infrastructure Orchestration | 3 | 2 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `AU-OS.deployment.blueprint-library` | Infrastructure Blueprint Library | 1 | 1 | [Pillar Summary](pillars/4_ecosystem_peripherals.md) |
 | `AU-ECO.bus.pluggable-queue-backend` | Pluggable Event Queue Backend | 3 | 2 | [OS-5.5](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) |
-| `AU-KG.memory.team-startup-context` | Automated Documentation & AGENTS.md Governance | 4 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-hierarchical-agentsmd--team-context-eco-416) |
-| `AU-OS.governance.lint-enforcement-hook` | Deterministic Lint Enforcement Hook | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-deterministic-lint-enforcement-hook-eco-418) |
-| `AU-ECO.toolkit.self-documenting-plugin-bundle` | Plugin Bundle Distribution System | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-plugin-bundle-distribution-system-eco-419) |
-| `AU-OS.governance.permission-policy` | Ecosystem Governance & Policy Engine | 3 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#-permission-policy-engine-eco-420) |
+| `AU-KG.memory.team-startup-context` | Automated Documentation & AGENTS.md Governance | 4 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#hierarchical-agent-context) |
+| `AU-OS.governance.lint-enforcement-hook` | Deterministic Lint Enforcement Hook | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#lint-enforcement) |
+| `AU-ECO.toolkit.self-documenting-plugin-bundle` | Plugin Bundle Distribution System | 1 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#plugin-bundles) |
+| `AU-OS.governance.permission-policy` | Ecosystem Governance & Policy Engine | 3 | 0 | [Pillar Summary](pillars/4_ecosystem_peripherals.md#permission-policy) |
 
 Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_terminal_agent`), `ecosystem/bridge.py`, `ecosystem/hook_installer.py`, `ecosystem/agents_md_reflector.py`, `ecosystem/lint_enforcement_hook.py`, `ecosystem/plugin_bundle.py`, `ecosystem/permission_policy.py`, `ecosystem/config_staleness_auditor.py`, `ecosystem/governance_workflow.py`, `ecosystem/agent_manager_dashboard.py`, `tools/codebase_map_tools.py`, `knowledge_graph/core/agents_md.py`, `knowledge_graph/memory/startup_context.py`, `graph/subagent_patterns.py`, `protocols/a2a_graph_skill.py`, `tools/tool_filtering.py`, `tools/dynamic_tool_orchestrator.py`, `knowledge_graph/core/engine_ingestion.py`, `knowledge_graph/core/engine_mcp_discovery.py`, `knowledge_graph/core/queue_backend.py`, `knowledge_graph/core/nats_queue_backend.py`, `knowledge_graph/core/kafka_queue_backend.py`
 
@@ -161,10 +161,10 @@ Key modules: `mcp/server_factory.py`, `mcp/kg_server.py` (incl. `kg_launch_termi
 | ID | Canonical Name | Code Modules | Tests | Doc Page |
 |----|---------------|:---:|:---:|---|
 | `OS-5.0` | Agent OS Kernel & XDG Paths | 17 | 6 | [Pillar Summary](pillars/5_agent_os_infrastructure.md) |
-| `OS-5.1` | Security & Auth | 19 | 8 | [OS-5.1](pillars/5_agent_os_infrastructure.md#secrets--authentication-conceptos-51) |
+| `OS-5.1` | Security & Auth | 19 | 8 | [OS-5.1](pillars/5_agent_os_infrastructure.md#secrets-authentication) |
 | `OS-5.2` | Resource Scheduling 🔬 | 18 | 4 | [Pillar Summary](pillars/5_agent_os_infrastructure.md) |
-| `AU-OS.governance.reactive-multi-axis-budget` | OS Guardrails & Safety Boundaries | 10 | 5 | [AU-OS.governance.reactive-multi-axis-budget](pillars/5_agent_os_infrastructure.md#-declarative-sensory-guardrails--safety-contracts-conceptos-53) |
-| `AU-OS.governance.wasm-micro-agent-sandbox` | Telemetry & Observability | 7 | 3 | [AU-OS.governance.wasm-micro-agent-sandbox](pillars/5_agent_os_infrastructure.md#-telemetry-observability--token-usage-conceptos-54) |
+| `AU-OS.governance.reactive-multi-axis-budget` | OS Guardrails & Safety Boundaries | 10 | 5 | [AU-OS.governance.reactive-multi-axis-budget](pillars/5_agent_os_infrastructure.md#sensory-guardrails) |
+| `AU-OS.governance.wasm-micro-agent-sandbox` | Telemetry & Observability | 7 | 3 | [AU-OS.governance.wasm-micro-agent-sandbox](pillars/5_agent_os_infrastructure.md#telemetry-observability) |
 | `OS-5.5` | Massive Scale Architecture & Sandbox | 2 | 2 | [OS-5.5](pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) |
 | `OS-5.6` | Distributed Replay & Compliance Engine | 1 | 1 | [OS-5.6](pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md) |
 | `AU-OS.deployment.platform-journey` | OS-Level Hardened Tool Sandbox Executor | 1 | 1 | [AU-OS.deployment.platform-journey](pillars/5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md) |
@@ -260,29 +260,40 @@ New Feature Request
 ## Concept ID Completeness (registry reconciliation)
 
 > This section keeps the curated narrative map's ID space **contiguous** (the
-> `check-concept-gaps` governance gate requires `0..max` with no holes). It reconciles two cases that
-> previously left gaps: (a) concepts that **exist** in `docs/concepts.yaml` / code but were never
-> written into the narrative tables above, and (b) ID numbers that were **never assigned** (skipped
-> during early numbering) — documented here as **Reserved** so the number is accounted for rather than
-> silently missing. `docs/concepts.yaml` remains the machine source of truth.
+> `check-concept-gaps` governance gate requires `0..max` with no holes). It reconciles three cases
+> that previously left gaps: (a) concepts that **exist** in `docs/concepts.yaml` / code but were
+> never written into the narrative tables above; (b) ID numbers that were **never assigned**
+> (skipped during early numbering) — documented here as **Reserved** so the number is accounted for
+> rather than silently missing; and (c) old numeric ids that were **migrated** to a new OKF-CIS
+> dotted `<PILLAR>.<domain>.<concept>` id (the Concept-ID standard migration, see `docs/okf-cis.md` —
+> the narrative tables above already carry the dotted replacement in the retired numeric id's
+> position) — the retired numeric id is recorded here as **Migrated to `<dotted-id>`** purely so the
+> gate's numeric sequence stays contiguous; the dotted id in the tables above is the live reference.
+> `docs/concepts.yaml` remains the machine source of truth.
 
 ### Pillar 1 — Graph Orchestration (ORCH) — reconciled IDs
 
 | ID | Canonical Name | Status |
 |----|---------------|--------|
+| `ORCH-1.5` | DSTDD Pipeline | Migrated to `AU-ORCH.planning.legal-automation-roadmap` |
+| `ORCH-1.6` | Prediction Linkage Layer | Migrated to `AU-ORCH.planning.spec-driven-pipeline` |
+| `ORCH-1.7` | RecursiveMAS Latent Orchestrator | Migrated to `AU-ORCH.planning.journey-milestone` |
+| `ORCH-1.9` | Autonomous Department Orchestration | Migrated to `AU-ORCH.execution.autonomous-department-orchestration` |
+| `ORCH-1.11` | WASM Micro-Agent Execution | Migrated to `AU-ORCH.sandbox.compiled-orchestration-kernel` |
+| `ORCH-1.13` | GEPA Reflective Prompt Optimizer | Migrated to `AU-ORCH.optimization.optimize-skill-prompt-gepa` |
 | `ORCH-1.14` | — | Reserved (never assigned) |
 | `ORCH-1.15` | — | Reserved (never assigned) |
 | `ORCH-1.16` | — | Reserved (never assigned) |
 | `ORCH-1.17` | — | Reserved (never assigned) |
 | `ORCH-1.18` | — | Reserved (never assigned) |
 | `ORCH-1.19` | — | Reserved (never assigned) |
-| `AU-ORCH.execution.service-registry-initialization` | Service Registry Initialization | Active |
+| `ORCH-1.20` | Service Registry Initialization | Migrated to `AU-ORCH.execution.service-registry-initialization` |
 | `ORCH-1.21` | Execution Provenance Tracking | Active |
 | `ORCH-1.22` | Workflow Persistence & Replay | Active |
 | `ORCH-1.23` | Semantic Workflow Retrieval | Active |
 | `ORCH-1.24` | Workflow Lifecycle Management | Active |
 | `ORCH-1.25` | — | Reserved (never assigned) |
-| `AU-ORCH.execution.rlm-synthesis-failed-falling` | RLM Synthesis Fallback | Active |
+| `ORCH-1.26` | RLM Synthesis Fallback | Migrated to `AU-ORCH.execution.rlm-synthesis-failed-falling` |
 
 ### Pillar 2 — Epistemic Knowledge Graph (KG) — reconciled IDs
 
@@ -290,5 +301,34 @@ New Feature Request
 |----|---------------|--------|
 | `KG-2.8` | Ingestion & Enrichment Engine | Active |
 | `KG-2.9` | Universal DataConnector | Active |
-| `AU-KG.enrichment.a2a-capability-extraction` | Orchestration Synthesis | Active |
+| `KG-2.10` | Orchestration Synthesis | Migrated to `AU-KG.enrichment.a2a-capability-extraction` |
+| `KG-2.14` | Ground-Truth Context Authority | Migrated to `AU-KG.memory.ground-truth-preamble-declaring` |
 | `KG-2.16` | Memory Consolidation Stability | Active |
+| `KG-2.23` | Rust-Accelerated Reasoning | Migrated to `AU-KG.domains.legal-automation` |
+| `KG-2.27` | Agent Calibration and Reputation Tracking | Migrated to `AU-KG.domains.agent-calibration-reputation-tracking` |
+| `KG-2.28` | Persona Decision-Heuristic Enrichment | Migrated to `AU-KG.domains.persona-decision-heuristic-enrichment` |
+| `KG-2.29` | Sentiment Fusion Signals | Migrated to `AU-KG.domains.sentiment-fusion-signals` |
+| `KG-2.30` | Geopolitical Risk Scoring | Migrated to `AU-KG.domains.geopolitical-risk-scoring` |
+| `KG-2.31` | Dividend Sustainability & Credit/Fixed-Income Quality | Migrated to `AU-KG.domains.dividend-sustainability-credit-fixed` |
+| `KG-2.32` | Multi-Market Composite Backtester | Migrated to `AU-KG.domains.multi-market-composite-backtester` |
+| `KG-2.33` | Zero-LLM Pack-Driven Link Inference | Migrated to `AU-KG.research.zero-llm-pack-link` |
+| `KG-2.34` | Relational-Intent Retrieval | Migrated to `AU-KG.retrieval.relational-intent-retrieval` |
+| `KG-2.35` | Schema-Pack Lifecycle and Audit | Migrated to `AU-KG.ontology.schema-pack-lifecycle-audit` |
+
+### Pillar 3 — Agentic Harness Engineering (AHE) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `AHE-3.5` | Heavy Thinking & Background Intelligence | Migrated to `AU-AHE.harness.self-evolution-narrative` |
+| `AHE-3.6` | Backtest & Curriculum | Migrated to `AU-AHE.harness.evolution-checkpoint` |
+| `AHE-3.7` | KG-Native Task Detection | Migrated to `AU-AHE.harness.concept-2` |
+| `AHE-3.8` | Interpretability & Model Evolution | Migrated to `AU-AHE.harness.self-improvement-overview` |
+| `AHE-3.11` | GitOps Commit & Evolution Boundary Traceability | Migrated to `AU-AHE.optimization.gitops-commit-automation` |
+
+### Pillar 5 — Agent OS Infrastructure (OS) — reconciled IDs
+
+| ID | Canonical Name | Status |
+|----|---------------|--------|
+| `OS-5.3` | OS Guardrails & Safety Boundaries | Migrated to `AU-OS.governance.reactive-multi-axis-budget` |
+| `OS-5.4` | Telemetry & Observability | Migrated to `AU-OS.governance.wasm-micro-agent-sandbox` |
+| `OS-5.7` | OS-Level Hardened Tool Sandbox Executor | Migrated to `AU-OS.deployment.platform-journey` |

@@ -11,8 +11,6 @@ exercised without a live epistemic-graph daemon. A live round-trip belongs in a
 
 import json
 
-import msgpack
-
 from agent_utilities.knowledge_graph.distillation import SkillGraphDistiller
 
 # ── fake client mimicking the namespaced async client ─────────────────────
@@ -30,19 +28,11 @@ class _Nodes:
         return self._nodes.get(node_id)
 
 
-class _Edges:
-    def __init__(self, edges: list) -> None:
-        self._edges = edges
-
-    async def list(self):
-        # Mirror the real client: third element is a msgpack blob.
-        return [(s, d, list(msgpack.packb(props))) for (s, d, props) in self._edges]
-
-
 class _Graph:
-    def __init__(self, communities, seed_hits) -> None:
+    def __init__(self, communities, seed_hits, nodes, edges) -> None:
         self._communities = communities
         self._seed_hits = seed_hits
+        self.get_subgraph = _make_subgraph_fn(nodes, edges)
 
     async def community_detection(self, resolution=1.0):
         return self._communities
@@ -73,18 +63,13 @@ def _make_subgraph_fn(nodes, edges):
 
 
 class FakeClient:
-    def __init__(self, nodes, edges, communities=None, seed_hits=None, batched=False):
+    def __init__(self, nodes, edges, communities=None, seed_hits=None):
         adj: dict = {}
         for s, d, _ in edges:
             adj.setdefault(s, set()).add(d)
             adj.setdefault(d, set()).add(s)
         self.nodes = _Nodes(nodes, {k: sorted(v) for k, v in adj.items()})
-        self.edges = _Edges(edges)
-        self.graph = _Graph(communities or [], seed_hits or [])
-        # When batched, expose the one-round-trip GetSubgraph; otherwise the
-        # distiller falls back to per-node reads (both paths covered by tests).
-        if batched:
-            self.graph.get_subgraph = _make_subgraph_fn(nodes, edges)
+        self.graph = _Graph(communities or [], seed_hits or [], nodes, edges)
 
     async def close(self):
         pass
@@ -182,11 +167,10 @@ async def test_distill_seed_builds_reference_tree_and_manifest(tmp_path):
     assert manifest["stats"]["files"] >= 3
 
 
-async def test_batched_get_subgraph_path_matches_fallback(tmp_path):
-    # Same fixture, but the engine exposes the batched GetSubgraph. Output must
-    # match the per-node fallback: files written, edges restricted to selection.
+async def test_batched_get_subgraph_restricts_edges_to_selection(tmp_path):
+    # The current contract fetches nodes and induced edges in one round trip.
     nodes, edges, communities = _fixture_graph()
-    client = FakeClient(nodes, edges, communities, batched=True)
+    client = FakeClient(nodes, edges, communities)
     distiller = SkillGraphDistiller(client, graph_name="__test__")
 
     manifest = await distiller.distill(

@@ -12,7 +12,9 @@ a2a.json) and proves the generator:
 
 from __future__ import annotations
 
+import base64
 import importlib.util
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -36,7 +38,12 @@ _ONTOLOGY = """\
     rdfs:label "Acme" ;
     owl:imports <http://knuckles.team/kg> .
 
-:Order a owl:Class ; rdfs:label "Order" .
+:Order a owl:Class ; rdfs:label "Order" ;
+    rdfs:subClassOf [
+        a owl:Restriction ;
+        owl:onProperty :placedBy ;
+        owl:someValuesFrom :Person
+    ] .
 :Person a owl:Class ; rdfs:label "Person" .
 :placedBy a owl:ObjectProperty ; rdfs:label "placed by" ;
     rdfs:domain :Order ; rdfs:range :Person .
@@ -78,11 +85,22 @@ def connector_root(tmp_path: Path) -> Path:
 _NOW = datetime(2026, 7, 9, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def release_signing_key(monkeypatch):
+    private_key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
+    monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL", private_key)
+    monkeypatch.setenv(
+        "ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF",
+        "env://ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL",
+    )
+
+
 def test_build_manifest_projects_all_artifacts(connector_root: Path):
     m = gen.build_manifest(connector_root, now=_NOW)
     assert m.connector == "acme-api"
     assert m.ontology_source == "acme"  # detected from the ttl's owl:Ontology IRI
     assert {r.name for r in m.resources} == {"Order", "Person"}
+    assert all(not resource.name.startswith("n") for resource in m.resources)
     order = next(r for r in m.resources if r.name == "Order")
     assert order.relations[0].name == "placedBy"
     assert order.relations[0].target == "Person"
@@ -96,11 +114,12 @@ def test_build_manifest_projects_all_artifacts(connector_root: Path):
     assert any(e.name == "acme-orders.updated" for e in m.events)
     # signed with the generator signer id
     assert m.provenance.signer == "ontology-manifest-generator"
+    assert m.provenance.signature_algorithm == "ed25519"
+    assert m.provenance.signing_public_key
     assert len(m.provenance.integrity.hash) == 64
 
 
 def test_build_manifest_is_deterministic(connector_root: Path, monkeypatch):
-    monkeypatch.setenv("AGENT_UTILITIES_TOKEN_SECRET", "pinned-secret")
     m1 = gen.build_manifest(connector_root, now=_NOW)
     m2 = gen.build_manifest(connector_root, now=_NOW)
     assert gen._to_yaml(m1) == gen._to_yaml(
@@ -108,6 +127,22 @@ def test_build_manifest_is_deterministic(connector_root: Path, monkeypatch):
     )  # byte-identical, incl. hash + signature
     assert m1.provenance.integrity.hash == m2.provenance.integrity.hash
     assert m1.provenance.signature == m2.provenance.signature
+
+
+def test_build_manifest_refuses_missing_release_key(connector_root: Path, monkeypatch):
+    monkeypatch.delenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", raising=False)
+
+    with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
+        gen.build_manifest(connector_root, now=_NOW)
+
+
+def test_build_manifest_refuses_ambiguous_release_key_sources(
+    connector_root: Path, monkeypatch
+):
+    monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", "env://OTHER_KEY")
+
+    with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
+        gen.build_manifest(connector_root, now=_NOW)
 
 
 def test_pii_and_crosswalk_left_as_review_todos(connector_root: Path):

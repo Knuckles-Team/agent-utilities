@@ -94,7 +94,6 @@ async def test_repository_manager_toolset_assigned_and_tool_executes(
         mcp_toolsets=[rm_server],
         enable_skills=False,
         enable_universal_tools=False,
-        auto_graph_trace=False,
     )
 
     # The factory wrapped the FastMCP server in an MCPToolset and returned it.

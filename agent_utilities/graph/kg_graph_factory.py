@@ -488,7 +488,7 @@ def build_pydantic_graph_from_kg(
         if engine is None:
             templates.append(
                 {
-                    "id": f"agent:{uuid.uuid4().hex[:8]}",
+                    "id": f"agent:{uuid.uuid4().hex}",
                     "role": "executor",
                     "system_prompt_id": "",
                     "toolset_ids": [],
@@ -513,7 +513,7 @@ def build_pydantic_graph_from_kg(
                     {
                         "id": spec.get(
                             "agent_id",
-                            spec.get("role", f"agent:{uuid.uuid4().hex[:8]}"),
+                            spec.get("role", f"agent:{uuid.uuid4().hex}"),
                         ),
                         "role": spec.get("role", "executor"),
                         "system_prompt_id": "",
@@ -544,7 +544,7 @@ def build_pydantic_graph_from_kg(
     step_ids_ordered: list[str] = []
 
     for i, tmpl in enumerate(sorted_templates):
-        tmpl_id = tmpl.get("id", f"step:{uuid.uuid4().hex[:8]}")
+        tmpl_id = tmpl.get("id", f"step:{uuid.uuid4().hex}")
         role = tmpl.get("role", f"specialist_{i}")
 
         # Resolve system prompt

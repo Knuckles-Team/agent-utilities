@@ -356,7 +356,7 @@ class FactDeduper:
 
 
 # --------------------------------------------------------------------------- #
-# Streaming LLM call (reuses the configured chat model — vLLM)
+# Streaming LLM call (reuses the configured chat model)
 # --------------------------------------------------------------------------- #
 
 StreamFn = Callable[[str, int], AsyncGenerator[str, None]]
@@ -368,7 +368,7 @@ def make_streaming_extract_fn(
 ) -> StreamFn:
     """Factory: an async fn ``(prompt, seed) -> AsyncGenerator[str]`` of deltas.
 
-    Backed by the configured chat model (``vllm.arpa``) with the JSON-schema
+    Backed by the configured chat model endpoint with the JSON-schema
     response format and the sampling profile tuned for factual extraction. Lazy
     so importing this module never requires the OpenAI client; on any failure it
     yields nothing and the caller degrades to zero facts for that round.
@@ -376,26 +376,21 @@ def make_streaming_extract_fn(
 
     async def _stream(prompt: str, seed: int) -> AsyncGenerator[str, None]:
         try:
-            from openai import AsyncOpenAI
-
-            from agent_utilities.core.config import config, setting
-
-            cfg = config.default_chat_model
-            client = AsyncOpenAI(
-                base_url=base_url
-                or (cfg.base_url if cfg else None)
-                or "http://vllm.arpa/v1",
-                api_key=(cfg.api_key if cfg else None) or "not-needed",
-                timeout=_EXTRACT_READ_TIMEOUT_S,
-                # Retry transient backend errors (502/503/429/timeout) with the
-                # SDK's exponential backoff — a momentarily overloaded vLLM must
-                # not silently zero out a chunk's facts. Tunable via env.
+            from agent_utilities.core.config import setting
+            from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
+                compiled_async_chat_completion,
+                resolve_bundle_async_chat_client,
+            )
+            client, model_id = resolve_bundle_async_chat_client(
+                base_url=base_url,
+                model=model,
+                timeout_s=_EXTRACT_READ_TIMEOUT_S,
                 max_retries=int(setting("KG_EXTRACT_MAX_RETRIES", "4")),
             )
-            model_id = model or (cfg.id if cfg else None) or "default"
-            stream = await client.chat.completions.create(
+            stream = await compiled_async_chat_completion(
+                prompt,
+                client=client,
                 model=model_id,
-                messages=[{"role": "user", "content": prompt}],
                 max_tokens=_EXTRACT_MAX_TOKENS,
                 stream=True,
                 seed=seed,

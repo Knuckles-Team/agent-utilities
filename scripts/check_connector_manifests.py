@@ -10,19 +10,17 @@ Drives every ``agents/*/connector_manifest.yml`` (or a single ``--manifest``) to
   3. **No un-imported top-level ttl** — the connector's ontology IRI is either already
      ``owl:imports``-ed by the canonical ``ontology.ttl`` or a registered federated
      module (the anti-sprawl invariant ``manifest_compiler.apply_manifest`` enforces).
-  4. **Signature verifies** — the ``provenance.signature`` is checked against the
-     trusted-signer allowlist (the real ``verify()`` call path is always exercised).
-     Fleet-wide signer infra (X6) isn't fully wired yet, so when no signing secret is
-     configured at all (``AGENT_UTILITIES_TOKEN_SECRET`` unset) a verification failure
-     is reported as a **stub notice**, not a hard violation — once a secret/allowlist
-     is configured, the same failure becomes a hard gate violation.
+  4. **Signature/release pin verifies** — the complete manifest (not only its
+     compiled ontology graph) must match its trusted signed release pin, or verify
+     cryptographically against a configured trusted signer. There is no unsigned
+     development bypass on this gate.
 
 Usage:
   python3 scripts/check_connector_manifests.py --agents-root <path>   # sweep the fleet
   python3 scripts/check_connector_manifests.py --manifest <path>      # one manifest
 
-Exit 0 = all manifests compile, hash-match, are wired, and (when a secret is
-configured) sign-verify. Exit 1 = one or more violations.
+Exit 0 = all manifests compile, hash-match, are wired, and sign-verify.
+Exit 1 = one or more violations.
 """
 
 from __future__ import annotations
@@ -35,14 +33,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_utilities.core._env import setting  # noqa: E402
-from agent_utilities.knowledge_graph.ontology import ontology_integrity  # noqa: E402
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ConnectorManifest,  # noqa: E402
 )
+from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  # noqa: E402
+    check_manifest_bytes,
+)
 from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
-    compile_manifest,
-    export_manifest_ttl,
     is_wired,
 )
 
@@ -55,69 +52,25 @@ def _load(path: Path) -> ConnectorManifest:
 
 
 def check_one(path: Path, *, verbose: bool = False) -> list[str]:
-    violations: list[str] = []
-    notes: list[str] = []
+    del verbose
+    label = f"{path.parent.name}/connector_manifest.yml"
+    violations = check_manifest_bytes(path, require_signature=True)
 
     try:
         manifest = _load(path)
     except Exception as exc:  # noqa: BLE001
-        return [
-            f"[schema] {path}: does not parse/validate as a ConnectorManifest: {exc}"
-        ]
+        if violations:
+            return violations
+        return [f"[schema] {label}: does not validate ({type(exc).__name__})"]
 
     source = manifest.resolved_ontology_source
-    try:
-        spec = compile_manifest(manifest)
-        ttl = export_manifest_ttl(spec, source=source)
-        import rdflib
-
-        g = rdflib.Graph()
-        g.parse(data=ttl, format="turtle")
-    except Exception as exc:  # noqa: BLE001
-        violations.append(f"[compile] {path}: manifest does not compile cleanly: {exc}")
-        return violations
-
-    digest, triple_count = ontology_integrity.canonical_hash(g)
-    if digest != manifest.provenance.integrity.hash:
-        violations.append(
-            f"[integrity] {path}: recomputed hash {digest} (n={triple_count}) != "
-            f"provenance.integrity.hash {manifest.provenance.integrity.hash} — "
-            "regenerate via scripts/generate_connector_manifests.py."
-        )
-
     if not is_wired(source):
         violations.append(
-            f"[anti-sprawl] {path}: <http://knuckles.team/kg/{source}> is "
+            f"[anti-sprawl] {label}: <http://knuckles.team/kg/{source}> is "
             "not owl:imports-ed by the canonical ontology.ttl and is not a registered "
             "federated module — add the one owl:imports line before this manifest may "
             "be applied (never introduce an un-imported top-level ttl)."
         )
-
-    secret_configured = bool(setting("AGENT_UTILITIES_TOKEN_SECRET", ""))
-    verified = ontology_integrity.verify(
-        manifest.provenance.integrity.hash,
-        manifest.provenance.signature,
-        signer_id=manifest.provenance.signer,
-    )
-    if not verified:
-        msg = (
-            f"[signature] {path}: provenance.signature did not verify "
-            f"(signer={manifest.provenance.signer!r})"
-        )
-        if secret_configured:
-            violations.append(
-                msg
-                + " — AGENT_UTILITIES_TOKEN_SECRET is configured, this is a hard failure."
-            )
-        else:
-            notes.append(
-                msg
-                + " — STUB: no AGENT_UTILITIES_TOKEN_SECRET configured, signer infra not yet wired."
-            )
-
-    if verbose:
-        for n in notes:
-            print(f"  · {n}")
     return violations
 
 

@@ -5,9 +5,9 @@ subcommands, ``--namespace`` isolation (all state under ``$TMPDIR/agent-utilitie
 ``--json`` for CI. The ``run`` subcommand mints a run-scoped tool token (OS-5.11) and injects it into
 the run environment — the daemon as sole policy authority.
 
-The lifecycle ops orchestrate the existing console-scripts (``graph-os-daemon``, ``graph-os``,
-``mcp-multiplexer``); this module owns the namespace model + token minting (the testable core) and a
-thin dispatcher.
+The lifecycle ops orchestrate the existing console scripts (`graph-os-daemon`
+and `graph-os`); this module owns the namespace model + token minting (the
+testable core) and a thin dispatcher.
 """
 
 from __future__ import annotations
@@ -101,7 +101,6 @@ def build_parser() -> argparse.ArgumentParser:
     # contribution (skills + prompts + ontologies, incl. the hub's OWN) into the ONE XDG
     # data tree the runtime reads from, then (unless --no-toolkit) also installs the AU
     # skill toolkit into the calling agent tool(s) — the CONCEPT:AU-OS.deployment.agent-factory-autoload behavior.
-    # `install-skills` is kept as a backward-compatible alias.
     def _add_install_args(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
             "--tool",
@@ -152,13 +151,6 @@ def build_parser() -> argparse.ArgumentParser:
             "XDG tree (+ the skill toolkit into agent tools)",
         )
     )
-    _add_install_args(
-        sub.add_parser(
-            "install-skills",
-            help="alias of `install` (backward-compatible)",
-        )
-    )
-
     # CONCEPT:AU-ECO.mcp.client-side-chat-session — client-side chat/session ingestion for Claude + Antigravity
     # (and every other detected agent). `--upload` parses THIS host's local logs and
     # pushes them to a REMOTE engine via the graph-os `ingest_sessions` upload action
@@ -190,14 +182,14 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["reserve", "release", "list", "reconcile", "resolve"],
     )
     cp.add_argument(
-        "--ns", default="", help="pillar (e.g. KG-2) or package prefix (e.g. KEY)"
-    )
-    cp.add_argument(
         "--session", default="", help="claiming session id (default host:pid)"
     )
     cp.add_argument("--design-doc", default="", help="design-doc path to record")
     cp.add_argument(
-        "--id", dest="concept_id", default="", help="concept id for release"
+        "--id",
+        dest="concept_id",
+        default="",
+        help="canonical OKF-CIS concept id for reserve, release, or resolve",
     )
     cp.add_argument(
         "--status", default="", help="filter for list (reserved/landed/expired)"
@@ -240,13 +232,14 @@ def _install(args: argparse.Namespace) -> dict[str, Any]:
 
     1. Materialize every provider contribution (skills + prompts + ontologies, incl. the
        hub's OWN) into the one XDG data tree the runtime reads from
-       (:func:`agent_utilities.core.unified_install.install_unified`, overwrite-on-reinstall).
+       (:func:`agent_utilities.core.unified_install.install_unified`, transactional
+       content-addressed generations).
     2. Unless ``--no-toolkit``, also install the AU skill toolkit into the detected agent
-       tool(s) — the backward-compatible CONCEPT:AU-OS.deployment.agent-factory-autoload behavior.
+       tool(s) — the CONCEPT:AU-OS.deployment.agent-factory-autoload behavior.
     """
     from agent_utilities.core.unified_install import install_unified
 
-    out: dict[str, Any] = {"unified_tree": install_unified(force=True)}
+    out: dict[str, Any] = {"unified_tree": install_unified()}
     if not getattr(args, "no_toolkit", False):
         out["skill_toolkit"] = _install_skills(args)
     return out
@@ -257,16 +250,16 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
 
     Thin delegate to the universal-skills installer (the single source of truth for
     skill discovery/placement). With no ``--tool``/``--path`` it installs into every
-    detected agent tool AND the agent-utilities XDG home (so AU agents auto-load them);
-    skill-graphs — including the ``agent-utilities`` platform graph — are included by
-    default because that graph is what unlocks how to use everything else.
+    detected external agent tool. Agent Utilities reads the provider-owned XDG
+    generation written by :func:`install_unified`; it is never duplicated as a flat
+    operator skill. Skill graphs are included by default.
     """
     try:
-        from universal_skills.core.skill_installer.scripts import install as inst
+        from universal_skills.core import skill_installer as inst
     except ImportError:
         return {
             "error": "universal-skills is not installed",
-            "fix": "pip install universal-skills  (or: pip install 'agent-utilities[agent]')",
+            "fix": "pip install universal-skills  (or: pip install 'agent-utilities[agent-runtime]')",
         }
 
     skill_names = [s for s in args.skills.split(",") if s] or None
@@ -285,10 +278,9 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
         targets[args.tool.lower()] = target
     else:
         targets = dict(inst.detect_present_tools())
-        # Always include the agent-utilities XDG home (factory auto-load target).
-        targets.setdefault("agent-utilities", inst.TOOL_PATHS["agent-utilities"])
+        targets.pop("agent-utilities", None)
 
-    installed: dict[str, str] = {}
+    installed: list[str] = []
     seen: set[str] = set()
     for tool, target in targets.items():
         if str(target) in seen:
@@ -303,8 +295,14 @@ def _install_skills(args: argparse.Namespace) -> dict[str, Any]:
             symlink=args.symlink,
             layer=args.layer,
         )
-        installed[tool] = str(target)
-    return {"installed": installed, "layer": args.layer, "skill_graphs": include_graphs}
+        installed.append(tool)
+    return {
+        "installed_tools": sorted(installed),
+        "installed_count": len(installed),
+        "layer": args.layer,
+        "skill_graphs": include_graphs,
+        "path_free": True,
+    }
 
 
 def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
@@ -330,7 +328,7 @@ def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
 
 def _concept(args: argparse.Namespace) -> dict[str, Any]:
     """Concept-ID reservation — runs against the file ledger directly (no gateway)."""
-    import socket
+    import uuid
 
     from agent_utilities.governance import concept_allocator as ca
 
@@ -345,36 +343,36 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
     if action == "reconcile":
         return ca.reconcile(repo_root=repo_root)
     if action == "resolve":
-        # CONCEPT:AU-OS.governance.concept-id-canonicalization — canonicalize a flat/dotted id → its 3-level form + aliases.
+        # CONCEPT:AU-OS.governance.concept-id-canonicalization — validate and project a canonical OKF-CIS id.
         from agent_utilities.governance import concept_hierarchy as ch
 
         if not args.concept_id:
-            return {"error": "resolve requires --id (a flat or dotted concept id)"}
+            return {"error": "resolve requires --id"}
         try:
-            parsed = ch.parse_concept_id(args.concept_id)
+            parsed = ch.parse_okf_id(args.concept_id)
         except ValueError as exc:
             return {"error": str(exc)}
         return {
             "raw": parsed.raw,
             "canonical": parsed.canonical,
-            "namespace": parsed.namespace,
+            "slug": parsed.slug,
             "pillar": parsed.pillar,
+            "domain": parsed.domain,
             "concept": parsed.concept,
-            "segment": parsed.segment,
-            "is_project": parsed.is_project,
-            "aliases": list(parsed.aliases),
-            "flags": list(parsed.flags),
+            "facets": list(parsed.facets),
+            "path": parsed.path,
+            "iri": parsed.iri,
         }
     if action == "release":
         if not args.concept_id:
             return {"error": "release requires --id"}
         return {"released": ca.release_concept_id(args.concept_id, repo_root=repo_root)}
     # reserve
-    if not args.ns:
-        return {"error": "reserve requires --ns (e.g. KG-2 or KEY)"}
-    sid = args.session or f"{socket.gethostname()}:{os.getpid()}"
+    if not args.concept_id:
+        return {"error": "reserve requires --id"}
+    sid = args.session or f"session-{uuid.uuid4().hex}"
     return ca.reserve_concept_id(
-        args.ns,
+        args.concept_id,
         session_id=sid,
         design_doc=args.design_doc or None,
         ttl_seconds=int(args.ttl),
@@ -396,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         out = _harness_fence(args)
     elif args.command == "sleep-run":
         out = _sleep_run(args)
-    elif args.command in ("install", "install-skills"):
+    elif args.command == "install":
         out = _install(args)
     elif args.command == "ingest-sessions":
         out = _ingest_sessions(args)

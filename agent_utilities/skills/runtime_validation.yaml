@@ -1,0 +1,178 @@
+schema_version: 2
+runtime_defaults:
+  max_steps: 4
+  token_budget: 12288
+  trace_timeout_seconds: 30
+  sequential: true
+cases:
+  - id: query-direct
+    skill: graph-query-and-explanation
+    mode: direct
+    model_class: economy
+    task: Use $graph-query-and-explanation at skill://graph-query-and-explanation to answer a bounded synthetic data question across registered external graph references, using federated discovery and multi-step data analysis with cited evidence.
+    expected_routes: [ask_data, graph_federated_search]
+    allowed_tools: []
+    read_only: true
+  - id: query-delegated
+    skill: graph-query-and-explanation
+    mode: delegated
+    model_class: standard
+    task: Use $graph-query-and-explanation at skill://graph-query-and-explanation to compare two synthetic dependency explanations with independent retrieval and an uncertainty-aware synthesis.
+    expected_routes: [graph_orchestrate, graph_query, graph_epistemic]
+    allowed_tools: [graph_epistemic, graph_query, graph_search]
+    read_only: true
+  - id: ingestion-direct
+    skill: graph-ingestion-and-integration
+    mode: direct
+    model_class: economy
+    task: Use $graph-ingestion-and-integration at skill://graph-ingestion-and-integration to dry-run the schema-neutral graphql_document connector from a synthetic secret profile, verify its bounded hierarchy, privacy report, and delta checkpoint, and stop before approval or ingestion.
+    expected_routes: [source_connector]
+    allowed_tools: []
+    read_only: true
+  - id: ingestion-delegated
+    skill: graph-ingestion-and-integration
+    mode: delegated
+    model_class: standard
+    task: Use $graph-ingestion-and-integration at skill://graph-ingestion-and-integration to produce a review-only decomposition of schema-neutral GraphQL onboarding into sampling, discovery and approval boundaries, dry-run privacy review, backfill, validation, embedding handoff, and scheduled delta work using only synthetic inputs and secret profile refs.
+    expected_routes: [graph_orchestrate, source_connector, source_sync]
+    allowed_tools: [source_connector]
+    read_only: true
+  - id: modeling-direct
+    skill: graph-modeling-and-mutation
+    mode: direct
+    model_class: standard
+    task: Use $graph-modeling-and-mutation at skill://graph-modeling-and-mutation to classify one synthetic episodic-memory request and preview the dedicated memory store and link plan without applying it.
+    expected_routes: [graph_memory]
+    allowed_tools: []
+    read_only: true
+  - id: modeling-delegated
+    skill: graph-modeling-and-mutation
+    mode: delegated
+    model_class: standard
+    task: Use $graph-modeling-and-mutation at skill://graph-modeling-and-mutation to produce a review-only synthetic schema migration plan with independent constraint, permission, and rollback checks.
+    expected_routes: [graph_orchestrate, ontology_interface, object_permissioning]
+    allowed_tools: [graph_ontology, object_permissioning, ontology_interface]
+    read_only: true
+  - id: research-direct
+    skill: graph-research-and-analysis
+    mode: direct
+    model_class: economy
+    task: Use $graph-research-and-analysis at skill://graph-research-and-analysis to describe anomalies in a bounded single-tenant synthetic evidence set, excluding direct identifiers and unrelated records, without making causal claims or persisting a report.
+    expected_routes: [graph_mine]
+    allowed_tools: []
+    read_only: true
+  - id: research-delegated
+    skill: graph-research-and-analysis
+    mode: delegated
+    model_class: standard
+    task: Use $graph-research-and-analysis at skill://graph-research-and-analysis to plan independent tenant-scoped synthetic analyses, minimize fields, challenge assumptions, and synthesize redacted grounded findings without persisting an artifact.
+    expected_routes: [graph_orchestrate, graph_research, graph_ops_causal]
+    allowed_tools: [graph_mine, graph_ops_causal, graph_research]
+    read_only: true
+  - id: orchestration-direct
+    skill: graph-orchestration-and-automation
+    mode: direct
+    model_class: economy
+    task: Use $graph-orchestration-and-automation at skill://graph-orchestration-and-automation to produce a review-only schedule plan for one bounded synthetic health check with clear verification, without creating or persisting the schedule.
+    expected_routes: [graph_schedules]
+    allowed_tools: []
+    read_only: true
+  - id: orchestration-delegated
+    skill: graph-orchestration-and-automation
+    mode: delegated
+    model_class: standard
+    task: Use $graph-orchestration-and-automation at skill://graph-orchestration-and-automation to produce a review-only plan that parallelizes three independent synthetic work items, waits at dependencies, and verifies the synthesis.
+    expected_routes: [graph_orchestrate, graph_goals, graph_bus]
+    allowed_tools: [graph_bus, graph_goals]
+    read_only: true
+  - id: runtime-direct
+    skill: graph-runtime-and-governance
+    mode: direct
+    model_class: economy
+    task: Use $graph-runtime-and-governance at skill://graph-runtime-and-governance to diagnose a synthetic failure in an already-installed runtime from health and trace evidence without changing configuration, profile, or topology.
+    expected_routes: [graph_observe, graph_traces]
+    allowed_tools: []
+    read_only: true
+  - id: runtime-delegated
+    skill: graph-runtime-and-governance
+    mode: delegated
+    model_class: standard
+    task: Use $graph-runtime-and-governance at skill://graph-runtime-and-governance to produce a review-only synthetic incident triage, policy review, minimal-remediation plan, and user-visible recovery proof for an already-installed runtime.
+    expected_routes: [graph_orchestrate, graph_incident, graph_audit]
+    allowed_tools: [graph_audit, graph_observe, graph_traces]
+    read_only: true
+  - id: engine-direct
+    skill: graph-engine-and-modalities
+    mode: direct
+    model_class: economy
+    task: Use $graph-engine-and-modalities at skill://graph-engine-and-modalities to choose and verify a bounded low-level native centrality operation on a synthetic graph without proposing ontology or object mutations.
+    expected_routes: [engine_analytics]
+    allowed_tools: []
+    read_only: true
+  - id: engine-delegated
+    skill: graph-engine-and-modalities
+    mode: delegated
+    model_class: standard
+    task: Use $graph-engine-and-modalities at skill://graph-engine-and-modalities to produce a review-only plan for a synthetic transaction, bounded native graph-learning fit and predict job, and independent invariant check across engine domains.
+    expected_routes: [graph_orchestrate, engine_txn, engine_graphlearn]
+    allowed_tools: [engine_graphlearn]
+    read_only: true
+  - id: development-direct
+    skill: agent-utilities-development
+    mode: direct
+    model_class: standard
+    task: Use $agent-utilities-development at skill://agent-utilities-development to perform a read-only impact review of a synthetic contract rename, tracing its live path and consumers without creating a branch, worktree, edit, or commit.
+    expected_routes: [repository_search, live_path_trace]
+    allowed_tools: []
+    read_only: true
+  - id: development-delegated
+    skill: agent-utilities-development
+    mode: delegated
+    model_class: standard
+    task: Use $agent-utilities-development at skill://agent-utilities-development to produce a review-only split of a synthetic cross-surface change into consumer audit, implementation, and independent test review.
+    expected_routes: [graph_orchestrate, parallel_worktrees, focused_tests, pre_commit]
+    allowed_tools: [graph_query, graph_search]
+    read_only: true
+  - id: deployment-direct
+    skill: agent-utilities-deployment
+    mode: direct
+    model_class: economy
+    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to produce a review-only plan for a new synthetic single-node installation profile and list deployment verification gates.
+    expected_routes: [genesis_manifest, deployment_doctor]
+    allowed_tools: []
+    read_only: true
+  - id: deployment-delegated
+    skill: agent-utilities-deployment
+    mode: delegated
+    model_class: standard
+    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to decompose a synthetic multi-node rollout into preflight, canary, policy, observability, and recovery checks without applying it.
+    expected_routes: [graph_orchestrate, genesis_manifest, deployment_doctor]
+    allowed_tools: [graph_configure, graph_observe]
+    read_only: true
+  - id: evolution-direct
+    skill: agent-utilities-evolution
+    mode: direct
+    model_class: economy
+    task: Use $agent-utilities-evolution at skill://agent-utilities-evolution to classify a synthetic regression signal and draft a bounded proposal with measurable acceptance criteria, without reviewing or implementing a concrete diff.
+    expected_routes: [evidence_triage, proposal]
+    allowed_tools: []
+    read_only: true
+  - id: evolution-delegated
+    skill: agent-utilities-evolution
+    mode: delegated
+    model_class: standard
+    task: Use $agent-utilities-evolution at skill://agent-utilities-evolution to produce a review-only coordination plan for synthetic evidence assimilation, adversarial review, implementation planning, and regression validation.
+    expected_routes: [graph_orchestrate, graph_research, focused_tests]
+    allowed_tools: [graph_query, graph_research]
+    read_only: true
+privacy_assertions:
+  forbid_persisted:
+    - credential
+    - internal_endpoint
+    - local_filesystem_path
+    - personal_name
+    - raw_model_output
+    - raw_trace_id
+  require_metadata_only_observability: true
+  require_reference_scheme: skill://
+  require_synthetic_inputs: true

@@ -82,7 +82,7 @@ def load_active_rules(store: Any) -> list[dict[str, Any]]:
     try:
         types = ", ".join(f"'{t}'" for t in _RULE_NODE_TYPES)
         rows = store.execute(
-            f"MATCH (r) WHERE r.type IN [{types}] AND r.active = true "
+            f"MATCH (r) WHERE r.node_type IN [{types}] AND r.active = true "
             "RETURN r.kind AS kind, r.target AS target, r.weight AS weight, "
             "r.capability AS capability, r.reason AS reason"
         )

@@ -1,0 +1,215 @@
+connector: systems-manager
+ontology_source: systems
+schema_version: '1'
+resources:
+- name: DiskVolume
+  label: Disk Volume
+  id_prefix: diskvolume
+  relations: []
+- name: HardwareNode
+  label: Hardware Node
+  id_prefix: hardwarenode
+  relations:
+  - name: hasInterface
+    label: has interface
+    target: NetworkInterface
+    lpg_rel_type: ''
+  - name: hasPackage
+    label: has package
+    target: SoftwarePackage
+    lpg_rel_type: ''
+  - name: hasVolume
+    label: has volume
+    target: DiskVolume
+    lpg_rel_type: ''
+  - name: runsService
+    label: runs service
+    target: SystemService
+    lpg_rel_type: ''
+- name: NetworkInterface
+  label: Network Interface
+  id_prefix: networkinterface
+  relations: []
+- name: SoftwarePackage
+  label: Software Package
+  id_prefix: softwarepackage
+  relations: []
+- name: SystemService
+  label: System Service
+  id_prefix: systemservice
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    system-service: name
+  title_field:
+    system-service: name
+  text_field:
+    system-service: description
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  DiskVolume:
+    ontology_class: null
+    fields:
+      addressFamilyCount: xsd:integer
+      capacityBytes: xsd:integer
+      cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
+      fstype: xsd:string
+      isUp: xsd:boolean
+      linkSpeed: xsd:integer
+      machineArch: xsd:string
+      memoryTotal: xsd:integer
+      mtu: xsd:integer
+      osVersion: xsd:string
+      percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
+      serviceState: xsd:string
+      usedBytes: xsd:integer
+  HardwareNode:
+    ontology_class: null
+    fields:
+      addressFamilyCount: xsd:integer
+      capacityBytes: xsd:integer
+      cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
+      fstype: xsd:string
+      isUp: xsd:boolean
+      linkSpeed: xsd:integer
+      machineArch: xsd:string
+      memoryTotal: xsd:integer
+      mtu: xsd:integer
+      osVersion: xsd:string
+      percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
+      serviceState: xsd:string
+      usedBytes: xsd:integer
+  NetworkInterface:
+    ontology_class: null
+    fields:
+      addressFamilyCount: xsd:integer
+      capacityBytes: xsd:integer
+      cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
+      fstype: xsd:string
+      isUp: xsd:boolean
+      linkSpeed: xsd:integer
+      machineArch: xsd:string
+      memoryTotal: xsd:integer
+      mtu: xsd:integer
+      osVersion: xsd:string
+      percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
+      serviceState: xsd:string
+      usedBytes: xsd:integer
+  SoftwarePackage:
+    ontology_class: null
+    fields:
+      addressFamilyCount: xsd:integer
+      capacityBytes: xsd:integer
+      cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
+      fstype: xsd:string
+      isUp: xsd:boolean
+      linkSpeed: xsd:integer
+      machineArch: xsd:string
+      memoryTotal: xsd:integer
+      mtu: xsd:integer
+      osVersion: xsd:string
+      percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
+      serviceState: xsd:string
+      usedBytes: xsd:integer
+  SystemService:
+    ontology_class: System
+    fields:
+      addressFamilyCount: xsd:integer
+      capacityBytes: xsd:integer
+      cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
+      fstype: xsd:string
+      isUp: xsd:boolean
+      linkSpeed: xsd:integer
+      machineArch: xsd:string
+      memoryTotal: xsd:integer
+      mtu: xsd:integer
+      osVersion: xsd:string
+      percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
+      serviceState: xsd:string
+      usedBytes: xsd:integer
+sync:
+- preset: system-services
+  server: systems-manager
+  tool: sm_service_operations
+  action: list_services
+  records_path: services
+  id_field: name
+  title_field: name
+  text_field: description
+  updated_field: null
+  pagination: null
+  doc_type: system-service
+  tool_schema_sha256: d2b92e0e421b1a727c42ec0eabc99415f3f27f455073e1e2eba96ac6bcde15ac
+  raw:
+    server: systems-manager
+    tool: sm_service_operations
+    params_style: args
+    action: list_services
+    records_path: services
+    id_field: name
+    title_field: name
+    text_field: description
+    doc_type: system-service
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - systems_manager/connectors/mcp_source_presets.json
+  - systems_manager/connectors/tool_schema_fingerprints.json
+  - systems_manager/ontology/systems.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 8f5d38237a5426f389cc0457f9057de6a4587374d2c01817fe0a59c7f96d11c0
+    triple_count: 87
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: vysk5_lLUBZUN1XVc4giiM91cDilOTnYfYMKSKUTXnSs5F8BMMGZMXOpfBdOnTj413fZK9AK_C7V6qohekEhAg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.DiskVolume.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HardwareNode.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NetworkInterface.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SoftwarePackage.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SystemService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."

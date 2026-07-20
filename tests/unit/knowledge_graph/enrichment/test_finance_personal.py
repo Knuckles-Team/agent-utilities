@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from agent_utilities.knowledge_graph.enrichment.extractors import (
     emerald as em_ext,
+)
+from agent_utilities.knowledge_graph.enrichment.extractors import (
     mealie as me_ext,
+)
+from agent_utilities.knowledge_graph.enrichment.extractors import (
     wger as wg_ext,
 )
 from agent_utilities.knowledge_graph.enrichment.writeback import core, run_writeback

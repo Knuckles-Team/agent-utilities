@@ -24,18 +24,11 @@ three capabilities that read path lacked:
   existing ``permit()`` / ``filter_rows()`` row gate with column redaction to
   produce a permission-filtered VIEW of an object set for one actor.
 
-A single :func:`enforce` entry point is the default-on seam: it applies a
-*safe* policy — allow-by-default, but enforce whenever a node carries an ACL or
-markings — so it is correct to call on the live read path **regardless of**
-``KG_BRAIN_ENFORCE``. (The legacy ``secured_reads`` helpers stay gated on that
-flag for backward compatibility; the marking-mandatory layer here does not.)
-
-With ``KG_BRAIN_ENFORCE`` on, the gate additionally fails **closed**
-(CONCEPT:AU-OS.identity.authenticated-identity-enforcement): an ACL-check exception denies, and nodes without an ACL are
-denied by policy default (escape hatch: ``KG_ACL_DEFAULT_ALLOW``). Mandatory
-markings are durably persisted as ``mandatory_marking`` graph nodes (loaded on
-first use, written through on registration) so separate processes agree; the
-in-process ``MARKING_REGISTRY`` dict is a cache of that store.
+A single :func:`enforce` entry point applies the mandatory fail-closed policy:
+every object requires a governed identifier, verified tenant authority, and an
+explicit permitting ACL. Authorization or marking-store failure never widens
+access. Mandatory markings are durably persisted as ``mandatory_marking`` graph
+nodes; the in-process registry is only a cache of that authority.
 
 Reuses :class:`PermissionsKernel` semantics, :class:`ActorContext`, and
 :class:`DataLevelPermissions` (``DataClassification``) — no new permission
@@ -44,9 +37,9 @@ engine is introduced.
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
-
-from agent_utilities.core.config import setting
 
 from ...models.company_brain import (
     ActorType,
@@ -54,10 +47,7 @@ from ...models.company_brain import (
     NodeACL,
 )
 from ...security.brain_context import ActorContext, current_actor
-from ..core.company_brain_runtime import (
-    brain_enforcement_enabled,
-    get_company_brain,
-)
+from ..core.company_brain_runtime import get_company_brain
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +61,8 @@ _CLASS_ORDER: dict[str, int] = {
 }
 
 # Roles that are never redacted/blocked regardless of marking (matches the
-# privileged SYSTEM_ACTOR defaults in brain_context).
-_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin", "system"})
+# privileged identities at the verified identity boundary).
+_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin"})
 
 # Property keys that identify a row/object and must survive redaction so the
 # caller can still correlate the filtered object back to its source.
@@ -80,6 +70,11 @@ _IDENTITY_KEYS: tuple[str, ...] = ("id", "node_id", "_id")
 
 # Sentinel returned in place of a masked (rather than dropped) property value.
 MASK_TOKEN = "***"
+
+# Bump when the materialized redaction semantics change.  Served read caches
+# include this code-owned revision so rows produced by an older redactor are
+# never reused after a deployment changes the policy algorithm.
+REDACTION_POLICY_VERSION = "permissioning-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -128,13 +123,22 @@ class Marking:
         return f"Marking({self.name!r})"
 
 
-# Process-wide CACHE of node_id -> set of marking names, durably backed by
-# ``mandatory_marking`` graph nodes (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) so separate processes
-# agree on mandatory controls: hydrated from the store on first use,
+# Process-wide CACHE of (tenant, node_id) -> set of marking names, durably
+# backed by ``mandatory_marking`` graph nodes (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) so separate
+# processes agree on mandatory controls: hydrated from the store on first use,
 # written through on every registration. Markings live here (not on the ACL)
 # because they are mandatory controls applied across the graph;
 # DataLevelPermissions keeps the per-object discretionary ACL/classification.
-MARKING_REGISTRY: dict[str, set[str]] = {}
+#
+# Keyed by ``(tenant, node_id)`` rather than bare ``node_id`` (AU-P0-5): two
+# tenants can mint the same node id (e.g. a generic "config" or a connector's
+# own numbering scheme is not guaranteed globally unique), so a bare
+# ``node_id`` key would let tenant A's marking silently apply to — or a cache
+# hit leak onto — tenant B's unrelated node of the same id. The tenant
+# component defaults to ``""`` (see :func:`_ambient_tenant`), so a caller that
+# never scopes a tenant (today's behaviour) keeps hitting the exact same
+# single ``("", node_id)`` bucket as before this fix — nothing to migrate.
+MARKING_REGISTRY: dict[tuple[str, str], set[str]] = {}
 
 # Durable node type for persisted markings (one node per marked graph node).
 MARKING_NODE_TYPE = "mandatory_marking"
@@ -145,26 +149,21 @@ _markings_hydrated = False
 
 
 def _resolve_marking_store() -> Any:
-    """Resolve (once) the durable graph store backing the marking registry.
-
-    Mirrors the EditLedger's lazy, degrade-cleanly probe: a missing/unreachable
-    backend leaves the in-process cache authoritative. Under
-    ``AGENT_UTILITIES_TESTING`` no live store is probed (tests inject one via
-    :func:`set_marking_store`).
-    """
+    """Resolve the required durable graph store backing marking authority."""
     global _marking_store, _marking_store_resolved  # noqa: PLW0603
     if _marking_store_resolved:
+        if _marking_store is None:
+            raise PermissionError("Mandatory-marking store is unavailable")
         return _marking_store
     _marking_store_resolved = True
-    if setting("AGENT_UTILITIES_TESTING"):
-        return None
     try:
         from ..facade import KnowledgeGraph
 
         _marking_store = KnowledgeGraph().store
-    except Exception as exc:  # noqa: BLE001 — degrade to in-process cache
-        logger.debug("marking store unavailable: %s", exc)
-        _marking_store = None
+    except Exception as exc:
+        raise PermissionError("Mandatory-marking store is unavailable") from exc
+    if _marking_store is None:
+        raise PermissionError("Mandatory-marking store is unavailable")
     return _marking_store
 
 
@@ -176,69 +175,130 @@ def set_marking_store(store: Any) -> None:
     _markings_hydrated = False
 
 
+@contextmanager
+def use_marking_authority(store: Any) -> Iterator[None]:
+    """Install an isolated marking authority and restore exact process state.
+
+    Registry contents and all resolution/hydration flags are restored even when
+    validation is cancelled or raises. Callers spanning an ``await`` must
+    serialize these process-wide scopes.
+    """
+
+    global _marking_store, _marking_store_resolved, _markings_hydrated  # noqa: PLW0603
+    previous_store = _marking_store
+    previous_resolved = _marking_store_resolved
+    previous_hydrated = _markings_hydrated
+    previous_registry = {
+        key: set(markings) for key, markings in MARKING_REGISTRY.items()
+    }
+    MARKING_REGISTRY.clear()
+    set_marking_store(store)
+    try:
+        yield
+    finally:
+        MARKING_REGISTRY.clear()
+        MARKING_REGISTRY.update(previous_registry)
+        _marking_store = previous_store
+        _marking_store_resolved = previous_resolved
+        _markings_hydrated = previous_hydrated
+
+
+def _ambient_tenant() -> str:
+    """Return the verified session tenant; never synthesize an unscoped bucket."""
+    from ..core.session import resolve_session
+
+    tenant = str(resolve_session().tenant or "").strip()
+    if not tenant:
+        raise PermissionError("Mandatory markings require verified tenant authority")
+    return tenant
+
+
+def _mkey(node_id: str, tenant: str | None) -> tuple[str, str]:
+    """Build the ``(tenant, node_id)`` :data:`MARKING_REGISTRY` key."""
+    resolved_tenant = str(tenant if tenant is not None else _ambient_tenant()).strip()
+    resolved_node = str(node_id or "").strip()
+    if not resolved_tenant or not resolved_node:
+        raise PermissionError("Mandatory markings require tenant and node identity")
+    return resolved_tenant, resolved_node
+
+
 def _hydrate_markings() -> None:
-    """Load persisted markings into the cache (once per process, best-effort)."""
+    """Load persisted markings into the cache; failures deny access."""
     global _markings_hydrated  # noqa: PLW0603
     if _markings_hydrated:
         return
-    _markings_hydrated = True
     store = _resolve_marking_store()
-    if store is None:
-        return
     try:
         rows = (
             store.execute(
-                "MATCH (m) WHERE m.type = $t "
-                "RETURN m.node_id AS node_id, m.markings AS markings",
+                "MATCH (m) WHERE m.node_type = $t "
+                "RETURN m.node_id AS node_id, m.tenant_id AS tenant_id, "
+                "m.markings AS markings",
                 {"t": MARKING_NODE_TYPE},
             )
             or []
         )
         for row in rows:
             nid = row.get("node_id")
+            tenant = row.get("tenant_id") or ""
             raw = row.get("markings")
             names = json.loads(raw) if isinstance(raw, str) else (raw or [])
-            if isinstance(nid, str) and nid:
-                MARKING_REGISTRY.setdefault(nid, set()).update(
+            if isinstance(nid, str) and nid and tenant:
+                key = (str(tenant), nid)
+                MARKING_REGISTRY.setdefault(key, set()).update(
                     str(n) for n in names if n
                 )
-    except Exception as exc:  # noqa: BLE001 — cache stays authoritative
-        logger.debug("marking hydration skipped: %s", exc)
+        _markings_hydrated = True
+    except Exception as exc:
+        raise PermissionError("Mandatory-marking hydration failed") from exc
 
 
-def _persist_markings(node_id: str) -> None:
-    """Write-through ``node_id``'s markings as a durable graph node."""
+def _persist_markings(key: tuple[str, str]) -> None:
+    """Write-through ``key``'s (tenant, node_id) markings as a durable graph node."""
     store = _resolve_marking_store()
-    if store is None:
-        return
+    tenant, node_id = key
+    storage_id = f"marking::{tenant}::{node_id}"
     try:
         store.execute(
-            "MERGE (m {id: $id}) SET m.type = $t, m.node_id = $n, m.markings = $marks",
+            "MERGE (m {id: $id}) SET m.node_type = $t, m.node_id = $n, "
+            "m.tenant_id = $tenant, m.markings = $marks",
             {
-                "id": f"marking::{node_id}",
+                "id": storage_id,
                 "t": MARKING_NODE_TYPE,
                 "n": node_id,
-                "marks": json.dumps(sorted(MARKING_REGISTRY.get(node_id, set()))),
+                "tenant": tenant,
+                "marks": json.dumps(sorted(MARKING_REGISTRY.get(key, set()))),
             },
         )
-    except Exception as exc:  # noqa: BLE001 — cache stays authoritative
-        logger.debug("marking persist failed for %s: %s", node_id, exc)
+    except Exception as exc:
+        raise PermissionError("Mandatory-marking persistence failed") from exc
 
 
-def apply_marking(node_id: str, marking: Marking | str) -> None:
-    """Attach a marking to a node (idempotent; written through to the graph)."""
+def apply_marking(
+    node_id: str, marking: Marking | str, *, tenant: str | None = None
+) -> None:
+    """Attach a marking to a node (idempotent; written through to the graph).
+
+    ``tenant`` (AU-P0-5) scopes the marking to one tenant's node namespace;
+    omitted, it defaults to the verified ambient :class:`GraphSession` tenant.
+    """
     name = marking.name if isinstance(marking, Marking) else str(marking)
     if not name:
-        return
+        raise ValueError("Marking name must be non-empty")
     _hydrate_markings()
-    MARKING_REGISTRY.setdefault(node_id, set()).add(name)
-    _persist_markings(node_id)
+    key = _mkey(node_id, tenant)
+    MARKING_REGISTRY.setdefault(key, set()).add(name)
+    _persist_markings(key)
 
 
-def markings_for(node_id: str) -> set[str]:
-    """Return the set of marking names carried by ``node_id``."""
+def markings_for(node_id: str, *, tenant: str | None = None) -> set[str]:
+    """Return the set of marking names carried by ``node_id`` under ``tenant``.
+
+    ``tenant`` defaults to the ambient session/actor tenant (AU-P0-5), same
+    fallback as :func:`apply_marking` — see :func:`_ambient_tenant`.
+    """
     _hydrate_markings()
-    return set(MARKING_REGISTRY.get(node_id, ()))
+    return set(MARKING_REGISTRY.get(_mkey(node_id, tenant), ()))
 
 
 def clear_markings() -> None:
@@ -259,8 +319,18 @@ def _actor_marking_tokens(actor: ActorContext) -> set[str]:
     }
 
 
+def _require_actor(actor: ActorContext | None) -> ActorContext:
+    resolved = actor or current_actor()
+    resolved.ensure_credential_current()
+    actor_id = str(getattr(resolved, "actor_id", "") or "").strip()
+    tenant_id = str(getattr(resolved, "tenant_id", "") or "").strip()
+    if not getattr(resolved, "authenticated", False) or not actor_id or not tenant_id:
+        raise PermissionError("Object permissioning requires verified tenant authority")
+    return resolved
+
+
 def _is_privileged(actor: ActorContext) -> bool:
-    return bool(_PRIVILEGED_ROLES & set(actor.roles))
+    return actor.authenticated and bool(_PRIVILEGED_ROLES & set(actor.roles))
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +357,8 @@ def _property_classification(
         return None
     try:
         return DataClassification(str(raw).lower())
-    except ValueError:
-        return None
+    except ValueError as exc:
+        raise PermissionError("Object property classification is invalid") from exc
 
 
 def _property_markings(obj: dict[str, Any], prop: str) -> set[str]:
@@ -300,16 +370,19 @@ def _property_markings(obj: dict[str, Any], prop: str) -> set[str]:
             return {str(x) for x in raw}
         if isinstance(raw, str) and raw:
             return {raw}
+        if raw is not None:
+            raise PermissionError("Object property markings are invalid")
     return set()
 
 
-def _actor_clearance(actor: ActorContext) -> int:
+def actor_clearance(actor: ActorContext) -> int:
     """Map an actor's roles to a numeric classification clearance.
 
-    Privileged (admin/system) actors clear RESTRICTED; a ``confidential`` role
+    Privileged admin actors clear RESTRICTED; a ``confidential`` role
     clears CONFIDENTIAL; otherwise an authenticated actor clears INTERNAL; an
     anonymous actor (no roles, no id) clears only PUBLIC.
     """
+    actor = _require_actor(actor)
     roles = set(actor.roles)
     if _PRIVILEGED_ROLES & roles:
         return _CLASS_ORDER[DataClassification.RESTRICTED]
@@ -339,9 +412,15 @@ def redact_object(
 
     This never mutates the input; it returns a filtered dict.
     """
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
+    if "__classification__" in obj and not isinstance(
+        obj["__classification__"], dict
+    ):
+        raise PermissionError("Object property classification metadata is invalid")
+    if "__markings__" in obj and not isinstance(obj["__markings__"], dict):
+        raise PermissionError("Object property marking metadata is invalid")
     privileged = _is_privileged(actor)
-    clearance = _actor_clearance(actor)
+    clearance = actor_clearance(actor)
     actor_marks = _actor_marking_tokens(actor)
 
     out: dict[str, Any] = {}
@@ -386,6 +465,7 @@ def propagate_markings(
     target_id: str,
     *,
     propagate_classification: bool = True,
+    tenant: str | None = None,
 ) -> set[str]:
     """Propagate ``source_id``'s mandatory controls onto ``target_id``.
 
@@ -395,13 +475,21 @@ def propagate_markings(
     a derived/linked object must not be readable by anyone who could not read
     its source. Returns the target's marking set after propagation.
 
-    Unlike the legacy helper this is **not** gated on ``KG_BRAIN_ENFORCE`` —
-    mandatory controls must always propagate so default-on enforcement is safe.
+    ``tenant`` (AU-P0-5) scopes both endpoints to the same tenant's node
+    namespace (defaults to the ambient session/actor tenant, matching
+    :func:`apply_marking`) so propagation never crosses tenant boundaries via a
+    same-named node in a different tenant's graph.
+
+    Mandatory controls always propagate; no runtime flag can disable them.
     """
-    src_marks = markings_for(source_id)
+    resolved_tenant = tenant if tenant is not None else _ambient_tenant()
+    src_key = _mkey(source_id, resolved_tenant)
+    tgt_key = _mkey(target_id, resolved_tenant)
+    _hydrate_markings()
+    src_marks = set(MARKING_REGISTRY.get(src_key, ()))
     if src_marks:
-        MARKING_REGISTRY.setdefault(target_id, set()).update(src_marks)
-        _persist_markings(target_id)
+        MARKING_REGISTRY.setdefault(tgt_key, set()).update(src_marks)
+        _persist_markings(tgt_key)
 
     if propagate_classification:
         try:
@@ -418,27 +506,29 @@ def propagate_markings(
                     tgt_acl.classification, 0
                 ) < _CLASS_ORDER.get(strictest, 0):
                     perms.classify_node(target_id, strictest)
-        except Exception as exc:  # pragma: no cover - best-effort propagation
-            logger.debug(
-                "classification propagation failed %s->%s: %s",
-                source_id,
-                target_id,
-                exc,
-            )
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            raise PermissionError("Classification propagation failed") from exc
 
-    return markings_for(target_id)
+    return set(MARKING_REGISTRY.get(tgt_key, ()))
 
 
-def propagate_over_edges(edges: list[tuple[str, str]]) -> dict[str, set[str]]:
+def propagate_over_edges(
+    edges: list[tuple[str, str]], *, tenant: str | None = None
+) -> dict[str, set[str]]:
     """Propagate markings along a list of ``(source, target)`` edges.
 
     A single forward pass over the provided edges (callers ordered topologically
     for transitive closure get full inheritance). Returns the resulting
-    node_id -> markings map for the touched targets.
+    node_id -> markings map for the touched targets. ``tenant`` (AU-P0-5) is
+    forwarded to :func:`propagate_markings` for every edge — all edges in one
+    call share the same tenant scope (defaults to the ambient session/actor).
     """
+    resolved_tenant = tenant if tenant is not None else _ambient_tenant()
     touched: dict[str, set[str]] = {}
     for source_id, target_id in edges:
-        touched[target_id] = propagate_markings(source_id, target_id)
+        touched[target_id] = propagate_markings(
+            source_id, target_id, tenant=resolved_tenant
+        )
     return touched
 
 
@@ -448,8 +538,12 @@ def propagate_over_edges(edges: list[tuple[str, str]]) -> dict[str, set[str]]:
 
 
 def _marking_permits(node_id: str, actor: ActorContext) -> bool:
-    """Whether ``actor`` clears every marking carried by ``node_id``."""
-    marks = markings_for(node_id)
+    """Whether ``actor`` clears every marking carried by ``node_id``.
+
+    Markings are looked up under ``actor.tenant_id`` (AU-P0-5) — the read
+    path always has an actor in hand, so this is exact rather than ambient.
+    """
+    marks = markings_for(node_id, tenant=actor.tenant_id)
     if not marks:
         return True
     if _is_privileged(actor):
@@ -462,50 +556,27 @@ def _node_id_of(obj: Any) -> str | None:
     if isinstance(obj, dict):
         for key in (*_IDENTITY_KEYS, "n.id"):
             val = obj.get(key)
-            if isinstance(val, str):
-                return val
+            if isinstance(val, str) and val.strip():
+                return val.strip()
         for val in obj.values():
             if isinstance(val, dict):
                 inner = val.get("id") or val.get("node_id")
-                if isinstance(inner, str):
-                    return inner
+                if isinstance(inner, str) and inner.strip():
+                    return inner.strip()
         return None
     for attr in _IDENTITY_KEYS:
         val = getattr(obj, attr, None)
-        if isinstance(val, str):
-            return val
+        if isinstance(val, str) and val.strip():
+            return val.strip()
     return None
 
 
-def _acl_default_allow() -> bool:
-    """The enforced-mode policy for ACL-less nodes (``KG_ACL_DEFAULT_ALLOW``).
-
-    Read fresh from a typed :class:`AgentConfig` field (Configuration
-    discipline — no bare env reads); any failure resolves to deny.
-    """
-    try:
-        from agent_utilities.core.config import AgentConfig
-
-        return bool(AgentConfig().kg_acl_default_allow)
-    except Exception:  # noqa: BLE001 — fail closed
-        return False
-
-
 def _acl_permits(node_id: str, actor: ActorContext) -> bool:
-    """Discretionary ACL read-check via the existing DataLevelPermissions.
-
-    Legacy mode (``KG_BRAIN_ENFORCE`` off): default-allow when no ACL exists
-    and allow on infra error — byte-identical to historic behaviour.
-
-    Enforced mode (CONCEPT:AU-OS.identity.authenticated-identity-enforcement, fail CLOSED): an infra exception denies,
-    and a node WITHOUT an ACL is denied by policy default unless the
-    ``KG_ACL_DEFAULT_ALLOW`` escape hatch is set.
-    """
-    enforced = brain_enforcement_enabled()
+    """Fail-closed discretionary ACL check via DataLevelPermissions."""
     try:
         perms = get_company_brain().permissions
         if perms.get_acl(node_id) is None:
-            return _acl_default_allow() if enforced else True
+            return False
         return perms.check_permission(
             node_id,
             actor.actor_id,
@@ -514,15 +585,11 @@ def _acl_permits(node_id: str, actor: ActorContext) -> bool:
             actor_roles=list(actor.roles),
         ).allowed
     except Exception as exc:
-        if enforced:
-            logger.warning(
-                "ACL check failed for %s — denying (fail-closed): %s",
-                node_id,
-                exc,
-            )
-            return False
-        logger.debug("acl check failed for %s: %s", node_id, exc)
-        return True
+        logger.warning(
+            "ACL check failed for governed node — denying (failure_type=%s)",
+            type(exc).__name__,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -545,21 +612,19 @@ def restricted_view(
          :func:`redact_object` so properties the actor may not read are removed
          (or masked when ``mask`` is set).
 
-    Objects whose id cannot be determined are kept and still column-redacted (we
-    never silently lose data we cannot classify). Returns filtered *copies*.
+    Objects whose id cannot be determined are rejected because they cannot be
+    evaluated against mandatory controls. Returns filtered *copies*.
     """
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
     view: list[dict[str, Any]] = []
     audited: list[str] = []
     for obj in objects:
         nid = _node_id_of(obj)
-        if nid is not None:
-            if not _marking_permits(nid, actor) or not _acl_permits(nid, actor):
-                continue
-            if markings_for(nid) or (
-                get_company_brain().permissions.get_acl(nid) is not None
-            ):
-                audited.append(nid)
+        if nid is None:
+            raise PermissionError("Object permissioning requires a governed node id")
+        if not _marking_permits(nid, actor) or not _acl_permits(nid, actor):
+            continue
+        audited.append(nid)
         view.append(redact_object(obj, actor, mask=mask))
     if audited:
         _audit(audited, actor, summary="restricted_view")
@@ -576,8 +641,8 @@ def _audit(node_ids: list[str], actor: ActorContext, summary: str) -> None:
             query_summary=summary,
             tenant_id=actor.tenant_id,
         )
-    except Exception as exc:  # pragma: no cover - audit best-effort
-        logger.debug("permissioning audit failed: %s", exc)
+    except Exception as exc:  # pragma: no cover - defensive boundary
+        raise PermissionError("Permissioning audit failed") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -593,21 +658,17 @@ def enforce(
 ) -> list[dict[str, Any]]:
     """Default-on fine-grained enforcement for a result set.
 
-    The single seam the live read path calls. Policy is **allow-by-default but
-    enforce-when-marked**: an object with neither a marking nor an ACL passes
-    through unchanged, so turning this on cannot break unmarked data; an object
-    that carries a mandatory marking or a discretionary ACL is row-filtered and
-    column-redacted for ``actor``. Because the gate is *driven by the data's own
-    controls*, it is correct to call unconditionally — it does **not** depend on
-    ``KG_BRAIN_ENFORCE`` being on. (With ``KG_BRAIN_ENFORCE`` on the row gate
-    tightens to fail-closed: see :func:`_acl_permits`.)
+    The single seam the live read path calls. Every object requires an explicit
+    permitting ACL; markings and property classifications can only narrow that
+    grant. Missing authority or policy infrastructure fails closed.
 
     This is the property+row composition of :func:`restricted_view`; kept as a
     named entry point so the facade read path has one stable call.
     """
+    resolved_actor = _require_actor(actor)
     if not objects:
-        return objects
-    return restricted_view(objects, actor or current_actor(), mask=mask)
+        return []
+    return restricted_view(objects, resolved_actor, mask=mask)
 
 
 def build_acl(
@@ -635,13 +696,16 @@ def build_acl(
 
 __all__ = [
     "MASK_TOKEN",
+    "REDACTION_POLICY_VERSION",
     "MARKING_NODE_TYPE",
     "MARKING_REGISTRY",
     "Marking",
     "apply_marking",
+    "actor_clearance",
     "markings_for",
     "clear_markings",
     "set_marking_store",
+    "use_marking_authority",
     "redact_object",
     "propagate_markings",
     "propagate_over_edges",

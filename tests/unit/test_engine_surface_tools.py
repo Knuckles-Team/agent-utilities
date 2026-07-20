@@ -133,6 +133,31 @@ def test_kg_2_310_broker_degrades_when_surface_absent(monkeypatch, tools):
     assert "not available" in out["error"]
 
 
+def test_engine_surface_failure_redacts_transport_exception(monkeypatch, caplog):
+    sensitive = "https://identity:credential@private.invalid/local/path"
+
+    def _fail(_graph):
+        raise RuntimeError(sensitive)
+
+    monkeypatch.setattr(engine_surface_tools, "_client", _fail)
+    out = json.loads(
+        engine_surface_tools._invoke(
+            surface="broker",
+            action="publish",
+            graph="",
+            candidates=(("broker", "publish"),),
+            params={},
+        )
+    )
+
+    assert out["surface"] == "broker"
+    assert out["action"] == "publish"
+    assert out["error"]["code"] == "dependency_unavailable"
+    assert sensitive not in json.dumps(out)
+    assert sensitive not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 # ── graph_kvcache ────────────────────────────────────────────────────────────
 class _FakeKV:
     def __init__(self, store=None) -> None:
@@ -454,7 +479,7 @@ def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
 
     monkeypatch.setattr(engine_surface_tools, "_client", _boom)
     out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
-    assert "engine unavailable" in out["error"]
+    assert out["error"]["code"] == "dependency_unavailable"
 
 
 # ── graph_mine_deep (CONCEPT:AU-KG.mining.dsm-forecast-delegation — Phase 6) ─────────────────
@@ -656,7 +681,7 @@ def test_graph_mine_deep_degrades_when_data_science_mcp_unreachable(monkeypatch,
     )
     assert out["available"] is False
     assert out["delegated"] is True
-    assert "delegated-unavailable" in out["error"]
+    assert out["error"]["code"] == "dependency_unavailable"
 
 
 def test_graph_mine_deep_passes_through_torch_unavailable(monkeypatch, tools):
@@ -681,6 +706,58 @@ def test_graph_mine_deep_passes_through_torch_unavailable(monkeypatch, tools):
     assert out["error"] == "torch not installed"
 
 
+# ── BUG-7 (kg-exhaustive-smoke.md): a JSON-encoded-STRING response from the
+# delegate must still be parsed, not reported as an "unexpected response
+# shape". ``call_tool_once``'s decoder prefers a FastMCP result's structured
+# ``.data`` verbatim — when the delegate's own tool function returns an
+# already-``json.dumps``-encoded string (this repo's own tool convention),
+# ``.data`` IS that raw string, so ``raw`` used to arrive as ``str`` even
+# though the delegate answered normally.
+
+
+def test_graph_mine_deep_parses_json_string_response(monkeypatch, tools):
+    async def _fake_call_tool_once(**kwargs):
+        # The delegate answered normally, but as an ALREADY-JSON-ENCODED
+        # STRING (the shape ``call_tool_once`` can hand back verbatim).
+        return json.dumps(
+            {
+                "algo": "lstm_forecast",
+                "available": True,
+                "result": {"forecast": [1.0, 2.0], "horizon": 2},
+            }
+        )
+
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_forecast",
+            params_json=json.dumps({"values": [1, 2, 3, 4, 5], "horizon": 2}),
+            graph="",
+        )
+    )
+    assert out["available"] is True
+    assert "error" not in out
+    assert out["result"]["forecast"] == [1.0, 2.0]
+
+
+def test_graph_mine_deep_genuinely_non_json_string_still_reports_shape_error(
+    monkeypatch, tools
+):
+    async def _fake_call_tool_once(**kwargs):
+        return "not json at all"
+
+    monkeypatch.setattr(engine_surface_tools, "call_tool_once", _fake_call_tool_once)
+    out = json.loads(
+        tools["graph_mine_deep"](
+            action="deep_forecast",
+            params_json=json.dumps({"values": [1, 2, 3], "horizon": 1}),
+            graph="",
+        )
+    )
+    assert out["available"] is False
+    assert "unexpected data-science-mcp response shape" in out["error"]
+
+
 def test_graph_mine_deep_unknown_action_is_reported(tools):
     out = json.loads(
         tools["graph_mine_deep"](action="bogus", params_json="{}", graph="")
@@ -695,4 +772,4 @@ def test_graph_mine_deep_missing_input_is_reported(tools):
             action="autoencoder_anomaly", params_json="{}", graph=""
         )
     )
-    assert "provide" in out["error"]
+    assert out["error"]["code"] == "operation_failed"

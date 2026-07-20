@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Day-0 Tiny-tier bootstrap for agent-utilities.
 #
-# Idempotent: creates a venv, installs the package, writes a zero-infra .env
-# (GRAPH_BACKEND=epistemic_graph — no databases or external services), and runs a smoke
-# test that exercises the in-process knowledge graph (no model provider needed).
+# Idempotent: creates a venv, installs the package, seeds the zero-infra XDG
+# AgentConfig document when absent, and runs a smoke test that exercises the
+# in-process knowledge graph (no model provider needed).
 #
 # Usage:  ./scripts/bootstrap.sh
 set -euo pipefail
@@ -35,20 +35,17 @@ else
   RUN=()
 fi
 
-# 3. Zero-infra .env (only if absent — never clobber)
-if [ ! -f .env ]; then
-  log "Writing zero-infra .env (GRAPH_BACKEND=epistemic_graph)..."
-  cat > .env <<'ENV'
-# Zero-infra default: the epistemic-graph engine is the whole database
-# (compute + cache + semantic + durable), a self-contained binary.
-GRAPH_BACKEND=epistemic_graph
-AGENT_ID=local-developer
-# Add a model provider when you want LLM-backed agents, e.g.:
-# OPENAI_API_KEY=sk-...
-# OPENAI_BASE_URL=http://localhost:8000/v1
-ENV
+# 3. Zero-infra XDG AgentConfig (only if absent — never clobber)
+if "${RUN[@]}" python - <<'PY'
+from agent_utilities.deployment.config_generator import _default_config_path
+
+raise SystemExit(0 if _default_config_path().is_file() else 1)
+PY
+then
+  log "XDG AgentConfig already exists — leaving it untouched."
 else
-  log ".env already exists — leaving it untouched."
+  log "Writing zero-infra XDG AgentConfig..."
+  "${RUN[@]}" setup-config generate --profile tiny >/dev/null
 fi
 
 # 4. Smoke test — exercise the KG directly (no model provider required)

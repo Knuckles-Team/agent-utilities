@@ -1,17 +1,3 @@
 {
-  "mcpServers": {
-    "graph-os": {
-      "command": "uv",
-      "args": [
-        "run",
-        "graph-os"
-      ],
-      "env": {
-        "AGENT_ID": "local-developer",
-        "WORKSPACE_PATH": "${workspaceFolder}",
-        "MCP_TOOL_MODE": "both",
-        "MCP_CONFIG": "${workspaceFolder}/mcp_config.json"
-      }
-    }
-  }
+  "mcpServers": {}
 }

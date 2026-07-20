@@ -15,17 +15,16 @@ Until now the ontology (SHACL shapes, permission ACLs) governed *ingestion*
    ``WorkflowStepShape``). Violations refuse execution with a structured
    report — a malformed definition never burns an agent run.
 
-2. **Permission gate** (active only when ``KG_BRAIN_ENFORCE`` is on,
+2. **Permission gate** (mandatory,
    OS-5.14 semantics): the ontology permissioning row gate
    (:func:`~agent_utilities.knowledge_graph.ontology.permissioning.enforce`,
    mandatory markings + discretionary ACLs, fail-closed) is applied to the
    workflow node for the current :class:`ActorContext`. A denied actor gets
-   ``PermissionError``; enforcement off skips the check entirely (legacy
-   behavior).
+   ``PermissionError``.
 
-A workflow name with **no stored definition** passes through untouched —
-dynamic/ad-hoc execution paths (completion-state loops) are not stored
-workflows and keep their existing behavior.
+A workflow name with **no stored definition** is refused. Execution authority
+comes from the persisted definition; an unstored name cannot bypass ontology
+and permission validation.
 """
 
 from __future__ import annotations
@@ -100,7 +99,7 @@ def _find_workflow(
             nx_props: dict[str, Any] = {}
             for nid, data in graph.nodes(data=True):
                 if (
-                    data.get("type") == "WorkflowDefinition"
+                    data.get("node_type") == "WorkflowDefinition"
                     and data.get("name") == name
                 ):
                     wid = nid
@@ -113,9 +112,7 @@ def _find_workflow(
                 return None, {}, []
             steps = []
             for _src, tgt, edata in graph.out_edges(wid, data=True):
-                rel = str(
-                    (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
-                ).upper()
+                rel = str((edata or {}).get("relationship") or "").upper()
                 if rel != "HAS_STEP":
                     continue
                 sdata = dict(graph.nodes[tgt])
@@ -212,17 +209,25 @@ def gate_workflow_execution(
     Returns:
         ``{"allowed": bool, "workflow_id": ..., "violations": [...]}``.
         ``allowed=False`` carries the structured SHACL violation report.
-        A name with no stored definition returns allowed (legacy dynamic
-        execution paths are not gated).
+        A name with no stored definition returns ``allowed=False``.
 
     Raises:
-        PermissionError: when ``KG_BRAIN_ENFORCE`` is on and the ontology
+        PermissionError: when the ontology
             permissioning row gate denies the actor on the workflow node
             (fail-closed, OS-5.14 semantics).
     """
     wid, props, steps = _find_workflow(engine, workflow_name)
     if wid is None:
-        return {"allowed": True, "workflow_id": None, "violations": []}
+        return {
+            "allowed": False,
+            "workflow_id": None,
+            "violations": [
+                {
+                    "code": "workflow_definition_missing",
+                    "message": "A persisted WorkflowDefinition is required for execution.",
+                }
+            ],
+        }
 
     if workflow_shape_gate_enabled():
         report = _validate_workflow_shape(wid, props, steps)
@@ -238,19 +243,12 @@ def gate_workflow_execution(
                 "violations": report["violations"],
             }
 
-    from .company_brain_runtime import brain_enforcement_enabled
+    from ...security.brain_context import current_actor
+    from ..ontology.permissioning import enforce
 
-    if brain_enforcement_enabled():
-        from ...security.brain_context import current_actor
-        from ..ontology.permissioning import enforce
-
-        effective = actor or current_actor()
-        view = enforce([{"id": wid, "type": "WorkflowDefinition", **props}], effective)
-        if not view:
-            raise PermissionError(
-                f"Actor {getattr(effective, 'actor_id', 'unknown')!r} is not "
-                f"permitted to execute workflow {workflow_name!r} ({wid}) — "
-                "denied by ontology permissioning (markings/ACL, fail-closed)."
-            )
+    effective = actor or current_actor()
+    view = enforce([{"id": wid, "type": "WorkflowDefinition", **props}], effective)
+    if not view:
+        raise PermissionError("Workflow execution denied by object permissioning")
 
     return {"allowed": True, "workflow_id": wid, "violations": []}

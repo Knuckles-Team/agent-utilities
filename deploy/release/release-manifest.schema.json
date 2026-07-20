@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/release-manifest-v1.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleDigest", "verifierEnv"],
+      "properties": {
+        "bundleDigest": {"$ref": "#/$defs/digest"},
+        "verifierEnv": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+      }
+    },
+    "manifestSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "subjectDigest", "bundleDigest", "signerIdentityDigest", "value", "verifierEnv"],
+      "properties": {
+        "scheme": {"type": "string", "pattern": "^[a-z0-9][a-z0-9+._-]{1,63}$"},
+        "subjectDigest": {"$ref": "#/$defs/digest"},
+        "bundleDigest": {"$ref": "#/$defs/digest"},
+        "signerIdentityDigest": {"$ref": "#/$defs/digest"},
+        "value": {"type": "string", "pattern": "^[A-Za-z0-9+/_=-]{16,16384}$"},
+        "verifierEnv": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+      }
+    },
+    "reference": {"type": "string", "pattern": "^(?=.{1,256}$)[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?:/[A-Za-z0-9][A-Za-z0-9._-]{0,127}){0,15}$"},
+    "gateAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "digest"],
+      "properties": {
+        "authority": {
+          "enum": [
+            "component:epistemic-operations-protocol",
+            "component:epistemic-graph",
+            "component:agent-utilities",
+            "component:langfuse-agent",
+            "component:connector-bundles",
+            "component:prebundled-skills",
+            "component:ontology-lock",
+            "component:index-migrations",
+            "certification:connectorLiveCertificationLedger",
+            "certification:prebundledSkillValidationMatrix",
+            "certification:skillValidationLifecycleEvidence",
+            "certification:exactArtifactClosureEvidence",
+            "certification:ociVulnerabilityScanEvidence"
+          ]
+        },
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "gateEvidence": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/gateAuthority"}
+    },
+    "componentEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "sbom", "provenance", "signatureBundle"],
+      "properties": {
+        "source": {"$ref": "#/$defs/reference"},
+        "sbom": {"$ref": "#/$defs/reference"},
+        "provenance": {"$ref": "#/$defs/reference"},
+        "signatureBundle": {"$ref": "#/$defs/reference"}
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "kind", "artifact", "digest", "sourceDigest", "sbomDigest", "provenanceDigest", "signature", "capabilities", "evidence"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:[a-zA-Z0-9.-]+)?$"},
+        "kind": {"enum": ["oci", "catalog"]},
+        "artifact": {"type": "string", "minLength": 1, "maxLength": 512},
+        "digest": {"$ref": "#/$defs/digest"},
+        "sourceDigest": {"$ref": "#/$defs/digest"},
+        "sbomDigest": {"$ref": "#/$defs/digest"},
+        "provenanceDigest": {"$ref": "#/$defs/digest"},
+        "signature": {"$ref": "#/$defs/signature"},
+        "evidence": {"$ref": "#/$defs/componentEvidence"},
+        "capabilities": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "entryCount": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "manifestState", "releaseId", "matrixDigest", "sourceFreezeEvidenceDigest", "configurationDigest", "protocolSchemas", "components", "migrationPlanDigest", "certificationDigests", "exactGateEvidence", "evidence"],
+  "allOf": [
+    {
+      "if": {"properties": {"manifestState": {"const": "signed-release"}}, "required": ["manifestState"]},
+      "then": {"required": ["signature"]},
+      "else": {"not": {"required": ["signature"]}}
+    }
+  ],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "ReleaseManifest"},
+    "manifestState": {"enum": ["unsigned-local-binder", "signed-release"]},
+    "releaseId": {"type": "string", "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"},
+    "matrixDigest": {"$ref": "#/$defs/digest"},
+    "sourceFreezeEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "configurationDigest": {"$ref": "#/$defs/digest"},
+    "migrationPlanDigest": {"$ref": "#/$defs/digest"},
+    "signature": {"$ref": "#/$defs/manifestSignature"},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceFreezeEvidence", "configuration", "migrationPlan", "certifications"],
+      "properties": {
+        "sourceFreezeEvidence": {"$ref": "#/$defs/reference"},
+        "configuration": {"$ref": "#/$defs/reference"},
+        "migrationPlan": {"$ref": "#/$defs/reference"},
+        "certifications": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["connectorLiveCertificationLedger", "prebundledSkillValidationMatrix", "skillValidationDeployment", "skillValidationLifecycleEvidence", "exactArtifactClosureEvidence", "ociVulnerabilityScanEvidence"],
+          "properties": {
+            "connectorLiveCertificationLedger": {"$ref": "#/$defs/reference"},
+            "prebundledSkillValidationMatrix": {"$ref": "#/$defs/reference"},
+            "skillValidationDeployment": {"$ref": "#/$defs/reference"},
+            "skillValidationLifecycleEvidence": {"$ref": "#/$defs/reference"},
+            "exactArtifactClosureEvidence": {"$ref": "#/$defs/reference"},
+            "ociVulnerabilityScanEvidence": {"$ref": "#/$defs/reference"}
+          }
+        }
+      }
+    },
+    "certificationDigests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["connectorLiveCertificationLedger", "prebundledSkillValidationMatrix", "skillValidationDeployment", "skillValidationLifecycleEvidence", "exactArtifactClosureEvidence", "ociVulnerabilityScanEvidence"],
+      "properties": {
+        "connectorLiveCertificationLedger": {"$ref": "#/$defs/digest"},
+        "prebundledSkillValidationMatrix": {"$ref": "#/$defs/digest"},
+        "skillValidationDeployment": {"$ref": "#/$defs/digest"},
+        "skillValidationLifecycleEvidence": {"$ref": "#/$defs/digest"},
+        "exactArtifactClosureEvidence": {"$ref": "#/$defs/digest"},
+        "ociVulnerabilityScanEvidence": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "exactGateEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["G-01", "G-02", "G-03", "G-04", "G-05", "G-06", "G-07", "G-08", "G-09", "G-11", "G-12", "G-13", "G-14", "G-15", "G-17", "G-18", "G-22", "G-25", "G-26", "G-27", "G-29", "G-30", "G-31", "G-32", "G-33", "G-34", "G-35", "G-36", "G-37", "G-38"],
+      "properties": {
+        "G-01": {"$ref": "#/$defs/gateEvidence"},
+        "G-02": {"$ref": "#/$defs/gateEvidence"},
+        "G-03": {"$ref": "#/$defs/gateEvidence"},
+        "G-04": {"$ref": "#/$defs/gateEvidence"},
+        "G-05": {"$ref": "#/$defs/gateEvidence"},
+        "G-06": {"$ref": "#/$defs/gateEvidence"},
+        "G-07": {"$ref": "#/$defs/gateEvidence"},
+        "G-08": {"$ref": "#/$defs/gateEvidence"},
+        "G-09": {"$ref": "#/$defs/gateEvidence"},
+        "G-11": {"$ref": "#/$defs/gateEvidence"},
+        "G-12": {"$ref": "#/$defs/gateEvidence"},
+        "G-13": {"$ref": "#/$defs/gateEvidence"},
+        "G-14": {"$ref": "#/$defs/gateEvidence"},
+        "G-15": {"$ref": "#/$defs/gateEvidence"},
+        "G-17": {"$ref": "#/$defs/gateEvidence"},
+        "G-18": {"$ref": "#/$defs/gateEvidence"},
+        "G-22": {"$ref": "#/$defs/gateEvidence"},
+        "G-25": {"$ref": "#/$defs/gateEvidence"},
+        "G-26": {"$ref": "#/$defs/gateEvidence"},
+        "G-27": {"$ref": "#/$defs/gateEvidence"},
+        "G-29": {"$ref": "#/$defs/gateEvidence"},
+        "G-30": {"$ref": "#/$defs/gateEvidence"},
+        "G-31": {"$ref": "#/$defs/gateEvidence"},
+        "G-32": {"$ref": "#/$defs/gateEvidence"},
+        "G-33": {"$ref": "#/$defs/gateEvidence"},
+        "G-34": {"$ref": "#/$defs/gateEvidence"},
+        "G-35": {"$ref": "#/$defs/gateEvidence"},
+        "G-36": {"$ref": "#/$defs/gateEvidence"},
+        "G-37": {"$ref": "#/$defs/gateEvidence"},
+        "G-38": {"$ref": "#/$defs/gateEvidence"}
+      }
+    },
+    "protocolSchemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requestContext", "mutationBatch", "changeEnvelope", "workItem", "artifact", "knowledgeBatch", "analyticsJob", "traceOutcome", "placementRoute", "claimWorkItem", "evidenceBundle", "operationResult"],
+      "properties": {
+        "requestContext": {"const": "2"},
+        "mutationBatch": {"const": "1"},
+        "changeEnvelope": {"const": "1"},
+        "workItem": {"const": "1"},
+        "artifact": {"const": "1"},
+        "knowledgeBatch": {"const": "1"},
+        "analyticsJob": {"const": "1"},
+        "traceOutcome": {"const": "1"},
+        "placementRoute": {"const": "1"},
+        "claimWorkItem": {"const": "1"},
+        "evidenceBundle": {"const": "1"},
+        "operationResult": {"const": "1"}
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["epistemic-operations-protocol", "epistemic-graph", "agent-utilities", "langfuse-agent", "connector-bundles", "prebundled-skills", "ontology-lock", "index-migrations"],
+      "properties": {
+        "epistemic-operations-protocol": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]},
+        "epistemic-graph": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.23.1"}, "kind": {"const": "oci"}}}]},
+        "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.27.1"}, "kind": {"const": "oci"}}}]},
+        "langfuse-agent": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.0.3"}, "kind": {"const": "oci"}}}]},
+        "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 65}}}]},
+        "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 10}}}]},
+        "ontology-lock": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]},
+        "index-migrations": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]}
+      }
+    }
+  }
+}

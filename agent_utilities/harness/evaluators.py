@@ -23,7 +23,7 @@ async def capture_feedback(
     Captures explicit or implicit feedback for a trace and automatically
     promotes the trace to a Dataset if it falls below the configured threshold.
     """
-    if not config.langfuse_secret_key:
+    if not config.langfuse_secret_key_ref:
         return False
 
     backend = create_trace_backend(backend_type="langfuse")
@@ -110,8 +110,8 @@ async def evaluate_llm_as_judge(
 
     try:
         from pydantic import BaseModel, Field
-        from pydantic_ai import Agent
 
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         class LLMJudgeResult(BaseModel):
@@ -123,7 +123,7 @@ async def evaluate_llm_as_judge(
             )
 
         model = create_model()
-        agent = Agent(
+        agent = create_context_agent(
             model=model,
             output_type=LLMJudgeResult,
             system_prompt=(

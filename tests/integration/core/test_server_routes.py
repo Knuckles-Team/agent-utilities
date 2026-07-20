@@ -22,6 +22,7 @@ graph database.
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -43,26 +44,33 @@ def _build_app(workspace: Path, db_path: Path, *, enable_web_ui: bool) -> FastAP
     on the process environment so the resulting app is fully self-contained.
     """
     os.environ["WORKSPACE_DIR"] = str(workspace)
-    os.environ["GRAPH_DB_PATH"] = str(db_path)
+    os.environ["AGENT_UTILITIES_DATA_DIR"] = str(db_path.parent / "agent-data")
     os.environ.setdefault("DEFAULT_PROVIDER", "openai")
     os.environ.setdefault("DEFAULT_MODEL_ID", "dummy-model")
 
     # Import lazily so test collection doesn't pull in the whole server stack.
     from agent_utilities.server import build_agent_app
 
-    return build_agent_app(
-        provider="openai",
-        model_id="dummy-model",
-        base_url=None,
-        api_key="sk-test-not-real",
-        mcp_url="",
-        mcp_config=None,
-        custom_skills_directory=None,
-        debug=False,
-        enable_web_ui=enable_web_ui,
-        workspace=str(workspace),
-        ssl_verify=False,
-    )
+    # Route coverage is independent from the durable A2A runtime. Networked
+    # A2A startup correctly requires a configured process identity, so replace
+    # only that mounted application with an inert in-process ASGI peer here.
+    with patch(
+        "agent_utilities.protocols.a2a_epistemic.agent_to_epistemic_a2a",
+        return_value=FastAPI(),
+    ):
+        return build_agent_app(
+            provider="openai",
+            model_id="dummy-model",
+            base_url=None,
+            api_key="sk-test-not-real",
+            mcp_url="",
+            mcp_config=None,
+            custom_skills_directory=None,
+            debug=False,
+            enable_web_ui=enable_web_ui,
+            enable_acp=False,
+            workspace=str(workspace),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -106,13 +114,11 @@ def client_no_web_ui(app_no_web_ui: FastAPI) -> Iterator[TestClient]:
 
 
 def test_health(client_with_web_ui: TestClient) -> None:
-    """``/health`` returns 200 with status=OK, agent, and version fields."""
+    """``/health`` is a non-fingerprinting, non-cacheable liveness response."""
     resp = client_with_web_ui.get("/health")
     assert resp.status_code == 200
-    data = resp.json()
-    assert data.get("status") == "OK"
-    assert "agent" in data
-    assert "version" in data
+    assert resp.json() == {"status": "ok"}
+    assert resp.headers["cache-control"] == "no-store"
 
 
 def test_mcp_config(client_with_web_ui: TestClient) -> None:

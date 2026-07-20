@@ -28,5 +28,5 @@ def backup_file_pre_edit(filepath: str | Path) -> str | None:
         shutil.copy2(filepath, backup_path)
         return str(backup_path)
     except Exception as e:
-        logger.warning(f"Failed to create pre-edit backup for {filepath}: {e}")
+        logger.warning("Failed to create pre-edit backup (%s)", type(e).__name__)
         return None

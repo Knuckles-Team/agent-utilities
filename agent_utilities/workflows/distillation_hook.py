@@ -94,9 +94,9 @@ class WorkflowDistillationHook:
         success_count = self._record_success(pattern_key)
 
         if success_count < self.promotion_threshold:
-            outcome[
-                "reason"
-            ] = f"below_threshold ({success_count}/{self.promotion_threshold})"
+            outcome["reason"] = (
+                f"below_threshold ({success_count}/{self.promotion_threshold})"
+            )
             return outcome
 
         logger.info(
@@ -212,9 +212,7 @@ class WorkflowDistillationHook:
         )
         skills_dir.mkdir(parents=True, exist_ok=True)
 
-        pattern_hash = hashlib.md5(
-            pattern_key.encode(), usedforsecurity=False
-        ).hexdigest()[:8]
+        pattern_hash = hashlib.sha256(pattern_key.encode()).hexdigest()[:32]
         skill_name = f"distilled-{pattern_hash}"
         skill_dir = skills_dir / skill_name
         skill_dir.mkdir(parents=True, exist_ok=True)

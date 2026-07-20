@@ -380,7 +380,7 @@ class FleetAutoscaler:
             return
         try:
             self.engine.add_node(
-                f"autoscale_evaluation:{uuid.uuid4().hex[:12]}",
+                f"autoscale_evaluation:{uuid.uuid4().hex}",
                 "AutoscaleEvaluation",
                 properties={
                     "evaluated": report["evaluated"],
@@ -404,22 +404,21 @@ def autoscale_fleet(engine: Any) -> dict[str, Any]:
     return FleetAutoscaler(engine).evaluate()
 
 
-#: The control-plane node label whose committed changes move queue depth — a new
-#: :Task enqueued / claimed / completed changes the backlog the autoscaler tracks.
-TASK_LABEL = "Task"
+#: The sole control-plane work label whose committed changes move queue depth.
+WORK_ITEM_LABEL = "WorkItem"
 
 
 def fleet_autoscale_subscription(engine: Any) -> Any:
-    """Reactive change-feed subscription over control-plane ``:Task`` mutations.
+    """Reactive change-feed subscription over control-plane WorkItem mutations.
 
     CONCEPT:AU-KG.compute.change-feed-subscription — the poll→push seam for autoscaling: instead of waiting for
     the next leader poll interval, the daemon polls this subscription and, when the
-    engine pushes a ``:Task`` change (the queue-depth signal moved), fires an
+    engine pushes a WorkItem change (the queue-depth signal moved), fires an
     autoscale evaluation immediately — so scaling reacts to the change-EVENT, not
     a fixed interval. The slow periodic ``_tick_fleet_autoscaler`` stays as the
     safety-net reconcile.
 
-    Subscribes on the engine's **control graph** (``__control__`` — where ``:Task``
+    Subscribes on the engine's **control graph** (``__control__`` — where WorkItem
     lives, CONCEPT:AU-KG.backend.schedule-on-control-graph), resolved via the engine's control backend. The
     handler bumps ``sub.pending_state["pending"]``; the caller reads it to decide
     whether to evaluate now. Returns a
@@ -429,7 +428,7 @@ def fleet_autoscale_subscription(engine: Any) -> Any:
     """
     from agent_utilities.graph.reactive import subscribe
 
-    # The control plane (``__control__``) is where :Task is written; fall back to
+    # The control plane (``__control__``) is where WorkItem is written; fall back to
     # the engine's content compute, then to the passed object itself (e.g. a bare
     # GraphComputeEngine), when no isolated control backend exists.
     source = (
@@ -443,6 +442,6 @@ def fleet_autoscale_subscription(engine: Any) -> Any:
     def _on_task_change(_event: dict[str, Any]) -> None:
         state["pending"] += 1
 
-    sub = subscribe(source, TASK_LABEL, _on_task_change)
+    sub = subscribe(source, WORK_ITEM_LABEL, _on_task_change)
     sub.pending_state = state  # type: ignore[attr-defined]
     return sub

@@ -32,10 +32,9 @@ What every fleet client now gets for free:
 * destructive-action gating (:meth:`guard_destructive`);
 * pagination (:meth:`paginate`) over five dialects.
 
-Migrating from ``requests.Session`` (the older fleet convention): this base
-is httpx-only for one-stack coherence with the core factory. The constructor
-covers the same surface — ``verify`` and default headers move to constructor
-arguments, ``session.auth=(user, pass)`` becomes
+This base is HTTPX-only for one-stack coherence with the core factory. The
+constructor resolves a neutral TLS service/profile/reference through
+``AgentConfig``; ``session.auth=(user, pass)`` becomes
 ``auth=BasicAuth(user, pass)``, header tokens become ``auth=TokenAuth(...)``,
 and tests swap ``requests_mock`` for ``transport=httpx.MockTransport(...)``.
 Per-request ``timeout=`` keeps its meaning.
@@ -113,7 +112,6 @@ class _ApiClientCore:
         *,
         auth: AuthHeaderInjector | None,
         headers: dict[str, str] | None,
-        verify: bool,
         timeout: float,
         max_retries_429: int,
         retry_after_cap_s: float,
@@ -123,7 +121,6 @@ class _ApiClientCore:
         include_response_headers: bool,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.verify = verify
         self.timeout = timeout
         self.max_retries_429 = max_retries_429
         self.retry_after_cap_s = retry_after_cap_s
@@ -259,8 +256,7 @@ class _ApiClientCore:
             return None
         delay = backoff_seconds(response.headers, cap=self.retry_after_cap_s)
         logger.debug(
-            "HTTP 429 from %s; backing off %.2fs (attempt %d/%d)",
-            response.request.url.path,
+            "HTTP 429; backing off %.2fs (attempt %d/%d)",
             delay,
             attempts + 1,
             self.max_retries_429,
@@ -287,7 +283,9 @@ class BaseApiClient(_ApiClientCore):
             (token / basic / query API key / callable provider). ``None``
             means anonymous access.
         headers: Extra default headers merged over :meth:`default_headers`.
-        verify: TLS verification (default ``True`` — keep it on).
+        tls_service: Neutral service selector for runtime TLS policy.
+        tls_profile: Optional named runtime TLS profile.
+        tls_profile_ref: Optional secret reference containing a TLS profile.
         timeout: Default request timeout in seconds (finite; per-call
             ``timeout=`` overrides).
         retry: Optional ResiliencePolicy retrying *transport* failures
@@ -312,7 +310,9 @@ class BaseApiClient(_ApiClientCore):
         *,
         auth: AuthHeaderInjector | None = None,
         headers: dict[str, str] | None = None,
-        verify: bool = True,
+        tls_service: str = "fleet-http",
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT_S,
         retry: ResiliencePolicy | None = None,
         max_retries_429: int = DEFAULT_MAX_RETRIES_429,
@@ -324,11 +324,12 @@ class BaseApiClient(_ApiClientCore):
         transport: httpx.BaseTransport | None = None,
         **httpx_kwargs: Any,
     ) -> None:
+        if {"verify", "cert", "proxy", "trust_env"}.intersection(httpx_kwargs):
+            raise ValueError("transport security must use a TLS profile")
         self._init_core(
             base_url,
             auth=auth,
             headers=headers,
-            verify=verify,
             timeout=timeout,
             max_retries_429=max_retries_429,
             retry_after_cap_s=retry_after_cap_s,
@@ -339,13 +340,25 @@ class BaseApiClient(_ApiClientCore):
         )
         if transport is not None:
             httpx_kwargs["transport"] = transport
-        self._client = create_http_client(
-            timeout=timeout,
-            verify=verify,
-            retry=retry,
-            base_url=self.base_url,
-            **httpx_kwargs,
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
         )
+
+        trust = resolve_configured_tls_profile(
+            tls_service,
+            profile_name=tls_profile,
+            profile_ref=tls_profile_ref,
+        )
+        try:
+            self._client = create_http_client(
+                timeout=timeout,
+                retry=retry,
+                base_url=self.base_url,
+                **trust.httpx_kwargs(),
+                **httpx_kwargs,
+            )
+        finally:
+            trust.cleanup()
 
     # ------------------------------------------------------------------ #
     # Request engine
@@ -495,7 +508,9 @@ class AsyncBaseApiClient(_ApiClientCore):
         *,
         auth: AuthHeaderInjector | None = None,
         headers: dict[str, str] | None = None,
-        verify: bool = True,
+        tls_service: str = "fleet-http",
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
         timeout: float = DEFAULT_HTTP_TIMEOUT_S,
         retry: ResiliencePolicy | None = None,
         max_retries_429: int = DEFAULT_MAX_RETRIES_429,
@@ -507,11 +522,12 @@ class AsyncBaseApiClient(_ApiClientCore):
         transport: httpx.AsyncBaseTransport | None = None,
         **httpx_kwargs: Any,
     ) -> None:
+        if {"verify", "cert", "proxy", "trust_env"}.intersection(httpx_kwargs):
+            raise ValueError("transport security must use a TLS profile")
         self._init_core(
             base_url,
             auth=auth,
             headers=headers,
-            verify=verify,
             timeout=timeout,
             max_retries_429=max_retries_429,
             retry_after_cap_s=retry_after_cap_s,
@@ -522,13 +538,25 @@ class AsyncBaseApiClient(_ApiClientCore):
         )
         if transport is not None:
             httpx_kwargs["transport"] = transport
-        self._client = create_async_http_client(
-            timeout=timeout,
-            verify=verify,
-            retry=retry,
-            base_url=self.base_url,
-            **httpx_kwargs,
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
         )
+
+        trust = resolve_configured_tls_profile(
+            tls_service,
+            profile_name=tls_profile,
+            profile_ref=tls_profile_ref,
+        )
+        try:
+            self._client = create_async_http_client(
+                timeout=timeout,
+                retry=retry,
+                base_url=self.base_url,
+                **trust.httpx_kwargs(),
+                **httpx_kwargs,
+            )
+        finally:
+            trust.cleanup()
 
     async def _send(
         self,

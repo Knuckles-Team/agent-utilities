@@ -88,6 +88,192 @@
       "title": "NestedStructure",
       "type": "object"
     },
+    "ProgramCompiledState": {
+      "additionalProperties": false,
+      "description": "Reference-only native program candidate persisted with a prompt.",
+      "properties": {
+        "artifact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "candidate_role": {
+          "enum": [
+            "proposal",
+            "ensemble_member",
+            "ensemble"
+          ],
+          "title": "Candidate Role",
+          "type": "string"
+        },
+        "composition_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Composition Refs",
+          "type": "array"
+        },
+        "contradiction_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Contradiction Ids",
+          "type": "array"
+        },
+        "demonstration_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Demonstration Refs",
+          "type": "array"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "execution": {
+          "enum": [
+            "native_kernel",
+            "graph_kernel_plan",
+            "model_transport_plan",
+            "trainer_plan",
+            "composite_plan"
+          ],
+          "title": "Execution",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "instruction_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instruction Ref"
+        },
+        "modalities": {
+          "items": {
+            "enum": [
+              "text",
+              "document",
+              "image",
+              "audio",
+              "video",
+              "graph",
+              "table",
+              "time_series",
+              "vector",
+              "spatial",
+              "tensor",
+              "code",
+              "trace",
+              "binary"
+            ],
+            "type": "string"
+          },
+          "maxItems": 14,
+          "minItems": 1,
+          "title": "Modalities",
+          "type": "array"
+        },
+        "model_profile_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Profile Ref"
+        },
+        "optimizer": {
+          "enum": [
+            "labeled_few_shot",
+            "bootstrap_few_shot",
+            "bootstrap_few_shot_with_random_search",
+            "avatar",
+            "copro",
+            "mipro_v2",
+            "simba",
+            "gepa",
+            "better_together",
+            "bootstrap_finetune",
+            "knn_few_shot",
+            "ensemble",
+            "infer_rules"
+          ],
+          "title": "Optimizer",
+          "type": "string"
+        },
+        "program_ref": {
+          "title": "Program Ref",
+          "type": "string"
+        },
+        "proof_ids": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Proof Ids",
+          "type": "array"
+        },
+        "source_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "tool_policy_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Policy Ref"
+        }
+      },
+      "required": [
+        "id",
+        "program_ref",
+        "optimizer",
+        "execution",
+        "candidate_role",
+        "demonstration_refs",
+        "evidence_refs",
+        "source_refs",
+        "modalities"
+      ],
+      "title": "ProgramCompiledState",
+      "type": "object"
+    },
     "PromptIdentity": {
       "additionalProperties": true,
       "description": "Agent identity and persona definition.",
@@ -500,19 +686,6 @@
       "default": null,
       "description": "Agent persona definition"
     },
-    "input": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Legacy: monolithic system prompt text",
-      "title": "Input"
-    },
     "instructions": {
       "anyOf": [
         {
@@ -588,6 +761,18 @@
       "default": null,
       "description": "Target platform",
       "title": "Platform"
+    },
+    "program_compiled_state": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProgramCompiledState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Reference-only native program candidate. Demonstration content is resolved from the governed corpus only while constructing an execution."
     },
     "prompt_version": {
       "anyOf": [

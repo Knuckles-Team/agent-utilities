@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Runtime and Governance"
+  short_description: "Running Graph-OS governance and incident recovery"
+  default_prompt: "Use $graph-runtime-and-governance to diagnose this already-deployed runtime issue, remediate minimally if authorized, and prove recovery."

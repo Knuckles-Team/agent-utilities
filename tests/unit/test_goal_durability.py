@@ -2,8 +2,8 @@
 
 ``active_goals``/``background_goal_runs`` are process memory; the durable source of
 truth is now the **KG Loop node** (a develop ``Concept``) — the ``goals`` SQLite table
-was collapsed onto the one Loop model. On restart, this host's non-terminal goal Loops
-are surfaced as ``orphaned``, and the supervisory plane's pause/kill desired-state
+was collapsed onto the one Loop model. On restart, non-terminal goal Loops retain
+their exact WorkItem status, and the supervisory plane's pause/kill desired-state
 requests are honored by the owning goal loop (driven by ``LoopController.run_loop``).
 """
 
@@ -16,7 +16,7 @@ import time
 import pytest
 
 from agent_utilities.core import sessions as _sessions
-from agent_utilities.models.goal import GoalStatus
+from agent_utilities.orchestration.work_item import WorkItemStatus, loop_work_item_id
 
 
 class _GoalEngine:
@@ -24,6 +24,7 @@ class _GoalEngine:
 
     def __init__(self):
         self.nodes: dict[str, dict] = {}
+        self.work_items: dict[str, dict] = {}
 
     def add_node(self, nid, ntype, properties=None):
         cur = self.nodes.get(nid, {})
@@ -34,7 +35,6 @@ class _GoalEngine:
         return {
             "goal_id": nid,
             "session_id": n.get("session_id", ""),
-            "status": n.get("status", "pending"),
             "objective": n.get("objective", ""),
             "owner_host": n.get("owner_host", ""),
             "summary": n.get("summary", ""),
@@ -50,6 +50,9 @@ class _GoalEngine:
 
     def query_cypher(self, q, params=None):
         params = params or {}
+        if "MATCH (w:WorkItem" in q:
+            item = self.work_items.get(params.get("id"))
+            return [dict(item)] if item else []
         if "c.id = $id" in q:
             n = self.nodes.get(params.get("id"))
             return [self._row(params.get("id"), n)] if n else []
@@ -82,24 +85,24 @@ def test_persist_goal_upserts(goal_db):
     _sessions.active_goals["loop:develop:g1"] = {
         "goal_id": "loop:develop:g1",
         "session_id": "s1",
-        "status": GoalStatus.RUNNING,
+        "status": WorkItemStatus.RUNNING.value,
         "objective": "do the thing",
         "iterations": [],
         "total_iterations": 0,
     }
     _sessions._persist_goal("loop:develop:g1")
     node = goal_db.nodes["loop:develop:g1"]
-    assert node["status"] == "running"
     assert node["objective"] == "do the thing"
     assert node["owner_host"] == _sessions._owner_token()
     assert node["loop_kind"] == "develop"
 
     # Update path
-    _sessions.active_goals["loop:develop:g1"]["status"] = GoalStatus.COMPLETED
+    _sessions.active_goals["loop:develop:g1"]["status"] = (
+        WorkItemStatus.SUCCEEDED.value
+    )
     _sessions.active_goals["loop:develop:g1"]["total_iterations"] = 3
     _sessions._persist_goal("loop:develop:g1")
     node = goal_db.nodes["loop:develop:g1"]
-    assert node["status"] == "completed"
     assert node["total_iterations"] == 3
 
 
@@ -110,46 +113,48 @@ def _add_goal(eng, goal_id, status, owner, iterations=None):
         properties={
             "loop_kind": "develop",
             "session_id": f"sess-{goal_id}",
-            "status": status,
             "objective": "obj",
             "owner_host": owner,
             "iterations_json": json.dumps(iterations or []),
             "updated_at": time.time(),
         },
     )
+    eng.work_items[loop_work_item_id(goal_id)] = {
+        "id": loop_work_item_id(goal_id),
+        "kind": "goal_loop",
+        "status": status,
+        "lease_expires_at": 0.0,
+    }
 
 
-def test_rehydrate_marks_dead_pid_goals_orphaned(goal_db):
-    dead_owner = f"{_sessions._HOSTNAME}:999999999"
-    _add_goal(goal_db, "dead", "running", dead_owner)
-    _add_goal(goal_db, "done", "completed", dead_owner)  # terminal: untouched
-    _add_goal(goal_db, "foreign", "running", "other-host:1")  # other host's
+def test_rehydrate_preserves_exact_work_item_status(goal_db):
+    _add_goal(goal_db, "dead", WorkItemStatus.RUNNING.value, "worker")
+    _add_goal(goal_db, "done", WorkItemStatus.SUCCEEDED.value, "worker")
 
-    orphaned = _sessions.rehydrate_goals()
-    assert orphaned == 1
+    stranded = _sessions.rehydrate_goals()
+    assert stranded == 1
 
-    assert goal_db.nodes["dead"]["status"] == "orphaned"
-    assert goal_db.nodes["done"]["status"] == "completed"
-    assert goal_db.nodes["foreign"]["status"] == "running"
+    assert goal_db.work_items[loop_work_item_id("dead")]["status"] == "running"
+    assert goal_db.work_items[loop_work_item_id("done")]["status"] == "succeeded"
 
     # Visible in the in-memory cache (and therefore in /goals lists).
     assert "dead" in _sessions.active_goals
-    assert _sessions.active_goals["dead"]["status"] == GoalStatus.ORPHANED
+    assert _sessions.active_goals["dead"]["status"] == WorkItemStatus.RUNNING.value
 
     # Once per process: a second call is a no-op.
-    _add_goal(goal_db, "late", "running", dead_owner)
+    _add_goal(goal_db, "late", WorkItemStatus.RUNNING.value, "worker")
     assert _sessions.rehydrate_goals() == 0
 
 
 def test_rehydrate_skips_live_runs(goal_db):
-    _add_goal(goal_db, "live", "running", f"{_sessions._HOSTNAME}:1")
+    _add_goal(goal_db, "live", WorkItemStatus.RUNNING.value, "worker")
     _sessions.background_goal_runs["live"] = {"session_id": "sess-live"}
     assert _sessions.rehydrate_goals() == 0
     assert goal_db.nodes["live"]["status"] == "running"
 
 
 async def test_list_goals_includes_durable_goals(goal_db):
-    _add_goal(goal_db, "old", "orphaned", f"{_sessions._HOSTNAME}:2")
+    _add_goal(goal_db, "old", WorkItemStatus.READY.value, "worker")
 
     class _Req:
         query_params: dict = {}
@@ -200,7 +205,7 @@ async def test_goal_loop_honors_kill_request(goal_db):
         constraints=[],
     )
 
-    assert _sessions.active_goals["g-kill"]["status"] == GoalStatus.CANCELLED
+    assert _sessions.active_goals["g-kill"]["status"] == WorkItemStatus.CANCELLED.value
     conn = sqlite3.connect(str(_sessions._get_db_path()))
     status = conn.execute("SELECT status FROM sessions WHERE id = 's-kill'").fetchone()[
         0
@@ -229,10 +234,10 @@ async def test_goal_loop_honors_pause_request(goal_db):
         constraints=[],
     )
 
-    assert _sessions.active_goals["g-pause"]["status"] == GoalStatus.PAUSED
+    assert _sessions.active_goals["g-pause"]["status"] == WorkItemStatus.READY.value
     conn = sqlite3.connect(str(_sessions._get_db_path()))
     status = conn.execute(
         "SELECT status FROM sessions WHERE id = 's-pause'"
     ).fetchone()[0]
     conn.close()
-    assert status == "paused"
+    assert status == "ready"

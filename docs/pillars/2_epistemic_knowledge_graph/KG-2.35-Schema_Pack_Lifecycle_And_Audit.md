@@ -7,9 +7,9 @@
 Active-pack resolution and lifecycle that makes the domain Schema Pack reachable
 end-to-end, plus an observe-only candidate-type audit:
 
-- **Loader** — resolves the active pack by precedence `explicit > GRAPH_SCHEMA_PACK
-  env > config.json (graph.schema_pack) > core`; unknown names warn and fall back to
-  `core` (never raise). `set_active_pack()` re-wires live consumers and the engine
+- **Loader** — resolves the active pack exclusively from the validated
+  `AgentConfig.graph_schema_pack` value (`GRAPH_SCHEMA_PACK`, default `core`). An
+  unknown name fails closed. `set_active_pack()` re-wires live consumers and the engine
   rebuilds its retriever (carrying the new `pack.signature()` so cached results from
   a prior pack can't leak — the gbrain `knobs_hash` analogue).
 - **Candidate audit** — when an EXCLUSIVE pack is active and a write introduces a

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # One-link self-deploy bootstrap for agent-utilities.
 #
-# Designed to be curl-pipe-able as well as run from a clone:
-#   curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh
+# Run this reviewed local file from a release artifact or clone:
 #   ./scripts/install.sh --profile single-node-prod --component agent-webui
 #
 # What it does (idempotent, safe to re-run):
@@ -11,11 +10,11 @@
 #   3. runs the host dependency PREFLIGHT for the chosen profile/components
 #   4. installs the skill toolkit into EVERY agent tool on the host, and wires the
 #      graph-os MCP server into each (so your agent immediately has the KG + the
-#      genesis skills to finish the deployment)
+#      workflow skills to finish the deployment)
 #   5. points you at the next step — telling your agent to "deploy agent-utilities"
 #
 # It deliberately does NOT fabricate the 50+ *-mcp fleet config or secrets — that
-# is the job of the agent-utilities-deployment / agent-os-genesis skills, which read
+# is the job of the agent-utilities-deployment skill, which reads
 # genesis.yaml and your chosen profile. This script gets your agent to the doorstep.
 set -euo pipefail
 
@@ -32,7 +31,13 @@ c_warn() { printf '\033[1;33m[install]\033[0m %s\n' "$*"; }
 c_err()  { printf '\033[1;31m[install]\033[0m %s\n' "$*" >&2; }
 
 run() {
-  if [ "$DRY_RUN" = 1 ]; then printf '  $ %s\n' "$*"; else eval "$@"; fi
+  if [ "$DRY_RUN" = 1 ]; then
+    printf '  $'
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    "$@"
+  fi
 }
 
 usage() {
@@ -66,6 +71,9 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+case "$PROFILE" in tiny|single-node-prod|enterprise) ;; *) c_err "invalid profile"; exit 2 ;; esac
+case "$EXTRAS" in ""|all|none) ;; *) c_err "invalid extras selection"; exit 2 ;; esac
+
 # Components from env (comma-separated), merged with any --component flags.
 if [ -n "${AU_COMPONENTS:-}" ]; then
   IFS=',' read -r -a _env_comps <<< "$AU_COMPONENTS"
@@ -91,16 +99,22 @@ ok = (3, 11) <= sys.version_info[:2] < (3, 15)
 sys.exit(0 if ok else 1)
 PY
 
-# 2. Ensure uv (preferred installer). Auto-install if missing (official script).
+# 2. Require a separately verified uv installation. Never execute a network
+# response as shell code from a privileged bootstrap.
 if ! command -v uv >/dev/null 2>&1; then
-  c_warn "uv not found — installing it (https://astral.sh/uv)…"
-  run "curl -fsSL https://astral.sh/uv/install.sh | sh"
-  export PATH="$HOME/.local/bin:$PATH"
+  c_err "uv not found — install a verified uv release, then rerun this script."
+  exit 1
 fi
 
-# Package spec — editable from a clone, else from PyPI; extras by profile.
-PKG="agent-utilities"
-if [ "$EXTRAS" = "all" ]; then PKG="agent-utilities[all]"; fi
+# Published bootstraps are exact at the project boundary. Release automation
+# updates these defaults; controlled mirrors may inject another exact version.
+AU_VERSION="${AGENT_UTILITIES_VERSION:-1.27.1}"
+SKILLS_VERSION="${UNIVERSAL_SKILLS_VERSION:-1.2.1}"
+VERSION_RE='^[0-9]+\.[0-9]+\.[0-9]+([a-zA-Z0-9.+-]*)$'
+[[ "$AU_VERSION" =~ $VERSION_RE ]] || { c_err "invalid agent-utilities version"; exit 2; }
+[[ "$SKILLS_VERSION" =~ $VERSION_RE ]] || { c_err "invalid universal-skills version"; exit 2; }
+PKG="agent-utilities==$AU_VERSION"
+if [ "$EXTRAS" = "all" ]; then PKG="agent-utilities[all]==$AU_VERSION"; fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || true)"
 IN_REPO=0
@@ -110,54 +124,59 @@ fi
 
 c_info "Installing $PKG + universal-skills…"
 if [ "$EDITABLE" = 1 ] && [ "$IN_REPO" = 1 ]; then
-  run "uv pip install --system -e \"$REPO_ROOT[${EXTRAS/none/}]\" || pip install -e \"$REPO_ROOT\""
+  EDITABLE_SPEC="$REPO_ROOT"
+  if [ "$EXTRAS" = "all" ]; then EDITABLE_SPEC="$REPO_ROOT[all]"; fi
+  run uv pip install --system -e "$EDITABLE_SPEC"
 else
-  run "uv tool install \"$PKG\"" || run "pip install \"$PKG\""
-  run "uv tool install universal-skills" || run "pip install universal-skills"
+  run uv tool install "$PKG"
+  run uv tool install "universal-skills==$SKILLS_VERSION"
 fi
 
 # 3. Host dependency preflight for the chosen profile + components.
-PF_ARGS="--preflight --profile $PROFILE"
-for c in "${COMPONENTS[@]:-}"; do [ -n "$c" ] && PF_ARGS="$PF_ARGS --component $c"; done
+PF_ARGS=(--preflight --profile "$PROFILE")
+for c in "${COMPONENTS[@]:-}"; do [ -n "$c" ] && PF_ARGS+=(--component "$c"); done
 c_info "Running host preflight…"
 if command -v agent-utilities-doctor >/dev/null 2>&1; then
-  run "agent-utilities-doctor $PF_ARGS" || c_warn "preflight reported issues — see remediations above."
+  run agent-utilities-doctor "${PF_ARGS[@]}" || c_warn "preflight reported issues — see remediations above."
 else
-  run "python3 -m agent_utilities.deployment.doctor $PF_ARGS" || c_warn "preflight reported issues."
+  run python3 -m agent_utilities.deployment.doctor "${PF_ARGS[@]}" || c_warn "preflight reported issues."
 fi
 
 # 4. Install the skill toolkit into EVERY agent tool present, and wire graph-os MCP.
 #    This sweep also picks up skills contributed by any installed agent-package
 #    via its `agent_utilities.skill_providers` entry-point (CONCEPT:OS-5.52), so
-#    re-run `install-skills --all-detected --symlink` after the *-mcp fleet is
+#    re-run `agent-utilities install --symlink` after the *-mcp fleet is
 #    deployed to wire in the freshly-installed providers' skills. Contributed
 #    prompts enter the KG automatically on the next registry build.
 if [ "$DO_SKILLS" = 1 ]; then
-  c_info "Installing skills into every detected agent tool (--all-detected)…"
-  if command -v install-skills >/dev/null 2>&1; then
-    run "install-skills --all-detected --symlink" || c_warn "skill install reported issues."
+  c_info "Installing skills into every detected agent tool…"
+  if command -v agent-utilities >/dev/null 2>&1; then
+    run agent-utilities install --symlink || c_warn "skill install reported issues."
   else
-    c_warn "install-skills not on PATH — skipping (pip install universal-skills)."
+    c_warn "agent-utilities not on PATH — skipping skill installation."
   fi
 fi
 
 if [ "$DO_MCP" = 1 ]; then
-  c_info "Wiring the graph-os MCP server into every detected agent tool…"
+  if command -v codex >/dev/null 2>&1 && command -v setup-config >/dev/null 2>&1; then
+    c_info "Registering the portable graph-os stdio launcher with Codex…"
+    run setup-config codex || c_warn "Codex MCP registration reported issues."
+  fi
+  c_info "Wiring graph-os into detected JSON-config MCP clients…"
   MCP_SRC="$(mktemp -t graphos-mcp.XXXXXX.json)"
   cat > "$MCP_SRC" <<'JSON'
 {
   "mcpServers": {
     "graph-os": {
       "command": "graph-os",
-      "args": [],
-      "env": {"GRAPH_BACKEND": "epistemic_graph"}
+      "args": ["--transport", "stdio"]
     }
   }
 }
 JSON
   MCP_INSTALL="$(python3 -c 'import importlib.util as u,os; s=u.find_spec("universal_skills"); print(os.path.join(os.path.dirname(s.origin),"agent-tools","mcp-installer","scripts","install.py")) if s else print("")' 2>/dev/null || true)"
   if [ -n "$MCP_INSTALL" ] && [ -f "$MCP_INSTALL" ]; then
-    run "python3 \"$MCP_INSTALL\" --config \"$MCP_SRC\" --all-detected" || c_warn "MCP wiring reported issues."
+    run python3 "$MCP_INSTALL" --config "$MCP_SRC" --all-detected || c_warn "MCP wiring reported issues."
   else
     c_warn "mcp-installer not found — skipping graph-os MCP wiring."
   fi
@@ -169,7 +188,7 @@ fi
 # .claudeignore, derived from the live ActionPolicy. Idempotent + best-effort.
 if command -v setup-config >/dev/null 2>&1; then
   c_info "Writing the Claude Code permission fence into ~/.claude (harness-fence)…"
-  run "setup-config harness-fence --target \"$HOME/.claude\"" \
+  run setup-config harness-fence --target "$HOME/.claude" \
     || c_warn "harness-fence reported issues (non-fatal)."
 fi
 
@@ -180,15 +199,14 @@ fi
 # custom regenerate driver. Best-effort and only inside a git work tree.
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   c_info "Registering the concepts-regen git merge driver…"
-  run "git config merge.concepts-regen.name 'regenerate concepts.yaml from CONCEPT markers'" \
+  run git config merge.concepts-regen.name "regenerate concepts.yaml from CONCEPT markers" \
     || c_warn "could not set merge driver name (non-fatal)."
-  run "git config merge.concepts-regen.driver 'python3 scripts/build_concepts_yaml.py >/dev/null 2>&1; cp docs/concepts.yaml %A'" \
+  run git config merge.concepts-regen.driver "python3 scripts/build_concepts_yaml.py >/dev/null 2>&1; cp docs/concepts.yaml %A" \
     || c_warn "could not set merge driver command (non-fatal)."
 fi
 
 # 5. Hand off to the deployment skill.
 SKILL="agent-utilities-deployment"
-[ "$PROFILE" = "enterprise" ] && SKILL="agent-os-genesis"
 cat <<EOF
 
 $(c_info "Done. Your agent now has the KG tools + the genesis skills.")
@@ -203,6 +221,7 @@ It will run the '$SKILL' skill, read genesis.yaml, generate the full config
 
 Manual path:
     setup-config generate --profile $PROFILE
+    setup-config codex             # native Codex config.toml registration
     graph-os                       # stdio MCP for your IDE
     graph-os-daemon                # REST gateway (:8100)
     agent-utilities-doctor         # verify

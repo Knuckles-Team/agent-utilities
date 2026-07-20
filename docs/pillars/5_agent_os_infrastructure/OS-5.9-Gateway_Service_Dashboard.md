@@ -130,7 +130,7 @@ groups:
       - id: portainer-1
         name: Portainer
         widget_type: portainer
-        url: https://portainer.local
+        url: https://container-console.example.test
         env_prefix: PORTAINER
         category: Infrastructure
 
@@ -140,7 +140,7 @@ groups:
       - id: gitlab-1
         name: GitLab
         widget_type: gitlab
-        url: https://gitlab.local
+        url: https://scm.example.test
         env_prefix: GITLAB
 ```
 
@@ -201,7 +201,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.CUSTOM
     description = "Example custom service widget"
     env_prefix = "MY_SERVICE"
-    default_url = "http://localhost:8080"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -218,3 +217,6 @@ class Widget(BaseWidget):
             fields={"status": "running", "count": 42},
         )
 ```
+
+The service URL is required through `ServiceConfig.url` or the corresponding
+`<ENV_PREFIX>_URL` runtime setting; widgets do not embed endpoint fallbacks.

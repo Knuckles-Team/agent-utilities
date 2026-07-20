@@ -4,11 +4,12 @@
 
 ## Overview
 
-The Knowledge Graph is backed by **one database — the epistemic-graph engine**.
-It is the **authority** (the system of record) and does everything in a single
-engine: graph **compute**, an in-memory **cache**, **semantic/ontology**
-reasoning, AND durable **persistence**. There is no separate "storage tier" and
-no separate "compute tier" — it is one engine.
+The Knowledge Graph is backed by **one database — the out-of-process
+epistemic-graph Rust engine**. It is the authority and combines graph compute,
+hot-read caching, semantic/ontology reasoning, and durable persistence. Python
+and GraphOS reach it only through the authenticated MessagePack client over a
+private UDS or loopback-TCP transport, or an explicitly configured protected
+remote endpoint. There is no embedded Python engine and no second read authority.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -48,12 +49,12 @@ outbox that replays on reconnect — so a mirror being down or slow never blocks
 write and never loses data.
 
 ```python
-# Commit to the engine authority — this is the durable write
-self._upsert_node("Memory", node.id, data)
-
-# The engine asynchronously fans the committed change out to mirrors
-# (Postgres/Neo4j/FalkorDB/Ladybug) through a durable, replay-on-reconnect
-# outbox. The write returns as soon as the engine has committed.
+# GraphOS validates the session and commits to the engine authority.
+result = await graph_os.call_tool(
+    "graph_write",
+    {"action": "add_node", "node_id": node.id, "node_type": "Memory", "properties": data},
+)
+# Mirror delivery proceeds through the durable replayable outbox after commit.
 ```
 
 ### Read Path (Queries)
@@ -62,10 +63,11 @@ self._upsert_node("Memory", node.id, data)
 against the engine; mirrors are never consulted on the read path.
 
 ```python
-# Cypher query against the engine authority
-results = self.engine.execute(
-    "MATCH (p:Policy) WHERE p.name CONTAINS $q RETURN p",
-    {"q": query}
+# GraphOS applies identity, tenant, scope, and policy before dispatching the
+# bounded query to the authoritative engine.
+results = await graph_os.call_tool(
+    "graph_query",
+    {"action": "cypher", "query": approved_query, "params": {"q": query}},
 )
 ```
 
@@ -77,22 +79,22 @@ operations over the authoritative graph, not a separate scratchpad that must be
 loaded and discarded.
 
 ```python
-# Centrality over agent/tool nodes — computed in the engine
-scores = engine.pagerank(labels=["Agent", "Tool", "Skill"])
-
-# Impact analysis — 3-hop ancestry over the authoritative graph
-impact = engine.impact_analysis(target_id)
+# Bounded personalized PageRank executes inside the authoritative engine.
+scores = await graph_os.call_tool(
+    "engine_analytics",
+    {"action": "personalized_pagerank", "params_json": seed_frontier_json},
+)
 ```
 
-## Backend Selection
+## Authority and projections
 
-`GRAPH_BACKEND` selects whether mirrors fan out alongside the engine:
+Epistemic-graph is always authoritative. Projection declarations determine
+whether committed writes also fan out to external stores:
 
-| `GRAPH_BACKEND` | What runs | Use case |
+| Declaration | What runs | Use case |
 |---|---|---|
-| `epistemic_graph` **(default)** | The engine only — the tiny, self-contained database | Default everywhere: laptop, edge/offline agents, demos, single-node, and most production. No external system dependencies. |
-| `fanout` | The engine + one or more mirrors | When you also need external interop/BI/DR: writes fan out asynchronously to `GRAPH_MIRROR_TARGETS`. |
-| `memory` | Pure ephemeral in-memory engine | Unit tests / CI; no persistence. |
+| No mirrors **(default)** | The engine only — the tiny, self-contained database | Default everywhere: laptop, edge/offline agents, demos, single-node, and most production. No external system dependencies. |
+| `GRAPH_MIRROR_TARGETS` or `role=mirror` | The engine + one or more projections | External interop/BI/DR; writes fan out asynchronously. |
 
 > The default is the engine alone — a single self-contained database with no
 > external server required. Mirrors are purely optional and only ever receive an
@@ -104,37 +106,36 @@ impact = engine.impact_analysis(target_id)
 For a detailed walkthrough, compose files, and connection examples, see the
 [Deploying Graph Databases Guide](graph-db-deployment.md).
 
-```bash
-# 1. Default — the engine only (self-contained, zero-infra).
-#    Nothing to set; this is what you get when GRAPH_BACKEND is unset.
-export GRAPH_BACKEND=epistemic_graph    # implicit default
-
-# 2. Engine + mirrors — fan committed writes out for interop/BI/DR.
-export GRAPH_BACKEND=fanout
-export GRAPH_MIRROR_TARGETS=postgresql  # comma-separated mirror list
-export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
-
-# 3. Pure ephemeral in-memory (testing/CI; no persistence)
-export GRAPH_BACKEND=memory
-
-# Mirror connection examples (only read when a mirror is in GRAPH_MIRROR_TARGETS):
-
-# Postgres / pg-age mirror
-# export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
-
-# Neo4j mirror
-# export GRAPH_DB_URI=bolt://localhost:7687
-# export GRAPH_DB_USER=neo4j
-# export GRAPH_DB_PASSWORD=password
-
-# FalkorDB mirror
-# export GRAPH_DB_HOST=localhost
-# export GRAPH_DB_PORT=6380
-# export GRAPH_DB_NAME=agent_graph
-
-# Ladybug mirror
-# export GRAPH_DB_PATH=/data/agent.db
+```json
+{
+  "GRAPH_MIRROR_TARGETS": ["analytics-mirror"],
+  "KG_CONNECTIONS": [
+    {
+      "name": "analytics-mirror",
+      "backend": "age",
+      "role": "mirror",
+      "connection_profile_ref": "secret://graphs/analytics-mirror"
+    }
+  ]
+}
 ```
+
+Omit both projection settings for the authoritative-engine-only default. The connection
+profile is resolved only when the mirror connects and may contain the endpoint,
+database selector, identity, verified TLS policy, and credentials. AgentConfig and
+documentation retain only the neutral alias and reference. Use
+`agent-utilities-doctor` to validate reference resolution, reachability, role, and
+TLS before enabling fan-out.
+
+### External sources are not mirrors
+
+`EXTERNAL_GRAPH_CONNECTORS` describes read-only sources from which governed data is
+materialized into the engine; it does not place those databases on the operational
+read or write path. Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph,
+and GraphQL all use bounded schema discovery, digest-bound mapping approval, drift
+checks, and native `ChangeEnvelope` ingestion. Source connection, authentication,
+TLS, query, variables, schema, and ontology documents remain behind runtime
+references. See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).
 
 ## Why the engine does it all
 
@@ -150,22 +151,15 @@ off the hot path, asynchronously — avoids all three.
 
 | Method | Purpose |
 |--------|---------|
-| `_upsert_node()` | Idempotent node write, committed to the engine authority |
-| `link_nodes()` | Relationship creation via Cypher MERGE |
-| `query_cypher()` | Direct Cypher query against the engine |
-| `pagerank()` / `impact_analysis()` | Native in-engine graph compute |
+| GraphOS `graph_write` | Policy-governed node and relationship mutation |
+| GraphOS `graph_query` | Identity-, tenant-, scope-, and policy-governed query dispatch |
+| GraphOS `engine_analytics` | Bounded native in-engine graph compute |
 
 ## Deployment shapes
 
-- **Tiny / self-contained** — the embedded engine, one process, no external
-  servers. This is `GRAPH_BACKEND=epistemic_graph` (the default).
+- **Tiny / self-contained installation** — GraphOS supervises the bundled Rust
+  engine as a separate child over a private local transport. No external service
+  is managed by the operator. The fixed authority needs no selector.
 - **Enterprise** — a shared/remote engine reached over
-  `GRAPH_SERVICE_ENDPOINTS` (optionally sharded), with `GRAPH_BACKEND=fanout`
-  and `GRAPH_MIRROR_TARGETS` populating Postgres/Neo4j/etc. for interop and DR.
-
-## Migration Notes
-
-The `ephemeral` flag on `add_node()` and `link_nodes()` controls durability:
-- `ephemeral=False` (default): committed to the engine authority.
-- `ephemeral=True`: kept transient (temporary compute nodes, council verdicts) —
-  not persisted and not fanned out to mirrors.
+  `GRAPH_SERVICE_ENDPOINTS` (optionally sharded), with `GRAPH_MIRROR_TARGETS`
+  populating Postgres/Neo4j/etc. for interop and DR.

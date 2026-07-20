@@ -11,13 +11,12 @@ to operate and a frequent source of footguns. The rule for adding new flags is i
 enforces that flags are declared on `AgentConfig` (`core/config.py`), not read with bare
 `os.environ.get()` scattered across modules.
 
-## How configuration is read (two centralized paths)
+## How configuration is read
 
 `core/config.py` (and `core/paths.py`) are the **only** files that touch `os.environ`.
-Every other module reads through one of two paths, both **driven by `config.json`** —
-the XDG loader injects `~/.config/agent-utilities/config.json` (or
-`AGENT_UTILITIES_CONFIG_DIR`) into `os.environ` before anything reads it, so a JSON key
-`graph_db_uri` becomes `GRAPH_DB_URI`:
+Every other module reads through one of two access paths, both driven by the XDG
+AgentConfig. The loader stages `config.json` before projecting its keys, so
+`graph_db_connection_profile_ref` becomes `GRAPH_DB_CONNECTION_PROFILE_REF`:
 
 1. **Typed `AgentConfig` field** (`Field(alias="MY_VAR")`, read `config.my_var`) — for
    static settings parsed once at import.
@@ -28,6 +27,81 @@ the XDG loader injects `~/.config/agent-utilities/config.json` (or
 
 **Decision:** field for static, `setting()` for dynamic — **never** a bare
 `os.environ.get` / `os.getenv` / `os.environ[...]` read in a module.
+
+### Provider profile execution boundary
+
+External MCP packages use `AgentConfig.provider_configs` as their sole durable
+connection boundary. A profile contains neutral reference fields for an endpoint,
+credentials, selectors, and one TLS profile. It contains no raw credential,
+certificate, environment-specific ontology, or provider-customized schema. Schema
+discovery and generated mappings belong to the governed external-graph connector
+pipeline, not to connection configuration.
+
+GraphOS resolves exactly the selected profile in the trusted parent. Before a local
+provider child starts, the parent projects the resolved values under fixed ephemeral
+aliases into a private process environment. The child receives private XDG, home,
+runtime, and temporary directories rather than the parent's configuration roots.
+Sandbox-controlled keys are matched case-insensitively, so alternate spelling cannot
+reintroduce a parent path. Original secret references, unrelated profiles, Vault or
+engine authority, and parent environment values do not cross the process boundary.
+Remote MCP packages are independently deployed and therefore cannot select a
+parent-local profile.
+
+```mermaid
+flowchart LR
+    C[AgentConfig\nreference-only profile] -->|select one profile| P[Trusted GraphOS parent]
+    P -->|resolve secrets and verified TLS| R[Bounded runtime projection]
+    R -->|fixed aliases and private XDG roots| M[Local provider MCP child]
+    P -->|aggregate status only| D[Doctor]
+```
+
+Profile resolution is process-wide bounded, times out closed, and retains temporary
+TLS material only for the child session. Doctor exercises the same resolution and
+projection path, closes all material afterward, and reports only aggregate state and
+counts. It never prints profile names, references, endpoints, values, identities, or
+filesystem locations. Operator syntax and a neutral example are documented in
+[External provider runtime profiles](../guides/configuration.md#external-provider-runtime-profiles).
+
+AgentConfig does not search the repository, launch directory, or an agent package
+for a dotenv file. Deployment inputs are the typed XDG document, explicit process
+environment and runtime secret references. Container runtimes must project
+secrets as explicit process environment values or mount the fixed private XDG
+``runtime-secrets.json`` source; GraphOS does not scan a container secret directory.
+
+Native Windows deployments use explicit process injection for secret values.
+Until the loader has descriptor-level ACL validation, its private runtime-secret
+source and production file-backed AgentConfig fail closed there. POSIX and WSL
+enforce trusted ownership plus the documented private modes.
+
+### Implicit XDG runtime-secret source
+
+An operator may place `runtime-secrets.json` beside `config.json` in the Agent
+Utilities XDG config directory. Its filename is fixed; no AgentConfig field stores
+or selects a machine-specific path. The file is optional. When present it must be a
+bounded regular JSON object with environment-variable names as keys and bounded,
+non-empty strings as values. On POSIX its owner must be the current user or root and
+its mode must be exactly `0600` or `0400`. Symbolic links, special files, duplicate
+or case-ambiguous keys, malformed content, and files that change while being read
+fail closed.
+
+Only keys named by exact `env://NAME` references anywhere in `config.json`, including
+nested model and connector blocks, are projected. Unreferenced entries are never
+projected. An explicit process environment value wins. A durable `config.json`
+value whose key collides with an `env://` target is rejected because secret material
+does not belong in durable configuration.
+
+The durable boundary recursively rejects non-empty raw credential aliases, nested
+`api_key` fields, and all literal header maps. Model declarations use
+`api_key_ref`/`headers_ref`, or an OAuth2 block whose `client_secret` is a reference.
+Raw provider keys and ad-hoc header fields remain valid only as explicit runtime
+process inputs where applicable; they cannot be serialized into XDG AgentConfig.
+
+Reload validates both documents before replacing loader-owned projections. A failed
+reload retains the last valid projection, a removed reference removes its still-owned
+value, and a value changed later by the operator is preserved. Ownership tracking
+uses process-local fingerprints rather than retained plaintext. Doctor reports only
+aggregate source state and counts; it never reports a path, target name, reference,
+value, owner, or mode.
 
 **The fold is complete: ZERO bare env reads remain anywhere in `agent_utilities/`**
 (every prefix — `KG_*`, `GRAPH_*`, `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, …).
@@ -49,57 +123,78 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `GRAPH_DB_URI` / `PGGRAPH_DSN` | none | Postgres/pg-age **mirror** DSN |
-| `GRAPH_BACKEND` | `epistemic_graph` | Engine mode: `epistemic_graph` (engine authority alone) or `fanout` (engine + mirrors). The `tiered`/`GRAPH_BACKEND_L1` scheme is removed |
-| `GRAPH_AUTHORITY` / `GRAPH_MIRROR_TARGETS` | `epistemic_graph` / unset | Read source-of-truth + the fan-out mirror set (mirror names from `KG_CONNECTIONS`); `GRAPH_MIRROR_TARGETS` supersedes the removed `GRAPH_BACKEND_L2` |
-| `EPISTEMIC_GRAPH_SOCKET` | `/tmp/epistemic-graph.sock` | Rust engine UDS |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | none | Runtime secret reference resolving to the graph mirror's complete JSON connection profile |
+| `GRAPH_MIRROR_TARGETS` | unset | Optional external projection names from `KG_CONNECTIONS`; a non-empty set enables automatic fan-out while epistemic-graph remains authority. |
+| `EPISTEMIC_GRAPH_SOCKET` | runtime socket directory | Rust engine UDS; discover or inject the path at process start |
 | `GRAPH_PERSISTENCE_PATH`, `GRAPH_SERVICE_PERSIST_DIR` | data dir | Engine durable snapshot dir |
-| `GRAPH_DB_HOST/PORT/NAME/USER/PASSWORD/PATH` | — | DSN parts (legacy; prefer `GRAPH_DB_URI`) |
-| `GRAPH_FUSEKI_URL/USER/PASSWORD/DATASET` | — | SPARQL endpoint (optional backend) |
-| `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each entry `{"name":<str>,"url":<str>,"token":<str>,"verify_ssl":<bool>}`. Unset → single-host `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:AU-KG.backend.declared-columns-so-schema) |
+| `KG_FUSEKI_ENDPOINT` (+ `GRAPH_FUSEKI_USER/PASSWORD/DATASET`) | runtime-configured | Fuseki endpoint (SPARQL query backend + ontology-publish tick); see section E below |
+| `GITLAB_INSTANCES` | none | JSON list of GitLab instances to index/query — the multi-tenant source of truth shared by the KG GitLab indexer and the `gitlab-api` connector registry. Each durable entry uses `{"name":<str>,"url":<str>,"token_ref":<runtime-secret-reference>}`; raw `token` is rejected. TLS trust comes from the runtime profile. Unset → single-host process values `GITLAB_URL`/`GITLAB_TOKEN` (CONCEPT:AU-KG.backend.declared-columns-so-schema) |
 | `GRAPH_PGGRAPH_SCHEMA` | `public` | Postgres schema |
 | `AGENT_UTILITIES_{CONFIG,DATA,CACHE,LOG,MEMORY,RUNTIME}_DIR` | XDG | Path overrides (resolved in `core/paths.py`) |
 | `AGENT_UTILITIES_TOKEN_SECRET` | — | Run-scoped tool-token secret |
 | `KG_DAEMON_ROLE` | `auto` | host/client/auto election (topology) |
-| `STATE_DB_URI` | none | Externalize ALL durable state (durable-exec checkpoints, sessions/turns/goals, KG task queue) to a shared Postgres; unset keeps the zero-infra per-host SQLite files (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
+| `STATE_DB_URI` | none | Externalize session/turn/fleet metadata and queue-delivery state to shared Postgres; unset keeps zero-infra per-host SQLite support stores. Native WorkItem checkpoints remain in epistemic-graph (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
 | `STATE_DB_POOL_SIZE` | `8` | Max connections in the ONE shared state-store psycopg pool (CONCEPT:AU-OS.state.unified-durable-state-externalization) |
 | `TASK_QUEUE_BACKEND` | none (auto) | Ingest task queue: `sqlite`\|`postgres`\|`kafka`. Unset = auto (postgres when `STATE_DB_URI` set, else sqlite). Explicit kafka/postgres is FAIL-LOUD at startup (CONCEPT:AU-KG.backend.selectable-queue-backend) |
 | `KG_TASKS_PARTITIONS` | `6` | Partitions ensured on the `kg_tasks` topic at startup (grow-only, never shrinks); bounds kg-ingest consumer-group parallelism (CONCEPT:AU-KG.backend.keyed-ingest-partitions) |
-| `AGENT_DISPATCH_BACKEND` | `inline` | How agent turns (goal runs / orchestrator jobs) dispatch: `inline` keeps the in-process execution; `queue` publishes a session-keyed envelope onto the `agent_turns` queue (transport follows `TASK_QUEUE_BACKEND`) and returns a job handle for the `agent-dispatch-worker` fleet (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
 | `AGENT_TURNS_PARTITIONS` | `6` | Partitions ensured on the `agent_turns` topic when Kafka carries dispatched agent turns (grow-only); bounds fleet-wide concurrent-session parallelism (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
-| `ENGINE_MODE` | `auto` | How the ONE resolver (`engine_resolver.resolve_engine`, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) reaches the engine for EVERY entrypoint: `auto` (derive from `graph_service_*` — remote if configured, else share-running-local, else autostart) · `remote` (connect to `ENGINE_ENDPOINT`/configured endpoint, NEVER autostart — "engine deployed elsewhere") · `shared` (reuse a running local engine, autostart if none) · `embedded` (always provision a local engine) |
-| `ENGINE_ENDPOINT` | unset | Explicit remote engine override for `engine_mode=remote` (e.g. `tcp://engine.internal:9100`); folded into endpoint resolution like a single `GRAPH_SERVICE_ENDPOINTS` entry (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `AGENT_DISPATCH_MAX_DEPTH` | `100000` | Fail-closed agent-turn admission bound; atomic on SQLite/Postgres and lag-gated on Kafka. |
+| `AGENT_DISPATCH_CLAIM_TTL_S` | `120` | Renewable dispatch lease lifetime, bounded to the workload contract's 300-second RTO. |
+| `AGENT_DISPATCH_RENEW_INTERVAL_S` | `30` | Maximum periodic renewal interval; the lease guard also renews synchronously before each side effect. |
+| `AGENT_BUS_LOG_BACKEND` | `engine` | Required AgentBus delivery backend: `engine` or `kafka`; unavailable selections fail closed. |
+| `AGENT_BUS_PARTITIONS` | `6` | Fixed/grow-only tenant delivery partitions. |
+| `AGENT_BUS_MAX_CONSUMERS` | `32` | Process-local Kafka materializer/DLQ consumer bound. |
+| `AGENT_BUS_MAX_DEPTH` | `100000` | Publisher backpressure threshold. |
+| `AGENT_BUS_MAX_TOPIC_SUBSCRIBERS` | `1024` | Maximum subscribers materialized for one topic event. |
+| `AGENT_BUS_DELIVERY_LEASE_SECONDS` | `300` | Engine-broker receipt lease while inbox transactions commit. |
 | `ENGINE_LIFECYCLE` | `refcounted` | Lifecycle of an autostarted local engine (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): `refcounted` = reference-counted idle shutdown (self-stops `ENGINE_IDLE_SHUTDOWN_SECS` after the last client disconnects — the shared-tiny default, auto-stops when idle) · `persistent` = LONG-LIVING, never auto-stops even when idle (runs like a local service; forces idle-shutdown off). A remote/cluster engine is inherently persistent |
-| `ENGINE_IDLE_SHUTDOWN_SECS` | `60` | Idle-shutdown grace (seconds) for a `refcounted` autostarted engine; `>0` passes `--idle-shutdown-secs <secs>` to the engine. `<=0` (or `engine_lifecycle=persistent`) = long-living, no flag passed. Gracefully omitted against an older engine binary that doesn't advertise the flag (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
-| `EPISTEMIC_GRAPH_AUTOSTART` | `1` (auto-bundle) | Local-engine autostart opt-OUT: set `0` for a connect-only process (the resolver's `auto`/`embedded`/`shared` modes autostart a local `unix://` endpoint by default; never remote shards) (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
-| `GRAPH_SERVICE_ENDPOINTS` | unset | Engine shard endpoints (comma/JSON list). 2+ entries = tenant-partitioned sharding via HRW over graph names; unset/1 = single-engine zero-infra default (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
-| `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; in sharded mode the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before HRW (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
-| `KG_WATCH_DIRS` | unset | Operator document directories the file-watcher auto-ingests **recursively**, unified with the built-in ScholarX/research download dirs. New files are ingested and modified files re-ingested on the 5s watch tick; unchanged files delta-skip by content hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Value is a JSON array or an `os.pathsep`/comma-separated list of paths (`~` expanded), e.g. `~/Documents`. config.json key: `kg_watch_dirs`. Resolved by `sdd/watcher.py:get_watched_directories()` |
+| `ENGINE_IDLE_SHUTDOWN_SECS` | `60` | Idle-shutdown grace (seconds) for a `refcounted` autostarted engine; `>0` passes `--idle-shutdown-secs <secs>` to the current engine. `<=0` (or `engine_lifecycle=persistent`) = long-living, no flag passed (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) |
+| `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` | `256` | Positive resident-graph bound for a shared workstation; generated production profiles use `1024`. Cold graphs reopen from durable state. |
+| `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` | `4096` | Bounded records per lazy-open page. While a page sequence is incomplete, the engine reports typed partial state rather than incomplete query results. |
+| `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` | `250000` | Positive per-graph resident-node bound. Authoritative rows are checked in one durable snapshot and evicted from the resident projection in one batch. |
+| `EPISTEMIC_GRAPH_MAX_REQUEST_BYTES` / `EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES` | `67108864` | Native frame allocation budgets, additionally bounded by immutable Rust hard ceilings. |
+| `EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS` | `1000000` | Preflight item budget that rejects nested MessagePack allocation bombs before deserialization. |
+| `EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS` / `EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS` | `120` / `10` | Slow-client and TLS-handshake deadlines for native connections. |
+| `EPISTEMIC_GRAPH_AST_MAX_FILES` / `..._SOURCE_BYTES` / `..._TOTAL_BYTES` | `4096` / `4194304` / `33554432` | Bounds repository-relative source indexing; engine-host traversal is disabled. |
+| `EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES` / `..._SOURCE_BYTES` | `4194304` / `16777216` | Independent governed multimodal bundle/source limits beneath the transport frame budget. |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | unset | External `env://` or `vault://` data-key reference for a packaged local durable engine. The launcher validates 32–4096 control-free UTF-8 bytes and projects the value only into the Rust child, then removes it from retained launcher mappings after spawn. Non-production `tiny` local mode instead creates one stable 0600 key beneath a validated 0700 XDG directory; production/non-tiny local mode fails closed without the explicit ref. Remote engines own their key lifecycle. |
+| `EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT_REF` | unset | Enables SQLite import/export only when a runtime secret ref resolves to a private non-symlink directory. AgentConfig never stores the path. |
+| `EPISTEMIC_GRAPH_SQLITE_MAX_BYTES` / `..._MAX_ROWS` | `268435456` / `1000000` | Bounded native SQLite file and row transfer budgets. |
+| `EPISTEMIC_GRAPH_BACKUP_ROOT_REF` | unset | Enables backup/restore only through a runtime-resolved private directory; RPCs accept logical bundle names, never host paths. |
+| `GRAPH_SERVICE_ENDPOINTS` | unset | Sole explicit external/coordinator topology (comma/JSON list). Any configured value is connect-only and never gets a local stand-in; unset selects the packaged local engine lifecycle. Contacts are never a placement ring. |
+| `GRAPH_RAFT_GROUP_ENDPOINTS` | unset | Strict JSON object mapping non-negative authoritative Raft group ids to `unix://`, `tcp://`, or `tls://` endpoints. Not needed with one stable coordinator; required for endpointless routes with multiple contacts. |
+| `KG_DEFAULT_GRAPH` | `__bus__` | Default named graph; the ambient ActorContext tenant maps it to `tenant__<t>__<base>` before engine-authoritative placement. |
+| `KG_WATCH_DIRS` | unset | Operator document directories the file-watcher auto-ingests **recursively**, unified with the built-in ScholarX/research download dirs. New files are ingested and modified files re-ingested on the 5s watch tick; unchanged files delta-skip by content hash (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Value is a JSON array or an `os.pathsep`/comma-separated list of paths, e.g. `$DOCUMENT_INGEST_ROOT`. config.json key: `kg_watch_dirs`. Resolved by `sdd/watcher.py:get_watched_directories()` |
 | `GRAPH_SERVICE_AUTH_SECRET` | auto-generated | Engine HMAC secret; unset → per-install secret persisted at `data_dir()/engine_secret` (0600) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_ENGINE_INSECURE` | `false` | Dev opt-out of engine HMAC auth; sets `EPISTEMIC_GRAPH_ALLOW_INSECURE=1` on spawned engines (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_AUTH_REQUIRED` | `false` | Require server-validated JWT identity for KG access — 401 without it; caller `_actor`/`_roles`/`_tenant` kwargs ignored (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_AUTH_TOKEN` | — | JWT minting the stdio MCP process identity (validated against `AUTH_JWT_JWKS_URI`) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_SERVED_PROFILE` | `true` | Fail-closed served-security profile for network MCP transports: refuse to start without `AUTH_JWT_JWKS_URI`, auto-enable auth + enforcement. `0` = serve open (local dev only) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
-| `KG_ENGINE_POOL_SIZE` | `0` | Max warm per-tenant engine clients per process (elastic LRU pool over AU-KG.sharding.tenant-partitioned-sharding-hrw routing); `0` = per-use construction (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
+| `AUTH_JWT_AUDIENCE` | unset | Required expected JWT audience; session minting fails closed when absent |
+| `KG_POLICY_VERSION` | unset | Required immutable policy revision stamped into every server-minted `GraphSession` |
+| *(baked-in, no env var)* verified graph session | required | Every graph operation inherits middleware/process-minted actor, tenant, scopes, audience, and policy authority. |
+| `MODEL_CONTEXT_TOKEN_BUDGET` | `2000` | Mandatory ContextCompiler evidence budget for every model invocation (minimum 64) |
+| `MODEL_CONTEXT_ORDERING_VERSION` | `context-mmr-v1` | Versioned evidence-ordering identity folded into the privacy-safe context cache key |
+| `MODEL_CONTEXT_REDACTION_VERSION` | `permissioning-v1` | Versioned redaction identity folded into the privacy-safe context cache key |
+| *(baked-in, no env var)* single graph client | required | One process-owned operational engine/client; graph names are routed views, never independent transports. |
+| `KG_AUTH_TOKEN_REF` | — | Runtime secret reference resolving to the stdio process JWT; mutually exclusive with `KG_IDENTITY_OAUTH2`. |
+| `KG_IDENTITY_OAUTH2` | — | OAuth2 client-credentials block that mints a short-lived stdio process JWT; client secret must be a runtime secret reference. |
+| *(baked-in, no env var)* ACL default | deny | Nodes without an explicit permitting ACL and authorization-infrastructure failures are denied. |
+| *(baked-in, no env var)* connector capability fleet | 65 external packages plus the native transport bundle | Every `build_connector(...)` activation is **unconditionally** required to pass the live manifest gate. The signed native bundle covers ARD, database, filesystem, schema-neutral GraphQL, reader, REST, RSS, and web transports without operator configuration. Endpoint, auth, TLS, and source mappings remain runtime/secret-profile driven. Package discovery covers the complete external fleet. The gate requires a complete-manifest signature/release pin and exact connector-owned provider/tool-schema or native-code fingerprints, plus compile and ontology integrity. Missing providers, drift, invalid schemas, and gate exceptions fail closed. Live connector-owned bundles resolve first; Agent Utilities ships a pinned fallback for standalone wheels and GraphOS. |
+| `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`\* | `""` (empty) | Comma-separated allowlist of source keys (e.g. `"leanix,twenty"`) that MAY tombstone every previously-known node when a reconcile pass returns a genuinely empty live-id set. Empty by default: a transient fetch failure/skip (`fetch_ok=False`) never tombstones regardless of this list; an empty-but-successful fetch only tombstones for a source named here. Read in `knowledge_graph/core/source_sync._reconcile` (AU-P0-4) |
+| `KG_ENGINE_POOL_SIZE` | `8` | Bounded LRU warm tenant-client pool. `0` disables pooling and constructs clients per use (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | `false` | On pool eviction also unload the tenant's named graph from the engine to reclaim memory — **only safe when a durable mirror holds the data** (CONCEPT:AU-KG.sharding.elastic-over-kg-shard) |
 | `GATEWAY_METRICS` | `true` | Python-tier Prometheus middleware + `GET /metrics` on the gateway (CONCEPT:AU-OS.observability.no-op-without-metrics) |
-| `GATEWAY_RATE_LIMIT` | `0` (off) | Per-tenant token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:AU-OS.observability.no-op-without-metrics) |
+| `GATEWAY_RATE_LIMIT` | `0` (gateway off; remote REST uses 50 req/s) | Privacy-safe token-bucket rate limit, sustained req/s; buckets are per-process (CONCEPT:AU-OS.observability.no-op-without-metrics) |
 | `GATEWAY_RATE_BURST` | `0` (→ 2× rate) | Token-bucket burst capacity (CONCEPT:AU-OS.observability.no-op-without-metrics) |
 | `GATEWAY_WORKERS` | `1` | Pre-forked gateway worker processes on one shared listen socket; the flock host-lock elects ONE KG host among them (CONCEPT:AU-OS.observability.no-op-without-metrics) |
 | `ENGINE_BREAKER_THRESHOLD` | `5` | Consecutive engine connect/timeout failures before the client circuit opens (0 = off) (CONCEPT:AU-OS.observability.no-op-without-metrics) |
 | `ENGINE_BREAKER_COOLDOWN` | `15` | Seconds an open engine circuit waits before the half-open probe (CONCEPT:AU-OS.observability.no-op-without-metrics) |
-| `MCP_CHILD_MAX_CONCURRENCY` | `8` | Max in-flight tool calls per multiplexer child (0 = unlimited); per-server `max_concurrency` override in `mcp_config.json` (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
+| `MCP_CHILD_MAX_CONCURRENCY` | `8` | Max in-flight tool calls per multiplexer child (bounded 1–128; cannot be disabled); per-server `max_concurrency` override in `mcp_config.json` (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_QUEUE_TIMEOUT` | `30` | Seconds an excess call queues for a child slot before the typed `MCPChildBusyError`; per-server `queue_timeout` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_POOL_SIZE` | `1` | Session-pool size for remote (streamable-http/SSE) children — N round-robin connections for parallel calls; stdio stays single-pipe; per-server `pool_size` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_MAX_RESTARTS` | `5` | Auto-restarts a crashed child may consume inside the window before being parked `failed` (0 = no auto-restart); per-server `max_restarts` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_RESTART_WINDOW` | `300` | Sliding window (s) for the restart budget; older restarts are forgiven; per-server `restart_window` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_BREAKER_THRESHOLD` | `5` | Consecutive transport failures/timeouts before a child's circuit opens (typed `MCPChildCircuitOpenError`, 0 = off); per-server `breaker_threshold` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
 | `MCP_CHILD_BREAKER_COOLDOWN` | `15` | Seconds an open child circuit waits before the half-open probe; per-server `breaker_cooldown` override (CONCEPT:AU-ECO.mcp.profile-differences-from-client) |
-| `MCP_MULTIPLEXER_MODE` | `eager` | Tool-exposure strategy: `eager` spawns every child and exposes all tools at boot (historical); `dynamic` exposes only the `find_tools`/`load_tools`/`unload_tools`/`multiplexer_status` meta-tools + always-on children, mounting other tools on demand with a `tools/list_changed` notification (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
-| `MCP_DYNAMIC_ALWAYS_ON` | `["graph-os"]` | Child servers mounted at boot in `dynamic` mode (in addition to meta-tools); defaults to the KG server so `find_tools` can rank semantically (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
 | `MCP_DYNAMIC_TOP_K` | `8` | Default number of ranked candidates `find_tools` returns when `top_k` is unspecified (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) |
-| `MCP_TOOL_MODE` | `condensed` | Per-agent tool surface: `condensed` (action-routed tools, default), `verbose` (one 1:1 tool per API method), or `both`. Read fleet-wide via `tool_mode()`; verbose tools are tagged `verbose` for `--tools`/tag filtering. See [MCP Tool Modes](../guides/mcp-tool-modes.md) (CONCEPT:AU-ECO.mcp.tool-mode-standardization) |
+| `MCP_TOOL_MODE` | `intent` | Per-agent tool surface: `intent` (default intent verbs with granular action tools gated for `find_tools`/`load_tools`), `condensed` (action-routed tools), `verbose` (one 1:1 tool per API method), or `both`. Read fleet-wide via `tool_mode()`; verbose tools are tagged `verbose` for filtering. See [MCP Tool Modes](../guides/mcp-tool-modes.md) (CONCEPT:AU-ECO.mcp.tool-mode-standardization) |
 | `ACTION_POLICY_PATH` | shipped default | Operational ActionPolicy YAML; empty → conservative `deploy/action-policy.default.yml` (everything mutating = approval_required). KG `governance_rule` overrides win (CONCEPT:AU-OS.deployment.fleet-lifecycle-control) |
 | `FLEET_RECONCILER` | `false` | Opt-in leader-only desired-state fleet reconciler tick — diff registry vs observed, converge through the ActionPolicy gate + actuator seam (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
 | `FLEET_RECONCILER_INTERVAL` | `120` | Seconds between fleet-reconciler ticks (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
@@ -113,9 +208,13 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `FLEET_AUTOSCALER_INTERVAL` | `60` | Seconds between autoscaler ticks (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
 | `SCALING_PROMETHEUS_URL` | unset | Prometheus base URL for autoscaling signals (instant `/api/v1/query` GETs); unset → zero-infra in-process gauges; injected provider via `set_scaling_signal_provider()` wins (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |
 
-These genuinely vary per host and aren't derivable. **Action:** ensure each is a typed
-`AgentConfig` field; remove duplicate bare reads (`GRAPH_DB_URI` is read in 4 places,
-`AGENT_UTILITIES_CONFIG_DIR` in 5).
+\* Read via `config.setting(...)` at `core/source_sync.py` because the reconcile
+policy is evaluated at call time. Connector ACL and manifest enforcement have no
+runtime bypass flag.
+
+These genuinely vary per host and are typed `AgentConfig` fields. Graph transport
+material is resolved once from `GRAPH_DB_CONNECTION_PROFILE_REF`; consumers do not
+read separate connection fields.
 
 ### A.1 Engine resolution — ONE resolver, every entrypoint (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision)
 
@@ -128,8 +227,8 @@ process reaches the ONE engine authority:
 
     remote  →  share-running-local  →  autostart-shared-supervised
 
-- **remote** — `engine_mode=remote` (or any configured `GRAPH_SERVICE_ENDPOINTS` /
-  `ENGINE_ENDPOINT` / multi-shard topology): connect to it, **never** autostart a
+- **external/connect-only** — any configured `GRAPH_SERVICE_ENDPOINTS` topology:
+  connect to it, **never** autostart a
   local stand-in (fail-loud if unreachable). This is the "I deployed the engine in
   Docker on another host" case. A remote/cluster engine is inherently persistent.
 - **shared** — the local endpoint is already serving (a cheap connect probe
@@ -139,8 +238,8 @@ process reaches the ONE engine authority:
   supervised** engine under the per-socket spawn guard (first-one-wins flock, so
   concurrent resolves never start a second engine on the same `--persist-dir`).
   Detached = it survives the spawner so OTHER entrypoints share it. The autostart
-  default (`engine_mode=auto`/`embedded`/`shared`) is ON; `EPISTEMIC_GRAPH_AUTOSTART=0`
-  forces a connect-only process.
+  lifecycle is selected by `ENGINE_LIFECYCLE`. Configured topology is always
+  connect-only.
 
 **Two autostart lifecycles (the `ENGINE_LIFECYCLE` choice):**
 
@@ -155,90 +254,54 @@ process reaches the ONE engine authority:
   when idle. Best when you want a warm engine always ready (no cold-start on the
   next request).
 
-All four reads are typed `AgentConfig` fields (`engine_mode`, `engine_endpoint`,
-`engine_lifecycle`, `engine_idle_shutdown_secs`) — set them in `config.json`, no
-env-sprawl. If the installed engine binary doesn't advertise `--idle-shutdown-secs`
-yet (an older/leaner wheel), the flag is omitted gracefully (the engine then runs
-persistently); `agent-utilities-doctor --preflight` flags such a lean binary.
+The topology and lifecycle reads are typed `AgentConfig` fields
+(`graph_service_endpoints`, `engine_lifecycle`, `engine_idle_shutdown_secs`) —
+set them in `config.json`, no env-sprawl. The packaged current engine contract
+includes `--idle-shutdown-secs`; an artifact missing it fails preflight.
 
-## B. Daemon on/off toggles, all default ON — REMOVED (Phase 3) ✓
+## B. Maintenance scheduler control
 
-**Done.** The six always-on toggles below were deleted and collapsed behind a single
-`KG_DEV_MODE` switch on `AgentConfig`, read through one `engine_tasks._kg_dev_mode()` helper
-that gates the maintenance scheduler + embedding-backfill startup. Production keeps every daemon
-on; `KG_DEV_MODE=1` silences the lot. Removed: `KG_EMBED_BACKFILL`, `KG_ENRICH_DAEMON`,
-`KG_FILE_WATCH`, `KG_HYGIENE_DAEMON`, `KG_TASK_REAPER_DAEMON`, `KG_RECONCILE_DURABLE`. Also fixed
-the `KG_EMBED_BACKFILL_BATCH` dual-default bug → two named constants
-(`_EMBED_BACKFILL_BUDGET=256`, `_EMBED_BACKFILL_FETCH=512`). Sprawl baseline 95 → 88. (The
-`KG_CONCEPT_CODE_LINK` toggle lives in another module and is still pending.)
+`KG_DEV_MODE` is the single typed `AgentConfig` control for the maintenance
+scheduler and embedding-backfill startup. Production runs all governed maintenance
+jobs. Development mode pauses those background jobs as one unit. Embedding backfill
+uses the named internal budget and fetch constants rather than deployment flags.
 
-Original inventory (for reference):
-
-| Flag | Default | Gated thread/job (`engine_tasks.py`) |
-|---|---|---|
-| `KG_EMBED_BACKFILL` | `1` | vector-embedding backfill drain (L402) |
-| `KG_ENRICH_DAEMON` | `1` | semantic enrichment tick (L618) |
-| `KG_FILE_WATCH` | `1` | SDD/skills/config file-watch (L635) |
-| `KG_HYGIENE_DAEMON` | `1` | memory decay/dedup (L645) |
-| `KG_TASK_REAPER_DAEMON` | `1` | zombie-task recovery (L657) |
-| `KG_RECONCILE_DURABLE` | `1` | engine→mirror autoheal (L609) |
-| `KG_CONCEPT_CODE_LINK` | `1` | concept↔code bridge |
-| `GRAPH_DIRECT_DISPATCH` | `true` | sync dispatch |
-| `KG_RETRIEVAL_QUALITY_GATE` | `true` | relevance filter |
-
-Nobody runs these off in production. **Action:** delete the env gates; if a dev escape
-hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
-
-### B.1 Safety overrides — KEEP (typed on `AgentConfig`)
+### B.1 Safety controls
 
 | Flag | Default | What it gates |
 |---|---|---|
-| `KG_ALLOW_FULL_SCAN` | `false` | Permit an unscoped Cypher query to enumerate the whole graph (AU-ORCH.session.session-anchored-collections-native). Off by default so a buggy unscoped query can never silently full-scan; deliberate opt-in only. Typed `config.kg_allow_full_scan`, read in `backends/epistemic_graph_backend.py`. |
+| `KG_EPISTEMIC_LIGHT_DEFAULT` | `true` | Attach the light epistemic envelope (confidence/source_refs/evidence_refs/policy_labels/provenance) onto every plain read-path row by default (CONCEPT:AU-KB-CURRENCY) — additive, never changes a caller's `list[dict]` shape. Opt-out for a deployment that must skip the extra batched `explain_provenance_by_ids` round trip on every read; a row already showing a contested/low-confidence signal is still resolved regardless (auto-on override). Typed `config.epistemic_light_default`, read in `knowledge_graph/core/epistemic_row.py`. |
 
-## C. Ingest-throughput knobs — REMOVED ✓
+## C. Ingest throughput
 
-**Done.** All three deleted:
-- `KG_INGEST_FEATURES` / `KG_INGEST_PROFILE` → per-repo call-graph community detection is now
-  **always on**. The hang risk that motivated the opt-out is fixed at the source: the engine's
-  `community_detection` is deterministically bounded (15s wall-clock + iteration cap,
-  epistemic-graph `algorithms.rs`), and `make_community_fn` loads its scratch tenant in **one
-  `batch_update` round-trip** instead of per-element RPCs.
-  *Correction (verified against code):* one `KG_INGEST_PROFILE` read survives — pipeline
-  phase selection in `knowledge_graph/pipeline/__init__.py` (`select_phases`; values
-  `structural` | `full`, unset = full). It no longer gates community detection. It is
-  tracked in the bare-read baseline (see section H).
-- `KG_BULK_INGEST` → the maintenance scheduler **auto-detects** a bulk ingest from the durable
-  submission-queue depth (`_submission_queue.get_queue_size() > _BULK_QUEUE_THRESHOLD`) and defers
-  its whole-graph passes per-tick, instead of a manual startup flag.
+Per-repository call-graph community detection is always active and is bounded by
+the engine's wall-clock and iteration limits. `KG_INGEST_PROFILE` selects the
+pipeline phases (`structural` or `full`, with `full` as the default); it does not
+gate community detection. The maintenance scheduler detects bulk ingestion from
+the durable submission-queue depth and defers whole-graph passes automatically.
 
-## D. Performance tunables — keep as constants / deployment config (auto-sizing deferred)
+## D. Performance controls
 
-The one real defect here — the `KG_EMBED_BACKFILL_BATCH` dual-default — is **fixed** (Phase 3:
-two named constants). The rest are left as-is by design: the worker pool **already auto-sizes**
-(`engine_tasks.py` CPU 36% + mem cap), and the remaining batch sizes / intervals have correct
-universal defaults. Per the *Configuration discipline* rule, a tunable with a good default should
-be a constant, not a knob — but mechanically converting every one to a CPU-derived auto-sizer is
-speculative churn with behaviour-change risk and little payoff, so it is **not** pursued. `GRAPH_TIMEOUT`'s
-20-minute default is noted (it made the old community-detection hang look infinite); now moot since
-the engine bounds the call itself.
+The worker pool auto-sizes from CPU and memory budgets. Stable batch sizes and
+maintenance cadences are named constants; only deployment-dependent behavior is
+exposed through `AgentConfig`. The engine independently bounds analytical calls.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `KG_LLM_CONCURRENCY` | 4 | typed on `AgentConfig` (`kg_llm_concurrency`); the **total** parallel capacity of the local inference endpoint — the one knob for local-model parallelism. ORCH-1.59 always reserves 1 slot for the interactive path (messaging responder + graph-os-spawned agents, which share the default model); background KG work (enrichment/analysis/embeddings) is bounded to `background_llm_concurrency()` = capacity − 1. Subsumes the former `KG_ENRICH_CONCURRENCY`. |
+| `KG_LLM_CONCURRENCY` | 4 | Typed on `AgentConfig` (`kg_llm_concurrency`); the **total** parallel capacity of the local inference endpoint. One slot is reserved for the interactive path; background KG work is bounded to `background_llm_concurrency()` = capacity − 1. |
 | `KG_PARSE_BATCH` | 128 | constant |
 | `KG_ENRICH_BATCH` / `KG_ENRICH_MAX_BATCHES` | 16 / 8 | constants |
-| `KG_EMBED_BACKFILL_BATCH` | **256 *and* 512 (BUG)** | read twice with different defaults (L1040, L1155) — unify |
+| Embedding-backfill budget/fetch | 256 / 512 | Named internal constants. |
 | `KG_BACKGROUND_MAX_CONCURRENT` | 2 | auto |
 | `GRAPH_POOL_MIN/MAX` | 2 / 10 | auto from cpu |
 | `KG_CHAT_CONCURRENCY` | 8 | auto |
 | `KG_*_INTERVAL` (enrich/file_watch/embed/evolution/golden) | 20–3600 | constants unless deployment-varying |
-| `GRAPH_TIMEOUT` | 1200000 ms | 20-min RPC timeout — far too long; the root of "hangs look infinite" |
+| `GRAPH_TIMEOUT` | 1200000 ms | RPC timeout; engine-side analytical bounds still apply. |
 
 ## E. Experiment / feature gates
 
-**`KG_GOLDEN_*` (10 flags) — collapsed onto `AgentConfig` ✓.** Every `KG_GOLDEN_*` /
-`KG_BREADTH_*` read was moved off bare `os.environ` onto typed `AgentConfig` fields —
-opt-in, all off by default, single typed source of truth.
+**`KG_GOLDEN_*` controls.** All `KG_GOLDEN_*` and `KG_BREADTH_*`
+settings are typed `AgentConfig` fields. They are opt-in and off by default.
 
 | Flag | Default | What it gates |
 |---|---|---|
@@ -256,7 +319,7 @@ opt-in, all off by default, single typed source of truth.
 
 | Family | Count | Notes |
 |---|---|---|
-| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 5 | remaining experiment gates — graduate (always-on) or delete |
+| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 4 | remaining experiment gates — graduate (always-on) or delete |
 
 **`KG_PROCESS_WRITEBACK` — outbound process-intelligence writeback (`CONCEPT:EG-KG.storage.nonblocking-checkpoint`,
 default off).** Opt-in because it performs *outbound* mutating calls into external
@@ -275,52 +338,80 @@ creates fresh git worktrees under when publishing a promoted proposal as a revie
 local branch. Empty (default) resolves to `data_dir()/evolution_worktrees` — publication
 never writes into a canonical checkout's working tree.
 
-**`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AU-AHE.harness.failure-evolution`), typed on `AgentConfig`,
-opt-in, all off by default.** The boolean gates are parsed via `to_boolean`
+**`KG_FAILURE_*` — Failure-Driven Evolution (`CONCEPT:AU-AHE.harness.failure-evolution`), typed on `AgentConfig`.**
+Failure evolution auto-enables when both Langfuse credentials are runtime-injected;
+an explicit `false` remains an opt-out. Dataset regression stays separately opt-in.
+The boolean gates are parsed via `to_boolean`
 (`"True"`/`"False"`, consistent with the fleet's other toggles). See
 [`failure_driven_evolution.md`](./failure_driven_evolution.md).
 
 | Flag | Default | Notes |
 |---|---|---|
-| `KG_FAILURE_EVOLUTION` | `False` | enable the daemon `failure_ingest` tick (pull Langfuse failures → remediation) |
+| `KG_FAILURE_EVOLUTION` | `auto` | enabled with both runtime Langfuse credentials unless explicitly disabled; runs the propose-only `failure_ingest` tick (pull failures → remediation topics) |
 | `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | daemon tick interval (s) |
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | telemetry look-back window (s) |
 | `KG_FAILURE_REGRESSION_DATASET` | `False` | enable the dataset-based regression path |
-| `KG_DSPY_OPTIMIZATION` | `False` | enable the daemon `dspy_optimization` tick — propose-only DSPy optimization sweep over the self-supervised targets (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only) |
-| `KG_DSPY_OPTIMIZATION_INTERVAL` | `3600` | DSPy optimization sweep interval (s) |
+| `KG_OPTIMIZATION_ENABLED` | `True` | Enable the propose-only native program-optimization sweep over self-supervised targets. |
+| `KG_OPTIMIZATION_INTERVAL` | `10800` | Optimization sweep interval (s) |
 
 **`KG_FUSEKI_*` — Ontology distribution to Apache Jena Fuseki (`CONCEPT:AU-KG.ontology.authoritative-tbox`), typed on
-`AgentConfig`, opt-in.** The `fuseki_publish` maintenance tick pushes the bundled ontology
-modules (the authoritative TBox) to an optional enterprise Fuseki triplestore for SPARQL
-federation. Off by default — Fuseki is optional infrastructure.
+`AgentConfig`, opt-in publish / always-resolvable endpoint.** The `fuseki_publish`
+maintenance tick pushes the bundled ontology modules (the authoritative TBox) to an
+optional enterprise Fuseki triplestore for SPARQL federation. The **publish tick** stays
+off by default — writing to Fuseki is opt-in even when an endpoint is reachable.
+
+**`KG_FUSEKI_ENDPOINT` is THE one canonical Fuseki endpoint field** — every Fuseki-consuming
+code path resolves through it: the `fuseki_publish` tick
+(`engine_tasks._tick_fuseki_publish`), `publish_ontology_to_fuseki`'s endpoint fallback
+(`ontology_publisher.py`), the `fuseki`-kind SPARQL smoke query
+(`database_environment.sparql_query`), and the `jena_fuseki` query backend
+(`backends/sparql/jena_fuseki_backend.py`, instantiated explicitly as an external query adapter).
+The public contract does not embed a deployment endpoint. Operators discover the
+service through their runtime registry and set `KG_FUSEKI_ENDPOINT` explicitly.
+That value alone does **not** turn on the publish tick: `KG_FUSEKI_PUBLISH` only
+auto-engages when `KG_FUSEKI_ENDPOINT` is explicitly set (env/config.json), per
+`_auto_enable_from_dependencies` — see the "Configure-by-default" note in
+`docs/guides/enterprise-enablement-runbook.md`. A non-cluster/zero-infra deployment with no
+real Fuseki simply never selects the `jena_fuseki` backend and never flips the publish tick.
 
 | Flag | Default | Notes |
 |---|---|---|
-| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick |
-| `KG_FUSEKI_ENDPOINT` | `None` | Fuseki URL; `None` defers to the publisher (`FUSEKI_ENDPOINT`, then localhost) |
+| `KG_FUSEKI_PUBLISH` | `False` | enable the daemon `fuseki_publish` tick — engages automatically once `KG_FUSEKI_ENDPOINT` is explicitly set |
+| `KG_FUSEKI_ENDPOINT` | runtime-configured | Fuseki URL for every reader (publish tick, SPARQL query backend, smoke query) |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `3600` | daemon tick interval (s) |
 
 **`KG_WORKFLOW_SHAPE_GATE` — execution-time workflow ontology gate (`CONCEPT:AU-ORCH.execution.ontology-validation-execution-path`),
 typed on `AgentConfig`, default ON.** `execute_workflow` AND its background twin
-`dispatch_workflow` (REST twin `/api/graph/orchestrate/dispatch-workflow`) SHACL-validate
+`graph_workflows action=dispatch` (REST twin `/api/graph/workflows`) SHACL-validates
 the stored `WorkflowDefinition` (+ steps) against the governance shapes before dispatch and
 refuse malformed definitions with a structured violation report; cheap and LLM-free. The
 companion permission gate (ontology permissioning ACL on the workflow node) is governed by
-the existing `KG_BRAIN_ENFORCE` flag (OS-5.14 fail-closed semantics), not a new one.
+the mandatory OS-5.14 fail-closed graph boundary, not a new flag.
 
 | Flag | Default | Notes |
 |---|---|---|
 | `KG_WORKFLOW_SHAPE_GATE` | `True` | SHACL-validate stored workflows before execution |
 
-**Langfuse (`CONCEPT:AU-AHE.harness.failure-evolution` / `AHE-3.0`) — official SDK variable names only.** The host
-variable is **`LANGFUSE_HOST`** (the non-standard `LANGFUSE_BASE_URL` fallback was removed —
-greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key` /
-`langfuse_secret_key`.
+**Langfuse (`CONCEPT:AU-AHE.harness.failure-evolution` / `AHE-3.0`) — current configuration only.** The canonical host
+variable is **`LANGFUSE_HOST`**. The host and neutral TLS profile are typed settings; credentials,
+private trust, client identity, and proxy material are resolved from the corresponding
+`*_REF` fields only at the runtime boundary.
 
 | Flag | Default | Notes |
 |---|---|---|
 | `LANGFUSE_HOST` | `https://cloud.langfuse.com` | Langfuse base URL (read + OTEL write paths) |
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `None` | project API keypair |
+| `LANGFUSE_CAPTURE_CONTENT` | `False` | Keep local and external traces metadata-only. Sanitized prompt capture is an explicit local opt-in and is rejected by the production profile. |
+| `LANGFUSE_KG_AUTO_INGEST` | `False` | Opt in to privacy-guarded graph persistence; requires `LANGFUSE_PERSISTENCE_HMAC_KEY_REF`. GraphOS keeps the child read-only and performs the write in the authenticated parent under an explicit `kg:write` session. |
+| `PERSISTENCE_PRIVACY_DENY_TERMS_REF` | unset | Secret reference resolving to a JSON list (or comma-separated list) of identity terms that must be removed before Knowledge Graph, log, or trace persistence. The terms remain runtime-only; telemetry records counts/categories, never the terms. |
+| `PERSISTENCE_IDENTITY_HMAC_KEY_REF` | unset | Secret reference used to HMAC opaque durable identity references. Required by the production profile. |
+| `MEMENTO_RAW_RETENTION_ENABLED` | `False` | Explicit opt-in gate for encrypted raw Memento recovery. There is no plaintext mode. |
+| `MEMENTO_RAW_RETENTION_POLICY` | empty | Must be exactly `approved-encrypted-v1`; unknown or missing versions fail closed. |
+| `MEMENTO_RAW_ENCRYPTION_KEY_REF` | unset | Secrets-backend reference for AES-GCM raw-block retention. The reference and key material are never persisted with a Memento. |
+| `LANGFUSE_PUBLIC_KEY_REF` / `LANGFUSE_SECRET_KEY_REF` | `None` | Runtime secret references for the project API keypair |
+| `LANGFUSE_PERSISTENCE_HMAC_KEY_REF` | `None` | Dedicated runtime secret reference used to HMAC Langfuse identities before Knowledge Graph persistence; it never falls back to the project API secret. |
+| `LANGFUSE_TLS_PROFILE` / `LANGFUSE_TLS_PROFILE_REF` | `None` | Named verified trust profile or a runtime reference to one |
+| `LANGFUSE_CA_BUNDLE_REF` / `LANGFUSE_CLIENT_CERT_REF` / `LANGFUSE_CLIENT_KEY_REF` / `LANGFUSE_CLIENT_KEY_PASSWORD_REF` | `None` | Runtime-only private trust and optional mTLS material |
+| `LANGFUSE_PROXY_URL_REF` | `None` | Runtime reference for an optional outbound proxy URL |
 
 ## F. Testing — KEEP
 
@@ -333,25 +424,23 @@ greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key
 
 Sections A–F are the original `KG_*`/`GRAPH_*` sprawl audit. `AgentConfig`
 (`core/config.py`, pydantic-settings) additionally carries the platform's general
-configuration surface. **Totals, extracted programmatically from
-`AgentConfig.model_fields`: 244 fields, 242 distinct environment variables**
-(`SECRETS_VAULT_URL` and `SECRETS_VAULT_MOUNT` each bind two fields — `vault_url`/
-`secrets_vault_url` and `vault_mount`/`secrets_vault_mount` — a legacy duplication
-kept for compatibility).
+configuration surface. The generated
+[runtime configuration reference](../reference/runtime-configuration.md) derives the
+exhaustive inventory directly from `AgentConfig.model_fields`; the tables below group
+the most operationally important settings without duplicating a fixed field count.
 
-Environment-name resolution: every field declares an explicit `alias` which IS its
-environment variable name (no `env_prefix`; matching is case-insensitive). Sources in
-precedence order: constructor args → environment → `.env` → nested secrets file
-(`AGENT_SECRETS_FILE`) → Docker secrets (`/run/secrets`). All fields below are
-therefore environment-settable; none are internal-only.
+Every runtime alias is parsed through AgentConfig. Precedence is explicit constructor
+input → runtime deployment override → XDG AgentConfig → configured runtime secret
+provider. Resolved secret documents and container-mounted material are process state;
+they are never written back to AgentConfig, traces, reports, or source control.
 
 ### G.1 Model providers & routing
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `CHAT_MODELS` | `[]` | JSON list of chat-model configs (id/provider/base_url/api_key/intelligence_level); drives `default_chat_model` / `lite_chat_model` / `super_chat_model` |
-| `EMBEDDING_MODELS` | `[]` | JSON list of embedding-model configs (first entry = default) |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | `None` | OpenAI fallback credentials for ad-hoc model creation |
+| `CHAT_MODELS` | `[]` | Strict JSON list of chat-model configs; model credentials and headers use `api_key_ref` / `headers_ref` or referenced OAuth2. Drives `default_chat_model` / `lite_chat_model` / `super_chat_model`. |
+| `EMBEDDING_MODELS` | `[]` | Strict embedding-model list with the same reference-only authentication contract (first entry = default) |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | `None` | Process-only OpenAI fallback credential and endpoint for ad-hoc model creation; a non-empty raw key is rejected in durable XDG |
 | `ANTHROPIC_API_KEY` | `None` | Anthropic fallback API key |
 | `GEMINI_API_KEY` | `None` | Google Gemini fallback API key |
 | `GROQ_API_KEY` | `None` | Groq fallback API key |
@@ -371,14 +460,14 @@ therefore environment-settable; none are internal-only.
 | `MAX_TOKENS` | `16384` | Default completion token cap |
 | `TEMPERATURE` | `0.7` | Sampling temperature |
 | `TOP_P` | `1.0` | Nucleus sampling |
-| `TIMEOUT` | `32400` | LLM request timeout (s) |
-| `TOOL_TIMEOUT` | `32400` | Tool-call timeout (s) |
+| `TIMEOUT` | `3600` | LLM request timeout (s) |
+| `TOOL_TIMEOUT` | `3600` | Tool-call timeout (s) |
 | `PARALLEL_TOOL_CALLS` | `true` | Allow parallel tool calls |
 | `SEED` | `None` | Deterministic sampling seed |
 | `PRESENCE_PENALTY` / `FREQUENCY_PENALTY` | `0.0` | Repetition penalties |
 | `LOGIT_BIAS` | `None` | Token logit-bias map (JSON) |
 | `STOP_SEQUENCES` | `None` | Stop sequences (JSON list) |
-| `EXTRA_HEADERS` / `EXTRA_BODY` | `None` | Extra provider request headers/body (JSON) |
+| `EXTRA_HEADERS` / `EXTRA_BODY` | `None` | Process-only ad-hoc request controls; non-empty literal header maps are rejected in durable XDG. Per-model durable declarations use `headers_ref`. |
 
 ### G.3 Agent identity & HTTP server
 
@@ -387,24 +476,23 @@ therefore environment-settable; none are internal-only.
 | `DEFAULT_AGENT_NAME` | package name | Agent display name |
 | `AGENT_DESCRIPTION` | package description | Agent description |
 | `AGENT_SYSTEM_PROMPT` | `None` | System prompt override |
-| `WORKSPACE_PATH` | `None` | Workspace root override |
+| `WORKSPACE_PATH` | `None` | Runtime-only workspace root override; never persist the resolved machine path in AgentConfig, traces, or reports |
 | `HOST` | `0.0.0.0` | Gateway bind address |
 | `PORT` | `9000` | Gateway port |
 | `DEBUG` | `false` | Debug mode |
+| `AIRGAP_MODE` | `false` | Sovereign/air-gap gate — refuse outbound HTTP to non-local hosts (`core/http_client.py`, `core/model_factory.py`); see `docs/guides/sovereign-self-hosted.md` §4 |
 | `ENABLE_WEB_UI` | `false` | Serve the web UI |
 | `ENABLE_TERMINAL_UI` | `false` | Terminal UI mode (disables `GATEWAY_WORKERS>1`) |
-| `ENABLE_WEB_LOGS` | `true` | Web log streaming |
+| `ENABLE_WEB_LOGS` | `false` | Explicit local opt-in for file-backed web log streaming; keep disabled where metadata-only retention is required |
 | `ENABLE_ACP` | `false` | Agent Client Protocol adapter |
 | `ACP_PORT` | `8001` | ACP port |
 | `ACP_SESSION_ROOT` | `.acp-sessions` | ACP session storage dir |
-| `DEFAULT_TERMINAL_AGENT` | `agent-terminal-ui` | Terminal agent binary |
 | `MCP_URL` | `None` | Remote MCP server URL the agent attaches to |
 | `MCP_CONFIG` | `None` | Path to `mcp_config.json` |
-| `AGENT_API_KEY` | `None` | Static API key for gateway auth |
-| `ENABLE_API_AUTH` | `false` | Require the API key |
 | `MAX_UPLOAD_SIZE` | `10485760` | Upload cap (bytes) |
-| `ALLOWED_ORIGINS` | `None` (= `*`) | CORS origins, comma-separated |
-| `ALLOWED_HOSTS` | `None` | TrustedHostMiddleware hosts, comma-separated |
+| `ALLOWED_ORIGINS` | `None` (CORS disabled) | Exact CORS origins, comma-separated |
+| `CORS_ALLOW_CREDENTIALS` | `false` | Permit credentials only with exact origins |
+| `ALLOWED_HOSTS` | loopback authorities | TrustedHostMiddleware hosts; explicit for remote binds |
 
 ### G.4 Identity, JWT & delegation
 
@@ -412,23 +500,28 @@ therefore environment-settable; none are internal-only.
 
 | Flag | Default | What it sets |
 |---|---|---|
+| `AUTH_JWT_JWKS_URI` | `None` | HTTPS JSON Web Key Set endpoint |
 | `AUTH_JWT_ISSUER` | `None` | Expected JWT issuer claim |
 | `AUTH_JWT_AUDIENCE` | `None` | Expected JWT audience claim |
+| `KG_POLICY_VERSION` | `None` | Required immutable GraphSession policy revision |
 | `OIDC_CONFIG_URL` | `None` | OIDC discovery URL (any compliant IdP) |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | `None` | OAuth 2.0 client credentials |
+| `OIDC_CLIENT_ID` | `None` | Runtime OAuth 2.0 client identifier |
+| `OIDC_CLIENT_SECRET_REF` | `None` | Runtime secret reference for the OAuth 2.0 client secret |
+| `OIDC_TLS_PROFILE` / `OIDC_TLS_PROFILE_REF` | `None` | Verified private trust and optional mTLS for discovery, JWKS, and token calls |
+| `OIDC_HTTP_ALLOWED_PRIVATE_HOSTS` | `[]` | Exact private identity-provider hostnames allowed by DNS-pinned egress |
+| `MCP_BASIC_AUTH_PASSWORD_REF` | `None` | Runtime secret reference for outbound MCP Basic authentication |
 | `ENABLE_DELEGATION` | `false` | RFC 8693 token exchange for downstream APIs (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `AUDIENCE` | `None` | Target audience for delegated tokens |
 | `DELEGATED_SCOPES` | `api` | Space-separated delegation scopes |
-| `FLEET_EVENTS_TOKEN` | `None` | Shared secret for `POST /api/fleet/events` webhook ingress (`X-Fleet-Events-Token` header); unset = no token required (CONCEPT:AU-OS.config.fleet-event-ingress) |
+| `FLEET_EVENTS_TOKEN_REF` | `None` | Secret-provider reference for `POST /api/fleet/events` webhook authentication (CONCEPT:AU-OS.config.fleet-event-ingress) |
 
 ### G.5 Secrets backends
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `SECRETS_BACKEND` | `inmemory` | `inmemory` \| `sqlite` \| `vault` |
-| `SECRETS_SQLITE_PATH` | `None` | SQLite secrets DB path |
-| `SECRETS_VAULT_URL` | `None` | HashiCorp Vault / OpenBao URL (binds both `vault_url` and `secrets_vault_url`) |
-| `SECRETS_VAULT_MOUNT` | `secret` | KV v2 mount (binds both `vault_mount` and `secrets_vault_mount`) |
+| `SECRETS_BACKEND` | `engine` | `engine` \| `vault` |
+| `SECRETS_VAULT_URL` | `None` | HashiCorp Vault / OpenBao URL (`vault_url`) |
+| `SECRETS_VAULT_MOUNT` | `secret` | KV v2 mount (`vault_mount`) |
 | `VAULT_AUTH_METHOD` | `auto` | `oidc` \| `approle` \| `token` \| `kubernetes` \| `auto` |
 | `VAULT_AUTH_MOUNT` | `jwt` | Auth-method mount path |
 | `VAULT_ROLE` | `None` | Role for OIDC/JWT or Kubernetes login |
@@ -439,13 +532,9 @@ therefore environment-settable; none are internal-only.
 | Flag | Default | What it sets |
 |---|---|---|
 | `GRAPH_PERSISTENCE_TYPE` | `file` | Engine durable-persistence mode |
-| `GRAPH_BACKEND_L2` | — | **Removed.** Replaced by `GRAPH_MIRROR_TARGETS` (the fan-out mirror set; LadybugDB or PostgreSQL named in `KG_CONNECTIONS`) |
 | `GRAPH_COMPUTE_BACKEND` | `rust` | Compute tier selection |
-| `GRAPH_SERVICE_SOCKET` | `None` (XDG runtime dir) | Engine UDS path; default `$XDG_RUNTIME_DIR/epistemic-graph.sock` |
-| `GRAPH_SERVICE_TCP_ADDR` | `None` | Engine TCP address (e.g. `0.0.0.0:9100`); `GRAPH_SERVICE_ENDPOINTS` overrides both |
-| `GRAPH_SERVICE_CHECKPOINT_SECS` | `300` | Engine auto-checkpoint interval (0 = off) |
+| `GRAPH_SERVICE_ENDPOINTS` | `None` | Ordered connect-only coordinator contacts. When absent, the packaged engine uses its platform-default local transport. |
 | `GRAPH_SERVICE_PERSIST_ON_SHUTDOWN` | `true` | Serialize all graphs on engine shutdown |
-| `GRAPH_DIRECT_EXECUTION` | `true` | AG-UI/ACP adapters bypass the LLM tool-call hop and invoke graph execution directly |
 | `GRAPH_ROUTER_TIMEOUT` / `GRAPH_VERIFIER_TIMEOUT` | `300` | Router/verifier timeouts (s) |
 | `ENABLE_LLM_VALIDATION` | `false` | LLM validation pass |
 | `ENABLE_KG_EMBEDDINGS` | `true` | KG embedding generation |
@@ -462,8 +551,7 @@ therefore environment-settable; none are internal-only.
 | `ENABLE_SDD_WATCHER` | `true` | Plan/task watcher thread in the KG MCP server |
 | `KG_ANOMALY_CONSUMER` | `true` | Drain unconsumed PerformanceAnomaly nodes into failure_gap topics; LLM-free, bounded, propose-only (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer) |
 | `SPARQL_ENDPOINTS` | `["https://query.wikidata.org/sparql"]` | External SPARQL endpoints to federate (CONCEPT:AU-KG.query.vendor-agnostic-traversal) |
-| `JENA_FUSEKI_URL` | `None` | Local Jena Fuseki URL (distinct from the `KG_FUSEKI_*` publish tick in section E) |
-| `KAFKA_BOOTSTRAP_SERVERS` | `None` | Kafka brokers (task-queue/event transport; one of the three scale knobs in `docs/scaling/capacity_model.md`) |
+| `KAFKA_BOOTSTRAP_SERVERS` | runtime-configured | Broker list discovered from deployment configuration. Task-queue/event transport; one of the scale knobs in `docs/scaling/capacity_model.md`. Select Kafka with `TASK_QUEUE_BACKEND=kafka` and/or `AGENT_BUS_LOG_BACKEND=kafka`; explicit transports fail loudly when unreachable. |
 | `KAFKA_TOPIC` | `None` | Default Kafka topic for messaging/event ingestion |
 | `NATS_URL` | `None` | NATS broker URL |
 
@@ -474,26 +562,67 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `ENABLE_OTEL` | `false` | OpenTelemetry tracing |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `None` | OTLP collector endpoint |
-| `OTEL_EXPORTER_OTLP_HEADERS` | `None` | OTLP headers |
-| `OTEL_EXPORTER_OTLP_PUBLIC_KEY` / `OTEL_EXPORTER_OTLP_SECRET_KEY` | `None` | OTLP keypair (Langfuse-style basic auth) |
+| `ENABLE_OTEL` | `false` in development | OpenTelemetry tracing. When enabled, GraphOS activates the metadata-only exporter at startup. The production profile guard requires `true` plus a resolvable OTLP endpoint. |
+| `TRACE_EXPORT_ENABLED` | `false` | Enable trace export. Production presets set this `true`; endpoint and credentials remain runtime-injected. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `None` | OTLP collector endpoint. When omitted, a complete canonical Langfuse key-reference pair derives the configured Langfuse OTLP endpoint. |
+| `OTEL_EXPORTER_OTLP_HEADERS_REF` | `None` | Secret reference resolving to OTLP headers |
+| `OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF` / `OTEL_EXPORTER_OTLP_SECRET_KEY_REF` | `None` | Reference pair for OTLP basic auth |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP protocol |
+| `OTEL_TLS_PROFILE` / `OTEL_TLS_PROFILE_REF` | `None` | Purpose-specific verified OTLP transport profile. A Langfuse-origin endpoint reuses `LANGFUSE_TLS_PROFILE` when this is unset. |
 | `LANGFUSE_DATASET_CAPTURE_THRESHOLD` | `0.0` | Score threshold for dataset capture (AU-AHE.harness.failure-evolution regression datasets) |
 | `LANGFUSE_LATENCY_BASELINE_SECONDS` | `60` | Latency baseline for anomaly scoring |
 | `LANGFUSE_TOKEN_BASELINE` | `20000` | Token-usage baseline for anomaly scoring |
 | `LANGFUSE_VERIFIER_FALLBACK_LIMIT` | `1` | Verifier fallback attempts |
+| `LANGFUSE_MCP_ENABLED` | `auto` | Enabled when both runtime Langfuse credentials are available; explicit `false` opts out. |
+| `LANGFUSE_CAPTURE_CONTENT` | `false` | Metadata-only trace posture. Production rejects content capture. |
+
+When the collector shares the configured Langfuse origin, GraphOS derives the standard
+OTLP endpoint and reuses the Langfuse credential references and TLS profile. A different
+collector must configure its own OTLP auth references and TLS profile; credentials are never
+forwarded across origins.
 
 ### G.8 A2A (agent-to-agent)
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `A2A_BROKER` | `in-memory` | A2A broker backend |
-| `A2A_BROKER_URL` | `None` | Broker URL when not in-memory |
-| `A2A_STORAGE` | `in-memory` | A2A storage backend |
-| `A2A_STORAGE_URL` | `None` | Storage URL when not in-memory |
+| `A2A_BROKER` | `epistemic_graph` | Sole current durable FastA2A operation-delivery plane |
+| `A2A_STORAGE` | `epistemic_graph` | Sole current CAS-fenced FastA2A task/context state plane |
+| `A2A_BROKER_POLL_INTERVAL_MS` | `100` | Bounded broker poll interval |
+| `A2A_BROKER_LEASE_MS` | `300000` | Message-processing lease duration |
+| `A2A_BROKER_PREFETCH` | `1` | Maximum leased messages per consume operation |
+| `A2A_BROKER_MESSAGE_TTL_MS` | `86400000` | Message expiry bound |
+| `A2A_BROKER_MAX_DELIVERY_COUNT` | `5` | Delivery-attempt bound before terminal rejection |
+| `A2A_MAX_PAYLOAD_BYTES` | `262144` | Serialized operation payload bound |
+| `A2A_MAX_HISTORY` | `100` | Task history-entry bound |
+| `A2A_MAX_ARTIFACTS` | `50` | Artifact-count bound per task |
+| `A2A_MAX_CONTEXT_MESSAGES` | `100` | Context-message bound |
+| `A2A_STORAGE_UPDATE_RETRIES` | `4` | CAS conflict retry bound |
+| `A2A_DISPATCH_RECONCILE_INTERVAL_MS` | `1000` | Interval between bounded recovery scans for persisted, undispatched operations |
+| `A2A_DISPATCH_RECONCILE_LIMIT` | `64` | Maximum task records inspected by one recovery scan |
+| `A2A_CANCELLATION_POLL_INTERVAL_MS` | `1000` | Maximum interval between durable cross-process cancellation checks |
 | `A2A_CONFIG` | `None` | `a2a_config.json` path for external agent discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `A2A_REFRESH_INTERVAL` | `300` | Agent-card re-fetch interval (s) |
+
+The broker and storage selectors accept only `epistemic_graph`; URL-selected,
+in-memory, Redis, and Postgres A2A adapters are not part of the current contract.
+Every message and state update remains on the engine authority, with bounded
+leases, payloads, histories, artifacts, contexts, and CAS retries.
+
+Task creation uses the engine's atomic create-if-absent operation. Task and
+context transitions use revision, payload-digest, delivery-tag, and consumer
+fences; terminal context plus task results commit in one engine transaction.
+Submission persists an opaque operation before publishing it, and the bounded
+reconciler republishes an unconfirmed operation through the engine's idempotent
+producer contract. A worker renews its visibility lease while executing, and
+only the current consumer/tag generation can acknowledge or reject delivery.
+Cancellation first commits durable state, then publishes a wake operation, so a
+worker in another process stops without allowing a late completion to win.
+
+Persisted A2A material is admitted before model validation and serialization.
+Inline file bytes, ungoverned locations, privacy-transforming input, excessive
+depth/count/size, and payload-digest mismatch fail closed. File inputs may carry
+only content-addressed governed references; deployment paths, connection data,
+and human identity values are not part of the durable protocol record.
 
 ### G.9 Orchestration, scheduler & guardrails
 
@@ -507,7 +636,7 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `AGENT_TOKEN_QUOTA` | `100000` | Per-agent token budget before preemption (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) |
 | `PREEMPTION_THRESHOLD_PCT` | `0.85` | Quota usage triggering preemption warning |
 | `AGENT_POLICIES_PATH` | `None` | `agent_policies.json` for identity-based governance |
-| `PERMISSIONS_SIGNING_KEY` | `None` (auto) | HMAC key for agent identity tokens; auto-generated if unset |
+| `PERMISSIONS_SIGNING_KEY_REF` | `None` | Runtime secret reference for stable agent-identity HMAC authority; required by production and by MCP bootstrap |
 | `SPECIALIST_REGISTRY_PATH` | `None` | Local specialist registry dir |
 | `MAX_PARALLEL_AGENTS` | `60` | Global engine-wide execution semaphore (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer) |
 | `WORKER_POOL_SIZE` | `8` | Workers per node for agent turns / graph mutations; active-concurrency scale knob (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer) |
@@ -522,7 +651,7 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `MAINTENANCE_TOKEN_BUDGET` | `0` (unlimited) | Token budget for the autonomous maintenance cron |
 | `MAINTENANCE_PRIORITY` | `LOW` | Maintenance task priority (LOW/MEDIUM/HIGH) |
 | `WATCHDOG_PATTERNS` | `pyproject.toml, mcp_config.json, requirements*.txt` | File patterns for the file-watcher trigger (CONCEPT:AU-OS.safety.doom-loop-detection) |
-| `TOOL_GUARD_MODE` | `strict` | Sensitive-tool guard mode |
+| `TOOL_GUARD_MODE` | `strict` | `on` uses configured sensitivity patterns; `strict` guards every non-read-only function tool. No disabled mode exists. |
 | `SENSITIVE_TOOL_PATTERNS` | 67 regexes | Tool-name patterns treated as mutating/sensitive (delete/exec/deploy/...); override only to extend |
 
 ### G.10 Skills
@@ -564,10 +693,10 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 | `MESSAGING_VOICECALL_APP_ID` / `MESSAGING_VOICECALL_TOKEN` / `MESSAGING_VOICECALL_FROM_NUMBER` | `None` | Twilio voice/SMS credentials (account SID / auth token / from number) |
 | `MESSAGING_NEXTCLOUD_URL` / `MESSAGING_NEXTCLOUD_TOKEN` / `MESSAGING_NEXTCLOUD_APP_ID` | `None` | Nextcloud Talk credentials (URL / app token / username) |
 
-## H. Former bare `KG_*`/`GRAPH_*`/`EPISTEMIC_*` reads (now folded)
+## H. Governed configuration resolution
 
-Every governed (`KG_*`/`GRAPH_*`/`EPISTEMIC_*`) bare `os.environ` read has been
-**folded off `os.environ`** onto a centralized path, per *Configuration discipline*:
+Every governed `KG_*`, `GRAPH_*`, and `EPISTEMIC_*` setting resolves through a
+centralized path, per *Configuration discipline*:
 
 - **Deployment-varying / behavioral / test-varied** → `config.setting("VAR", default)`
   (live, config.json-driven). Still fully settable — set `var` in `config.json` or
@@ -576,44 +705,35 @@ Every governed (`KG_*`/`GRAPH_*`/`EPISTEMIC_*`) bare `os.environ` read has been
   `compute_ingest_worker_count()`.
 - **Single-value cadences/limits/timeouts** → **named module constants** (no knob).
 
-`scripts/check_no_env_sprawl.py` now ratchets **all-prefix** bare reads against
-`scripts/env_flag_baseline.txt` (the governed reads are gone from it; what remains is
-the non-KG burn-down — `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, …). The table
-below is the reference for these settings and how each is now resolved (defaults
-unchanged); for the `setting()` rows, the value is config.json-/env-overridable:
+`scripts/check_no_env_sprawl.py` enforces the direct-environment-read boundary.
+The table below identifies the centralized resolution path for each setting. For
+`setting()` rows, the value remains AgentConfig/environment-overridable:
 
 | Flag | Default | Read in | What it sets |
 |---|---|---|---|
-| `KG_SERVER_HOST` / `KG_SERVER_PORT` | `127.0.0.1` / `8100` | `agent/factory.py`, `mcp/kg_coordinator.py`, `backends/contrib/ladybug_backend.py`, `core/config.py` | KG coordinator server address |
 | `KG_DAEMON_LOG_LEVEL` | `INFO` | `gateway/daemon.py` | Daemon log level |
-| `GRAPH_ROUTING_STRATEGY` | `hybrid` | `knowledge_graph/core/engine.py` | Engine-side routing strategy (overlaps `ROUTING_STRATEGY` on `AgentConfig`) |
 | `KG_CARD_MODEL` | `lite` | `core/engine_tasks.py` | `lite` or `heavy` model for enrichment cards |
 | `KG_LLM_TIMEOUT` / `KG_LLM_MAX_RETRIES` | `30` / `1` | `enrichment/cards.py` | Enrichment LLM call timeout (s) / retries |
 | `KG_EMBED_BACKFILL_INTERVAL` / `KG_EMBED_BACKFILL_BUSY_SLEEP` | `30` / `1` | `core/engine_tasks.py` | Embedding-backfill idle/busy sleep (s) |
 | `KG_RECONCILE_INTERVAL` | `900` | `core/engine_tasks.py` | engine→mirror reconcile tick (s) |
 | `KG_HYGIENE_INTERVAL` | `86400` | `core/engine_tasks.py` | Memory decay/dedup tick (s) |
-| `KG_TASK_REAPER_INTERVAL` | `120` | `core/engine_tasks.py` | Zombie-task reaper tick (s) |
-| `KG_TASK_ORPHAN_GRACE_SEC` | `90` | `core/engine_tasks.py` | Grace before an orphaned task is reclaimed |
-| `KG_TASK_MAX_RUNTIME_SEC` | `7200` | `core/engine_tasks.py` | Max task runtime before requeue |
-| `KG_TASK_MAX_REQUEUE` | `3` | `core/engine_tasks.py` | Max requeues before a task is failed |
-| `GRAPH_SERVICE_CHECKPOINT_INTERVAL` | `60` | `core/graph_compute.py` | Spawned-engine checkpoint interval (distinct from `GRAPH_SERVICE_CHECKPOINT_SECS`) |
 | `KG_GRAPH_NAME` | `__bus__` | `distillation/skill_graph_distiller.py` | Target graph for skill-graph distillation |
 | `KG_INGEST_INFLIGHT` | `40` | `ingestion/batch_orchestrator.py` | Max in-flight ingest submissions |
 | `KG_INGEST_PROFILE` | unset (= `full`) | `pipeline/__init__.py` | Pipeline phase profile (`structural` \| `full`) — residual read, see the section C correction |
 | `KG_EVAL_CAPTURE` | off | `memory/optimization_engine.py` | Capture retrieval evals |
 | `KG_MIN_RELEVANCE_THRESHOLD` | unset (arg/schema-pack) | `retrieval/retrieval_quality.py` | Relevance-gate threshold override |
-| `KG_TRUST_HIERARCHY` | built-in defaults | `core/company_brain_runtime.py` | JSON trust-hierarchy entries (with `KG_BRAIN_ENFORCE`) |
+| `KG_TRUST_HIERARCHY` | built-in defaults | `core/company_brain_runtime.py` | JSON trust-hierarchy entries used by mandatory Company Brain arbitration |
 | `GRAPH_SCHEMA_PACK` | unset | `models/schema_pack_loader.py` | Schema-pack selection override |
 | `GRAPH_SCHEMA_AUDIT_DIR` / `GRAPH_SCHEMA_AUDIT_VERBOSE` | unset / off | `models/schema_pack_audit.py` | Schema-audit output dir / verbosity |
 | `KG_PROVIDER_ADAPTER_BACKEND` | `static` | `prompting/provider_adapter.py` | Prompting provider-adapter backend |
 
 Disposition: the address / model-choice / behavioral / profile / schema rows
-(`KG_SERVER_*`, `GRAPH_ROUTING_STRATEGY`, `KG_CARD_MODEL`, `KG_GRAPH_NAME`,
+(`KG_SERVER_*`, `KG_CARD_MODEL`, `KG_GRAPH_NAME`,
 `KG_INGEST_*`, `KG_EVAL_CAPTURE`, `KG_MIN_RELEVANCE_THRESHOLD`, `KG_TRUST_HIERARCHY`,
 `GRAPH_SCHEMA_*`, `KG_PROVIDER_ADAPTER_BACKEND`, `KG_DAEMON_LOG_LEVEL`) are now
 `config.setting(...)` reads (config.json-/env-overridable). The cadence/limit/timeout
 rows (`KG_*_INTERVAL`, `KG_TASK_*`, `KG_LLM_TIMEOUT`/`_MAX_RETRIES`,
-`KG_EMBED_BACKFILL_*`, `GRAPH_SERVICE_CHECKPOINT_INTERVAL`) are now named module
+`KG_EMBED_BACKFILL_*`) are now named module
 constants. `MCP_CHILD_*` flags were already fully typed on `AgentConfig` with no bare
 reads (`mcp/child_resilience.py` consumes the config object).
 
@@ -629,28 +749,24 @@ OFF and are opt-in:
 
 (The always-available local toolsets — `WORKSPACE_TOOLS`, `GIT_TOOLS`,
 `A2A_TOOLS`, `SCHEDULER_TOOLS`, `BROWSER_TOOLS`, `DEVELOPER_TOOLS` — default
-ON in the same registry.)
+ON in the same registry.) `DEVELOPER_TOOLS` exposes read/search and graph tools
+by default. Governed `DevWorkspace` tools are the sole mutation and execution
+surface; direct-host file, shell, and process-launch tools are not registered.
 
 ## Coverage statement
 
-Verified against `agent_utilities/core/config.py` on this branch by extracting
-`AgentConfig.model_fields` programmatically: **244 fields / 242 distinct env
-variables, every one documented above** — sections A–F cover the KG/graph audit
-surface, section G the remaining platform fields (no field was deemed
-internal-only: every `AgentConfig` field declares an env alias and is settable
-from the environment). Section H additionally documents the user-facing flags
-that exist only as baseline-frozen bare `os.environ` reads. Drift fixed in this
-pass: `KG_LLM_CONCURRENCY` default is `4` (doc previously said 6), and
-`KG_INGEST_PROFILE` retains one phase-selection read despite the section C
-removal note.
+Verified against `agent_utilities/core/config.py` by extracting
+`AgentConfig.model_fields`. The generated runtime configuration reference derives the
+current field and alias counts and is checked in CI; sections A–G provide the
+architectural grouping and operator guidance without duplicating those counts.
 
-## Known bugs surfaced by this audit
+## Current contract checks
 
 1. **`KG_EMBED_BACKFILL_BATCH` dual default** — 256 (`engine_tasks.py:1040`) vs 512
    (`:1155`). Same flag, two meanings (per-tick budget vs DB fetch batch). Split into two
    named constants or one config field.
-2. **Scattered duplicate reads** — `GRAPH_DB_URI` (4×), `AGENT_UTILITIES_CONFIG_DIR` (5×),
-   `KG_DAEMON_ROLE`/`KG_INGEST_PROFILE` (2× each). No single source of truth.
+2. **Graph connection source** — exactly one typed
+   `GRAPH_DB_CONNECTION_PROFILE_REF`; raw connection fields are rejected.
 3. **`GRAPH_TIMEOUT=1200000` (20 min)** makes a non-converging engine call look like an
    infinite hang for 20 minutes before erroring.
 

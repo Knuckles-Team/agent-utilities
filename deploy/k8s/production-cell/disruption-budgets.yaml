@@ -1,0 +1,54 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graphos-front
+  namespace: graphos-control
+spec:
+  minAvailable: 2
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels: {app.kubernetes.io/name: graphos-front}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: epistemic-graph-raft
+  namespace: graphos-cell
+spec:
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graphos-dispatch-worker
+  namespace: graphos-cell
+spec:
+  minAvailable: 2
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels: {app.kubernetes.io/name: graphos-dispatch-worker}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graphos-ingest-worker
+  namespace: graphos-cell
+spec:
+  minAvailable: 2
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels: {app.kubernetes.io/name: graphos-ingest-worker}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graphos-analytics-worker
+  namespace: graphos-cell
+spec:
+  minAvailable: 2
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+  selector:
+    matchLabels: {app.kubernetes.io/name: graphos-analytics-worker}

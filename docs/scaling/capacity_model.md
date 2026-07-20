@@ -1,16 +1,32 @@
 # Capacity Model (Plan 07: Path to Scale)
 
-> **Status: MODELED, with measured anchors.** Three things are now *measured*
-> (not asserted): the epistemic-graph single-connection transport latency,
-> **per-shard linear write throughput** (1→4 shards ≈ 6.6× at constant wall-time,
-> no shared-state cliff), and the **per-agent working-set footprint (~52 kB)** for
-> a bounded subgraph — all in `epistemic-graph/docs/benchmarks.md` (reproduce with
-> `scripts/bench_scale.py`). Every resident-population sizing figure (10k+) is a
-> **linear extrapolation** from those anchors plus the per-unit constants below.
-> The 100M target follows as a measured projection (~78 hosts @ 64 GB / 52 kB per
-> agent) — **we do not claim 100M has been *run***; it has not. The arithmetic
-> lives in [`capacity_model.py`](./capacity_model.py), unit-tested in
-> `tests/scale/test_capacity_model.py`.
+> **Status (SCALE-P2-1): 1M is now a DEFINED workload contract, measured by a
+> harness — not a linear-arithmetic claim.** This page used to say "the 100M
+> target follows as a measured projection" and stop there; Codex's SCALE-P2-1
+> review correctly called that out — a modeled shard/worker/node COUNT is not
+> a demonstrated CAPACITY. The linear arithmetic below (`capacity_model.py`)
+> is still here and still useful as a **first-order infrastructure-sizing
+> tool** (how many PostgreSQL shards/native engine shards/nodes to provision), but it is no
+> longer what "1M" MEANS. What "1M residents, sustained" means now is defined
+> precisely by [`workload_contract.yml`](./workload_contract.yml) +
+> [`workload_contract.py`](./workload_contract.py) — registered agents,
+> concurrent sessions/turns, turns/tool-calls/graph-mutations/messages/tokens
+> per second, tenant count + skew (incl. one elephant tenant), per-agent
+> working-set/history/media footprint, interactive/background mix,
+> availability + RPO/RTO, and p50/p95/p99/p99.9 SLO targets for
+> queue/query/write/end-to-end latency — and it is GENERATED and MEASURED
+> against those SLOs by [`scripts/scale/loadgen.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/scripts/scale/loadgen.py)
+> (a real driver, not more arithmetic), asserted by the soak/chaos harness in
+> [`tests/scale/soak/`](https://github.com/Knuckles-Team/agent-utilities/tree/main/tests/scale/soak). The full-scale acceptance path is
+> now an executable, opt-in 24–72 hour exact-release campaign; it has no mock or
+> skip branch. The model remains a sizing hypothesis until that campaign produces
+> passing signed evidence for the target release and hardware class.
+>
+> The measured anchors below (transport latency, per-shard write throughput,
+> per-agent working-set) still stand and now ALSO anchor several
+> `workload_contract.yml` fields directly (see that file's `# anchor:` comments)
+> so the contract and this model cannot silently drift apart —
+> `tests/scale/test_workload_contract.py` cross-checks them.
 
 ## The measured anchor
 
@@ -35,7 +51,7 @@ the max of the resulting infrastructure:
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
 | **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the live scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
-| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the live tenant-partitioned engine sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
+| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (native engine shard fan-out; see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
 A deployment can be huge on one axis and tiny on another (e.g. 1M dormant
@@ -50,7 +66,7 @@ adjustable in one place:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `RESIDENTS_PER_PG_SHARD` | 250,000 | residents per durable Postgres shard |
-| `RESIDENTS_PER_L0_SHARD` | 50,000 | residents per hot in-memory L0 shard (one `GRAPH_SERVICE_ENDPOINTS` entry; routed per named graph by HRW) |
+| `RESIDENTS_PER_ENGINE_SHARD` | 50,000 | residents per native engine shard (the placement catalog assigns named graphs) |
 | `ACTIVE_AGENTS_PER_WORKER` | 25 | concurrently active agents one worker multiplexes |
 | `WORKERS_PER_NODE` | 8 | workers per node (= `worker_pool_size` default) |
 | `OPS_PER_SEC_PER_KAFKA_PARTITION` | 5,000 | = the measured single-connection drain rate |
@@ -67,7 +83,7 @@ measurements.
 Active agents = `ceil(residents × 0.02)`. Then:
 
 - PG shards = `ceil(residents / 250,000)`
-- L0 shards = `ceil(residents / 50,000)`
+- Engine shards = `ceil(residents / 50,000)`
 - Workers   = `ceil(active / 25)`
 - Nodes     = `ceil(workers / 8)`
 - Events/s  = `active × 2.0`
@@ -77,7 +93,7 @@ Active agents = `ceil(residents × 0.02)`. Then:
 
 - active = `ceil(1000 × 0.02)` = **20**
 - PG shards = `ceil(1000/250000)` = **1**
-- L0 shards = `ceil(1000/50000)` = **1**
+- Engine shards = `ceil(1000/50000)` = **1**
 - workers = `ceil(20/25)` = **1**, nodes = `ceil(1/8)` = **1**
 - events/s = `20 × 2` = **40**, kafka = `max(3, ceil(40/5000))` = **3**
 
@@ -85,7 +101,7 @@ Active agents = `ceil(residents × 0.02)`. Then:
 
 - active = `ceil(100000 × 0.02)` = **2,000**
 - PG shards = `ceil(100000/250000)` = **1**
-- L0 shards = `ceil(100000/50000)` = **2**
+- Engine shards = `ceil(100000/50000)` = **2**
 - workers = `ceil(2000/25)` = **80**, nodes = `ceil(80/8)` = **10**
 - events/s = `2000 × 2` = **4,000**, kafka = `max(3, ceil(4000/5000))` = **3**
 
@@ -93,11 +109,11 @@ Active agents = `ceil(residents × 0.02)`. Then:
 
 - active = `ceil(1000000 × 0.02)` = **20,000**
 - PG shards = `ceil(1000000/250000)` = **4**
-- L0 shards = `ceil(1000000/50000)` = **20**
+- Engine shards = `ceil(1000000/50000)` = **20**
 - workers = `ceil(20000/25)` = **800**, nodes = `ceil(800/8)` = **100**
 - events/s = `20000 × 2` = **40,000**, kafka = `max(3, ceil(40000/5000))` = **8**
 
-These exact numbers (4 PG shards, 20 L0 shards, 800 workers, 100 nodes, 8 Kafka
+These exact numbers (4 PostgreSQL shards, 20 engine shards, 800 workers, 100 nodes, 8 Kafka
 partitions) are asserted in `tests/scale/test_capacity_model.py` so the doc and
 the code cannot silently drift.
 
@@ -108,13 +124,13 @@ single-shard floor):
 
 - active = `ceil(100000000 × 0.02)` = **2,000,000**
 - PG shards = `ceil(100000000/250000)` = **400**
-- L0 shards = `ceil(100000000/50000)` = **2,000**
+- Engine shards = `ceil(100000000/50000)` = **2,000**
 - workers = `ceil(2000000/25)` = **80,000**, nodes = `ceil(80000/8)` = **10,000**
 - events/s = `2000000 × 2` = **4,000,000**, kafka = `max(3, ceil(4000000/5000))` = **800**
 
 ## Summary table
 
-| Residents | Active (2%) | PG shards | L0 shards | Workers | Nodes | Kafka parts | Events/s |
+| Residents | Active (2%) | PG shards | Engine shards | Workers | Nodes | Kafka parts | Events/s |
 |-----------|-------------|-----------|-----------|---------|-------|-------------|----------|
 | 1,000         | 20        | 1   | 1     | 1      | 1      | 3   | 40        |
 | 100,000       | 2,000     | 1   | 2     | 80     | 10     | 3   | 4,000     |
@@ -139,19 +155,74 @@ axis: agent turns executed only inside the in-process asyncio scheduler
 (`core/cognitive_scheduler.py`, `max_concurrent` per process) on the host that
 accepted them. That stage is now implemented:
 
-- agent turns ride the session-keyed `agent_turns` queue
-  (`AGENT_DISPATCH_BACKEND=queue`; transport follows `TASK_QUEUE_BACKEND`);
+- agent turns always ride the session-keyed `agent_turns` queue (transport
+  follows `TASK_QUEUE_BACKEND`);
 - any host running `agent-dispatch-worker` claims and executes them against the
   shared state store (AU-OS.state.unified-durable-state-externalization), so "Workers = ceil(active / 25)" maps to a
   **stateless dispatch-worker fleet** spread across "Nodes", not to one
   process's coroutine cap;
 - `AGENT_TURNS_PARTITIONS` bounds fleet-wide session concurrency on Kafka the
-  same way the Kafka-parts column bounds event drain.
+  same way the Kafka-parts column bounds event drain;
+- `AGENT_DISPATCH_MAX_DEPTH` is the fail-closed admission bound, so a stalled
+  fleet applies backpressure instead of accumulating unbounded durable turns.
 
 Deployment shape per row of the summary table: stateless gateways + N
 dispatch workers + M `kg-ingest-worker` processes + the listed engine/PG
 shards and Kafka partitions. Design, ordering and idempotency guarantees:
 [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md).
+
+## The workload contract + load generator + soak/chaos harness (SCALE-P2-1)
+
+The acceptance criterion for "1,000,000 residents" is now: **sustained SLOs
+with bounded resource use, and no lost/duplicate/cross-tenant/falsely-completed
+side effects** — not an infrastructure-count formula. Three artifacts implement
+that:
+
+1. **The contract** ([`workload_contract.yml`](./workload_contract.yml) +
+   [`workload_contract.py`](./workload_contract.py)) — a machine-readable,
+   validated (`WorkloadContractError` on any malformed/inconsistent field)
+   definition of the workload: population, concurrency, five independent rate
+   axes (turns/tool-calls/graph-mutations/messages/tokens per second), tenant
+   count + Zipf skew + one deliberately oversized elephant tenant, per-agent
+   working-set/history/media footprint, interactive/background mix,
+   availability target + RPO/RTO, and the four SLO axes (queue/query/write/
+   end-to-end latency) each with p50/p95/p99/p99.9 targets. `ScaledWorkload`
+   scales the population/rate axes by a `scale` factor for a small CI run or
+   the full `scale=1.0` — the SLO targets and per-unit sizes never scale.
+2. **The load generator** ([`scripts/scale/loadgen.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/scripts/scale/loadgen.py))
+   — actually GENERATES that workload: submits `WorkItem`s (turns) through the
+   real engine-native CAS/lease/fencing state machine
+   (`orchestration/work_item.py`), publishes `AgentBus` messages with tenant
+   namespacing, drives independent mutation/tool-call producers, and measures
+   the four SLO axes' percentiles for real. Two engine modes:
+   `--engine mock` (an in-memory `FakeScaleEngine`, driven by a deterministic
+   single-threaded discrete-event simulation — immune to host CPU jitter and
+   near-instant in real wall time, since nothing genuinely sleeps) and
+   `--engine live` (the process-active epistemic-graph engine, genuine
+   concurrent asyncio tasks against real wall-clock time — the real-hardware
+   soak path).
+3. **The soak/chaos harness** ([`tests/scale/soak/`](https://github.com/Knuckles-Team/agent-utilities/tree/main/tests/scale/soak)) —
+   keeps fast deterministic state-machine checks and adds the explicit
+   `test_production_certification.py` entry for a real scale=1 fleet. The latter
+   runs [`deploy/release/certification-campaign.yml`](https://github.com/Knuckles-Team/agent-utilities/blob/main/deploy/release/certification-campaign.yml):
+   exact signed images/configuration, 24–72 hours, aggregate raw telemetry and
+   actual fault hooks for commit phases, process/leader/node/zone loss, rebalance,
+   reshard, upgrades, restore, regional recovery and policy/deletion propagation.
+
+### Evidence tiers
+
+| Tier | What it proves | Promotion value |
+|---|---|---|
+| Deterministic CI | queue/fencing/idempotency/cancellation/quota and scaled SLO evaluator semantics | Regression protection only |
+| Production certification | exact release at scale=1 for 24–72 hours, real infrastructure faults, measured SLO/RPO/RTO and aggregate resource behavior | Required signed promotion evidence |
+| Capacity arithmetic | first-order shard/worker/node/broker provisioning estimate | Planning only; never proof |
+
+The production test is selected explicitly with the `certification` marker and
+fails immediately when any real load, metrics, fault action/probe, signer or
+verifier prerequisite is absent. Failure runs are signed too. No scenario is
+converted to a passing skip, and an unexecuted campaign is never described as a
+demonstrated capacity result. See
+[`release/compatibility-and-certification.md`](../release/compatibility-and-certification.md).
 
 ## Production guard
 

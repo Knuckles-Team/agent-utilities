@@ -31,29 +31,38 @@ The default `InEpistemicGraphBackend` is a **durable, engine-backed** store:
 secrets live as `:Secret` nodes in a dedicated `__secrets__` epistemic-graph
 graph, the secret **value** held as an encrypted node property sealed by the
 engine's encryption-at-rest (ChaCha20-Poly1305 over the redb value blobs, keyed
-by `EPISTEMIC_GRAPH_ENCRYPTION_KEY` + the KMS seam — CONCEPT:EG-KG.sharding.row-level-security), while the
+by child-only data-key material + the KMS seam — CONCEPT:EG-KG.sharding.row-level-security), while the
 key **name** + metadata stay queryable plaintext. It is the store in **every**
-profile — even zero-infra `tiny`, because `GraphComputeEngine` auto-starts the
-pre-bundled pi-tier engine on demand (the OS-5.63 resolver). The master key now
-lives in `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/KMS, no longer in a sibling `.key` file
-co-located with the ciphertext.
+profile, because `GraphComputeEngine` auto-starts the full engine artifact installed
+by the hard-base `epistemic-graph[full]>=2.23.1,<3.0.0` dependency on demand (the
+OS-5.63 resolver). AgentConfig carries
+only `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF`; production and non-tiny local modes
+resolve it from an external `env://` or `vault://` source. Non-production `tiny`
+mode creates one stable private XDG key. In both cases only the spawned Rust
+child receives the raw value; ambient raw/ref variables are scrubbed.
 
-`SQLiteBackend` is retained ONLY as the read source for a one-time migration off
-the legacy `~/.agent-utilities/secrets.db` (read-old → write-new → delete-old,
-run automatically on first engine-backed boot). It is never selected as a live
-backend.
+GraphOS's tiny packaged-local stdio bootstrap does not read or store an identity
+secret. Only `graph-os --transport stdio` with `DEPLOYMENT_PROFILE=tiny`, no
+`GRAPH_SERVICE_ENDPOINTS`, and neither external process-identity source may sign
+and validate a neutral short-lived JWT with an in-memory key as a one-time proof.
+The key and token are destroyed before a process-lifetime session is returned.
+Every network transport, non-tiny profile, explicit engine endpoint, and other
+entry point requires exactly one external identity source resolved through the
+mechanisms below; an invalid source never falls back locally.
 
 ## Quick Start
 
 ```python
+import os
+
 from agent_utilities import create_secrets_client
 
-# Zero-config (in-memory, encrypted)
+# Zero-config encrypted engine storage
 client = create_secrets_client()
 
 # Store and retrieve
-client.set("gitlab/token", "glpat-xxx")
-token = client.get("gitlab/token")  # "glpat-xxx"
+client.set("gitlab/token", os.environ["GITLAB_TOKEN"])
+token = client.get("gitlab/token")
 
 # Fallback to environment variable
 token = client.get_or_env("gitlab/token", "GITLAB_TOKEN")
@@ -65,14 +74,13 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 
 ## Secret Manager CLI
 
-`agent-utilities` provides a built-in CLI to easily populate and manage your local secrets (such as the SQLite database) before running your agent.
+`agent-utilities` provides a built-in CLI for the encrypted engine store or
+Vault/OpenBao. Secret values are accepted only through runtime references, never
+as process arguments.
 
 ```bash
-# Set a secret
-secret-manager set gitlab/token glpat-my-token
-
-# Set a secret explicitly using the sqlite backend (overrides env var)
-secret-manager --backend sqlite set my-service/api-key 12345
+# Set a runtime-injected secret without embedding it in this command
+secret-manager set gitlab/token --value-ref env://GITLAB_TOKEN
 
 # Retrieve a secret
 secret-manager get gitlab/token
@@ -93,12 +101,10 @@ secret-manager delete gitlab/token
 - The secret **value** is an encrypted node property (engine encryption-at-rest,
   ChaCha20-Poly1305, keyed by `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/KMS); the key
   **name** + metadata stay queryable plaintext
-- Works on every profile (the OS-5.63 resolver auto-starts the pi-tier engine for
-  `tiny`); there is **no** local-disk / RAM fallback
-- One-time migration off the legacy `~/.agent-utilities/secrets.db` runs on first
-  engine-backed boot, then deletes the old db + `.key` file
+- Works on every profile (the OS-5.63 resolver auto-starts the mandatory full
+  engine artifact); there is **no** local-disk / RAM fallback
 
-### HashiCorp Vault & OpenBao (Enterprise / Open Source)
+### HashiCorp Vault & OpenBao (Enterprise / Open Source) { #vault-openbao }
 
 - Requires `pip install agent-utilities[vault]` (installs `hvac`)
 - Uses KV v2 secrets engine
@@ -111,22 +117,24 @@ To configure your agent to use Vault or OpenBao, export:
 export SECRETS_BACKEND=vault
 export SECRETS_VAULT_URL=https://openbao.example.com  # Points directly to your OpenBao or Vault server
 export SECRETS_VAULT_MOUNT=secret
-export VAULT_TOKEN=hvs.xxx
 ```
+
+Prefer workload identity. If token authentication is required, inject
+`VAULT_TOKEN` at runtime and never persist it in a tracked file.
 
 ## Configuration
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `SECRETS_BACKEND` | `inmemory` | `inmemory` → the durable engine-encrypted `__secrets__` store (default everywhere); `vault` → enterprise OpenBao/Vault |
-| `EPISTEMIC_GRAPH_ENCRYPTION_KEY` | *(unset → encryption off)* | Engine encryption-at-rest key material / KMS seam that seals the `__secrets__` value blobs (CONCEPT:EG-KG.sharding.row-level-security) |
+| `SECRETS_BACKEND` | `engine` | `engine` → the durable engine-encrypted `__secrets__` store (default everywhere); `vault` → enterprise OpenBao/Vault |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | *(tiny non-production local mode generates a stable private key; otherwise required)* | External `env://` or `vault://` bootstrap reference for the packaged local engine data key. `secret://` is rejected because it would create a circular dependency on the engine-backed store. |
 | `SECRETS_VAULT_URL` | `http://127.0.0.1:8200` | Vault server URL |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
 
-> The `inmemory` backend id is retained for config compatibility but now resolves
-> to the engine-backed `__secrets__` store. The secret value is sealed by the
-> engine (`EPISTEMIC_GRAPH_ENCRYPTION_KEY`), so the master key and the ciphertext
-> no longer share a directory.
+> The Rust engine still consumes its native raw key variable internally, but
+> that variable is not an AgentConfig field. The launcher resolves the reference,
+> validates 32–4096 control-free UTF-8 bytes, and materializes the value only in
+> the child environment.
 
 ### Two surfaces — `graph_secret` MCP tool + `/graph/secret` REST route
 
@@ -139,34 +147,65 @@ not gated. `list` returns key names only — never values.
 
 ## How to Load Secrets
 
-### Current: Environment Variables (Still Supported)
+### Runtime references
 
-The existing pattern continues to work. All `os.environ` / `.env` files are
-loaded by `python-dotenv` at startup:
+Durable `config.json` stores references, never values. `vault://` and `secret://`
+resolve through the configured secret backend. `env://NAME` first uses an explicit
+process value; it can also use the optional implicit `runtime-secrets.json` beside
+the XDG AgentConfig.
 
-```bash
-# .env
-LLM_API_KEY=sk-xxx
-GITLAB_TOKEN=glpat-xxx
+```json
+{
+  "LANGFUSE_SECRET_KEY_REF": "env://LANGFUSE_SECRET_KEY",
+  "GRAPH_DB_CONNECTION_PROFILE_REF": "secret://graphs/primary-profile"
+}
 ```
 
-### New: SecretsClient (Recommended for Sensitive Values)
+Both references must resolve to real runtime material. The resolver and
+`agent-utilities doctor` reject unresolved templates, redaction masks, and
+obvious placeholder sentinels locally, before any network request. Validation
+does not assume fixed provider key lengths and never returns or logs the
+resolved values.
+
+Raw credential aliases and header maps are process-only inputs and are rejected
+when non-empty in durable XDG configuration. Nested models use `api_key_ref` and
+`headers_ref`; OAuth2 uses a referenced `client_secret`. A resolved `headers_ref`
+must contain one bounded JSON object and is validated against header injection and
+hop-by-hop header rules before client construction.
+
+AgentConfig never searches a repository or launch directory for a dotenv file.
+The XDG runtime-secret filename is fixed and cannot be configured in `config.json`.
+On POSIX it must be owned by the current user or root and have mode `0600` or
+`0400`. It contains one JSON object whose keys are environment-variable names.
+Only keys targeted by exact `env://` references anywhere in `config.json` are
+projected; all others remain unavailable. Explicit process values win. Native
+Windows uses explicit process injection because private file sources fail closed
+until their ACL posture can be validated at the descriptor boundary.
+
+The loader rejects links, special files, oversized input, malformed JSON,
+duplicate or case-ambiguous keys, non-string or empty values, and a durable
+configuration key that collides with a referenced secret target. Reload is staged:
+invalid replacement content leaves the last valid projection active. Doctor emits
+only aggregate status and counts.
+
+### SecretsClient
 
 ```python
+import os
+
 from agent_utilities import create_secrets_client
 
 client = create_secrets_client()
 
 # 1. Programmatic storage
-client.set("gitlab/token", "glpat-xxx")
+client.set("gitlab/token", os.environ["GITLAB_TOKEN"])
 
-# 2. Retrieve with env-var fallback
+# 2. Retrieve with an explicit or XDG-projected runtime value
 token = client.get_or_env("gitlab/token", "GITLAB_TOKEN")
 
 # 3. URI references (for config files)
 token = client.resolve_ref("vault://agents/mcp/gitlab/token")
 token = client.resolve_ref("env://GITLAB_TOKEN")
-token = client.resolve_ref("sqlite://gitlab/token")
 ```
 
 ### URI Schemes
@@ -175,16 +214,14 @@ token = client.resolve_ref("sqlite://gitlab/token")
 |--------|---------|----------|
 | `vault://` | `vault://agents/mcp/github/token` | Looks up key in backend |
 | `secret://` | `secret://path/to/secret` | Alias for vault:// |
-| `env://` | `env://GITLAB_TOKEN` | Reads `os.environ["GITLAB_TOKEN"]` |
-| `sqlite://` | `sqlite://gitlab/token` | Looks up key in backend |
-| *(plain)* | `gitlab/token` | Direct backend lookup |
+| `env://` | `env://GITLAB_TOKEN` | Reads an explicit or referenced XDG-projected process value |
 
-### Migration Path
+### Current storage contract
 
 ```
-Phase 0 (current):  .env + os.environ → plaintext
-Phase 1 (this PR):  SecretsClient with encrypted storage + env fallback
-Phase 2 (planned):  JWT session tokens + OIDC delegation + per-user isolation
+Durable configuration stores only runtime references; values resolve in memory
+from explicit environment variables, Vault/OpenBao, or the encrypted engine
+store. Local database files and sibling key files are not read.
 ```
 
 ## Integration with GraphDeps
@@ -201,31 +238,23 @@ if ctx.deps.secrets_client:
 
 ## MCP Token Delegation (Existing)
 
-The ecosystem already supports OAuth2 token delegation for MCP servers:
+The ecosystem supports OAuth2 token delegation for MCP servers:
 
-1. **`UserTokenMiddleware`** captures incoming Bearer tokens into thread-local storage
-2. MCP servers like `gitlab-api` read the token via `threading.local().user_token`
+1. **`UserTokenMiddleware`** accepts only the token and claims exposed by the
+   configured FastMCP authentication provider, then binds them to
+   request-scoped context variables.
+2. MCP servers retrieve that verified request authority through
+   `agent_utilities.mcp.delegated_auth.get_user_token()` and
+   `get_user_claims()`.
 3. The token is exchanged via RFC 8693 (Token Exchange) for a scoped service token
 
-See [middlewares.py](../../agent_utilities/mcp/middlewares.py) and
-[mcp_utilities.py](../../agent_utilities/mcp_utilities.py) for the full auth stack
+See [middlewares.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/mcp/middlewares.py) and
+[server_factory.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/mcp/server_factory.py) for the full auth stack
 (`--auth-type jwt|oidc-proxy|oauth-proxy|remote-oauth`).
 
 ## Endpoint Authentication (auth.py)
 
-The agent server supports two authentication mechanisms that can be used
-independently or combined (logical OR):
-
-### API Key (Legacy)
-
-Static shared secret via the ``X-API-Key`` header. Enable with:
-
-```bash
-export ENABLE_API_AUTH=true
-export AGENT_API_KEY=your-secret-key
-```
-
-### JWT Bearer Token (Recommended)
+The agent server uses JWT bearer authentication for remote listeners.
 
 Validates tokens against a JWKS endpoint from any OIDC provider (Azure AD,
 Okta, Keycloak, Auth0, etc.). Requires `pip install agent-utilities[auth]`.
@@ -234,16 +263,19 @@ Okta, Keycloak, Auth0, etc.). Requires `pip install agent-utilities[auth]`.
 export AUTH_JWT_JWKS_URI=https://login.microsoftonline.com/.../discovery/v2.0/keys
 export AUTH_JWT_ISSUER=https://login.microsoftonline.com/.../v2.0
 export AUTH_JWT_AUDIENCE=api://my-agent-api
+export KG_POLICY_VERSION=policy-v1
 ```
 
-The server will accept either a valid API key OR a valid JWT Bearer token.
-When no auth mechanism is configured, the server operates in open mode.
+The server accepts a valid JWT bearer token. When no JWKS endpoint is
+configured, only a loopback listener is allowed to operate without
+authentication.
 
 | Config Variable | Description |
 |----------------|-------------|
 | `AUTH_JWT_JWKS_URI` | JWKS endpoint for token verification |
 | `AUTH_JWT_ISSUER` | Expected `iss` claim |
 | `AUTH_JWT_AUDIENCE` | Expected `aud` claim |
+| `KG_POLICY_VERSION` | Immutable policy revision stamped into verified graph sessions |
 
 ### OIDC Flows by Client Type
 
@@ -270,11 +302,15 @@ explicit origins.**
 
 ## MCP Token Forwarding
 
-When the agent server invokes MCP tools via subprocess (`MCPToolset` stdio transport),
-the user's session token is automatically forwarded:
+For MCP subprocesses loaded from an MCP configuration (`MCPToolset` stdio
+transport), the canonical configuration loader can forward an explicitly
+available process token. This startup-time path is separate from per-request
+HTTP delegation:
 
-1. The server stores the user's token in `SecretsClient` or `AGENT_USER_TOKEN`
-2. `mcp_utilities.py` injects `AGENT_USER_TOKEN` into the subprocess env
+1. `agent_utilities.core.config.load_mcp_servers_from_config()` resolves an
+   existing `AGENT_USER_TOKEN`, or a `session_token` from `SecretsClient`.
+2. The loader adds `AGENT_USER_TOKEN` to a child configuration only when that
+   child did not already declare it.
 3. MCP tools read `os.environ["AGENT_USER_TOKEN"]` for delegated auth
 
 ```python
@@ -292,20 +328,20 @@ if token:
    at INFO level (key name only, never values)
 4. **Least privilege**: Only request the scopes needed for the current graph node
 5. **Encrypted at rest**: All backends encrypt values before storage
-6. **Key file permissions**: SQLite backend creates `.key` files with `0o600`
-7. **JWT over API keys**: Prefer JWT Bearer auth for production — tokens
+6. **JWT over API keys**: Prefer JWT Bearer auth for production — tokens
    expire, carry claims, and can be revoked at the IdP
-8. **Restrict CORS**: Set `ALLOWED_ORIGINS` to specific trusted origins
+7. **Restrict CORS**: Set `ALLOWED_ORIGINS` to specific trusted origins
 
 
-## Local Secret Storage (Vault, OpenBao, & SQLite)
+## Secret Storage (Encrypted Engine, Vault, and OpenBao) { #local-secret-storage }
 
-The ecosystem provides a unified `SecretsClient` designed to replace static `.env` files, supporting `inmemory`, `sqlite`, and `vault` (HashiCorp Vault & OpenBao) backends.
+The ecosystem provides a unified `SecretsClient` designed to replace static
+`.env` files. It supports the encrypted engine store (`engine`) and Vault or
+OpenBao (`vault`).
 
-**Light Configuration Example (SQLite):**
+**Default encrypted engine storage:**
 ```bash
-export SECRETS_BACKEND=sqlite
-export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
+export SECRETS_BACKEND=engine
 ```
 
 **Usage in Code & URI Schemes:**
@@ -319,9 +355,9 @@ token = ctx.deps.secrets_client.get_or_env("gitlab/token", "GITLAB_TOKEN")
 ```
 
 **Secret Manager CLI:**
-Use the built-in CLI to easily populate your local database before running your agent:
+Use the built-in CLI with a runtime reference, never a value in the command line:
 ```bash
-secret-manager set gitlab/token glpat-xxx
+secret-manager set gitlab/token --value-ref env://GITLAB_TOKEN
 secret-manager list
 ```
 
@@ -415,4 +451,4 @@ environment variables are honored:
 
 For more details on X search tools, see the [Tools Guide](tools.md).
 
-> **Full Documentation:** HashiCorp Vault & OpenBao setup, encryption details, and API references are covered in the sections above (see [HashiCorp Vault & OpenBao](#hashicorp-vault--openbao-enterprise--open-source) and [Local Secret Storage](#local-secret-storage-vault-openbao--sqlite)).
+> **Full Documentation:** HashiCorp Vault & OpenBao setup, encryption details, and API references are covered in the sections above (see [HashiCorp Vault & OpenBao](#vault-openbao) and [Local Secret Storage](#local-secret-storage)).

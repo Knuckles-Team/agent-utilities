@@ -29,17 +29,19 @@ import json
 import logging
 import os
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.paths import mcp_config_path
 
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
 from ..registry import register_source
 
@@ -70,17 +72,19 @@ def _run_async(coro: Any) -> Any:
 
 
 def _load_mcp_config() -> dict[str, Any]:
-    """Load the workspace ``mcp_config.json`` (env override → root default)."""
-    path = setting("MCP_CONFIG_PATH") or setting("MCP_CONFIG")
+    """Load an explicitly configured or XDG-scoped MCP configuration."""
+    path = setting("MCP_CONFIG")
     if not path:
-        path = os.path.join(
-            setting("WORKSPACE_PATH", "/home/apps/workspace"), "mcp_config.json"
-        )
+        workspace = str(setting("WORKSPACE_PATH", "") or "").strip()
+        if workspace:
+            path = str(Path(workspace) / "mcp_config.json")
+        else:
+            path = str(mcp_config_path())
     try:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh).get("mcpServers", {})
-    except Exception as exc:  # noqa: BLE001 — missing config → no production transport
-        logger.warning("[ECO-4.29] could not read mcp_config %s: %s", path, exc)
+    except Exception:  # noqa: BLE001 — missing config → no production transport
+        logger.warning("[ECO-4.29] the configured MCP catalog could not be read")
         return {}
 
 
@@ -277,8 +281,16 @@ class MCPPackageConnector(LoadConnector, PollConnector):
             title=str(title) if title else str(rid),
             text=text,
             doc_type=self.doc_type,
-            metadata={"package": self.package, "tool": self.tool, "raw": record},
-            external_access=ExternalAccess.public(),
+            # Persist only neutral provenance, never the full upstream record;
+            # unused fields commonly contain identities, tokens, or private URLs.
+            metadata={
+                "package": self.package,
+                "tool": self.tool,
+                "source_system": "mcp",
+            },
+            # No ACL surface on this connector's record shape (CONCEPT:AU-P0-4):
+            # unknown access is always quarantined.
+            external_access=default_external_access(),
             updated_at=str(updated) if updated is not None else None,
         )
 

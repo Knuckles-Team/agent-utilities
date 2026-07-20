@@ -26,7 +26,7 @@ async def generate_linear_walkthrough(
     Returns:
         A markdown-formatted walkthrough.
     """
-    logger.info(f"Generating linear walkthrough for: {path_or_query}")
+    logger.info("Generating linear walkthrough")
 
     # We use a subagent to explore the path and extract key logic flows.
     goal = (

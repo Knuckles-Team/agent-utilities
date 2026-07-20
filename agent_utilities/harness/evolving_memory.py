@@ -112,7 +112,7 @@ class EvolvingMemoryStore:
             return existing
 
         record = MemoryRecord(
-            id=f"mem:{bank.value}:{uuid.uuid4().hex[:10]}",
+            id=f"mem:{bank.value}:{uuid.uuid4().hex}",
             bank=bank,
             content=content,
             signature=sig,

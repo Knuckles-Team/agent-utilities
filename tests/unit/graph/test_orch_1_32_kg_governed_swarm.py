@@ -169,16 +169,16 @@ def test_verify_is_noop_when_not_enabled():
     assert result.verification == {}  # verify off by default
 
 
-# ── SWARM-1: the swarm action is wired into graph_orchestrate ────────────────────
+# ── SWARM-1: the swarm action is wired into graph_agents ──────────────────────────
 
 
-def test_swarm_action_registered_in_graph_orchestrate():
-    """Wire-First: the one-shot swarm action must exist on the graph_orchestrate tool body."""
+def test_swarm_action_registered_in_graph_agents():
+    """Wire-First: the one-shot swarm action must exist on the graph_agents tool body."""
     import inspect
 
-    from agent_utilities.mcp.tools import analysis_tools
+    from agent_utilities.mcp.tools import agent_execution_tools
 
-    src = inspect.getsource(analysis_tools)
+    src = inspect.getsource(agent_execution_tools)
     assert 'action == "swarm"' in src
     assert "ParallelEngine(engine=engine).execute(manifest)" in src
     assert 'manifest.metadata["verify"] = True' in src  # governance ON by default

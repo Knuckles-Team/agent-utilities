@@ -6,40 +6,64 @@ CONCEPT:AU-KG.memory.tiered-memory-caching — External Graph Federation
 
 from unittest.mock import MagicMock, patch
 
+import networkx as nx
 import pytest
 
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.knowledge_graph.orchestration.engine_federation import (
+    FederationMixin,
+)
+
+
+class _FederationHarness(FederationMixin):
+    def __init__(self) -> None:
+        self.backend = None
+        self.graph = nx.MultiDiGraph()
+
+    def add_node(self, *, node_id, node_type, properties):
+        self.graph.add_node(node_id, type=node_type, **properties)
+
+    def link_nodes(self, *, source_id, target_id, rel_type):
+        self.graph.add_edge(source_id, target_id, type=rel_type.upper())
 
 
 @pytest.fixture
 def graph_engine():
-    """Fixture to create an in-memory graph engine."""
-    GraphComputeEngine(backend_type="rust")
-    # In-memory engine without a persistent backend
-    engine = IntelligenceGraphEngine(db_path=":memory:")
-    return engine
+    """Dependency-free federation harness with no engine process or transport."""
+    return _FederationHarness()
 
 
 def test_register_external_ontology(graph_engine):
-    """Test registering external ontologies and verify nodes are added."""
-    uri = "http://example.org/ontology#"
-    endpoint = "http://example.org/sparql"
+    """Registration persists refs and aliases, never concrete transport data."""
+    ontology_ref = "env://EXTERNAL_ONTOLOGY_URI"
 
-    graph_engine.register_external_ontology(uri, endpoint)
+    node_id = graph_engine.register_external_ontology(
+        reference_id="business-ontology",
+        ontology_ref=ontology_ref,
+        connection="ontology-source",
+    )
 
-    # Check in-memory mapping
     ontologies = graph_engine.get_registered_ontologies()
-    assert uri in ontologies
-    assert ontologies[uri] == endpoint
+    assert ontologies[node_id] == {
+        "reference_id": "business-ontology",
+        "ontology_ref": ontology_ref,
+        "connection": "ontology-source",
+    }
 
-    # Check reference node created in graph
-    node_id = f"OntologyReference_{hash(uri)}"
     assert node_id in graph_engine.graph
     node_data = graph_engine.graph.nodes[node_id]
-    assert node_data["externalUri"] == uri
-    assert node_data["sourceUrl"] == endpoint
-    assert node_data["platform"] == "sparql"
+    assert node_data["ontologyRef"] == ontology_ref
+    assert node_data["connection"] == "ontology-source"
+    assert "externalUri" not in node_data
+    assert "sourceUrl" not in node_data
+
+
+def test_external_ontology_rejects_concrete_uri(graph_engine):
+    with pytest.raises(ValueError, match="runtime secret reference"):
+        graph_engine.register_external_ontology(
+            reference_id="business-ontology",
+            ontology_ref="https://ontology.invalid/schema",
+            connection="ontology-source",
+        )
 
 
 def test_ingest_external_entity_stub(graph_engine):
@@ -48,24 +72,26 @@ def test_ingest_external_entity_stub(graph_engine):
     graph_engine.graph.add_node(internal_node, name="My Concept")
 
     external_id = "ext-999"
-    external_uri = "https://ear.example.com/factsheet/ext-999"
-    platform = "ear"
+    external_uri_ref = "secret://runtime/external-entity-uri"
+    source_alias = "enterprise-graph"
     name = "EAR FactSheet"
 
     stub_id = graph_engine.ingest_external_entity_stub(
         internal_node_id=internal_node,
         external_id=external_id,
-        external_uri=external_uri,
-        platform=platform,
+        external_uri_ref=external_uri_ref,
+        source_alias=source_alias,
         name=name,
     )
 
     # Verify ExternalEntity node exists
     assert stub_id in graph_engine.graph
     stub_data = graph_engine.graph.nodes[stub_id]
-    assert stub_data["externalSystemId"] == external_id
-    assert stub_data["externalUri"] == external_uri
-    assert stub_data["platform"] == platform
+    assert stub_data["externalUriRef"] == external_uri_ref
+    assert stub_data["sourceAlias"] == source_alias
+    assert "externalSystemId" not in stub_data
+    assert "externalUri" not in stub_data
+    assert external_id not in stub_id
     assert stub_data["name"] == name
 
     # Verify edge exists
@@ -148,49 +174,32 @@ def test_query_rest_union_dedups_local_wins(graph_engine):
     assert merged[0]["state"] == "local-edit"  # local precedence
 
 
-@patch("requests.post")
-def test_execute_federated_sparql(mock_post, graph_engine):
-    """Test executing SPARQL query against mock external HTTP endpoint."""
-    endpoint = "http://example.org/sparql"
+@patch("agent_utilities.mcp.kg_server.get_connection_registry")
+def test_execute_federated_sparql_uses_registered_read_contract(
+    mock_registry, graph_engine
+):
     query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
-
-    # Mock response
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "results": {
-            "bindings": [
-                {
-                    "s": {"value": "http://example.org/s1"},
-                    "p": {"value": "http://example.org/p1"},
-                    "o": {"value": "http://example.org/o1"},
-                }
-            ]
-        }
-    }
-    mock_post.return_value = mock_response
-
-    results = graph_engine.execute_federated_sparql(endpoint, query)
-
-    assert len(results) == 1
-    assert results[0]["s"] == "http://example.org/s1"
-    assert results[0]["p"] == "http://example.org/p1"
-    assert results[0]["o"] == "http://example.org/o1"
-    mock_post.assert_called_once()
-
-
-@patch("agent_utilities.knowledge_graph.orchestration.engine_federation.create_backend")
-def test_execute_federated_lpg(mock_create_backend, graph_engine):
-    """Test executing federated Cypher query against LPG backend."""
-    endpoint = "bolt://neo4j.example.com:7687"
-    query = "MATCH (n) RETURN n LIMIT 5"
-
     mock_backend = MagicMock()
-    mock_backend.execute.return_value = [{"n": {"id": "123", "name": "Test Node"}}]
-    mock_create_backend.return_value = mock_backend
+    mock_backend.execute_read.return_value = [{"s": "subject-1"}]
+    mock_registry.return_value.get_engine.return_value.backend = mock_backend
 
-    results = graph_engine.execute_federated_lpg(endpoint, query)
+    results = graph_engine._execute_federated_connection("ontology-source", query)
 
-    assert len(results) == 1
-    assert results[0]["n"]["id"] == "123"
-    mock_create_backend.assert_called_once_with(uri=endpoint)
-    mock_backend.execute.assert_called_once_with(query, {})
+    assert results == [{"s": "subject-1"}]
+    mock_registry.return_value.get_engine.assert_called_once_with("ontology-source")
+    mock_backend.execute_read.assert_called_once_with(query, {})
+
+
+@patch("agent_utilities.mcp.kg_server.get_connection_registry")
+def test_federated_connection_never_uses_ambiguous_execute(
+    mock_registry, graph_engine
+):
+    mock_backend = MagicMock(spec=["execute"])
+    mock_registry.return_value.get_engine.return_value.backend = mock_backend
+
+    with pytest.raises(RuntimeError, match="Federated graph execution failed"):
+        graph_engine._execute_federated_connection(
+            "external-source", "MATCH (n) RETURN n"
+        )
+
+    mock_backend.execute.assert_not_called()

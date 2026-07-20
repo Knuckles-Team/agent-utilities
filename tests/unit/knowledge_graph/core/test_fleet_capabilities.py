@@ -8,12 +8,33 @@ spawning any MCP servers (the catalog is injected).
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.source_sync import (
     _sync_fleet,
     _write_fleet_nodes,
     derive_capability_synonyms,
     sync_source,
 )
+
+
+@pytest.fixture(autouse=True)
+def _capture_native_graph_slice(monkeypatch: pytest.MonkeyPatch) -> None:
+    def capture(engine, connector, entities, relationships=None, **_kwargs):
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {
+            "status": "success",
+            "write_result": {"nodes": len(entities), "edges": len(relationships or [])},
+        }
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        capture,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
 
 
 class FakeEngine:
@@ -31,6 +52,16 @@ class FakeEngine:
 
     def query_cypher(self, query, params=None):
         return []
+
+    def ingest_external_batch(self, domain, entities, relationships=None):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("type")
+            self.add_node(node_id, node_type, properties=row)
+        for edge in relationships or []:
+            self.link_nodes(edge["source"], edge["target"], edge["type"])
+        return {"status": "success"}
 
 
 CATALOG = {

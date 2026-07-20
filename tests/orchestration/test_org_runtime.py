@@ -1,11 +1,11 @@
 """Tests for the runtime org dynamics (CONCEPT:AU-ORCH.org.recruiter /
 AU-ORCH.org.work-item-dag / AU-AHE.org.role-experience).
 
-Covers the kanban phase state machine, manager-mode classifier, the recruiter's
+Covers the immutable plan model, manager-mode classifier, the recruiter's
 goal→org synthesis + reuse-vs-hire staffing, the Self-Grown experience write-back
 (both directly and through the live FeedbackService branch), and an end-to-end
-work-item DAG run with review, rework, escalation, and experience accrual over
-two runs.
+native WorkItem DAG run with review, rework, escalation, and experience accrual
+over two runs.
 """
 
 from __future__ import annotations
@@ -14,35 +14,37 @@ import json
 
 import pytest
 
+from agent_utilities.orchestration import work_item as wi
 from agent_utilities.orchestration.org_runtime import (
-    InvalidPhaseTransition,
     ManagerMode,
     OrgChart,
-    OrgPhase,
+    OrgPlanItem,
     OrgRuntime,
     Recruiter,
     RoleSpec,
-    WorkItem,
     experience_score,
     infer_manager_mode,
-    is_runnable,
-    is_terminal,
-    kanban_column,
     record_role_experience,
-    validate_transition,
 )
 
 
 # ── Fake engine/backend ───────────────────────────────────────────────────
 class FakeEngine:
-    """Minimal in-memory stand-in for the KG engine (add/get node + link)."""
+    """In-memory double for graph writes and native WorkItem verbs."""
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
         self.edges: list[tuple[str, str, str]] = []
+        self.native_calls: list[str] = []
         self.backend = self  # module reads engine.backend or engine
 
-    def add_node(self, node_id, node_type, properties=None):  # noqa: ANN001
+    def add_node(
+        self,
+        node_id,
+        node_type,
+        properties=None,
+        ephemeral=False,  # noqa: ANN001
+    ):
         d = dict(self.nodes.get(node_id, {}))
         d.update(properties or {})
         d["type"] = node_type
@@ -51,60 +53,176 @@ class FakeEngine:
     def get_node(self, node_id):  # noqa: ANN001
         return dict(self.nodes.get(node_id, {}))
 
-    def link_nodes(self, src, tgt, rel, properties=None):  # noqa: ANN001
+    def link_nodes(
+        self,
+        src,
+        tgt,
+        rel,
+        properties=None,
+        ephemeral=False,  # noqa: ANN001
+    ):
         self.edges.append((src, tgt, rel))
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):  # noqa: ANN001
+        node = self.nodes.get(node_id)
+        if node is None or any(node.get(k) != v for k, v in conditions.items()):
+            return False
+        node.update(updates)
+        return True
+
+    def query_cypher(self, cypher, params=None):  # noqa: ANN001
+        params = params or {}
+        query = " ".join(cypher.split())
+        if query.startswith("MATCH (w:WorkItem {id: $id}) RETURN w.id"):
+            node = self.nodes.get(str(params["id"]))
+            if node is None or node.get("type") != "WorkItem":
+                return []
+            return [
+                {
+                    "id": params["id"],
+                    **{field: node.get(field) for field in wi._FIELDS},
+                }
+            ]
+        if query.startswith("MATCH (w:WorkItem {tenant: $tenant})"):
+            return [
+                {
+                    "c": sum(
+                        node.get("type") == "WorkItem"
+                        and node.get("tenant") == params["tenant"]
+                        and node.get("status") not in params["terminal"]
+                        for node in self.nodes.values()
+                    )
+                }
+            ]
+        raise AssertionError(f"unrecognized query: {query}")
+
+    def claim_work_item(self, request):  # noqa: ANN001
+        self.native_calls.append("claim")
+        node = self.nodes.get(str(request.work_item_id))
+        if node is None or node.get("status") != wi.WorkItemStatus.READY.value:
+            return {
+                "schema_version": "1",
+                "claimed": False,
+                "reason": "not_ready",
+                "work_item_id": None,
+                "kind": None,
+                "payload_ref": None,
+                "lease_holder_ref": None,
+                "lease_epoch": None,
+                "fencing_token": None,
+                "lease_expires_at_ms": None,
+                "attempt": None,
+                "max_attempts": None,
+                "tenant_in_flight": 0,
+                "changed_work_item_ids": [],
+            }
+        attempt = int(node.get("attempt") or 0) + 1
+        epoch = int(node.get("lease_epoch") or 0) + 1
+        node.update(
+            status=wi.WorkItemStatus.LEASED.value,
+            attempt=attempt,
+            lease_owner=request.worker_ref,
+            lease_epoch=epoch,
+            fencing_token=epoch,
+            lease_expires_at=(request.now_ms + request.lease_ms) / 1000.0,
+        )
+        return {
+            "schema_version": "1",
+            "claimed": True,
+            "reason": "claimed",
+            "work_item_id": request.work_item_id,
+            "kind": node.get("kind"),
+            "payload_ref": node.get("payload_ref"),
+            "lease_holder_ref": request.worker_ref,
+            "lease_epoch": epoch,
+            "fencing_token": epoch,
+            "lease_expires_at_ms": request.now_ms + request.lease_ms,
+            "attempt": attempt,
+            "max_attempts": node.get("max_attempts"),
+            "tenant_in_flight": 1,
+            "changed_work_item_ids": [request.work_item_id],
+        }
+
+    @staticmethod
+    def _owns(node, request):  # noqa: ANN001
+        return bool(
+            node
+            and node.get("lease_owner") == request.get("worker_ref")
+            and node.get("lease_epoch") == request.get("expected_epoch")
+            and node.get("fencing_token") == request.get("fencing_token")
+        )
+
+    def renew_work_item_lease(self, request):  # noqa: ANN001
+        self.native_calls.append("renew")
+        node = self.nodes.get(request["work_item_id"])
+        if not self._owns(node, request):
+            return {"renewed": False}
+        node["lease_expires_at"] = request["now_unix"] + request["lease_ttl"]
+        return {"renewed": True}
+
+    def commit_work_item_result(self, request):  # noqa: ANN001
+        self.native_calls.append("commit")
+        node = self.nodes.get(request["work_item_id"])
+        if node is None:
+            return {"status": "missing"}
+        if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
+            return {"status": "noop"}
+        if not self._owns(node, request):
+            return {"status": "fenced"}
+        outcome = request["outcome"]
+        node.update(
+            status=outcome,
+            result_ref=request.get("result_ref"),
+            error_ref=request.get("error_ref"),
+            lease_owner=None,
+            lease_expires_at=None,
+        )
+        if outcome == wi.WorkItemStatus.SUCCEEDED.value:
+            for child_id in node.get("downstream_ids") or []:
+                child = self.nodes[child_id]
+                child["dep_count"] = max(0, int(child.get("dep_count") or 0) - 1)
+                if child["dep_count"] == 0:
+                    child["status"] = wi.WorkItemStatus.READY.value
+        return {"status": "committed"}
+
+    def cancel_work_item(self, request):  # noqa: ANN001
+        self.native_calls.append("cancel")
+        node = self.nodes.get(request["work_item_id"])
+        if node is None:
+            return {"status": "missing"}
+        if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
+            return {"status": "noop"}
+        node.update(status=wi.WorkItemStatus.CANCELLED.value)
+        return {"status": "cancelled"}
 
 
 # ── Phase state machine ────────────────────────────────────────────────────
-def test_phase_transitions_and_projections():
-    validate_transition(None, OrgPhase.READY)  # initial creation ok
-    validate_transition(OrgPhase.READY, OrgPhase.READY)  # idempotent ok
-    validate_transition(OrgPhase.READY, OrgPhase.RUNNING)
-    validate_transition(OrgPhase.RUNNING, OrgPhase.AWAITING_REVIEW)
-    validate_transition(OrgPhase.AWAITING_REVIEW, OrgPhase.APPROVED)
-    with pytest.raises(InvalidPhaseTransition):
-        validate_transition(OrgPhase.APPROVED, OrgPhase.RUNNING)
-    with pytest.raises(InvalidPhaseTransition):
-        validate_transition(OrgPhase.QUEUED, OrgPhase.APPROVED)
-
-
-def test_phase_projections():
-    assert kanban_column(OrgPhase.QUEUED) == "todo"
-    assert kanban_column(OrgPhase.RUNNING) == "in_progress"
-    assert kanban_column(OrgPhase.AWAITING_REVIEW) == "in_review"
-    assert kanban_column(OrgPhase.APPROVED) == "done"
-    assert is_runnable(OrgPhase.READY)
-    assert is_runnable(OrgPhase.READY_FOR_REWORK)
-    assert not is_runnable(OrgPhase.RUNNING)
-    assert is_terminal(OrgPhase.APPROVED)
-    assert not is_terminal(OrgPhase.ESCALATED)
-
-
-def test_work_item_transition_guard():
-    item = WorkItem("wi_1", "t", "d", owner_role="r")
-    item.transition(OrgPhase.READY)
-    item.transition(OrgPhase.RUNNING)
-    with pytest.raises(InvalidPhaseTransition):
-        item.transition(OrgPhase.QUEUED)
+def test_org_plan_item_is_immutable_and_has_no_lifecycle_state():
+    item = OrgPlanItem("plan_1", "t", "d", owner_role="r")
+    assert "status" not in item.__dataclass_fields__
+    assert "phase" not in item.__dataclass_fields__
+    assert not hasattr(item, "transition")
+    with pytest.raises((AttributeError, TypeError)):
+        item.owner_role = "other"  # type: ignore[misc]
 
 
 # ── Manager mode classifier ────────────────────────────────────────────────
 def test_infer_manager_mode_priority():
-    execute = WorkItem("a", "t", "d", owner_role="r", role_type="worker")
+    execute = OrgPlanItem("a", "t", "d", owner_role="r", role_type="worker")
     assert infer_manager_mode(execute) is ManagerMode.EXECUTE
 
-    delegate = WorkItem("b", "t", "d", owner_role="r", role_type="coordinator")
+    delegate = OrgPlanItem("b", "t", "d", owner_role="r", role_type="coordinator")
     assert infer_manager_mode(delegate) is ManagerMode.DELEGATE
 
-    integrate = WorkItem(
-        "c", "t", "d", owner_role="r", role_type="coordinator", dependencies=["a"]
+    integrate = OrgPlanItem(
+        "c", "t", "d", owner_role="r", role_type="coordinator", dependencies=("a",)
     )
     assert infer_manager_mode(integrate) is ManagerMode.INTEGRATE
 
-    rework = WorkItem("d", "t", "d", owner_role="r", phase=OrgPhase.READY_FOR_REWORK)
-    assert infer_manager_mode(rework) is ManagerMode.REWORK
+    rework = OrgPlanItem("d", "t", "d", owner_role="r")
+    assert infer_manager_mode(rework, rework_count=1) is ManagerMode.REWORK
 
-    review = WorkItem("e", "t", "d", owner_role="r")
+    review = OrgPlanItem("e", "t", "d", owner_role="r")
     assert infer_manager_mode(review, is_review_entry=True) is ManagerMode.REVIEW
 
 
@@ -220,7 +338,13 @@ async def test_org_run_happy_path_dag_and_experience():
     # goal without test/qa keywords → no reviewer gate; research+build workers.
     result = await runtime.run("research and build a data pipeline")
     assert result["status"] == "completed"
-    assert result["approved"] == result["total"]
+    assert result["succeeded"] == result["total"]
+    assert {"claim", "renew", "commit"} <= set(eng.native_calls)
+    native_rows = [
+        node for node in eng.nodes.values() if node.get("type") == "WorkItem"
+    ]
+    assert native_rows
+    assert all("workItemPhase" not in node for node in native_rows)
     # coordinator ran AFTER its worker dependencies (INTEGRATE order).
     coord_idx = runtime.calls.index("project_coordinator")
     worker_idxs = [i for i, c in enumerate(runtime.calls) if c != "project_coordinator"]
@@ -249,8 +373,8 @@ async def test_org_run_review_rework_then_escalation():
         responses={"worker": "deliverable", "reviewer": "REWORK: not good enough"},
         escalation_cb=esc_cb,
     )
-    item = WorkItem(
-        "wi_worker",
+    item = OrgPlanItem(
+        "plan_worker",
         "do work",
         "the work",
         owner_role="worker",
@@ -265,11 +389,12 @@ async def test_org_run_review_rework_then_escalation():
             RoleSpec("reviewer", "Reviewer", "review", role_type="reviewer"),
         ],
     )
-    await runtime.run("g", work_items=[item], chart=chart)
+    result = await runtime.run("g", plan_items=[item], chart=chart)
     # reviewer kept rejecting → escalated once → human approved.
     assert len(escalations) == 1
-    assert item.phase is OrgPhase.APPROVED
-    assert item.rework_count >= 1
+    assert result["plan_items"][0]["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert result["plan_items"][0]["rework_count"] >= 1
+    assert eng.native_calls.count("commit") == 1
 
 
 @pytest.mark.asyncio
@@ -282,15 +407,16 @@ async def test_org_run_deadlock_escalates():
         return None
 
     runtime = _StubRuntime(eng, responses={}, escalation_cb=esc_cb)
-    blocked = WorkItem(
-        "wi_b", "b", "b", owner_role="worker", dependencies=["missing_dep"]
+    blocked = OrgPlanItem(
+        "plan_b", "b", "b", owner_role="worker", dependencies=("missing_dep",)
     )
     chart = OrgChart(
         goal="g", company_id="__c__", roles=[RoleSpec("worker", "Worker", "do")]
     )
-    await runtime.run("g", work_items=[blocked], chart=chart)
+    result = await runtime.run("g", plan_items=[blocked], chart=chart)
     assert escalations and "dependencies" in escalations[0]
-    assert blocked.phase is OrgPhase.ESCALATED
+    assert result["plan_items"][0]["status"] == wi.WorkItemStatus.CANCELLED.value
+    assert "cancel" in eng.native_calls
 
 
 # ── Surface parity: both actions reachable on MCP + REST ───────────────────
@@ -298,7 +424,7 @@ def test_org_actions_in_manifest_and_rest_routes():
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
 
     org_actions = {
-        op["action"] for op in GRAPHOS_ACTIONS if op["tool"] == "graph_orchestrate"
+        op["action"] for op in GRAPHOS_ACTIONS if op["tool"] == "graph_agents"
     }
     assert {"synthesize_org", "run_org"} <= org_actions
 
@@ -313,6 +439,6 @@ def test_org_actions_in_manifest_and_rest_routes():
             self.paths.add(path)
 
     app = _App()
+    kg_server.ensure_tools_registered()
     kg_server._mount_rest_routes(app)
-    assert "/graph/orchestrate/synthesize-org" in app.paths
-    assert "/graph/orchestrate/run-org" in app.paths
+    assert "/graph/agents" in app.paths

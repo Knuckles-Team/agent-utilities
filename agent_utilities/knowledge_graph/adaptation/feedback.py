@@ -1,6 +1,4 @@
 #!/usr/bin/python
-from __future__ import annotations
-
 """Human-correction → rule/outcome/eval feedback loop (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
 The compounding layer the "Company Brain" was missing: a single entry point where
@@ -19,6 +17,8 @@ persistent future behaviour. Three correction types:
 Dependencies are injected so the service is unit-testable without a live engine;
 :meth:`from_engine` wires it from a running :class:`IntelligenceGraphEngine`.
 """
+
+from __future__ import annotations
 
 import logging
 import time
@@ -308,7 +308,9 @@ class FeedbackService:
                 )
                 created.append(case_id)
             except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug("reads_avoided eval case failed: %s", exc)
+                logger.debug(
+                    "reads_avoided eval case failed (%s)", type(exc).__name__
+                )
         return CorrectionResult(
             "reads_avoided",
             capability_id,
@@ -345,7 +347,7 @@ class FeedbackService:
         ``corrected_value`` may carry JSON/dict ``{success, reward, expected, observed,
         query}`` (the on-the-wire form from ``graph_feedback``).
         """
-        s, r, exp, obs, q = success, reward, expected, observed, query
+        s, r, exp, _obs, q = success, reward, expected, observed, query
         if corrected_value is not None:
             payload = corrected_value
             if isinstance(payload, str):
@@ -363,7 +365,7 @@ class FeedbackService:
                     except (TypeError, ValueError):
                         r = None
                 exp = str(payload.get("expected", exp) or exp)
-                obs = str(payload.get("observed", obs) or obs)
+                _obs = str(payload.get("observed", _obs) or _obs)
                 q = str(payload.get("query", q) or q)
 
         if r is None:
@@ -379,7 +381,9 @@ class FeedbackService:
 
                 record_model_outcome(action_id, reward=r)
             except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("model-route outcome update failed: %s", exc)
+                logger.debug(
+                    "model-route outcome update failed (%s)", type(exc).__name__
+                )
         # CONCEPT:AU-OS.governance.autonomy-change-proposer — a "trust:<actor>:<kind>" outcome trains the autonomy ramp
         # so a consistently-correct actor earns wider governance scope for that kind.
         elif action_id.startswith("trust:"):
@@ -389,7 +393,7 @@ class FeedbackService:
                 _, actor, kind = (action_id.split(":", 2) + ["", ""])[:3]
                 record_trust(self.backend, actor, kind, success=s)
             except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("trust outcome update failed: %s", exc)
+                logger.debug("trust outcome update failed (%s)", type(exc).__name__)
         # CONCEPT:AU-AHE.org.role-experience — a "role_experience:<role_id>" outcome
         # accrues into the owning :Employee's experience profile (successes/
         # partials/failures + score + seniority), so the org recruiter reuses
@@ -426,7 +430,10 @@ class FeedbackService:
                     domains=domains,
                 )
             except Exception as exc:  # pragma: no cover - defensive
-                logger.debug("role experience outcome update failed: %s", exc)
+                logger.debug(
+                    "role experience outcome update failed (%s)",
+                    type(exc).__name__,
+                )
         if (
             q
             and exp
@@ -434,28 +441,37 @@ class FeedbackService:
             and hasattr(self.eval_corpus, "add_case")
         ):
             try:
+                from agent_utilities.harness.optimization_backend import (
+                    opaque_program_reference,
+                )
+
                 # CONCEPT:AU-AHE.harness.when-outcome-names-agent — when the outcome names the agent that produced it,
-                # tag the eval case ``agent:<id>`` so the per-agent trainset
+                # tag the eval case with an opaque agent reference so the per-agent trainset
                 # (build_agent_trainset) can pool THIS agent's real metrics for its own
-                # DSPy optimization (attribution by agent, not just trace signature).
+                # native program optimization (attribution by agent, not just trace signature).
                 tags = ["action_outcome"]
+                metadata = None
                 if agent_id:
-                    tags.append(f"agent:{agent_id}")
+                    agent_ref = opaque_program_reference("agent", agent_id)
+                    tags.append(f"agent_ref:{agent_ref}")
+                    metadata = {"agent_ref": agent_ref}
                 case_id = self.eval_corpus.add_case(
                     query=q,
                     expected_output=exp,
                     tags=tags,
                     reason=reason or "action outcome",
-                    metadata={"agent_id": agent_id} if agent_id else None,
+                    metadata=metadata,
                 )
                 created.append(case_id)
             except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug("action_outcome eval case failed: %s", exc)
+                logger.debug(
+                    "action_outcome eval case failed (%s)", type(exc).__name__
+                )
         return CorrectionResult(
             "action_outcome",
             action_id,
             outcome.applied,
-            f"reward={r:.2f} success={s}" + (f" observed={obs[:40]}" if obs else ""),
+            f"reward={r:.2f} success={s}",
             created,
         )
 
@@ -464,13 +480,17 @@ class FeedbackService:
         """The eval-corpus slice attributed to one agent (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
 
         The per-agent attribution the hardening loop optimizes against: every case the
-        agent's own ``record_action_outcome`` calls tagged ``agent:<id>``. These ARE the
+        agent's own ``record_action_outcome`` calls tagged by opaque agent ref. These ARE the
         agent's measured executions (expected vs the goal that was reached), so they double
         as the training signal and the held-out scoring slice for its prompt.
         """
         if self.eval_corpus is None or not hasattr(self.eval_corpus, "load_cases"):
             return []
-        tag = f"agent:{agent_id}"
+        from agent_utilities.harness.optimization_backend import (
+            opaque_program_reference,
+        )
+
+        tag = f"agent_ref:{opaque_program_reference('agent', agent_id)}"
         out: list[Any] = []
         try:
             for case in self.eval_corpus.load_cases():
@@ -479,41 +499,76 @@ class FeedbackService:
                     if len(out) >= limit:
                         break
         except Exception as exc:  # pragma: no cover - corpus optional
-            logger.debug("agent_eval_cases failed: %s", exc)
+            logger.debug("agent_eval_cases failed (%s)", type(exc).__name__)
         return out
 
     def build_agent_trainset(self, agent_id: str, *, limit: int = 500) -> list[Any]:
-        """Pool an agent's outcomes into a DSPy trainset (CONCEPT:AU-AHE.harness.when-outcome-names-agent).
+        """Pool an agent's outcomes into a native program trainset.
 
-        Turns :meth:`agent_eval_cases` into ``dspy.Example(context, task) -> response``
-        rows (``task`` = the query, ``response`` = the outcome that was reached), so the
-        DSPy optimizer for THIS agent is steered by ITS real execution metrics. Degrades to
-        plain dicts when DSPy is not importable, so the caller (build_hardened_prompt) works
-        offline.
+        Returns plain provider-neutral rows where ``task`` is the query and ``response``
+        is the reached outcome, so this agent's native optimizer is steered by its own
+        execution metrics.
         """
         cases = self.agent_eval_cases(agent_id, limit=limit)
-        try:
-            import dspy
+        return [
+            {
+                "context": "",
+                "task": getattr(c, "query", "") or "",
+                "response": getattr(c, "expected_output", "") or "",
+                "example_ref": str(
+                    (getattr(c, "metadata", {}) or {}).get("program_example_ref")
+                    or ""
+                ),
+            }
+            for c in cases
+            if getattr(c, "expected_output", "")
+            and (getattr(c, "metadata", {}) or {}).get("program_example_ref")
+        ]
 
-            return [
-                dspy.Example(
-                    context="",
-                    task=getattr(c, "query", "") or "",
-                    response=getattr(c, "expected_output", "") or "",
-                ).with_inputs("context", "task")
-                for c in cases
-                if getattr(c, "expected_output", "")
-            ]
-        except ImportError:
-            return [
-                {
+    def resolve_program_demonstrations(
+        self, references: list[str] | tuple[str, ...], *, limit: int = 5_000
+    ) -> list[dict[str, str]]:
+        """Resolve governed example references for one execution only.
+
+        The returned task/response content is never embedded in an optimizer,
+        proposal, prompt blueprint, report, or graph node by this method. Callers
+        may use it transiently while constructing the model context, then discard
+        it. Unknown, duplicate, or non-opaque references fail closed.
+        """
+        from agent_utilities.harness.optimization_backend import (
+            is_opaque_program_reference,
+        )
+
+        requested = tuple(dict.fromkeys(str(value) for value in references))
+        if not requested or len(requested) > limit:
+            return []
+        if any(
+            not is_opaque_program_reference(value, namespace="example")
+            for value in requested
+        ):
+            return []
+        if self.eval_corpus is None or not hasattr(self.eval_corpus, "load_cases"):
+            return []
+        resolved: dict[str, dict[str, str]] = {}
+        try:
+            for case in self.eval_corpus.load_cases():
+                metadata = getattr(case, "metadata", {}) or {}
+                reference = str(metadata.get("program_example_ref") or "")
+                if reference not in requested:
+                    continue
+                resolved[reference] = {
                     "context": "",
-                    "task": getattr(c, "query", "") or "",
-                    "response": getattr(c, "expected_output", "") or "",
+                    "task": str(getattr(case, "query", "") or ""),
+                    "response": str(getattr(case, "expected_output", "") or ""),
                 }
-                for c in cases
-                if getattr(c, "expected_output", "")
-            ]
+                if len(resolved) == len(requested):
+                    break
+        except Exception as exc:  # pragma: no cover - governed store unavailable
+            logger.debug(
+                "program demonstration resolution failed (%s)", type(exc).__name__
+            )
+            return []
+        return [resolved[reference] for reference in requested if reference in resolved]
 
     # ------------------------------------------------------------------
     def record_gotcha(
@@ -543,7 +598,7 @@ class FeedbackService:
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         self.backend.add_node(
             gid,
-            type="Gotcha",
+            node_type="Gotcha",
             path=path,
             note=note.strip(),
             severity=severity,
@@ -562,10 +617,10 @@ class FeedbackService:
                 "rule", target_id, False, "no backend to persist rule"
             )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        corr_id = f"correction:{uuid.uuid4().hex[:12]}"
+        corr_id = f"correction:{uuid.uuid4().hex}"
         self.backend.add_node(
             corr_id,
-            type="correction",
+            node_type="correction",
             target=target_id,
             reason=reason,
             corrected_value=str(corrected_value or ""),
@@ -579,11 +634,11 @@ class FeedbackService:
                 self.backend.add_edge(corr_id, target_id, rel_type="corrects")
             except Exception as exc:  # pragma: no cover
                 logger.debug("corrects edge failed: %s", exc)
-        rule_id = f"rule:{uuid.uuid4().hex[:12]}"
+        rule_id = f"rule:{uuid.uuid4().hex}"
         rule_type = _RULE_TYPE.get(rule_scope, "governance_rule")
         self.backend.add_node(
             rule_id,
-            type=rule_type,
+            node_type=rule_type,
             kind=rule_kind,
             target=target_id,
             weight=0.5,

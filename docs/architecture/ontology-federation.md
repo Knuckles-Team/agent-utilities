@@ -47,12 +47,14 @@ flowchart TD
    `.ttl` file(s) (one package may carry several, e.g. `emerald_exchange/ontology/` has
    `quant.ttl`, `trading.ttl`, `banking.ttl`) plus a data-only `__init__.py`.
 
-2. **Discovery.** `knowledge_graph/core/ontology_federation.py` resolves every
-   `agent_utilities.ontology_providers` entry-point to its data dir via `iter_provider_dirs`
-   (the same resolver skills/prompts use) and flattens to each concrete `*.ttl` (+ `shapes/*.ttl`):
-   - `discover_provider_ontologies()` — live entry-point discovery.
-   - `resolve_provider_ontologies()` — XDG-first (the unified tree written by
-     `agent-utilities install`), falling back to live discovery.
+2. **Resolution.** `knowledge_graph/core/ontology_federation.py` resolves every
+   `agent_utilities.ontology_providers` entry-point through its owning distribution
+   manifest, validates the bounded regular-file source, and flattens each concrete
+   `*.ttl` plus `shapes/*.ttl`. `resolve_provider_ontologies()` is the single authority
+   for publishing, OWL reasoning, lifecycle sync, import resolution, and checks. It
+   selects an XDG generation only when its registration and content manifest exactly
+   match the current installed source. There is no second live-package discovery
+   authority.
 
 3. **The three load points** all consume that discovery so a federated module behaves exactly
    like a bundled one:
@@ -66,8 +68,9 @@ flowchart TD
    migrated domain has one entry here.
 
 5. **Runtime.** `graph_ontology action=sync_packages` (MCP + REST) drives
-   `OntologyLifecycle.load` over the discovered providers; uninstalling a package removes its
-   contribution for free via `entry_points()`.
+   `OntologyLifecycle.load` over the same validated resolution. Uninstalling a package
+   immediately removes its contribution from runtime visibility; the next unified
+   install safely prunes only its validly marked provider root.
 
 ## What has been migrated
 

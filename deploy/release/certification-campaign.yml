@@ -1,0 +1,88 @@
+apiVersion: graphos.io/v1
+kind: CertificationCampaign
+campaignVersion: 1
+id: million-agent-production-v1
+scale: 1.0
+durationSeconds: 86400
+metricsIntervalSeconds: 15
+minimumSampleCoverage: 0.95
+targets:
+  rpoSeconds: 60
+  rtoSeconds: 300
+  maximumQueueDepth: 10000
+  gatewayP99Seconds: 2
+  engineP99Seconds: 0.03
+  maximumGatewayErrorRatio: 0.01
+  maximumPodRestartsFiveMinutes: 0
+scenarios:
+  - id: identity-tls-policy-trace
+    atFraction: 0.03
+    timeoutSeconds: 1200
+    invariants:
+      - unverified-request-rejected
+      - workload-mtls-verified
+      - stale-policy-rejected
+      - opaque-trace-visible
+      - trace-content-absent
+  - id: kill-commit-phases
+    atFraction: 0.05
+    timeoutSeconds: 1800
+    phases:
+      - before-proposal
+      - after-proposal-before-commit
+      - after-authoritative-commit
+      - before-projection-publication
+      - before-acknowledgement
+    invariants: [no-lost-write, no-partial-domain-state, idempotent-retry]
+  - id: worker-process-loss
+    atFraction: 0.10
+    timeoutSeconds: 900
+    invariants: [lease-reclaimed, stale-writer-fenced, no-duplicate-effect]
+  - id: raft-leader-loss
+    atFraction: 0.15
+    timeoutSeconds: 900
+    invariants: [quorum-preserved, placement-epoch-advanced, no-acknowledged-loss]
+  - id: broker-leader-loss
+    atFraction: 0.20
+    timeoutSeconds: 900
+    invariants: [consumer-recovered, no-message-loss, no-duplicate-effect]
+  - id: node-loss
+    atFraction: 0.25
+    timeoutSeconds: 1200
+    invariants: [workloads-rescheduled, quorum-preserved, pvc-reattached]
+  - id: zone-isolation
+    atFraction: 0.30
+    timeoutSeconds: 1800
+    invariants: [surviving-zones-serve, no-cross-tenant-leak, recovery-inside-rto]
+  - id: broker-rebalance
+    atFraction: 0.35
+    timeoutSeconds: 1200
+    invariants: [session-order-preserved, partition-expansion-complete, no-message-loss]
+  - id: online-reshard
+    atFraction: 0.42
+    timeoutSeconds: 3600
+    invariants: [epoch-redirect-observed, source-drained, target-complete]
+  - id: atomic-exact-release-cutover
+    atFraction: 0.50
+    timeoutSeconds: 7200
+    invariants: [atomic-cutover, no-write-gap, exact-rollback-point-preserved]
+  - id: one-time-index-migration
+    atFraction: 0.60
+    timeoutSeconds: 3600
+    invariants: [source-snapshot-verified, completeness-watermark-reached, cutover-atomic]
+  - id: one-time-ontology-migration
+    atFraction: 0.68
+    timeoutSeconds: 3600
+    invariants: [shape-gate-enforced, single-reader-version, migration-cursor-durable]
+  - id: backup-restore
+    atFraction: 0.75
+    timeoutSeconds: 7200
+    invariants: [backup-digest-verified, restored-health-probe, restored-cursors-consistent]
+  - id: regional-recovery
+    atFraction: 0.82
+    timeoutSeconds: 7200
+    invariants: [traffic-cutover, rpo-met, rto-met]
+  - id: policy-and-deletion-propagation
+    atFraction: 0.90
+    timeoutSeconds: 3600
+    invariants: [stale-policy-rejected, deletion-propagated, cache-invalidated]

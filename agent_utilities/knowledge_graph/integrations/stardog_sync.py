@@ -21,12 +21,26 @@ ServiceNow, …) on its own.
 
 import logging
 from typing import Any
+from urllib.parse import urlsplit
 
 from ..backends.sparql.source_partition import graph_uri_for_source, source_of
 
 logger = logging.getLogger(__name__)
 
 _NS = "http://agent-utilities.dev/kg#"
+
+
+def _sparql_iri(value: object) -> str:
+    rendered = str(value or "")
+    parsed = urlsplit(rendered)
+    if (
+        not 1 <= len(rendered) <= 2_048
+        or parsed.scheme not in {"http", "https", "urn"}
+        or any(character.isspace() or character in '<>"{}|^`\\' for character in rendered)
+        or any(ord(character) < 32 or ord(character) == 127 for character in rendered)
+    ):
+        raise ValueError("SPARQL IRI is invalid")
+    return f"<{rendered}>"
 
 
 def push_to_stardog(
@@ -65,18 +79,22 @@ def push_to_stardog(
             nodes += 1
             _bump(graph_uri_for_source(src) if src else "default", "nodes")
         except Exception as exc:  # noqa: BLE001
-            logger.debug("push_to_stardog: node %s failed: %s", node_id, exc)
+            logger.debug(
+                "push_to_stardog: node failed: error_type=%s", type(exc).__name__
+            )
 
     for src_id, tgt_id, rel, props in _iter_source_edges(source_engine):
         src = source_of(props)
         if allow is not None and src not in allow:
             continue
         try:
-            backend.add_edge(src_id, tgt_id, {"type": rel, **props})
+            backend.add_edge(src_id, tgt_id, {"relationship": rel, **props})
             edges += 1
             _bump(graph_uri_for_source(src) if src else "default", "edges")
         except Exception as exc:  # noqa: BLE001
-            logger.debug("push_to_stardog: edge %s->%s failed: %s", src_id, tgt_id, exc)
+            logger.debug(
+                "push_to_stardog: edge failed: error_type=%s", type(exc).__name__
+            )
 
     logger.info(
         "push_to_stardog: %d nodes, %d edges across %d graph(s)",
@@ -110,7 +128,9 @@ def pull_from_stardog(
     """
     if source and not graph_uri:
         graph_uri = graph_uri_for_source(source)
-    g_open = f"GRAPH <{graph_uri}> {{ " if graph_uri else ""
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100_000:
+        raise ValueError("limit must be an integer between 1 and 100000")
+    g_open = f"GRAPH {_sparql_iri(graph_uri)} {{ " if graph_uri else ""
     g_close = " }" if graph_uri else ""
 
     # 1. Individuals + their type.
@@ -130,7 +150,7 @@ def pull_from_stardog(
         # 2. Literal properties for this individual.
         props: dict[str, Any] = {}
         for pr in backend.execute_sparql_query(
-            f"SELECT ?p ?o WHERE {{ {g_open}<{s}> ?p ?o .{g_close} "
+            f"SELECT ?p ?o WHERE {{ {g_open}{_sparql_iri(s)} ?p ?o .{g_close} "
             f"FILTER(isLiteral(?o)) FILTER(?p != rdf:type) }}"
         ):
             p, o = pr.get("p"), pr.get("o")
@@ -140,7 +160,9 @@ def pull_from_stardog(
             target_engine.add_node(node_id, node_type, props)
             nodes += 1
         except Exception as exc:  # noqa: BLE001
-            logger.debug("pull_from_stardog: node %s failed: %s", node_id, exc)
+            logger.debug(
+                "pull_from_stardog: node failed: error_type=%s", type(exc).__name__
+            )
 
     # 3. Object-property edges between our individuals.
     for er in backend.execute_sparql_query(
@@ -158,7 +180,9 @@ def pull_from_stardog(
             target_engine.link_nodes(sid, oid, rel)
             edges += 1
         except Exception as exc:  # noqa: BLE001
-            logger.debug("pull_from_stardog: edge %s->%s failed: %s", sid, oid, exc)
+            logger.debug(
+                "pull_from_stardog: edge failed: error_type=%s", type(exc).__name__
+            )
 
     logger.info("pull_from_stardog: ingested %d nodes, %d edges", nodes, edges)
     return {"status": "ok", "nodes": nodes, "edges": edges, "graph": graph_uri}

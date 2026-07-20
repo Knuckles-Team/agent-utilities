@@ -1,0 +1,205 @@
+connector: home-assistant-agent
+ontology_source: homeassistant
+schema_version: '1'
+resources:
+- name: Area
+  label: Area
+  id_prefix: area
+  relations: []
+- name: Device
+  label: Home Assistant Device
+  id_prefix: device
+  relations: []
+- name: Entity
+  label: Home Assistant Entity
+  id_prefix: entity
+  relations:
+  - name: onDevice
+    label: on device
+    target: Device
+    lpg_rel_type: ''
+- name: HomeAssistantService
+  label: Home Assistant Service
+  id_prefix: homeassistantservice
+  relations:
+  - name: actsOnEntity
+    label: acts on entity
+    target: Entity
+    lpg_rel_type: ''
+- name: LogbookEntry
+  label: Logbook Entry
+  id_prefix: logbookentry
+  relations:
+  - name: aboutEntity
+    label: about entity
+    target: Entity
+    lpg_rel_type: ''
+- name: SensorReading
+  label: Sensor Reading
+  id_prefix: sensorreading
+  relations:
+  - name: readingOf
+    label: reading of
+    target: Entity
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: homeassistant-states.updated
+  resource: home_entity
+  description: "Watermark event for 'homeassistant-states' \u2014 advances on last_updated (mcp_source_presets.json)."
+identity:
+  id_field:
+    home_entity: entity_id
+  title_field:
+    home_entity: entity_id
+  text_field:
+    home_entity: state
+  updated_field:
+    home_entity: last_updated
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Area:
+    ontology_class: null
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+  Device:
+    ontology_class: null
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+  Entity:
+    ontology_class: null
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+  HomeAssistantService:
+    ontology_class: System
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+  LogbookEntry:
+    ontology_class: null
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+  SensorReading:
+    ontology_class: null
+    fields:
+      areaId: xsd:string
+      deviceClass: xsd:string
+      deviceId: xsd:string
+      entityId: xsd:string
+      friendlyName: xsd:string
+      measuredAt: xsd:dateTime
+      platform: xsd:string
+      serviceDomain: xsd:string
+      state: xsd:string
+      unitOfMeasurement: xsd:string
+sync:
+- preset: homeassistant-states
+  server: home-assistant-agent
+  tool: home_assistant_states
+  action: list_states
+  records_path: ''
+  id_field: entity_id
+  title_field: entity_id
+  text_field: state
+  updated_field: last_updated
+  pagination: null
+  doc_type: home_entity
+  tool_schema_sha256: 51b7be8e26d9ef60091d57fdea46e78effd16d13c4fa828e95c4d2cc8ca402c5
+  raw:
+    server: home-assistant-agent
+    tool: home_assistant_states
+    action: list_states
+    records_path: ''
+    id_field: entity_id
+    title_field: entity_id
+    text_field: state
+    updated_field: last_updated
+    doc_type: home_entity
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - home_assistant_agent/connectors/mcp_source_presets.json
+  - home_assistant_agent/connectors/tool_schema_fingerprints.json
+  - home_assistant_agent/ontology/homeassistant.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 31676ad6dbe7675fbd4c567e1a6bef267cd2af5f59c0b5dfe8fd3ea3a3611fec
+    triple_count: 69
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: KEhUkxi8U8E9-L-T6xqWgyOpwxMbDtgUft24VYygNaFJt7RxXKW0oVeef25IL3hYgRRUyeExAnaT2MjyhUahCg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'inArea' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Area.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Device.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Entity.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HomeAssistantService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.LogbookEntry.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SensorReading.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

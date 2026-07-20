@@ -134,7 +134,7 @@ class CoordinationProtocol(BaseModel):
         timeout_seconds: Max wall-clock time for coordination.
     """
 
-    protocol_id: str = Field(default_factory=lambda: f"proto:{uuid.uuid4().hex[:8]}")
+    protocol_id: str = Field(default_factory=lambda: f"proto:{uuid.uuid4().hex}")
     protocol_type: ProtocolType = ProtocolType.DELEGATION
     name: str = ""
     min_agents: int = 1
@@ -470,7 +470,7 @@ class CoordinationLayer:
         if not self.engine or not self.engine.backend:
             return None
 
-        trace_id = f"coord_trace:{uuid.uuid4().hex[:8]}"
+        trace_id = f"coord_trace:{uuid.uuid4().hex}"
         try:
             props = {
                 "id": trace_id,

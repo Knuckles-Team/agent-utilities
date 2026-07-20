@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/connector-bundle-catalog-v1.json",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"
+    },
+    "connector": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "catalogVersion",
+    "membershipDigest",
+    "entryCount",
+    "entries"
+  ],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "ConnectorBundleCatalog"},
+    "catalogVersion": {"const": 1},
+    "membershipDigest": {"$ref": "#/$defs/digest"},
+    "entryCount": {"const": 65},
+    "entries": {
+      "type": "array",
+      "minItems": 65,
+      "maxItems": 65,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "connector",
+          "manifestDigest",
+          "certificationDigest",
+          "bundleDigest",
+          "artifactCount",
+          "sourcePresetCount"
+        ],
+        "properties": {
+          "connector": {"$ref": "#/$defs/connector"},
+          "manifestDigest": {"$ref": "#/$defs/digest"},
+          "certificationDigest": {"$ref": "#/$defs/digest"},
+          "bundleDigest": {"$ref": "#/$defs/digest"},
+          "artifactCount": {"type": "integer", "minimum": 1, "maximum": 4096},
+          "sourcePresetCount": {"type": "integer", "minimum": 0, "maximum": 4096}
+        }
+      }
+    }
+  }
+}

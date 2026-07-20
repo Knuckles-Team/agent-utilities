@@ -7,6 +7,7 @@ import asyncio
 import pytest
 from fastmcp import FastMCP
 
+from agent_utilities.mcp.action_dispatch import is_destructive_action
 from agent_utilities.mcp.verbose_tools import (
     VALID_TOOL_MODES,
     _build_params_json_tool,
@@ -14,8 +15,8 @@ from agent_utilities.mcp.verbose_tools import (
     _camel_to_snake,
     _derive_domains,
     _domain_methods,
-    _is_destructive,
     _tool_prefix,
+    gated_tool_names,
     register_verbose_tools,
     tool_mode,
 )
@@ -92,9 +93,9 @@ def test_derive_domains_camelcase_boundary():
 
 
 # --- tool_mode knob ---------------------------------------------------------
-def test_tool_mode_default_condensed(monkeypatch):
+def test_tool_mode_default_intent(monkeypatch):
     monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
-    assert tool_mode() == "condensed"
+    assert tool_mode() == "intent"
 
 
 @pytest.mark.parametrize("mode", VALID_TOOL_MODES)
@@ -105,7 +106,7 @@ def test_tool_mode_valid_values(monkeypatch, mode):
 
 def test_tool_mode_invalid_falls_back(monkeypatch):
     monkeypatch.setenv("MCP_TOOL_MODE", "bogus")
-    assert tool_mode() == "condensed"
+    assert tool_mode() == "intent"
 
 
 # --- introspection (params_json) tier ---------------------------------------
@@ -271,10 +272,10 @@ class _FakeCtx:
 
 
 def test_is_destructive_detection():
-    assert _is_destructive("delete_record", None) is True
-    assert _is_destructive("get_record", None) is False
-    assert _is_destructive("get_record", {"http": "DELETE"}) is True
-    assert _is_destructive("delete_record", {"destructive": False}) is False  # explicit
+    assert is_destructive_action("delete_record", None) is True
+    assert is_destructive_action("get_record", None) is False
+    assert is_destructive_action("get_record", {"http": "DELETE"}) is True
+    assert is_destructive_action("delete_record", {"destructive": False}) is False
 
 
 def test_destructive_params_json_tool_confirms():
@@ -289,9 +290,9 @@ def test_destructive_params_json_tool_confirms():
     # accepted -> dispatched
     accepted = asyncio.run(_run(_FakeCtx("accept")))
     assert accepted == {"deleted": {"id": "x"}}
-    # headless (ctx None) -> allowed by default
+    # Missing context cannot authorize a destructive operation.
     headless = asyncio.run(_run(None))
-    assert headless == {"deleted": {"id": "x"}}
+    assert headless == {"cancelled": True, "operation": "delete_record"}
 
 
 def test_destructive_typed_tool_confirms():
@@ -329,8 +330,8 @@ def _surface_module():
     return mod
 
 
-def test_surface_condensed_via_tools_module(monkeypatch):
-    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)  # condensed default
+def test_surface_intent_default_via_tools_module(monkeypatch):
+    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
     mcp = FastMCP("t")
     tags = register_tool_surface(
         mcp,
@@ -342,7 +343,8 @@ def test_surface_condensed_via_tools_module(monkeypatch):
     assert set(tags) == {"cmdb", "change_management"}
     names = {t.name for t in _tools_list(mcp)}
     assert "svc_cmdb" in names
-    assert "servicenow_get_cmdb_instance" not in names  # no verbose in condensed
+    assert "svc_cmdb" in gated_tool_names(mcp)
+    assert "servicenow_get_cmdb_instance" not in names  # no verbose in intent
 
 
 def test_surface_env_var_derivation_gates(monkeypatch):
@@ -373,6 +375,41 @@ def test_surface_both_adds_verbose(monkeypatch):
     names = {t.name for t in _tools_list(mcp)}
     assert "svc_cmdb" in names  # condensed
     assert "servicenow_get_cmdb_instance" in names  # verbose
+
+
+def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
+    """CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — MCP_TOOL_MODE=intent still
+    registers the condensed tools (nothing lost — REST/_execute_tool reach them
+    exactly as before) but tags them GATED_TAG + GRANULAR_TAG for the
+    session-visibility gate, surfaced via gated_tool_names()."""
+    from agent_utilities.mcp.verbose_tools import (
+        GATED_TAG,
+        GRANULAR_TAG,
+        gated_tool_names,
+    )
+
+    monkeypatch.setenv("MCP_TOOL_MODE", "intent")
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    assert set(tags) == {"cmdb", "change_management"}
+    names = {t.name for t in _tools_list(mcp)}
+    # Condensed tools ARE registered (backing surface for the intent verbs +
+    # REST/_execute_tool) — just gated from the default session view.
+    assert "svc_cmdb" in names
+    assert (
+        "servicenow_get_cmdb_instance" not in names
+    )  # no verbose surface in intent mode
+
+    gated = gated_tool_names(mcp)
+    assert gated == {"svc_cmdb", "svc_change_management"}
+    tool = _get(mcp, "svc_cmdb")
+    assert {GATED_TAG, GRANULAR_TAG, "cmdb"} <= set(tool.tags)
 
 
 def test_surface_tool_registry(monkeypatch):

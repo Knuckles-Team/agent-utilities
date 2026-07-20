@@ -9,10 +9,10 @@ import-graph reachability question rooted at the surface entry points.
 
 This script runs two regression checks:
 
-1. **Tool <-> route drift** (hard gate). Imports ``kg_server`` and asserts every
-   MCP tool in ``REGISTERED_TOOLS`` has a REST twin in ``ACTION_TOOL_ROUTES`` and
-   vice-versa, mirroring ``tests/unit/test_gateway_mcp_parity.py`` so the
-   invariant is enforceable from CI/pre-commit as a fast standalone script too.
+1. **Tool <-> route drift** (hard gate). Imports ``kg_server`` and compares the
+   runtime execution table with the immutable, profile-aware ToolSpec universe,
+   then asserts every enabled tool has a REST twin in ``ACTION_TOOL_ROUTES`` and
+   vice-versa.
 
 2. **Feature reachability** (ratchet gate). Builds the static import graph (reusing
    ``check_wiring.build_graph``), seeds roots at the *surface* modules (the MCP
@@ -60,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # location)" ImportError that has nothing to do with a real surface-parity drift.
 sys.path.insert(0, str(ROOT))
 from check_wiring import bfs_hops, build_graph  # noqa: E402
+
 BASELINE = Path(__file__).resolve().parent / "surface_parity_baseline.txt"
 
 # Modules that constitute the operator surface. Reachability is measured FROM
@@ -101,6 +102,14 @@ CAPABILITY_PREFIXES = (
     "agent_utilities/domains/",
 )
 
+# Cross-package operator capabilities that live beside orchestration plumbing.
+# Listing these explicitly avoids the old blind spot without pretending every
+# protocol, dataclass, allocator, or controller in ``orchestration/`` needs a
+# standalone tool.
+EXPLICIT_CAPABILITY_MODULES = frozenset(
+    {"agent_utilities/orchestration/agent_digital_twin.py"}
+)
+
 # Within a capability package, these are not standalone features (helpers, types,
 # fixtures, package inits) — excluded from the reachability requirement.
 EXCLUDE_SUFFIXES = (
@@ -133,6 +142,10 @@ INFRA_MODULES = frozenset(
         "agent_utilities/harness/replay_buffer.py",
         "agent_utilities/harness/scaling_laws.py",
         "agent_utilities/harness/variant_pool.py",
+        # Deterministic scoring helpers consumed by native optimizer jobs; these
+        # contain no independently invokable optimizer or operator action.
+        "agent_utilities/harness/policy_optimization.py",
+        "agent_utilities/knowledge_graph/extraction/extraction_optimizer.py",
     }
 )
 
@@ -149,7 +162,9 @@ PLUGIN_PACKAGES = (
 
 
 def _is_capability(rel: str) -> bool:
-    if not rel.startswith(CAPABILITY_PREFIXES):
+    if rel not in EXPLICIT_CAPABILITY_MODULES and not rel.startswith(
+        CAPABILITY_PREFIXES
+    ):
         return False
     if rel.startswith(PLUGIN_PACKAGES):
         return False
@@ -176,12 +191,45 @@ def _check_tool_route_drift() -> list[str]:
     errors: list[str] = []
     try:
         from agent_utilities.mcp import kg_server  # noqa: PLC0415
+        from agent_utilities.mcp.tool_specs import (  # noqa: PLC0415
+            INTENT_VERBS,
+            TOOL_SPECS_BY_NAME,
+            canonical_tool_names,
+        )
 
         kg_server.ensure_tools_registered()
         tools = set(kg_server.REGISTERED_TOOLS)
         mapped = set(kg_server.ACTION_TOOL_ROUTES)
     except Exception as exc:  # noqa: BLE001 — surface import failure as an error
         return [f"could not import kg_server surface: {exc!r}"]
+
+    unknown = tools - set(TOOL_SPECS_BY_NAME)
+    if unknown:
+        errors.append(
+            "Runtime tools absent from ToolSpec: " + ", ".join(sorted(unknown))
+        )
+    features = frozenset(
+        spec.feature
+        for name, spec in TOOL_SPECS_BY_NAME.items()
+        if name in tools and spec.feature is not None
+    )
+    intent_present = set(INTENT_VERBS) & tools
+    if intent_present and intent_present != set(INTENT_VERBS):
+        errors.append(
+            "Runtime intent overlay is partial: " + ", ".join(sorted(intent_present))
+        )
+    expected = set(
+        canonical_tool_names(
+            features=features,
+            include_intent=bool(intent_present),
+        )
+    )
+    missing_runtime = expected - tools
+    if missing_runtime:
+        errors.append(
+            "Canonical ToolSpecs absent from runtime: "
+            + ", ".join(sorted(missing_runtime))
+        )
 
     missing = tools - mapped
     if missing:

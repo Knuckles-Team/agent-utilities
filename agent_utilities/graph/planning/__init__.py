@@ -145,9 +145,9 @@ class Planner:
         return str(goal)
 
     def _build_agent(self, model: Any, system_prompt: str) -> Any:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
-        return Agent(
+        return create_context_agent(
             model=model,
             output_type=GraphPlan,
             system_prompt=system_prompt,

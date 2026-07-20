@@ -138,7 +138,7 @@ class RegistryNodeType(StrEnum):
     PROMPT_CHAIN = "prompt_chain"
     RESOURCE_USAGE = "resource_usage"
     EVALUATION_RECORD = "evaluation_record"
-    PRIORITIZED_TASK = "prioritized_task"
+    WORK_ITEM_PRIORITY = "work_item_priority"
     KNOWLEDGE_GAP = "knowledge_gap"
     EXPLORATION_EXPERIMENT = "exploration_experiment"
     # Engineering Rules Engine (agent-rules-books integration)
@@ -151,20 +151,19 @@ class RegistryNodeType(StrEnum):
     AGENT_PROCESS = "agent_process"
     AGENT_IDENTITY = "agent_identity"
     SPECIALIST_PACKAGE = "specialist_package"
-    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — engine-independent
-    # KG-native lease/task-DAG/mailbox primitives; ClaimNext (Phase 3b) is a
-    # separate, later, engine-gated cutover and reuses these same node types.
-    AGENT_LEASE = "agent_lease"
-    AGENT_TASK = "agent_task"
     AGENT_MAILBOX = "agent_mailbox"
-    # Codex Gap-6 Agent-OS Objects — named objects over EXISTING C3/governance/
-    # observability mechanisms (the `AUTHORIZED_FOR` capability edge and
-    # `action_policy.decide()`'s `ActionDecision` audit, respectively); the
-    # reuse-audit found the third named object (AgentTrace) already fully
-    # covered by `TraceNode` (aliased below as `AgentTraceNode`, not a new
-    # type) — see tests/unit/knowledge_graph/test_agentos_gap6_objects.py.
+    # Agent-OS objects over existing C3/governance/observability mechanisms.
     AGENT_CAPABILITY_GRANT = "agent_capability_grant"
     AGENT_POLICY_DECISION = "agent_policy_decision"
+    # Unified engine-native work-item state machine (AU-P1-1) — the ONE
+    # authoritative queue-of-record goal, ingestion, loop, and dispatch converge
+    # on; see agent_utilities.orchestration.work_item.
+    WORK_ITEM = "work_item"
+    # Agent Digital Twin + deterministic replay (Codex X-8) — a durable,
+    # queryable PROJECTION over the run's own WorkItem/ToolCall/RunTrace/
+    # ActionDecision nodes plus the version pins it executed under; never a
+    # second provenance store. See agent_utilities.orchestration.agent_digital_twin.
+    AGENT_DIGITAL_TWIN = "agent_digital_twin"
     # Agent OS Infrastructure
     HOST = "host"
     INFRASTRUCTURE_TEMPLATE = "infrastructure_template"
@@ -480,6 +479,14 @@ class RegistryNodeType(StrEnum):
     INFERENCE_PROFILE = "inference_profile"
     TASK_CLASS = "task_class"
 
+    # Enterprise Operations Causal Graph (Codex X-2) — the ONE ITSM node genuinely
+    # missing from the hub: a ServiceNow/Jira "Change" (a PLANNED change ticket,
+    # e.g. sn_change_request) is materially distinct from INCIDENT (an unplanned
+    # outage) — both connectors already crosswalk their unplanned-event resource
+    # (Issue/Incident) to INCIDENT, but neither has anywhere to put the planned
+    # kind. See agent_utilities.knowledge_graph.ontology.ops_causal_crosswalk.
+    CHANGE_REQUEST = "change_request"
+
 
 class RegistryEdgeType(StrEnum):
     """Enumeration of relationship types in the registry graph."""
@@ -554,6 +561,10 @@ class RegistryEdgeType(StrEnum):
     NEXT = "next"
     GROUNDED_IN = "grounded_in"
     REFERENCES = "references"
+    # Agent Digital Twin (Codex X-8): AgentDigitalTwin -[:TWIN_OF]-> RunTrace.
+    # The twin's references to its WorkItem/ToolCall/ActionDecision children
+    # reuse REFERENCES above rather than adding a new edge per child kind.
+    TWIN_OF = "twin_of"
     AUTHORED = "authored"
     SUPPORTS = "supports"
     # --- KG V2 edges (see docs/KG_V2_DESIGN.md §3) ---
@@ -942,6 +953,14 @@ class RegistryEdgeType(StrEnum):
     BOUND_TO_ROLE = "BOUND_TO_ROLE"
     USES_PROFILE = "USES_PROFILE"
 
+    # Enterprise Operations Causal Graph (Codex X-2) — the one edge genuinely
+    # missing from the hub for the Langfuse leg of the causal spine (Trace/
+    # Generation → Agent/Tool/Model): USED_TOOL already covers → Tool, but
+    # nothing covers "this generation actually invoked this model" (distinct
+    # from COMPATIBLE_WITH_MODEL, which is a routing-eligibility edge, not an
+    # observed-usage one). See ops_causal_crosswalk / ops_causal_graph.
+    USED_MODEL = "used_model"
+
 
 class RegistryNode(BaseModel):
     """Base class for all nodes in the registry graph."""
@@ -1061,7 +1080,7 @@ class AgentNode(RegistryNode):
     """Represents a specialist agent in the registry."""
 
     type: RegistryNodeType = RegistryNodeType.AGENT
-    agent_type: str  # prompt, mcp, a2a
+    agent_type: Literal["specialist", "a2a"]
     system_prompt: str = ""
     endpoint_url: str | None = None
     tool_count: int = 0
@@ -1365,13 +1384,6 @@ class ReasoningTraceNode(RegistryNode):
     confidence: float = 1.0
 
 
-class ToolCallNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.TOOL_CALL
-    tool_name: str
-    args: dict[str, Any] = Field(default_factory=dict)
-    result: str | None = None
-
-
 class RunEventNode(RegistryNode):
     """One typed, content-addressed run event (CONCEPT:AU-ORCH.runvcs.event-kernel).
 
@@ -1452,7 +1464,7 @@ class TraceNode(RegistryNode):
     # closes the reuse-audit gap rather than introducing a second node type.
     task_id: str | None = Field(
         default=None,
-        description="AgentTaskNode id this run trace executed, if any (Codex Gap-6)",
+        description="WorkItem id this run trace executed, if any",
     )
     tool_calls: int = Field(
         default=0,
@@ -1462,13 +1474,6 @@ class TraceNode(RegistryNode):
         default=None,
         description="Terminal outcome of the traced run: completed | failed | cancelled | blocked, if known",
     )
-
-
-#: Codex Gap-6 named alias — the "AgentTrace" object over the existing TRACE/
-#: SPAN/GENERATION observability subgraph is this SAME ``TraceNode`` (same
-#: ``Trace`` graph label, same ``HAS_SPAN``/``HAS_GENERATION`` children); this
-#: is a documented alias, not a duplicate node type.
-AgentTraceNode = TraceNode
 
 
 class SpanNode(RegistryNode):
@@ -1898,7 +1903,11 @@ class CallableResourceNode(RegistryNode):
     resource_type: str  # MCP_TOOL, A2A_AGENT, INTERNAL_SKILL, AGENT_SKILL
     endpoint: str | None = None
     agent_card: dict[str, Any] | None = None
-    skill_code_path: str | None = None
+    system_prompt: str | None = None
+    instruction_digest: str | None = None
+    source_ref: str | None = None
+    provider_ref: str | None = None
+    runnable_bound: bool = False
     metadata_id: str
     # ECO-4.3 Community Telemetry
     origin: Literal["local", "community", "upstream"] = "local"
@@ -1980,11 +1989,11 @@ class OutcomeEvaluationNode(RegistryNode):
     # outcome back to the durable claim/DAG it was evaluated under.
     lease_id: str = Field(
         default="",
-        description="AgentLeaseNode id held by the executor when this outcome was recorded, if any",
+        description="Engine-issued WorkItem lease id held when this outcome was recorded",
     )
     dag_id: str = Field(
         default="",
-        description="Owning task-DAG id (AgentTaskNode.dag_id) this outcome evaluates, if any",
+        description="Owning WorkItem DAG id this outcome evaluates, if any",
     )
 
 
@@ -2171,16 +2180,6 @@ class TeamNode(RegistryNode):
     member_count: int = 0
 
 
-class TaskNode(RegistryNode):
-    """Shared task within a team."""
-
-    type: RegistryNodeType = RegistryNodeType.TASK
-    content: str
-    status: str = "pending"  # pending | in_progress | completed
-    assigned_to: str | None = None
-    created_by: str | None = None
-
-
 class PolicyNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.POLICY
     policy_id: str
@@ -2233,9 +2232,9 @@ class OrganizationNode(RegistryNode):
     org_id: str = Field(description="Stable slug, e.g. 'acme-corp'")
     legal_name: str | None = None
     domain: str | None = Field(default=None, description="Primary DNS domain")
-    org_type: Literal[
-        "company", "team", "vendor", "opensource", "regulator"
-    ] = "company"
+    org_type: Literal["company", "team", "vendor", "opensource", "regulator"] = (
+        "company"
+    )
     parent_org_id: str | None = Field(
         default=None, description="Points to another OrganizationNode"
     )
@@ -2874,13 +2873,6 @@ class MemoryRetrieverNode(RegistryNode):
     )
     session_id: str = Field(default="", description="Session that created this version")
 
-
-# Backward-compatible alias — the class was renamed from SelfModelNode to
-# MemoryRetrieverNode during the CONCEPT:AU-KG.query.object-graph-mapper migration. Tests and
-# external integrations may still reference the old name.
-SelfModelNode = MemoryRetrieverNode
-
-
 class SwarmCoalitionNode(RegistryNode):
     """A dynamically formed agent coalition for task execution.
 
@@ -2988,8 +2980,8 @@ class EvaluationRecordNode(RegistryNode):
     CONCEPT:AU-AHE.evaluation.evaluation-monitoring — Evaluation & Monitoring
 
     Provides per-dimension scoring (correctness, completeness, relevance,
-    safety) with a composite score for backward compatibility with the
-    existing verifier gate. Supports LLM-as-Judge and human calibration.
+    safety) with the verifier gate's current composite-score currency.
+    Supports LLM-as-Judge and human calibration.
 
     BFO:SpecificallyDependentContinuant, aligned to :Observation.
     See docs/pillars/architecture_c4.md §CONCEPT:AU-AHE.evaluation.evaluation-monitoring
@@ -3014,8 +3006,8 @@ class EvaluationRecordNode(RegistryNode):
     schema_pack: str | None = None
 
 
-class PrioritizedTaskNode(RegistryNode):
-    """A task with multi-factor priority scoring.
+class WorkItemPriorityNode(RegistryNode):
+    """A lifecycle-neutral multi-factor priority assessment for a WorkItem.
 
     CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Task Prioritization
 
@@ -3027,8 +3019,8 @@ class PrioritizedTaskNode(RegistryNode):
     See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.planning.recursion-nesting-depth
     """
 
-    type: RegistryNodeType = RegistryNodeType.PRIORITIZED_TASK
-    task_id: str = Field(description="Stable task identifier")
+    type: RegistryNodeType = RegistryNodeType.WORK_ITEM_PRIORITY
+    work_item_id: str = Field(description="Stable WorkItem identifier")
     urgency: float = Field(default=0.5, ge=0.0, le=1.0)
     impact: float = Field(default=0.5, ge=0.0, le=1.0)
     effort: float = Field(
@@ -3044,10 +3036,9 @@ class PrioritizedTaskNode(RegistryNode):
         description="Failure probability",
     )
     composite_priority: float = Field(default=0.0, ge=0.0, le=1.0)
-    status: str = "pending"  # pending, in_progress, completed, blocked
     assigned_specialist: str | None = None
-    blocking_task_ids: list[str] = Field(default_factory=list)
-    blocked_by_task_ids: list[str] = Field(default_factory=list)
+    blocking_work_item_ids: list[str] = Field(default_factory=list)
+    blocked_by_work_item_ids: list[str] = Field(default_factory=list)
 
 
 class KnowledgeGapNode(RegistryNode):
@@ -3324,16 +3315,15 @@ class SessionCheckpointNode(RegistryNode):
         default="",
         description="ID of the TopologyTemplate that was materialized for this session",
     )
-    # Graph-Native Agent-OS Objects, C3/Phase 3a (CONCEPT:AU-OS.state.cognitive-scheduler-preemption) — ties a
-    # checkpoint to the durable AgentTask/lease that was active when it was
-    # written, so a resumed task can look up its last checkpoint by either.
-    agent_task_id: str = Field(
+    # Ties a checkpoint to the durable WorkItem/lease active when written so a
+    # resumed execution can find its latest checkpoint by either identifier.
+    work_item_id: str = Field(
         default="",
-        description="AgentTaskNode id this checkpoint captures resume state for, if any",
+        description="WorkItem id this checkpoint captures resume state for, if any",
     )
     lease_id: str = Field(
         default="",
-        description="AgentLeaseNode id active when this checkpoint was written, if any",
+        description="Engine-issued WorkItem lease id active when this checkpoint was written",
     )
 
 
@@ -3528,24 +3518,13 @@ class TeamComposition(BaseModel):
         *,
         dag_name: str | None = None,
     ) -> str:
-        """Opt-in: persist this team as a durable ``:AgentTask`` DAG.
+        """Persist this team as a durable WorkItem DAG.
 
         CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
 
-        Companion to :meth:`to_graph_plan`, NOT a replacement: the in-memory
-        ``GraphPlan`` still drives the unchanged ``ParallelEngine`` execution
-        path. This additionally persists one :class:`AgentTaskNode` per
-        ``ExecutionStep`` — mirroring ``ExecutionStep.depends_on`` as
-        ``depends_on_task_ids`` — as a KG subgraph via the EXISTING
-        ``WorkflowStore.save_workflow`` (no new persistence path invented).
-        Any fleet worker can subsequently resume/claim a step through
-        ``orchestration.agent_dispatch_worker.claim_agent_task`` even if the
-        process that composed this team has since died.
-
-        Dependency firing is poll-based today (a reconciler tick flips
-        'blocked' → 'ready' once every dependency completes); a
-        change-data-capture push is engine-gated and deferred to a separate,
-        later Phase 3b ClaimNext cutover.
+        The saved workflow is immutable definition metadata. Each execution
+        step is one WorkItem whose native dependency index, renewable lease,
+        fencing token, retry budget, and terminal outcome are authoritative.
 
         Args:
             store: The ``WorkflowStore`` to persist through.
@@ -3553,7 +3532,7 @@ class TeamComposition(BaseModel):
 
         Returns:
             The workflow/DAG id ``WorkflowStore.save_workflow`` assigned;
-            every persisted ``AgentTaskNode.dag_id`` equals this id.
+            every persisted WorkItem ``dag_id`` equals this id.
         """
         plan = self.to_graph_plan()
         dag_id = store.save_workflow(
@@ -3564,21 +3543,24 @@ class TeamComposition(BaseModel):
         )
 
         for step in plan.steps:
-            task_id = f"{dag_id}:task:{step.id}"
-            depends_on_task_ids = [f"{dag_id}:task:{dep}" for dep in step.depends_on]
-            node = AgentTaskNode(
-                id=task_id,
-                name=f"Task: {step.id}",
+            from agent_utilities.orchestration.work_item import (
+                execution_work_item_id,
+                submit_work_item,
+            )
+
+            work_item_id = execution_work_item_id(dag_id, str(step.id))
+            submit_work_item(
+                store.engine,
+                kind="agent_execution",
+                payload_ref=work_item_id,
+                depends_on=[
+                    execution_work_item_id(dag_id, str(dep)) for dep in step.depends_on
+                ],
                 description=str(step.refined_subtask or ""),
                 dag_id=dag_id,
-                depends_on_task_ids=depends_on_task_ids,
-                status="blocked" if depends_on_task_ids else "pending",
+                work_item_id=work_item_id,
+                idempotency_key=work_item_id,
             )
-            store.engine.add_node(task_id, "AgentTask", properties=node.model_dump())
-            for dep_id in depends_on_task_ids:
-                store.engine.link_nodes(
-                    task_id, dep_id, RegistryEdgeType.TASK_DEPENDS_ON
-                )
 
         return dag_id
 
@@ -3717,83 +3699,132 @@ class SpecialistPackageNode(RegistryNode):
     )
 
 
-class AgentLeaseNode(RegistryNode):
-    """Distributed, stale-aware claim lease over a contended resource.
+class WorkItemNode(RegistryNode):
+    """The ONE engine-native work-item state machine (AU-P1-1).
 
-    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
+    Provides the sole lifecycle vocabulary for durable agent work::
 
-    Generalizes the ownership stamp
-    ``orchestration.agent_dispatch_worker.claim_goal_run``/
-    ``claim_orchestrator_task`` already write inline onto the claimed node
-    into a first-class, reusable KG object. A lease is held by
-    ``owner_token`` (the same ``hostname:pid:role`` identity
-    ``worker_token()`` returns) until ``lease_expires_at``; a lease past
-    that deadline is presumed dead (its owner crashed between claim and
-    writeback) and may be re-claimed — the same crash-recovery reasoning as
-    the two claims above, now over any ``resource_id`` rather than only
-    goal/task nodes.
+        submitted -> ready -> leased(fencing_token) -> running(heartbeat,attempt)
+            -> succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter
 
-    See ``orchestration.agent_dispatch_worker.claim_agent_task`` for the
-    read/re-claim contract that operates on this node type.
+    Every served-profile transition is arbitrated by the engine-native
+    ``ClaimWorkItem``/``RenewWorkItemLease``/``CommitWorkItemResult`` protocol.
+    Selection, tenant quota, renewable lease, fencing, dependency release, and
+    terminal commit therefore execute in the engine's durable transaction;
+    no Python lifecycle writer is available as a fallback. See
+    :mod:`agent_utilities.orchestration.work_item` for the full state-machine
+    implementation (submission, claim, heartbeat, commit, dependency release,
+    lease-expiry reaping, DLQ).
     """
 
-    type: RegistryNodeType = RegistryNodeType.AGENT_LEASE
-    owner_token: str = Field(
-        default="",
-        description="Claim owner identity, e.g. 'hostname:pid:role' (worker_token())",
+    type: RegistryNodeType = RegistryNodeType.WORK_ITEM
+    tenant: str = Field(
+        default="", description="Owning tenant, for quota/fairness scoping"
     )
-    resource_id: str = Field(
-        default="",
-        description="ID of the leased resource (typically an AgentTaskNode id)",
+    kind: str = Field(
+        default="generic",
+        description=(
+            "Discriminator for the executing adapter, e.g. 'goal_loop' | "
+            "'orchestrator_task' | 'agent_execution' | 'ingest_task' | 'generic'"
+        ),
     )
-    acquired_at: float = Field(
-        default=0.0,
-        description="Unix timestamp when the lease was (re-)acquired",
-    )
-    lease_expires_at: float = Field(
-        default=0.0,
-        description="Unix timestamp after which the lease is stale and re-claimable",
-    )
-
-
-class AgentTaskNode(RegistryNode):
-    """Durable, DAG-aware unit of work claimable by the agent dispatch fleet.
-
-    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
-
-    Mirrors an ``ExecutionStep``/``TeamComposition`` specialist slot as a
-    first-class KG node so a multi-step plan survives process restarts and
-    can be claimed by any worker in the fleet, not just resumed in-memory.
-    ``depends_on_task_ids`` mirrors ``ExecutionStep.depends_on`` (see
-    ``TeamComposition.to_durable_task_dag()``); a task only becomes eligible
-    to run once every id in that list resolves to ``status == 'completed'``
-    — checked by a poll-based ``fleet_reconciler``/``RecoveryDaemon`` tick
-    (``fire_ready_agent_tasks``) until change-data-capture firing lands
-    (Phase 3b, engine-gated, a separate later task — NOT done here).
-
-    Linked to its lease by a property match (``AgentLeaseNode.resource_id ==
-    AgentTaskNode.id`` — no dedicated edge; see ``claim_agent_task``), to its
-    dependencies via ``TASK_DEPENDS_ON`` edges, and to a resume point via
-    ``CHECKPOINTED_TO``.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.AGENT_TASK
-    dag_id: str = Field(
-        default="",
-        description="ID of the owning task DAG / WorkflowDefinition this task belongs to",
-    )
-    depends_on_task_ids: list[str] = Field(
-        default_factory=list,
-        description="AgentTaskNode ids that must reach 'completed' before this task is claimable",
+    queue: str = Field(
+        default="default",
+        description="Native claim queue, normally the same stable discriminator as kind",
     )
     status: str = Field(
-        default="pending",
-        description="pending | blocked | ready | running | completed | failed | cancelled",
+        default="submitted",
+        description=(
+            "submitted | ready | leased | running | succeeded | failed | "
+            "cancelled | dead_letter"
+        ),
     )
-    checkpoint_id: str | None = Field(
+    payload_ref: str = Field(
+        default="",
+        description="Reference to the work body (goal/session id, task description id, ...) — never the body itself",
+    )
+    result_ref: str | None = Field(
         default=None,
-        description="ID of a CheckpointNode/SessionCheckpointNode to resume from, if any",
+        description="Reference to the committed result (never the result body)",
     )
+    error_ref: str | None = Field(
+        default=None, description="Reference to the committed error/failure detail"
+    )
+    idempotency_key: str = Field(
+        default="",
+        description="Key gating exactly-once result commit; defaults to the item id",
+    )
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description="Parent WorkItem ids that must succeed before this item is ready",
+    )
+    dep_count: int = Field(
+        default=0,
+        description="Remaining unresolved parent dependencies; atomically decremented on each parent's success",
+    )
+    downstream_ids: list[str] = Field(
+        default_factory=list,
+        description="Child WorkItem ids waiting on this item (reverse dependency index)",
+    )
+    prio_bucket: int = Field(
+        default=2,
+        description="Discrete claim priority bucket 0(critical)..3(background)",
+    )
+    deadline_unix: float | None = Field(
+        default=None, description="Unix deadline; past-deadline claims are expired"
+    )
+    budget: float | None = Field(
+        default=None, description="Cost/resource budget ceiling for this item"
+    )
+    resource_class: str = Field(
+        default="default", description="Claim partition, e.g. 'gpu' | 'default'"
+    )
+    fairness_group: str = Field(
+        default="", description="Fairness/round-robin scheduling group"
+    )
+    attempt: int = Field(default=0, description="Number of claim attempts so far")
+    max_attempts: int = Field(
+        default=3,
+        description="Attempts allowed before a retryable failure becomes dead_letter",
+    )
+    backoff_base_s: float = Field(
+        default=30.0, description="Base seconds for exponential retry backoff"
+    )
+    next_retry_at: float | None = Field(
+        default=None,
+        description="Unix time before which a 'ready' item is not claimable",
+    )
+    lease_owner: str | None = Field(
+        default=None, description="Current opaque lease-holder token"
+    )
+    lease_epoch: int = Field(
+        default=0, description="Monotonic fencing token; bumped on every (re)claim"
+    )
+    fencing_token: int = Field(
+        default=0,
+        description="Opaque engine fencing token paired with lease_epoch",
+    )
+    lease_expires_at: float | None = Field(
+        default=None, description="Unix time after which the lease is stale"
+    )
+    heartbeat_at: float | None = Field(
+        default=None, description="Last renewal timestamp from the executing worker"
+    )
+    correlation_id: str = Field(default="", description="Run-wide trace/correlation id")
+    dag_id: str = Field(default="", description="Owning execution DAG, when applicable")
+    checkpoint_id: str | None = Field(
+        default=None, description="Resume checkpoint referenced by this work item"
+    )
+    assigned_to: str = Field(
+        default="", description="Opaque assignee reference for a team assignment"
+    )
+    created_by: str = Field(
+        default="", description="Opaque creator reference for a team assignment"
+    )
+    created_at: float = Field(default=0.0)
+    updated_at: float = Field(default=0.0)
+    submitted_at: float = Field(default=0.0)
+    completed_at: float | None = Field(default=None)
 
 
 class AgentMailboxNode(RegistryNode):
@@ -3943,6 +3974,68 @@ class AgentPolicyDecisionNode(RegistryNode):
         )
 
 
+class AgentDigitalTwinNode(RegistryNode):
+    """A durable, queryable projection of one agent run (Codex X-8).
+
+    NOT a new provenance store: an ``AgentDigitalTwin`` never duplicates the
+    properties of the ``RunTrace``/``:ToolCall``/``WorkItem``/
+    ``AgentPolicyDecision`` nodes it describes — it references their ids
+    (``work_item_ids``/``tool_call_ids``/``decision_ids``) and adds exactly
+    the one thing none of them carry: the exact version pins (model/prompt/
+    tool/skill/policy/catalog-epoch) the run executed under, so a stored
+    twin can be deterministically replayed later against a historical KG
+    snapshot. See :mod:`agent_utilities.orchestration.agent_digital_twin`
+    for the capture/replay machinery (``VersionPins``, ``capture_twin``,
+    ``replay_twin``, ``counterfactual_replay``).
+
+    Linked ``(:AgentDigitalTwin)-[:TWIN_OF]->(:RunTrace)`` to the run it
+    twins, and ``(:AgentDigitalTwin)-[:REFERENCES]->`` each ``WorkItem``/
+    ``ToolCall``/``ActionDecision`` node in its run graph.
+    """
+
+    type: RegistryNodeType = RegistryNodeType.AGENT_DIGITAL_TWIN
+    run_id: str = Field(
+        default="", description="The RunTrace/run id this twin projects"
+    )
+    agent_name: str = Field(
+        default="", description="Agent identity that executed the run"
+    )
+    task: str = Field(default="", description="The task/goal text the run pursued")
+    versions_digest: str = Field(
+        default="",
+        description="VersionPins.digest() — a single content digest of every version pin",
+    )
+    versions_json: str = Field(
+        default="",
+        description="Full VersionPins, JSON-serialized (content-addressed by versions_digest)",
+    )
+    budget: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The run's WorkItem.budget (e.g. token/cost/time caps)",
+    )
+    work_item_ids: list[str] = Field(
+        default_factory=list, description="WorkItem ids forming this run's DAG"
+    )
+    tool_call_ids: list[str] = Field(
+        default_factory=list, description="ToolCall node ids this run made"
+    )
+    decision_ids: list[str] = Field(
+        default_factory=list,
+        description="AgentPolicyDecision (ActionDecision) audit ids this run produced",
+    )
+    outcome: str = Field(
+        default="",
+        description="Terminal outcome: succeeded | failed | cancelled | dead_letter",
+    )
+    event_count: int = Field(
+        default=0,
+        description="Number of run-VCS events (runtime.run_vcs.kernel.RunEvent) captured",
+    )
+    created_at: float = Field(
+        default=0.0, description="Unix timestamp the twin was captured"
+    )
+
+
 class HostNode(RegistryNode):
     """A remote host in the Agent OS infrastructure.
 
@@ -3965,7 +4058,7 @@ class HostNode(RegistryNode):
         os_type: Operating system (e.g. ``linux``, ``darwin``).
         arch: CPU architecture (e.g. ``x86_64``, ``aarch64``).
         labels: Arbitrary key-value labels for filtering.
-        docker_endpoint: Docker API endpoint (e.g. ``tcp://192.168.1.10:2375``).
+        docker_endpoint: Docker API endpoint (e.g. ``tcp://docker-host.example.test:2375``).
         docker_host: Whether this host can run containers.
         swarm_role: Docker Swarm role (``manager``, ``worker``, or empty).
         container_manager_url: URL of a deployed container-manager-mcp instance.
@@ -4056,7 +4149,10 @@ class InfrastructureTemplateNode(RegistryNode):
     )
     required_env: list[str] = Field(
         default_factory=list,
-        description="Required env vars (e.g. LANGFUSE_URL, LANGFUSE_TOKEN)",
+        description=(
+            "Required canonical runtime settings or secret references "
+            "(for example LANGFUSE_HOST and LANGFUSE_PUBLIC_KEY_REF)"
+        ),
     )
     optional_env: dict[str, str] = Field(
         default_factory=dict,

@@ -1,15 +1,17 @@
-"""JWT-principal Eunomia authorization (plan Phase 3, embedded — no live server)."""
+"""Native Eunomia authorization and transport hardening tests."""
 
 import json
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from eunomia_core import schemas
+from fastmcp.server.middleware import MiddlewareContext
 
 
 def _policy(tmp_path):
-    """A default-deny policy that allows only agent:claude-code."""
-    p = tmp_path / "policy.json"
-    p.write_text(
+    path = tmp_path / "policy.json"
+    path.write_text(
         json.dumps(
             {
                 "version": "1.0",
@@ -17,13 +19,13 @@ def _policy(tmp_path):
                 "default_effect": "deny",
                 "rules": [
                     {
-                        "name": "claude-code-allow-all",
+                        "name": "verified-agent-allow",
                         "effect": "allow",
                         "principal_conditions": [
                             {
                                 "path": "uri",
                                 "operator": "equals",
-                                "value": "agent:claude-code",
+                                "value": "agent:allowed-agent",
                             }
                         ],
                         "resource_conditions": [],
@@ -31,231 +33,209 @@ def _policy(tmp_path):
                     }
                 ],
             }
-        )
+        ),
+        encoding="utf-8",
     )
-    return str(p)
+    return str(path)
 
 
-def test_jwt_principal_overrides_spoofed_header(tmp_path, monkeypatch):
-    """A spoofed x-agent-id must NOT win over the verified JWT client_id."""
-    from agent_utilities.mcp.eunomia_principal import create_jwt_eunomia_middleware
+def _request(uri="agent:allowed-agent", action="list"):
+    return schemas.CheckRequest(
+        principal=schemas.PrincipalCheck(uri=uri, attributes={}),
+        resource=schemas.ResourceCheck(
+            uri="mcp:tool:sample",
+            attributes={"component_type": "tool", "name": "sample"},
+        ),
+        action=action,
+    )
 
-    mw = create_jwt_eunomia_middleware(_policy(tmp_path))
+
+def test_verified_principal_overrides_spoofed_headers(tmp_path, monkeypatch):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    middleware = create_eunomia_middleware(
+        _policy(tmp_path), require_verified_principal=True
+    )
     monkeypatch.setattr(
-        "eunomia_mcp.middleware.get_http_headers",
-        lambda: {"x-agent-id": "evil-spoof", "user-agent": "t"},
+        "agent_utilities.mcp.eunomia_principal.get_http_headers",
+        lambda: {
+            "x-agent-id": "spoofed-agent",
+            "x-user-id": "spoofed-user",
+            "authorization": "Bearer must-not-escape",
+            "user-agent": "test-client",
+        },
     )
 
-    class _Tok:
-        client_id = "claude-code"
+    token = SimpleNamespace(
+        client_id="allowed-agent", claims={"sub": "verified-user"}
+    )
+    monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", lambda: token)
 
-    monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", lambda: _Tok())
-
-    principal = mw._extract_principal()
-    assert principal.uri == "agent:claude-code"  # JWT wins, not "evil-spoof"
+    principal = middleware._extract_principal()
+    assert principal.uri == "agent:allowed-agent"
+    assert principal.attributes["user_id"] == "verified-user"
     assert principal.attributes["jwt_verified"] is True
+    assert "authorization" not in principal.attributes
+    assert "api_key" not in principal.attributes
+    assert "must-not-escape" not in repr(principal)
 
 
-def test_header_fallback_when_no_token(tmp_path, monkeypatch):
-    """Without an auth context the principal falls back to the header value."""
-    from agent_utilities.mcp.eunomia_principal import create_jwt_eunomia_middleware
+def test_authenticated_mode_fails_closed_without_token(tmp_path, monkeypatch):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
 
-    mw = create_jwt_eunomia_middleware(_policy(tmp_path))
+    middleware = create_eunomia_middleware(
+        _policy(tmp_path), require_verified_principal=True
+    )
     monkeypatch.setattr(
-        "eunomia_mcp.middleware.get_http_headers",
-        lambda: {"x-agent-id": "from-header", "user-agent": "t"},
+        "agent_utilities.mcp.eunomia_principal.get_http_headers",
+        lambda: {"x-agent-id": "allowed-agent"},
     )
 
-    def _no_ctx():
+    def no_context():
         raise RuntimeError("no auth context")
 
-    monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", _no_ctx)
+    monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", no_context)
+    assert middleware._extract_principal().uri == "agent:unknown"
 
-    principal = mw._extract_principal()
-    assert principal.uri == "agent:from-header"
-    assert "jwt_verified" not in principal.attributes
+
+def test_local_stdio_mode_can_use_bounded_header_identity(tmp_path, monkeypatch):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    middleware = create_eunomia_middleware(_policy(tmp_path))
+    monkeypatch.setattr(
+        "agent_utilities.mcp.eunomia_principal.get_http_headers",
+        lambda: {"x-agent-id": "allowed-agent", "user-agent": "local-client"},
+    )
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_access_token",
+        lambda: (_ for _ in ()).throw(RuntimeError("stdio")),
+    )
+    assert middleware._extract_principal().uri == "agent:allowed-agent"
 
 
 @pytest.mark.asyncio
-async def test_zero_trust_default_deny(tmp_path):
-    """claude-code is allowed; every other principal is denied by default."""
-    from agent_utilities.mcp.eunomia_principal import create_jwt_eunomia_middleware
+async def test_embedded_policy_default_deny_and_allow(tmp_path):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
 
-    mw = create_jwt_eunomia_middleware(_policy(tmp_path))
-
-    async def allowed(uri, action):
-        result = await mw._eunomia.check(
-            schemas.CheckRequest(
-                principal=schemas.PrincipalCheck(uri=uri, attributes={}),
-                resource=schemas.ResourceCheck(
-                    uri="mcp:tool:cadd__config",
-                    attributes={"component_type": "tool", "name": "cadd__config"},
-                ),
-                action=action,
-            )
-        )
-        return result.allowed
-
-    assert await allowed("agent:claude-code", "list") is True
-    assert await allowed("agent:claude-code", "execute") is True
-    assert await allowed("agent:unknown", "list") is False
-    assert await allowed("agent:unknown", "execute") is False
+    middleware = create_eunomia_middleware(_policy(tmp_path))
+    assert (await middleware._eunomia.check(_request())).allowed is True
+    assert (
+        await middleware._eunomia.check(_request("agent:not-allowed"))
+    ).allowed is False
 
 
-def test_fastmcp3_component_exposes_enabled():
-    """A fastmcp 3.x tool component reads ``.enabled`` (eunomia 2.x gate).
+def test_resource_projection_never_contains_argument_values(tmp_path):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
 
-    Reproduces the live failure: eunomia-mcp's ``_authorize_execution`` does
-    ``if not component.enabled`` on every call; fastmcp 3.x components dropped that
-    attribute, so the access raised ``'FunctionTool' object has no attribute
-    'enabled'`` and every tool call on a eunomia-enforced server became an internal
-    error. After the compat the component reports enabled (3.x semantics).
-    """
-    pytest.importorskip("fastmcp")
-    from fastmcp.tools.function_tool import FunctionTool
-
-    from agent_utilities.mcp.eunomia_principal import apply_fastmcp_enabled_compat
-
-    def sample(x: int) -> int:
-        """doc"""
-        return x
-
-    apply_fastmcp_enabled_compat()  # idempotent; also runs at import
-    tool = FunctionTool.from_function(sample)
-    # the exact access eunomia-mcp's _authorize_execution performs (``if not
-    # component.enabled``) must resolve without raising and report enabled.
-    assert tool.enabled is True
-    disabled = not tool.enabled
-    assert disabled is False
-
-
-# --- /check/bulk chunking (CONCEPT:AU-ECO.bus.agent-bus-awareness) -------------------------------
-
-
-def _req(name):
-    """A minimal CheckRequest whose resource uri encodes its index/name."""
-    return schemas.CheckRequest(
-        principal=schemas.PrincipalCheck(uri="agent:claude-code", attributes={}),
-        resource=schemas.ResourceCheck(uri=f"mcp:tool:{name}", attributes={}),
-        action="list",
+    middleware = create_eunomia_middleware(_policy(tmp_path))
+    context = MiddlewareContext(
+        message=SimpleNamespace(
+            arguments={"api_key": "secret-value", "query": "personal-content"}
+        ),
+        method="tools/call",
     )
+    resource = middleware._extract_resource(
+        context, SimpleNamespace(name="sample", enabled=True)
+    )
+    assert resource.attributes["argument_names"] == ["api_key", "query"]
+    assert "secret-value" not in repr(resource)
+    assert "personal-content" not in repr(resource)
+
+
+def test_policy_file_is_bounded(tmp_path):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    path = tmp_path / "oversize.json"
+    path.write_bytes(b" " * (1024 * 1024 + 1))
+    with pytest.raises(ValueError, match="limit|bounded"):
+        create_eunomia_middleware(str(path))
+
+
+def test_remote_plaintext_requires_explicit_exception():
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    with pytest.raises(ValueError, match="HTTPS"):
+        create_eunomia_middleware(
+            use_remote_eunomia=True,
+            eunomia_endpoint="http://policy.example",
+        )
+
+
+@pytest.mark.asyncio
+async def test_remote_bridge_uses_bounded_native_transport(monkeypatch):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    monkeypatch.setenv("TEST_EUNOMIA_KEY", "a" * 32)
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert request.headers["way-api-key"] == "a" * 32
+        payload = json.loads(request.content)
+        decisions = [
+            {"allowed": item["principal"]["uri"] == "agent:allowed-agent"}
+            for item in payload
+        ]
+        return httpx.Response(200, json=decisions)
+
+    middleware = create_eunomia_middleware(
+        use_remote_eunomia=True,
+        eunomia_endpoint="https://policy.example/base",
+        api_key_ref="env://TEST_EUNOMIA_KEY",
+        transport=httpx.MockTransport(handler),
+    )
+    remote = middleware._eunomia._bridge
+    raw = await remote._post(
+        remote._bulk_url,
+        [_request().model_dump(mode="json")],
+    )
+    assert raw == [{"allowed": True}]
+    responses = await middleware._eunomia.bulk_check(
+        [_request(), _request("agent:not-allowed")]
+    )
+    assert [item.allowed for item in responses] == [True, False]
+    assert seen[0].url.path == "/base/check/bulk"
+
+
+@pytest.mark.asyncio
+async def test_remote_response_misalignment_fails_closed():
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    middleware = create_eunomia_middleware(
+        use_remote_eunomia=True,
+        eunomia_endpoint="https://policy.example",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=[])
+        ),
+    )
+    responses = await middleware._eunomia.bulk_check([_request(), _request()])
+    assert len(responses) == 2
+    assert not any(item.allowed for item in responses)
 
 
 class _FakeBridge:
-    """Stand-in EunomiaBridge with a mocked transport.
-
-    Records the size of every ``bulk_check`` call it receives and rejects any
-    request larger than ``cap`` (mirroring the remote server's HTTP 400). Returns
-    one CheckResponse per request, positionally aligned, marking a resource allowed
-    iff its uri is in ``allowed_uris``.
-    """
-
-    def __init__(self, cap=100, allowed_uris=None):
-        self.cap = cap
-        self.allowed_uris = set(allowed_uris or [])
+    def __init__(self):
         self.batch_sizes = []
-        self.mode = "client"  # arbitrary passthrough attribute
 
     async def bulk_check(self, requests):
-        requests = list(requests)
-        self.batch_sizes.append(len(requests))
-        if len(requests) > self.cap:
-            raise RuntimeError(f"Too many requests. Maximum allowed: {self.cap}")
-        return [
-            schemas.CheckResponse(allowed=(r.resource.uri in self.allowed_uris))
-            for r in requests
-        ]
+        selected = list(requests)
+        self.batch_sizes.append(len(selected))
+        return [schemas.CheckResponse(allowed=True) for _ in selected]
 
 
 @pytest.mark.asyncio
-async def test_bulk_check_chunks_250_into_100_100_50():
-    """250 items must be split into 100/100/50 batches, none exceeding the cap."""
+async def test_bulk_check_chunks_at_server_limit():
     from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
 
-    fake = _FakeBridge(cap=100)
-    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
-
-    requests = [_req(i) for i in range(250)]
-    results = await wrapped.bulk_check(requests)
-
-    assert fake.batch_sizes == [100, 100, 50]
-    assert all(b <= 100 for b in fake.batch_sizes)
-    assert len(results) == 250
+    bridge = _FakeBridge()
+    wrapped = _ChunkingBulkCheckBridge(bridge)
+    responses = await wrapped.bulk_check([_request() for _ in range(250)])
+    assert bridge.batch_sizes == [100, 100, 50]
+    assert len(responses) == 250
 
 
-@pytest.mark.asyncio
-async def test_bulk_check_merges_results_in_order():
-    """Merged responses stay positionally aligned with the request list."""
+def test_bulk_check_limit_cannot_exceed_server_contract():
     from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
 
-    # Allow only every 7th tool, spread across all three chunks.
-    requests = [_req(i) for i in range(250)]
-    allowed = {f"mcp:tool:{i}" for i in range(250) if i % 7 == 0}
-    fake = _FakeBridge(cap=100, allowed_uris=allowed)
-    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
-
-    results = await wrapped.bulk_check(requests)
-
-    assert len(results) == 250
-    for i, res in enumerate(results):
-        assert res.allowed == (i % 7 == 0), f"index {i} misaligned after merge"
-
-
-@pytest.mark.asyncio
-async def test_bulk_check_single_batch_when_under_cap():
-    """<=cap items go in one request (no needless chunking)."""
-    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
-
-    fake = _FakeBridge(cap=100)
-    wrapped = _ChunkingBulkCheckBridge(fake, max_batch=100)
-
-    results = await wrapped.bulk_check([_req(i) for i in range(100)])
-    assert fake.batch_sizes == [100]
-    assert len(results) == 100
-
-
-@pytest.mark.asyncio
-async def test_unwrapped_bridge_would_fail_on_oversize():
-    """Sanity: without chunking the fake transport rejects >cap (the live 400)."""
-    fake = _FakeBridge(cap=100)
-    with pytest.raises(RuntimeError, match="Maximum allowed: 100"):
-        await fake.bulk_check([_req(i) for i in range(250)])
-
-
-def test_chunking_bridge_delegates_other_attrs():
-    """Everything except bulk_check passes through to the real bridge."""
-    from agent_utilities.mcp.eunomia_principal import _ChunkingBulkCheckBridge
-
-    fake = _FakeBridge()
-    wrapped = _ChunkingBulkCheckBridge(fake)
-    assert wrapped.mode == "client"  # delegated attribute
-
-
-def test_apply_bulk_check_chunking_is_idempotent():
-    """Wrapping a middleware twice must not double-wrap the bridge."""
-    from agent_utilities.mcp.eunomia_principal import (
-        _ChunkingBulkCheckBridge,
-        apply_bulk_check_chunking,
-    )
-
-    class _MW:
-        def __init__(self):
-            self._eunomia = _FakeBridge()
-
-    mw = _MW()
-    apply_bulk_check_chunking(mw)
-    assert isinstance(mw._eunomia, _ChunkingBulkCheckBridge)
-    inner = mw._eunomia._bridge
-    apply_bulk_check_chunking(mw)  # second call
-    assert mw._eunomia._bridge is inner  # not re-wrapped
-
-
-def test_apply_bulk_check_chunking_noop_without_bridge():
-    """No ``_eunomia`` attribute → return middleware unchanged (defensive)."""
-    from agent_utilities.mcp.eunomia_principal import apply_bulk_check_chunking
-
-    class _Bare:
-        pass
-
-    mw = _Bare()
-    assert apply_bulk_check_chunking(mw) is mw
+    with pytest.raises(ValueError, match="between"):
+        _ChunkingBulkCheckBridge(_FakeBridge(), max_batch=101)

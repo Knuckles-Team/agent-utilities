@@ -1,10 +1,9 @@
 """Live Postgres state-store pass (CONCEPT:AU-OS.state.unified-durable-state-externalization / KG-2.54 / OS-5.17).
 
 Runs ONLY when ``STATE_DB_URI`` points at a reachable Postgres (e.g. the
-deployed ``kg-backbone_pggraph`` service) — skipped everywhere else, so CI
-never requires infrastructure. Exercises the real end-to-end paths the unit
-fakes emulate: durable-exec checkpoints, queue SKIP LOCKED claims, advisory
-leadership, and the sessions/goals schema.
+configured state service) — skipped everywhere else, so CI never requires
+infrastructure. Exercises queue SKIP LOCKED claims, advisory leadership, and
+the sessions/turns schema. Work checkpoints remain in epistemic-graph WorkItems.
 """
 
 from __future__ import annotations
@@ -43,28 +42,6 @@ def _require_reachable(monkeypatch):
     state_store.reset_state_store_for_tests()
     yield
     state_store.reset_state_store_for_tests()
-
-
-def test_live_durable_execution_roundtrip():
-    from agent_utilities.orchestration.durable_execution import (
-        PostgresCheckpointStore,
-        DurableExecutionManager,
-    )
-
-    sid = f"live-{uuid.uuid4().hex[:8]}"
-    mgr = DurableExecutionManager(sid, store=PostgresCheckpointStore())
-    calls = {"n": 0}
-
-    def critical():
-        calls["n"] += 1
-        return {"ok": True}
-
-    first = mgr.run_durable_action("step", critical, idempotency_key=f"{sid}-k")
-    second = DurableExecutionManager(
-        sid, store=PostgresCheckpointStore()
-    ).run_durable_action("step", critical, idempotency_key=f"{sid}-k")
-    assert calls["n"] == 1
-    assert first == second == {"ok": True}
 
 
 def test_live_queue_claims_exclusive():

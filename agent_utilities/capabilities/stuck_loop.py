@@ -58,7 +58,7 @@ def _hash_args(args: dict[str, Any]) -> str:
         serialized = json.dumps(args, sort_keys=True, default=str)
     except (TypeError, ValueError):
         serialized = str(args)
-    return hashlib.md5(serialized.encode(), usedforsecurity=False).hexdigest()
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 
 def _hash_result(result: Any) -> str:
@@ -70,7 +70,7 @@ def _hash_result(result: Any) -> str:
             serialized = json.dumps(result, sort_keys=True, default=str)
     except (TypeError, ValueError):
         serialized = str(result)
-    return hashlib.md5(serialized.encode(), usedforsecurity=False).hexdigest()
+    return hashlib.sha256(serialized.encode()).hexdigest()
 
 
 @dataclass
@@ -111,7 +111,7 @@ class StuckLoopDetection(AbstractCapability[Any]):
             from ..models.knowledge_graph import RegistryNodeType, SelfEvaluationNode
 
             eval_node = SelfEvaluationNode(
-                id=f"stuck:{int(time.time())}:{hashlib.md5(message.encode(), usedforsecurity=False).hexdigest()[:8]}",
+                id=f"stuck:{int(time.time())}:{hashlib.sha256(message.encode()).hexdigest()[:32]}",
                 type=RegistryNodeType.SELF_EVALUATION,
                 name="Stuck Loop Detection",
                 evaluation=message,

@@ -20,8 +20,53 @@ from agent_utilities.automation.research_pipeline import (
     PipelineConfig,
     PipelineReport,
     ResearchPipelineRunner,
+    _durable_paper_key,
 )
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+
+def test_durable_paper_key_preserves_public_ids_and_pseudonymizes_locations():
+    assert _durable_paper_key("arxiv:2406.12345") == "arxiv-2406.12345"
+    unsafe = _durable_paper_key("/home/example/private-paper.pdf")
+    assert unsafe.startswith("pref_research_paper_")
+    assert "private-paper" not in unsafe
+
+
+@pytest.fixture(autouse=True)
+def _native_graph_slice(monkeypatch):
+    """Exercise runner semantics without starting an Epistemic Graph service."""
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    calls: list[dict] = []
+
+    def _apply(
+        engine,
+        connector,
+        entities,
+        relationships=None,
+        **kwargs,
+    ):
+        calls.append(
+            {
+                "connector": connector,
+                "entities": entities,
+                "relationships": relationships or [],
+                "kwargs": kwargs,
+            }
+        )
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            engine.graph.add_node(node_id, **row)
+        for relationship in relationships or []:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            engine.graph.add_edge(source, target, **row)
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _apply, raising=False)
+    return calls
 
 
 @pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
@@ -130,7 +175,7 @@ class TestPaperIngestion:
         self.runner = ResearchPipelineRunner(engine=self.engine)
 
     @pytest.mark.asyncio
-    async def test_ingest_paper_full(self):
+    async def test_ingest_paper_full(self, _native_graph_slice):
         article_id = await self.runner.ingest_paper_full(
             paper_id="2406.12345",
             title="Test Paper Full",
@@ -142,6 +187,18 @@ class TestPaperIngestion:
         )
         assert article_id == "article:scholarx:2406.12345"
         assert article_id in self.graph.nodes
+        call = _native_graph_slice[-1]
+        assert call["connector"] == "scholarx"
+        assert call["kwargs"]["source_instance"] == "research"
+        assert "Author One" not in str(call)
+        author_nodes = [
+            node for node in call["entities"] if node.get("type") == "person"
+        ]
+        assert author_nodes
+        assert all(
+            node["id"].startswith("pref_research_author_") for node in author_nodes
+        )
+        assert all(node["name"] == "[REDACTED_PERSON]" for node in author_nodes)
 
     @pytest.mark.asyncio
     async def test_ingest_paper_marginal(self):
@@ -167,6 +224,23 @@ class TestPaperIngestion:
         )
         assert self.runner._is_paper_known("2406.12345")
         assert not self.runner._is_paper_known("2406.99999")
+
+    @pytest.mark.asyncio
+    async def test_native_failure_does_not_partially_mutate_graph(self, monkeypatch):
+        from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+        def _fail(*args, **kwargs):
+            raise RuntimeError("native unavailable")
+
+        monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _fail)
+        with pytest.raises(RuntimeError, match="native unavailable"):
+            await self.runner.ingest_paper_marginal(
+                paper_id="2406.11111",
+                title="Fail closed",
+                abstract="No partial graph rows",
+                authors=["Synthetic Author"],
+            )
+        assert "article:scholarx:2406.11111" not in self.graph.nodes
 
 
 @pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")

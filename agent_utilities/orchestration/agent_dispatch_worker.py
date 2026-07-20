@@ -41,10 +41,9 @@ Run::
 import json
 import logging
 import os
-import socket
+import secrets
 import threading
 import time
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -59,56 +58,57 @@ from agent_utilities.orchestration.agent_dispatch import (
 
 logger = logging.getLogger(__name__)
 
-#: A 'running' claim older than this is presumed dead (its worker crashed
-#: between claim and writeback) and may be re-claimed on redelivery. Mirrors
-#: the ingest reaper's runtime-cap reasoning, folded into the claim check.
-CLAIM_TTL_S = 3600.0
-
-_GOAL_TERMINAL = ("completed", "failed", "cancelled", "paused")
-_TASK_TERMINAL = ("completed", "failed", "cancelled")
-#: Terminal statuses for a durable ``:AgentTask`` (C3/Phase 3a) — same three
-#: outcomes as ``_TASK_TERMINAL``; kept as its own tuple because the two node
-#: kinds are independent schemas that may diverge later.
-_AGENT_TASK_TERMINAL = ("completed", "failed", "cancelled")
+_PROCESS_WORKER_TOKEN = f"worker:{secrets.token_hex(16)}"
 
 
 def worker_token() -> str:
-    """Stable identity for claims/heartbeats: ``hostname:pid:agent-dispatch``."""
-    return f"{socket.gethostname()}:{os.getpid()}:agent-dispatch"
+    """Opaque process-lifetime identity for claims and heartbeats.
 
-
-def _turn_correlation_id() -> str:
-    """Correlation id stamped on the executed Task node (CONCEPT:AU-OS.observability.run-wide-correlation-id).
-
-    Makes ``/api/fleet/touched`` able to resolve which agent turn touched a task.
+    Host names, operating-system user names, and filesystem locations are not
+    lease authority and are never persisted in WorkItem ownership fields.
     """
-    try:
-        from agent_utilities.observability import correlation
+    return _PROCESS_WORKER_TOKEN
 
-        return correlation.ensure_correlation_id()
-    except Exception:  # noqa: BLE001 — best-effort context
-        return ""
+
+def _claim_ttl_seconds(value: float | None = None) -> float:
+    """Resolve the typed dispatch lease TTL; explicit test/caller values win."""
+    if value is None:
+        from agent_utilities.core.config import config
+
+        value = config.agent_dispatch_claim_ttl_s
+    ttl = float(value)
+    if ttl <= 0:
+        raise ValueError("dispatch claim TTL must be positive")
+    return ttl
+
+
+def _renew_interval_seconds(lease_ttl_s: float, value: float | None = None) -> float:
+    """Resolve a renewal interval that is always strictly below the lease TTL."""
+    if value is None:
+        from agent_utilities.core.config import config
+
+        value = config.agent_dispatch_renew_interval_s
+    interval = min(float(value), float(lease_ttl_s) / 3.0)
+    if not 0 < interval < lease_ttl_s:
+        raise ValueError("dispatch renew interval must be below the lease TTL")
+    return interval
 
 
 # ── claims (idempotent, stale-claim aware) ─────────────────────────────────
 
 
-def claim_goal_run(
+def load_goal_run(
     goal_id: str,
     *,
     token: str | None = None,
     now: float | None = None,
-    claim_ttl_s: float = CLAIM_TTL_S,
 ) -> dict[str, Any] | None:
-    """Claim one goal run; return its rehydrated spec, or ``None`` to skip.
+    """Load one goal definition after checking its authoritative WorkItem.
 
     Reads the goal's KG Loop node (CONCEPT:AU-KG.research.these-properties-carry) plus the ``goal_spec``
     persisted in the session's metadata (the envelope carried only the reference).
-    Skips terminal/paused goals (duplicate delivery) and goals whose 'running'
-    claim is FRESH (a live worker owns them); re-claims stale 'running' and
-    'orphaned' goals — that re-claim IS the crash-recovery path. The exactly-once
-    effect is now guaranteed at the iteration level by ``DurableExecutionManager``
-    (OS-5.16), so this node claim is best-effort owner dedup.
+    This is read-only rehydration. The parent dispatch WorkItem and the loop's
+    own WorkItem provide all lifecycle ownership and fencing.
     """
     from agent_utilities.core import sessions as _sessions
 
@@ -122,13 +122,13 @@ def claim_goal_run(
     try:
         rows = engine.query_cypher(
             "MATCH (c:Concept) WHERE c.id = $id RETURN c.id AS goal_id, "
-            "c.session_id AS session_id, c.status AS status, c.objective AS objective, "
+            "c.session_id AS session_id, c.objective AS objective, "
             "c.validation_cmd AS validation_cmd, c.max_iterations AS max_iterations, "
             "c.updated_at AS updated_at",
             {"id": goal_id},
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning("Goal %s claim query failed: %s", goal_id, e)
+        logger.warning("Goal claim query failed (%s)", type(e).__name__)
         return None
     row = next(
         (r for r in (rows or []) if isinstance(r, dict) and r.get("goal_id")), None
@@ -136,25 +136,15 @@ def claim_goal_run(
     if not row:
         logger.warning("Dispatch envelope for unknown goal %s skipped.", goal_id)
         return None
-    status = str(row.get("status") or "")
-    if status in _GOAL_TERMINAL:
-        logger.debug("Duplicate delivery of goal %s (%s) skipped.", goal_id, status)
+    from agent_utilities.orchestration.work_item import (
+        TERMINAL_WORK_ITEM_STATUSES,
+        work_item_view_of_loop,
+    )
+
+    work_view = work_item_view_of_loop(engine, goal_id)
+    if work_view and work_view.get("status") in TERMINAL_WORK_ITEM_STATUSES:
+        logger.debug("Duplicate delivery of terminal goal %s skipped.", goal_id)
         return None
-    if status == "running":
-        age = now - float(row.get("updated_at") or 0)
-        if age < claim_ttl_s:
-            logger.debug(
-                "Goal %s is running with a fresh claim (%.0fs) — skipping.",
-                goal_id,
-                age,
-            )
-            return None
-        logger.warning(
-            "Re-claiming goal %s: previous claim is stale (%.0fs > %.0fs).",
-            goal_id,
-            age,
-            claim_ttl_s,
-        )
 
     session_id = str(row.get("session_id") or "")
     spec: dict[str, Any] = {
@@ -183,157 +173,165 @@ def claim_goal_run(
     except Exception as e:  # noqa: BLE001 — session goal_spec is a fallback
         logger.debug("session goal_spec fallback failed: %s", e)
 
-    # Claim: stamp running + owner onto the Loop node (best-effort owner dedup).
-    try:
-        engine.add_node(
-            goal_id,
-            "Concept",
-            properties={"status": "running", "owner_host": token, "updated_at": now},
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Goal %s claim write failed: %s", goal_id, e)
+    # Read-only rehydration. LoopController claims the goal's WorkItem; this
+    # dispatch layer owns only the parent agent-turn WorkItem.
     return spec
 
 
-def claim_orchestrator_task(
+def claim_orchestrator_work_item(
     engine: Any,
     job_id: str,
     *,
     token: str | None = None,
     now: float | None = None,
-    claim_ttl_s: float = CLAIM_TTL_S,
+    claim_ttl_s: float | None = None,
 ) -> dict[str, Any] | None:
-    """Claim one orchestrator ``:Task`` node; return its payload, or ``None``.
-
-    Same idempotency contract as the ingest claim (KG-2.57): terminal statuses
-    are duplicate deliveries; a 'running' node with a fresh ``claim_unix`` is
-    owned by a live worker; a stale one is re-claimed (crash recovery)."""
+    """Claim one existing orchestrator WorkItem and return its payload."""
     token = token or worker_token()
     now = now if now is not None else time.time()
+    claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
 
-    rows = engine.query_cypher(
-        "MATCH (t:Task {id: $id}) RETURN t.status AS s, t.description AS d, "
-        "t.claim_unix AS cu",
-        {"id": job_id},
-    )
-    if not rows:
-        logger.warning("Dispatch envelope for unknown task %s skipped.", job_id)
+    from agent_utilities.orchestration import work_item as _wi
+
+    view = getattr(engine, "_work_item_engine", engine)
+    item_id = _wi.orchestrator_work_item_id(job_id)
+    item = _wi.get_work_item(view, item_id)
+    if item is None or item.get("kind") != "orchestrator_task":
+        logger.warning("Dispatch envelope for unknown WorkItem %s skipped.", item_id)
         return None
-    row = rows[0]
-    status = row.get("s")
-    if status in _TASK_TERMINAL:
-        logger.debug("Duplicate delivery of task %s (%s) skipped.", job_id, status)
-        return None
-    if status == "running":
-        age = now - float(row.get("cu") or 0)
-        if age < claim_ttl_s:
-            logger.debug("Task %s running with a fresh claim — skipping.", job_id)
-            return None
-        logger.warning("Re-claiming task %s: stale claim (%.0fs).", job_id, age)
-
-    engine.add_node(
-        job_id,
-        "Task",
-        properties={
-            "status": "running",
-            "description": row.get("d") or "",
-            "claimed_by": token,
-            "claim_unix": now,
-            "dispatch_host": socket.gethostname(),
-        },
+    claim = _wi.claim_specific(
+        view, item_id, token=token, now=now, lease_ttl_s=claim_ttl_s
     )
-    return {"job_id": job_id, "description": row.get("d") or ""}
+    if claim is None or not _wi.mark_running(view, item_id, claim, now=now):
+        return None
+    return {"job_id": job_id, "description": item.get("description") or "", **claim}
 
 
-def claim_agent_task(
+def _fence_still_valid(
     engine: Any,
-    task_id: str,
+    work_item_id: str,
+    claim: dict[str, Any],
     *,
-    token: str | None = None,
-    now: float | None = None,
-    claim_ttl_s: float = CLAIM_TTL_S,
-) -> dict[str, Any] | None:
-    """Claim one durable ``:AgentTask`` node; return its payload, or ``None`` to skip.
+    lease_ttl_s: float | None = None,
+) -> bool:
+    """Renew and verify the sole WorkItem lease; fail closed on any mismatch.
 
-    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects (C3/Phase 3a)
-
-    Generalizes :func:`claim_goal_run`/:func:`claim_orchestrator_task`
-    (same stale-claim-aware idempotency contract, same ``CLAIM_TTL_S`` /
-    :func:`worker_token`) from stamping ownership inline on the claimed node
-    to a dedicated ``:AgentLease`` node keyed by ``resource_id == task_id``
-    — the reusable claim primitive C3/Phase 3a introduces so any resource
-    (not only dispatch turns) can be leased identically. Terminal task
-    statuses are duplicate-delivery skips; a lease with a fresh
-    ``lease_expires_at`` is owned by a live worker (skip); a lease past
-    that deadline is re-claimed — the same crash-recovery path as the two
-    claims above, now over ``:AgentLease`` instead of an inline stamp.
+    A claim without its deterministic WorkItem id is untrusted and cannot
+    authorize a commit.
     """
-    token = token or worker_token()
-    now = now if now is not None else time.time()
-
-    rows = engine.query_cypher(
-        "MATCH (t:AgentTask {id: $id}) RETURN t.status AS status, "
-        "t.depends_on_task_ids AS depends_on_task_ids, t.dag_id AS dag_id, "
-        "t.checkpoint_id AS checkpoint_id",
-        {"id": task_id},
-    )
-    if not rows:
-        logger.warning("Dispatch envelope for unknown agent task %s skipped.", task_id)
-        return None
-    row = rows[0]
-    status = str(row.get("status") or "")
-    if status in _AGENT_TASK_TERMINAL:
-        logger.debug(
-            "Duplicate delivery of agent task %s (%s) skipped.", task_id, status
-        )
-        return None
-
-    lease_rows = engine.query_cypher(
-        "MATCH (l:AgentLease {resource_id: $rid}) RETURN l.owner_token AS owner_token, "
-        "l.lease_expires_at AS lease_expires_at ORDER BY l.acquired_at DESC LIMIT 1",
-        {"rid": task_id},
-    )
-    if lease_rows:
-        lease = lease_rows[0]
-        expires_at = float(lease.get("lease_expires_at") or 0.0)
-        if expires_at > now:
-            logger.debug(
-                "Agent task %s has a fresh lease (owner=%s, %.0fs remaining) — skipping.",
-                task_id,
-                lease.get("owner_token"),
-                expires_at - now,
-            )
-            return None
+    if claim.get("work_item_id") != work_item_id or engine is None:
         logger.warning(
-            "Re-claiming agent task %s: previous lease expired %.0fs ago.",
-            task_id,
-            now - expires_at,
+            "WorkItem %s has no verifiable lease; commit rejected",
+            work_item_id,
         )
+        return False
 
-    lease_id = f"lease:{task_id}:{uuid.uuid4().hex[:8]}"
+    from agent_utilities.orchestration.work_item import heartbeat
+
     try:
-        engine.add_node(
-            lease_id,
-            "AgentLease",
-            properties={
-                "name": f"Lease: {task_id}",
-                "owner_token": token,
-                "resource_id": task_id,
-                "acquired_at": now,
-                "lease_expires_at": now + claim_ttl_s,
-            },
+        lease_ttl_s = _claim_ttl_seconds(lease_ttl_s)
+        return heartbeat(
+            engine,
+            str(work_item_id),
+            claim,
+            lease_ttl_s=lease_ttl_s,
         )
-        engine.add_node(task_id, "AgentTask", properties={"status": "running"})
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Agent task %s claim write failed: %s", task_id, e)
+    except Exception as exc:  # noqa: BLE001 — authority check fails closed
+        logger.warning(
+            "WorkItem fence renewal failed for %s; commit rejected (error_type=%s)",
+            work_item_id,
+            type(exc).__name__,
+        )
+        return False
 
-    return {
-        "task_id": task_id,
-        "lease_id": lease_id,
-        "dag_id": row.get("dag_id") or "",
-        "checkpoint_id": row.get("checkpoint_id"),
-        "depends_on_task_ids": list(row.get("depends_on_task_ids") or []),
-    }
+
+class WorkItemLeaseLost(RuntimeError):
+    """The current worker no longer owns a renewable WorkItem lease."""
+
+
+class WorkItemLeaseGuard:
+    """Periodically renew one native WorkItem lease during long execution.
+
+    Executors receive this guard as their second argument. Every mutating
+    operation must run through :meth:`side_effect`, which performs a synchronous
+    renewal immediately before invoking it. The background renewal only keeps
+    long computation alive; it never turns a stale fencing token into authority.
+    """
+
+    def __init__(
+        self,
+        engine: Any,
+        work_item_id: str,
+        claim: dict[str, Any],
+        *,
+        lease_ttl_s: float,
+        heartbeat_interval_s: float | None = None,
+    ) -> None:
+        if lease_ttl_s <= 0:
+            raise ValueError("lease_ttl_s must be positive")
+        self.engine = engine
+        self.work_item_id = work_item_id
+        self.claim = claim
+        self.lease_ttl_s = float(lease_ttl_s)
+        self.heartbeat_interval_s = _renew_interval_seconds(
+            self.lease_ttl_s, heartbeat_interval_s
+        )
+        if not 0 < self.heartbeat_interval_s < self.lease_ttl_s:
+            raise ValueError("heartbeat interval must be positive and below lease TTL")
+        self._stop = threading.Event()
+        self._lost = threading.Event()
+        self._renew_lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+
+    def require_current(self) -> None:
+        """Synchronously renew or raise before an authoritative side effect."""
+        if self._lost.is_set():
+            raise WorkItemLeaseLost("WorkItem lease was lost")
+        with self._renew_lock:
+            if self._lost.is_set() or not _fence_still_valid(
+                self.engine,
+                self.work_item_id,
+                self.claim,
+                lease_ttl_s=self.lease_ttl_s,
+            ):
+                self._lost.set()
+                raise WorkItemLeaseLost("WorkItem lease renewal was rejected")
+
+    def side_effect(
+        self, operation: Callable[..., Any], /, *args: Any, **kwargs: Any
+    ) -> Any:
+        """Renew immediately, then invoke one bounded mutating operation."""
+        self.require_current()
+        return operation(*args, **kwargs)
+
+    def _heartbeat_loop(self) -> None:
+        while not self._stop.wait(self.heartbeat_interval_s):
+            try:
+                self.require_current()
+            except WorkItemLeaseLost:
+                return
+
+    def start(self) -> WorkItemLeaseGuard:
+        """Validate once and start periodic renewal."""
+        self.require_current()
+        self._thread = threading.Thread(
+            target=self._heartbeat_loop,
+            name="WorkItemLeaseHeartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+        return self
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=min(1.0, self.heartbeat_interval_s + 0.1))
+
+    def __enter__(self) -> WorkItemLeaseGuard:
+        return self.start()
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
+        self.close()
 
 
 # ── capability grants (Codex Gap-6) ─────────────────────────────────────────
@@ -357,25 +355,23 @@ def resolve_capability_grant(
     raises), same posture as every other durable-accounting read in this
     codebase (e.g. ``action_policy._recent_decisions``).
     """
-    if engine is None:
+    if engine is None or not agent_id or not capability:
         return None
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    agent_id = bus_reference("agent", agent_id)
     now = now if now is not None else time.time()
     try:
         rows = engine.query_cypher(
-            "MATCH (a:Agent {agent_id: $agent_id})-[:AUTHORIZED_FOR]->"
-            "(g:AgentCapabilityGrant {capability: $capability}) "
+            "MATCH (g:AgentCapabilityGrant {agent_id: $agent_id, "
+            "capability: $capability}) "
             "RETURN g.id AS id, g.issuer AS issuer, g.granted_at AS granted_at, "
             "g.expires_at AS expires_at, g.revoked AS revoked "
             "ORDER BY g.granted_at DESC LIMIT 1",
             {"agent_id": agent_id, "capability": capability},
         )
     except Exception as e:  # noqa: BLE001 — resolution is best-effort
-        logger.debug(
-            "resolve_capability_grant: query failed for %s/%s: %s",
-            agent_id,
-            capability,
-            e,
-        )
+        logger.debug("capability grant query failed (%s)", type(e).__name__)
         return None
     if not rows:
         return None
@@ -404,8 +400,12 @@ def grant_capability(
     """
     if engine is None:
         return None
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    agent_id = bus_reference("agent", agent_id)
+    issuer = bus_reference("capability_issuer", issuer)
     now = now if now is not None else time.time()
-    grant_id = f"capability_grant:{agent_id}:{capability}:{uuid.uuid4().hex[:8]}"
+    grant_id = f"capability_grant:{agent_id}:{capability}:{secrets.token_hex(16)}"
     expires_at = (now + ttl_seconds) if ttl_seconds else None
     try:
         engine.add_node(
@@ -425,30 +425,43 @@ def grant_capability(
         if callable(add_edge):
             add_edge(agent_id, grant_id, "AUTHORIZED_FOR")
     except Exception as e:  # noqa: BLE001 — grant issuance is best-effort
-        logger.warning(
-            "grant_capability: write failed for %s/%s: %s", agent_id, capability, e
-        )
+        logger.warning("grant_capability write failed (%s)", type(e).__name__)
         return None
     return grant_id
 
 
-def _default_agent_task_executor(claim: dict[str, Any]) -> str:
-    """Structural default executor: acknowledges the claim, fabricates no result.
+class NoExecutorBoundError(RuntimeError):
+    """Raised when no concrete executor is bound to an executable WorkItem.
 
-    Concrete ``:AgentTask`` producers (e.g. ``TeamComposition.to_durable_task_dag()``
-    callers) should pass a real ``executor=`` callable to
-    :func:`execute_agent_task_turn`; this default exists purely so the
-    generalized DAG task type has a safe, honest fallback instead of raising —
-    the same no-fabrication discipline :class:`~agent_utilities.models.
-    evidence_bundle.EvidenceBundle` documents for the identical reason.
+    Distinguishes an UNROUTABLE task (this) from a real executor failure (any
+    other exception raised by a bound executor) while guaranteeing both are
+    recorded as unsuccessful — AU-P0-3: unrun work must never be marked
+    ``completed`` with ``reward=1.0``.
     """
-    return f"acknowledged (no executor bound) for task {claim.get('task_id')}"
 
 
-def _write_agent_task_provenance(
+def _default_work_item_executor(
+    claim: dict[str, Any], _lease: WorkItemLeaseGuard
+) -> str:
+    """Structural default executor: FAILS CLOSED — no executor bound means no
+    work ran, so this must never be recorded as a successful completion.
+
+    WorkItem producers should pass a real ``executor=`` callable to
+    :func:`execute_work_item_turn`. Raising :class:`NoExecutorBoundError`
+    routes the item through the failure path (``status=
+    "unroutable"``, ``reward=0.0``), the same no-fabrication discipline
+    :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle` documents
+    for the identical reason.
+    """
+    raise NoExecutorBoundError(
+        f"no executor bound for WorkItem {claim.get('work_item_id')}"
+    )
+
+
+def _write_work_item_provenance(
     engine: Any,
     *,
-    task_id: str,
+    work_item_id: str,
     claim: dict[str, Any],
     agent_id: str,
     status: str,
@@ -457,24 +470,33 @@ def _write_agent_task_provenance(
     policy_decision_node: Any,
     grant_id: str | None,
 ) -> None:
-    """Write the Observation/Claim/Action/AgentTrace provenance for one executed ``:AgentTask``.
+    """Write provenance for one executed WorkItem.
 
     Best-effort (mirrors ``action_policy._audit``'s posture: an audit-write
     failure never unwinds the decision/execution that already happened).
     """
     if engine is None:
         return
+    from agent_utilities.messaging.bus_privacy import bus_reference
     from agent_utilities.models.knowledge_graph import (
         ActionNode,
-        AgentTraceNode,
         ClaimNode,
         ObservationNode,
+        TraceNode,
     )
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
-    obs_id = f"observation:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
-    claim_node_id = f"claim:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
-    action_id = f"action:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
-    trace_id = f"trace:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    privacy = PersistencePrivacyGuard()
+    clean_result, _result_privacy = privacy.sanitize_text(str(result))
+    clean_reason, _reason_privacy = privacy.sanitize_text(
+        str(policy_decision_node.reason)
+    )
+    agent_ref = bus_reference("agent", agent_id)
+
+    obs_id = f"observation:work_item:{work_item_id}:{secrets.token_hex(16)}"
+    claim_node_id = f"claim:work_item:{work_item_id}:{secrets.token_hex(16)}"
+    action_id = f"action:work_item:{work_item_id}:{secrets.token_hex(16)}"
+    trace_id = f"trace:work_item:{work_item_id}:{secrets.token_hex(16)}"
     lease_id = claim.get("lease_id", "")
     confidence = getattr(evidence, "confidence", None)
     confidence = confidence if confidence is not None else 1.0
@@ -482,54 +504,54 @@ def _write_agent_task_provenance(
     try:
         observation = ObservationNode(
             id=obs_id,
-            name=f"Observation: {task_id}",
+            name=f"Observation: {work_item_id}",
             content=(
-                f"AgentTask {task_id} claimed via lease {lease_id} "
+                f"WorkItem {work_item_id} claimed via lease {lease_id} "
                 f"(dag={claim.get('dag_id') or 'n/a'})"
             ),
             confidence=confidence,
             source="agent-dispatch",
         )
         obs_props = observation.model_dump(exclude={"id", "type"})
-        obs_props["task_id"] = task_id
+        obs_props["work_item_id"] = work_item_id
         obs_props["lease_id"] = lease_id
         engine.add_node(obs_id, "Observation", properties=obs_props)
 
         policy_claim = ClaimNode(
             id=claim_node_id,
-            name=f"Claim: {task_id} policy decision",
+            name=f"Claim: {work_item_id} policy decision",
             claim_text=(
                 f"{policy_decision_node.kind}({policy_decision_node.target}) -> "
-                f"{policy_decision_node.decision} ({policy_decision_node.reason})"
+                f"{policy_decision_node.decision} ({clean_reason})"
             ),
             claim_type="decision",
             is_verified=policy_decision_node.allowed,
         )
         claim_props = policy_claim.model_dump(exclude={"id", "type"})
-        claim_props["task_id"] = task_id
+        claim_props["work_item_id"] = work_item_id
         claim_props["policy_decision_id"] = policy_decision_node.id
         engine.add_node(claim_node_id, "Claim", properties=claim_props)
 
         action = ActionNode(
             id=action_id,
-            name=f"Action: execute {task_id}",
-            action_type="agent_task.execute",
+            name=f"Action: execute {work_item_id}",
+            action_type="work_item.execute",
             status=status,
-            result=str(result)[:4000],
+            result=clean_result[:4000],
         )
         action_props = action.model_dump(exclude={"id", "type"})
-        action_props["task_id"] = task_id
+        action_props["work_item_id"] = work_item_id
         action_props["lease_id"] = lease_id
         action_props["policy_decision_id"] = policy_decision_node.id
         action_props["capability_grant_id"] = grant_id or ""
-        action_props["agent_id"] = agent_id
+        action_props["agent_id"] = agent_ref
         engine.add_node(action_id, "Action", properties=action_props)
 
-        trace = AgentTraceNode(
+        trace = TraceNode(
             id=trace_id,
-            name=f"Trace: agent_task {task_id}",
-            agent=agent_id or None,
-            task_id=task_id,
+            name=f"Trace: work_item {work_item_id}",
+            agent=agent_ref or None,
+            task_id=work_item_id,
             status="ok" if status == "completed" else "error",
             outcome=status,
         )
@@ -537,37 +559,48 @@ def _write_agent_task_provenance(
         trace_props["lease_id"] = lease_id
         engine.add_node(trace_id, "Trace", properties=trace_props)
     except Exception as e:  # noqa: BLE001 — provenance is audit, never blocks the outcome
-        logger.warning("agent_task provenance write failed for %s: %s", task_id, e)
+        logger.warning("work-item provenance write failed (%s)", type(e).__name__)
 
 
-def _finalize_agent_task(
+def _finalize_work_item(
     engine: Any,
-    task_id: str,
+    work_item_id: str,
     claim: dict[str, Any],
     *,
     status: str,
     reward: float,
     feedback_text: str,
-) -> None:
-    """Writeback: the ``AgentOutcome`` (``OutcomeEvaluationNode``) + the ``:AgentTask`` status flip.
-
-    ``OutcomeEvaluationNode.lease_id``/``dag_id`` were already wired for
-    exactly this C3/Phase 3a purpose. The status flip is what
-    ``fire_ready_agent_tasks``/the fleet reconciler already polls to wake
-    ``TASK_DEPENDS_ON`` dependents (D23/C3) — untouched here, just triggered
-    by this write like every other ``:AgentTask`` status transition.
-    """
+) -> str:
+    """Commit the WorkItem, then append non-authoritative outcome evidence."""
     if engine is None:
-        return
+        return "missing"
     from agent_utilities.models.knowledge_graph import OutcomeEvaluationNode
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
-    outcome_id = f"outcome:agent_task:{task_id}:{uuid.uuid4().hex[:8]}"
+    if claim.get("work_item_id") != work_item_id:
+        return "missing"
+    from agent_utilities.orchestration.work_item import commit_execution_work_item
+
     try:
+        committed = commit_execution_work_item(
+            engine, work_item_id, claim, status=status
+        )
+    except Exception as exc:  # noqa: BLE001 — execution API is fail-closed/no-raise
+        logger.warning("WorkItem commit failed (%s)", type(exc).__name__)
+        return "conflict"
+    if committed in {"fenced", "missing", "conflict"}:
+        return str(committed)
+
+    outcome_id = f"outcome:work_item:{work_item_id}:{secrets.token_hex(16)}"
+    try:
+        clean_feedback, _privacy_report = PersistencePrivacyGuard().sanitize_text(
+            feedback_text
+        )
         outcome = OutcomeEvaluationNode(
             id=outcome_id,
-            name=f"Outcome: {task_id}",
+            name=f"Outcome: {work_item_id}",
             reward=reward,
-            feedback_text=feedback_text,
+            feedback_text=clean_feedback,
             lease_id=claim.get("lease_id", ""),
             dag_id=claim.get("dag_id", ""),
         )
@@ -576,56 +609,67 @@ def _finalize_agent_task(
             "OutcomeEvaluation",
             properties=outcome.model_dump(exclude={"id", "type"}),
         )
-        engine.add_node(task_id, "AgentTask", properties={"status": status})
     except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
-        logger.warning("agent_task finalize failed for %s: %s", task_id, e)
+        logger.warning("work-item outcome append failed (%s)", type(e).__name__)
+    return str(committed or "blocked")
 
 
-def execute_agent_task_turn(
+def execute_work_item_turn(
     engine: Any,
-    task_id: str,
+    work_item_id: str,
     *,
     agent_id: str = "",
-    capability: str = "agent_task.execute",
-    executor: Callable[[dict[str, Any]], Any] | None = None,
+    capability: str = "work_item.execute",
+    executor: Callable[[dict[str, Any], WorkItemLeaseGuard], Any] | None = None,
     evidence: Any = None,
     token: str | None = None,
     now: float | None = None,
-    claim_ttl_s: float = CLAIM_TTL_S,
+    claim_ttl_s: float | None = None,
 ) -> str:
-    """Claim -> execute -> writeback ONE durable ``:AgentTask`` (Codex Gap-6 orchestration flow).
+    """Claim, execute, and commit one durable executable WorkItem.
 
-    Generalizes :func:`execute_agent_turn`'s claim/execute/writeback shape
-    (see :func:`_execute_goal_turn`/:func:`_execute_orchestrator_turn`) to the
-    C3 durable ``:AgentTask`` DAG primitive, making the full chain explicit
-    end to end::
+    The full chain is::
 
-        ClaimNext (claim_agent_task) -> EvidenceBundle (C1) -> policy frame
+        ClaimWorkItem -> EvidenceBundle -> policy frame
         (AgentPolicyDecisionNode over action_policy.decide()) -> capability
         grant (AgentCapabilityGrantNode over AUTHORIZED_FOR) -> execute ->
         Observation/Claim/Action + AgentTrace + AgentOutcome
-        (OutcomeEvaluationNode, lease_id/dag_id already wired C3/Phase 3a) ->
-        :AgentTask status flip (already polled by fire_ready_agent_tasks /
-        the fleet reconciler to wake TASK_DEPENDS_ON dependents — D23/C3,
-        untouched here).
+        OutcomeEvaluationNode -> fenced WorkItem commit and native dependency
+        release.
 
     Outcomes: ``"skipped"`` (duplicate delivery / live claim elsewhere, from
-    :func:`claim_agent_task`), ``"blocked"`` (action_policy queued the action
-    for human approval — the task is left non-terminal so a fresh claim after
-    approval retries it), ``"denied"`` (action_policy forbade the action
-    outright — terminal), ``"completed"`` | ``"failed"`` (the executor ran;
-    writeback recorded). Never raises — an executor exception is caught and
-    recorded as a failed outcome, mirroring
+    the native claim), ``"blocked"`` (action_policy queued the action
+        for human approval — its WorkItem lease is fenced and deferred so a
+        fresh claim after approval retries it), ``"denied"`` (action_policy forbade the action
+    outright — terminal), ``"unroutable"`` (no executor was bound — terminal,
+    ``reward=0.0``, AU-P0-3 fail-closed), ``"fenced"`` (this holder's lease
+    was reclaimed by a newer holder before it could commit — the commit is
+    rejected, no writeback happens, AU-P0-3 fencing), ``"completed"`` |
+    ``"failed"`` (the executor ran; writeback recorded). Never raises — an
+    executor exception is caught and recorded as a failed outcome, mirroring
     :func:`_execute_orchestrator_turn`'s durable failure path.
+
+    The executor signature is ``executor(claim, lease_guard)``. Mutating calls
+    must use ``lease_guard.side_effect(...)`` so authority is renewed directly
+    before the effect; long computation is covered by periodic renewal.
+
+    A negative native claim is final. No graph projection or alternate claim
+    backend is consulted.
     """
     token = token or worker_token()
     now = now if now is not None else time.time()
+    claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
 
-    claim = claim_agent_task(
-        engine, task_id, token=token, now=now, claim_ttl_s=claim_ttl_s
+    from agent_utilities.orchestration.work_item import claim_execution_work_item
+
+    claim = claim_execution_work_item(
+        engine, work_item_id, token=token, now=now, claim_ttl_s=claim_ttl_s
     )
     if claim is None:
         return "skipped"
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    agent_id = bus_reference("agent", agent_id, tenant=str(claim.get("tenant") or ""))
 
     # EvidenceBundle (C1) — minimal, honest envelope: what is known about this
     # claim before executing. Callers with a real retrieval surface should
@@ -634,7 +678,7 @@ def execute_agent_task_turn(
         from agent_utilities.models.evidence_bundle import EvidenceBundle
 
         evidence = EvidenceBundle(
-            reasoning_trace=[{"step": "agent_task_claim", **claim}]
+            reasoning_trace=[{"step": "work_item_claim", **claim}]
         )
 
     # Policy frame (AgentPolicyDecision) — the SAME action_policy gate every
@@ -646,27 +690,58 @@ def execute_agent_task_turn(
         get_action_policy,
     )
 
-    policy_decision = get_action_policy(engine).decide(
-        ActionRequest(
-            kind="agent_task.execute",
-            target=task_id,
-            source="agent-dispatch",
-            actor_id=agent_id,
-        )
+    lease = WorkItemLeaseGuard(
+        engine,
+        work_item_id,
+        claim,
+        lease_ttl_s=claim_ttl_s,
     )
+    try:
+        lease.start()
+        policy_decision = lease.side_effect(
+            get_action_policy(engine).decide,
+            ActionRequest(
+                kind="work_item.execute",
+                target=work_item_id,
+                source="agent-dispatch",
+                actor_id=agent_id,
+            ),
+        )
+    except WorkItemLeaseLost:
+        lease.close()
+        return "fenced"
+    except Exception:
+        lease.close()
+        raise
     policy_decision_node = AgentPolicyDecisionNode.from_action_decision(
         policy_decision, agent_id=agent_id
     )
 
     if not policy_decision.allowed:
-        status = "blocked" if policy_decision.decision == DECISION_QUEUE else "failed"
+        status = "blocked" if policy_decision.decision == DECISION_QUEUE else "denied"
         result = (
             f"policy {policy_decision.decision} ({policy_decision.tier}): "
             f"{policy_decision.reason}"
         )
-        _write_agent_task_provenance(
+        try:
+            finalization = lease.side_effect(
+                _finalize_work_item,
+                engine,
+                work_item_id,
+                claim,
+                status=status,
+                reward=0.0,
+                feedback_text=result[:2000],
+            )
+        except WorkItemLeaseLost:
+            return "fenced"
+        finally:
+            lease.close()
+        if finalization in {"fenced", "missing", "conflict"}:
+            return "fenced"
+        _write_work_item_provenance(
             engine,
-            task_id=task_id,
+            work_item_id=work_item_id,
             claim=claim,
             agent_id=agent_id,
             status=status,
@@ -675,14 +750,6 @@ def execute_agent_task_turn(
             policy_decision_node=policy_decision_node,
             grant_id=None,
         )
-        _finalize_agent_task(
-            engine,
-            task_id,
-            claim,
-            status=status,
-            reward=0.0,
-            feedback_text=result[:2000],
-        )
         return "blocked" if status == "blocked" else "denied"
 
     # Capability grant — resolve an existing grant, or self-issue a bootstrap
@@ -690,35 +757,62 @@ def execute_agent_task_turn(
     # execution (advisory today: action_policy above is the hard gate; this
     # is the per-grant record team-synthesis already reads).
     grant_id: str | None = None
-    if agent_id:
-        existing = resolve_capability_grant(engine, agent_id, capability, now=now)
-        grant_id = existing.get("id") if existing else None
-        if grant_id is None:
-            grant_id = grant_capability(
-                engine,
-                agent_id,
-                capability,
-                issuer="agent-dispatch",
-                ttl_seconds=claim_ttl_s,
-                now=now,
-            )
-
-    # Execute — pluggable body; the default fabricates no result (mirrors
-    # EvidenceBundle's no-fabrication contract). Concrete task kinds plug
-    # their own executor in, same shape as _execute_goal_turn/
-    # _execute_orchestrator_turn.
     try:
-        result = (executor or _default_agent_task_executor)(claim)
-        status = "completed"
-        reward = 1.0
-    except Exception as e:  # noqa: BLE001 — durably record, never raise
-        result = str(e)
-        status = "failed"
-        reward = 0.0
+        if agent_id:
+            existing = resolve_capability_grant(engine, agent_id, capability, now=now)
+            grant_id = existing.get("id") if existing else None
+            if grant_id is None:
+                grant_id = lease.side_effect(
+                    grant_capability,
+                    engine,
+                    agent_id,
+                    capability,
+                    issuer="agent-dispatch",
+                    ttl_seconds=claim_ttl_s,
+                    now=now,
+                )
 
-    _write_agent_task_provenance(
+        # Execute — pluggable body; the default FAILS CLOSED. The lease guard
+        # renews periodically, and the executor receives the current-only
+        # side-effect fencing surface.
+        try:
+            lease.require_current()
+            result = (executor or _default_work_item_executor)(claim, lease)
+            status = "completed"
+            reward = 1.0
+        except WorkItemLeaseLost:
+            raise
+        except NoExecutorBoundError as e:
+            result = str(e)
+            status = "unroutable"
+            reward = 0.0
+        except Exception as e:  # noqa: BLE001 — durably record, never raise
+            result = str(e)
+            status = "failed"
+            reward = 0.0
+
+        finalization = lease.side_effect(
+            _finalize_work_item,
+            engine,
+            work_item_id,
+            claim,
+            status=status,
+            reward=reward,
+            feedback_text=str(result)[:2000],
+        )
+    except WorkItemLeaseLost:
+        logger.warning(
+            "WorkItem %s: renewable fence was lost; result discarded",
+            work_item_id,
+        )
+        return "fenced"
+    finally:
+        lease.close()
+    if finalization in {"fenced", "missing", "conflict"}:
+        return "fenced"
+    _write_work_item_provenance(
         engine,
-        task_id=task_id,
+        work_item_id=work_item_id,
         claim=claim,
         agent_id=agent_id,
         status=status,
@@ -726,14 +820,6 @@ def execute_agent_task_turn(
         evidence=evidence,
         policy_decision_node=policy_decision_node,
         grant_id=grant_id,
-    )
-    _finalize_agent_task(
-        engine,
-        task_id,
-        claim,
-        status=status,
-        reward=reward,
-        feedback_text=str(result)[:2000],
     )
     return status
 
@@ -761,24 +847,23 @@ def _execute_goal_turn(spec: dict[str, Any]) -> str:
 
 
 def _execute_orchestrator_turn(
-    engine: Any, envelope: AgentTurnEnvelope, claim: dict[str, Any]
+    engine: Any,
+    envelope: AgentTurnEnvelope,
+    claim: dict[str, Any],
+    *,
+    claim_ttl_s: float,
 ) -> str:
     """Run the claimed orchestrator job via the existing agent execution path.
 
-    The agent invocation is wrapped in a durable action keyed by ``job_id``
-    (CONCEPT:AU-OS.state.unified-durable-state-externalization): the queue gives at-least-once delivery, so a redelivery
-    of the same turn returns the recorded result instead of re-running the
-    agent (exactly-once effect), complementing the stale-claim guard above.
+    The native WorkItem lease and idempotent fenced commit are the sole durable
+    outcome authority. A redelivery can execute only after the engine reclaims
+    an expired lease; no second checkpoint database can race the WorkItem.
     """
     import asyncio
 
-    from agent_utilities.orchestration.durable_execution import (
-        DurableExecutionManager,
-    )
     from agent_utilities.orchestration.manager import Orchestrator
 
     orch = Orchestrator(engine)
-    durable = DurableExecutionManager(session_id=envelope.session_id)
 
     async def _invoke() -> Any:
         return await orch.execute_agent(
@@ -787,40 +872,67 @@ def _execute_orchestrator_turn(
             session_id=envelope.session_id,
         )
 
+    from agent_utilities.orchestration import work_item as _wi
+
+    work_engine = getattr(engine, "_work_item_engine", engine)
+    item_id = str(claim["work_item_id"])
+    lease = WorkItemLeaseGuard(
+        work_engine,
+        item_id,
+        claim,
+        lease_ttl_s=claim_ttl_s,
+    )
     try:
-        output = asyncio.run(
-            durable.arun_durable_action(
-                node_id=f"orchestrator_task:{envelope.job_id}",
-                action=_invoke,
-                idempotency_key=envelope.job_id,
+        lease.start()
+        try:
+            lease.require_current()
+            output = asyncio.run(_invoke())
+        except WorkItemLeaseLost:
+            raise
+        except Exception as e:  # noqa: BLE001 — durably mark failed, then ack
+            committed = lease.side_effect(
+                _wi.commit_result,
+                work_engine,
+                item_id,
+                claim,
+                outcome=_wi.WorkItemStatus.FAILED.value,
+                error_ref=f"orchestrator:{envelope.job_id}:failed",
+                retryable=False,
             )
+            if committed not in {"committed", "noop"}:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"orchestrator WorkItem failure commit rejected ({committed})"
+                ) from e
+            return "failed"
+
+        committed = lease.side_effect(
+            _wi.commit_result,
+            work_engine,
+            item_id,
+            claim,
+            outcome=_wi.WorkItemStatus.SUCCEEDED.value,
+            result_ref=f"orchestrator:{envelope.job_id}:completed",
+            retryable=False,
         )
-    except Exception as e:  # noqa: BLE001 — durably mark failed, then ack
-        engine._update_task_status(
-            envelope.payload_ref,
-            "failed",
-            {
-                "error": str(e),
-                "executed_by": worker_token(),
-                "correlation_id": _turn_correlation_id(),
-            },
-        )
-        return "failed"
-    engine._update_task_status(
-        envelope.payload_ref,
-        "completed",
-        {
-            "result": str(output)[:4000],
-            "executed_by": worker_token(),
-            "correlation_id": _turn_correlation_id(),
-        },
+        if committed not in {"committed", "noop"}:
+            raise _wi.WorkItemBackendUnavailable(
+                f"orchestrator WorkItem success commit rejected ({committed})"
+            )
+    finally:
+        lease.close()
+
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    logger.info(
+        "Orchestrator WorkItem %s completed (result_chars=%d)",
+        bus_reference("work_item", item_id),
+        len(str(output)),
     )
     return "completed"
 
 
 def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
-    """Durably mark a past-deadline turn failed without executing it."""
-    reason = f"Dispatch deadline {envelope.deadline_unix} expired before execution."
+    """Cancel the payload WorkItem for a past-deadline dispatch."""
     if envelope.kind == KIND_GOAL_LOOP:
         from agent_utilities.core import sessions as _sessions
 
@@ -830,26 +942,28 @@ def _fail_expired(envelope: AgentTurnEnvelope, engine: Any) -> None:
             logger.error("No KG engine — cannot expire goal %s.", gid)
             return
         try:
-            from agent_utilities.knowledge_graph.research.loops import TERMINAL_STATUS
+            from agent_utilities.orchestration import work_item as _wi
 
-            entry = _sessions._load_goal_entry(goal_engine, gid)
-            if entry and str(entry.get("status") or "") not in TERMINAL_STATUS:
-                goal_engine.add_node(
-                    gid,
-                    "Concept",
-                    properties={
-                        "status": "failed",
-                        "error": reason,
-                        "updated_at": time.time(),
-                    },
-                )
+            item_id = _wi.loop_work_item_id(gid)
+            if _wi.cancel_work_item(
+                goal_engine,
+                item_id,
+                reason="dispatch_deadline_expired",
+            ):
+                logger.info("Cancelled expired goal WorkItem %s", item_id)
         except Exception as e:  # noqa: BLE001
-            logger.error("Failed to expire goal %s: %s", gid, e)
-    elif engine is not None:
+            logger.error("Failed to expire goal (%s)", type(e).__name__)
+    elif envelope.kind == KIND_ORCHESTRATOR_TASK and engine is not None:
         try:
-            engine._update_task_status(
-                envelope.payload_ref, "failed", {"error": reason}
-            )
+            from agent_utilities.orchestration import work_item as _wi
+
+            view = getattr(engine, "_work_item_engine", engine)
+            item_id = _wi.orchestrator_work_item_id(envelope.payload_ref)
+            if not _wi.cancel_work_item(
+                view, item_id, reason="dispatch_deadline_expired", now=time.time()
+            ):
+                return
+            logger.info("Cancelled expired orchestrator WorkItem %s", item_id)
         except Exception as e:  # noqa: BLE001
             logger.error("Failed to expire task %s: %s", envelope.payload_ref, e)
 
@@ -860,7 +974,7 @@ def execute_agent_turn(
     *,
     token: str | None = None,
     now: float | None = None,
-    claim_ttl_s: float = CLAIM_TTL_S,
+    claim_ttl_s: float | None = None,
 ) -> str:
     """Claim + execute + write back ONE dispatched turn; return the outcome.
 
@@ -869,36 +983,102 @@ def execute_agent_turn(
     holds the per-session guard — one executor per session, fleet-wide.
     """
     token = token or worker_token()
+    claim_ttl_s = _claim_ttl_seconds(claim_ttl_s)
+    if engine is None and envelope.kind == KIND_GOAL_LOOP:
+        from agent_utilities.core import sessions as _sessions
+
+        engine = _sessions._goal_engine()
+    if engine is None:
+        raise RuntimeError("agent turn dispatch requires the process graph authority")
+
+    from agent_utilities.orchestration import work_item as _wi
+
+    dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
     with session_execution_guard(envelope.session_id):
         if envelope.deadline_unix and (now or time.time()) > envelope.deadline_unix:
+            _wi.cancel_work_item(
+                engine, dispatch_item_id, reason="dispatch_deadline_expired", now=now
+            )
             _fail_expired(envelope, engine)
             return "expired"
-        if envelope.kind == KIND_GOAL_LOOP:
-            spec = claim_goal_run(
-                envelope.payload_ref, token=token, now=now, claim_ttl_s=claim_ttl_s
-            )
-            if spec is None:
-                return "skipped"
-            return _execute_goal_turn(spec)
-        if envelope.kind == KIND_ORCHESTRATOR_TASK:
-            if engine is None:
-                raise RuntimeError(
-                    "orchestrator_task dispatch requires an engine client"
-                )
-            claim = claim_orchestrator_task(
-                engine,
-                envelope.payload_ref,
-                token=token,
-                now=now,
-                claim_ttl_s=claim_ttl_s,
-            )
-            if claim is None:
-                return "skipped"
-            return _execute_orchestrator_turn(engine, envelope, claim)
-        logger.error(
-            "Unknown dispatch kind %r (job %s).", envelope.kind, envelope.job_id
+        dispatch_claim = _wi.claim_specific(
+            engine,
+            dispatch_item_id,
+            token=token,
+            now=now,
+            lease_ttl_s=claim_ttl_s,
         )
-        return "failed"
+        if dispatch_claim is None:
+            return "skipped"  # authoritative negative; no legacy claim fallback
+        if not _wi.mark_running(engine, dispatch_item_id, dispatch_claim, now=now):
+            return "skipped"
+        lease = WorkItemLeaseGuard(
+            engine,
+            dispatch_item_id,
+            dispatch_claim,
+            lease_ttl_s=claim_ttl_s,
+        )
+        try:
+            lease.start()
+            outcome = "failed"
+            if envelope.kind == KIND_GOAL_LOOP:
+                spec = load_goal_run(
+                    envelope.payload_ref,
+                    token=token,
+                    now=now,
+                )
+                if spec is not None:
+                    lease.require_current()
+                    outcome = _execute_goal_turn(spec)
+            elif envelope.kind == KIND_ORCHESTRATOR_TASK:
+                claim = lease.side_effect(
+                    claim_orchestrator_work_item,
+                    engine,
+                    envelope.payload_ref,
+                    token=token,
+                    now=now,
+                    claim_ttl_s=claim_ttl_s,
+                )
+                if claim is not None:
+                    outcome = _execute_orchestrator_turn(
+                        engine,
+                        envelope,
+                        claim,
+                        claim_ttl_s=claim_ttl_s,
+                    )
+            else:
+                from agent_utilities.messaging.bus_privacy import bus_reference
+
+                logger.error(
+                    "Unknown dispatch kind %r (job_ref=%s)",
+                    envelope.kind,
+                    bus_reference(
+                        "dispatch_job", envelope.job_id, tenant=envelope.tenant
+                    ),
+                )
+            committed = lease.side_effect(
+                _wi.commit_result,
+                engine,
+                dispatch_item_id,
+                dispatch_claim,
+                outcome="succeeded" if outcome == "completed" else "failed",
+                result_ref=f"dispatch:{envelope.job_id}:completed"
+                if outcome == "completed"
+                else None,
+                error_ref=f"dispatch:{envelope.job_id}:{outcome}"
+                if outcome != "completed"
+                else None,
+                retryable=False,
+            )
+            if committed not in {"committed", "noop"}:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"agent turn commit was rejected ({committed})"
+                )
+            return outcome
+        except WorkItemLeaseLost:
+            return "fenced"
+        finally:
+            lease.close()
 
 
 # ── consumer loop / pool ───────────────────────────────────────────────────
@@ -971,7 +1151,7 @@ def run_dispatch_consumer_loop(
         try:
             item = queue.get()
         except Exception as e:  # noqa: BLE001 — transport hiccup: back off, retry
-            logger.warning("agent-dispatch poll error: %s", e)
+            logger.warning("agent-dispatch poll error (%s)", type(e).__name__)
             time.sleep(2.0)
             continue
         if item is None:
@@ -987,14 +1167,23 @@ def run_dispatch_consumer_loop(
             next_heartbeat = time.monotonic() + heartbeat_interval_s
             outcome = execute_agent_turn(envelope, engine, token=token)
         except Exception as e:  # noqa: BLE001 — record + keep consuming
-            logger.error("agent-dispatch worker error: %s", e)
+            logger.error("agent-dispatch worker error (%s)", type(e).__name__)
         finally:
             active.clear()
         _record_turn_outcome(outcome)
+        if outcome == "fenced":
+            # The message remains unacknowledged so Kafka/Postgres can redeliver
+            # after the current claim is replaced or expires. Acknowledging a
+            # stale execution would turn lease loss into data loss.
+            time.sleep(idle_sleep_s)
+            continue
         try:
             queue.ack(item_id)
         except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
-            logger.warning("agent-dispatch ack failed (%s); redelivery is safe.", e)
+            logger.warning(
+                "agent-dispatch ack failed (%s); redelivery is safe.",
+                type(e).__name__,
+            )
 
 
 def _record_turn_outcome(outcome: str) -> None:
@@ -1016,9 +1205,9 @@ def start_dispatch_worker_pool(
 ) -> list[threading.Thread]:
     """Start ``worker_count`` dispatch consumer threads against ``queue``.
 
-    With the Kafka transport each thread should own its own consumer-backed
-    queue (confluent consumers are not thread-safe); the SQLite/Postgres
-    backends are internally locked, so one shared queue object is fine.
+    A shared Kafka backend allocates one thread-local consumer per worker and
+    binds each acknowledgement receipt to that owner (confluent consumers are
+    not thread-safe). SQLite/Postgres backends remain safe to share.
     """
     stop = stop_event or threading.Event()
     threads: list[threading.Thread] = []
@@ -1074,18 +1263,25 @@ def main(argv: list[str] | None = None) -> int:
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    engine = IntelligenceGraphEngine()
+    engine = IntelligenceGraphEngine.get_or_create()
 
     # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
     # that cannot reach the engine must fail loud, not claim turns and drop them.
     try:
-        engine.query_cypher("MATCH (t:Task) RETURN count(t) AS c")
+        from agent_utilities.orchestration import work_item as _wi
+
+        if not callable(getattr(engine, "claim_work_item", None)):
+            raise _wi.NativeWorkItemRequired(
+                "engine does not expose native ClaimWorkItem"
+            )
+        engine.query_cypher("MATCH (w:WorkItem) RETURN count(w) AS c")
     except Exception as e:  # noqa: BLE001
         parser.exit(
             2,
             "Cannot reach the epistemic-graph engine as a client: "
-            f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS / GRAPH_SERVICE_TCP_ADDR / "
-            "GRAPH_SERVICE_SOCKET and the shared HMAC secret "
+            f"error_type={type(e).__name__}\nCheck GRAPH_SERVICE_ENDPOINTS "
+            "(external) or the packaged-local "
+            "transport and shared HMAC secret "
             "(GRAPH_SERVICE_AUTH_SECRET or the host's data_dir()/engine_secret "
             "— CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
         )

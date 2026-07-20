@@ -83,16 +83,28 @@ def assess_goal_sla(
 
 def _open_goals(engine: Any) -> list[dict[str, Any]]:
     from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
+    from agent_utilities.orchestration import work_item as _wi
 
-    statuses = list(_OPEN_STATUSES)
-    return read_rows(
+    definitions = read_rows(
         engine,
-        "MATCH (g:Concept) WHERE g.loop_kind = 'develop' AND g.status IN $st "
-        "RETURN g.id AS id, g.objective AS objective, g.status AS status, "
+        "MATCH (g:Concept) WHERE g.loop_kind = 'develop' "
+        "RETURN g.id AS id, g.objective AS objective, "
         "g.created_at AS created_at, g.sla_seconds AS sla_seconds, "
         "g.escalate_to AS escalate_to",
-        {"st": statuses},
     )
+    status_view = {
+        _wi.WorkItemStatus.SUBMITTED.value: "pending",
+        _wi.WorkItemStatus.READY.value: "pending",
+        _wi.WorkItemStatus.LEASED.value: "running",
+        _wi.WorkItemStatus.RUNNING.value: "running",
+    }
+    open_goals: list[dict[str, Any]] = []
+    for goal in definitions:
+        item = _wi.get_work_item(engine, _wi.loop_work_item_id(str(goal.get("id") or "")))
+        status = status_view.get(str((item or {}).get("status") or ""))
+        if status in _OPEN_STATUSES:
+            open_goals.append({**goal, "status": status})
+    return open_goals
 
 
 def _escalate(engine: Any, goal: dict[str, Any], verdict: dict[str, Any]) -> None:

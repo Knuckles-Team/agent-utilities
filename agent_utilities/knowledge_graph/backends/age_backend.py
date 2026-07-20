@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import secrets
 from typing import Any
 
 from .postgresql_backend import PostgreSQLBackend
@@ -34,6 +35,25 @@ _BACKTICK_IDENT = re.compile(r"`(\w+)`")
 _PARAM = re.compile(r"\$([A-Za-z_]\w*)")
 # Tail clauses that follow the RETURN projection.
 _RETURN_TAIL = re.compile(r"\s+(ORDER\s+BY|LIMIT|SKIP)\b", re.IGNORECASE)
+_AGE_GRAPH_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+def _require_age_graph_name(value: object) -> str:
+    rendered = str(value or "")
+    if not _AGE_GRAPH_NAME.fullmatch(rendered):
+        raise ValueError("AGE graph name is invalid")
+    return rendered
+
+
+def _dollar_quote_cypher(value: str) -> str:
+    """Wrap Cypher in an unpredictable, collision-checked PostgreSQL delimiter."""
+    if "\x00" in value:
+        raise ValueError("Cypher query contains a forbidden character")
+    for _ in range(8):
+        delimiter = f"$au_{secrets.token_hex(16)}$"
+        if delimiter not in value:
+            return f"{delimiter}{value}{delimiter}"
+    raise RuntimeError("Could not construct a safe Cypher delimiter")
 
 
 def _cypher_literal(value: Any) -> str:
@@ -175,8 +195,53 @@ class AGEBackend(PostgreSQLBackend):
                 pass
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
+        return self._execute_age(
+            query,
+            params,
+            include_epistemic=include_epistemic,
+            read_only=False,
+        )
+
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute native AGE Cypher in a PostgreSQL read-only transaction."""
+        return self._execute_age(
+            query,
+            params,
+            include_epistemic=include_epistemic,
+            read_only=True,
+        )
+
+    def _execute_age(
+        self,
+        query: str,
+        params: dict[str, Any] | None,
+        *,
+        include_epistemic: bool,
+        read_only: bool,
+    ) -> list[dict[str, Any]]:
+        if include_epistemic:
+            # CONCEPT:AU-KB-CURRENCY (Seam 1) — this backend has no id-seeded
+            # epistemic-envelope primitive (that lives on
+            # ``EpistemicGraphBackend``'s ``GraphComputeEngine``); degrade to
+            # ``[]`` rather than raising or silently returning plain ``dict``
+            # rows under a ``True`` request, matching the ABC contract.
+            logger.debug(
+                "AgeBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         params = params or {}
         cypher = (query or "").strip()
         if not cypher:
@@ -186,9 +251,13 @@ class AGEBackend(PostgreSQLBackend):
 
         cols = self._return_columns(inlined)
         col_def = ", ".join(f"{c} agtype" for c in cols) if cols else "result agtype"
-        # Dollar-quote with a tag unlikely to collide with the (escaped) Cypher.
+        # AGE's cstring query argument cannot be a DB-API parameter. Use a random,
+        # collision-checked dollar delimiter so raw Cypher can never terminate the
+        # SQL literal; the graph name is a strict PostgreSQL/AGE identifier.
+        graph_name = _require_age_graph_name(self._graph_name)
+        quoted_cypher = _dollar_quote_cypher(inlined)
         sql = (
-            f"SELECT * FROM cypher('{self._graph_name}', $ag${inlined}$ag$) "
+            f"SELECT * FROM cypher('{graph_name}', {quoted_cypher}) "
             f"AS ({col_def})"
         )
 
@@ -200,6 +269,11 @@ class AGEBackend(PostgreSQLBackend):
             # protected the transpiler path, not this override.
             with self._conn() as conn:
                 with conn.cursor() as cur:
+                    if read_only:
+                        # PostgreSQL is the enforcement boundary. A mutating Cypher
+                        # statement routed through this public-read contract is
+                        # rejected by the server; no query-text denylist is involved.
+                        cur.execute("SET TRANSACTION READ ONLY")
                     self._age_session(cur)
                     cur.execute(sql)
                     rows = cur.fetchall()  # no-RETURN writes yield 0 rows, not an error
@@ -209,7 +283,10 @@ class AGEBackend(PostgreSQLBackend):
                 conn.commit()
             return rows, colnames
 
-        rows, colnames = self._run_resilient(_run, name="age-execute")
+        if read_only:
+            rows, colnames = _run()
+        else:
+            rows, colnames = self._run_resilient(_run, name="age-execute")
 
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -228,6 +305,7 @@ class AGEBackend(PostgreSQLBackend):
 
     def create_schema(self) -> None:
         """Ensure the AGE graph + pgvector embeddings table exist (idempotent)."""
+        graph_name = _require_age_graph_name(self._graph_name)
         with self._conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS age CASCADE")
@@ -235,11 +313,11 @@ class AGEBackend(PostgreSQLBackend):
                 self._age_session(cur)
                 cur.execute(
                     "SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s",
-                    (self._graph_name,),
+                    (graph_name,),
                 )
                 if cur.fetchone() is None:
                     cur.execute(
-                        "SELECT ag_catalog.create_graph(%s)", (self._graph_name,)
+                        "SELECT ag_catalog.create_graph(%s)", (graph_name,)
                     )
                 # Embedding dim from the unified XDG config (kg_embedding_dim).
                 from agent_utilities.core.config import config

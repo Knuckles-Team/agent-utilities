@@ -56,16 +56,12 @@ def _credit_engine() -> Any:
         return _ENGINE_CLIENT
     _ENGINE_PROBED = True
     try:
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): honour a remote/sharded/insecure
-        # deployment instead of the engine's bare env defaults. No autostart — this
-        # path degrades to the local numpy kernel when the engine is unreachable.
-        _ENGINE_CLIENT = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
+        # Reuse the process graph transport; this namespace view owns no socket.
+        _ENGINE_CLIENT = GraphComputeEngine.get_or_create().client
         logger.info("epistemic-graph engine connected for credit quality")
     except Exception as exc:  # noqa: BLE001 — degrade gracefully, never invent
         logger.debug("epistemic-graph engine unavailable for credit quality: %s", exc)

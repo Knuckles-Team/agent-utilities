@@ -11,7 +11,7 @@ from agent_utilities.core.source_paths import normalize_path, repo_of
 from agent_utilities.knowledge_graph.retrieval import context_plane
 from agent_utilities.knowledge_graph.retrieval.ops_context import diagnose_ops
 
-_CANON = "/home/apps/workspace/agent-packages/agent-utilities/x.py"
+_CANON = "/home/agent-user/workspace/agent-packages/agent-utilities/x.py"
 
 
 # ── E1: shared source-path util ───────────────────────────────────────────────
@@ -23,7 +23,8 @@ def test_source_paths_normalize_and_repo_of():
     assert normalize_path(_CANON) == _CANON
     assert repo_of(_CANON) == "agent-utilities"
     assert (
-        repo_of("/home/apps/workspace/open-source-libraries/aider/m.py") == "oss/aider"
+        repo_of("/home/agent-user/workspace/open-source-libraries/aider/m.py")
+        == "oss/aider"
     )
     assert repo_of("") == "unknown"
 
@@ -92,6 +93,39 @@ def test_infer_domain():
     assert context_plane.infer_domain("why is the maint lane backing up") == "ops"
     assert context_plane.infer_domain("how does run_agent work") == "code"
     assert context_plane.infer_domain("the task queue dead_letter backlog") == "ops"
+
+
+# ── BUG-3 (kg-exhaustive-smoke.md): default is `entity`, NOT a blind `code` ───
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_infer_domain_plain_concept_question_does_not_default_to_code():
+    # The exact repro: a plain-English KG/concept question that hits none of the
+    # ops/troubleshoot/code hints used to fall through to the hardcoded "code"
+    # default and get a false "no code symbol matched" answer.
+    domain = context_plane.infer_domain("What is the 1:1:1 traceability rule?")
+    assert domain != "code"
+    assert domain == "entity"
+
+
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_infer_domain_still_routes_real_code_questions_to_code():
+    # A code keyword still routes to `code` even with no snake_case identifier.
+    assert context_plane.infer_domain("what does this function do") == "code"
+    assert context_plane.infer_domain("show me the class definition") == "code"
+    # A bare snake_case identifier is its own signal.
+    assert context_plane.infer_domain("what is build_code_context for") == "code"
+
+
+@pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")
+def test_synthesize_context_default_domain_routes_to_entity_not_code():
+    class _EmptyEngine:
+        def query_cypher(self, cypher, params):
+            return []
+
+    res = context_plane.synthesize_context(
+        _EmptyEngine(), query="What is the 1:1:1 traceability rule?"
+    )
+    assert res["domain"] == "entity"
+    assert res["status"] == "ok"
 
 
 @pytest.mark.concept("AU-KG.retrieval.route-question-its-domain")

@@ -1,0 +1,14 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - graph_evolution
+    - graph_feedback
+    - graph_learn
+    - graph_mine
+    - graph_mine_deep
+    - graph_ops_causal
+    - graph_research
+    - graph_rlm
+    - research_artifact
+  features: {}

@@ -5,11 +5,10 @@ the only *isolating* backend that can still serve the RLM host helpers, because 
 functions suspend the VM and let the host fulfil ``await rlm_query(...)``. It starts in ~0.06ms
 (vs Docker's 100-500ms), needs no daemon or root, and enforces memory/time/recursion limits.
 
-Semantics deliberately match :class:`~.local_backend.LocalSandbox`: a fresh ``Monty`` per call,
-so a snippet's plain locals do NOT persist across turns (only host vars updated via the
-``FINAL_VAR`` helper and the seeded inputs do) — exactly like the legacy ``_execute_local``
-``async def`` wrapping. Fresh-per-call is also *faster* than a reused ``MontyRepl`` for the
-small snippets RLM emits (the REPL offloads each resume to a thread).
+A fresh ``Monty`` is created per call, so a snippet's plain locals do not persist across turns;
+only seeded inputs and values written through ``FINAL_VAR`` cross the boundary. Fresh-per-call
+is also faster than a reused ``MontyRepl`` for the small snippets RLM emits (the REPL offloads
+each resume to a thread).
 
 Rejection safety: monty rejects unsupported features (``class``, ``@dataclass``, unsupported
 syntax) at *construction* time — before any host helper fires — so escalating to Docker has no

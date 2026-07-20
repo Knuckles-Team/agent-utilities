@@ -138,10 +138,9 @@ All messaging configuration is managed through the unified XDG config file:
 ### Config Priority Chain
 
 ```
-1. Environment variable (MESSAGING_DISCORD_TOKEN=...)         ← highest
+1. Environment variable (MESSAGING_DISCORD_TOKEN=vault://messaging/discord#token) ← highest
 2. XDG config.json (~/.config/agent-utilities/config.json)
-3. .env file (project-local)
-4. Platform-native env vars (DISCORD_BOT_TOKEN)               ← lowest
+3. Platform-native process env vars (DISCORD_BOT_TOKEN)       ← lowest
 ```
 
 ### Minimal config.json Example
@@ -150,13 +149,13 @@ All messaging configuration is managed through the unified XDG config file:
 {
     "messaging_enabled_backends": ["discord", "slack"],
     "messaging_kg_ingest": true,
-    "messaging_route_to_planner": true,
-
-    "messaging_discord_token": "BOT_TOKEN_HERE",
-    "messaging_slack_token": "xoxb-...",
-    "messaging_slack_app_token": "xapp-..."
+    "messaging_route_to_planner": true
 }
 ```
+
+Inject concrete platform tokens through the service process environment or a
+governed secret resolver. AgentConfig never reads a checkout `.env`, and raw
+credential values do not belong in `config.json`.
 
 ### How It Works
 
@@ -165,7 +164,7 @@ flowchart LR
     CFG["config.json"] -->|"_load_xdg_json_config()"| ENV["Environment Variables"]
     ENV -->|"AgentConfig (Pydantic)"| FIELDS["config.messaging_*"]
     ENV -->|"MessagingRegistry._auto_config()"| BACKEND["Backend Instance"]
-    FIELDS -->|"config.reload()"| HOT["Hot-reload at runtime"]
+    FIELDS -->|"config.reload()"| HOT["Swap validated proxy snapshot"]
 ```
 
 All `messaging_*` keys in `config.json` are:
@@ -191,12 +190,11 @@ All `messaging_*` keys in `config.json` are:
 
 ### WhatsApp Dual Mode
 
-```json
-{
-    "messaging_whatsapp_use_business_api": true,
-    "messaging_whatsapp_token": "<access-token>",
-    "messaging_whatsapp_phone_number_id": "<phone-id>"
-}
+```bash
+MESSAGING_WHATSAPP_USE_BUSINESS_API=true \
+MESSAGING_WHATSAPP_TOKEN="$(secret-controller read messaging/whatsapp-token)" \
+MESSAGING_WHATSAPP_PHONE_NUMBER_ID="$(secret-controller read messaging/whatsapp-phone-id)" \
+graph-os
 ```
 
 Set `messaging_whatsapp_use_business_api` to `false` (default) for the

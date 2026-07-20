@@ -1,27 +1,43 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Federation Mixin for the Unified Intelligence Graph Engine.
+"""Reference-only federation for external ontologies and graph sources."""
 
-This module provides support for registering external ontologies (e.g. via SPARQL
-endpoints) and ingesting metadata stubs from external knowledge graphs (like EARs)
-that lack semantic web capabilities.
-"""
-
-
+import hashlib
 import logging
+import re
 import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-
-import requests
-
-from ..backends import create_backend
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+_ALIAS_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+_RUNTIME_REF_RE = re.compile(r"^(?:env|vault|secret|sqlite)://[^\s]+$")
+
+
+def _alias(value: object, label: str) -> str:
+    rendered = str(value or "").strip().lower()
+    if not _ALIAS_RE.fullmatch(rendered):
+        raise ValueError(f"{label} must be a neutral lowercase alias")
+    return rendered
+
+
+def _runtime_ref(value: object, label: str) -> str:
+    rendered = str(value or "").strip()
+    if not _RUNTIME_REF_RE.fullmatch(rendered):
+        raise ValueError(f"{label} must be a runtime secret reference")
+    return rendered
+
+
+def _pseudonymous_id(kind: str, *parts: object) -> str:
+    digest = hashlib.sha256(
+        "\x1f".join(str(part) for part in parts).encode("utf-8")
+    ).hexdigest()[:24]
+    return f"{kind}_{digest}"
 
 
 class FederationMixin:
@@ -30,49 +46,59 @@ class FederationMixin:
     CONCEPT:AU-KG.ingest.external-graph-federation — External Graph Federation
     """
 
-    def register_external_ontology(self, uri: str, endpoint: str | None = None) -> None:
-        """Register an external ontology with the graph engine.
+    def register_external_ontology(
+        self,
+        *,
+        reference_id: str,
+        ontology_ref: str,
+        connection: str,
+    ) -> str:
+        """Register a runtime-resolved ontology on a named graph connection.
 
-        If `endpoint` is provided, the engine or OWL bridge can use it for federated
-        SPARQL queries (e.g., using SPARQL 1.1 SERVICE clauses). If only `uri` is provided,
-        it registers the namespace prefix so the reasoner is aware of it.
+        ``ontology_ref`` resolves to the concrete ontology URI only at use time;
+        ``connection`` names an AgentConfig/connection-registry entry whose
+        endpoint and credentials are likewise reference-backed. No URI, endpoint,
+        credential, or local path is written into the operational graph.
         """
+        alias = _alias(reference_id, "reference_id")
+        connection_alias = _alias(connection, "connection")
+        ref = _runtime_ref(ontology_ref, "ontology_ref")
+        node_id = _pseudonymous_id("ExternalGraphReference", alias)
         if not hasattr(self, "_external_ontologies"):
             self._external_ontologies = {}
-
-        self._external_ontologies[uri] = endpoint
-        logger.info(
-            "Registered external ontology URI: %s %s",
-            uri,
-            f"(endpoint: {endpoint})" if endpoint else "",
-        )
-
-        # We also ingest a reference node into the graph so agents can query
-        # what external ontologies are currently mapped.
-        node_id = f"OntologyReference_{hash(uri)}"
+        self._external_ontologies[node_id] = {
+            "reference_id": alias,
+            "ontology_ref": ref,
+            "connection": connection_alias,
+        }
         self.add_node(  # type: ignore[attr-defined]
             node_id=node_id,
             node_type="ExternalGraphReference",
             properties={
-                "externalUri": uri,
-                "sourceUrl": endpoint,
-                "platform": "sparql",
+                "referenceAlias": alias,
+                "ontologyRef": ref,
+                "connection": connection_alias,
+                "platform": "federated",
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
+        logger.info("Registered reference-backed external ontology")
+        return node_id
 
-    def get_registered_ontologies(self) -> dict[str, str | None]:
-        """Get the mapping of registered external ontologies and their endpoints."""
+    def get_registered_ontologies(self) -> dict[str, dict[str, str]]:
+        """Return reference-only ontology declarations keyed by pseudonymous ID."""
         if not hasattr(self, "_external_ontologies"):
             return {}
-        return self._external_ontologies
+        return {
+            key: dict(value) for key, value in self._external_ontologies.items()
+        }
 
     def ingest_external_entity_stub(
         self,
         internal_node_id: str,
         external_id: str,
-        external_uri: str,
-        platform: str,
+        external_uri_ref: str,
+        source_alias: str,
         name: str | None = None,
     ) -> str:
         """Ingest a high-level metadata stub from an external KG (e.g. EAR).
@@ -83,16 +109,19 @@ class FederationMixin:
 
         Returns the ID of the created external stub node.
         """
-        stub_id = f"ExternalEntity_{platform}_{external_id}"
+        source = _alias(source_alias, "source_alias")
+        uri_ref = _runtime_ref(external_uri_ref, "external_uri_ref")
+        external_digest = hashlib.sha256(str(external_id).encode("utf-8")).hexdigest()
+        stub_id = _pseudonymous_id("ExternalEntity", source, external_id)
 
         self.add_node(  # type: ignore[attr-defined]
             node_id=stub_id,
             node_type="ExternalEntity",
             properties={
-                "externalSystemId": external_id,
-                "externalUri": external_uri,
-                "platform": platform,
-                "name": name or f"External Entity {external_id}",
+                "externalIdDigest": external_digest,
+                "externalUriRef": uri_ref,
+                "sourceAlias": source,
+                "name": name or "External Entity",
                 "timestamp": datetime.now(UTC).isoformat(),
             },
         )
@@ -103,10 +132,9 @@ class FederationMixin:
         )
 
         logger.debug(
-            "Bridged internal node %s to external %s entity %s",
+            "Bridged internal node %s to external source %s",
             internal_node_id,
-            platform,
-            external_id,
+            source,
         )
         return stub_id
 
@@ -130,43 +158,29 @@ class FederationMixin:
             node_type = (parameters or {}).get("node_type")
             return self.query_rest_source(reference_id, node_type=node_type)
 
-        # 1. Retrieve the endpoint details from the local graph
+        # 1. Retrieve only the neutral connection alias from the local graph.
         if not hasattr(self, "backend") or not self.backend:  # type: ignore[attr-defined]
-            # Fallback to local memory graph if no persistent backend
             node_data = self.graph.nodes.get(reference_id)  # type: ignore[attr-defined]
             if not node_data:
                 raise ValueError(
                     f"External graph reference {reference_id} not found in local graph."
                 )
-            endpoint_url = node_data.get("endpoint_url") or node_data.get("sourceUrl")
-            graph_type = node_data.get("graph_type") or node_data.get("platform")
+            connection = node_data.get("connection")
         else:
-            res = self.backend.execute(  # type: ignore[attr-defined]
-                "MATCH (n) WHERE n.id = $id RETURN n.endpoint_url as url, n.graph_type as type, n.sourceUrl as surl, n.platform as plat",
+            res = self.backend.execute_read(  # type: ignore[attr-defined]
+                "MATCH (n) WHERE n.id = $id RETURN n.connection as connection",
                 {"id": reference_id},
             )
             if not res:
                 raise ValueError(
                     f"External graph reference {reference_id} not found in persistent graph."
                 )
-            row = res[0]
-            endpoint_url = row.get("url") or row.get("surl")
-            graph_type = row.get("type") or row.get("plat")
+            connection = res[0].get("connection")
 
-        if not endpoint_url:
-            raise ValueError(
-                f"No endpoint URL configured for reference {reference_id}."
-            )
-
-        graph_type = str(graph_type).lower()
-
-        # 2. Route to the appropriate executor
-        if "sparql" in graph_type:
-            return self.execute_federated_sparql(endpoint=endpoint_url, query=query)
-        else:
-            return self.execute_federated_lpg(
-                endpoint=endpoint_url, query=query, parameters=parameters
-            )
+        connection_alias = _alias(connection, "connection")
+        return self._execute_federated_connection(
+            connection_alias, query, parameters=parameters
+        )
 
     # ── REST virtualization (query-time, extractor-backed) ───────────────────
     #
@@ -283,56 +297,23 @@ class FederationMixin:
                 merged[rid] = rec
         return list(merged.values())
 
-    def execute_federated_sparql(
-        self, endpoint: str, query: str
+    def _execute_federated_connection(
+        self,
+        connection: str,
+        query: str,
+        *,
+        parameters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Execute a SPARQL query against an external HTTP endpoint using the `requests` library."""
-        headers = {
-            "Accept": "application/sparql-results+json",
-            "Content-Type": "application/x-www-form-urlencoded",
-        }
-        logger.info("Executing federated SPARQL query against %s", endpoint)
+        """Resolve one named connection and use its enforced read primitive."""
+        from agent_utilities.mcp.kg_server import get_connection_registry
 
         try:
-            response = requests.post(
-                endpoint, data={"query": query}, headers=headers, timeout=30
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            # Flatten SPARQL XML/JSON bindings to a simple dict list
-            results = []
-            if "results" in data and "bindings" in data["results"]:
-                for binding in data["results"]["bindings"]:
-                    row = {k: v["value"] for k, v in binding.items()}
-                    results.append(row)
-            return results
-        except Exception as e:
-            logger.error("Federated SPARQL query failed: %s", e)
-            raise RuntimeError(f"Federated SPARQL execution failed: {e}") from e
-
-    def execute_federated_lpg(
-        self, endpoint: str, query: str, parameters: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        """Execute a Cypher/LPG query against an external endpoint.
-
-        Uses the `create_backend` factory to abstract away the specific
-        LPG driver (Neo4j, FalkorDB, PostgreSQL, etc.).
-        """
-        logger.info("Executing federated LPG query against %s", endpoint)
-
-        try:
-            # create_backend parses the URI schema dynamically
-            ext_backend = create_backend(uri=endpoint)
-            if not ext_backend:
-                raise RuntimeError(
-                    f"Failed to create backend for endpoint {endpoint}. "
-                    "Ensure appropriate driver (e.g. agent-utilities[neo4j]) is installed."
-                )
-
-            # Use the abstracted GraphBackend execution method
-            results = ext_backend.execute(query, parameters or {})
-            return results
-        except Exception as e:
-            logger.error("Federated LPG query failed: %s", e)
-            raise RuntimeError(f"Federated LPG execution failed: {e}") from e
+            engine = get_connection_registry().get_engine(connection)
+            backend = getattr(engine, "backend", None) or engine
+            execute_read = getattr(backend, "execute_read", None)
+            if not callable(execute_read):
+                raise RuntimeError("federated source lacks a read-only contract")
+            return list(execute_read(query, parameters or {}) or [])
+        except Exception as exc:
+            logger.error("Federated graph query failed (%s)", type(exc).__name__)
+            raise RuntimeError("Federated graph execution failed") from exc

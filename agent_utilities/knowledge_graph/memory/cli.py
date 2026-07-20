@@ -10,7 +10,7 @@ Provides subcommands for memory materialization, startup context generation,
 transcript observation, reflection, hook installation, and diagnostics.
 
 Usage:
-    agent-utilities-memory context --for codex --cwd /home/user/project
+    agent-utilities-memory context --for codex --cwd ./project
     agent-utilities-memory recall --query "database decision"
     agent-utilities-memory observe --source claude
     agent-utilities-memory reflect
@@ -47,7 +47,7 @@ def _get_engine():
     except Exception:
         backend = None
 
-    return IntelligenceGraphEngine(backend=backend)
+    return IntelligenceGraphEngine.get_or_create(backend=backend)
 
 
 def cmd_context(args: argparse.Namespace) -> None:

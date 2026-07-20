@@ -32,7 +32,7 @@ HOOK_ID = "check-ontology-integrity"
 HOOK_BLOCK = f"""  - id: {HOOK_ID}
     name: check connector ontology manifest integrity (C5/X6, fail-closed)
     entry: |-
-      bash -c '[ -f connector_manifest.yml ] || exit 0; python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/check_connector_manifests.py --manifest connector_manifest.yml'
+      bash -c '[ -f connector_manifest.yml ] || exit 0; python3 "${{AGENT_UTILITIES_REPO:?set AGENT_UTILITIES_REPO}}/scripts/check_connector_manifests.py" --manifest connector_manifest.yml'
     language: system
     pass_filenames: false
     always_run: true

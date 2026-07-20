@@ -44,6 +44,16 @@ def _resolve_const(name: str, namespace: dict) -> set[str]:
     return set()
 
 
+def _literal_strings(node: ast.AST) -> set[str]:
+    if not isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return set()
+    return {
+        item.value
+        for item in node.elts
+        if isinstance(item, ast.Constant) and isinstance(item.value, str)
+    }
+
+
 def harvest_actions(func) -> set[str]:
     """Action string literals dispatched inside a tool function's source."""
     try:
@@ -54,6 +64,19 @@ def harvest_actions(func) -> set[str]:
 
     tree = ast.parse(textwrap.dedent(src))
     ns = getattr(func, "__globals__", {})
+    local_constants: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            values = _literal_strings(node.value)
+            if values:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        local_constants[target.id] = values
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            values = _literal_strings(node.value) if node.value is not None else set()
+            if values:
+                local_constants[node.target.id] = values
+
     actions: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare) and len(node.comparators) == 1:
@@ -75,20 +98,17 @@ def harvest_actions(func) -> set[str]:
                     and isinstance(left.value, str)
                 ):
                     actions.add(left.value)
-            # action in {...}/[...]/(...)  or  action in CONST
+            # action in/not in {...}/[...]/(...) or a local/module constant.
             if (
-                isinstance(op, ast.In)
+                isinstance(op, (ast.In, ast.NotIn))
                 and isinstance(left, ast.Name)
                 and left.id == "action"
             ):
                 for c in node.comparators:
                     if isinstance(c, (ast.Tuple, ast.List, ast.Set)):
-                        actions |= {
-                            e.value
-                            for e in c.elts
-                            if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                        }
+                        actions |= _literal_strings(c)
                     elif isinstance(c, ast.Name):
+                        actions |= local_constants.get(c.id, set())
                         actions |= _resolve_const(c.id, ns)
         # resolve_action(action, <list|set|Name>, ...)
         if (
@@ -98,24 +118,16 @@ def harvest_actions(func) -> set[str]:
         ):
             arg = node.args[1]
             if isinstance(arg, (ast.Tuple, ast.List, ast.Set)):
-                actions |= {
-                    e.value
-                    for e in arg.elts
-                    if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                }
+                actions |= _literal_strings(arg)
             elif isinstance(arg, ast.Name):
+                actions |= local_constants.get(arg.id, set())
                 actions |= _resolve_const(arg.id, ns)
     return actions - _DISCOVERY
 
 
 def build_manifest() -> list[dict]:
-    import sys
-
-    sys.argv = ["graph-os"]
     from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    from agent_utilities.mcp.kg_server import ACTION_TOOL_ROUTES, REGISTERED_TOOLS
+    from agent_utilities.mcp.optional_tool_features import OPTIONAL_TOOL_ACTIONS
 
     # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
     # client-introspection dispatchers — their actions are NOT string literals in
@@ -127,20 +139,64 @@ def build_manifest() -> list[dict]:
         f"engine_{domain}": set(methods) for domain, methods in ENGINE_DOMAINS.items()
     }
 
-    ops: list[dict] = []
-    for tool in sorted(ACTION_TOOL_ROUTES):
-        func = REGISTERED_TOOLS.get(tool)
-        if tool in engine_actions:
-            actions = engine_actions[tool]
-        else:
-            actions = harvest_actions(func) if func else set()
-        if actions:
-            for action in sorted(actions):
-                ops.append({"tool": tool, "action": action, "name": f"{tool}_{action}"})
-        else:
-            # Single-operation tool (no action switch) — itself is the verbose op.
-            ops.append({"tool": tool, "action": None, "name": tool})
-    return ops
+    registered_before = dict(kg_server.REGISTERED_TOOLS)
+    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
+    try:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
+        kg_server._build_server(
+            bootstrap=False,
+            tool_profile="intent",
+            canonical_surface=True,
+        )
+
+        ops: list[dict] = []
+        for tool in sorted(kg_server.ACTION_TOOL_ROUTES):
+            func = kg_server.REGISTERED_TOOLS.get(tool)
+            if tool in engine_actions:
+                actions = engine_actions[tool]
+            else:
+                actions = harvest_actions(func) if func else set()
+            if actions:
+                for action in sorted(actions):
+                    ops.append(
+                        {
+                            "tool": tool,
+                            "action": action,
+                            "name": f"{tool}_{action}",
+                        }
+                    )
+            else:
+                # Single-operation tool (no action switch) — itself is the verbose op.
+                ops.append({"tool": tool, "action": None, "name": tool})
+        actions_by_tool: dict[str, set[str]] = {}
+        for entry in ops:
+            if entry["action"] is not None:
+                actions_by_tool.setdefault(entry["tool"], set()).add(entry["action"])
+        for tool, optional_actions in OPTIONAL_TOOL_ACTIONS.items():
+            actual = actions_by_tool.get(tool)
+            expected = set(optional_actions)
+            if actual is not None and actual != expected:
+                raise RuntimeError(
+                    f"optional tool {tool!r} action declaration drift: "
+                    f"runtime={sorted(actual)}, declared={sorted(expected)}"
+                )
+            if actual is None:
+                ops.extend(
+                    {
+                        "tool": tool,
+                        "action": action,
+                        "name": f"{tool}_{action}",
+                    }
+                    for action in optional_actions
+                )
+        return sorted(ops, key=lambda entry: entry["name"])
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(registered_before)
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
 
 
 def main() -> None:

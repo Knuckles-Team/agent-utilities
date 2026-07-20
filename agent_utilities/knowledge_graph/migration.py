@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# CONCEPT:AU-KG.backend.mirror-health-repair - Native cross-backend graph migration: copy a graph's nodes+edges (+embeddings) from any source (the L1 compute store or a full-cypher durable backend) into any target backend, writing through the engine's proven dialect-aware MERGE upserts so pg-age, Neo4j, FalkorDB and LadybugDB all receive a correct native write — the backfill/interchange primitive behind the fan-out mirror set.
+# CONCEPT:AU-KG.backend.mirror-health-repair - Native cross-backend graph migration: copy a graph's nodes+edges (+embeddings) from any authority or full-Cypher endpoint into any target backend, writing through the engine's proven dialect-aware MERGE upserts so pg-age, Neo4j, FalkorDB and LadybugDB all receive a correct native write — the backfill/interchange primitive behind the fan-out mirror set.
 """Backend-agnostic graph data migration.
 
 CONCEPT:AU-KG.backend.mirror-health-repair — Interchangeable storage across backends.
@@ -11,18 +11,15 @@ source and writes them into a target backend. The WRITE side reuses the engine's
 handling (ad-hoc keys folded into the ``metadata`` JSON column, edge props into the
 single ``properties`` JSON column for strict-schema Kuzu/Ladybug, nested values
 JSON-encoded for map-rejecting drivers). Those upserts write ONLY to the backend
-(no graph_compute / no shared L1), so a migration never pollutes or contends with
-the live L1 engine.
+(no graph-compute side effects), so a migration never pollutes or contends with
+the live authority.
 
-This replaces the old reconcile path, which reconstructed its own
-``CREATE (n:Label {`k`: $k, ...})`` cypher — fragile on native-cypher backends
-(double-backticked / reserved keys → syntax errors) and edge-lossy. Because the
-write is MERGE-based it is **idempotent and resumable**: re-running converges
-rather than duplicating.
+The write is MERGE-based and therefore **idempotent and resumable**: re-running
+converges rather than duplicating.
 
 Source reading:
-* an L1/compute source (anything exposing ``.graph`` with ``_get_all_nodes`` /
-  ``_get_node_properties``) — used for the fan-out backfill (authority/L1 → mirrors);
+* a native source (anything exposing ``.graph`` with ``_get_all_nodes`` /
+  ``_get_node_properties``) — used for authority-to-mirror backfill;
 * a full-cypher durable backend (Neo4j/FalkorDB/AGE) — read via ``MATCH``.
 """
 
@@ -38,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 def _as_backend(target: Any) -> GraphBackend:
-    """Resolve a backend from a backend, an engine, or a tiered/fanout wrapper."""
+    """Resolve a backend from a backend, engine, or fanout facade."""
     if isinstance(target, GraphBackend):
         return target
     be = getattr(target, "backend", None)
@@ -47,8 +44,8 @@ def _as_backend(target: Any) -> GraphBackend:
     raise TypeError(f"copy_graph: cannot resolve a GraphBackend from {target!r}")
 
 
-def _compute_graph(source: Any) -> Any | None:
-    """The L1 compute graph for ``source`` (its ``.graph``, or itself), if it
+def _native_graph(source: Any) -> Any | None:
+    """The native graph for ``source`` (its ``.graph``, or itself), if it
     exposes ``_get_all_nodes`` — else ``None`` (a cypher source)."""
     for cand in (getattr(source, "graph", None), source):
         if cand is not None and hasattr(cand, "_get_all_nodes"):
@@ -57,31 +54,21 @@ def _compute_graph(source: Any) -> Any | None:
 
 
 def _clean_props(props: dict[str, Any]) -> dict[str, Any]:
-    """Drop ``embedding`` / null values and SANITISE PROPERTY KEYS.
-
-    Some legacy L1 nodes carry property keys that literally contain backticks
-    (e.g. ``"`type`"``, ``"`metadata`"``) — corruption from an old write path that
-    reconstructed ``\\`{k}\\`: $k`` cypher. Re-emitting such a key as
-    ``SET n.\\`\\`type\\`\\``` is a cypher syntax error, so the node is silently lost
-    in migration. Strip backticks (and surrounding whitespace) from every key so the
-    node — and its data — survives; on collision the last value wins.
-    """
+    """Validate property keys and drop ``embedding`` / null values."""
     clean: dict[str, Any] = {}
     for k, v in props.items():
-        # Sanitise the key FIRST, then test it: legacy corruption stores keys with
-        # backticks (``"`embedding`"``), so checking ``k == "embedding"`` before
-        # stripping let a backticked embedding through — a variable-dim vector that
-        # then breaks Kuzu's fixed-dim ``embedding`` column.
-        ck = str(k).replace("`", "").strip()
-        if not ck or ck == "embedding" or v is None:
+        ck = str(k)
+        if not ck or ck != ck.strip() or "`" in ck:
+            raise ValueError("source graph contains an invalid property key")
+        if ck == "embedding" or v is None:
             continue
         clean[ck] = v
     return clean
 
 
 def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]:
-    """Yield ``(node_id, label, props)`` from the source (L1 compute or cypher)."""
-    graph = _compute_graph(source)
+    """Yield ``(node_id, label, props)`` from a native or Cypher source."""
+    graph = _native_graph(source)
     if graph is not None:
         for nid in graph._get_all_nodes():
             try:
@@ -89,8 +76,6 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
             except Exception:  # noqa: BLE001
                 props = {}
             clean = _clean_props(props)
-            # Derive the label from the CLEANED props so a node whose only ``type``
-            # lived under a backticked key still gets its real label.
             label = sanitize_label(clean.get("type") or clean.get("label") or "Node")
             clean.setdefault("type", label)
             yield str(nid), label, clean
@@ -113,7 +98,7 @@ def _iter_source_nodes(source: Any) -> Iterator[tuple[str, str, dict[str, Any]]]
 
 def _iter_source_edges(source: Any) -> Iterator[tuple[str, str, str, dict[str, Any]]]:
     """Yield ``(source_id, target_id, rel_type, props)`` from the source."""
-    graph = _compute_graph(source)
+    graph = _native_graph(source)
     if graph is not None:
         # Enumerate edges from the engine's in-memory graph view.
         view = getattr(graph, "edges", None)
@@ -157,8 +142,8 @@ def _iter_source_edges(source: Any) -> Iterator[tuple[str, str, str, dict[str, A
 
 
 def _iter_source_embeddings(source: Any) -> Iterator[tuple[str, list[float]]]:
-    """Yield ``(node_id, embedding)`` for nodes that carry one (L1 source only)."""
-    graph = _compute_graph(source)
+    """Yield ``(node_id, embedding)`` for nodes in a native source."""
+    graph = _native_graph(source)
     if graph is None:
         return
     for nid in graph._get_all_nodes():
@@ -232,14 +217,14 @@ def copy_graph(
     """Migrate all nodes + edges (+ embeddings) from ``source`` into ``target``.
 
     ``source`` / ``target`` may be a ``GraphBackend`` or anything exposing
-    ``.backend`` (an engine, tiered/fanout wrapper). Writes go through the engine's
+    ``.backend`` (an engine or fanout facade). Writes go through the engine's
     portable backend-only upserts, so every backend gets a dialect-correct native
     write. Idempotent (MERGE). Returns counts + post-condition drift.
     """
     target_backend = _as_backend(target)
     # A minimal writer that reuses ONLY the engine's portable backend upserts
     # (_upsert_node/_upsert_edge) — no services, hooks, retriever, graph_compute, or
-    # active-engine registration. So a migration never writes the shared L1 nor
+    # active-engine registration. So a migration never writes the live authority nor
     # triggers the engine's write-path side-effects.
     writer = _portable_writer(target_backend)
 

@@ -20,7 +20,7 @@ Experience distillation via cross-rollout critique (CONCEPT:AU-AHE.evaluation.ba
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [KG-Native Agentic Task Detection](pillars/3_agentic_harness_engineering/AHE-3.24-KG-Native_Agentic_Task_Detection.md) (CONCEPT:AU-AHE.evaluation.backtest-harness)
+# KG-Native Agentic Task Detection (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 ## Overview
 Evaluates topological complexity to route dense API toolchains to complex models.
@@ -31,7 +31,7 @@ Evaluates topological complexity to route dense API toolchains to complex models
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Topological Reasoning Detection](pillars/3_agentic_harness_engineering/AHE-3.25-Topological_Reasoning_Detection.md) (CONCEPT:AU-AHE.evaluation.backtest-harness)
+# Topological Reasoning Detection (CONCEPT:AU-AHE.evaluation.backtest-harness)
 
 ## Overview
 Maps user queries to `MathematicalFoundationNode` or quantitative financial concepts to trigger reasoning models.
@@ -42,3 +42,6 @@ Maps user queries to `MathematicalFoundationNode` or quantitative financial conc
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
+
+See the [Agentic Harness Engineering pillar](../3_agentic_harness_engineering.md)
+for the canonical capability inventory.

@@ -22,7 +22,8 @@ This sits on the "gateway + host daemon" rung of the deployment ladder — see
 - the KG engine reachable from the gateway (events are persisted as nodes and
   triaged by the engine's durable task workers — without an engine the ingress
   returns `503` so well-behaved senders retry);
-- optionally, a shared secret in `FLEET_EVENTS_TOKEN`.
+- an authenticated gateway identity or a webhook secret referenced by
+  `FLEET_EVENTS_TOKEN_REF`.
 
 ## 1. The route and its auth
 
@@ -38,14 +39,20 @@ JWTs:
 
 | Flag | Default | Behavior |
 |---|---|---|
-| `FLEET_EVENTS_TOKEN` | `None` | When set, every POST must carry a matching `X-Fleet-Events-Token` header or it is rejected with `401` (constant-time compare). Unset = no token required; the OS-5.14 identity middleware still applies when `KG_AUTH_REQUIRED=1`. |
+| `FLEET_EVENTS_TOKEN_REF` | `None` | Secret-provider reference for the expected `X-Fleet-Events-Token`; rotation is picked up per request. |
 
-The config is re-read per request, so rotating the token does not require a
-gateway restart. A per-source storm cap of 120 accepted events/minute returns
+Without a resolved secret or authenticated identity, requests are denied. The
+config is re-read per request, so rotating the token does not require a gateway
+restart. A per-source storm cap of 120 accepted events/minute returns
 `429` when exceeded.
 
+Webhook bodies remain transient. Durable `FleetEvent` nodes keep only normalized
+severity/status/source classifications and keyed references for source, subject,
+summary, actor, tenant, and correlation identity; raw payloads and identity text
+are not persisted or returned.
+
 ```bash
-export FLEET_EVENTS_TOKEN="$(openssl rand -hex 24)"   # set on the gateway
+export FLEET_EVENTS_TOKEN_REF='<secret-provider-reference>'
 ```
 
 ## 2. Prometheus Alertmanager receiver
@@ -66,23 +73,23 @@ route:
 receivers:
   - name: agent-os-fleet
     webhook_configs:
-      - url: "https://gateway.example.com/api/fleet/events"
+      - url: "https://gateway.example.test/api/fleet/events"
         send_resolved: true # resolved alerts land as severity=info
         http_config:
           # Custom headers require Alertmanager >= 0.25 (http_headers).
           http_headers:
             X-Fleet-Events-Token:
-              secrets: ["REPLACE_WITH_FLEET_EVENTS_TOKEN"]
+              secrets: ["<secret-provider-binding>"]
 ```
 
-On an older Alertmanager without `http_config.http_headers`, leave
-`FLEET_EVENTS_TOKEN` unset and restrict the route at the reverse proxy
-instead.
+On an older Alertmanager without `http_config.http_headers`, use an
+authenticating reverse proxy that injects the header from its secret provider.
+Do not expose the route without either boundary.
 
 ## 3. Uptime Kuma webhook notification
 
 In Kuma: **Settings → Notifications → Webhook**, URL
-`https://gateway.example.com/api/fleet/events`, body type
+`https://gateway.example.test/api/fleet/events`, body type
 **"application/json"** (the default preset body). Kuma's default payload is
 exactly what the normalizer expects — a `heartbeat` object, a `monitor`
 object, and `msg`:
@@ -90,7 +97,7 @@ object, and `msg`:
 ```json
 {
   "heartbeat": {"status": 0, "msg": "connect ECONNREFUSED"},
-  "monitor": {"name": "vector-mcp", "url": "https://vector-mcp.arpa"},
+  "monitor": {"name": "vector-mcp", "url": "https://vector-mcp.example"},
   "msg": "[vector-mcp] [DOWN] connect ECONNREFUSED"
 }
 ```
@@ -111,7 +118,7 @@ source is taken from `?source=` or the `X-Event-Source` header.
 ```bash
 curl -sS -X POST "http://localhost:8000/api/fleet/events?source=portainer" \
   -H "Content-Type: application/json" \
-  -H "X-Fleet-Events-Token: $FLEET_EVENTS_TOKEN" \
+  -H "X-Fleet-Events-Token: <runtime-resolved-token>" \
   -d '{"service": "caddy-mcp", "severity": "critical",
        "status": "down", "summary": "synthetic: caddy-mcp is down"}'
 ```

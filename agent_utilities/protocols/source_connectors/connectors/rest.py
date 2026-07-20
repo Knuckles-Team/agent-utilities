@@ -14,14 +14,20 @@ a transport (``httpx.MockTransport``) or a ``fetch_fn`` so no network is require
 
 from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import urljoin
 
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
+)
+from ..http_safety import (
+    normalize_allowed_hosts,
+    require_safe_source_url,
+    safe_get_json,
 )
 from ..registry import register_source
 
@@ -41,26 +47,26 @@ def _dig(record: dict[str, Any], dotted: str) -> Any:
 
 
 def _make_httpx_fetch(
-    transport: Any = None, headers: dict[str, str] | None = None
+    transport: Any = None,
+    headers: dict[str, str] | None = None,
+    *,
+    allowed_private_hosts: list[str] | None = None,
+    allowed_redirect_hosts: list[str] | None = None,
+    max_response_bytes: int = 10 * 1024 * 1024,
 ) -> JsonFetchFn:
-    """Build a lazy-``httpx`` JSON fetcher (optionally over an injected transport)."""
+    """Build a bounded, redirect-validating JSON fetcher."""
 
     def _fetch(url: str, params: dict[str, Any]) -> Any:
-        try:
-            import httpx
-        except ImportError as exc:  # pragma: no cover - environment without httpx
-            raise RuntimeError(
-                "RestJsonConnector needs 'httpx'. Install it or pass a fetch_fn."
-            ) from exc
-        client_kwargs: dict[str, Any] = {"timeout": 60.0}
-        if transport is not None:
-            client_kwargs["transport"] = transport
-        if headers:
-            client_kwargs["headers"] = headers
-        with httpx.Client(**client_kwargs) as client:
-            resp = client.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json()
+        return safe_get_json(
+            url,
+            params=params,
+            headers=headers,
+            timeout=60.0,
+            max_bytes=max_response_bytes,
+            allowed_private_hosts=allowed_private_hosts,
+            allowed_redirect_hosts=allowed_redirect_hosts,
+            transport=transport,
+        )
 
     return _fetch
 
@@ -103,10 +109,24 @@ class RestJsonConnector(LoadConnector, PollConnector):
         fetch_fn: JsonFetchFn | None = None,
         transport: Any = None,
         headers: dict[str, str] | None = None,
+        allowed_private_hosts: list[str] | None = None,
+        allowed_redirect_hosts: list[str] | None = None,
+        allowed_pagination_hosts: list[str] | None = None,
+        max_response_bytes: int = 10 * 1024 * 1024,
         **_: object,
     ) -> None:
         if not url:
             raise ValueError("RestJsonConnector requires a 'url'")
+        self._allowed_private_hosts = list(allowed_private_hosts or [])
+        self._base_host = require_safe_source_url(
+            url,
+            allowed_private_hosts=self._allowed_private_hosts,
+            resolve_dns=False,
+        )
+        self._pagination_hosts = {
+            self._base_host,
+            *normalize_allowed_hosts(allowed_pagination_hosts),
+        }
         self.url = url
         self.records_field = records_field
         self.id_field = id_field
@@ -117,8 +137,17 @@ class RestJsonConnector(LoadConnector, PollConnector):
         self.cursor_param = cursor_param
         self.next_url_field = next_url_field
         self.params = dict(params or {})
-        self.max_pages = max(1, int(max_pages))
-        self._fetch: JsonFetchFn = fetch_fn or _make_httpx_fetch(transport, headers)
+        if len(self.params) > 100:
+            raise ValueError("RestJsonConnector accepts at most 100 static parameters")
+        self.max_pages = min(10_000, max(1, int(max_pages)))
+        self.external_access = default_external_access()
+        self._fetch = fetch_fn or _make_httpx_fetch(
+            transport,
+            headers,
+            allowed_private_hosts=self._allowed_private_hosts,
+            allowed_redirect_hosts=list(allowed_redirect_hosts or []),
+            max_response_bytes=max_response_bytes,
+        )
 
     def health_check(self) -> bool:
         return bool(self.url)
@@ -142,8 +171,8 @@ class RestJsonConnector(LoadConnector, PollConnector):
             title=str(title) if title else str(rid),
             text=text,
             doc_type="record",
-            metadata={"raw": record},
-            external_access=ExternalAccess.public(),
+            metadata={"source_system": "rest"},
+            external_access=self.external_access.model_copy(deep=True),
             updated_at=str(updated) if updated is not None else None,
         )
 
@@ -163,6 +192,13 @@ class RestJsonConnector(LoadConnector, PollConnector):
         self, url: str, cursor: str | None
     ) -> tuple[list[SourceDocument], str | None, str | None]:
         """Fetch one page → ``(documents, next_url, next_cursor)``."""
+        page_host = require_safe_source_url(
+            url,
+            allowed_private_hosts=self._allowed_private_hosts,
+            resolve_dns=False,
+        )
+        if page_host not in self._pagination_hosts:
+            raise ValueError("Cross-host REST pagination is not permitted")
         params = dict(self.params)
         if cursor and self.cursor_param:
             params[self.cursor_param] = cursor
@@ -170,6 +206,15 @@ class RestJsonConnector(LoadConnector, PollConnector):
         records = self._records(body)
         docs = [d for d in (self._to_document(r) for r in records) if d is not None]
         next_url = _dig(body, self.next_url_field) if self.next_url_field else None
+        if next_url:
+            next_url = urljoin(url, str(next_url))
+            next_host = require_safe_source_url(
+                next_url,
+                allowed_private_hosts=self._allowed_private_hosts,
+                resolve_dns=False,
+            )
+            if next_host not in self._pagination_hosts:
+                raise ValueError("Cross-host REST pagination is not permitted")
         next_cursor = self._next_cursor(body, records)
         return docs, (str(next_url) if next_url else None), next_cursor
 

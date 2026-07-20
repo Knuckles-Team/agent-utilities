@@ -24,11 +24,13 @@ import logging
 import os
 import uuid
 
+from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
+from agent_utilities.security.error_surface import public_error_json
 
 logger = logging.getLogger(__name__)
 
-_AGENT_ID = setting("AGENT_ID", f"harness-{uuid.uuid4().hex[:8]}")
+_AGENT_ID = setting("AGENT_ID", f"harness-{uuid.uuid4().hex}")
 _SESSION_ID = setting("SESSION_ID", uuid.uuid4().hex)
 
 
@@ -38,7 +40,7 @@ def _build_server():
 
     args, mcp, middlewares = create_mcp_server(
         name="agent-utilities-harness",
-        version="0.1.0",
+        version=__version__,
         instructions=(
             "Agentic Harness MCP Server for agent-utilities. "
             "Provides DSTDD governance tools, agent self-model queries, "
@@ -116,7 +118,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def dstdd_validate_design(feature_id: str) -> str:
@@ -148,7 +150,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def dstdd_design_to_spec(feature_id: str) -> str:
@@ -179,7 +181,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     # --- Task-management ergonomics (CONCEPT:AU-ORCH.planning.sdd-task-ergonomics) ---
 
@@ -212,7 +214,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def task_analyze_complexity(feature_id: str) -> str:
@@ -233,7 +235,7 @@ def _build_server():
             mgr = SDDManager(setting("WORKSPACE_PATH", os.getcwd()))
             return json.dumps(mgr.analyze_complexity(feature_id))
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def task_next(feature_id: str) -> str:
@@ -268,7 +270,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def task_set_status(feature_id: str, task_id: str, status: str) -> str:
@@ -291,7 +293,7 @@ def _build_server():
                 {"status": "updated", "task_id": task_id, "new_status": status}
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def task_scope(
@@ -328,7 +330,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     # --- Agent Capability Tools ---
 
@@ -392,7 +394,7 @@ def _build_server():
             total = sum(len(v) for v in tool_categories.values())
             return json.dumps({"total_tools": total, "categories": tool_categories})
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def agent_self_model(agent_name: str = "default") -> str:
@@ -412,7 +414,7 @@ def _build_server():
 
             engine = _get_engine()
             results = engine.query_cypher(
-                "MATCH (a) WHERE a.type = 'AgentNode' "
+                "MATCH (a) WHERE a.node_type = 'AgentNode' "
                 "AND (a.name = $name OR a.id = $name) "
                 "OPTIONAL MATCH (a)-[:HAS_CAPABILITY]->(c) "
                 "RETURN a, collect(c) AS capabilities LIMIT 1",
@@ -428,7 +430,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def agent_team_compose(task_description: str, max_agents: int = 5) -> str:
@@ -471,7 +473,7 @@ def _build_server():
                 }
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def agent_eval_history(agent_name: str = "default", limit: int = 10) -> str:
@@ -492,7 +494,7 @@ def _build_server():
 
             engine = _get_engine()
             results = engine.query_cypher(
-                "MATCH (e) WHERE e.type = 'EvaluationNode' "
+                "MATCH (e) WHERE e.node_type = 'EvaluationNode' "
                 "AND (e.agent_name = $name OR e.agent_id = $name) "
                 "RETURN e ORDER BY e.timestamp DESC LIMIT $limit",
                 {"name": agent_name, "limit": limit},
@@ -506,7 +508,7 @@ def _build_server():
                 default=str,
             )
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def eval_reliability(
@@ -544,9 +546,9 @@ def _build_server():
             aggregated = suite.evaluate(input_text, output_text, context)
             return aggregated.model_dump_json()
         except json.JSONDecodeError as e:
-            return json.dumps({"error": f"invalid context_json: {e}"})
+            return public_error_json(e, logger=logger, code="invalid_request")
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def red_team_catalog() -> str:
@@ -566,7 +568,7 @@ def _build_server():
 
             return json.dumps([p.model_dump() for p in ATTACK_CATALOG])
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def red_team_assess(probe_id: str, response_text: str) -> str:
@@ -592,7 +594,7 @@ def _build_server():
             result = RedTeamRunner().assess(probe, response_text)
             return result.model_dump_json()
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     @mcp.tool()
     def provenance_check(
@@ -628,9 +630,9 @@ def _build_server():
             )
             return verdict.model_dump_json()
         except json.JSONDecodeError as e:
-            return json.dumps({"error": f"invalid json arg: {e}"})
+            return public_error_json(e, logger=logger, code="invalid_request")
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e, logger=logger)
 
     return args, mcp, middlewares
 
@@ -642,11 +644,7 @@ def main():
     for middleware in middlewares:
         mcp.add_middleware(middleware)
 
-    logger.info(
-        "Starting Harness MCP Server (transport=%s, port=%s)",
-        args.transport,
-        args.port,
-    )
+    logger.info("Starting Harness MCP server (transport=%s)", args.transport)
 
     if args.transport == "stdio":
         from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
@@ -654,10 +652,13 @@ def main():
         protect_stdio_jsonrpc()
         mcp.run(transport="stdio")
     else:
+        from agent_utilities.mcp.server_factory import mcp_network_run_kwargs
+
         mcp.run(
             transport=args.transport,
             host=args.host,
             port=args.port,
+            **mcp_network_run_kwargs(args),
         )
 
 

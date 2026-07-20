@@ -172,17 +172,17 @@ class PreferencePairExporter:
                 return []
 
         eval_cases = _q(
-            "MATCH (c) WHERE c.type = 'eval_case' "
+            "MATCH (c) WHERE c.node_type = 'eval_case' "
             "RETURN c.id as id, c.query as query, c.expected_output as expected_output, "
             "c.metadata as metadata"
         )
         preference_nodes = _q(
-            "MATCH (p) WHERE p.type = 'preference' "
+            "MATCH (p) WHERE p.node_type = 'preference' "
             "RETURN p.id as id, p.prompt as prompt, p.context as context, "
             "p.chosen as chosen, p.rejected as rejected"
         )
         corrections = _q(
-            "MATCH (c) WHERE c.type = 'correction' "
+            "MATCH (c) WHERE c.node_type = 'correction' "
             "RETURN c.id as id, c.target as target, c.corrected_value as corrected_value, "
             "c.original as original"
         )

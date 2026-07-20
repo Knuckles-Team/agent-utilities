@@ -15,7 +15,6 @@ import pytest
 
 from agent_utilities.knowledge_graph.distillation.skill_synthesizer import (
     ConnectorSkillDistiller,
-    SkillCandidate,
     render_workflow_skill_md,
 )
 
@@ -24,7 +23,7 @@ from agent_utilities.knowledge_graph.distillation.skill_synthesizer import (
 # A NodeView-compatible fake graph (callable + subscriptable, like the engine).
 # --------------------------------------------------------------------------- #
 class _NodeView:
-    def __init__(self, graph: "FakeGraph") -> None:
+    def __init__(self, graph: FakeGraph) -> None:
         self._g = graph
 
     def __call__(self, data: bool = False):
@@ -243,12 +242,17 @@ def test_propose_writes_nodes_with_automates_and_derived_from_edges():
     assert report.proposed > 0
     nodes = dict(engine.graph.nodes(data=True))
     # the workflow proposal node exists with the right type + propose-only status
-    wf_id = "skill_workflow_proposal:invoice-approval"
-    assert wf_id in nodes
+    wf_id = next(
+        node_id
+        for node_id, props in nodes.items()
+        if props.get("type") == "skill_workflow_proposal"
+        and props.get("name") == "invoice-approval"
+    )
     wf = nodes[wf_id]
     assert wf["type"] == "skill_workflow_proposal"
     assert wf["proposal_status"] == "proposal"
-    assert wf["provenance"].startswith("camunda:")
+    assert wf["source_ref"].startswith("skill_source:")
+    assert "provenance" not in wf
     assert isinstance(wf["trigger_patterns"], list) and wf["trigger_patterns"]
     # AUTOMATES + DERIVED_FROM edges from the proposal
     edges = engine.graph._edges
@@ -265,7 +269,10 @@ def test_propose_writes_nodes_with_automates_and_derived_from_edges():
     assert derived == [(wf_id, "bpmn_process:invoice")]
     assert len(composes) == 3, "workflow COMPOSES its 3 atomic step proposals"
     # an atomic proposal exists too
-    assert "skill_proposal:receive-invoice" in nodes
+    assert any(
+        props.get("type") == "skill_proposal" and props.get("name") == "receive-invoice"
+        for props in nodes.values()
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -291,8 +298,8 @@ def test_dual_mode_artifact_has_dag_and_execution_and_footer():
     assert "## Execution" in md
     assert "Run every step with NO `depends_on` in parallel" in md
     # standard graph-os delegation footer
-    assert "graph_orchestrate action=execute_workflow" in md
-    assert "kg-delegate" in md
+    assert "graph_workflows action=execute" in md
+    assert "graph-orchestration-and-automation" in md
     assert "otherwise execute steps natively in dependency order" in md
 
 
@@ -301,9 +308,9 @@ def test_draft_artifact_writes_to_staging_not_repo(tmp_path):
     d = ConnectorSkillDistiller(engine, staging_root=tmp_path)
     candidates = d.dedup(d.classify(d.discover()))
     wf = next(c for c in candidates if c.kind == "workflow")
-    path = d.draft_artifact(wf)
-    assert str(tmp_path) in path
-    assert path.endswith("SKILL.md")
+    artifact_ref = d.draft_artifact(wf)
+    assert artifact_ref.startswith("skill_artifact:")
+    assert str(tmp_path) not in artifact_ref
     text = (tmp_path / wf.name / "SKILL.md").read_text()
     assert "## Steps" in text
 
@@ -347,12 +354,19 @@ def test_materialize_approved_proposal_writes_skill_md_and_stamps_node(tmp_path)
     engine = _camunda_engine()
     d = ConnectorSkillDistiller(engine, staging_root=tmp_path)
     d.run()
-    pid = "skill_proposal:receive-invoice"
+    nodes = dict(engine.graph.nodes(data=True))
+    pid = next(
+        node_id
+        for node_id, props in nodes.items()
+        if props.get("type") == "skill_proposal"
+        and props.get("name") == "receive-invoice"
+    )
     res = d.materialize(pid)
-    assert res["proposal_id"] == pid
+    assert res["proposal_ref"].startswith("skill_proposal:")
     assert res["status"] in ("approved", "drafted")
     # the SKILL.md exists in the staging dir (never a repo)
-    assert str(tmp_path) in res["skill_md"]
+    assert res["artifact_ref"].startswith("skill_artifact:")
+    assert str(tmp_path) not in str(res)
     assert (tmp_path / "receive-invoice" / "SKILL.md").exists()
     # the node is stamped approved
     nodes = dict(engine.graph.nodes(data=True))
@@ -364,6 +378,21 @@ def test_materialize_unknown_proposal_is_not_found():
     d = ConnectorSkillDistiller(engine)
     res = d.materialize("skill_proposal:does-not-exist")
     assert res["status"] == "not_found"
+
+
+def test_draft_requires_explicit_root_and_rejects_identifying_content(tmp_path):
+    engine = _camunda_engine()
+    distiller = ConnectorSkillDistiller(engine)
+    candidate = next(
+        c for c in distiller.classify(distiller.discover()) if c.kind == "workflow"
+    )
+    distiller.staging_root = None
+    with pytest.raises(ValueError, match="EVOLUTION_STAGING_ROOT"):
+        distiller.draft_artifact(candidate)
+
+    candidate.description = "Contact person@example.test before executing"
+    with pytest.raises(ValueError, match="identifying"):
+        ConnectorSkillDistiller(engine, staging_root=tmp_path).draft_artifact(candidate)
 
 
 # --------------------------------------------------------------------------- #

@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.COMMUNICATION
     description = "Team chat — channels, users, and message activity"
     env_prefix = "MATTERMOST"
-    default_url = "https://mattermost.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -46,8 +45,8 @@ class Widget(BaseWidget):
                 users.get("total_count", 0) if isinstance(users, dict) else len(users)
             )
         except Exception as e:
-            logger.debug("Mattermost fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Mattermost fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

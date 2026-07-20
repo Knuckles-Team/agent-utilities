@@ -24,6 +24,7 @@ See docs/pillars/architecture_c4.md §CONCEPT:AU-KG.query.object-graph-mapper
 
 
 import logging
+import re
 import time
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -39,6 +40,23 @@ T = TypeVar("T", bound=RegistryNode)
 # Maps RegistryNodeType enum values to PascalCase KG labels.
 # Built lazily on first access and cached.
 _LABEL_CACHE: dict[str, str] | None = None
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_SAFE_WHERE = re.compile(
+    r"^n\.[A-Za-z_][A-Za-z0-9_]{0,127}\s*"
+    r"(?:=|<>|!=|<=|>=|<|>|IN|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*"
+    r"\$[A-Za-z_][A-Za-z0-9_]{0,127}"
+    r"(?:\s+(?:AND|OR)\s+n\.[A-Za-z_][A-Za-z0-9_]{0,127}\s*"
+    r"(?:=|<>|!=|<=|>=|<|>|IN|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*"
+    r"\$[A-Za-z_][A-Za-z0-9_]{0,127})*$",
+    re.IGNORECASE,
+)
+
+
+def _require_identifier(value: object, *, kind: str) -> str:
+    rendered = str(value or "")
+    if not _CYPHER_IDENTIFIER.fullmatch(rendered):
+        raise ValueError(f"{kind} is not a safe Cypher identifier")
+    return rendered
 
 
 def _build_label_cache() -> dict[str, str]:
@@ -79,7 +97,7 @@ def resolve_label(node_type: RegistryNodeType | str) -> str:
         parts = type_val.split("_")
         label = "".join(part.capitalize() for part in parts)
         _LABEL_CACHE[type_val] = label
-    return label
+    return _require_identifier(label, kind="KG label")
 
 
 # ── Custom label decorator ────────────────────────────────────────────
@@ -98,8 +116,10 @@ def kg_label(label: str) -> Callable[[type[T]], type[T]]:
             ...
     """
 
+    validated_label = _require_identifier(label, kind="KG label")
+
     def decorator(cls: type[T]) -> type[T]:
-        _CUSTOM_LABELS[cls] = label
+        _CUSTOM_LABELS[cls] = validated_label
         return cls
 
     return decorator
@@ -150,7 +170,10 @@ class KGMapper:
         import json
 
         data = node.model_dump()
-        props: dict[str, Any] = {"_label": label}
+        node_type = data.pop("type")
+        props: dict[str, Any] = {
+            "node_type": getattr(node_type, "value", node_type),
+        }
         for key, value in data.items():
             if value is None:
                 continue
@@ -173,6 +196,9 @@ class KGMapper:
         import json
 
         clean: dict[str, Any] = {}
+        data = dict(data)
+        if "node_type" in data:
+            data["type"] = data.pop("node_type")
         # Get field types from the model for intelligent deserialization
         field_info = model_cls.model_fields
 
@@ -213,7 +239,7 @@ class KGMapper:
         props = self._serialize(node, label)
 
         # 1. Graph compute layer
-        self.engine.graph.add_node(node.id, **node.model_dump())
+        self.engine.graph.add_node(node.id, **props)
 
         # 2. Backend layer (if available)
         if self.engine.backend:
@@ -222,7 +248,7 @@ class KGMapper:
         # 3. Fire watchers
         self._notify(label, "upsert", node)
 
-        logger.debug("OGM upsert: %s (%s)", node.id, label)
+        logger.debug("OGM upsert completed for label=%s", label)
         return node.id
 
     def upsert_edge(
@@ -240,7 +266,7 @@ class KGMapper:
             edge_type: Relationship type string (from ``RegistryEdgeType``).
             properties: Optional additional properties for the edge.
         """
-        edge_props = {"type": edge_type, **(properties or {})}
+        edge_props = {"relationship": edge_type, **(properties or {})}
 
         # Graph compute engine
         self.engine.graph.add_edge(source_id, target_id, **edge_props)
@@ -248,28 +274,36 @@ class KGMapper:
         # Backend
         if self.engine.backend:
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            props_str = ", ".join(f"r.{k} = ${k}" for k in edge_props if k != "type")
+            edge_identifier = _require_identifier(
+                edge_type.upper(), kind="relationship type"
+            )
+            property_keys = [
+                _require_identifier(key, kind="relationship property")
+                for key in edge_props
+                if key != "relationship"
+            ]
+            props_str = ", ".join(f"r.{key} = ${key}" for key in property_keys)
             set_clause = "SET r.timestamp = $ts"
             if props_str:
                 set_clause += f", {props_str}"
 
             query = (
                 f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
-                f"MERGE (a)-[r:{edge_type.upper()}]->(b) "
+                f"MERGE (a)-[r:{edge_identifier}]->(b) "
                 f"{set_clause}"
             )
             params: dict[str, Any] = {
                 "src": source_id,
                 "tgt": target_id,
                 "ts": ts,
-                **{k: v for k, v in edge_props.items() if k != "type"},
+                **{k: v for k, v in edge_props.items() if k != "relationship"},
             }
             try:
                 self.engine.backend.execute(query, params)
-            except Exception as e:
-                logger.warning("OGM edge upsert failed: %s", e)
+            except Exception as exc:
+                logger.warning("OGM edge upsert failed: error_type=%s", type(exc).__name__)
 
-        logger.debug("OGM edge: %s -[%s]-> %s", source_id, edge_type, target_id)
+        logger.debug("OGM edge upsert completed for type=%s", edge_type)
 
     def load(self, node_id: str, model_cls: type[T]) -> T | None:
         """Load a node from the KG and hydrate it as a typed Pydantic model.
@@ -320,6 +354,12 @@ class KGMapper:
             List of hydrated Pydantic model instances.
         """
         label = resolve_label(model_cls.model_fields["type"].default)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
+            raise ValueError("limit must be an integer between 1 and 10000")
+        if where and not _SAFE_WHERE.fullmatch(where.strip()):
+            raise ValueError(
+                "where must contain only parameterized n.property predicates"
+            )
         where_clause = f"WHERE {where}" if where else ""
         query = f"MATCH (n:{label}) {where_clause} RETURN n LIMIT {limit}"
 
@@ -330,15 +370,18 @@ class KGMapper:
                 data = row.get("n", row)
                 try:
                     results.append(self._deserialize(data, model_cls))
-                except Exception as e:
-                    logger.debug("OGM load_by_label skip: %s", e)
+                except Exception as exc:
+                    logger.debug(
+                        "OGM load_by_label skipped a row: error_type=%s",
+                        type(exc).__name__,
+                    )
         else:
             # graph compute fallback
             type_val = model_cls.model_fields["type"].default
             if isinstance(type_val, RegistryNodeType):
                 type_val = type_val.value
             for nid, ndata in self.engine.graph.nodes(data=True):
-                if ndata.get("type") == type_val:
+                if ndata.get("node_type") == type_val:
                     try:
                         results.append(self._deserialize(dict(ndata), model_cls))
                     except Exception:

@@ -1,0 +1,302 @@
+connector: mealie-mcp
+ontology_source: mealie
+schema_version: '1'
+resources:
+- name: Cookbook
+  label: Cookbook
+  id_prefix: cookbook
+  relations: []
+- name: Food
+  label: Food
+  id_prefix: food
+  relations: []
+- name: Household
+  label: Household
+  id_prefix: household
+  relations: []
+- name: Ingredient
+  label: Ingredient
+  id_prefix: ingredient
+  relations:
+  - name: measuredIn
+    label: measured in
+    target: Unit
+    lpg_rel_type: ''
+  - name: usesFood
+    label: uses food
+    target: Food
+    lpg_rel_type: ''
+- name: MealPlan
+  label: Meal Plan
+  id_prefix: mealplan
+  relations:
+  - name: plansRecipe
+    label: plans recipe
+    target: Recipe
+    lpg_rel_type: ''
+- name: Recipe
+  label: Recipe
+  id_prefix: recipe
+  relations:
+  - name: createdBy
+    label: created by
+    target: Person
+    lpg_rel_type: ''
+  - name: hasCategory
+    label: has category
+    target: RecipeCategory
+    lpg_rel_type: ''
+  - name: hasImage
+    label: has image
+    target: AssetOccurrence
+    lpg_rel_type: ''
+  - name: hasIngredient
+    label: has ingredient
+    target: Ingredient
+    lpg_rel_type: ''
+  - name: hasTag
+    label: has tag
+    target: Tag
+    lpg_rel_type: ''
+  - name: inCookbook
+    label: in cookbook
+    target: Cookbook
+    lpg_rel_type: ''
+  - name: usesTool
+    label: uses tool
+    target: RecipeTool
+    lpg_rel_type: ''
+- name: RecipeCategory
+  label: Recipe Category
+  id_prefix: recipecategory
+  relations: []
+- name: RecipeTool
+  label: Recipe Tool
+  id_prefix: recipetool
+  relations: []
+- name: ShoppingList
+  label: Shopping List
+  id_prefix: shoppinglist
+  relations: []
+- name: Tag
+  label: Tag
+  id_prefix: tag
+  relations: []
+- name: Unit
+  label: Unit
+  id_prefix: unit
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: mealie-recipes.updated
+  resource: recipe
+  description: "Watermark event for 'mealie-recipes' \u2014 advances on updateAt (mcp_source_presets.json)."
+identity:
+  id_field:
+    recipe: id
+  title_field:
+    recipe: name
+  text_field:
+    recipe: description
+  updated_field:
+    recipe: updateAt
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Cookbook:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Food:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Household:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Ingredient:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  MealPlan:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Recipe:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  RecipeCategory:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  RecipeTool:
+    ontology_class: Tool
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  ShoppingList:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Tag:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+  Unit:
+    ontology_class: null
+    fields:
+      cookTime: xsd:string
+      mealieId: xsd:string
+      prepTime: xsd:string
+      quantity: xsd:decimal
+      rating: xsd:decimal
+      recipeYield: xsd:string
+      slug: xsd:string
+      totalTime: xsd:string
+sync:
+- preset: mealie-recipes
+  server: mealie-mcp
+  tool: mealie_recipes
+  action: get_recipes
+  records_path: items
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: updateAt
+  pagination: null
+  doc_type: recipe
+  tool_schema_sha256: b1664d58fda025917a00a4642371f7699d000461c6e8dca01f7f2471aa0b1821
+  raw:
+    server: mealie-mcp
+    tool: mealie_recipes
+    action: get_recipes
+    records_path: items
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: updateAt
+    doc_type: recipe
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - mealie_mcp/connectors/mcp_source_presets.json
+  - mealie_mcp/connectors/tool_schema_fingerprints.json
+  - mealie_mcp/ontology/mealie.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 9695afa4dfd82c893af66b106002052e5214914f524532b605d822bf7bfec505
+    triple_count: 102
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: iliSNs1SAoj_QewKv_31k5jxCiwErHfCbcNPEEG3OkAU73Q6jdHR6NSnyamys4XwoUgUtCAdUOSr2hC6rBBtCQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'inHousehold' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Cookbook.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Food.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Household.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Ingredient.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MealPlan.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Recipe.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RecipeCategory.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RecipeTool.ontology_class = 'Tool' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ShoppingList.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Tag.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Unit.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

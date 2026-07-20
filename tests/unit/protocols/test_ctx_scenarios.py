@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent_utilities import mcp_utilities
+from agent_utilities.mcp import context_helpers
 
 
 @pytest.mark.asyncio
@@ -16,7 +16,7 @@ async def test_destructive_guard_scenario():
 
     # Simulate a tool function
     async def delete_tool(ctx):
-        if not await mcp_utilities.ctx_confirm_destructive(ctx, "delete database"):
+        if not await context_helpers.ctx_confirm_destructive(ctx, "delete database"):
             return "cancelled"
         return "deleted"
 
@@ -37,9 +37,9 @@ async def test_progress_scenario():
     mock_ctx = AsyncMock()
 
     async def long_op_tool(ctx):
-        await mcp_utilities.ctx_progress(ctx, 0, 100)
+        await context_helpers.ctx_progress(ctx, 0, 100)
         # do work
-        await mcp_utilities.ctx_progress(ctx, 100, 100)
+        await context_helpers.ctx_progress(ctx, 100, 100)
         return "done"
 
     await long_op_tool(mock_ctx)
@@ -55,7 +55,7 @@ async def test_dual_logging_scenario():
     mock_logger = MagicMock()
 
     def tool_with_logs(ctx):
-        mcp_utilities.ctx_log(ctx, mock_logger, "info", "Operation started")
+        context_helpers.ctx_log(ctx, mock_logger, "info", "Operation started")
 
     tool_with_logs(mock_ctx)
     mock_logger.info.assert_called_with("Operation started")
@@ -70,7 +70,7 @@ async def test_auth_state_scenario():
 
     async def login_tool(ctx):
         token = "dummy_jwt_token"  # nosec B105
-        await mcp_utilities.ctx_set_state(ctx, "myproj", "token", token)
+        await context_helpers.ctx_set_state(ctx, "myproj", "token", token)
         return "logged_in"
 
     await login_tool(mock_ctx)
@@ -85,7 +85,7 @@ async def test_sampling_scenario():
 
     async def search_tool(ctx):
         results = {"data": "raw data"}
-        summary = await mcp_utilities.ctx_sample(ctx, f"Summarize: {results}")
+        summary = await context_helpers.ctx_sample(ctx, f"Summarize: {results}")
         results["summary"] = summary or ""
         return results
 

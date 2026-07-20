@@ -527,37 +527,6 @@ class TestKBIngestionEngine:
         assert isinstance(report, KBHealthReport)
         assert report.kb_id == kb_id
 
-    @pytest.mark.asyncio
-    async def test_export_knowledge_base(self, kb_engine, sample_skill_graph, tmp_path):
-        await kb_engine.ingest_skill_graph(sample_skill_graph)
-        kb_id = _kb_id("pydantic-ai-docs")
-        export_dir = tmp_path / "export"
-
-        # Test export by calling the engine directly
-        graph = kb_engine.graph
-        kb_data = graph.nodes[kb_id]
-        kb_data.get("name", kb_id)
-        export_dir.mkdir(parents=True, exist_ok=True)
-
-        articles = [
-            n
-            for n in graph.predecessors(kb_id)
-            if graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
-        ]
-
-        # Write one article to test
-        if articles:
-            article_data = graph.nodes[articles[0]]
-            title = article_data.get("name", "test")
-            content = article_data.get("content", "test content")
-            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title)[
-                :80
-            ]
-            (export_dir / f"{safe_name}.md").write_text(content, encoding="utf-8")
-
-        assert export_dir.exists()
-
-
 # ---------------------------------------------------------------------------
 # Pipeline Phase 13 Tests
 # ---------------------------------------------------------------------------

@@ -14,21 +14,56 @@ class OptimisticStateLocker:
     """Manages distributed state using optimistic locking with optional Redis support."""
 
     def __init__(
-        self, use_redis: bool = False, redis_url: str = "redis://localhost:6379"
+        self,
+        use_redis: bool = False,
+        redis_url: str | None = None,
+        *,
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
     ):
         self.use_redis = use_redis
         self._local_state: dict[str, dict[str, Any]] = {}
         self._redis_client: Any = None
+        self._tls_trust: Any = None
 
         if self.use_redis:
+            from urllib.parse import urlparse
+
+            if not redis_url or urlparse(redis_url).scheme.casefold() != "rediss":
+                raise ValueError("distributed Redis transport requires rediss://")
             try:
                 import redis
 
+                from agent_utilities.core.transport_security import (
+                    resolve_configured_tls_profile,
+                )
+
+                self._tls_trust = resolve_configured_tls_profile(
+                    "redis",
+                    profile_name=tls_profile,
+                    profile_ref=tls_profile_ref,
+                )
                 self._redis_client = redis.Redis.from_url(
-                    redis_url, decode_responses=True
+                    redis_url,
+                    decode_responses=True,
+                    **self._tls_trust.redis_kwargs(),
                 )
             except ImportError:
                 self.use_redis = False
+            except Exception:
+                if self._tls_trust is not None:
+                    self._tls_trust.cleanup()
+                    self._tls_trust = None
+                raise
+
+    def close(self) -> None:
+        """Close Redis and remove runtime TLS material."""
+        if self._redis_client is not None:
+            self._redis_client.close()
+            self._redis_client = None
+        if self._tls_trust is not None:
+            self._tls_trust.cleanup()
+            self._tls_trust = None
 
     def get_state(self, key: str) -> dict[str, Any] | None:
         """Retrieve the current state and its version."""

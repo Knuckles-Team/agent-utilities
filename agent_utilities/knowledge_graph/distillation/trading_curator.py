@@ -163,7 +163,7 @@ def build_knowledge_nodes(
     skipped: list[str] = []
 
     for concept in concepts:
-        cid = _concept_field(concept, "id") or f"concept:{uuid.uuid4().hex[:8]}"
+        cid = _concept_field(concept, "id") or f"concept:{uuid.uuid4().hex}"
         text = _concept_field(concept, "text") or _concept_field(concept, "summary")
         category, confidence = classify_trading_concept(text)
         if category is None or confidence < min_confidence:

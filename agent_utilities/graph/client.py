@@ -1,60 +1,61 @@
 # agent_utilities/graph/client.py
-import logging
+from __future__ import annotations
 
-from ..knowledge_graph.backends import create_backend, get_active_backend
+import logging
+from typing import TYPE_CHECKING
+
 from .models import GraphNode
+
+if TYPE_CHECKING:
+    from ..knowledge_graph.core.session import GraphSession
 
 logger = logging.getLogger(__name__)
 
 
-async def get_graph_client():
-    """Retrieve or create the active graph backend."""
-    backend = get_active_backend()
-    if backend is None:
-        # Fallback to IntelligenceGraphEngine active instance if available
-        from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+async def get_process_graph_backend(*, session: GraphSession | None = None):
+    """Return the backend owned by the one process graph engine.
 
-        engine = IntelligenceGraphEngine.get_active()
-        if engine and engine.backend:
-            return engine.backend
-        backend = create_backend()
-    return backend
-
-
-async def create_or_merge_node(node: GraphNode):
-    """Pydantic-validated insert that works with your existing Cypher layer."""
+    The caller must inherit a verified ambient :class:`GraphSession`; this
+    boundary never creates a transport or supplies identity.
+    """
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.session import resolve_session
 
-    engine = IntelligenceGraphEngine.get_active()
+    resolve_session(session, required_scope="kg:read")
+    engine = IntelligenceGraphEngine.get_or_create()
+    if engine.backend is None:
+        raise RuntimeError("The process graph engine has no active backend")
+    return engine.backend
+
+
+async def create_or_merge_node(
+    node: GraphNode,
+    *,
+    session: GraphSession | None = None,
+):
+    """Pydantic-validated insert through the sole engine write authority."""
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+    from ..knowledge_graph.core.session import resolve_session
+
+    session = resolve_session(session, required_scope="kg:write")
+    engine = IntelligenceGraphEngine.get_or_create()
 
     props = node.to_cypher_props()
     node_id = props.get("id")
     if not node_id:
         raise ValueError(f"Node {node} missing 'id' property")
 
-    # 1. Update in-memory graph for immediate topological availability
-    if engine:
-        engine.graph.add_node(node_id, **props)
-        logger.debug(f"Updated in-memory graph node: {node_id}")
-
-    # 2. Persist to backend via Cypher
-    client = await get_graph_client()
-    if not client:
-        raise RuntimeError("No graph backend available")
-    labels_str = ":".join(node.labels)
-
-    # Clean props for SET clause (exclude id as it's in the MERGE part)
-    set_props = {k: v for k, v in props.items() if k != "id"}
-
-    query = f"""
-    MERGE (n:{labels_str} {{id: $id}})
-    SET n += $props
-    RETURN n {{.*}}
-    """
-
     try:
-        result = client.execute(query, {"id": node_id, "props": set_props})
-        return result
+        # The first label is the canonical engine type; retain the complete
+        # validated label set as data without issuing a second backend write.
+        node_type = node.labels[0]
+        props["labels"] = list(node.labels)
+        return engine.add_node(
+            node_id,
+            node_type,
+            {k: v for k, v in props.items() if k != "id"},
+            session=session,
+        )
     except Exception as e:
-        logger.error(f"Failed to create/merge node {node_id}: {e}")
-        raise e
+        logger.error("Graph node merge failed (%s)", type(e).__name__)
+        raise

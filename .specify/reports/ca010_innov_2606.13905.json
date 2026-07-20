@@ -7,7 +7,7 @@
   "kg_source_query": null,
   "results": [
     {
-      "source": "/home/apps/workspace/.scholarx/papers/2606.13905_adore__iterative_query_expansion_with_retrieval_grounded_rel.md",
+      "source": "${WORKSPACE_ROOT}/.scholarx/papers/2606.13905_adore__iterative_query_expansion_with_retrieval_grounded_rel.md",
       "source_type": "filesystem",
       "concept_id": "",
       "signals": {

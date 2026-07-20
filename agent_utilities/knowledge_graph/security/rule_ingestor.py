@@ -362,7 +362,7 @@ class RuleIngestor:
                         md_file = root / book_slug / f"{book_slug}.md"
 
                 if not md_file.exists():
-                    logger.debug("Tier file not found: %s", md_file)
+                    logger.debug("Configured tier file not found")
                     continue
 
                 content = md_file.read_text(encoding="utf-8")
@@ -522,7 +522,7 @@ class RuleIngestor:
         trigger_condition: str = "",
     ) -> EngineeringRuleNode:
         """Create a single EngineeringRuleNode and wire KG relationships."""
-        rule_id = f"rule:{parsed.book_slug}:{uuid.uuid4().hex[:8]}"
+        rule_id = f"rule:{parsed.book_slug}:{uuid.uuid4().hex}"
 
         # Determine strength from rule_class
         strength_map = {
@@ -543,7 +543,7 @@ class RuleIngestor:
         node = EngineeringRuleNode(
             id=rule_id,
             name=rule_text[:80],
-            principle_id=f"{parsed.book_slug}-{uuid.uuid4().hex[:6]}",
+            principle_id=f"{parsed.book_slug}-{uuid.uuid4().hex}",
             statement=rule_text,
             description=f"[{parsed.tier}] {rule_text}",
             tier=parsed.tier,  # type: ignore
@@ -683,7 +683,10 @@ class RuleIngestor:
                     if not edge_data:
                         continue
                     for _, edata in edge_data.items():
-                        if edata.get("type") == RegistryEdgeType.CONFLICTS_WITH:
+                        if (
+                            edata.get("relationship")
+                            == RegistryEdgeType.CONFLICTS_WITH
+                        ):
                             # Find the conflicting rule in our result set
                             conflicting = next(
                                 (r for r in rules if r["id"] == neighbor),

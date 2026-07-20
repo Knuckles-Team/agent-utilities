@@ -31,6 +31,27 @@ async def test_roundup_page_acquires_and_links_papers(monkeypatch):
     kg.backend = MagicMock()
     engine = IngestionEngine(kg_engine=kg)
 
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    def _native_slice(
+        _engine,
+        _connector,
+        _entities,
+        relationships=None,
+        *,
+        backend=None,
+        **_kwargs,
+    ):
+        for relationship in relationships or []:
+            backend.add_edge(
+                relationship["source"],
+                relationship["target"],
+                rel_type=relationship["type"],
+            )
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _native_slice)
+
     # Fake the download → three local PDFs (no network).
     monkeypatch.setattr(
         ra,

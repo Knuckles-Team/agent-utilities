@@ -34,14 +34,12 @@ def _find_agent_packages_root() -> Path:
     """Locate the ``agent-packages`` root that holds the sibling ``agent-webui``.
 
     The conventional layout has ``agent-utilities`` directly under
-    ``agent-packages`` (``parents[4]``), but when the repo is checked out as a
-    **git worktree** (e.g. ``/home/apps/worktrees/agent-utilities``) that sibling
-    no longer resolves. Fall back to the canonical workspace path, then to an
-    upward search, so cross-repo coverage tests work from any checkout.
+    ``agent-packages`` (``parents[4]``). An isolated worktree may not contain
+    sibling repositories; in that case the caller skips this cross-repository
+    check instead of relying on a machine-specific fallback path.
     """
     here = Path(__file__).resolve()
-    candidates = [here.parents[4], Path("/home/apps/workspace/agent-packages")]
-    candidates += list(here.parents)
+    candidates = [here.parents[4], *here.parents]
     for cand in candidates:
         if (cand / "agent-webui").is_dir():
             return cand
@@ -158,7 +156,7 @@ def _load_api_extensions_text() -> str:
         import pytest
 
         pytest.skip(
-            f"agent-webui not found at {_API_EXTENSIONS} (cross-repo coverage test)"
+            "agent-webui sibling is unavailable (cross-repository coverage test)"
         )
     return _API_EXTENSIONS.read_text(encoding="utf-8")
 

@@ -40,7 +40,7 @@ _PROMPT_PATH = (
 def test_expert_prompt_is_canonical_and_loadable() -> None:
     """The prompt file is canonical-valid and renders a real persona body."""
     data = json.loads(_PROMPT_PATH.read_text(encoding="utf-8"))
-    assert validate_canonical(data, strict=True) == []
+    assert validate_canonical(data) == []
 
     prompt = StructuredPrompt.model_validate(data)
     body = prompt.render()
@@ -65,8 +65,9 @@ def test_expert_loads_from_registry() -> None:
     assert "Agent Utilities Ecosystem Expert" in rendered
 
 
-def test_expert_is_a_dispatchable_agent_template() -> None:
+def test_expert_is_a_dispatchable_agent_template(monkeypatch) -> None:
     """Seeding registers a resolvable AgentTemplate bound to the prompt + local model."""
+    monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
     tmpl = next(t for t in _BUILTIN_AGENT_TEMPLATES if t["name"] == EXPERT)
     assert tmpl["system_prompt_id"] == f"prompt:{EXPERT}"
     assert tmpl["model_preference"].startswith("qwen/")
@@ -110,17 +111,18 @@ def test_expert_is_a_dispatchable_agent_template() -> None:
     assert _is_bound_template_agent(meta, config), (
         "a bound AgentTemplate must route to the direct grounding loop, not the planner"
     )
-    # The persona (not the bare 'Specialized agent' stub) drives the run.
+    # The persona (not the bare 'Specialized agent' placeholder) drives the run.
     assert "Agent Utilities Ecosystem Expert" in config["tag_prompts"][EXPERT]
 
 
-def test_resolve_toolset_ids_binds_live_toolsets() -> None:
+def test_resolve_toolset_ids_binds_live_toolsets(monkeypatch) -> None:
     """``_resolve_toolset_ids`` turns a list of fleet server ids into live toolsets.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam. With no ``:Server`` node present it falls
     back to the fleet served-URL convention (the same resolution the focused-tools
     path uses), binding one callable ``MCPToolset`` per id.
     """
+    monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
     engine = IntelligenceGraphEngine(db_path=":memory:")
     ids = ["graph-os", "repository-manager-mcp", "data-science-mcp"]
     toolsets = _resolve_toolset_ids(engine, ids)

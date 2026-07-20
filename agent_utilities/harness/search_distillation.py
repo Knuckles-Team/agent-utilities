@@ -149,7 +149,7 @@ class SearchDistillationHarvester:
 
         try:
             self.engine.add_node(
-                f"synthetic_corpus:{uuid.uuid4().hex[:12]}",
+                f"synthetic_corpus:{uuid.uuid4().hex}",
                 "SyntheticCorpus",
                 properties={
                     "prompt": row.prompt[:2000],

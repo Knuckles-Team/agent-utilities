@@ -18,24 +18,24 @@ Concepts: **OS-5.14** (served identity), **AU-KG.sharding.tenant-partitioned-sha
 
 One image (`graph-os`), three stateless tiers + central durable state. The cloud
 (k8s) and homelab (Swarm) profiles differ only in replica counts and placement —
-see [`deploy/`](../../deploy/README.md).
+see [`deploy/`](https://github.com/Knuckles-Team/agent-utilities/blob/main/deploy/README.md).
 
 ```mermaid
 flowchart TD
     KC[Keycloak / OIDC] -.->|JWT: org_id→tenant_id, sub→actor_id| C[clients]
     C -->|Bearer JWT| LB[Load Balancer / Ingress]
     LB --> F["FRONT TIER<br/>stateless streamable-HTTP + gateway<br/>KG_DAEMON_ROLE=client"]
-    F -->|ActorContext tenant_id, actor_id, roles| R["Tenant Router<br/>AU-KG.sharding.tenant-partitioned-sharding-hrw HRW + AU-KG.sharding.elastic-over-kg-shard warm pool"]
+    F -->|ActorContext tenant_id, actor_id, roles| R["Tenant Router<br/>engine PlacementRoute + bounded warm views"]
     R --> E1["ENGINE shard 1<br/>tenant graphs · role=host"]
     R --> E2[ENGINE shard N]
     R --> CM["COMMONS engine<br/>shared default graph · read-mostly"]
-    E1 -->|fan-out| L3
-    E2 --> L3
-    CM --> L3
+    E1 -->|fan-out| MIRROR
+    E2 --> MIRROR
+    CM --> MIRROR
     F --> ST
     subgraph DURABLE [Central state + optional mirror]
-      L3[("Postgres / pg-age mirror<br/>optional write-only fan-out · RLS by tenant_id")]
-      ST[("STATE_DB_URI<br/>sessions · goals · durable_checkpoints")]
+      MIRROR[("Postgres / pg-age mirror<br/>optional write-only fan-out · RLS by tenant_id")]
+      ST[("STATE_DB_URI<br/>sessions · turns · fleet · queue delivery")]
     end
 ```
 
@@ -52,19 +52,19 @@ flowchart LR
 1. **Identity (OS-5.14).** `ActorIdentityMiddleware` mints `ActorContext{tenant_id,
    actor_id, roles}` from a validated JWT (`org_id→tenant_id`, `sub→actor_id`). The
    **served-security profile** (`apply_served_security_profile`) refuses to serve a
-   network transport without `AUTH_JWT_JWKS_URI` (fail-loud, not fail-open) and turns
-   on `KG_AUTH_REQUIRED` + `KG_BRAIN_ENFORCE`, so unauthenticated HTTP is rejected and
-   the privileged `SYSTEM_ACTOR` fallback is unreachable over the network.
-2. **Physical (AU-KG.sharding.tenant-partitioned-sharding-hrw + AU-KG.compute.data-is-private-its).** Under enforcement, each org routes to its own
-   named graph `tenant__<slug>__<base>` — **even on a single engine endpoint** (HRW
-   over one endpoint is the identity). Cross-org data is physically separate.
+   network transport without a JWT validator, audience, and policy revision
+   (fail-loud, not fail-open); unauthenticated HTTP is rejected and no implicit
+   identity exists.
+2. **Physical (AU-KG.sharding.tenant-partitioned-sharding-hrw + AU-KG.compute.data-is-private-its).** Each org routes to its own
+   named graph `tenant__<slug>__<base>` — **even on a single engine endpoint**.
+   The engine catalog owns physical placement; cross-org data is separate.
 3. **Logical (KG-2.6 + AU-KG.compute.data-is-private-its).** On a shared graph, `scope()` injects
    `n.tenant_id = <org>` (the simple, parseable predicate) and a Python-side
    `visible()` filter applies private-by-default owner/scope. Applied at the
    `query_cypher` MCP read chokepoint and `facade.query`.
 4. **Database (AU-KG.backend.concept-2).** Postgres Row-Level Security keyed on the per-session GUC
    `app.tenant_id` filters rows beneath everything else; `WITH CHECK` blocks
-   cross-tenant writes. Apply [`deploy/postgres/tenant_rls.sql`](../../deploy/postgres/tenant_rls.sql).
+   cross-tenant writes. Apply [`deploy/postgres/tenant_rls.sql`](https://github.com/Knuckles-Team/agent-utilities/blob/main/deploy/postgres/tenant_rls.sql).
 5. **Audit (AU-OS.safety.ontological-guardrail/5.11).** Every `RunTrace`, session, and correlation carrier is
    stamped `tenant_id`+`actor_id`+`correlation_id`; `/api/fleet/*` is tenant-scoped
    (an org admin sees its own org; a platform admin sees the fleet).
@@ -86,7 +86,8 @@ flowchart TD
 
 A reader sees: **own** (`_owner_id == me`) ∪ **org/commons-shared**
 (`_shared_scope ∈ {org, commons}`) ∪ **unowned** (legacy/system) ∪ the **commons
-graph**. Privileged (`admin`/`system`) actors are unrestricted.
+graph**. A verified `admin` is unrestricted by owner/scope visibility, while
+tenant, session, and ACL boundaries remain mandatory.
 
 Verbs (MCP tool `graph_share` / `POST /graph/share`):
 
@@ -97,27 +98,27 @@ Verbs (MCP tool `graph_share` / `POST /graph/share`):
 | `mark` | role-gated cross-org | mandatory marking (AU-KG.ontology.redact-object-materialize-restricted) |
 | `private` | restrict back to owner | `_shared_scope='private'` |
 
-## Elastic per-tenant engine pool (AU-KG.sharding.elastic-over-kg-shard)
+## Per-tenant graph views (AU-KG.sharding.elastic-over-kg-shard)
 
-`GRAPH_SERVICE_ENDPOINTS` fixes the shard set; the pool is the *elastic* layer within
-a process: a bounded **warm set** of per-tenant engine clients (LRU), **hydrate on
-miss**, and (when `KG_ENGINE_POOL_DROP_ON_EVICT` is set and a pg-age mirror holds the data) an
-engine-side **per-graph unload** to reclaim memory on eviction. Disabled by default
-(`KG_ENGINE_POOL_SIZE=0` → per-use construction, today's behaviour).
+`GRAPH_SERVICE_ENDPOINTS` declares coordinator contacts. A process owns one engine transport;
+tenant graphs are non-owning, session-routed views over that transport. A bounded
+LRU may retain those lightweight views, but a miss or eviction never opens or closes
+a socket/event-loop thread. Engine-side graph residency remains an engine capacity
+decision rather than a client-lifecycle side effect.
 
 ## Configuration
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `KG_SERVED_PROFILE` | on | served fail-closed profile for network transports (`0` opts out, dev only) |
-| `AUTH_JWT_JWKS_URI` / `_ISSUER` / `_AUDIENCE` | — | OIDC identity; **required** for the served profile |
-| `KG_AUTH_REQUIRED` | off | reject unauthenticated HTTP (auto-on under served profile) |
-| `KG_BRAIN_ENFORCE` | off | tenant scope + ACL + owner/scope enforcement (auto-on under served profile) |
-| `KG_ACL_DEFAULT_ALLOW` | off | deny-on-missing-ACL when enforcing (fail-closed) |
+| `AUTH_JWT_JWKS_URI` / `_ISSUER` / `_AUDIENCE` | — | OIDC identity; **required** for every network transport |
+| `KG_POLICY_VERSION` | — | required immutable policy revision for verified sessions |
+| *(baked-in, no flag)* graph authority | mandatory | verified session + tenant scope + explicit ACL + owner/scope filtering; missing policy infrastructure fails closed |
+| `KG_AUTH_TOKEN_REF` / `KG_IDENTITY_OAUTH2` | — | exactly one stdio identity source: provisioned-token reference or OAuth2 client credentials |
 | `KG_DEFAULT_GRAPH` | `__bus__` | the commons graph; tenants route to `tenant__<slug>__<this>` |
-| `GRAPH_SERVICE_ENDPOINTS` | one socket | engine shard set (HRW routing) |
-| `GRAPH_DB_URI` / `STATE_DB_URI` | — | pg-age mirror (apply RLS) / central session+checkpoint store |
-| `KG_ENGINE_POOL_SIZE` | `0` | warm per-tenant engines (elastic pool); `0` = per-use |
+| `GRAPH_SERVICE_ENDPOINTS` | one socket | stable engine coordinator; placement is resolved from the engine catalog |
+| `GRAPH_RAFT_GROUP_ENDPOINTS` | `{}` | explicit group-to-endpoint map for non-production topologies that expose groups separately; ambiguity fails closed |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` / `STATE_DB_URI` | — | Secret-backed pg-age mirror profile (apply RLS) / central session, fleet, and queue-delivery support store |
+| `KG_ENGINE_POOL_SIZE` | `8` | bounded LRU warm set for retained graph views; it does not create per-tenant transports |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs a pg-age mirror) |
 
 ## Tracking clients & their agents

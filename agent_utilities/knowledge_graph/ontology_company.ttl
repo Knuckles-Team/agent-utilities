@@ -144,12 +144,6 @@
     rdfs:domain :AgentDepartment ;
     rdfs:range xsd:string .
 
-:dependsOnWorkItem a owl:ObjectProperty ;
-    rdfs:label "depends on work item" ;
-    rdfs:comment "DAG edge: this work item becomes runnable only once the target work item is approved." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range :WorkItem .
-
 :ein a owl:DatatypeProperty ;
     rdfs:label "EIN" ;
     rdfs:comment "Employer Identification Number (IRS-assigned)." ;
@@ -245,12 +239,6 @@ than hire a fresh template.""" ;
     rdfs:domain :Company ;
     rdfs:range :CompanyLicense .
 
-:kanbanColumn a owl:DatatypeProperty ;
-    rdfs:label "kanban column" ;
-    rdfs:comment "Projected board column derived from the phase: todo, in_progress, in_review, done." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range xsd:string .
-
 :kpiTarget a owl:DatatypeProperty ;
     rdfs:label "KPI target" ;
     rdfs:domain :KeyPerformanceIndicator ;
@@ -304,12 +292,6 @@ than hire a fresh template.""" ;
     rdfs:domain :PayrollRecord ;
     rdfs:range xsd:float .
 
-:ownedByRole a owl:ObjectProperty ;
-    rdfs:label "owned by role" ;
-    rdfs:comment "The :AgentRole responsible for executing a work item." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range :AgentRole .
-
 :payPeriodEnd a owl:DatatypeProperty ;
     rdfs:label "pay period end" ;
     rdfs:domain :PayrollRecord ;
@@ -345,12 +327,6 @@ than hire a fresh template.""" ;
     rdfs:comment "Whether a human must approve critical decisions." ;
     rdfs:domain :AgentDepartment ;
     rdfs:range xsd:boolean .
-
-:reviewedByRole a owl:ObjectProperty ;
-    rdfs:label "reviewed by role" ;
-    rdfs:comment "The manager :AgentRole that reviews a work item's deliverable." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range :AgentRole .
 
 :runsWorkflow a owl:ObjectProperty ;
     rdfs:label "runs workflow" ;
@@ -406,18 +382,6 @@ than hire a fresh template.""" ;
 :usesTool a owl:ObjectProperty ;
     rdfs:domain :AgentRole ;
     rdfs:range :MCPServer .
-
-:workItemManagerMode a owl:DatatypeProperty ;
-    rdfs:label "work item manager mode" ;
-    rdfs:comment "execute, delegate, review, integrate, rework — the owning role's mode for this item." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range xsd:string .
-
-:workItemPhase a owl:DatatypeProperty ;
-    rdfs:label "work item phase" ;
-    rdfs:comment "queued, ready, waiting_dependencies, running, awaiting_review, ready_for_rework, approved, escalated, failed, cancelled." ;
-    rdfs:domain :WorkItem ;
-    rdfs:range xsd:string .
 
 <http://knuckles.team/kg/company> a owl:Ontology ;
     rdfs:label "Company Operations Ontology" ;
@@ -1484,11 +1448,10 @@ BFO:GenericallyDependentContinuant.""" ;
 
 :WorkItem a owl:Class ;
     rdfs:label "Work Item" ;
-    rdfs:comment """A unit of runtime work owned by an :AgentRole, flowing through
-kanban phases (queued → ready → running → awaiting_review → approved) along a
-dependency DAG. Independent items run in parallel; dependents wait until their
-predecessors are approved. The occurrent counterpart of the static org chart.
-BFO:Process.""" ;
+    rdfs:comment """The sole writable runtime work-state authority. Native claims,
+leases, fencing, dependency release, retry scheduling, cancellation, and terminal
+commit govern its submitted/ready/leased/succeeded/failed/cancelled/dead_letter
+lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process.""" ;
     rdfs:subClassOf bfo:0000015 .
 
 :StrategicGoal a owl:Class ;
@@ -1512,4 +1475,3 @@ and entity type. BFO:IndependentContinuant.""" ;
 :MCPServer a owl:Class ;
     rdfs:label "MCP Server" ;
     rdfs:subClassOf bfo:0000031 .
-

@@ -1,0 +1,3943 @@
+connector: legal-peripherals-mcp
+ontology_source: legal
+schema_version: '1'
+resources:
+- name: AgencyGuidance
+  label: Agency Guidance
+  id_prefix: agencyguidance
+  relations: []
+- name: Assessment
+  label: Assessment
+  id_prefix: assessment
+  relations: []
+- name: Attestation
+  label: Attestation
+  id_prefix: attestation
+  relations:
+  - name: attestsTo
+    label: attests to
+    target: owl:Thing
+    lpg_rel_type: ''
+- name: BeneficiaryRole
+  label: Beneficiary Role
+  id_prefix: beneficiaryrole
+  relations: []
+- name: BoardResolution
+  label: Board Resolution
+  id_prefix: boardresolution
+  relations: []
+- name: BusinessEntity
+  label: Business Entity
+  id_prefix: businessentity
+  relations:
+  - name: incorporatedIn
+    label: incorporated in
+    target: Jurisdiction
+    lpg_rel_type: ''
+- name: CaseLaw
+  label: Case Law
+  id_prefix: caselaw
+  relations:
+  - name: precedentFor
+    label: precedent for
+    target: CaseLaw
+    lpg_rel_type: ''
+- name: ChronologyEvent
+  label: Chronology Event
+  id_prefix: chronologyevent
+  relations:
+  - name: partOfMatter
+    label: part of matter
+    target: LegalMatter
+    lpg_rel_type: ''
+- name: ClaimChart
+  label: Claim Chart
+  id_prefix: claimchart
+  relations:
+  - name: chartsCauseOfAction
+    label: charts cause of action
+    target: LegalMatter
+    lpg_rel_type: ''
+- name: ClosingChecklistItem
+  label: Closing Checklist Item
+  id_prefix: closingchecklistitem
+  relations:
+  - name: blocksClosing
+    label: blocks closing
+    target: DiligenceFinding
+    lpg_rel_type: ''
+- name: Company
+  label: Company
+  id_prefix: company
+  relations:
+  - name: governedByDoc
+    label: governed by document
+    target: CorporateGovernanceDoc
+    lpg_rel_type: ''
+  - name: ownsIP
+    label: owns IP
+    target: IntellectualProperty
+    lpg_rel_type: ''
+  - name: subsidiaryOf
+    label: subsidiary of
+    target: Company
+    lpg_rel_type: ''
+- name: ComplianceGapRemediation
+  label: Compliance Gap Remediation
+  id_prefix: compliancegapremediation
+  relations:
+  - name: remediatesGap
+    label: remediates gap
+    target: ComplianceRequirement
+    lpg_rel_type: ''
+  - name: trackedByAssessment
+    label: tracked by assessment
+    target: Assessment
+    lpg_rel_type: ''
+- name: ComplianceGate
+  label: Compliance Gate
+  id_prefix: compliancegate
+  relations: []
+- name: ComplianceRequirement
+  label: Compliance Requirement
+  id_prefix: compliancerequirement
+  relations:
+  - name: derivedFromRegulation
+    label: derived from regulation
+    target: Regulation
+    lpg_rel_type: ''
+- name: ConsentRecord
+  label: Consent Record
+  id_prefix: consentrecord
+  relations: []
+- name: Contract
+  label: Contract
+  id_prefix: contract
+  relations:
+  - name: hasClause
+    label: has clause
+    target: ContractClause
+    lpg_rel_type: ''
+  - name: hasRenewalDeadline
+    label: has renewal deadline
+    target: RenewalDeadline
+    lpg_rel_type: ''
+  - name: requiresAttestation
+    label: requires attestation
+    target: Attestation
+    lpg_rel_type: ''
+- name: ContractAmendment
+  label: Contract Amendment
+  id_prefix: contractamendment
+  relations:
+  - name: amendsContract
+    label: amends contract
+    target: Contract
+    lpg_rel_type: ''
+- name: ContractClause
+  label: Contract Clause
+  id_prefix: contractclause
+  relations: []
+- name: ContractReviewFinding
+  label: Contract Review Finding
+  id_prefix: contractreviewfinding
+  relations:
+  - name: deviatesFromClause
+    label: deviates from clause
+    target: ContractClause
+    lpg_rel_type: ''
+  - name: flaggedIn
+    label: flagged in
+    target: Contract
+    lpg_rel_type: ''
+- name: Control
+  label: Control
+  id_prefix: control
+  relations:
+  - name: documentedInPolicy
+    label: documented in policy
+    target: HandbookPolicy
+    lpg_rel_type: ''
+- name: CorporateGovernanceDoc
+  label: Corporate Governance Document
+  id_prefix: corporategovernancedoc
+  relations: []
+- name: DataProcessingAgreement
+  label: Data Processing Agreement
+  id_prefix: dataprocessingagreement
+  relations: []
+- name: DataSubjectRequest
+  label: Data Subject Request
+  id_prefix: datasubjectrequest
+  relations:
+  - name: concernsDataSubject
+    label: Concerns Data Subject
+    target: Person
+    lpg_rel_type: ''
+- name: DemandLetter
+  label: Demand Letter
+  id_prefix: demandletter
+  relations: []
+- name: Deposition
+  label: Deposition
+  id_prefix: deposition
+  relations:
+  - name: depositionWitness
+    label: Deposition Witness
+    target: Person
+    lpg_rel_type: ''
+- name: DiligenceFinding
+  label: Diligence Finding
+  id_prefix: diligencefinding
+  relations: []
+- name: EINApplication
+  label: EIN Application
+  id_prefix: einapplication
+  relations:
+  - name: appliesForEntity
+    label: applies for entity
+    target: BusinessEntity
+    lpg_rel_type: ''
+- name: Employee
+  label: Employee
+  id_prefix: employee
+  relations:
+  - name: employedBy
+    label: employed by
+    target: Organization
+    lpg_rel_type: ''
+- name: EmploymentContract
+  label: Employment Contract
+  id_prefix: employmentcontract
+  relations: []
+- name: EmploymentLawMatter
+  label: Employment Law Matter
+  id_prefix: employmentlawmatter
+  relations:
+  - name: governedByEmploymentStatute
+    label: governed by employment statute
+    target: FederalStatute
+    lpg_rel_type: ''
+  - name: involvesEmployee
+    label: involves employee
+    target: Employee
+    lpg_rel_type: ''
+- name: EnforcementAction
+  label: Enforcement Action
+  id_prefix: enforcementaction
+  relations:
+  - name: arisesFromObligation
+    label: arises from obligation
+    target: Obligation
+    lpg_rel_type: ''
+  - name: enforcementTargets
+    label: enforcement targets
+    target: Organization
+    lpg_rel_type: ''
+- name: EntityComplianceDeadline
+  label: Entity Compliance Deadline
+  id_prefix: entitycompliancedeadline
+  relations:
+  - name: deadlineFor
+    label: deadline for
+    target: Company
+    lpg_rel_type: ''
+  - name: tracksRequirement
+    label: tracks requirement
+    target: ReportingRequirement
+    lpg_rel_type: ''
+- name: EscalationRoute
+  label: Escalation Route
+  id_prefix: escalationroute
+  relations:
+  - name: escalatesFinding
+    label: escalates finding
+    target: ContractReviewFinding
+    lpg_rel_type: ''
+  - name: routesToApprover
+    label: routes to approver
+    target: Person
+    lpg_rel_type: ''
+- name: FederalStatute
+  label: Federal Statute
+  id_prefix: federalstatute
+  relations: []
+- name: HandbookPolicy
+  label: Employee Handbook Policy
+  id_prefix: handbookpolicy
+  relations: []
+- name: IntellectualProperty
+  label: Intellectual Property
+  id_prefix: intellectualproperty
+  relations: []
+- name: InternalInvestigation
+  label: Internal Investigation
+  id_prefix: internalinvestigation
+  relations:
+  - name: investigates
+    label: investigates
+    target: EmploymentLawMatter
+    lpg_rel_type: ''
+  - name: subjectOfInvestigation
+    label: subject of investigation
+    target: Employee
+    lpg_rel_type: ''
+- name: InternationalExpansionProject
+  label: International Expansion Project
+  id_prefix: internationalexpansionproject
+  relations:
+  - name: expandsToJurisdiction
+    label: expands to jurisdiction
+    target: Jurisdiction
+    lpg_rel_type: ''
+- name: Jurisdiction
+  label: Jurisdiction
+  id_prefix: jurisdiction
+  relations: []
+- name: LLCFormationFiling
+  label: LLC Formation Filing
+  id_prefix: llcformationfiling
+  relations: []
+- name: LeaveRequest
+  label: Leave Request
+  id_prefix: leaverequest
+  relations:
+  - name: requestedBy
+    label: requested by
+    target: Employee
+    lpg_rel_type: ''
+- name: LegalHold
+  label: Legal Hold
+  id_prefix: legalhold
+  relations: []
+- name: LegalMatter
+  label: Legal Matter
+  id_prefix: legalmatter
+  relations:
+  - name: governedByStatute
+    label: governed by statute
+    target: Statute
+    lpg_rel_type: ''
+- name: LegalPrecedent
+  label: Legal Precedent
+  id_prefix: legalprecedent
+  relations: []
+- name: LegalTrust
+  label: Legal Trust
+  id_prefix: legaltrust
+  relations:
+  - name: hasBeneficiary
+    label: Has Beneficiary
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: hasSettlor
+    label: Has Settlor
+    target: Person
+    lpg_rel_type: ''
+  - name: hasTrustee
+    label: Has Trustee
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: trustAgreement
+    label: Trust Agreement
+    target: CorporateGovernanceDoc
+    lpg_rel_type: ''
+- name: MSAAgreement
+  label: SaaS / Master Service Agreement
+  id_prefix: msaagreement
+  relations: []
+- name: MaterialContract
+  label: Material Contract
+  id_prefix: materialcontract
+  relations: []
+- name: MunicipalCode
+  label: Municipal Code
+  id_prefix: municipalcode
+  relations: []
+- name: NDAAgreement
+  label: NDA Agreement
+  id_prefix: ndaagreement
+  relations: []
+- name: Obligation
+  label: Obligation
+  id_prefix: obligation
+  relations:
+  - name: violation
+    label: violation
+    target: Penalty
+    lpg_rel_type: ''
+- name: Penalty
+  label: Penalty
+  id_prefix: penalty
+  relations: []
+- name: PrivacyImpactAssessment
+  label: Privacy Impact Assessment
+  id_prefix: privacyimpactassessment
+  relations:
+  - name: assessesActivity
+    label: assesses activity
+    target: ProcessingActivity
+    lpg_rel_type: ''
+- name: PrivilegeLogEntry
+  label: Privilege Log Entry
+  id_prefix: privilegelogentry
+  relations: []
+- name: ProcessingActivity
+  label: Processing Activity
+  id_prefix: processingactivity
+  relations:
+  - name: processesDataClass
+    label: processes data class
+    target: DataClassification
+    lpg_rel_type: ''
+  - name: recordsConsent
+    label: Records Consent
+    target: ConsentRecord
+    lpg_rel_type: ''
+- name: RegulatoryAuthority
+  label: Regulatory Authority
+  id_prefix: regulatoryauthority
+  relations: []
+- name: RegulatoryChangeNotice
+  label: Regulatory Change Notice
+  id_prefix: regulatorychangenotice
+  relations:
+  - name: amendsRegulation
+    label: amends regulation
+    target: Regulation
+    lpg_rel_type: ''
+- name: RegulatoryComment
+  label: Regulatory Comment
+  id_prefix: regulatorycomment
+  relations:
+  - name: respondsToNotice
+    label: responds to notice
+    target: RegulatoryChangeNotice
+    lpg_rel_type: ''
+- name: RegulatoryFiling
+  label: Regulatory Filing
+  id_prefix: regulatoryfiling
+  relations:
+  - name: filedBy
+    label: Filed By
+    target: Company
+    lpg_rel_type: ''
+- name: RenewalDeadline
+  label: Renewal Deadline
+  id_prefix: renewaldeadline
+  relations: []
+- name: ReportingRequirement
+  label: Reporting Requirement
+  id_prefix: reportingrequirement
+  relations:
+  - name: triggeredByObligation
+    label: triggered by obligation
+    target: Obligation
+    lpg_rel_type: ''
+- name: RestrictiveCovenant
+  label: Restrictive Covenant
+  id_prefix: restrictivecovenant
+  relations: []
+- name: Sector
+  label: Sector
+  id_prefix: sector
+  relations: []
+- name: SettlorRole
+  label: Settlor Role
+  id_prefix: settlorrole
+  relations: []
+- name: StateStatute
+  label: State Statute
+  id_prefix: statestatute
+  relations: []
+- name: Statute
+  label: Statute
+  id_prefix: statute
+  relations:
+  - name: statuteJurisdiction
+    label: statute jurisdiction
+    target: Jurisdiction
+    lpg_rel_type: ''
+- name: Subpoena
+  label: Subpoena
+  id_prefix: subpoena
+  relations: []
+- name: TrusteeRole
+  label: Trustee Role
+  id_prefix: trusteerole
+  relations: []
+- name: VendorAgreement
+  label: Vendor Agreement
+  id_prefix: vendoragreement
+  relations: []
+- name: WorkerClassificationAssessment
+  label: Worker Classification Assessment
+  id_prefix: workerclassificationassessment
+  relations:
+  - name: classificationTriggersObligation
+    label: classification triggers obligation
+    target: Obligation
+    lpg_rel_type: ''
+- name: WrittenConsent
+  label: Written Consent
+  id_prefix: writtenconsent
+  relations: []
+actions: []
+events:
+- name: legal-sos-entities.updated
+  resource: business_entity
+  description: "Watermark event for 'legal-sos-entities' \u2014 advances on incorporation_date (mcp_source_presets.json)."
+identity:
+  id_field:
+    business_entity: id
+  title_field:
+    business_entity: name
+  text_field:
+    business_entity: registered_address
+  updated_field:
+    business_entity: incorporation_date
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  AgencyGuidance:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Assessment:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Attestation:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  BeneficiaryRole:
+    ontology_class: BFO_0000023
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  BoardResolution:
+    ontology_class: CorporateGovernanceDoc
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  BusinessEntity:
+    ontology_class: BFO_0000040
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  CaseLaw:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ChronologyEvent:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ClaimChart:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ClosingChecklistItem:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Company:
+    ontology_class: Organization
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ComplianceGapRemediation:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ComplianceGate:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ComplianceRequirement:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ConsentRecord:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Contract:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ContractAmendment:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ContractClause:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ContractReviewFinding:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Control:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  CorporateGovernanceDoc:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  DataProcessingAgreement:
+    ontology_class: Contract
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  DataSubjectRequest:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  DemandLetter:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Deposition:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  DiligenceFinding:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EINApplication:
+    ontology_class: RegulatoryFiling
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Employee:
+    ontology_class: Person
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EmploymentContract:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EmploymentLawMatter:
+    ontology_class: LegalMatter
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EnforcementAction:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EntityComplianceDeadline:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  EscalationRoute:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  FederalStatute:
+    ontology_class: Statute
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  HandbookPolicy:
+    ontology_class: Policy
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  IntellectualProperty:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  InternalInvestigation:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  InternationalExpansionProject:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Jurisdiction:
+    ontology_class: Place
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LLCFormationFiling:
+    ontology_class: RegulatoryFiling
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LeaveRequest:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LegalHold:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LegalMatter:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LegalPrecedent:
+    ontology_class: CaseLaw
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  LegalTrust:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  MSAAgreement:
+    ontology_class: Contract
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  MaterialContract:
+    ontology_class: Contract
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  MunicipalCode:
+    ontology_class: Statute
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  NDAAgreement:
+    ontology_class: Contract
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Obligation:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Penalty:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  PrivacyImpactAssessment:
+    ontology_class: Assessment
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  PrivilegeLogEntry:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ProcessingActivity:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RegulatoryAuthority:
+    ontology_class: Organization
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RegulatoryChangeNotice:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RegulatoryComment:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RegulatoryFiling:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RenewalDeadline:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  ReportingRequirement:
+    ontology_class: RegulatoryFiling
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  RestrictiveCovenant:
+    ontology_class: ContractClause
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Sector:
+    ontology_class: Concept
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  SettlorRole:
+    ontology_class: BFO_0000023
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  StateStatute:
+    ontology_class: Statute
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Statute:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  Subpoena:
+    ontology_class: BFO_0000031
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  TrusteeRole:
+    ontology_class: BFO_0000023
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  VendorAgreement:
+    ontology_class: Contract
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  WorkerClassificationAssessment:
+    ontology_class: BFO_0000015
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+  WrittenConsent:
+    ontology_class: CorporateGovernanceDoc
+    fields:
+      cancelByDate: xsd:date
+      cfrPart: xsd:string
+      citation: xsd:string
+      classificationOutcome: xsd:string
+      closingStatus: xsd:string
+      commentDeadline: xsd:date
+      companyNumber: xsd:string
+      effectiveDate: xsd:date
+      employmentLawType: xsd:string
+      eventSignificance: xsd:string
+      expansionStructureType: xsd:string
+      filingAgency: xsd:string
+      filingDeadline: xsd:date
+      filingStatus: xsd:string
+      filingType: xsd:string
+      findingCategory: xsd:string
+      findingSeverity: xsd:string
+      governanceDocType: xsd:string
+      holdStatus: xsd:string
+      incorporationDate: xsd:date
+      ipExpirationDate: xsd:date
+      ipFilingDate: xsd:date
+      ipRegistrationNumber: xsd:string
+      ipStatus: xsd:string
+      ipType: xsd:string
+      lastAmended: xsd:date
+      leaveDecisionDeadline: xsd:date
+      leaveType: xsd:string
+      legalBasis: xsd:string
+      materialityThreshold: xsd:string
+      matterStatus: xsd:string
+      nextDueDate: xsd:date
+      nextRefreshDate: xsd:date
+      noticeWindowDays: xsd:integer
+      precedentStrength: xsd:string
+      privilegeStatus: xsd:string
+      processorRole: xsd:string
+      registryStatus: xsd:string
+      requestDeadline: xsd:date
+      requestType: xsd:string
+      subpoenaScope: xsd:string
+      trustType: xsd:string
+      uscSection: xsd:string
+sync:
+- preset: legal-sos-entities
+  server: legal-peripherals-mcp
+  tool: legal_ingest_sos_entities
+  action: list
+  records_path: entities
+  id_field: id
+  title_field: name
+  text_field: registered_address
+  updated_field: incorporation_date
+  pagination: null
+  doc_type: business_entity
+  tool_schema_sha256: 55bccda5f05345d5cc0b80634b492547dc1e29ce7950b5557943283c55261f6b
+  raw:
+    server: legal-peripherals-mcp
+    tool: legal_ingest_sos_entities
+    action: list
+    records_path: entities
+    id_field: id
+    title_field: name
+    text_field: registered_address
+    updated_field: incorporation_date
+    doc_type: business_entity
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - legal_peripherals_mcp/connectors/mcp_source_presets.json
+  - legal_peripherals_mcp/connectors/tool_schema_fingerprints.json
+  - legal_peripherals_mcp/ontology/compliance.ttl
+  - legal_peripherals_mcp/ontology/compliance_bsa_aml.ttl
+  - legal_peripherals_mcp/ontology/compliance_cfpb.ttl
+  - legal_peripherals_mcp/ontology/compliance_dodd_frank.ttl
+  - legal_peripherals_mcp/ontology/compliance_flsa.ttl
+  - legal_peripherals_mcp/ontology/compliance_hipaa.ttl
+  - legal_peripherals_mcp/ontology/compliance_llc.ttl
+  - legal_peripherals_mcp/ontology/compliance_occ.ttl
+  - legal_peripherals_mcp/ontology/compliance_taxation.ttl
+  - legal_peripherals_mcp/ontology/domain_commercial.ttl
+  - legal_peripherals_mcp/ontology/domain_corporate.ttl
+  - legal_peripherals_mcp/ontology/domain_employment.ttl
+  - legal_peripherals_mcp/ontology/domain_litigation.ttl
+  - legal_peripherals_mcp/ontology/domain_privacy.ttl
+  - legal_peripherals_mcp/ontology/domain_regulatory.ttl
+  - legal_peripherals_mcp/ontology/legal.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d1afd011d90abd629e62eec1ff07da68a2aa40c57fdb183f1f1cabd33f4664e6
+    triple_count: 613
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 0IrdfydftlI_-H0KCM_LIel5ehLl4zrVkxAXHG2zYXpgQYrY4z7Iu7wRoFPIcxTRizDsvUbdvtxxcVQ_weVFDw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'appliesToDataClass' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'appliesToSector' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'conflictsWithParty' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'enforcedBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'evaluatesRequirement' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hasReportingRequirement' has no declared rdfs:domain resolving to a known resource in this\
+  \ connector's ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'imposesObligation' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'issuedByAuthority' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'issuedForMatter' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'requiresControl' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.AgencyGuidance.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Assessment.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Attestation.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BeneficiaryRole.ontology_class = 'BFO_0000023' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BoardResolution.ontology_class = 'CorporateGovernanceDoc' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessEntity.ontology_class = 'BFO_0000040' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CaseLaw.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ChronologyEvent.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ClaimChart.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ClosingChecklistItem.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Company.ontology_class = 'Organization' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ComplianceGapRemediation.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ComplianceGate.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ComplianceRequirement.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ConsentRecord.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Contract.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContractAmendment.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContractClause.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContractReviewFinding.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Control.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CorporateGovernanceDoc.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataProcessingAgreement.ontology_class = 'Contract' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataSubjectRequest.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DemandLetter.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Deposition.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DiligenceFinding.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EINApplication.ontology_class = 'RegulatoryFiling' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Employee.ontology_class = 'Person' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EmploymentContract.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EmploymentLawMatter.ontology_class = 'LegalMatter' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EnforcementAction.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EntityComplianceDeadline.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EscalationRoute.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.FederalStatute.ontology_class = 'Statute' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HandbookPolicy.ontology_class = 'Policy' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.IntellectualProperty.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.InternalInvestigation.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.InternationalExpansionProject.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Jurisdiction.ontology_class = 'Place' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LLCFormationFiling.ontology_class = 'RegulatoryFiling' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LeaveRequest.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LegalHold.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LegalMatter.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LegalPrecedent.ontology_class = 'CaseLaw' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.LegalTrust.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MSAAgreement.ontology_class = 'Contract' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MaterialContract.ontology_class = 'Contract' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MunicipalCode.ontology_class = 'Statute' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NDAAgreement.ontology_class = 'Contract' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Obligation.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Penalty.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PrivacyImpactAssessment.ontology_class = 'Assessment' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PrivilegeLogEntry.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ProcessingActivity.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RegulatoryAuthority.ontology_class = 'Organization' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RegulatoryChangeNotice.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RegulatoryComment.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RegulatoryFiling.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RenewalDeadline.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ReportingRequirement.ontology_class = 'RegulatoryFiling' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RestrictiveCovenant.ontology_class = 'ContractClause' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Sector.ontology_class = 'Concept' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SettlorRole.ontology_class = 'BFO_0000023' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.StateStatute.ontology_class = 'Statute' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Statute.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Subpoena.ontology_class = 'BFO_0000031' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TrusteeRole.ontology_class = 'BFO_0000023' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.VendorAgreement.ontology_class = 'Contract' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WorkerClassificationAssessment.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WrittenConsent.ontology_class = 'CorporateGovernanceDoc' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

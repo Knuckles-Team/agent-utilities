@@ -10,9 +10,8 @@ playbooks (OS-5.26): they never fire-and-forget a mutating action. The flow:
 
 1. an actuator deploy/restart succeeds;
 2. :func:`watch_deploy` enqueues a durable ``deploy_watch`` task on the
-   engine task queue (the queue gives durability: if the host dies mid-watch
-   the zombie-task reaper requeues it and the new worker resumes against the
-   same recorded deadline);
+   native WorkItem queue (an expired lease is reclaimed atomically and the new
+   worker resumes against the same recorded deadline);
 3. the worker-side :func:`run_deploy_watch` probes the
    :class:`~agent_utilities.orchestration.fleet_observation.FleetObserver`
    every ``DEPLOY_WATCH_POLL`` seconds until the window closes:
@@ -28,7 +27,6 @@ Every outcome is a ``DeployWatch`` KG node linked to the watched service's
 action trail.
 """
 
-import json
 import logging
 import time
 import uuid
@@ -41,7 +39,7 @@ OUTCOME_SUCCESS = "success"
 OUTCOME_FAILED = "failed"
 OUTCOME_UNOBSERVED = "unobserved"
 
-# Tasks carry their watch spec in this Task-node property.
+# WorkItems carry their watch spec in metadata.
 WATCH_PROP = "deploy_watch_json"
 
 OnFail = Callable[[Any, dict[str, Any]], dict[str, Any]]
@@ -71,7 +69,7 @@ def watch_deploy(
     """Schedule a durable health watch for ``service`` after a deploy/restart.
 
     Returns the queued task's job id (``None`` when the engine cannot queue).
-    The watch spec rides on the Task node so a requeued/resumed watch keeps
+    The watch spec rides on the WorkItem so a reclaimed watch keeps
     its original deadline.
     """
     submit = getattr(engine, "submit_task", None)
@@ -90,21 +88,21 @@ def watch_deploy(
     return submit(
         service,
         is_codebase=False,
-        provenance={WATCH_PROP: json.dumps(spec, default=str), "source": source},
+        provenance={},
         task_type="deploy_watch",
         skip_dedupe=True,
+        extra_meta={WATCH_PROP: spec},
     )
 
 
 def _load_spec(engine: Any, job_id: str, service: str) -> dict[str, Any]:
-    """Read the watch spec back off the Task node (durable across requeues)."""
+    """Read the watch spec from the sole WorkItem."""
     try:
-        rows = engine.query_cypher("MATCH (t:Task {id: $id}) RETURN t", {"id": job_id})
-        props = rows[0].get("t") if rows else None
-        if isinstance(props, dict) and props.get(WATCH_PROP):
-            spec = json.loads(props[WATCH_PROP])
-            if isinstance(spec, dict):
-                return spec
+        status = engine.get_task_status(job_id)
+        props = (status or {}).get("metadata")
+        spec = props.get(WATCH_PROP) if isinstance(props, dict) else None
+        if isinstance(spec, dict):
+            return spec
     except Exception as e:  # noqa: BLE001
         logger.debug("deploy_watch: spec load failed for %s: %s", job_id, e)
     window = _config_float("deploy_watch_window", 300.0)
@@ -164,7 +162,7 @@ def _notify(message: str) -> None:
 
 
 def _record(engine: Any, spec: dict[str, Any], outcome: str, detail: str) -> str | None:
-    watch_id = f"deploy_watch:{uuid.uuid4().hex[:12]}"
+    watch_id = f"deploy_watch:{uuid.uuid4().hex}"
     try:
         engine.add_node(
             watch_id,

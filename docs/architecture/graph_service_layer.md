@@ -53,10 +53,8 @@ All settings are available in the XDG `config.json`:
 
 | Field | Env Var | Default | Description |
 |---|---|---|---|
-| `graph_service_socket` | `GRAPH_SERVICE_SOCKET` | `$XDG_RUNTIME_DIR/epistemic-graph.sock` | UDS socket path |
-| `graph_service_tcp_addr` | `GRAPH_SERVICE_TCP_ADDR` | `None` | TCP address (e.g., `0.0.0.0:9100`) |
+| `graph_service_endpoints` | `GRAPH_SERVICE_ENDPOINTS` | `None` | Ordered connect-only coordinator contacts; absence selects the platform-default packaged engine transport |
 | `graph_service_auth_secret` | `GRAPH_SERVICE_AUTH_SECRET` | `None` | HMAC-SHA256 shared secret |
-| `graph_service_checkpoint_secs` | `GRAPH_SERVICE_CHECKPOINT_SECS` | `300` | Auto-checkpoint interval |
 | `graph_service_persist_on_shutdown` | `GRAPH_SERVICE_PERSIST_ON_SHUTDOWN` | `true` | Serialize on shutdown |
 
 ## Authentication
@@ -73,23 +71,25 @@ The service lifecycle is tied to the agent-utilities API gateway:
 - **Startup**: Gateway sends `Reconcile` to push authoritative state from the backend
 - **Shutdown**: Gateway sends `Checkpoint` to persist all graphs
 - The service process is the `epistemic-graph-server` Rust daemon (run via
-  `cargo run -p epistemic-graph`). `GraphComputeEngine` will auto-start it on
-  first connect when `EPISTEMIC_GRAPH_AUTOSTART=1` is set; otherwise the daemon
-  must already be running.
+  `cargo run -p epistemic-graph`). With `GRAPH_SERVICE_ENDPOINTS` unset,
+  `GraphComputeEngine` shares or provisions the packaged local daemon. Any
+  configured coordinator topology requires an existing daemon and is
+  connect-only.
 
 ## Migration from PyO3
 
 The PyO3 in-process FFI path has been **fully removed**. `GraphComputeEngine`
 talks to the `epistemic-graph-server` Tokio daemon **exclusively** over the
 out-of-process MessagePack/UDS (or TCP) client (`epistemic_graph.client`); there
-is no in-process embedded fallback. If the daemon is unreachable, set
-`EPISTEMIC_GRAPH_AUTOSTART=1` to have the engine spawn it on first connect.
+is no in-process embedded fallback. Omit `GRAPH_SERVICE_ENDPOINTS` for the
+packaged local lifecycle; configure it to connect to an existing authority,
+which never starts a local stand-in.
 
 ## Sharding (Stage 2)
 
-With 2+ entries in `GRAPH_SERVICE_ENDPOINTS`, `GraphComputeEngine` routes each
-named graph to its owning shard by HRW rendezvous hashing (`tenant → named
-graph → HRW → shard`, CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Autostart then applies **only** to the
-local `unix://` endpoint — an unreachable remote shard is a fail-loud
-`ConnectionError` naming the shard. See
+`GraphComputeEngine` connects to a configured coordinator contact. Under an
+authenticated `GraphSession`, each graph request resolves the engine's complete
+placement route and validates its epoch and group fence. Multiple contacts are
+not a hash ring; ambiguous or unreachable placement fails closed. Autostart applies
+only to a sole local endpoint. See
 [engine_sharding.md](./engine_sharding.md).

@@ -17,6 +17,7 @@ Usage::
     from agent_utilities.gateway.registry import get_registry
 """
 
+from agent_utilities._version import __version__ as __version__
 from agent_utilities.gateway.models import (
     DashboardLayout,
     ServiceCategory,
@@ -41,5 +42,3 @@ __all__ = [
     "WidgetRegistration",
     "get_registry",
 ]
-
-__version__ = "0.1.0"

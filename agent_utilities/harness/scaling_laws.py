@@ -120,7 +120,7 @@ class MultiAgentScalingHarness:
 
         try:
             self.engine.add_node(
-                f"scaling_law:{uuid.uuid4().hex[:12]}",
+                f"scaling_law:{uuid.uuid4().hex}",
                 "ScalingLawMeasurement",
                 properties={
                     "alpha": law.alpha,

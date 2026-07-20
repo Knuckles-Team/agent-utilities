@@ -65,10 +65,10 @@ from __future__ import annotations
 
 import threading
 import time
-import urllib.request
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit, urlunsplit
 
 __all__ = [
     "AdaptiveCapacityController",
@@ -104,12 +104,17 @@ _OVERLOAD_STATUSES = frozenset({429, 502, 503, 504, 529})
 
 
 def _http_get(url: str) -> str:
-    """Default metrics fetcher — a short-timeout stdlib GET (no heavy deps)."""
-    # internal metrics endpoint (http://…/metrics), fixed scheme — not user input
-    with urllib.request.urlopen(  # noqa: S310  # nosec B310
-        url, timeout=_FETCH_TIMEOUT_S
-    ) as resp:
-        return resp.read().decode("utf-8", "replace")
+    """Default metrics fetcher through the bounded model-egress policy."""
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.http_safety import safe_get_text
+
+    return safe_get_text(
+        url,
+        timeout=_FETCH_TIMEOUT_S,
+        max_bytes=2 * 1024 * 1024,
+        max_redirects=0,
+        allowed_private_hosts=config.model_http_allowed_private_hosts,
+    )
 
 
 def metrics_url_from_base(base_url: str) -> str:
@@ -119,11 +124,20 @@ def metrics_url_from_base(base_url: str) -> str:
     ``http://host/metrics``. Trailing slashes and a trailing ``/v1`` segment are
     stripped before appending ``/metrics``. CONCEPT:AU-KG.compute.surfaces-universal-latency-signal.
     """
-    u = (base_url or "").strip().rstrip("/")
-    if u.endswith("/v1"):
-        u = u[: -len("/v1")]
-    u = u.rstrip("/")
-    return f"{u}/metrics"
+    parsed = urlsplit((base_url or "").strip())
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        return ""
+    path = parsed.path.rstrip("/")
+    if path.endswith("/v1"):
+        path = path[: -len("/v1")]
+    return urlunsplit((parsed.scheme.casefold(), parsed.netloc, f"{path}/metrics", "", ""))
 
 
 def parse_vllm_gauge(
@@ -603,7 +617,7 @@ def _register_gpu_group_peers(gpu_group: str | None) -> None:
     those whose :meth:`Config.gpu_group` matches ``gpu_group``, and registers each with
     its static floor (:meth:`Config.model_capacity`) and role classification. It is
     pure config enumeration: NO hardcoded model names or GPU types, so it works for any
-    ``gpu_group`` value and any GPU (GB10/GB200/H100/clusters).
+    ``gpu_group`` value and any accelerator or cluster topology.
 
     Idempotent (``upsert`` only refreshes floor/role) and fail-safe: any enumeration
     error falls back to the current active-only behaviour and never raises. A group

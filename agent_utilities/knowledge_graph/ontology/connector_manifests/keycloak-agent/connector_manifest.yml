@@ -1,0 +1,200 @@
+connector: keycloak-agent
+ontology_source: keycloak
+schema_version: '1'
+resources:
+- name: Client
+  label: Client
+  id_prefix: client
+  relations: []
+- name: Group
+  label: Group
+  id_prefix: group
+  relations:
+  - name: hasSubGroup
+    label: has subgroup
+    target: Group
+    lpg_rel_type: ''
+- name: IdentityProvider
+  label: Identity Provider
+  id_prefix: identityprovider
+  relations: []
+- name: Realm
+  label: Realm
+  id_prefix: realm
+  relations:
+  - name: federatesIdentityProvider
+    label: federates identity provider
+    target: IdentityProvider
+    lpg_rel_type: ''
+- name: Role
+  label: Role
+  id_prefix: role
+  relations: []
+- name: User
+  label: Keycloak User
+  id_prefix: user
+  relations:
+  - name: memberOfGroup
+    label: member of group
+    target: Group
+    lpg_rel_type: ''
+actions: []
+events: []
+identity:
+  id_field:
+    keycloak_realm: realm
+  title_field:
+    keycloak_realm: displayName
+  text_field:
+    keycloak_realm: realm
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Client:
+    ontology_class: null
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+  Group:
+    ontology_class: Organization
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+  IdentityProvider:
+    ontology_class: null
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+  Realm:
+    ontology_class: null
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+  Role:
+    ontology_class: Role
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+  User:
+    ontology_class: Person
+    fields:
+      clientId: xsd:string
+      email: xsd:string
+      enabled: xsd:boolean
+      groupPath: xsd:string
+      protocol: xsd:string
+      publicClient: xsd:boolean
+      realmName: xsd:string
+      username: xsd:string
+sync:
+- preset: keycloak-realms
+  server: keycloak-agent
+  tool: keycloak_agent_realms
+  action: list_realms
+  records_path: ''
+  id_field: realm
+  title_field: displayName
+  text_field: realm
+  updated_field: ''
+  pagination: null
+  doc_type: keycloak_realm
+  tool_schema_sha256: 723894566ec98fdd0f42479f9cb2da3bd0c98d0d706311ded129d24e67ff5976
+  raw:
+    server: keycloak-agent
+    tool: keycloak_agent_realms
+    action: list_realms
+    records_path: ''
+    id_field: realm
+    title_field: displayName
+    text_field: realm
+    updated_field: ''
+    doc_type: keycloak_realm
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - keycloak_agent/connectors/mcp_source_presets.json
+  - keycloak_agent/connectors/tool_schema_fingerprints.json
+  - keycloak_agent/ontology/keycloak.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: ff96e788037b12c513d7b84e451eddd5fcc520e6480d7872a8b4dea00efc4c2d
+    triple_count: 61
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: lEqn9ak2_L6RISeV96XbvEjdOdM1bFpFeu5oMmU4nJjDwNFEDUMHgrkzhT_B2SdlvTA24LYYVUVuCn1SD7kKBw
+policy:
+  pii_fields:
+    Client:
+    - email
+    Group:
+    - email
+    IdentityProvider:
+    - email
+    Realm:
+    - email
+    Role:
+    - email
+    User:
+    - email
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.pii_fields was populated by a field-NAME heuristic (['address', 'birthdate', 'card_number',\
+  \ 'credit_card', 'date_of_birth', 'dateofbirth', 'dob', 'email', 'email_address', 'first_name', 'full_name',\
+  \ 'home_address', 'ip', 'ip_address', 'last_name', 'mobile', 'national_id', 'passport', 'phone', 'phone_number',\
+  \ 'social_security_number', 'ssn']) \u2014 verify against the actual data before relying on it for redaction/RLS."
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'hasRole' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'inRealm' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Client.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Group.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.IdentityProvider.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Realm.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Role.ontology_class = 'Role' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.User.ontology_class = 'Person' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."

@@ -1,4 +1,4 @@
-"""Integration checks: the RLM-GEPA features are on the LIVE path, not just available APIs.
+"""Integration checks for the live Predict-RLM path.
 
 Each test exercises an *existing* class/entry point to prove the new behavior is actually invoked.
 """
@@ -31,20 +31,6 @@ def test_mounted_skill_instructions_reach_the_prompt():
     assert (
         "STEP 1: always call login first." in prompt
     )  # the SOP actually reaches the model
-
-
-@pytest.mark.concept(id="ORCH-1.30")
-def test_optimize_entry_enables_heldout_split_by_default():
-    """A integration: the optimize entry point defaults dev_fraction>0 (held-out selection on)."""
-    import inspect
-
-    from agent_utilities.rlm.runner import optimize_rlm_skill
-
-    sig = inspect.signature(optimize_rlm_skill)
-    assert sig.parameters["dev_fraction"].default > 0  # generalization on by default
-    assert (
-        "persist_run_id" in sig.parameters
-    )  # E: frontier persistence threaded through
 
 
 @pytest.mark.concept(id="ORCH-1.29")

@@ -40,8 +40,8 @@ class _FakeEngine:
         self.sql_seen = self.cypher_seen = self.sparql_seen = None
 
     def query_cypher(self, query, *a, **k):
-        if query.startswith("MATCH (n) RETURN DISTINCT labels"):
-            return [{"labels": ["Agent"]}, {"labels": ["Service"]}]
+        if query.startswith("MATCH (n) RETURN n.node_type"):
+            return [{"t": "Agent", "nt": None, "lb": None}, {"t": "Service"}]
         self.cypher_seen = query
         return [{"id": "n1", "name": "alpha"}]
 
@@ -117,3 +117,125 @@ def test_unparseable_model_output_errors(monkeypatch):
     eng = _FakeEngine()
     out = nl_query.nl_to_query(eng, "nonsense")
     assert "generation failed" in out["error"]
+
+
+def test_schema_context_grounds_label_column_and_real_edge_columns():
+    """CONCEPT:AU-KG.query.ask-gateway-rest-twin grounding fix.
+
+    The SQL surface has no distinct "label" column — a cypher label is really the
+    node's ``type`` property (``label`` is a separate, usually-empty property). The
+    schema hint the planner receives must say so explicitly, and must describe the
+    edges table's REAL fixed columns (``src``/``dst``/``rel``/``props``) instead of
+    letting the model invent a column like ``source_node_id``.
+    """
+    eng = _FakeEngine()
+    schema = nl_query.build_schema_context(eng)
+
+    assert "Agent" in schema["node_labels"]
+    assert "Service" in schema["node_labels"]
+
+    columns_note = schema["sql_columns"]
+    # the label/kind column mapping.
+    assert "`type`" in columns_note
+    assert "Do NOT use a `label` column" in columns_note
+    # the real edges columns, and an explicit rejection of invented ones.
+    assert "`src`" in columns_note
+    assert "`dst`" in columns_note
+    assert "`rel`" in columns_note
+    assert "source_node_id" in columns_note  # named as the wrong column to avoid
+
+
+def test_schema_context_label_probe_uses_type_property_not_labels_function():
+    """The engine's Cypher executor does not implement ``labels(n)`` as a callable
+    expression (it evaluates to null on every row), so the probe must read the
+    scalar ``type``/``node_type``/``label`` properties directly instead.
+    """
+    eng = _FakeEngine()
+    nl_query.build_schema_context(eng)
+    # never issued the broken labels(n) query
+    assert eng.cypher_seen != "MATCH (n) RETURN DISTINCT labels(n) AS labels LIMIT 200"
+
+
+def test_concept_count_question_grounds_on_type_column(monkeypatch):
+    """Regression for the silent-wrong-data bug: 'how many Concept nodes' must be
+    grounded on the `type` column so the model doesn't repeat the old
+    `WHERE label = 'Concept'` mistake (which always returned 0 against the real
+    engine schema, even though the label genuinely exists as `type='Concept'`).
+    """
+    captured_prompt: dict[str, str] = {}
+
+    class _FakeAgent:
+        def __init__(self, *a, **k):
+            pass
+
+        def run_sync(self, prompt):
+            captured_prompt["text"] = prompt
+            return _FakeResult(
+                '{"dialect": "sql", "query": "SELECT COUNT(*) FROM nodes WHERE type = \'Concept\'"}'
+            )
+
+    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **k: object()
+    )
+
+    class _ConceptEngine(_FakeEngine):
+        def sql(self, query):
+            self.sql_seen = query
+            if "type = 'Concept'" in query:
+                return [{"count(*)": 13792}]
+            return [{"count(*)": 0}]
+
+    eng = _ConceptEngine()
+    out = nl_query.nl_to_query(eng, "how many Concept nodes")
+
+    # the prompt grounds the model on the real column before it ever calls the LLM.
+    assert "`type`" in captured_prompt["text"]
+    assert out["generated_query"] == "SELECT COUNT(*) FROM nodes WHERE type = 'Concept'"
+    assert out["results"] == [{"count(*)": 13792}]
+
+
+def test_nl_to_query_survives_call_from_inside_a_running_event_loop(monkeypatch):
+    """BUG-2 (kg-exhaustive-smoke.md): ``graph_ask``/``ask_data`` route through
+    ``nl_to_query``, invoked from inside the gateway's already-running event
+    loop (every real MCP/REST tool dispatch runs inside FastMCP/Starlette's
+    live loop). Before the fix, ``Agent.run_sync`` — which itself spins its own
+    ``asyncio.run()`` — collided with that loop and raised
+    ``RuntimeError: This event loop is already running`` instead of returning
+    a grounded answer (``{"error": "nl->query generation failed: This event
+    loop is already running", ...}``). The fake Agent's ``run_sync`` genuinely
+    calls ``asyncio.run()`` internally (mirroring the real pydantic-ai facade)
+    so a regression reproduces the exact failure mode, not just a trivial mock.
+    """
+    import asyncio
+
+    class _FakeAgent:
+        def __init__(self, *a, **k):
+            pass
+
+        def run_sync(self, prompt):
+            async def _inner():
+                return _FakeResult(
+                    '{"dialect": "cypher", "query": "MATCH (a:Agent) RETURN a"}'
+                )
+
+            return asyncio.run(_inner())
+
+    monkeypatch.setattr("pydantic_ai.Agent", _FakeAgent)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **k: object()
+    )
+
+    eng = _FakeEngine()
+
+    async def _call_from_running_loop():
+        # nl_to_query is a plain sync function called directly (not awaited)
+        # from inside a running loop -- exactly how the async MCP tool handler
+        # reaches it in production.
+        return nl_query.nl_to_query(eng, "who are the agents")
+
+    out = asyncio.run(_call_from_running_loop())
+
+    assert "error" not in out, out
+    assert out["generated_query"] == "MATCH (a:Agent) RETURN a"
+    assert out["results"] == [{"id": "n1", "name": "alpha"}]

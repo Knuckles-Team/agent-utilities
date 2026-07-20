@@ -6,6 +6,8 @@ Ports the agentsview ``internal/pricing/normalize_test.go`` and
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.pricing import (
     PricingCatalog,
     fallback_pricing,
@@ -119,11 +121,10 @@ def test_parse_litellm_pricing_converts_per_mtok_and_skips_empty():
     assert m.cache_read_per_mtok == 0.3
 
 
-def test_cost_model_for_model_back_compat():
+def test_cost_model_for_model_requires_catalog_pricing():
     from agent_utilities.models.usage import CostModel
 
     known = CostModel.for_model("claude-opus-4-8")
     assert known.input_token_price == 5.0 / 1_000_000
-    # Unknown model falls back to legacy defaults (zero-config safety).
-    unknown = CostModel.for_model("nonexistent-xyz")
-    assert unknown.input_token_price == 0.00000015
+    with pytest.raises(LookupError, match="pricing is not configured"):
+        CostModel.for_model("nonexistent-xyz")

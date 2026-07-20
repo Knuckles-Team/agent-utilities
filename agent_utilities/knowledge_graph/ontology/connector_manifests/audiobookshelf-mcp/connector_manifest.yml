@@ -1,0 +1,221 @@
+connector: audiobookshelf-mcp
+ontology_source: audiobookshelf
+schema_version: '1'
+resources:
+- name: Author
+  label: Author
+  id_prefix: author
+  relations: []
+- name: Book
+  label: Book
+  id_prefix: book
+  relations:
+  - name: narratedBy
+    label: narrated by
+    target: Person
+    lpg_rel_type: ''
+  - name: partOfSeries
+    label: part of series
+    target: Series
+    lpg_rel_type: ''
+  - name: writtenBy
+    label: written by
+    target: Author
+    lpg_rel_type: ''
+- name: Library
+  label: Library
+  id_prefix: library
+  relations: []
+- name: Podcast
+  label: Podcast
+  id_prefix: podcast
+  relations:
+  - name: hasEpisode
+    label: has episode
+    target: PodcastEpisode
+    lpg_rel_type: ''
+- name: PodcastEpisode
+  label: Podcast Episode
+  id_prefix: podcastepisode
+  relations: []
+- name: Series
+  label: Series
+  id_prefix: series
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: audiobookshelf-libraries.updated
+  resource: library
+  description: "Watermark event for 'audiobookshelf-libraries' \u2014 advances on lastUpdate (mcp_source_presets.json)."
+identity:
+  id_field:
+    library: id
+  title_field:
+    library: name
+  text_field:
+    library: mediaType
+  updated_field:
+    library: lastUpdate
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Author:
+    ontology_class: Person
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+  Book:
+    ontology_class: MediaAsset
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+  Library:
+    ontology_class: null
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+  Podcast:
+    ontology_class: MediaAsset
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+  PodcastEpisode:
+    ontology_class: MediaAsset
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+  Series:
+    ontology_class: null
+    fields:
+      asin: xsd:string
+      coverPath: xsd:string
+      duration: xsd:decimal
+      feedUrl: xsd:string
+      isbn: xsd:string
+      mediaType: xsd:string
+      narrator: xsd:string
+      numBooks: xsd:integer
+      numTracks: xsd:integer
+      publishedYear: xsd:string
+      subtitle: xsd:string
+      title: xsd:string
+sync:
+- preset: audiobookshelf-libraries
+  server: audiobookshelf-mcp
+  tool: library_operations
+  action: list
+  records_path: libraries
+  id_field: id
+  title_field: name
+  text_field: mediaType
+  updated_field: lastUpdate
+  pagination: none
+  doc_type: library
+  tool_schema_sha256: 351ec944b00232d4c166e5cde9dd5a0a3d35a99bf855c40a7540eca583132a5c
+  raw:
+    server: audiobookshelf-mcp
+    tool: library_operations
+    action: list
+    params_style: json
+    params: {}
+    records_path: libraries
+    id_field: id
+    title_field: name
+    text_field: mediaType
+    updated_field: lastUpdate
+    pagination: none
+    doc_type: library
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - audiobookshelf_mcp/connectors/mcp_source_presets.json
+  - audiobookshelf_mcp/connectors/tool_schema_fingerprints.json
+  - audiobookshelf_mcp/ontology/audiobookshelf.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: aeaa27e0d6d0bf3d693970a8ada3facb29ec85e97d5e5194600634679bc9a84a
+    triple_count: 78
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: wBQbokcdhBXNmS5fzZqj-JovxG-DsNNYZtxqzGDSTasW7eP6eW7Wf0iXFn3nhTcvX7WRNbtQXMEZU3MdfvKgDQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'hasCover' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'inLibrary' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Author.ontology_class = 'Person' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Book.ontology_class = 'MediaAsset' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Library.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Podcast.ontology_class = 'MediaAsset' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PodcastEpisode.ontology_class = 'MediaAsset' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Series.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

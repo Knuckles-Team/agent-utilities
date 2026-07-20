@@ -1,0 +1,187 @@
+connector: owncast-agent
+ontology_source: owncast
+schema_version: '1'
+resources:
+- name: ChatMessage
+  label: Chat Message
+  id_prefix: chatmessage
+  relations:
+  - name: sentBy
+    label: sent by
+    target: Person
+    lpg_rel_type: ''
+- name: HardwareSample
+  label: Hardware Sample
+  id_prefix: hardwaresample
+  relations: []
+- name: Stream
+  label: Stream
+  id_prefix: stream
+  relations: []
+- name: Viewer
+  label: Viewer
+  id_prefix: viewer
+  relations: []
+- name: ViewerSample
+  label: Viewer Sample
+  id_prefix: viewersample
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: owncast-followers.updated
+  resource: owncast_follower
+  description: "Watermark event for 'owncast-followers' \u2014 advances on timestamp (mcp_source_presets.json)."
+identity:
+  id_field:
+    owncast_follower: link
+  title_field:
+    owncast_follower: name
+  text_field:
+    owncast_follower: username
+  updated_field:
+    owncast_follower: timestamp
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ChatMessage:
+    ontology_class: null
+    fields:
+      actorIRI: xsd:string
+      body: xsd:string
+      clientID: xsd:string
+      cpuUsage: xsd:double
+      diskUsage: xsd:double
+      externalToolId: xsd:string
+      memoryUsage: xsd:double
+      online: xsd:boolean
+      sampledAt: xsd:dateTime
+      streamTitle: xsd:string
+      userAgent: xsd:string
+      viewerCount: xsd:integer
+  HardwareSample:
+    ontology_class: null
+    fields:
+      actorIRI: xsd:string
+      body: xsd:string
+      clientID: xsd:string
+      cpuUsage: xsd:double
+      diskUsage: xsd:double
+      externalToolId: xsd:string
+      memoryUsage: xsd:double
+      online: xsd:boolean
+      sampledAt: xsd:dateTime
+      streamTitle: xsd:string
+      userAgent: xsd:string
+      viewerCount: xsd:integer
+  Stream:
+    ontology_class: null
+    fields:
+      actorIRI: xsd:string
+      body: xsd:string
+      clientID: xsd:string
+      cpuUsage: xsd:double
+      diskUsage: xsd:double
+      externalToolId: xsd:string
+      memoryUsage: xsd:double
+      online: xsd:boolean
+      sampledAt: xsd:dateTime
+      streamTitle: xsd:string
+      userAgent: xsd:string
+      viewerCount: xsd:integer
+  Viewer:
+    ontology_class: null
+    fields:
+      actorIRI: xsd:string
+      body: xsd:string
+      clientID: xsd:string
+      cpuUsage: xsd:double
+      diskUsage: xsd:double
+      externalToolId: xsd:string
+      memoryUsage: xsd:double
+      online: xsd:boolean
+      sampledAt: xsd:dateTime
+      streamTitle: xsd:string
+      userAgent: xsd:string
+      viewerCount: xsd:integer
+  ViewerSample:
+    ontology_class: null
+    fields:
+      actorIRI: xsd:string
+      body: xsd:string
+      clientID: xsd:string
+      cpuUsage: xsd:double
+      diskUsage: xsd:double
+      externalToolId: xsd:string
+      memoryUsage: xsd:double
+      online: xsd:boolean
+      sampledAt: xsd:dateTime
+      streamTitle: xsd:string
+      userAgent: xsd:string
+      viewerCount: xsd:integer
+sync:
+- preset: owncast-followers
+  server: owncast-agent
+  tool: owncast_internal
+  action: get_followers
+  records_path: results
+  id_field: link
+  title_field: name
+  text_field: username
+  updated_field: timestamp
+  pagination: null
+  doc_type: owncast_follower
+  tool_schema_sha256: cdd5cf7e2ebb9fad36c8c81efb88341e14b31295e7ae9f825e09ad8b52273d36
+  raw:
+    server: owncast-agent
+    tool: owncast_internal
+    action: get_followers
+    params:
+      action: get_followers
+    records_path: results
+    id_field: link
+    title_field: name
+    text_field: username
+    updated_field: timestamp
+    doc_type: owncast_follower
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - owncast_agent/connectors/mcp_source_presets.json
+  - owncast_agent/connectors/tool_schema_fingerprints.json
+  - owncast_agent/ontology/owncast.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 834dc5aec4ec9586065bc2cf653848a4f27d4cc3fd26e318db401a440da88f47
+    triple_count: 59
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: R0EbRMaa_vzn1tav-6I3KZYeKBOajFUU_4ttvUMNmSzbULxOikG1_jyqsBoe_9icG2lq3wUZ645orVVHE3okCw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'follows' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'onStream' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.ChatMessage.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HardwareSample.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Stream.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Viewer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ViewerSample.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -3,11 +3,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Create a mock module for pymupdf4llm
-mock_pymupdf4llm = MagicMock()
-mock_pymupdf4llm.to_markdown.return_value = "PDF content"
-sys.modules["pymupdf4llm"] = mock_pymupdf4llm
-
 # Create a mock module for crawl4ai
 mock_crawl4ai = MagicMock()
 mock_browser = AsyncMock()
@@ -55,6 +50,18 @@ async def test_hydrate_bundle(sample_bundle):
     with (
         patch("requests.get") as mock_get,
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
+        patch(
+            "agent_utilities.knowledge_graph.extraction.pdf.read_pdf_text",
+            return_value="PDF content",
+        ),
+        patch(
+            "agent_utilities.protocols.source_connectors.http_safety.safe_get_bytes",
+            side_effect=lambda url, *_, **__: (
+                (b"%PDF fixture", None)
+                if url.endswith(".pdf")
+                else (b"Web content", "utf-8")
+            ),
+        ),
         # No searxng server configured — exercise the zero-infra crawl4ai path.
         patch(
             "agent_utilities.models.knowledge_pack._searxng_connector_for",
@@ -112,6 +119,18 @@ async def test_hydrate_web_via_searxng_mcp_tool(sample_bundle):
     with (
         patch("requests.get") as mock_get,
         patch("tempfile.NamedTemporaryFile") as mock_tempfile,
+        patch(
+            "agent_utilities.knowledge_graph.extraction.pdf.read_pdf_text",
+            return_value="PDF content",
+        ),
+        patch(
+            "agent_utilities.protocols.source_connectors.http_safety.safe_get_bytes",
+            side_effect=lambda url, *_, **__: (
+                (b"%PDF fixture", None)
+                if url.endswith(".pdf")
+                else (b"Web content", "utf-8")
+            ),
+        ),
         patch(
             "agent_utilities.models.knowledge_pack._searxng_connector_for",
             return_value=fake,

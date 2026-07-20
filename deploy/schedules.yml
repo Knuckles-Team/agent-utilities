@@ -3,7 +3,7 @@
 # ONE entry per scheduled skill / skill-workflow. On boot these entries seed durable
 # :Schedule nodes; the single scheduler tick
 # (agent_utilities.core.schedule_engine.run_scheduler_tick) evaluates every node and
-# ENQUEUES a scheduled_job :Task for whatever is due — nothing runs inline, and there
+# ENQUEUES a scheduled_job WorkItem for whatever is due — nothing runs inline, and there
 # are NO hardcoded per-job ticks. This file is desired-state; the node carries live
 # last-run / next-run / failure-backoff state. Adding a recurring job = adding an
 # entry here (or registering a :Schedule programmatically). `/cron calendar` surfaces
@@ -13,14 +13,16 @@
 #   name        unique id (also the last-run state key)
 #   description human summary (shown by /cron calendar)
 #   cron        standard 5-field "min hour dom month dow"
-#   kind        skill | script | workflow | agent
-#   ref         skill name / script path / workflow id
+#   kind        skill | workflow | agent
+#   ref         registered skill name / workflow id
 #   action      sub-action for kind=skill (routed via _SKILL_HANDLERS)
 #   dispatch    deterministic (default) | agent  — agent = LLM, opt-in per entry
 #   enabled     true | false
 #
 # DESIGN SPLIT: detection-style jobs are DETERMINISTIC (run unattended here); LLM
 # enhancement / fix-proposal is left to a reviewed on-demand agent run.
+# Host-script schedules are intentionally unsupported: graph-carried schedule
+# data cannot select a local executable path.
 
 schedules:
   # Fleet-wide background ingestion (CONCEPT:KG-2.9): one entry sweeps EVERY

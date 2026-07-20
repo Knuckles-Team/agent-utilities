@@ -4,7 +4,7 @@ export const meta = {
   phases: [{ title: 'Design components' }],
 }
 
-const ROOT = '/home/apps/workspace/agent-packages/agent-utilities'
+const ROOT = process.env.AGENT_UTILITIES_REPO || process.cwd()
 
 const CONV = `
 You are building part of agent-utilities' universal multi-modal ingestion funnel:

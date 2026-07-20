@@ -5,7 +5,7 @@
 # every run, paying the interpreter-init + import cost cold each time. Wizer
 # (https://github.com/bytecodealliance/wizer) runs a module's init ONCE at build time and snapshots
 # the resulting linear memory into a new .wasm, so each later instantiation starts from the warmed
-# heap — the build-time analogue of the forkserver rung's runtime warm-fork, and it works on any
+# heap — a build-time snapshot optimization that works on any
 # platform (incl. ARM, where Firecracker can't run). _resolve_payload() prefers `python-warm*.wasm`.
 #
 # Prerequisites (all out-of-band, none are core deps — detection-gated like every other rung):

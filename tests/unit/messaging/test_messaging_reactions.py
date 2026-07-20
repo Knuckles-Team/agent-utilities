@@ -80,7 +80,7 @@ async def test_react_requires_all_fields(
 async def test_decide_reaction_disabled_returns_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("MESSAGING_REACTIONS", "0")
+    monkeypatch.setenv("REACTIONS", "0")
     assert await _decide_reaction("great job!") == ""
 
 

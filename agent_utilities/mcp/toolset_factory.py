@@ -13,9 +13,9 @@ how to turn a connection spec (a URL or a stdio command) into a toolset, so
 callers (the agent factory, the orchestration runner, the graph builder, the
 coordinated-KG path) never repeat transport construction.
 
-SSL verification and request timeout must be configured through the transport's
-``httpx_client_factory`` (when both ``verify`` and ``httpx_client_factory`` are
-given, pydantic-ai ignores ``verify``), so this is where that contract lives.
+TLS policy and request timeout are configured through the transport's
+``httpx_client_factory``. This is the single AgentConfig-backed construction
+path for remote MCP clients; boolean verification controls are not supported.
 """
 
 from typing import Any
@@ -23,8 +23,8 @@ from typing import Any
 DEFAULT_MCP_TIMEOUT = 60.0
 
 
-def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
-    """Return a ``McpHttpClientFactory`` closing over SSL ``verify`` + timeout.
+def _httpx_client_factory(tls_profile: Any, default_timeout: float) -> Any:
+    """Return an MCP client factory closing over resolved TLS policy + timeout.
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the transport invokes this factory with a transport-version
     dependent kwarg set. fastmcp's streamable-HTTP transport calls it as
@@ -40,6 +40,8 @@ def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
     """
     import httpx
 
+    from agent_utilities.core.http_client import create_async_http_client
+
     def factory(
         headers: dict[str, str] | None = None,
         timeout: Any | None = None,
@@ -47,12 +49,12 @@ def _httpx_client_factory(verify: bool | str, default_timeout: float) -> Any:
         follow_redirects: bool = True,
         **_forward_compat: Any,
     ) -> Any:
-        return httpx.AsyncClient(
+        return create_async_http_client(
             headers=headers,
             auth=auth,
             timeout=timeout if timeout is not None else httpx.Timeout(default_timeout),
-            verify=verify,
             follow_redirects=follow_redirects,
+            **tls_profile.httpx_kwargs(),
         )
 
     return factory
@@ -62,32 +64,52 @@ def build_http_toolset(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    verify: bool | str = True,
+    auth: Any | None = None,
     timeout: float = DEFAULT_MCP_TIMEOUT,
     toolset_id: str | None = None,
+    tls_service: str = "mcp",
+    tls_profile: str | None = None,
+    tls_profile_ref: str | None = None,
 ) -> Any:
     """Build an ``MCPToolset`` for an HTTP/SSE MCP server URL.
 
     Transport is inferred from the URL: a ``/sse`` suffix selects
-    ``SSETransport``, otherwise streamable HTTP. ``verify`` and ``timeout`` are
-    threaded through an httpx client factory.
+    ``SSETransport``, otherwise streamable HTTP. TLS is resolved from the
+    active AgentConfig plus the optional neutral profile selectors.
     """
     from pydantic_ai.mcp import MCPToolset, SSETransport, StreamableHttpTransport
 
-    transport_cls = (
-        SSETransport
-        if str(url).rstrip("/").lower().endswith("/sse")
-        else StreamableHttpTransport
+    from agent_utilities.core.transport_security import (
+        resolve_configured_tls_profile,
     )
-    transport = transport_cls(
-        url,
-        headers=headers or None,
-        httpx_client_factory=_httpx_client_factory(verify, timeout),
+
+    trust = resolve_configured_tls_profile(
+        tls_service,
+        profile_name=tls_profile,
+        profile_ref=tls_profile_ref,
     )
-    toolset = (
-        MCPToolset(transport, id=toolset_id) if toolset_id else MCPToolset(transport)
-    )
-    return toolset
+
+    try:
+        transport_cls = (
+            SSETransport
+            if str(url).rstrip("/").lower().endswith("/sse")
+            else StreamableHttpTransport
+        )
+        transport = transport_cls(
+            url,
+            headers=headers or None,
+            auth=auth,
+            httpx_client_factory=_httpx_client_factory(trust, timeout),
+        )
+        return (
+            MCPToolset(transport, id=toolset_id)
+            if toolset_id
+            else MCPToolset(transport)
+        )
+    finally:
+        # The SSLContext has already loaded CA/mTLS material; the client factory
+        # closes over that context, so runtime files need not outlive construction.
+        trust.cleanup()
 
 
 def build_stdio_toolset(

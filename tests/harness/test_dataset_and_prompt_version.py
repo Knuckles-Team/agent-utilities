@@ -22,24 +22,52 @@ def test_add_from_trace_promotes_to_dataset_and_case():
     cid = corpus.add_from_trace(trace, assertion="answer is 4", tags=["math"])
     # an eval case is in memory with provenance
     case = next(c for c in corpus._mem if c["id"] == cid)
-    assert case["metadata"]["source_trace_id"] == "t1"
+    source_ref = case["metadata"]["source_trace_ref"]
+    assert source_ref.startswith("eg:trace:")
+    assert "t1" not in source_ref
     assert case["assertion"] == "answer is 4"
     # and a DatasetItemNode(source=trace) was persisted
     di = [p for p in kg.nodes.values() if p.get("type") == "dataset_item"]
-    assert di and di[0]["source"] == "trace" and di[0]["source_trace_id"] == "t1"
+    assert di and di[0]["source"] == "trace"
+    assert di[0]["source_trace_ref"] == source_ref
+
+
+def test_eval_corpus_redacts_identity_and_machine_data_before_persistence():
+    corpus = EvalCorpus()
+
+    corpus.add_case(
+        "contact person@example.invalid",
+        r"inspect C:\Users\agent-user\secret.txt",
+        metadata={"owner_name": "Synthetic Person"},
+    )
+
+    persisted = corpus._mem[0]
+    serialized = str(persisted)
+    assert "person@example.invalid" not in serialized
+    assert "sample_account" not in serialized
+    assert "Synthetic Person" not in serialized
+    assert "REDACTED" in serialized
 
 
 def test_prompt_version_is_content_addressed_and_stable():
-    p1 = StructuredPrompt(task="agent_x", input="You are helpful.")
-    p2 = StructuredPrompt(task="agent_x", input="You are helpful.")
-    p3 = StructuredPrompt(task="agent_x", input="You are VERY helpful.")
+    p1 = StructuredPrompt(
+        task="agent_x", instructions={"core_directive": "You are helpful."}
+    )
+    p2 = StructuredPrompt(
+        task="agent_x", instructions={"core_directive": "You are helpful."}
+    )
+    p3 = StructuredPrompt(
+        task="agent_x", instructions={"core_directive": "You are VERY helpful."}
+    )
     assert p1.version_hash() == p2.version_hash()  # same content → same version
     assert p1.version_hash() != p3.version_hash()  # changed content → new version
 
 
 def test_prompt_version_persists_node():
     kg = _FakeKG()
-    p = StructuredPrompt(task="agent_x", input="You are helpful.")
+    p = StructuredPrompt(
+        task="agent_x", instructions={"core_directive": "You are helpful."}
+    )
     node = p.version("agent_x", backend=kg, parent_hash="deadbeef")
     assert node.prompt_id == "agent_x" and node.parent_hash == "deadbeef"
     pv = [n for n in kg.nodes.values() if n.get("type") == "prompt_version"]

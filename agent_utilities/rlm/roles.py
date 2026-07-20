@@ -1,10 +1,8 @@
-"""CONCEPT:AU-ORCH.routing.conductor-per-step-model (RLM extension) — role-specialized RLM-GEPA model resolution.
+"""CONCEPT:AU-ORCH.routing.conductor-per-step-model — role-specialized RLM resolution.
 
-Resolves the RLM-GEPA functional roles — ``rlm-executor`` / ``rlm-sublm`` (cheap, run the skill) and
-``rlm-proposer`` (strong, reflects on traces and rewrites the skill) — through the ORCH-1.27 model
-registry, with a graceful fallback to a model-id string. A skill optimized with a *cheap* executor
-still lifts a *strong* executor at eval (the AppWorld RLM-GEPA cost/quality trick), and binding to
-roles means the same config works across any provider pool.
+Resolves the depth-specific RLM roles: ``rlm-root`` for the high-capability
+reasoning pass and ``rlm-executor`` / ``rlm-sublm`` for economical recursive work.
+Binding to roles keeps the same runtime portable across provider pools.
 """
 
 from __future__ import annotations
@@ -14,8 +12,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# The three RLM-GEPA roles (must exist in models.model_registry._DEFAULT_ROLE_ROUTING).
-RLM_ROLES = ("rlm-executor", "rlm-sublm", "rlm-proposer")
+# The three RLM roles (must exist in models.model_registry._DEFAULT_ROLE_ROUTING).
+RLM_ROLES = ("rlm-executor", "rlm-sublm", "rlm-root")
 
 
 def rlm_role_model(role: str, fallback: Any = None) -> Any:

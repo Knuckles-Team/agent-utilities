@@ -17,8 +17,14 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
+from agent_utilities.security.persistence_privacy import persistence_reference
+from agent_utilities.usage.authorization import (
+    UsageAuthorizationError,
+    require_usage_admin,
+    resolve_usage_tenant,
+)
 from agent_utilities.usage.models import (
     ActivityCell,
     BreakdownEntry,
@@ -35,6 +41,22 @@ from agent_utilities.usage.service import get_usage_service
 logger = logging.getLogger(__name__)
 
 usage_router = APIRouter(tags=["observability"])
+
+
+def _tenant_scope(requested: str | None = None) -> str | None:
+    """Translate the shared authorization failure into an HTTP response."""
+
+    try:
+        return resolve_usage_tenant(requested)
+    except UsageAuthorizationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
+def _require_usage_admin() -> None:
+    try:
+        require_usage_admin()
+    except UsageAuthorizationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
 
 def _filters(
@@ -76,7 +98,9 @@ def summary(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> UsageSummary:
-    f = _filters(from_date, to_date, project, agent, model, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, project, agent, model, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().summary(**f)
 
 
@@ -88,10 +112,16 @@ def comparison(
     prev_to: str | None = Query(None),
     project: str | None = None,
     agent: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict:
     svc = get_usage_service()
-    cur = svc.summary(**_filters(from_date, to_date, project, agent, None, None, None))
-    prev = svc.summary(**_filters(prev_from, prev_to, project, agent, None, None, None))
+    tenant = _tenant_scope(tenant_id)
+    cur = svc.summary(
+        **_filters(from_date, to_date, project, agent, None, None, tenant)
+    )
+    prev = svc.summary(
+        **_filters(prev_from, prev_to, project, agent, None, None, tenant)
+    )
     delta = cur.totals.cost_usd - prev.totals.cost_usd
     return {
         "current": cur.model_dump(),
@@ -109,7 +139,9 @@ def by_model(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[BreakdownEntry]:
-    f = _filters(from_date, to_date, project, agent, None, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, project, agent, None, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().by_model(**f)
 
 
@@ -121,7 +153,9 @@ def by_project(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[BreakdownEntry]:
-    f = _filters(from_date, to_date, None, agent, None, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, None, agent, None, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().by_project(**f)
 
 
@@ -133,7 +167,9 @@ def by_agent(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[BreakdownEntry]:
-    f = _filters(from_date, to_date, project, None, None, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, project, None, None, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().by_agent(**f)
 
 
@@ -146,7 +182,9 @@ def analytics_tools(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[ToolStat]:
-    f = _filters(from_date, to_date, project, agent, None, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, project, agent, None, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().tools(**f)
 
 
@@ -160,7 +198,9 @@ def analytics_activity(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[ActivityCell]:
-    f = _filters(from_date, to_date, project, agent, None, origin, tenant_id)
+    f = _filters(
+        from_date, to_date, project, agent, None, origin, _tenant_scope(tenant_id)
+    )
     return get_usage_service().activity(**f)
 
 
@@ -170,9 +210,12 @@ def analytics_session_shape(
     to_date: str | None = _To,
     project: str | None = None,
     agent: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict:
     """Classify sessions into archetypes by message count (agentsview parity)."""
-    f = _filters(from_date, to_date, project, agent, None, None, None)
+    f = _filters(
+        from_date, to_date, project, agent, None, None, _tenant_scope(tenant_id)
+    )
     rows = get_usage_service().sessions(limit=10000, **f)
     buckets = {"quick": 0, "standard": 0, "deep": 0, "marathon": 0, "automation": 0}
     for r in rows:
@@ -198,8 +241,10 @@ def top_sessions(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[SessionRow]:
-    f = _filters(from_date, to_date, project, agent, None, origin, tenant_id)
-    return get_usage_service().top_sessions(limit=limit, **f)
+    f = _filters(
+        from_date, to_date, project, agent, None, origin, _tenant_scope(tenant_id)
+    )
+    return get_usage_service().top_sessions(limit=min(max(limit, 1), 500), **f)
 
 
 @usage_router.get("/sessions", response_model=list[SessionRow])
@@ -212,23 +257,36 @@ def sessions(
     origin: str | None = None,
     tenant_id: str | None = None,
 ) -> list[SessionRow]:
-    f = _filters(from_date, to_date, project, agent, None, origin, tenant_id)
-    return get_usage_service().sessions(limit=limit, **f)
+    f = _filters(
+        from_date, to_date, project, agent, None, origin, _tenant_scope(tenant_id)
+    )
+    return get_usage_service().sessions(limit=min(max(limit, 1), 500), **f)
 
 
 @usage_router.get("/sessions/{session_id}", response_model=SessionDetail | None)
-def session_detail(session_id: str) -> SessionDetail | None:
-    return get_usage_service().session_detail(session_id)
+def session_detail(
+    session_id: str, tenant_id: str | None = None
+) -> SessionDetail | None:
+    tenant = _tenant_scope(tenant_id)
+    return get_usage_service().session_detail(session_id, tenant_id=tenant)
 
 
 @usage_router.get("/search", response_model=list[SearchHit])
-def search(q: str, limit: int = 50) -> list[SearchHit]:
-    return get_usage_service().search(q, limit=limit)
+def search(q: str, limit: int = 50, tenant_id: str | None = None) -> list[SearchHit]:
+    return get_usage_service().search(
+        q, limit=min(max(limit, 1), 500), tenant_id=_tenant_scope(tenant_id)
+    )
 
 
 @usage_router.get("/traces")
-def traces(session_id: str | None = None, limit: int = 50) -> dict:
-    """Langfuse trace links, gated on credentials. Empty when Langfuse is off."""
+def traces(
+    session_id: str | None = None,
+    limit: int = 50,
+    tenant_id: str | None = None,
+) -> dict:
+    """Return privacy-safe Langfuse trace references for the caller's tenant."""
+
+    tenant = _tenant_scope(tenant_id)
     try:
         from agent_utilities.observability.langfuse_exporter import (
             get_langfuse_exporter,
@@ -236,23 +294,25 @@ def traces(session_id: str | None = None, limit: int = 50) -> dict:
 
         exporter = get_langfuse_exporter()
         enabled = bool(getattr(exporter, "enabled", False))
-        host = getattr(exporter, "host", "") or ""
     except Exception:  # noqa: BLE001
-        enabled, host = False, ""
+        enabled = False
     if not enabled:
-        return {"enabled": False, "host": "", "traces": []}
-    # Correlation ids double as Langfuse trace ids (OS-5.11). Surface the recent
-    # runtime sessions with their correlation ids as deep links.
-    rows = get_usage_service().sessions(limit=limit, origin="runtime")
-    base = host.rstrip("/")
+        return {"enabled": False, "trace_count": 0, "traces": []}
+    rows = get_usage_service().sessions(
+        limit=min(max(limit, 1), 500), origin="runtime", tenant_id=tenant
+    )
+    if session_id:
+        from agent_utilities.usage.privacy import normalize_run_id
+
+        selected = normalize_run_id(session_id, tenant_id=tenant or "")
+        rows = [row for row in rows if row.id == selected]
     return {
         "enabled": True,
-        "host": host,
+        "trace_count": len(rows),
         "traces": [
             {
-                "session_id": r.id,
+                "trace_ref": persistence_reference("trace", r.id),
                 "project": r.project,
-                "url": f"{base}/trace/{r.id}" if base else "",
             }
             for r in rows
         ],
@@ -262,18 +322,23 @@ def traces(session_id: str | None = None, limit: int = 50) -> dict:
 @usage_router.post("/sessions/upload")
 def upload_sessions(
     bundles: list[ParsedSessionBundle] = Body(...),
-    tenant_id: str = Query(""),
+    tenant_id: str | None = Query(None),
 ) -> dict:
     """Ingest pre-parsed session bundles (CONCEPT:AU-ECO.mcp.client-side-chat-session HTTP transport).
 
     Clients parse their local agent logs and POST normalized bundles here, so a
     central/remote engine never needs to read the client's filesystem.
     """
+    authoritative_tenant = _tenant_scope(tenant_id)
     recorder = get_usage_recorder()
     ok = 0
     for bundle in bundles:
-        if tenant_id:
-            bundle.session.tenant_id = tenant_id
+        if authoritative_tenant:
+            bundle.session.tenant_id = authoritative_tenant
+            for call in bundle.tool_calls:
+                call.tenant_id = authoritative_tenant
+            for event in bundle.usage_events:
+                event.tenant_id = authoritative_tenant
         if recorder.record_bundle(bundle):
             ok += 1
     return {"received": len(bundles), "ingested": ok}
@@ -282,11 +347,13 @@ def upload_sessions(
 @usage_router.post("/sync")
 def sync_now() -> dict:
     """Trigger an immediate local-log sync (auto-detect + parse + persist)."""
+
+    _require_usage_admin()
     try:
         from agent_utilities.ingestion.collector import collect_local_sessions
 
         result = collect_local_sessions()
         return {"status": "ok", **result}
     except Exception as exc:  # noqa: BLE001
-        logger.warning("usage sync failed: %s", exc)
-        return {"status": "error", "detail": str(exc)}
+        logger.warning("usage_sync_failed error_type=%s", type(exc).__name__)
+        return {"status": "error", "detail": "usage sync failed"}

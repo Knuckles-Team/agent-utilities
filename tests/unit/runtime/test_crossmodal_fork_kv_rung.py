@@ -3,9 +3,8 @@
 CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout + CONCEPT:EG-KG.memory.zero-copy-snapshot-fork.
 Proves the two things the rung must guarantee:
 
-* **Default-off / opt-in** — with no ``kv_page_keys`` the fan-out is byte-for-byte the
-  existing forkserver copy path: the KV backend is NEVER touched and the result's KV
-  fields stay empty.
+* **Default-off / opt-in** — with no ``kv_page_keys`` the KV backend is never touched and the
+  result's KV fields stay empty.
 * **Opt-in plumbing** — with ``kv_page_keys`` supplied the fan-out snapshots the pages
   ONCE, forks one copy-on-write branch per cohort branch, exposes each branch's KV
   branch id to its snippet as ``kv_branch_id``, and lands the fork ids + ``/kv/fork/stats``
@@ -19,16 +18,53 @@ without a live engine (the driver's own live roundtrip is covered in
 
 from __future__ import annotations
 
-import multiprocessing
-
 import pytest
 
+from agent_utilities.rlm.sandboxes.base import (
+    ForkableSandbox,
+    ParentHandle,
+    SandboxCapabilities,
+    SandboxEnv,
+    SandboxResult,
+    WarmSpec,
+)
 from agent_utilities.runtime.crossmodal_fork import CrossModalForkFanout
 
-pytestmark = pytest.mark.skipif(
-    "forkserver" not in multiprocessing.get_all_start_methods(),
-    reason="forkserver start method unavailable on this platform",
-)
+
+class _TestForkableSandbox(ForkableSandbox):
+    name = "test-firecracker"
+    capabilities = SandboxCapabilities(
+        host_callbacks=True,
+        third_party_libs=True,
+        classes=True,
+        full_stdlib=True,
+        network=False,
+        isolated=True,
+        preference_rank=25,
+        warm_fork=True,
+    )
+
+    def is_available(self) -> bool:
+        return True
+
+    def warm_spec(self) -> WarmSpec:
+        return WarmSpec(backend=self.name)
+
+    async def warm(self, spec: WarmSpec) -> ParentHandle:
+        return ParentHandle(backend=self.name, spec=spec, ref={"snapshot": "test"})
+
+    async def run_forked(
+        self, parent: ParentHandle, code: str, env: SandboxEnv
+    ) -> SandboxResult:
+        del parent
+        if code == "length":
+            output = len(env.vars["candidates"])
+        elif code == "kv_branch_id":
+            output = env.vars["kv_branch_id"]
+        else:  # pragma: no cover - test misuse
+            return SandboxResult({}, "", f"unknown test operation: {code}")
+        env.helpers["FINAL_VAR"]("out", output)
+        return SandboxResult(updated_vars={}, stdout="")
 
 
 @pytest.fixture
@@ -43,9 +79,7 @@ def clean_registry():
 
 @pytest.fixture
 def sandbox():
-    from agent_utilities.rlm.sandboxes.forkserver_backend import ForkServerSandbox
-
-    return ForkServerSandbox(preload=())
+    return _TestForkableSandbox()
 
 
 def _retriever(_query: str) -> list[dict]:
@@ -88,7 +122,7 @@ async def test_kv_rung_default_off_does_not_touch_backend(clean_registry, sandbo
     kv = _FakeKvBackend()
     fanout = CrossModalForkFanout(retriever=_retriever, sandbox=sandbox, kv_backend=kv)
 
-    res = await fanout.fan_out("q", ["FINAL_VAR('out', len(candidates))"] * 3)
+    res = await fanout.fan_out("q", ["length"] * 3)
 
     # No kv_page_keys ⇒ the rung stays dormant; the copy path ran exactly as before.
     assert kv.snapshot_calls == []
@@ -112,7 +146,7 @@ async def test_kv_rung_opt_in_snapshots_once_and_forks_per_branch(
     # the branch namespace as `kv_branch_id`.
     res = await fanout.fan_out(
         "q",
-        ["FINAL_VAR('out', kv_branch_id)"] * 3,
+        ["kv_branch_id"] * 3,
         kv_page_keys=["page-a", "page-b"],
     )
 
@@ -140,7 +174,7 @@ async def test_kv_rung_degrades_to_copy_path_when_snapshot_fails(
 
     res = await fanout.fan_out(
         "q",
-        ["FINAL_VAR('out', len(candidates))"] * 2,
+        ["length"] * 2,
         kv_page_keys=["page-a"],
     )
 

@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.LIFESTYLE
     description = "Recipe manager — recipes, meal plans, and shopping lists"
     env_prefix = "MEALIE"
-    default_url = "https://mealie.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -47,8 +46,8 @@ class Widget(BaseWidget):
                 recipes.get("total", 0) if isinstance(recipes, dict) else len(recipes)
             )
         except Exception as e:
-            logger.debug("Mealie fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Mealie fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

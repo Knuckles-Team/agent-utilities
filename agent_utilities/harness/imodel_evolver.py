@@ -57,7 +57,7 @@ class ParetoFrontier:
 
     def add_model(self, candidate: IModelCandidate, model_id: str = "") -> bool:
         """Add a candidate and update the frontier. Returns True if non-dominated."""
-        mid = model_id or f"imodel:{uuid.uuid4().hex[:8]}"
+        mid = model_id or f"imodel:{uuid.uuid4().hex}"
         point = ParetoPoint(
             model_id=mid,
             model_class_name=candidate.model_class_name,
@@ -203,7 +203,7 @@ class IModelEvolver:
             return []
         ranked = self.rank_models(pool)
         for candidate in ranked:
-            model_id = f"imodel:{uuid.uuid4().hex[:8]}"
+            model_id = f"imodel:{uuid.uuid4().hex}"
             on_frontier = self._frontier.add_model(candidate, model_id)
             if on_frontier:
                 self._persist_model(candidate, model_id)

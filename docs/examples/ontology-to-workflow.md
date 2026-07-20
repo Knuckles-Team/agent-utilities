@@ -4,7 +4,7 @@
 process definition is lifted into the Knowledge Graph as step-level structure
 (`BusinessProcess` / `BusinessTask` / `FLOWS_TO`, CONCEPT:AU-KG.ontology.descriptive-process-world-gains), compiled into
 an executable `WorkflowDefinition` with sequence-flow-derived dependencies and a
-`REALIZES` bridge edge (`graph_orchestrate action=compile_process`,
+`REALIZES` bridge edge (`graph_workflows action=compile_process`,
 CONCEPT:AU-ORCH.planning.business-process-to-executable), executed through the ontology gate that SHACL-validates the
 stored definition and applies permissioning before dispatch (CONCEPT:AU-ORCH.execution.ontology-validation-execution-path),
 and closed out with run-level provenance — the run's `RunTrace` gets an
@@ -95,19 +95,17 @@ name:
 
 ```json
 {
-  "tool": "graph_orchestrate",
+  "tool": "graph_workflows",
   "arguments": {
     "action": "compile_process",
-    "task": "bpmn_process:order_fulfillment:1:demo",
-    "agent_name": "process_order_fulfillment"
+    "workflow": "bpmn_process:order_fulfillment:1:demo",
+    "name": "process_order_fulfillment"
   }
 }
 ```
 
-REST twin: `POST /api/graph/orchestrate/compile-process` with body
-`{"process_id": "bpmn_process:order_fulfillment:1:demo", "name": "process_order_fulfillment"}`
-(see `graph_orchestrate_compile_process_endpoint` in
-`agent_utilities/mcp/kg_server.py`).
+REST twin: `POST /api/graph/workflows` with body
+`{"action":"compile_process","workflow":"bpmn_process:order_fulfillment:1:demo","name":"process_order_fulfillment"}`.
 
 **Expected output** — the `compile_and_store` report plus `status` and the
 stored topology diagram (`mermaid` is `null` when no diagram could be stored):
@@ -174,7 +172,7 @@ Before any dispatch, `gate_workflow_execution`
    `WorkflowDefinition` + `WorkflowStep` nodes are materialized into a focused
    RDF graph and validated against the bundled governance shapes. Violations
    refuse execution.
-2. **Permission gate** (only when `KG_BRAIN_ENFORCE` is on): the ontology
+2. **Permission gate** (mandatory): the ontology
    permissioning row gate is applied to the workflow node for the current
    actor; a denial raises `PermissionError` (fail-closed, CONCEPT:AU-OS.identity.authenticated-identity-enforcement — see
    [Identity JWT example](identity-jwt.md)).

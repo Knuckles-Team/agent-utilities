@@ -45,13 +45,38 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import stat
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 _NAME_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
 _TASK_RE = re.compile(r'"task"\s*:\s*"([^"]+)"')
-_EXCLUDE_SEGMENTS = ("skill_graphs", "skill-graphs")
+_EXCLUDE_SEGMENTS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        ".worktrees",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "site",
+        "skill-graphs",
+        "skill_graphs",
+        "target",
+        "venv",
+    }
+)
+MAX_TREE_ENTRIES = 100_000
+MAX_SKILL_FILES = 10_000
+MAX_SKILL_BYTES = 2 * 1024 * 1024
+MAX_TREE_DEPTH = 16
+MAX_PROMPT_FILES = 10_000
 
 REPO = Path(__file__).resolve().parents[1]
 BASELINE = REPO / "scripts" / "skill_collision_baseline.txt"
@@ -67,7 +92,6 @@ def _find_fleet_root() -> Path | None:
     for start in (REPO, Path.cwd()):
         for p in (start, *start.parents):
             candidates.append(p)
-    candidates.append(Path("/home/apps/workspace/agent-packages"))
     for c in candidates:
         if (c / "agents").is_dir() and (c / "skills").is_dir():
             return c
@@ -85,14 +109,79 @@ def _iter_skill_files(root: Path) -> list[Path]:
         root / "agent-utilities" / "agent_utilities" / "skills",
     ]
     files: list[Path] = []
+    entries = 0
     for r in roots:
         if not r.is_dir():
             continue
-        for f in r.rglob("SKILL.md"):
-            if any(seg in _EXCLUDE_SEGMENTS for seg in f.parts):
-                continue
-            files.append(f)
+        if r.is_symlink():
+            raise RuntimeError("installable skill root must not be a symlink")
+        for directory, dirnames, filenames in os.walk(r, topdown=True, followlinks=False):
+            current = Path(directory)
+            depth = len(current.relative_to(r).parts)
+            if depth > MAX_TREE_DEPTH:
+                raise RuntimeError("installable skill tree exceeds the depth bound")
+            retained: list[str] = []
+            for name in sorted(dirnames):
+                if name in _EXCLUDE_SEGMENTS:
+                    continue
+                child = current / name
+                metadata = child.lstat()
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise RuntimeError("installable skill tree contains a symlink")
+                if not stat.S_ISDIR(metadata.st_mode):
+                    raise RuntimeError("installable skill tree contains a special entry")
+                retained.append(name)
+            dirnames[:] = retained
+            entries += len(retained) + len(filenames)
+            if entries > MAX_TREE_ENTRIES:
+                raise RuntimeError("installable skill tree exceeds the entry bound")
+            for name in sorted(filenames):
+                if name != "SKILL.md":
+                    continue
+                skill = current / name
+                metadata = skill.lstat()
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or not 0 < metadata.st_size <= MAX_SKILL_BYTES
+                ):
+                    raise RuntimeError("installable skill file is unavailable or too large")
+                files.append(skill)
+                if len(files) > MAX_SKILL_FILES:
+                    raise RuntimeError("installable skill inventory exceeds the safe bound")
     return sorted(files)
+
+
+def _iter_prompt_files(root: Path) -> list[tuple[str, Path]]:
+    """Return bounded, direct provider prompt files without following symlinks."""
+
+    agents = root / "agents"
+    if not agents.is_dir() or agents.is_symlink():
+        return []
+    prompts: list[tuple[str, Path]] = []
+    for package in sorted(agents.iterdir()):
+        if package.name in _EXCLUDE_SEGMENTS or not package.is_dir() or package.is_symlink():
+            continue
+        for module in sorted(package.iterdir()):
+            if not module.is_dir() or module.is_symlink():
+                continue
+            prompt_root = module / "prompts"
+            if not prompt_root.is_dir() or prompt_root.is_symlink():
+                continue
+            for prompt in sorted(prompt_root.iterdir()):
+                if prompt.suffix != ".json":
+                    continue
+                metadata = prompt.lstat()
+                if (
+                    stat.S_ISLNK(metadata.st_mode)
+                    or not stat.S_ISREG(metadata.st_mode)
+                    or not 0 < metadata.st_size <= MAX_SKILL_BYTES
+                ):
+                    raise RuntimeError("prompt blueprint is unavailable or too large")
+                prompts.append((module.name, prompt))
+                if len(prompts) > MAX_PROMPT_FILES:
+                    raise RuntimeError("prompt inventory exceeds the safe bound")
+    return prompts
 
 
 def _pkg_slug(path: Path, root: Path) -> str | None:
@@ -144,15 +233,18 @@ def scan(
 
     # Prompt task collisions within a single package's prompts/ dir.
     prompt_dups: dict[str, list[Path]] = {}
-    for pkg_prompts in (root / "agents").glob("*/*/prompts"):
+    prompt_files: dict[str, list[Path]] = defaultdict(list)
+    for module, prompt in _iter_prompt_files(root):
+        prompt_files[module].append(prompt)
+    for module, files in prompt_files.items():
         seen: dict[str, list[Path]] = defaultdict(list)
-        for pj in pkg_prompts.glob("*.json"):
+        for pj in files:
             mt = _TASK_RE.search(pj.read_text(encoding="utf-8"))
             if mt:
                 seen[mt.group(1)].append(pj)
         for task, paths in seen.items():
             if len(paths) > 1:
-                prompt_dups[f"{pkg_prompts.parent.name}/{task}"] = paths
+                prompt_dups[f"{module}/{task}"] = paths
     return by_name, convention, prompt_dups
 
 
@@ -175,7 +267,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    by_name, convention, prompt_dups = scan(root)
+    try:
+        by_name, convention, prompt_dups = scan(root)
+    except (OSError, RuntimeError, UnicodeError) as error:
+        print(f"FAIL: skill collision inventory unavailable: {error}", file=sys.stderr)
+        return 2
     collisions = {n: ps for n, ps in by_name.items() if len(ps) > 1}
 
     if args.update_baseline:

@@ -51,7 +51,7 @@ def test_active_agents_arithmetic():
         cm.active_agents(-1, 0.02)
 
 
-@pytest.mark.parametrize("fn", ["pg_shards_for", "l0_shards_for"])
+@pytest.mark.parametrize("fn", ["pg_shards_for", "engine_shards_for"])
 def test_shard_helpers_zero_and_floor(fn):
     f = getattr(cm, fn)
     assert f(0) == 0
@@ -61,7 +61,7 @@ def test_shard_helpers_zero_and_floor(fn):
 def test_monotonic_in_residents():
     fns = [
         lambda r: cm.pg_shards_for(r),
-        lambda r: cm.l0_shards_for(r),
+        lambda r: cm.engine_shards_for(r),
         lambda r: cm.workers_for(r, 0.02),
         lambda r: cm.nodes_for(r, 0.02),
         lambda r: cm.kafka_partitions_for(r, 0.02),
@@ -87,7 +87,7 @@ def test_one_thousand_reference_case():
     p = cm.plan_for(1_000, 0.02)
     assert p.active_agents == 20
     assert p.pg_shards == 1
-    assert p.l0_shards == 1
+    assert p.engine_shards == 1
     assert p.workers == 1
     assert p.nodes == 1
     assert p.kafka_partitions == 3  # floor
@@ -98,7 +98,7 @@ def test_hundred_thousand_reference_case():
     p = cm.plan_for(100_000, 0.02)
     assert p.active_agents == 2_000
     assert p.pg_shards == 1
-    assert p.l0_shards == 2
+    assert p.engine_shards == 2
     assert p.workers == 80
     assert p.nodes == 10
     assert p.kafka_partitions == 3
@@ -110,7 +110,7 @@ def test_one_million_matches_documented_numbers():
     p = cm.plan_for(1_000_000, 0.02)
     assert p.active_agents == 20_000
     assert p.pg_shards == 4
-    assert p.l0_shards == 20
+    assert p.engine_shards == 20
     assert p.workers == 800
     assert p.nodes == 100
     assert p.kafka_partitions == 8
@@ -121,7 +121,7 @@ def test_hundred_million_linear_extrapolation():
     p = cm.plan_for(100_000_000, 0.02)
     assert p.active_agents == 2_000_000
     assert p.pg_shards == 400
-    assert p.l0_shards == 2_000
+    assert p.engine_shards == 2_000
     assert p.workers == 80_000
     assert p.nodes == 10_000
     assert p.kafka_partitions == 800

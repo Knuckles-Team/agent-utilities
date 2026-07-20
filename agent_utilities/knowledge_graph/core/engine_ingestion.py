@@ -9,8 +9,6 @@ MCP servers, A2A agent cards, and agent skills into the KG.
 
 import typing
 
-from agent_utilities.core.config import setting
-
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
 
@@ -21,6 +19,7 @@ else:
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any
@@ -34,6 +33,40 @@ from .context_builder import build_contextual_description
 
 logger = logging.getLogger(__name__)
 
+_RUNTIME_SECRET_REFERENCE = re.compile(r"^(?:env|secret|vault)://[A-Za-z0-9_./#-]+$")
+
+
+def _neutral_mcp_alias(*, config_hash: str) -> str:
+    """Return the sole location- and identity-free persisted service alias."""
+    rendered = str(config_hash or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", rendered):
+        raise ValueError("MCP freshness identity is invalid")
+    return f"external-{rendered[:12]}"
+
+
+def _mcp_persistence_resources(source: object, environment: object) -> dict[str, Any]:
+    """Project runtime MCP config into non-sensitive durable metadata."""
+    from ...security.persistence_privacy import persistence_reference
+
+    env = environment if isinstance(environment, dict) else {}
+    keys = sorted(
+        str(key)
+        for key in env
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", str(key))
+    )
+    refs = {
+        str(key): str(value)
+        for key, value in env.items()
+        if str(key) in keys and _RUNTIME_SECRET_REFERENCE.fullmatch(str(value or ""))
+    }
+    return {
+        "source_ref": persistence_reference(
+            "mcp_configuration", source, namespace="toolkit-ingestion"
+        ),
+        "environment_keys": keys,
+        "environment_secret_refs": refs,
+    }
+
 
 class IngestionMixin(_Base):
     """Ingestion capabilities for the KG engine."""
@@ -41,15 +74,20 @@ class IngestionMixin(_Base):
     def ingest_episode(
         self, content: str, source: str = "chat", timestamp: str | None = None
     ) -> str:
-        """Ingest a new episode into the graph with automatic layer distribution."""
-        ep_id = f"ep:{uuid.uuid4().hex[:8]}"
+        """Ingest a new episode into the graph, embedding it when a model is available."""
+        from ...security.persistence_privacy import sanitize_for_persistence
+
+        safe_episode, _privacy = sanitize_for_persistence(
+            {"description": content, "source": source}
+        )
+        ep_id = f"ep:{uuid.uuid4().hex}"
         ts = timestamp or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = EpisodeNode(
             id=ep_id,
             name=f"Episode {ts}",
             timestamp=ts,
-            source=source,
-            description=content,
+            source=str(safe_episode["source"]),
+            description=str(safe_episode["description"]),
             importance_score=0.5,
         )
 
@@ -83,29 +121,44 @@ class IngestionMixin(_Base):
         resources: dict[str, Any] | None = None,
     ):
         """Ingest MCP server tools and metadata as CallableResource nodes."""
+        from ...security.persistence_privacy import (
+            persistence_reference,
+            sanitize_for_persistence,
+        )
+
+        endpoint_reference = persistence_reference(
+            "mcp_endpoint", url, namespace=str(name)
+        )
+        safe_resources, _privacy = sanitize_for_persistence(resources or {})
         server_id = f"srv:{name}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if self.backend:
-            env_str = json.dumps(resources.get("env", {})) if resources else "{}"
             self.backend.execute(
-                "MERGE (s:Server {id: $id}) SET s.name = $name, s.url = $url, s.timestamp = $ts, s.env = $env",
-                {"id": server_id, "name": name, "url": url, "ts": ts, "env": env_str},
+                "MERGE (s:Server {id: $id}) "
+                "SET s.name = $name, s.url = $url, s.timestamp = $ts",
+                {
+                    "id": server_id,
+                    "name": name,
+                    "url": endpoint_reference,
+                    "ts": ts,
+                },
             )
 
             for tool in tools:
-                meta_id = f"meta:{uuid.uuid4().hex[:8]}"
-                res_id = f"res:{tool['name']}"
+                safe_tool, _tool_privacy = sanitize_for_persistence(tool)
+                meta_id = f"meta:{uuid.uuid4().hex}"
+                res_id = f"res:{safe_tool['name']}"
 
                 # Create Metadata
                 metadata = ToolMetadataNode(
                     id=meta_id,
-                    name=f"Meta for {tool['name']}",
-                    description=tool.get("description", ""),
+                    name=f"Meta for {safe_tool['name']}",
+                    description=safe_tool.get("description", ""),
                     source="MCP",
-                    tags=tool.get("tags", []),
-                    capabilities=tool.get("capabilities", []),
-                    resources=resources or {},
+                    tags=safe_tool.get("tags", []),
+                    capabilities=safe_tool.get("capabilities", []),
+                    resources=safe_resources,
                     timestamp=ts,
                 )
                 # Tiered write: backend is source of truth, NX is fallback
@@ -118,10 +171,10 @@ class IngestionMixin(_Base):
                 # Create Callable Resource
                 resource = CallableResourceNode(
                     id=res_id,
-                    name=tool["name"],
-                    description=tool.get("description", ""),
+                    name=safe_tool["name"],
+                    description=safe_tool.get("description", ""),
                     resource_type="MCP_TOOL",
-                    endpoint=url,
+                    endpoint=endpoint_reference,
                     metadata_id=meta_id,
                     timestamp=ts,
                     importance_score=0.8,
@@ -171,17 +224,26 @@ class IngestionMixin(_Base):
 
     def ingest_a2a_agent_card(self, url: str, card: dict[str, Any]):
         """Ingest an A2A agent card as a CallableResource node."""
-        agent_id = f"agent:{card.get('name', uuid.uuid4().hex[:8])}"
+        from ...security.persistence_privacy import (
+            persistence_reference,
+            sanitize_for_persistence,
+        )
+
+        safe_card, _privacy = sanitize_for_persistence(card)
+        endpoint_reference = persistence_reference(
+            "a2a_endpoint", url, namespace=str(safe_card.get("name") or "agent")
+        )
+        agent_id = f"agent:{safe_card.get('name', uuid.uuid4().hex)}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        meta_id = f"meta:{uuid.uuid4().hex[:8]}"
+        meta_id = f"meta:{uuid.uuid4().hex}"
 
         # Create Metadata
         metadata = ToolMetadataNode(
             id=meta_id,
             name=f"Meta for {agent_id}",
-            description=card.get("description", ""),
+            description=safe_card.get("description", ""),
             source="A2A",
-            capabilities=card.get("capabilities", []),
+            capabilities=safe_card.get("capabilities", []),
             timestamp=ts,
         )
         # Tiered write: backend is source of truth, NX is fallback
@@ -195,11 +257,11 @@ class IngestionMixin(_Base):
         # Create Callable Resource
         resource = CallableResourceNode(
             id=agent_id,
-            name=card.get("name", "Unknown Agent"),
-            description=card.get("description", ""),
+            name=safe_card.get("name", "Unknown Agent"),
+            description=safe_card.get("description", ""),
             resource_type="A2A_AGENT",
-            endpoint=url,
-            agent_card=card,
+            endpoint=endpoint_reference,
+            agent_card=safe_card,
             metadata_id=meta_id,
             timestamp=ts,
             importance_score=0.9,
@@ -234,68 +296,26 @@ class IngestionMixin(_Base):
             )
 
     def ingest_agent_skill(
-        self, skill_file_path: str, frontmatter: dict[str, Any], content: str
-    ):
-        """Ingest a Claude-style agent skill with frontmatter metadata."""
-        skill_id = f"skill:{frontmatter.get('name', uuid.uuid4().hex[:8])}"
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        meta_id = f"meta:{uuid.uuid4().hex[:8]}"
+        self,
+        frontmatter: dict[str, Any],
+        content: str,
+        provider: str = "runtime",
+    ) -> str:
+        """Ingest a skill through the canonical runnable, privacy-safe seam."""
+        from ..ingestion.skill_workflow_ingest import ingest_runnable_skill
 
-        metadata = ToolMetadataNode(
-            id=meta_id,
-            name=f"Meta for {skill_id}",
-            description=frontmatter.get("description", ""),
-            source="AGENT_SKILL",
-            tags=frontmatter.get("tags", []),
-            capabilities=frontmatter.get("capabilities", []),
-            timestamp=ts,
+        body = content
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) == 3:
+                body = parts[2]
+        return ingest_runnable_skill(
+            self,
+            name=str(frontmatter.get("name") or ""),
+            description=str(frontmatter.get("description") or ""),
+            instructions=body,
+            provider=provider,
         )
-        # Tiered write: backend is source of truth, NX is fallback
-        if self.backend:
-            self._upsert_node(
-                "ToolMetadata", meta_id, self._serialize_node(metadata, "ToolMetadata")
-            )
-        else:
-            self.graph.add_node(metadata.id, **metadata.model_dump())
-
-        resource = CallableResourceNode(
-            id=skill_id,
-            name=frontmatter.get("name", skill_id),
-            description=frontmatter.get("description", ""),
-            resource_type="AGENT_SKILL",
-            skill_code_path=skill_file_path,
-            metadata_id=meta_id,
-            timestamp=ts,
-            importance_score=0.7,
-        )
-        # Generate embedding if model available
-        if self.hybrid_retriever.embed_model:
-            try:
-                ctx_desc = build_contextual_description(
-                    resource.id, self.graph, resource.description or resource.name
-                )
-                resource.embedding = (
-                    self.hybrid_retriever.embed_model.get_text_embedding(ctx_desc)
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to generate embedding for skill {resource.id}: {e}"
-                )
-        # Tiered write: backend is source of truth, NX is fallback
-        if self.backend:
-            self._upsert_node(
-                "CallableResource",
-                skill_id,
-                self._serialize_node(resource, "CallableResource"),
-            )
-        else:
-            self.graph.add_node(resource.id, **resource.model_dump())
-
-        if self.backend:
-            self.backend.execute(
-                "MATCH (r:CallableResource), (m:ToolMetadata) WHERE r.id = $rid AND m.id = $mid MERGE (r)-[:HAS_METADATA]->(m)",
-                {"rid": skill_id, "mid": meta_id},
-            )
 
     def ingest_external_batch(
         self,
@@ -344,7 +364,7 @@ class IngestionMixin(_Base):
 
             # Update Backend
             if self.backend:
-                node_type = data.get("type", "Entity")
+                node_type = data.get("node_type", "Entity")
                 self.backend.execute(
                     f"MATCH (n:{node_type}) WHERE n.id = $id SET n.embedding = $emb",
                     {"id": node_id, "emb": new_embedding},
@@ -608,7 +628,8 @@ class IngestionMixin(_Base):
             ids = [
                 nid
                 for nid, data in self.graph.nodes(data=True)
-                if data.get("type") == "idea_block" or str(nid).startswith("ideablock:")
+                if data.get("node_type") == "idea_block"
+                or str(nid).startswith("ideablock:")
             ]
 
         if not ids:
@@ -691,9 +712,14 @@ class IngestionMixin(_Base):
 
             try:
                 source_type = self._detect_toolkit_source_type(source)
+                from ...security.persistence_privacy import persistence_reference
+
+                source_ref = persistence_reference(
+                    "toolkit_source", source, namespace="toolkit-ingestion"
+                )
                 logger.info(
-                    "[ECO-4.6] Processing source '%s' (detected: %s)",
-                    source,
+                    "[ECO-4.6] Processing source_ref=%s (detected: %s)",
+                    source_ref,
                     source_type,
                 )
 
@@ -706,11 +732,16 @@ class IngestionMixin(_Base):
                 elif source_type == "remote_json":
                     await self._ingest_remote_json(source, agent_card_path, summary)
                 else:
-                    summary["errors"].append(f"Unknown source type for '{source}'")
+                    summary["errors"].append("Unknown toolkit source type")
 
-            except Exception as e:
-                logger.error("[ECO-4.6] Failed to ingest source '%s': %s", source, e)
-                summary["errors"].append(f"{source}: {e}")
+            except Exception as exc:
+                logger.error(
+                    "[ECO-4.6] Toolkit source ingestion failed (%s)",
+                    type(exc).__name__,
+                )
+                summary["errors"].append(
+                    f"Toolkit source ingestion failed ({type(exc).__name__})"
+                )
 
         logger.info(
             "[ECO-4.6] Toolkit ingestion complete: %d MCP servers, "
@@ -777,14 +808,18 @@ class IngestionMixin(_Base):
 
         Also handles a directory by looking for ``mcp_config.json`` inside it.
         """
-        import json
         from pathlib import Path
 
         p = Path(path)
         if p.is_dir():
             p = p / "mcp_config.json"
 
-        config_data = json.loads(p.read_text(encoding="utf-8"))
+        if not p.is_file() or p.is_symlink():
+            raise ValueError("MCP configuration source must be a regular file")
+        payload = p.read_bytes()
+        if len(payload) > 4 * 1024 * 1024:
+            raise ValueError("MCP configuration source exceeds its bound")
+        config_data = json.loads(payload)
         await self._ingest_mcp_from_config(config_data, str(p), summary)
 
     async def _ingest_mcp_from_config(
@@ -794,21 +829,22 @@ class IngestionMixin(_Base):
         summary: dict[str, Any],
     ) -> None:
         """Ingest all servers from a parsed mcp_config.json payload."""
-        import json
         from typing import cast
+
+        from .engine_mcp_discovery import MCPDiscoveryError
 
         engine_self = cast(Any, self)
         # Use MCPDiscoveryMixin methods (available via IntelligenceGraphEngine)
         server_entries = engine_self.parse_mcp_config(config_data)
 
         for entry in server_entries:
-            server_name = entry["name"]
-            # Record the real endpoint: remote children carry a url; only stdio
-            # children get the synthesized stdio:// form (the old code applied
-            # stdio:// to every server, leaving HTTP servers with broken endpoints).
-            srv_url = entry.get("url") or (
-                f"stdio://{entry['command']} {' '.join(entry['args'])}"
+            server_name = _neutral_mcp_alias(config_hash=entry["config_hash"])
+            persisted_resources = _mcp_persistence_resources(
+                source_path, entry.get("env")
             )
+            # Durable graph records retain only the keyed declaration identity;
+            # runtime endpoints and local executable paths stay in AgentConfig.
+            srv_url = f"mcp-ref://{entry['config_hash']}"
 
             # Freshness check — skip if KG cache is current
             if engine_self.check_server_freshness(server_name, entry["config_hash"]):
@@ -819,45 +855,25 @@ class IngestionMixin(_Base):
                 summary["skipped"] += 1
                 continue
 
-            # Attempt live tool discovery
-            live_tools = await engine_self.discover_mcp_tools(entry, timeout=30.0)
-
-            if live_tools:
-                # Live discovery succeeded — ingest real tools
-                self.ingest_mcp_server(
-                    name=server_name,
-                    url=srv_url,
-                    tools=live_tools,
-                    resources={"source_config": source_path, "env": entry["env"]},
+            try:
+                live_tools = await engine_self.discover_mcp_tools(entry, timeout=30.0)
+            except MCPDiscoveryError as exc:
+                logger.warning(
+                    "[ECO-4.6] MCP child discovery failed (exception_type=%s)",
+                    type(exc).__name__,
                 )
-                summary["tools_discovered"] += len(live_tools)
-            else:
-                # Fallback: synthesize tools from tool flags
-                flag_tools = [
-                    {
-                        "name": f"{server_name}_{flag}",
-                        "description": f"{flag} tools for {server_name}",
-                        "tags": [flag],
-                        "capabilities": [flag],
-                    }
-                    for flag in entry["tool_flags"]
-                ]
-                if flag_tools:
-                    self.ingest_mcp_server(
-                        name=server_name,
-                        url=srv_url,
-                        tools=flag_tools,
-                        resources={"source_config": source_path, "env": entry["env"]},
-                    )
-                    summary["tools_discovered"] += len(flag_tools)
-                else:
-                    # No tools at all — still register the server node
-                    self.ingest_mcp_server(
-                        name=server_name,
-                        url=srv_url,
-                        tools=[],
-                        resources={"source_config": source_path, "env": entry["env"]},
-                    )
+                summary["errors"].append("MCP child discovery unavailable")
+                continue
+
+            # A successful empty catalog is authoritative. Connection, TLS, or
+            # auth failures raise above and can never become synthesized tools.
+            self.ingest_mcp_server(
+                name=server_name,
+                url=srv_url,
+                tools=live_tools,
+                resources=persisted_resources,
+            )
+            summary["tools_discovered"] += len(live_tools)
 
             # Update server node with config hash and disabled tools
             if self.backend:
@@ -868,18 +884,13 @@ class IngestionMixin(_Base):
                 self.backend.execute(
                     "MATCH (s:Server {id: $sid}) "
                     "SET s.config_hash = $hash, s.timestamp = $ts, "
-                    "s.source_config = $src, s.tool_count = $tc, "
-                    "s.command = $cmd, s.args = $args",
+                    "s.source_ref = $src, s.tool_count = $tc",
                     {
                         "sid": server_id,
                         "hash": entry["config_hash"],
                         "ts": ts,
-                        "src": source_path,
-                        "tc": len(live_tools)
-                        if live_tools
-                        else len(entry["tool_flags"]),
-                        "cmd": entry["command"],
-                        "args": json.dumps(entry["args"]),
+                        "src": persisted_resources["source_ref"],
+                        "tc": len(live_tools),
                     },
                 )
 
@@ -897,19 +908,20 @@ class IngestionMixin(_Base):
 
         skill_md = Path(dir_path) / "SKILL.md"
         if not skill_md.exists():
-            summary["errors"].append(f"No SKILL.md found in {dir_path}")
+            summary["errors"].append("Configured skill is missing SKILL.md")
             return
 
         content = skill_md.read_text(encoding="utf-8")
         frontmatter = self._parse_skill_frontmatter(content)
 
         if not frontmatter.get("name"):
-            frontmatter["name"] = Path(dir_path).name
+            summary["errors"].append("Configured skill requires a frontmatter name")
+            return
 
         self.ingest_agent_skill(
-            skill_file_path=str(skill_md),
             frontmatter=frontmatter,
             content=content,
+            provider="configured-overlay",
         )
         summary["skills"] += 1
 
@@ -968,7 +980,7 @@ class IngestionMixin(_Base):
             card = await self._fetch_a2a_card(base_url, "/agent-card.json")
 
         if card is None:
-            summary["errors"].append(f"Failed to fetch A2A agent card from {base_url}")
+            summary["errors"].append("Failed to fetch A2A agent card")
             return
 
         self.ingest_a2a_agent_card(url=base_url, card=card)
@@ -979,7 +991,7 @@ class IngestionMixin(_Base):
         """Fetch an A2A agent card JSON from a URL.
 
         Args:
-            base_url: The base URL of the A2A agent (e.g., ``http://agent.local``).
+            base_url: The runtime base URL of the A2A agent.
             path: The well-known path (e.g., ``/.well-known/agent.json``).
 
         Returns:
@@ -987,19 +999,19 @@ class IngestionMixin(_Base):
 
         """
 
-        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            safe_get_json_async,
+        )
 
         url = base_url.rstrip("/") + path
-        verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with create_async_http_client(
-                timeout=15.0, verify=verify_ssl
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                return resp.json()
+            payload = await safe_get_json_async(
+                url, timeout=15.0, **configured_source_http_policy()
+            )
+            return payload if isinstance(payload, dict) else None
         except Exception as e:
-            logger.debug("A2A card fetch from '%s' failed: %s", url, e)
+            logger.debug("A2A card fetch failed (%s)", type(e).__name__)
             return None
 
     # ------------------------------------------------------------------
@@ -1014,18 +1026,21 @@ class IngestionMixin(_Base):
     ) -> None:
         """Fetch a remote JSON file and determine if it's an MCP config or A2A card."""
 
-        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            safe_get_json_async,
+        )
 
-        verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
         try:
-            async with create_async_http_client(
-                timeout=15.0, verify=verify_ssl
-            ) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                data = resp.json()
+            data = await safe_get_json_async(
+                url, timeout=15.0, **configured_source_http_policy()
+            )
+            if not isinstance(data, dict):
+                raise ValueError("remote JSON root must be an object")
         except Exception as e:
-            summary["errors"].append(f"Failed to fetch remote JSON from {url}: {e}")
+            summary["errors"].append(
+                f"Failed to fetch remote JSON ({type(e).__name__})"
+            )
             return
 
         if "mcpServers" in data:
@@ -1036,5 +1051,5 @@ class IngestionMixin(_Base):
             summary["a2a_agents"] += 1
         else:
             summary["errors"].append(
-                f"Remote JSON from {url} does not match MCP config or A2A card format"
+                "Remote JSON does not match MCP config or A2A card format"
             )

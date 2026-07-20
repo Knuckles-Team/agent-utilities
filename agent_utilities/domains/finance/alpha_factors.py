@@ -251,7 +251,7 @@ class AlphaFactorLibrary:
             func, required_cols = FACTOR_REGISTRY[name]
             missing = [c for c in required_cols if c not in data.columns]
             if missing:
-                logger.warning(f"Skipping factor '{name}': missing columns {missing}")
+                logger.warning("Skipping factor because required columns are missing")
                 continue
             try:
                 if len(required_cols) == 1:
@@ -265,7 +265,7 @@ class AlphaFactorLibrary:
                         data[required_cols[2]],
                     )
             except Exception:
-                logger.exception(f"Error computing factor '{name}'")
+                logger.error("Error computing configured factor")
                 continue
         return result.dropna()
 

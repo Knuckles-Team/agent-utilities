@@ -37,12 +37,19 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import AgentConfig
 from agent_utilities.models.knowledge_graph import RegistryEdgeType, RegistryNodeType
+from agent_utilities.security.persistence_privacy import (
+    persistence_reference,
+    sanitize_for_persistence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,58 @@ _CAPABILITY_TYPES = {"capability", "businesscapability"}
 # A flowsTo-chain of at least this many tasks is a skill-workflow candidate;
 # anything smaller (a lone coherent action) is an atomic-skill candidate.
 _WORKFLOW_MIN_STEPS = 2
+_MAX_PROPOSAL_TEXT_BYTES = 32 * 1024
+_MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+_SAFE_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
+
+
+def _proposal_text(value: Any, *, limit: int = _MAX_PROPOSAL_TEXT_BYTES) -> str:
+    """Validate external text before it can enter a proposal or artifact."""
+
+    rendered = str(value or "")
+    if "\x00" in rendered or len(rendered.encode("utf-8")) > limit:
+        raise ValueError("proposal text exceeds its safety boundary")
+    sanitized, _report = sanitize_for_persistence(rendered)
+    if sanitized != rendered:
+        raise ValueError("proposal text contains prohibited identifying material")
+    return rendered
+
+
+def _atomic_private_text(target: Path, content: str) -> None:
+    payload = content.encode("utf-8")
+    if len(payload) > _MAX_ARTIFACT_BYTES:
+        raise ValueError("proposal artifact exceeds its size boundary")
+    if target.is_symlink():
+        raise PermissionError("symbolic-link artifact targets are not permitted")
+    temp = target.parent / f".{target.name}.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = -1
+    try:
+        descriptor = os.open(temp, flags, 0o600)
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("proposal artifact write made no progress")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temp, target)
+        os.chmod(target, 0o600)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temp.unlink(missing_ok=True)
+
+
+def _proposal_node_id(node_type: str, name: str) -> str:
+    reference = persistence_reference(
+        "skill_proposal", name, namespace="skill-distillation"
+    )
+    return f"{node_type}:{reference}"
 
 
 def _slug(text: str) -> str:
@@ -82,12 +141,22 @@ class SkillCandidate:
     rationale: str = ""
 
     def to_props(self) -> dict[str, Any]:
+        name = _proposal_text(self.name, limit=128)
+        if not _SAFE_SKILL_NAME.fullmatch(name):
+            raise ValueError("proposal skill name is invalid")
+        triggers = [
+            _proposal_text(value, limit=1024) for value in self.trigger_patterns[:64]
+        ]
         return {
-            "name": self.name,
-            "description": self.description,
-            "trigger_patterns": list(self.trigger_patterns),
+            "name": name,
+            "description": _proposal_text(self.description),
+            "trigger_patterns": triggers,
             "proposal_status": "proposal",
-            "provenance": f"{self.source_system}:{self.source_id}",
+            "source_ref": persistence_reference(
+                "skill_source",
+                f"{self.source_system}:{self.source_id}",
+                namespace="skill-distillation",
+            ),
             "kind": self.kind,
             "novelty": self.novelty,
             "status": "proposal",
@@ -124,8 +193,8 @@ class ConnectorSkillDistiller:
     """Distil mapped connector processes into propose-only skill candidates.
 
     CONCEPT:AU-KG.ontology.connector-agnostic-proposal — connector-agnostic over the ontology; propose-only. Reuses
-    the same engine traversal surface as :class:`ProcessPlanCompiler` (the warm L1
-    compute mirror, then the backend Cypher fallback) so it works on a seeded
+    the same engine traversal surface as :class:`ProcessPlanCompiler` (the native
+    graph view, then the configured Cypher surface) so it works on a seeded
     in-memory engine and a live daemon alike.
     """
 
@@ -138,18 +207,48 @@ class ConnectorSkillDistiller:
         max_candidates: int = 50,
     ) -> None:
         self.engine = engine
-        # Drafts go to a STAGING dir, never into any repo. Default under the
-        # workspace scratch area so review artifacts never pollute a source tree.
-        self.staging_root = Path(
-            staging_root or (Path.home() / "workspace" / "scratch" / "skill-proposals")
+        configured_root = str(
+            staging_root or getattr(AgentConfig(), "evolution_staging_root", None) or ""
+        ).strip()
+        self.staging_root = (
+            Path(configured_root).expanduser() if configured_root else None
         )
         self._embed_fn = embed_fn
-        self.max_candidates = max_candidates
+        self.max_candidates = max(1, min(int(max_candidates), 1000))
+
+    def _resolved_staging_root(self) -> Path:
+        """Resolve the explicit staging root without inventing a host-local path."""
+
+        if self.staging_root is None:
+            raise ValueError("EVOLUTION_STAGING_ROOT is required for artifact drafting")
+        if self.staging_root.is_symlink():
+            raise ValueError("evolution staging root cannot be a symbolic link")
+        root = self.staging_root.resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError("evolution staging root is unavailable")
+        return root
+
+    def _draft_path(self, candidate: SkillCandidate) -> Path:
+        name = _proposal_text(candidate.name, limit=128)
+        if not _SAFE_SKILL_NAME.fullmatch(name):
+            raise ValueError("proposal skill name is invalid")
+        root = self._resolved_staging_root()
+        out_dir = root / name
+        if out_dir.exists() and (not out_dir.is_dir() or out_dir.is_symlink()):
+            raise PermissionError("proposal artifact directory is unsafe")
+        out_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
+        os.chmod(out_dir, 0o700)
+        resolved = out_dir.resolve(strict=True)
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise PermissionError("proposal artifact escaped its staging root") from exc
+        return resolved / "SKILL.md"
 
     # ── engine traversal (matches ProcessPlanCompiler's robust pattern) ────── #
     @staticmethod
     def _edge_rel(edge_data: dict[str, Any]) -> str:
-        return str(edge_data.get("type") or edge_data.get("rel_type") or "").upper()
+        return str(edge_data.get("relationship") or "").upper()
 
     def _node_props(self, node_id: str) -> dict[str, Any]:
         graph = getattr(self.engine, "graph", None)
@@ -175,7 +274,7 @@ class ConnectorSkillDistiller:
     def _iter_nodes(
         self, node_types: tuple[str, ...]
     ) -> list[tuple[str, dict[str, Any]]]:
-        """``(id, props)`` nodes of the given types (compute mirror, then backend).
+        """Return typed nodes from the native graph view or configured backend.
 
         BOUNDED per-label fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation/2.264) — never a whole-graph
         ``GetNodes`` dump, which the engine refuses (``RESULT_TOO_LARGE``) on a large
@@ -212,7 +311,7 @@ class ConnectorSkillDistiller:
         return []
 
     def _tasks_of(self, process_id: str) -> dict[str, dict[str, Any]]:
-        """BusinessTask nodes PART_OF ``process_id`` (compute mirror then backend)."""
+        """Return BusinessTask nodes that are PART_OF ``process_id``."""
         tasks: dict[str, dict[str, Any]] = {}
         graph = getattr(self.engine, "graph", None)
         if graph is not None:
@@ -223,7 +322,7 @@ class ConnectorSkillDistiller:
                     props = self._node_props(src)
                     if str(props.get("type", "")).lower() == _TASK_TYPE:
                         tasks[src] = props
-            except Exception:  # noqa: BLE001 — compute mirror unavailable
+            except Exception:  # noqa: BLE001 — native graph unavailable
                 tasks = {}
         backend = getattr(self.engine, "backend", None)
         if not tasks and backend is not None:
@@ -242,7 +341,7 @@ class ConnectorSkillDistiller:
         return tasks
 
     def _flows(self, task_ids: set[str]) -> list[tuple[str, str]]:
-        """FLOWS_TO edges within ``task_ids`` (compute mirror then backend)."""
+        """Return FLOWS_TO edges within ``task_ids``."""
         flows: list[tuple[str, str]] = []
         graph = getattr(self.engine, "graph", None)
         if graph is not None:
@@ -359,7 +458,9 @@ class ConnectorSkillDistiller:
 
             compiler = ProcessPlanCompiler(self.engine)
         except Exception as exc:  # noqa: BLE001 — compiler unavailable
-            logger.debug("[KG-2.90] ProcessPlanCompiler unavailable: %s", exc)
+            logger.debug(
+                "Skill compiler unavailable: error_type=%s", type(exc).__name__
+            )
             return out
 
         from ..research.loop_controller import _run_coro
@@ -376,7 +477,9 @@ class ConnectorSkillDistiller:
                         }
                     )
             except Exception as exc:  # noqa: BLE001 — one process failing is fine
-                logger.debug("[KG-2.90] compile %s failed: %s", proc["id"], exc)
+                logger.debug(
+                    "Skill compilation failed: error_type=%s", type(exc).__name__
+                )
         return out
 
     def _discover_patterns(self) -> list[dict[str, Any]]:
@@ -391,7 +494,7 @@ class ConnectorSkillDistiller:
 
             harvest = OntologyReasoningDriver(self.engine).extrapolate()
         except Exception as exc:  # noqa: BLE001 — reasoning best-effort
-            logger.debug("[KG-2.90] reasoning extrapolate failed: %s", exc)
+            logger.debug("Skill reasoning failed: error_type=%s", type(exc).__name__)
             return []
         return [dict(t) for t in (harvest.new_topics or [])][: self.max_candidates]
 
@@ -586,13 +689,13 @@ class ConnectorSkillDistiller:
             try:
                 self._semantic_dedup(novel, existing)
             except Exception as exc:  # noqa: BLE001 — embedder/LLM optional
-                logger.debug("[KG-2.90] semantic dedup skipped: %s", exc)
+                logger.debug("Skill dedup skipped: error_type=%s", type(exc).__name__)
 
         kept = [c for c in candidates if c.novelty != "covered"]
         return kept
 
     def _existing_skills(self) -> dict[str, str]:
-        """Map existing ``skill`` node id → name (compute mirror then backend)."""
+        """Map existing ``skill`` node id to name."""
         out: dict[str, str] = {}
         for nid, props in self._iter_nodes((RegistryNodeType.SKILL.value,)):
             if str(props.get("type", "")).lower() == RegistryNodeType.SKILL.value:
@@ -639,11 +742,14 @@ class ConnectorSkillDistiller:
                 if c.kind == "workflow"
                 else RegistryNodeType.SKILL_PROPOSAL.value
             )
-            pid = f"{node_type}:{c.name}"
+            pid = _proposal_node_id(node_type, c.name)
             try:
                 self.engine.add_node(pid, node_type, properties=c.to_props())
             except Exception as exc:  # noqa: BLE001 — persistence best-effort
-                logger.debug("[KG-2.90] proposal persist failed for %s: %s", pid, exc)
+                logger.debug(
+                    "Skill proposal persistence failed: error_type=%s",
+                    type(exc).__name__,
+                )
                 continue
             link = getattr(self.engine, "link_nodes", None)
             if callable(link):
@@ -656,38 +762,48 @@ class ConnectorSkillDistiller:
                             aid = step.get("atomic_id")
                             if aid:
                                 # COMPOSES → the atomic step proposal node id.
-                                step_pid = (
-                                    f"{RegistryNodeType.SKILL_PROPOSAL.value}:"
-                                    f"{step['name']}"
+                                step_pid = _proposal_node_id(
+                                    RegistryNodeType.SKILL_PROPOSAL.value,
+                                    str(step["name"]),
                                 )
                                 link(pid, step_pid, RegistryEdgeType.COMPOSES.value)
                 except Exception as exc:  # noqa: BLE001 — edge writes best-effort
-                    logger.debug("[KG-2.90] proposal edges failed for %s: %s", pid, exc)
+                    logger.debug(
+                        "Skill proposal edge persistence failed: error_type=%s",
+                        type(exc).__name__,
+                    )
             ids.append(pid)
         return ids
 
     # ── stage 5: draft_artifact (STAGING dir — never a repo) ───────────────── #
     def draft_artifact(self, candidate: SkillCandidate) -> str:
-        """Render a reviewable SKILL.md into the STAGING dir; return its path.
+        """Render a reviewable SKILL.md and return only an opaque reference.
 
         Atomic skills get a standard frontmatter SKILL.md (reused by the
         PhysicalDistillationEngine on approval). Workflows are emitted in the
         DUAL-MODE format so they run under Claude AND graph-os (see
         :func:`render_workflow_skill_md`).
         """
-        out_dir = self.staging_root / candidate.name
-        out_dir.mkdir(parents=True, exist_ok=True)
-        skill_md = out_dir / "SKILL.md"
+        self._write_draft_artifact(candidate)
+        return persistence_reference(
+            "skill_artifact", candidate.name, namespace="skill-distillation"
+        )
+
+    def _write_draft_artifact(self, candidate: SkillCandidate) -> Path:
+        """Write one private draft for internal materialization use."""
+
+        skill_md = self._draft_path(candidate)
         if candidate.kind == "workflow":
             content = render_workflow_skill_md(candidate)
         else:
             content = render_atomic_skill_md(candidate)
-        skill_md.write_text(content, encoding="utf-8")
-        return str(skill_md)
+        _proposal_text(content, limit=_MAX_ARTIFACT_BYTES)
+        _atomic_private_text(skill_md, content)
+        return skill_md
 
     # ── materialization (human-approved → physical SKILL.md) ───────────────── #
     def materialize(
-        self, proposal_id: str, *, skill_code_path: str | None = None
+        self, proposal_id: str, *, artifact_path: str | None = None
     ) -> dict[str, Any]:
         """Materialize an APPROVED proposal to a physical SKILL.md, then stamp it.
 
@@ -701,7 +817,12 @@ class ConnectorSkillDistiller:
         """
         props = self._node_props(proposal_id)
         if not props:
-            return {"proposal_id": proposal_id, "status": "not_found"}
+            return {
+                "proposal_ref": persistence_reference(
+                    "skill_proposal", proposal_id, namespace="skill-distillation"
+                ),
+                "status": "not_found",
+            }
         kind = "workflow" if "workflow" in str(props.get("type", "")) else "atomic"
         candidate = SkillCandidate(
             candidate_id=proposal_id,
@@ -709,26 +830,29 @@ class ConnectorSkillDistiller:
             description=str(props.get("description") or ""),
             kind=kind,
             source_id=proposal_id,
-            source_system=str(props.get("provenance") or "connector").split(":", 1)[0],
+            source_system="external-source",
             trigger_patterns=list(props.get("trigger_patterns") or []),
         )
-        skill_md = self.draft_artifact(candidate)
-        code_path = skill_code_path or skill_md
+        skill_md_path = self._write_draft_artifact(candidate)
+        artifact_ref = persistence_reference(
+            "skill_artifact", candidate.name, namespace="skill-distillation"
+        )
+        selected_artifact = artifact_path or str(skill_md_path)
         from .physical_distiller import PhysicalDistillationEngine
 
         ok = False
         try:
-            ok = PhysicalDistillationEngine().distill_skill(
+            ok = PhysicalDistillationEngine(
+                workspace_root=str(self._resolved_staging_root())
+            ).distill_skill(
                 skill_id=proposal_id,
                 new_name=candidate.name,
                 new_description=candidate.description,
-                skill_code_path=code_path,
+                artifact_path=selected_artifact,
                 tags=["skill", kind, candidate.source_system],
             )
         except Exception as exc:  # noqa: BLE001 — materialization best-effort
-            logger.debug(
-                "[KG-2.90] physical distill failed for %s: %s", proposal_id, exc
-            )
+            logger.debug("Physical distill failed: error_type=%s", type(exc).__name__)
         try:
             self.engine.add_node(
                 proposal_id,
@@ -740,11 +864,13 @@ class ConnectorSkillDistiller:
                 },
             )
         except Exception as exc:  # noqa: BLE001
-            logger.debug("[KG-2.90] approval stamp failed for %s: %s", proposal_id, exc)
+            logger.debug("Approval stamp failed: error_type=%s", type(exc).__name__)
         return {
-            "proposal_id": proposal_id,
+            "proposal_ref": persistence_reference(
+                "skill_proposal", proposal_id, namespace="skill-distillation"
+            ),
             "status": "approved" if ok else "drafted",
-            "skill_md": skill_md,
+            "artifact_ref": artifact_ref,
             "materialized": ok,
         }
 
@@ -776,7 +902,7 @@ class ConnectorSkillDistiller:
                 try:
                     report.artifacts.append(self.draft_artifact(c))
                 except Exception as exc:  # noqa: BLE001 — drafting best-effort
-                    report.errors.append(f"draft {c.name}: {exc}")
+                    report.errors.append(f"draft_failed:{type(exc).__name__}")
         return report
 
 
@@ -796,14 +922,14 @@ def render_atomic_skill_md(candidate: SkillCandidate) -> str:
         f"name: {candidate.name}\n"
         f"description: {json.dumps(desc + suffix)}\n"
         "domain: process-automation\n"
-        f"tags: [skill, atomic, {candidate.source_system}]\n"
+        "tags: [skill, atomic, governed-source]\n"
         "concept: KG-2.90\n"
         "---\n\n"
         f"# {candidate.name}\n\n"
         f"{candidate.description}\n\n"
         "## Provenance\n\n"
-        f"Distilled (propose-only) from `{candidate.source_system}` node "
-        f"`{candidate.source_id}`. This is a PROPOSAL for human review — it has "
+        "Distilled (propose-only) from a governed external source. This is a "
+        "PROPOSAL for human review — it has "
         "not landed in any repository.\n"
     )
 
@@ -844,7 +970,7 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     # double-quoted YAML scalar (handles colons, quotes, unicode).
     lines.append(f"description: {json.dumps(desc + suffix)}")
     lines.append("domain: process-automation")
-    lines.append(f"tags: [skill-workflow, dual-mode, {candidate.source_system}]")
+    lines.append("tags: [skill-workflow, dual-mode, governed-source]")
     lines.append("team_config:")
     lines.append("  specialist_ids: [" + ", ".join(specialist_ids) + "]")
     lines.append("  tool_assignments:")
@@ -888,16 +1014,17 @@ def render_workflow_skill_md(candidate: SkillCandidate) -> str:
     )
     lines.append("")
     lines.append(
-        "If graph-os is reachable, offload the whole DAG via `graph_orchestrate "
-        "action=execute_workflow` (or the kg-delegate skill); otherwise "
+        "If graph-os is reachable, offload the whole DAG via `graph_workflows "
+        "action=execute` (or the graph-orchestration-and-automation "
+        "skill); otherwise "
         "execute steps natively in dependency order."
     )
     lines.append("")
     lines.append("## Provenance")
     lines.append("")
     lines.append(
-        f"Distilled (propose-only) from `{candidate.source_system}` process "
-        f"`{candidate.source_id}`. This is a PROPOSAL for human review — it has "
+        "Distilled (propose-only) from a governed external process. This is a "
+        "PROPOSAL for human review — it has "
         "not landed in any repository."
     )
     lines.append("")

@@ -3,7 +3,7 @@
 CONCEPT:AU-ORCH.execution.predict-rlm-runtime — Structured Predict-RLM Runtime
 
 This module implements a native Pydantic signature system to replicate
-the structured input/output contract of DSPy Signatures without adding
+the structured input/output contract of typed program signatures without adding
 external dependencies.
 """
 

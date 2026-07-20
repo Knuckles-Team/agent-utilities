@@ -7,32 +7,32 @@ see [Queue-Driven Agent Dispatch](agent_dispatch.md))
 
 ## The problem
 
-The platform's durable state historically lived in three per-host SQLite
+The platform's operational support state historically lived in per-host SQLite
 files:
 
 | Store | File | Consumer |
 |---|---|---|
-| Durable-execution checkpoints | `durable_execution.db` | `orchestration/durable_execution.py` |
-| Sessions / turns / goals | `agent_terminal_ui.db` | `core/sessions.py`, `gateway/fleet.py` |
-| KG task + staging queue | `kg_task_queue.db` | `knowledge_graph/core/engine_tasks.py` |
+| Sessions / turns / fleet metadata | `agent_terminal_ui.db` | `core/sessions.py`, `gateway/fleet.py` |
+| Queue delivery + staging rows | XDG-scoped queue stores | `knowledge_graph/core/engine_tasks.py`, agent dispatch |
 
-Per-host files mean a second host cannot safely participate (queue claims
-double-fire, sessions are invisible across hosts, goals die with the gateway
-process) and the gateway is stateful.
+Per-host files mean a second host cannot safely participate in those support
+planes: delivery claims can double-fire, sessions are invisible across hosts,
+and the gateway remains stateful. Durable execution itself is not in this
+state-store layer. Its authoritative lifecycle and `checkpoint_id` live on the
+engine-native `WorkItem`.
 
 ## One flag: `STATE_DB_URI`
 
-`AgentConfig.state_db_uri` (alias `STATE_DB_URI`) selects the backend for ALL
-three stores at once:
+`AgentConfig.state_db_uri` (alias `STATE_DB_URI`) selects the backend for the
+operational support stores at once:
 
-- **Unset (default)** — the zero-infra per-host SQLite files, byte-for-byte
-  the previous behavior. Tests and dev environments need no infrastructure.
-- **`postgresql://…`** — every store moves onto one shared Postgres through a
+- **Unset (default)** — zero-infra per-host SQLite support stores. Tests and
+  development environments need no external state service.
+- **`postgresql://…`** — the support stores move onto one shared Postgres through a
   single `psycopg_pool.ConnectionPool` (sized by `STATE_DB_POOL_SIZE`,
-  default 8 — the same psycopg driver the KG `PostgreSQLBackend` uses).
+  default 8).
   Schema is managed by lightweight idempotent `CREATE TABLE IF NOT EXISTS`
-  migrations on first connect, the same convention as the Postgres checkpoint
-  backend.
+  migrations on first connect.
 
 The seam is `agent_utilities/core/state_store.py`:
 
@@ -44,25 +44,23 @@ The seam is `agent_utilities/core/state_store.py`:
   advisory lock; no-op under SQLite).
 - `ensure_state_schema(store, ddl)` — once-per-process idempotent migrations.
 
-## What changes per store
+## What changes by plane
 
-- **Durable execution** (`DurableExecutionManager`) — backend-selectable
-  `CheckpointStore` (SQLite or Postgres). The SQLite path no longer opens a
-  connection per operation: one pooled connection per db file, lock-guarded.
-  Idempotency-key exactly-once and resilience-policy at-least-once semantics
-  are identical on both backends.
-- **Sessions / goals** — `sessions`/`turns`/`goals` tables on the selected
-  backend. `active_goals` / `background_goal_runs` are now an in-memory cache
-  over the durable `goals` table (AU-ORCH.session.durable-goal-registry-goals): every status change persists,
-  and on restart this host's non-terminal goals are rehydrated as
-  **`orphaned`** — visible and explicitly resumable, never silently lost.
-- **KG task queue** — `PostgresTaskQueue` (AU-KG.ingest.cross-host-safe-kg) claims with
+- **Durable execution** — unchanged by `STATE_DB_URI`. The native WorkItem owns
+  claim, lease, fencing, `checkpoint_id`, idempotency, retry, and terminal
+  result. Restart or redelivery resumes from that same engine record; no
+  checkpoint sidecar exists.
+- **Sessions / turns** — the selected support backend stores conversational
+  session and turn records plus fleet visibility. Goal definitions and UX
+  projections may be cached here, but their writable lifecycle remains the
+  native WorkItem.
+- **Queue delivery** — `PostgresTaskQueue` (AU-KG.ingest.cross-host-safe-kg) claims with
   `UPDATE … WHERE id = (SELECT … FOR UPDATE SKIP LOCKED) RETURNING …`, so N
-  hosts drain one queue without double-claims. A claimed-but-unacked item
+  hosts drain one delivery queue without double-claims. A claimed-but-unacked item
   becomes claimable again after the visibility timeout (600 s) — the same
   at-least-once recovery the SQLite head-until-ack behavior provided. The
-  Task-node claim in the worker loop is additionally serialized fleet-wide by
-  `state_claim_guard("kg-task-claim")`.
+  envelope references the sole WorkItem; queue state never becomes a second
+  work lifecycle.
 
 ## Daemon leadership (AU-OS.state.cross-host-daemon-leadership)
 
@@ -76,25 +74,17 @@ unchanged.
 
 ### Tick classification
 
-- **Leader-only** — everything in the consolidated maintenance scheduler
-  (analysis, golden loop, failure ingest, anomaly consumer, fuseki publish,
-  compaction, evolution, durable reconcile, enrichment, SDD/file watch,
-  hygiene, task reaper) plus the embedding-backfill drain. These are
-  whole-graph/singleton passes: N copies = duplicated LLM spend or double
-  writes.
-- **Per-host (capacity scaling)** — ingestion task workers, the
-  submission-queue drain, and the graph-writer drain. Safe to scale out
-  because their claims are cross-host atomic (AU-KG.ingest.cross-host-safe-kg).
-
-The task reaper also degrades to conservative age-based reaping under
-multi-host state (a foreign claim token no longer proves a dead worker —
-another live host may own it).
+- **Leader-only** — the scheduler tick that materializes due recurring work.
+  N copies would enqueue duplicate work.
+- **Per-host (capacity scaling)** — ingestion workers. Native WorkItem claims,
+  leases, fencing, dependency release, and expired-lease recovery are atomic
+  across hosts (AU-KG.ingest.cross-host-safe-kg).
 
 ## Queue-driven agent dispatch (ORCH-1.45)
 
-State externalization made sessions/goals *visible* on every host; queue-driven
-dispatch makes them *executable* on every host. With
-`AGENT_DISPATCH_BACKEND=queue` an agent turn (goal run / orchestrator job)
+State externalization made sessions and fleet metadata *visible* on every host; queue-driven
+dispatch makes them *executable* on every host. An agent turn (goal run /
+orchestrator job)
 rides the session-keyed `agent_turns` queue and any host's
 `agent-dispatch-worker` claims it, rehydrates from this shared state store,
 executes the existing goal/agent bodies, and writes back — sessions are no
@@ -122,9 +112,10 @@ and per-session mutual exclusion reuses `state_claim_guard`
 ## Testing
 
 No test requires a live Postgres. Unit suites exercise the Postgres logic
-against in-memory emulations of exactly the SQL each backend issues
-(`tests/unit/test_state_store.py`, `tests/unit/test_durable_state_postgres.py`,
-`tests/unit/test_goal_durability.py`, `tests/unit/test_fleet_supervisory.py`).
+against in-memory emulations of exactly the SQL each support backend issues
+(`tests/unit/test_state_store.py`, `tests/unit/test_goal_durability.py`,
+`tests/unit/test_fleet_supervisory.py`).
 A live end-to-end pass (`tests/integration/test_state_postgres_live.py`) runs
-only when `STATE_DB_URI` is set and reachable — e.g. against the deployed
-`kg-backbone_pg-age` service.
+only when `STATE_DB_URI` is set and reachable. WorkItem checkpoint behavior is
+covered against the engine-native transaction surface, independently of the
+support-state backend.

@@ -49,7 +49,7 @@ The thesis in practice: every enterprise **capability** maps to one canonical co
 set, and each capability has **both a first-party (proprietary) adapter and an
 open-source adapter**. Both emit the same canonical nodes, so reasoning is identical
 regardless of which a deployment runs — you swap the *adapter*, never the *reasoning*.
-The homelab runs the open-source column; client deployments may run the first-party
+Self-hosted deployments may run the open-source column; managed deployments may run the first-party
 column; the federation supports both side-by-side and reconciles them by GUID/key.
 
 A capability is often served by **several products at once** (e.g. ERPNext is the ERP
@@ -110,12 +110,12 @@ federation is **bidirectional**, under two hard invariants:
 | Direction | Mechanism | Code |
 |---|---|---|
 | Egeria → KG | The `egeria` extractor lifts assets/glossary/governance/lineage into canonical nodes (`GlossaryTerm`→`:Concept`, `Asset`/`Connection`→`:DataConnector`, `Policy`→`:Policy`, `DataFlow`→`:flowsTo`). | `knowledge_graph/enrichment/extractors/egeria.py` + `ontology_egeria.ttl` |
-| KG/workflow → Egeria | `governed_route()` turns Egeria `Confidentiality` + downstream lineage into a routing decision (proceed / review / require_approval); the bottom-up harvest populates Egeria from the data estate; run provenance is written back as `DataFlow` lineage. | [`egeria-mcp`](../../../agents/egeria-mcp/docs/overview.md) (`CONCEPT:EG-*`) |
+| KG/workflow → Egeria | `governed_route()` turns Egeria `Confidentiality` + downstream lineage into a routing decision (proceed / review / require_approval); the bottom-up harvest populates Egeria from the data estate; run provenance is written back as `DataFlow` lineage. | `egeria-mcp` (`CONCEPT:EG-*`) |
 
 Federation key: every Egeria-sourced node carries `externalToolId` (the Egeria GUID)
 + `domain="egeria"`, so it reconciles with ServiceNow / ERPNext / Camunda / infra
 nodes by GUID/hostname rather than forking parallel untethered nodes. The
-[`egeria-mcp`](../../../agents/egeria-mcp/docs/overview.md) package provides the
+`egeria-mcp` package provides the
 raw-REST OMVS client (`EgeriaApi`), the governed-routing decision, the harvest
 connectors, and the typed MCP tools the policy router calls.
 
@@ -132,8 +132,8 @@ flowchart LR
 ```
 
 Invariants: the **KG never becomes the lineage store**; **Egeria never orchestrates**.
-The full ingester + cross-link + federation map lives in
-[`egeria-mcp/docs/harvesters.md`](../../../agents/egeria-mcp/docs/harvesters.md).
+The full ingester, cross-link, and federation map is maintained by the owning
+`egeria-mcp` package in `docs/harvesters.md`.
 
 ---
 
@@ -316,8 +316,8 @@ end-to-end:
    events. Processes carrying an Egeria GUID get `externalToolId` +
    `ALIGNED_WITH egeria_process:{guid}`.
 2. **Compilation (`ORCH-1.41`)** — `ProcessPlanCompiler` (or
-   `graph_orchestrate action=compile_process` / `POST
-   /graph/orchestrate/compile-process`) traverses the `BusinessTask`/`FLOWS_TO`
+   `graph_workflows action=compile_process` / `POST
+   /api/graph/workflows`) traverses the `BusinessTask`/`FLOWS_TO`
    subgraph into a `GraphPlan`: sequence flows become `depends_on`, gateway
    branches become parallel steps, cycles are rejected, agents resolve via the
    KG semantic matcher (unmatched tasks stay as explicit `manual:` steps). The
@@ -325,7 +325,7 @@ end-to-end:
    (:BusinessProcess)` (`:realizesProcess`).
 3. **Execution gate (`AU-ORCH.execution.ontology-validation-execution-path`)** — `execute_workflow` SHACL-validates the
    stored definition (`WorkflowDefinitionShape`/`WorkflowStepShape`,
-   `KG_WORKFLOW_SHAPE_GATE` default ON) and, with `KG_BRAIN_ENFORCE` on,
+   `KG_WORKFLOW_SHAPE_GATE` default ON) and, under mandatory graph enforcement,
    applies the ontology permissioning row gate to the workflow node
    (deny → `PermissionError`, fail-closed).
 4. **Lineage close-out (`ORCH-1.43`)** — when a `REALIZES` workflow completes,

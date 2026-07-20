@@ -139,7 +139,7 @@ _NODE_TYPE_TO_OWL_CLASS: dict[str, str] = {
     "transcript": "Transcript",
     # Media domain (ontology_media.ttl)
     "download_job": "DownloadJob",
-    "media_asset": "MediaAsset",
+    "asset_occurrence": "AssetOccurrence",
     "media_library": "MediaLibrary",
     "media_collection": "MediaCollection",
     # Deployment/Bootstrap domain (ontology_infrastructure.ttl extensions)
@@ -450,7 +450,7 @@ class Owlready2Backend(OWLBackend):
                     f"owl:imports resolution: {e}"
                 ) from e
 
-        logger.info("Loaded ontology from %s", ontology_path)
+        logger.info("Loaded configured ontology")
 
     def _get_owl_class(self, node_type: str):
         """Resolve a LPG node type string to an owlready2 class."""
@@ -489,7 +489,7 @@ class Owlready2Backend(OWLBackend):
 
         count = 0
         for node in stable_nodes:
-            node_type = node.get("type", "")
+            node_type = node.get("node_type", "")
             owl_class = self._get_owl_class(node_type)
             if owl_class is None:
                 logger.debug("No OWL class for node type '%s', skipping", node_type)
@@ -549,7 +549,7 @@ class Owlready2Backend(OWLBackend):
 
         count = 0
         for edge in edges:
-            prop = self._get_owl_property(edge.get("type", ""))
+            prop = self._get_owl_property(edge.get("relationship", ""))
             if prop is None:
                 continue
 
@@ -650,14 +650,11 @@ class Owlready2Backend(OWLBackend):
             }
             rdflib_fmt = fmt_map.get(fmt.lower(), "turtle")
             g.serialize(destination=output_path, format=rdflib_fmt)
-            logger.info("Exported ontology to %s (format=%s)", output_path, rdflib_fmt)
+            logger.info("Exported ontology format=%s", rdflib_fmt)
         except ImportError:
             # Fallback: use owlready2 native save
             self._onto.save(file=output_path, format="rdfxml")
-            logger.info(
-                "Exported ontology to %s (format=rdfxml, rdflib unavailable)",
-                output_path,
-            )
+            logger.info("Exported ontology format=rdfxml rdflib_available=false")
 
     def clear(self) -> None:
         """Remove all ABox individuals, preserving the TBox."""

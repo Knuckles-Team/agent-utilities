@@ -19,7 +19,7 @@ whole graph.
   fetch — i.e. a small in-memory/test/pipeline graph, where a full pass is cheap and
   correct.
 
-So a reader keyed on ``type == "team"`` becomes O(#teams), not O(graph), with no
+So a reader keyed on ``node_type == "team"`` becomes O(#teams), not O(graph), with no
 behavior change on local graphs.
 """
 
@@ -30,7 +30,7 @@ from typing import Any
 
 
 def _type_value(t: Any) -> str:
-    """The stored ``type`` string for an enum member or a plain string."""
+    """The stored ``node_type`` string for an enum member or a plain string."""
     return str(getattr(t, "value", t))
 
 
@@ -65,7 +65,7 @@ def get_node_data(graph: Any, node_id: str) -> dict[str, Any] | None:
 def iter_nodes_by_types(
     graph: Any, *types: Any
 ) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Yield ``(node_id, data)`` for nodes whose ``type`` is one of ``types``.
+    """Yield ``(node_id, data)`` for nodes whose ``node_type`` is one of ``types``.
 
     BOUNDED on the engine (per-label fetch); a full pass only on a graph with no
     ``get_nodes_by_label`` (small/local). See module docstring.
@@ -86,7 +86,7 @@ def iter_nodes_by_types(
                         if (
                             nid not in out
                             and isinstance(data, dict)
-                            and str(data.get("type", "")).lower() in wanted
+                            and str(data.get("node_type", "")).lower() in wanted
                         ):
                             out[nid] = data
         # TRUST the bounded result — do NOT full-scan an empty type (that is the
@@ -100,6 +100,6 @@ def iter_nodes_by_types(
         return
     for nid, data in node_iter:
         if isinstance(data, dict) and (
-            not wanted or str(data.get("type", "")).lower() in wanted
+            not wanted or str(data.get("node_type", "")).lower() in wanted
         ):
             yield nid, data

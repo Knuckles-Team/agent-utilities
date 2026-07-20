@@ -15,7 +15,7 @@ longer a backend with no caller — it is the live time-series substrate.
 
 Engine-only: this is the sole time-series backend (the local SQLite fallback was
 removed). ``initialize()`` raises a clear error when the engine is genuinely
-unreachable — the OS-5.63 resolver auto-starts the pi-tier engine in prod and the
+unreachable — the OS-5.63 resolver auto-starts the mandatory full engine artifact in prod and the
 test fixture (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) provides a real ephemeral one, so an unreachable
 engine is a hard failure, never a silent degrade.
 
@@ -45,6 +45,18 @@ from .base import TimeSeriesBackend, TimeSeriesDataPoint
 logger = logging.getLogger(__name__)
 
 
+def _cypher_string(value: str) -> str:
+    """Render one bounded time-series symbol as a native Cypher string."""
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 256
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        raise ValueError("Time-series symbol is not safely representable")
+    escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def _to_ns(dt: datetime) -> int:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
@@ -64,19 +76,17 @@ def _series_id(symbol: str, tags: dict[str, str] | None) -> str:
     if not tags:
         return f"ts:{symbol}"
     canon = json.dumps(tags, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha1(  # noqa: S324 - non-crypto series-id key, not a security hash
-        canon.encode("utf-8"), usedforsecurity=False
-    ).hexdigest()[:12]
+    digest = hashlib.sha256(canon.encode("utf-8")).hexdigest()[:32]
     return f"ts:{symbol}:{digest}"
 
 
 class EngineTimeSeriesBackend(TimeSeriesBackend):
     """Time-series backend served by the epistemic-graph engine's tsdb namespace.
 
-    CONCEPT:AU-KG.memory.time-series-lives-one. Acquires a ``SyncEpistemicGraphClient`` at ``initialize()``
-    via the OS-5.63 resolver (which auto-starts the pi-tier engine when nothing is
-    running); raises a clear error if the engine is genuinely unreachable. There is
-    no SQLite fallback — the engine is the one time-series authority.
+    CONCEPT:AU-KG.memory.time-series-lives-one. Acquires a non-owning namespace view
+    from the process :class:`GraphComputeEngine` authority at ``initialize()``;
+    raises a clear error if the engine is genuinely unreachable. There is no
+    SQLite fallback — the engine is the one time-series authority.
     """
 
     def __init__(self, client: Any = None):
@@ -87,19 +97,17 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
     def initialize(self) -> None:
         if self._client is not None:
             return
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
         try:
-            self._client = SyncEpistemicGraphClient.connect(**client_connect_kwargs())
+            self._client = GraphComputeEngine.get_or_create().client
         except Exception as exc:  # noqa: BLE001 — re-raise as a clear, typed error
             raise RuntimeError(
                 "time-series memory requires the epistemic-graph engine, but no "
-                "engine is reachable. The OS-5.63 resolver auto-starts the pi-tier "
-                "engine in prod and the test fixture (KG-2.238) provides one — "
+                "engine is reachable. The OS-5.63 resolver auto-starts the mandatory "
+                "full engine artifact in prod and the test fixture (KG-2.238) provides one — "
                 "there is no SQLite fallback (CONCEPT:AU-KG.memory.time-series-lives-one). "
                 f"Underlying connect error: {exc}"
             ) from exc
@@ -198,15 +206,17 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         """All registered series ids for a symbol (engine registry query)."""
         client = self._ensure_client()
         try:
-            rows = client.query.cypher(
-                f"MATCH (s:Series) WHERE s.symbol = '{symbol}' "
+            rows = client.query.cypher_read(
+                f"MATCH (s:Series) WHERE s.symbol = {_cypher_string(symbol)} "
                 "RETURN s.series_id AS series_id"
             )
             ids = [r["series_id"] for r in rows if r.get("series_id")]
             if ids:
                 return ids
-        except Exception as e:  # noqa: BLE001 - registry query best-effort
-            logger.debug("series-for-symbol query failed: %s", e)
+        except Exception as exc:  # noqa: BLE001 - registry query best-effort
+            logger.debug(
+                "series-for-symbol query failed: error_type=%s", type(exc).__name__
+            )
         local = [sid for sid in self._fields if sid.startswith(f"ts:{symbol}")]
         return local or [_series_id(symbol, None)]
 
@@ -222,10 +232,5 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         return None
 
     def close(self) -> None:
-        client = self._client
+        """Release this backend's view; the process graph client remains open."""
         self._client = None
-        if client is not None:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001 - best-effort teardown
-                pass

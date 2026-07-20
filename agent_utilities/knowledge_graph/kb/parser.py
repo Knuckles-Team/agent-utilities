@@ -83,7 +83,9 @@ class KBDocumentParser:
                     if source:
                         sources.append(source)
                 except Exception as e:
-                    logger.warning(f"Failed to parse {fpath}: {e}")
+                    logger.warning(
+                        "Failed to parse knowledge source (%s)", type(e).__name__
+                    )
         return sources
 
     def parse_file(self, path: str | Path) -> ParsedSource | None:
@@ -98,7 +100,7 @@ class KBDocumentParser:
         try:
             content = self._read_file(path, source_type)
         except Exception as e:
-            logger.error(f"Cannot read {path}: {e}")
+            logger.error("Cannot read knowledge source (%s)", type(e).__name__)
             return None
 
         if not content or not content.strip():
@@ -132,25 +134,33 @@ class KBDocumentParser:
     def parse_url(self, url: str, kb_name: str = "web") -> ParsedSource | None:
         """Fetch a URL and parse its content as HTML → Markdown."""
         try:
-            import httpx
+            from agent_utilities.protocols.source_connectors.http_safety import (
+                configured_source_http_policy,
+                safe_get_text,
+            )
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
         except ImportError:
             logger.error("httpx not installed. Install with: pip install httpx")
             return None
 
         try:
-            resp = httpx.get(url, timeout=30, follow_redirects=True)
-            resp.raise_for_status()
-            content = self._html_to_markdown(resp.text, url)
+            raw = safe_get_text(url, timeout=30, **configured_source_http_policy())
+            content = self._html_to_markdown(raw)
         except Exception as e:
-            logger.error(f"Failed to fetch URL {url}: {e}")
+            logger.error("Failed to fetch URL (%s)", type(e).__name__)
             return None
 
+        source_reference = persistence_reference(
+            "knowledge_source", url, namespace=str(kb_name)
+        )
         content_hash = _compute_hash(content)
         raw_chunks = _chunk_text(content, self.chunk_size)
         chunks = [
             DocumentChunk(
                 content=chunk,
-                source_path=url,
+                source_path=source_reference,
                 source_type="url",
                 chunk_index=i,
                 content_hash=_compute_hash(chunk),
@@ -160,8 +170,8 @@ class KBDocumentParser:
         ]
 
         return ParsedSource(
-            name=url.rstrip("/").split("/")[-1] or kb_name,
-            file_path=url,
+            name=kb_name or "web",
+            file_path=source_reference,
             source_type="url",
             content_hash=content_hash,
             file_size=len(content.encode("utf-8")),
@@ -260,34 +270,10 @@ class KBDocumentParser:
             return re.sub(r"\s+", " ", clean).strip()
 
     def _read_pdf(self, path: Path) -> str:
-        """Extract text from PDF (prefers PyMuPDF, falls back to pypdf)."""
-        # PyMuPDF (fitz) first: a C extension that releases the GIL and extracts
-        # in ~0.2s where pypdf's pure-Python parser can stall for minutes on a
-        # single pathological file and starve every other worker on the host.
-        try:
-            import fitz  # PyMuPDF
+        """Extract text through the single bounded pypdf implementation."""
+        from ..extraction.pdf import read_pdf_text
 
-            with fitz.open(str(path)) as doc:
-                return "\n".join(page.get_text() for page in doc)
-        except ImportError:
-            pass
-        # pypdf fallback (lightweight, but slow on some PDFs)
-        try:
-            import pypdf
-
-            reader = pypdf.PdfReader(str(path))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except ImportError:
-            pass
-        # Fallback to LlamaIndex SimpleDirectoryReader
-        try:
-            from llama_index.core import SimpleDirectoryReader
-
-            docs = SimpleDirectoryReader(input_files=[str(path)]).load_data()
-            return "\n".join(d.text for d in docs)
-        except Exception as e:
-            logger.error(f"Cannot read PDF {path}: {e}")
-            return ""
+        return read_pdf_text(path)
 
     def _read_docx(self, path: Path) -> str:
         """Extract text from DOCX (requires python-docx)."""
@@ -302,7 +288,7 @@ class KBDocumentParser:
             )
             return ""
         except Exception as e:
-            logger.error(f"Cannot read DOCX {path}: {e}")
+            logger.error("Cannot read DOCX source (%s)", type(e).__name__)
             return ""
 
     def _read_epub(self, path: Path) -> str:
@@ -322,5 +308,5 @@ class KBDocumentParser:
             logger.warning("ebooklib not installed. Install with: pip install ebooklib")
             return ""
         except Exception as e:
-            logger.error(f"Cannot read EPUB {path}: {e}")
+            logger.error("Cannot read EPUB source (%s)", type(e).__name__)
             return ""

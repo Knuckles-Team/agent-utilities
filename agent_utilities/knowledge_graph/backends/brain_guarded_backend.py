@@ -25,7 +25,7 @@ Two arbitration modes:
   cheaply read (the whole lower-authority write loses).
 
 Everything else is delegated unchanged. The wrapper is only installed when
-``KG_BRAIN_ENFORCE`` is on, so the default path is byte-identical to today.
+Company Brain enforcement is mandatory, so every path shares the same guard.
 """
 
 import json
@@ -58,15 +58,23 @@ _PROV_KEYS = {"_source_system", "_actor_id", "_confidence", "_ts", "_field_prov"
 def _stamp_ownership(properties: dict[str, Any], actor: Any) -> None:
     """Stamp private-by-default owner/scope markers (CONCEPT:AU-KG.compute.data-is-private-its).
 
-    Lazy-imported so the backend layer never hard-depends on the sharing module;
-    any failure is non-fatal (ownership is additive metadata, not correctness).
+    Lazy-imported so the backend layer never hard-depends on the sharing module.
+    Ownership/tenant stamping is part of write authorization and must succeed.
     """
-    try:
-        from ..core.tenant_sharing import stamp_ownership
+    from ..core.tenant_sharing import stamp_ownership
 
-        stamp_ownership(properties, actor)
-    except Exception as exc:  # pragma: no cover - ownership is best-effort
-        logger.debug("ownership stamp skipped for write: %s", exc)
+    stamp_ownership(properties, actor)
+
+
+def _verified_actor() -> Any:
+    actor = current_actor()
+    if (
+        not actor.authenticated
+        or not str(actor.actor_id or "").strip()
+        or not str(actor.tenant_id or "").strip()
+    ):
+        raise PermissionError("Graph writes require verified tenant authority")
+    return actor
 
 
 class BrainGuardedBackend:
@@ -142,8 +150,8 @@ class BrainGuardedBackend:
                 ),
                 tenant_id=actor.tenant_id,
             )
-        except Exception as exc:  # pragma: no cover - provenance best-effort
-            logger.debug("provenance record failed for %s: %s", node_id, exc)
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            raise PermissionError("Graph write provenance recording failed") from exc
 
     def _record_field(
         self, node_id: str, field: str, actor: Any, source: str, auth: float
@@ -161,8 +169,8 @@ class BrainGuardedBackend:
                 ),
                 tenant_id=actor.tenant_id,
             )
-        except Exception as exc:  # pragma: no cover - provenance best-effort
-            logger.debug("field provenance failed for %s.%s: %s", node_id, field, exc)
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            raise PermissionError("Graph field provenance recording failed") from exc
 
     def _log_conflict(self, node_id, field, va, vb, actor_a, actor_b, ca, cb) -> None:
         try:
@@ -176,12 +184,12 @@ class BrainGuardedBackend:
                 confidence_a=ca,
                 confidence_b=cb,
             )
-        except Exception as exc:  # pragma: no cover - audit best-effort
-            logger.debug("conflict record failed for %s.%s: %s", node_id, field, exc)
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            raise PermissionError("Graph conflict audit recording failed") from exc
 
     # -- guarded writes ----------------------------------------------------
     def add_node(self, node_id: str, **properties: Any) -> None:
-        actor = current_actor()
+        actor = _verified_actor()
         source = self._source(actor)
         now_mono = time.monotonic()
         now_wall = time.time()
@@ -311,12 +319,12 @@ class BrainGuardedBackend:
         self._seen[node_id] = (source, base_auth, now)
         self._inner.add_node(node_id, **properties)
 
-    def add_edge(self, source: str, target: str, **properties: Any) -> None:
-        actor = current_actor()
+    def add_edge(self, source_id: str, target_id: str, /, **properties: Any) -> None:
+        actor = _verified_actor()
         properties.setdefault("_source_system", self._source(actor))
         properties.setdefault("_actor_id", actor.actor_id)
         properties.setdefault("_ts", self._iso())
-        self._inner.add_edge(source, target, **properties)
+        self._inner.add_edge(source_id, target_id, **properties)
 
 
 # Make isinstance(guard, GraphBackend) hold for duck-typed consumers.

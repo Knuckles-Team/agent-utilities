@@ -16,19 +16,23 @@ each event is
   so the host daemon's workers act on it via
   :mod:`agent_utilities.knowledge_graph.adaptation.fleet_event_triage`.
 
-Auth: Alertmanager/Kuma cannot mint JWTs, so on top of the OS-5.14 identity
-middleware (open unless ``KG_AUTH_REQUIRED``) the endpoint supports an optional
-shared-secret header ``X-Fleet-Events-Token`` checked against
-``AgentConfig.fleet_events_token`` (``FLEET_EVENTS_TOKEN``; default ``None`` =
-not required). A naive in-memory per-source per-minute counter caps event
-storms (429 when exceeded).
+Auth: Alertmanager/Kuma cannot usually mint JWTs, so the endpoint accepts a
+shared-secret header ``X-Fleet-Events-Token`` resolved through
+``FLEET_EVENTS_TOKEN_REF``. Authenticated identity middleware callers are also
+accepted. With neither boundary, ingress is denied. A bounded,
+concurrency-safe, privacy-keyed per-source counter caps event
+storms (429 when exceeded). Persisted nodes contain only pseudonymous references
+and normalized classifications; raw webhook content is never retained.
 """
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import logging
+import secrets
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -60,7 +64,27 @@ _SEVERITY_MAP = {
 # In-memory and deliberately simple — its job is to keep a misconfigured
 # Alertmanager/Kuma from flooding the KG + task queue, not to be a real WAF.
 RATE_CAP_PER_MINUTE = 120
-_rate_counters: dict[str, list[int]] = {}  # source -> [minute_epoch, count]
+MAX_EVENTS_PER_REQUEST = 256
+MAX_EVENT_BODY_BYTES = 16 * 1024 * 1024
+_rate_counters: dict[str, list[int]] = {}  # opaque source ref -> [minute, count]
+_rate_lock = threading.Lock()
+_rate_privacy_key = secrets.token_bytes(32)
+
+
+def _source_type(source: str) -> str:
+    normalized = source.strip().lower()
+    return (
+        normalized
+        if normalized in {"alertmanager", "uptime-kuma", "portainer"}
+        else "generic"
+    )
+
+
+def _ephemeral_source_ref(source: str) -> str:
+    digest = hashlib.blake2s(
+        source.encode("utf-8"), key=_rate_privacy_key, digest_size=12
+    ).hexdigest()
+    return f"source_{digest}"
 
 
 def _normalize_severity(raw: Any, default: str = "info") -> str:
@@ -80,6 +104,11 @@ class FleetEvent:
     received_at: str = ""
 
     def __post_init__(self) -> None:
+        self.source = str(self.source)[:256]
+        self.severity = _normalize_severity(self.severity)
+        self.subject = str(self.subject)[:1024]
+        self.status = str(self.status)[:64]
+        self.summary = str(self.summary)[:4096]
         if not self.received_at:
             self.received_at = time.strftime(
                 "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time())
@@ -92,7 +121,9 @@ class FleetEvent:
 def _normalize_alertmanager(payload: dict[str, Any]) -> list[FleetEvent]:
     """Prometheus Alertmanager v4 webhook JSON → one event per ``alerts[]``."""
     events: list[FleetEvent] = []
-    for alert in payload.get("alerts") or []:
+    for alert in (payload.get("alerts") or [])[:MAX_EVENTS_PER_REQUEST]:
+        if not isinstance(alert, dict):
+            continue
         labels = alert.get("labels") or {}
         annotations = alert.get("annotations") or {}
         subject = (
@@ -197,12 +228,12 @@ def normalize_payload(payload: Any, source_hint: str | None = None) -> list[Flee
     if isinstance(payload.get("alerts"), list) and (
         "receiver" in payload or "version" in payload or "groupKey" in payload
     ):
-        return _normalize_alertmanager(payload)
+        return _normalize_alertmanager(payload)[:MAX_EVENTS_PER_REQUEST]
     if isinstance(payload.get("heartbeat"), dict) or isinstance(
         payload.get("monitor"), dict
     ):
-        return _normalize_uptime_kuma(payload)
-    return _normalize_generic(payload, source_hint)
+        return _normalize_uptime_kuma(payload)[:MAX_EVENTS_PER_REQUEST]
+    return _normalize_generic(payload, source_hint)[:MAX_EVENTS_PER_REQUEST]
 
 
 # ── persistence + queue ──────────────────────────────────────────────
@@ -225,16 +256,25 @@ def _correlation_stamp() -> dict[str, str]:
     stamp: dict[str, str] = {}
     try:
         from agent_utilities.observability import correlation
+        from agent_utilities.security.persistence_privacy import (
+            persistence_reference,
+        )
 
-        stamp["correlation_id"] = correlation.ensure_correlation_id()
+        stamp["correlation_ref"] = persistence_reference(
+            "correlation", correlation.ensure_correlation_id(), namespace="fleet-event"
+        )
         try:
             from agent_utilities.security.brain_context import current_actor
 
             actor = current_actor()
             if actor.actor_id and actor.actor_id != "system":
-                stamp["actor_id"] = actor.actor_id
+                stamp["actor_ref"] = persistence_reference(
+                    "actor", actor.actor_id, namespace="fleet-event"
+                )
             if actor.tenant_id:
-                stamp["tenant_id"] = actor.tenant_id
+                stamp["tenant_ref"] = persistence_reference(
+                    "tenant", actor.tenant_id, namespace="fleet-event"
+                )
         except Exception:  # noqa: BLE001 — identity is best-effort context
             pass
     except Exception:  # noqa: BLE001 — correlation is best-effort context
@@ -244,14 +284,23 @@ def _correlation_stamp() -> dict[str, str]:
 
 def persist_event(engine: Any, event: FleetEvent) -> str:
     """Write the event as a ``FleetEvent`` KG node; returns the node id."""
-    event_id = f"fleet_event:{uuid.uuid4().hex[:12]}"
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    event_id = f"fleet_event:{uuid.uuid4().hex}"
+    source_type = _source_type(event.source)
     properties = {
-        "source": event.source,
+        "source_type": source_type,
+        "source_ref": persistence_reference(
+            "fleet_source", event.source, namespace="fleet-event"
+        ),
         "severity": event.severity,
-        "subject": event.subject,
+        "subject_ref": persistence_reference(
+            "fleet_subject", event.subject, namespace=source_type
+        ),
         "status": event.status,
-        "summary": event.summary[:500],
-        "raw": json.dumps(event.raw, default=str)[:4000],
+        "summary_ref": persistence_reference(
+            "fleet_summary", event.summary, namespace=source_type
+        ),
         "received_at": event.received_at,
         "triage_status": "pending",
     }
@@ -268,7 +317,10 @@ def enqueue_triage(engine: Any, event_id: str, event: FleetEvent) -> str | None:
     return submit(
         event_id,
         is_codebase=False,
-        provenance={"source": "fleet_events", "event_source": event.source},
+        provenance={
+            "source": "fleet_events",
+            "event_source": _source_type(event.source),
+        },
         task_type="fleet_event_triage",
         skip_dedupe=True,
     )
@@ -277,47 +329,94 @@ def enqueue_triage(engine: Any, event_id: str, event: FleetEvent) -> str | None:
 def _storm_capped(source: str, n: int = 1) -> bool:
     """True when accepting ``n`` more events from ``source`` exceeds the cap."""
     minute = int(time.time() // 60)
-    window = _rate_counters.get(source)
-    if window is None or window[0] != minute:
-        window = [minute, 0]
-        _rate_counters[source] = window
-    if window[1] + n > RATE_CAP_PER_MINUTE:
-        return True
-    window[1] += n
-    return False
+    source_ref = _ephemeral_source_ref(source)
+    with _rate_lock:
+        if len(_rate_counters) >= 4096:
+            stale = [key for key, value in _rate_counters.items() if value[0] != minute]
+            for key in stale:
+                _rate_counters.pop(key, None)
+            if len(_rate_counters) >= 4096 and source_ref not in _rate_counters:
+                return True
+        window = _rate_counters.get(source_ref)
+        if window is None or window[0] != minute:
+            window = [minute, 0]
+            _rate_counters[source_ref] = window
+        if window[1] + n > RATE_CAP_PER_MINUTE:
+            return True
+        window[1] += n
+        return False
 
 
 # ── HTTP handler ─────────────────────────────────────────────────────
+
+
+def _resolve_webhook_secret(cfg: Any) -> str | None:
+    reference = str(cfg.fleet_events_token_ref or "").strip()
+    if reference:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        secret = create_secrets_client().resolve_ref(reference)
+        if not secret:
+            raise RuntimeError("fleet-events secret reference did not resolve")
+        return str(secret)
+    return None
 
 
 async def fleet_events_receive(request: Request) -> JSONResponse:
     """``POST /api/fleet/events`` — normalize, persist, and enqueue triage."""
     from agent_utilities.core.config import AgentConfig
 
-    # Optional shared-secret check (fresh config so a rotated token applies
-    # without a gateway restart; constant-time compare).
-    required = AgentConfig().fleet_events_token
+    # Fresh config lets secret rotation take effect without a gateway restart.
+    cfg = AgentConfig()
+    try:
+        required = _resolve_webhook_secret(cfg)
+    except Exception:
+        logger.error("fleet-events webhook secret is unavailable")
+        return JSONResponse(
+            {"status": "error", "message": "webhook authentication unavailable"},
+            status_code=503,
+        )
     if required:
         offered = request.headers.get("x-fleet-events-token") or ""
         if not hmac.compare_digest(offered, required):
             return JSONResponse(
-                {
-                    "status": "error",
-                    "message": "invalid or missing X-Fleet-Events-Token",
-                },
+                {"status": "error", "message": "authentication required"},
+                status_code=401,
+            )
+    else:
+        try:
+            from agent_utilities.security.brain_context import current_actor
+
+            authenticated = current_actor().authenticated
+        except Exception:
+            authenticated = False
+        if not authenticated:
+            return JSONResponse(
+                {"status": "error", "message": "authentication required"},
                 status_code=401,
             )
 
     try:
-        payload = await request.json()
+        limit = max(1, min(int(cfg.max_upload_size), MAX_EVENT_BODY_BYTES))
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > limit:
+                return JSONResponse(
+                    {"status": "error", "message": "request body is too large"},
+                    status_code=413,
+                )
+        payload = json.loads(body)
     except Exception:
         return JSONResponse(
             {"status": "error", "message": "body must be JSON"}, status_code=400
         )
 
-    source_hint = request.query_params.get("source") or request.headers.get(
-        "x-event-source"
-    )
+    source_hint = (
+        request.query_params.get("source")
+        or request.headers.get("x-event-source")
+        or ""
+    )[:256]
     events = normalize_payload(payload, source_hint=source_hint)
     if not events:
         return JSONResponse(
@@ -338,7 +437,7 @@ async def fleet_events_receive(request: Request) -> JSONResponse:
     try:
         engine = _get_engine()
     except Exception as e:  # noqa: BLE001 — engine genuinely unavailable
-        logger.warning("fleet_events: engine unavailable: %s", e)
+        logger.warning("fleet-events engine unavailable (%s)", type(e).__name__)
         engine = None
     if engine is None:
         # 503 so well-behaved senders (Alertmanager) retry instead of dropping.
@@ -352,20 +451,19 @@ async def fleet_events_receive(request: Request) -> JSONResponse:
         try:
             event_id = persist_event(engine, ev)
         except Exception as e:  # noqa: BLE001 — one bad event never drops the batch
-            logger.warning("fleet_events: persist failed: %s", e)
+            logger.warning("fleet-events persist failed (%s)", type(e).__name__)
             continue
         job_id = None
         try:
             job_id = enqueue_triage(engine, event_id, ev)
         except Exception as e:  # noqa: BLE001
-            logger.warning("fleet_events: triage enqueue failed: %s", e)
+            logger.warning("fleet-events enqueue failed (%s)", type(e).__name__)
         accepted.append(
             {
                 "event_id": event_id,
                 "job_id": job_id,
-                "source": ev.source,
+                "source": _source_type(ev.source),
                 "severity": ev.severity,
-                "subject": ev.subject,
             }
         )
 

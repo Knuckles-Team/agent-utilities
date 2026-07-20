@@ -5,11 +5,11 @@ registry-graph schema this phase used to build by hand with Python tree-sitter â
 ``file:<path>`` + ``symbol:<sha256>`` nodes joined by ``IMPLEMENTS``, plus ``calls_raw`` /
 ``depends_on_raw`` edges (and richer call-graph + MinHash similarity signals across many
 more languages). Delegating here is what lets agent-utilities drop the Python
-``tree-sitter*`` wheels entirely: the engine is the ONE code-parsing implementation
-(``epistemic_graph.parser.RustASTParser``, in the optional ``[engine]`` extra). When the
-engine socket is unavailable, ``RustASTParser`` transparently falls back to Python's
-stdlib ``ast`` (Python sources only). Markdown CONCEPT/SDD extraction is regex-based (it
-never used tree-sitter) and stays here.
+``tree-sitter*`` wheels entirely: the hard base dependency's
+``epistemic_graph.parser.RustASTParser`` is the ONE code-parsing implementation. When
+the engine socket is unavailable, ``RustASTParser`` transparently falls back to
+Python's stdlib ``ast`` (Python sources only). Markdown CONCEPT/SDD extraction is
+regex-based (it never used tree-sitter) and stays here.
 """
 
 import logging
@@ -82,37 +82,37 @@ def _ingest_markdown(
         node_id = "policy:constitution"
         graph.add_node(
             node_id,
-            type=RegistryNodeType.POLICY,
+            node_type=RegistryNodeType.POLICY,
             policy_id="constitution",
             condition="all operations",
             action="Adhere to core project governance and rules defined in constitution",
         )
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
     elif ".specify/tasks" in lower_path:
         node_id = f"task:{stem}"
         graph.add_node(
             node_id,
-            type=RegistryNodeType.PRIORITIZED_TASK,
+            node_type=RegistryNodeType.WORK_ITEM_PRIORITY,
             task_id=stem,
             status="pending",
         )
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
     elif ".specify/specs" in lower_path:
         node_id = f"goal:{stem}"
         graph.add_node(
             node_id,
-            type=RegistryNodeType.GOAL,
+            node_type=RegistryNodeType.GOAL,
             goal_text=stem,
             status="active",
         )
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
     elif ".specify/design" in lower_path:
         node_id = f"doc:design:{stem}"
-        graph.add_node(node_id, type=RegistryNodeType.DOCUMENT, title=stem)
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_node(node_id, node_type=RegistryNodeType.DOCUMENT, title=stem)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
     elif ".specify/memory" in lower_path:
         with open(file_path, encoding="utf-8") as f:
@@ -120,16 +120,16 @@ def _ingest_markdown(
         node_id = f"memory:{stem}"
         graph.add_node(
             node_id,
-            type=RegistryNodeType.MEMORY,
+            node_type=RegistryNodeType.MEMORY,
             category="sdd_memory",
             content=content[:200],
         )
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
     elif ".specify/reports" in lower_path:
         node_id = f"doc:report:{stem}"
-        graph.add_node(node_id, type=RegistryNodeType.DOCUMENT, title=stem)
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_node(node_id, node_type=RegistryNodeType.DOCUMENT, title=stem)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
 
     # Explicit CONCEPT tags
@@ -141,12 +141,12 @@ def _ingest_markdown(
         node_id = f"concept:{concept_id}"
         graph.add_node(
             node_id,
-            type=RegistryNodeType.CONCEPT,
+            node_type=RegistryNodeType.CONCEPT,
             concept_id=concept_id,
             definition=desc,
             name=concept_id,
         )
-        graph.add_edge(node_id, file_node_id, type=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
         extracted += 1
 
     return extracted
@@ -182,12 +182,12 @@ def _replay_parse_result(
             symbol_type = props.pop("symbol_type", "Symbol")
             graph.add_node(
                 node["node_id"],
-                type=RegistryNodeType.SYMBOL,
+                node_type=RegistryNodeType.SYMBOL,
                 symbol_type=symbol_type,
                 **props,
             )
         elif node_type in db_types:
-            graph.add_node(node["node_id"], type=db_types[node_type], **props)
+            graph.add_node(node["node_id"], node_type=db_types[node_type], **props)
         else:
             # FILE nodes are created by the scan phase; nothing else is expected here.
             continue
@@ -196,7 +196,7 @@ def _replay_parse_result(
         graph.add_edge(
             edge["source"],
             edge["target"],
-            type=edge.get("edge_type", "RELATED_TO"),
+            relationship=edge.get("edge_type", "RELATED_TO"),
             **(edge.get("properties", {}) or {}),
         )
 
@@ -222,19 +222,11 @@ async def execute_parse(
     graph = ctx.graph
     symbols_extracted = 0
 
-    # The engine client lives in the optional [engine] extra. A bare/[mcp] install never
-    # runs ingestion so this phase is never reached, but guard the import so the module
-    # stays importable without epistemic-graph installed.
-    try:
-        from epistemic_graph.parser import RustASTParser
+    # ``epistemic-graph[full]`` is a hard base dependency. Missing parser bindings are
+    # therefore an invalid installation, not an optional degradation path.
+    from epistemic_graph.parser import RustASTParser
 
-        parser: Any = RustASTParser()
-    except ImportError:
-        parser = None
-        logger.info(
-            "epistemic-graph not installed; code AST parse skipped "
-            "(install agent-utilities[engine]). Markdown extraction still runs."
-        )
+    parser: Any = RustASTParser()
 
     for file_path in files:
         try:
@@ -262,7 +254,7 @@ async def execute_parse(
             symbols_extracted += _replay_parse_result(result, graph, RegistryNodeType)
 
         except Exception as e:
-            logger.error(f"Error parsing {file_path}: {e}")
+            logger.error("Pipeline source parse failed (%s)", type(e).__name__)
 
     return {"symbols_extracted": symbols_extracted}
 

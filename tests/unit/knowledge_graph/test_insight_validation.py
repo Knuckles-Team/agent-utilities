@@ -38,12 +38,29 @@ class _InsightStubEngine:
         self.add_node_calls = 0
         self.backend = object()
         self._governance_rules = governance_rules or []
+        # X-6 / Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance): records for the
+        # provenance-edge + TruthMaintenance-registration writeback asserted below.
+        self.edges: list[tuple[str, str, dict[str, Any]]] = []
+        self.registered_materializations: list[str] = []
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
     ) -> None:
         self.add_node_calls += 1
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
+
+    def add_edge(
+        self,
+        source: str,
+        target: str,
+        rel_type: str = "",
+        **properties: Any,
+    ) -> None:
+        self.edges.append((source, target, {"rel_type": rel_type, **properties}))
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        self.registered_materializations.append(derived_id)
+        return {"id": derived_id, "depends_on": [], "generating_activity": None}
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
         if "governance_rule" in q:
@@ -119,6 +136,176 @@ def test_mixed_floor_findings_only_persist_the_eligible_one():
     assert len(claims) == 1
     assert claims[0]["status"] == "proposal"
     assert claims[0]["is_verified"] is False
+
+
+# ---------------------------------------------------------------------------
+# (a.1) X-6 / Seam 3: a persisted claim stamps its real invalidation-dependency
+# provenance and registers as a live TruthMaintenance materialization
+# (CONCEPT:EG-KG.epistemic.truth-maintenance) — the AU half of the cross-repo
+# reversible-derived-data seam.
+# ---------------------------------------------------------------------------
+
+
+def test_persisted_claim_records_derived_from_edges_and_registers_materialization():
+    eng = _InsightStubEngine()
+    # association confidence clears the floor; anomaly does not — exactly ONE
+    # claim persists, mined from antecedent "concept:cA" + consequent
+    # "capability:capZ" (see `_mine_result`).
+    mine_result = _mine_result(association_confidence=0.95, anomaly_score=0.1)
+    rep = LoopController(eng)._run_insight_validation(mine_result)
+
+    assert rep["persisted_claims"] == 1
+    claims = eng.by_type("Claim")
+    assert len(claims) == 1
+    claim_id = claims[0]["id"]
+    # source_ids on the persisted claim are WHATEVER `candidate_insight.py`'s
+    # AssociationRule branch actually records for `(antecedent, consequent)`
+    # (str()-stringified list literals today -- a pre-existing mining quirk, out
+    # of scope here); the point of this test is that the writeback edges use
+    # THOSE SAME ids verbatim, never a fabricated/reparsed id.
+    source_ids = claims[0]["source_ids"]
+    assert len(source_ids) == 2
+
+    # A `:DerivedFrom` edge lands from the claim to EACH base fact it was mined
+    # from, tagged with the exact `relationship_type` the engine's
+    # `register_from_provenance` reads (CONCEPT:EG-KG.epistemic.truth-maintenance).
+    derived_from_targets = {
+        target
+        for source, target, props in eng.edges
+        if source == claim_id and props.get("relationship_type") == "DERIVED_FROM"
+    }
+    assert derived_from_targets == set(source_ids)
+
+    # The claim registers as a live TruthMaintenance materialization exactly once.
+    assert eng.registered_materializations == [claim_id]
+    assert not any("insight_validation:derived_from" in e for e in rep["errors"])
+    assert not any(
+        "insight_validation:register_materialization" in e for e in rep["errors"]
+    )
+
+
+def test_derived_from_edge_failure_is_tolerated_per_source_id():
+    class _EdgeFailingEngine(_InsightStubEngine):
+        def add_edge(self, source, target, rel_type="", **properties):
+            raise RuntimeError("kg unreachable")
+
+    eng = _EdgeFailingEngine()
+    mine_result = _mine_result(association_confidence=0.95, anomaly_score=0.1)
+    rep = LoopController(eng)._run_insight_validation(mine_result)  # must not raise
+
+    # The claim itself still persists -- the provenance edge write is a
+    # best-effort audit overlay, never a gate on the mining pipeline.
+    assert rep["persisted_claims"] == 1
+    assert any("insight_validation:derived_from" in e for e in rep["errors"])
+    # Registration still runs (off the ALREADY-persisted claim id) even though
+    # the edge write failed -- the two best-effort steps are independent.
+    assert eng.registered_materializations == [eng.by_type("Claim")[0]["id"]]
+
+
+def test_register_materialization_failure_is_tolerated():
+    class _RegisterFailingEngine(_InsightStubEngine):
+        def register_materialization(self, derived_id):
+            raise RuntimeError("kg unreachable")
+
+    eng = _RegisterFailingEngine()
+    mine_result = _mine_result(association_confidence=0.95, anomaly_score=0.1)
+    rep = LoopController(eng)._run_insight_validation(mine_result)  # must not raise
+
+    assert rep["persisted_claims"] == 1
+    assert any(
+        "insight_validation:register_materialization" in e for e in rep["errors"]
+    )
+    # The provenance edges themselves still land regardless.
+    claim = eng.by_type("Claim")[0]
+    claim_id = claim["id"]
+    assert {target for source, target, _ in eng.edges if source == claim_id} == set(
+        claim["source_ids"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# (a.2) X-6 / Seam 3: the registered materialization ACTUALLY goes Stale when a
+# base fact it depends on changes — a fake-but-faithful engine-side TMS index
+# (mirrors the real engine's own documented contract: register_materialization
+# snapshots the CURRENT state of every ``:DerivedFrom`` target; materialization_
+# status compares that snapshot against the live state and reports "Stale" the
+# moment any dependency changed through the normal write path).
+# ---------------------------------------------------------------------------
+
+
+class _TmsAwareInsightStubEngine(_InsightStubEngine):
+    """``_InsightStubEngine`` + a minimal, faithful in-process TruthMaintenance
+    index: every ``add_node`` bumps that id's version counter; ``register_
+    materialization`` snapshots the CURRENT version of every ``:DerivedFrom``
+    target the derived id carries; ``materialization_status`` reports "Stale"
+    the instant any snapshotted dependency's version has since moved, "Fresh"
+    otherwise — exactly the contract ``graph_compute.register_materialization``/
+    ``materialization_status`` document for the real engine."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._versions: dict[str, int] = {}
+        self._materializations: dict[str, dict[str, int]] = {}
+
+    def add_node(
+        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
+    ) -> None:
+        super().add_node(node_id, node_type, properties)
+        self._versions[node_id] = self._versions.get(node_id, 0) + 1
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        super().register_materialization(derived_id)
+        deps = {
+            target
+            for source, target, props in self.edges
+            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+        }
+        self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
+        return {
+            "id": derived_id,
+            "depends_on": sorted(deps),
+            "generating_activity": None,
+        }
+
+    def materialization_status(self, derived_id: str) -> str | None:
+        snapshot = self._materializations.get(derived_id)
+        if snapshot is None:
+            return None
+        for dep, ver in snapshot.items():
+            if self._versions.get(dep, 0) != ver:
+                return "Stale"
+        return "Fresh"
+
+
+def test_registered_claim_materialization_goes_stale_when_base_fact_changes():
+    eng = _TmsAwareInsightStubEngine()
+    mine_result = _mine_result(association_confidence=0.95, anomaly_score=0.1)
+    rep = LoopController(eng)._run_insight_validation(mine_result)
+
+    assert rep["persisted_claims"] == 1
+    claim_id = eng.by_type("Claim")[0]["id"]
+    source_ids = eng.by_type("Claim")[0]["source_ids"]
+    assert source_ids  # sanity: the claim carries real base-fact ids
+
+    # Freshly registered, off the SAME writeback the pipeline just ran.
+    assert eng.materialization_status(claim_id) == "Fresh"
+
+    # A committed change to ONE of the claim's real base facts (the normal
+    # write path any other KG writer already uses) ...
+    eng.add_node(source_ids[0], "Concept", properties={"revised": True})
+
+    # ... auto-invalidates the materialization -- no polling, no second
+    # bookkeeping store, exactly the guarantee ``register_materialization``'s
+    # docstring promises.
+    assert eng.materialization_status(claim_id) == "Stale"
+
+    # An UNRELATED node changing does not affect it.
+    eng2 = _TmsAwareInsightStubEngine()
+    rep2 = LoopController(eng2)._run_insight_validation(mine_result)
+    claim_id2 = eng2.by_type("Claim")[0]["id"]
+    assert rep2["persisted_claims"] == 1
+    eng2.add_node("some:unrelated-node", "Concept", properties={})
+    assert eng2.materialization_status(claim_id2) == "Fresh"
 
 
 # ---------------------------------------------------------------------------

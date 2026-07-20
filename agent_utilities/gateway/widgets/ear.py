@@ -45,8 +45,8 @@ class Widget(BaseWidget):
         try:
             fs = client.get_fact_sheets() or []
         except Exception as e:
-            logger.debug("EAR fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("EAR fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

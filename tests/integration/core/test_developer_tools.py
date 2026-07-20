@@ -1,54 +1,37 @@
 """CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.tools.developer_tools import (
-    create_file,
-    delete_file,
-    project_search,
-    replace_in_file,
-)
+from agent_utilities.tools.developer_tools import project_search
 
 
 @pytest.fixture
-def mock_ctx():
-    return MagicMock()
+def mock_ctx(tmp_path):
+    ctx = MagicMock()
+    ctx.deps.workspace_path = tmp_path
+    return ctx
 
 
 @pytest.mark.asyncio
-async def test_project_search(mock_ctx):
-    with patch("subprocess.run") as mock_run:
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "file.txt:1:foo"
-        mock_run.return_value = mock_result
-        res = await project_search(mock_ctx, "foo", ".")
-        assert "file.txt" in res
+async def test_project_search(mock_ctx, tmp_path):
+    (tmp_path / "file.txt").write_text("foo\n", encoding="utf-8")
+
+    res = await project_search(mock_ctx, "foo", ".")
+
+    assert "file.txt" in res
+    assert str(tmp_path) not in res
 
 
 @pytest.mark.asyncio
-async def test_create_file(mock_ctx, tmp_path):
-    f = tmp_path / "test.txt"
-    res = await create_file(mock_ctx, str(f), "hello world")
-    assert f.read_text() == "hello world"
-    assert "Created file" in res
+async def test_project_search_rejects_unbounded_query(mock_ctx):
+    result = await project_search(mock_ctx, "x" * 4_097, ".")
+
+    assert "exceeds the input limit" in result
 
 
 @pytest.mark.asyncio
-async def test_delete_file(mock_ctx, tmp_path):
-    f = tmp_path / "test.txt"
-    f.write_text("hello")
-    res = await delete_file(mock_ctx, str(f))
-    assert not f.exists()
-    assert "Deleted" in res
-
-
-@pytest.mark.asyncio
-async def test_replace_in_file(mock_ctx, tmp_path):
-    f = tmp_path / "test.txt"
-    f.write_text("hello world")
-    res = await replace_in_file(mock_ctx, str(f), "hello", "hi")
-    assert f.read_text() == "hi world"
-    assert "Successfully updated" in res
+async def test_project_search_rejects_workspace_escape(mock_ctx):
+    result = await project_search(mock_ctx, "secret", "../")
+    assert "outside the assigned workspace" in result

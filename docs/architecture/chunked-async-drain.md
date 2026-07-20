@@ -31,7 +31,7 @@ That has two failure modes:
 
 The fix makes a full re-ingest **cooperative and non-blocking**: the one call
 becomes many small, bounded, background page-tasks, each subject to the same
-priority edict and the GB10 server-capacity guard (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) as
+priority edict and the shared-accelerator server-capacity guard (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) as
 every other ingest unit — so it can neither time out the request nor OOM the box.
 
 ## How it works
@@ -67,15 +67,15 @@ queue or scheduler.
    progress node (`status="draining"`, zeroed counters, `started_at`), enqueues the
    **first** `connector_drain` page-task (page 0, no checkpoint), and **returns
    immediately** with `{drain_id, page_size, first_task, watch:{…}}` — never the
-   drained result. The `watch` block hands back both the `source_drain` status-tool
-   invocation and a ready-made `:Task` Cypher query.
+   drained result. The `watch` block provides the `source_drain` status-tool
+   invocation; callers do not inspect a second work-state table.
 
 ### Each page-task drains one bounded page and self-continues
 
-The `connector_drain` task type is dispatched in `core/engine_tasks.py`
-(`_run_background_task`), which reads the task's `drain_id` / `drain_source` /
-`sync_mode` / `drain_page` columns plus the serialized checkpoint from its metadata
-blob, then calls `run_drain_page`. That function (in `chunked_drain.py`):
+The `connector_drain` WorkItem kind is dispatched in `core/engine_tasks.py`
+(`_run_background_task`), which reads `drain_id`, `drain_source`, `sync_mode`,
+`drain_page`, and the serialized checkpoint from privacy-normalized WorkItem
+metadata, then calls `run_drain_page`. That function (in `chunked_drain.py`):
 
 1. Rebuilds the connector via the `PageDrainer.build_connector(engine, mode)` — the
    connector is **stateless across tasks**; all pagination state lives in the carried
@@ -89,9 +89,10 @@ blob, then calls `run_drain_page`. That function (in `chunked_drain.py`):
    isn't empty and the page backstop isn't hit), it enqueues the **next**
    `connector_drain` page-task carrying the advanced checkpoint. The corpus drains
    across many tasks until the cursor is exhausted.
-5. **On exhaustion**, marks the drain `completed` (or `stopped_backstop` if the page
-   cap was hit) and **advances the source watermark** (`_write_watermark`) so later
-   `mode="delta"` syncs only pull what changed.
+5. **On verified exhaustion**, commits a terminal `SourceReviewCheckpoint` and the
+   typed source cursor in one engine-native `ApplyChangeEnvelope`, then marks the
+   drain `completed`. A failed page, empty `has_more` page, or page backstop retains
+   the prior cursor; it cannot skip uncommitted records on the next delta run.
 
 Two safety properties make this robust: it is **idempotent + resumable** (each
 page-task replays from its carried checkpoint, and the write-layer content-hash
@@ -111,7 +112,7 @@ flowchart TD
     Pn -->|cursor exhausted| DONE["status=completed<br/>advance watermark"]
     P0 -. "cumulative pages/items" .-> SD[":SourceDrain node"]
     Pn -. update .-> SD
-    SD --> ST["source_drain (action=status, drain_id)<br/>+ live :Task per-status breakdown"]
+    SD --> ST["source_drain (action=status, drain_id)<br/>+ live WorkItem per-status breakdown"]
 ```
 
 ### Connector-declared pagination (AU-KG.compute.connector-declared-page-drainer) — the `PageDrainer` registry
@@ -142,22 +143,19 @@ tags `graph-os` / `ingestion`) is how an operator or agent watches it:
 
 | action | argument | returns |
 |---|---|---|
-| `status` | `drain_id` | the cumulative `:SourceDrain` state (`pages_done` / `items_seen` / `items_ingested` / `status` / timestamps) **plus** a live per-status breakdown of the chain's `connector_drain` `:Task` nodes (`{pending, running, completed, …}`) |
+| `status` | `drain_id` | the cumulative `:SourceDrain` state (`pages_done` / `items_seen` / `items_ingested` / `status` / timestamps) **plus** a live per-status breakdown of the chain's `connector_drain` WorkItems |
 | `list` | — | the registered chunked-drain-capable sources (`list_chunked_sources()`) |
 
 `drain_status(engine, drain_id)` in `chunked_drain.py` is the core: it reads the
-`:SourceDrain` node and joins it with a `_control_cypher` query that counts the
-drain's `:Task` rows by status (`WHERE t.drain_id = $id`), so one call shows both the
-cumulative tally and how many page-tasks are still in flight. Because every
-`connector_drain` `:Task` is stamped with `drain_id` / `drain_source` / `drain_page`
-top-level, you can also watch a drain with a plain `graph_query` over `:Task` (the
-exact query is handed back in the `start_chunked_drain` `watch.task_query` field).
+`:SourceDrain` node and groups authoritative ingestion WorkItems whose metadata
+references that drain. One call therefore shows both the cumulative tally and
+how many page WorkItems remain in flight.
 
 > **Surface note.** The *start* of a drain rides `source_sync`, which is exposed on
 > both the MCP surface and the REST gateway (per *Two surfaces by default*). The
 > `source_drain` **status/list** surface is the MCP tool above; progress is also
 > queryable through the generic `graph_query` REST/MCP surface over the
-> `:SourceDrain` and `:Task` nodes, since the drain state is just graph data.
+> `:SourceDrain` and `WorkItem` nodes, since the drain state is graph data.
 
 ## Lane, priority, and capacity — why it can't hurt the box
 
@@ -167,7 +165,7 @@ exact query is handed back in the `start_chunked_drain` `watch.task_query` field
 - It inherits the **background-ingestion priority edict** (CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99):
   every page-task is enqueued at `priority=3` (the background bucket), so it yields to
   interactive / orchestration work and can never starve the harness.
-- It inherits the **GB10 server-capacity guard** (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) that all
+- It inherits the **shared-accelerator server-capacity guard** (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) that all
   ingestion shares, so the drain throttles to available LLM/embedding capacity rather
   than overrunning it.
 - It is bounded by the `connectors` lane **soft timeout** (180s,
@@ -210,7 +208,7 @@ Source-specific knobs still apply to the page ingest — e.g. FreshRSS's
 3. List what supports it: `source_drain(action="list")`.
 
 **It composes with the existing lane/throughput system rather than bypassing it.**
-The page-tasks are ordinary `:Task` rows on the `connectors` lane, so the
+The page units are ordinary ingestion WorkItems on the `connectors` lane, so the
 best-effort cap, the interactive reservation (CONCEPT:AU-KG.compute.interactive-lane-floor), the per-hop
 profiler (`graph_ingest action=profile`), and `agent-utilities-doctor`'s
 `ingestion_coverage` check all see and govern them like any other ingest. After a

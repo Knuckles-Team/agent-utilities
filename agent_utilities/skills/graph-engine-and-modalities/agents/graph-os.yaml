@@ -1,0 +1,32 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - engine_admin
+    - engine_analytics
+    - engine_blob
+    - engine_broker
+    - engine_channels
+    - engine_consensus
+    - engine_datascience
+    - engine_edges
+    - engine_finance
+    - engine_graph
+    - engine_graphlearn
+    - engine_ledger
+    - engine_lifecycle
+    - engine_mining
+    - engine_nodes
+    - engine_query
+    - engine_rbac
+    - engine_rdf
+    - engine_reasoning
+    - engine_resharding
+    - engine_streaming
+    - engine_tenants
+    - engine_timeseries
+    - engine_txn
+    - graph_domain_ops
+  features:
+    finance:
+      - quant

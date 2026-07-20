@@ -279,7 +279,7 @@ class ModelDisplayOptimizer:
 
             ogm = KGMapper(self._engine)
 
-            node_id = f"display:{uuid.uuid4().hex[:8]}"
+            node_id = f"display:{uuid.uuid4().hex}"
             node = ModelDisplayNode(
                 id=node_id,
                 type=RegistryNodeType.MODEL_DISPLAY,

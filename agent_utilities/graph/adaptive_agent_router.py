@@ -11,17 +11,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_graph import End
+from pydantic_graph.step import StepContext
 
 from agent_utilities.agent.sampling_profile import (
     DEFAULT_PROFILE,
     SamplingProfile,
     resolve_sampling_profile,
 )
-
-try:
-    from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import StepContext
 
 from .executor import _execute_specialized_step
 
@@ -760,8 +756,7 @@ CONCEPT:AU-ORCH.execution.inject-signal-board-observations Dynamic agent spawnin
 
 Instead of 20+ identical boilerplate functions, this module provides a
 single ``make_specialist_step`` factory and a ``SPECIALIST_REGISTRY``
-that maps persona IDs to their metadata.  The factory generates
-async step functions at import time for backward compatibility.
+that maps persona IDs to their metadata.
 
 New personas can be added by appending to ``SPECIALIST_REGISTRY`` —
 no new function definitions are needed.
@@ -796,7 +791,7 @@ SPECIALIST_REGISTRY: list[SpecialistPersona] = [
     ),
     SpecialistPersona(
         "javascript_programmer",
-        "General-purpose JS, legacy maintenance, Node scripting",
+        "General-purpose JS, existing-system maintenance, Node scripting",
     ),
     SpecialistPersona("c_programmer", "C systems programming and embedded development"),
     SpecialistPersona(
@@ -881,18 +876,19 @@ def make_specialist_step(persona: SpecialistPersona):
     return _specialist_step
 
 
-# ── Generate all specialist step functions at module level ────────────
-# This makes them importable: ``from .adaptive_agent_router import python_programmer_step``
-
-
-def _build_exports():
-    """Build module-level step functions and __all__ list."""
-    exports = []
-    for persona in SPECIALIST_REGISTRY:
-        func_name = f"{persona.node_id}_step"
-        globals()[func_name] = make_specialist_step(persona)
-        exports.append(func_name)
-    return exports
-
-
-__all__ = _build_exports()
+__all__ = [
+    "CostAwareRouter",
+    "ExecutionTrace",
+    "OntologicalFallbackChain",
+    "RoutingCandidate",
+    "RoutingDecision",
+    "RoutingPolicy",
+    "RoutingPrimitive",
+    "RuleBasedPolicy",
+    "SPECIALIST_REGISTRY",
+    "SpecialistPersona",
+    "TopologicalRoutingPolicy",
+    "TraceLearnedPolicy",
+    "extract_task_features",
+    "make_specialist_step",
+]

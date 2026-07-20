@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.COMMUNICATION
     description = "Social media scheduler — posts, integrations, and analytics"
     env_prefix = "POSTIZ"
-    default_url = "https://postiz.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -40,8 +39,8 @@ class Widget(BaseWidget):
         try:
             integrations = client.get_integrations() or []
         except Exception as e:
-            logger.debug("Postiz fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Postiz fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

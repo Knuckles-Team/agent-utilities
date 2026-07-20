@@ -44,8 +44,7 @@ flowchart TD
 ## Programmatic Usage (`AgentContextManager`)
 
 LCM operations are driven automatically by the maintenance scheduler (see
-*Compaction* below) and are also available directly on `AgentContextManager`
-(aliased as `ElasticContextManager`) in
+*Compaction* below) and are also available directly on `AgentContextManager` in
 `knowledge_graph/memory/agent_context.py`. There is no standalone `kg_memory`
 MCP tool — these are Python methods invoked by the engine.
 
@@ -105,7 +104,7 @@ a single background-throttle:
 - **Interval**: Every 30 minutes (the `compaction` job is registered at `1800.0`s)
 - **Threshold**: `Thread` nodes with > 30 uncompacted messages
 - **Strategy**: Progressive compaction (oldest messages first), via
-  `ElasticContextManager.compact_thread(strategy="progressive")`
+  `AgentContextManager.compact_thread(strategy="progressive")`
 - **Limit**: Processes up to 3 threads per cycle
 
 ### Configuration
@@ -128,8 +127,7 @@ scheduler loop:
 ### AgentContextManager (unified entry point)
 
 All LCM operations live on `AgentContextManager`
-(`knowledge_graph/memory/agent_context.py`); `ElasticContextManager` is a
-backward-compatible alias for the same class:
+(`knowledge_graph/memory/agent_context.py`):
 
 - `compact_thread()` — Orchestrates compaction for a specific thread
 - `persist_compaction()` — Writes Summary nodes and SUMMARIZES edges to KG

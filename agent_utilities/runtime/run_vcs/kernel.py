@@ -238,6 +238,24 @@ class RunEventLog:
         keep = [e for e in self._events if e.ordinal <= cut.through_ordinal]
         self._events = keep
 
+    # ── seeding (exact round-trip) ───────────────────────────────────────────
+    @classmethod
+    def from_records(
+        cls, run_id: str, records: list[dict[str, Any]], *, engine: Any | None = None
+    ) -> RunEventLog:
+        """Rehydrate a log from its OWN serialized :meth:`RunEvent.to_dict` records.
+
+        Unlike :meth:`from_events` (which re-bases ordinals for a *fork*), this
+        preserves every event's original ``ordinal``/``record_id``/``caused_by``
+        exactly — used to restore a previously-serialized log bit-for-bit (e.g.
+        :class:`~agent_utilities.orchestration.agent_digital_twin.AgentDigitalTwin`
+        deserialization), so a replayed twin's causal structure is identical to
+        the one that was captured, not merely equivalent.
+        """
+        log = cls(run_id, engine=engine)
+        log._events = [RunEvent.from_dict(r) for r in records]
+        return log
+
     # ── seeding (fork) ─────────────────────────────────────────────────────────
     @classmethod
     def from_events(
@@ -270,20 +288,32 @@ class RunEventLog:
         if engine is None:
             return
         try:
+            from agent_utilities.observability.trace_ontology import trace_id
+            from agent_utilities.security.persistence_privacy import (
+                PersistencePrivacyGuard,
+                persistence_reference,
+            )
+
+            payload, privacy = PersistencePrivacyGuard().sanitize(event.payload)
             engine.add_node(
                 event.node_id,
                 "RunEvent",
                 properties={
-                    "run_id": event.run_id,
+                    "run_ref": persistence_reference(
+                        "run", event.run_id, namespace="run-vcs"
+                    ),
                     "schema_ref": event.schema_ref,
                     "mode": event.mode,
                     "ordinal": event.ordinal,
                     "record_id": event.record_id,
-                    "payload_json": _canonical(event.payload)[:4000],
+                    "payload_json": _canonical(payload)[:4000],
+                    "privacy_schema": "persistence-privacy-v1",
+                    "privacy_redactions": privacy.redactions,
+                    "privacy_types": list(privacy.detected_types),
                     "ts": event.ts,
                 },
             )
-            engine.add_edge(f"trace:{event.run_id}", event.node_id, "HAS_EVENT")
+            engine.add_edge(trace_id(event.run_id), event.node_id, "HAS_EVENT")
             if event.ordinal > 0:
                 prev = self._events[event.ordinal - 1]
                 engine.add_edge(prev.node_id, event.node_id, "NEXT")

@@ -15,7 +15,8 @@ that can reach the hub.
 Examples
 --------
     # direct messaging, 50 senders, 5k messages
-    python scripts/bench_bus.py --base-url http://graphos.arpa:8000 --token "$JWT" \
+    python scripts/bench_bus.py --base-url https://graph-os.example.test \
+        --token-ref env://GRAPHOS_BENCH_TOKEN \
         --participants 50 --messages 5000 --concurrency 16
 
     # topic fan-out to 20 subscribers
@@ -158,12 +159,18 @@ def _modeled(args: argparse.Namespace, measured_rate: float) -> dict:
 
 
 def main() -> None:
+    from agent_utilities.security.cli_secrets import RuntimeSecretReferenceAction
+
     p = argparse.ArgumentParser(
         description="AgentBus wire-level load harness (ECO-4.87)"
     )
     p.add_argument("--base-url", default="http://localhost:8000")
     p.add_argument(
-        "--token", default="", help="Bearer JWT for a served (cross-host) hub."
+        "--token-ref",
+        dest="token",
+        action=RuntimeSecretReferenceAction,
+        default="",
+        help="Runtime secret reference for the served-hub bearer JWT.",
     )
     p.add_argument("--participants", type=int, default=20)
     p.add_argument("--messages", type=int, default=1000)

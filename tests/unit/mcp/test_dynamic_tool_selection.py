@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +34,7 @@ def test_assign_tools_for_task_success() -> None:
     mock_engine = MagicMock()
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
-    mock_backend.execute.return_value = [
+    mock_engine.query_cypher.return_value = [
         {
             "tool_name": "docker_ps",
             "tool_desc": "List containers",
@@ -53,7 +54,7 @@ def test_assign_tools_for_task_success() -> None:
     assert tools[0]["name"] == "docker_ps"
     assert tools[0]["description"] == "List containers"
     assert tools[0]["schema"] == '{"type": "object"}'
-    assert mock_backend.execute.called
+    mock_engine.query_cypher.assert_called_once()
 
 
 def test_assign_tools_for_task_exception() -> None:
@@ -61,7 +62,7 @@ def test_assign_tools_for_task_exception() -> None:
     mock_engine = MagicMock()
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
-    mock_backend.execute.side_effect = Exception("DB error")
+    mock_engine.query_cypher.side_effect = Exception("DB error")
 
     orchestrator = DynamicToolOrchestrator(mock_engine)
     tools = orchestrator.assign_tools_for_task("docker list", "developer")
@@ -81,7 +82,7 @@ def test_resolve_mcp_tools_success() -> None:
     mock_engine = MagicMock()
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
-    mock_backend.execute.side_effect = [
+    mock_engine.query_cypher.side_effect = [
         [{"name": "add_rewrite"}, {"name": "delete_rewrite"}],
         [],
     ]
@@ -90,26 +91,36 @@ def test_resolve_mcp_tools_success() -> None:
     tools = orchestrator.resolve_mcp_tools("rewrite", "technitium")
 
     assert tools == ["add_rewrite", "delete_rewrite"]
-    assert mock_backend.execute.call_count == 2
+    assert mock_engine.query_cypher.call_count == 2
 
 
-def test_resolve_mcp_tools_fallback() -> None:
-    """If multi-vector matching yields 0 results, fall back to all tools of the server."""
+def test_resolve_mcp_tools_no_match_fails_closed() -> None:
+    """A requested semantic narrowing with no match returns no tools."""
     mock_engine = MagicMock()
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
-    # First execute (multi-vector) returns [], second execute (fallback) returns all tools, third (ts sweep) returns []
-    mock_backend.execute.side_effect = [
+    mock_engine.query_cypher.side_effect = [
         [],
-        [{"name": "all_tool_1"}, {"name": "all_tool_2"}],
         [],
     ]
 
     orchestrator = DynamicToolOrchestrator(mock_engine)
     tools = orchestrator.resolve_mcp_tools("nonexistent", "technitium")
 
-    assert tools == ["all_tool_1", "all_tool_2"]
-    assert mock_backend.execute.call_count == 3
+    assert tools == []
+    assert mock_engine.query_cypher.call_count == 2
+
+
+def test_resolve_mcp_tools_error_fails_closed() -> None:
+    """A graph query failure returns no tool and never runs an all-tools query."""
+    mock_engine = MagicMock()
+    mock_engine.backend = MagicMock()
+    mock_engine.query_cypher.side_effect = RuntimeError("graph unavailable")
+
+    orchestrator = DynamicToolOrchestrator(mock_engine)
+
+    assert orchestrator.resolve_mcp_tools("restricted", "server") == []
+    assert mock_engine.query_cypher.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -123,23 +134,31 @@ async def test_refresh_cached_tools_no_backend() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refresh_cached_tools_success() -> None:
-    """refresh_cached_tools queries server config, calls discover_mcp_tools and updates DB."""
+async def test_refresh_cached_tools_success(monkeypatch) -> None:
+    """Refresh resolves executable configuration outside the KG."""
     mock_engine = MagicMock()
     mock_backend = MagicMock()
     mock_engine.backend = mock_backend
 
-    mock_backend.execute.side_effect = [
-        [
-            {
-                "command": "python",
-                "args": '["-m", "mcp"]',
-                "env": '{"KEY": "val"}',
-                "source_config": "config.json",
-            }
-        ],
-        [],  # update server statement
+    mock_engine.parse_mcp_config.return_value = [
+        {
+            "name": "test-server",
+            "command": "python",
+            "args": ["-m", "mcp"],
+            "env": {"KEY": "val"},
+            "url": "",
+            "config_hash": "a" * 64,
+            "tool_flags": [],
+        }
     ]
+    monkeypatch.setattr(
+        "agent_utilities.mcp.multiplexer._resolve_config_path",
+        lambda _value: Path("runtime-mcp-config.json"),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.mcp.multiplexer.MCPMultiplexer.load_catalog",
+        lambda _self: {"test-server": {"command": "python"}},
+    )
 
     mock_engine.discover_mcp_tools = AsyncMock(return_value=["tool_1", "tool_2"])
     mock_engine.ingest_mcp_server = MagicMock()
@@ -150,7 +169,10 @@ async def test_refresh_cached_tools_success() -> None:
     assert result is True
     mock_engine.discover_mcp_tools.assert_called_once()
     mock_engine.ingest_mcp_server.assert_called_once()
-    assert mock_backend.execute.call_count == 2
+    resources = mock_engine.ingest_mcp_server.call_args.kwargs["resources"]
+    assert "source_config" not in resources
+    assert "env" not in resources
+    mock_engine.add_node.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +240,37 @@ def test_dynamic_visibility_transform_cli_override() -> None:
     assert "git_commit" in filtered_names
     assert "git_push" not in filtered_names
     assert "other_tool" not in filtered_names
+
+
+@patch(
+    "fastmcp.server.dependencies.get_http_request",
+    side_effect=RuntimeError("No active HTTP request found."),
+)
+def test_dynamic_visibility_transform_allows_non_http_introspection(
+    mock_get_request,
+) -> None:
+    """In-process/stdio discovery has no request and keeps the configured surface."""
+    _, mcp, _ = create_mcp_server("Test Server", command_args=[])
+    transform = mcp._transforms[0]
+    components = [DummyComponent("one"), DummyComponent("two")]
+
+    assert transform._filter_components(components) == components
+    mock_get_request.assert_called_once_with()
+
+
+@patch(
+    "fastmcp.server.dependencies.get_http_request",
+    side_effect=RuntimeError("unexpected request-context failure"),
+)
+def test_dynamic_visibility_transform_fails_closed_on_request_context_error(
+    mock_get_request,
+) -> None:
+    """Only FastMCP's explicit no-request sentinel is treated as non-HTTP."""
+    _, mcp, _ = create_mcp_server("Test Server", command_args=[])
+    transform = mcp._transforms[0]
+
+    assert transform._filter_components([DummyComponent("one")]) == []
+    mock_get_request.assert_called_once_with()
 
 
 @patch("fastmcp.server.dependencies.get_http_request")
@@ -320,7 +373,7 @@ def test_dynamic_visibility_transform_kg_filtering(
     mock_get_active.return_value = mock_engine
 
     # KG returns specific matched tools
-    mock_backend.execute.return_value = [
+    mock_engine.query_cypher.return_value = [
         {"name": "add_rewrite"},
         {"name": "get_metrics"},
     ]
@@ -340,3 +393,75 @@ def test_dynamic_visibility_transform_kg_filtering(
     assert "add_rewrite" in filtered_names
     assert "get_metrics" in filtered_names
     assert "other_tool" not in filtered_names
+
+
+@patch("fastmcp.server.dependencies.get_http_request")
+@patch("agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active")
+def test_dynamic_visibility_transform_kg_no_match_fails_closed(
+    mock_get_active, mock_get_request
+) -> None:
+    """A requested KG filter that matches nothing exposes no component."""
+    mock_request = MagicMock()
+    mock_request.query_params.get.side_effect = lambda key: (
+        "no-such-capability" if key == "q" else None
+    )
+    del mock_request.query_params.getlist
+    mock_request.headers = {}
+    mock_get_request.return_value = mock_request
+
+    mock_engine = MagicMock()
+    mock_engine.backend = MagicMock()
+    mock_engine.query_cypher.side_effect = [[], []]
+    mock_get_active.return_value = mock_engine
+
+    _, mcp, _ = create_mcp_server("Test Server", command_args=[])
+    transform = mcp._transforms[0]
+
+    assert transform._filter_components([DummyComponent("one")]) == []
+
+
+@patch("fastmcp.server.dependencies.get_http_request")
+@patch("agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active")
+def test_dynamic_visibility_transform_without_active_graph_fails_closed(
+    mock_get_active, mock_get_request
+) -> None:
+    """A requested KG filter cannot widen when no graph is active."""
+    mock_request = MagicMock()
+    mock_request.query_params.get.side_effect = lambda key: (
+        "restricted-capability" if key == "q" else None
+    )
+    del mock_request.query_params.getlist
+    mock_request.headers = {}
+    mock_get_request.return_value = mock_request
+    mock_get_active.return_value = None
+
+    _, mcp, _ = create_mcp_server("Test Server", command_args=[])
+    transform = mcp._transforms[0]
+
+    assert transform._filter_components([DummyComponent("one")]) == []
+
+
+@patch("fastmcp.server.dependencies.get_http_request")
+@patch("agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine.get_active")
+def test_dynamic_visibility_transform_kg_error_fails_closed(
+    mock_get_active, mock_get_request
+) -> None:
+    """A KG resolver error cannot widen a requested semantic filter."""
+    mock_request = MagicMock()
+    mock_request.query_params.get.side_effect = lambda key: (
+        "restricted-capability" if key == "q" else None
+    )
+    del mock_request.query_params.getlist
+    mock_request.headers = {}
+    mock_get_request.return_value = mock_request
+    mock_get_active.return_value = MagicMock()
+
+    _, mcp, _ = create_mcp_server("Test Server", command_args=[])
+    transform = mcp._transforms[0]
+
+    with patch(
+        "agent_utilities.tools.dynamic_tool_orchestrator."
+        "DynamicToolOrchestrator.resolve_mcp_tools",
+        side_effect=RuntimeError("resolver unavailable"),
+    ):
+        assert transform._filter_components([DummyComponent("one")]) == []

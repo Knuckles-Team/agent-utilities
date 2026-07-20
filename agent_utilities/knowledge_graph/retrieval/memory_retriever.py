@@ -113,7 +113,7 @@ class MemoryRetriever:
         # Create the initial self-model
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = MemoryRetrieverNode(
-            id=f"sm:{uuid.uuid4().hex[:8]}",
+            id=f"sm:{uuid.uuid4().hex}",
             name="Agent Self-Model v1",
             version=1,
             timestamp=ts,
@@ -152,7 +152,7 @@ class MemoryRetriever:
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         new_node = MemoryRetrieverNode(
-            id=f"sm:{uuid.uuid4().hex[:8]}",
+            id=f"sm:{uuid.uuid4().hex}",
             name=f"Agent Self-Model v{current.version + 1}",
             version=current.version + 1,
             timestamp=ts,

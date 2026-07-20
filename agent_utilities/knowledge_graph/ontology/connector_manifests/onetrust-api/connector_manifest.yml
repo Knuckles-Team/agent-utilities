@@ -1,0 +1,309 @@
+connector: onetrust-api
+ontology_source: onetrust
+schema_version: '1'
+resources:
+- name: Assessment
+  label: Assessment
+  id_prefix: assessment
+  relations:
+  - name: approvedBy
+    label: approved by
+    target: Person
+    lpg_rel_type: ''
+  - name: assessesInventory
+    label: assesses inventory
+    target: Inventory
+    lpg_rel_type: ''
+  - name: respondedBy
+    label: responded by
+    target: Person
+    lpg_rel_type: ''
+  - name: usesTemplate
+    label: uses template
+    target: AssessmentTemplate
+    lpg_rel_type: ''
+- name: AssessmentTemplate
+  label: Assessment Template
+  id_prefix: assessmenttemplate
+  relations: []
+- name: ConsentReceipt
+  label: Consent Receipt
+  id_prefix: consentreceipt
+  relations: []
+- name: Cookie
+  label: Cookie
+  id_prefix: cookie
+  relations:
+  - name: scannedOnDomain
+    label: scanned on domain
+    target: CookieDomain
+    lpg_rel_type: ''
+- name: CookieDomain
+  label: Cookie Domain
+  id_prefix: cookiedomain
+  relations: []
+- name: DataElement
+  label: Data Element
+  id_prefix: dataelement
+  relations:
+  - name: concernsDataSubject
+    label: concerns data subject
+    target: DataSubject
+    lpg_rel_type: ''
+- name: DataSubject
+  label: Data Subject
+  id_prefix: datasubject
+  relations: []
+- name: Inventory
+  label: Inventory Record
+  id_prefix: inventory
+  relations:
+  - name: hasDataElement
+    label: has data element
+    target: DataElement
+    lpg_rel_type: ''
+  - name: ownedBy
+    label: owned by
+    target: Person
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: onetrust-assessments.updated
+  resource: assessment
+  description: "Watermark event for 'onetrust-assessments' \u2014 advances on lastUpdated (mcp_source_presets.json)."
+- name: onetrust-inventory.updated
+  resource: inventory
+  description: "Watermark event for 'onetrust-inventory' \u2014 advances on lastUpdated (mcp_source_presets.json)."
+identity:
+  id_field:
+    assessment: assessmentId
+    inventory: id
+  title_field:
+    assessment: name
+    inventory: name
+  text_field:
+    assessment: templateName
+    inventory: description
+  updated_field:
+    assessment: lastUpdated
+    inventory: lastUpdated
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Assessment:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  AssessmentTemplate:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  ConsentReceipt:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  Cookie:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  CookieDomain:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  DataElement:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  DataSubject:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+  Inventory:
+    ontology_class: null
+    fields:
+      cookieCategory: xsd:string
+      deadline: xsd:string
+      externalId: xsd:string
+      host: xsd:string
+      inventoryType: xsd:string
+      lifespan: xsd:string
+      number: xsd:string
+      result: xsd:string
+      riskLevel: xsd:string
+      riskScore: xsd:decimal
+      status: xsd:string
+      thirdParty: xsd:boolean
+sync:
+- preset: onetrust-assessments
+  server: onetrust-api
+  tool: onetrust_assessments
+  action: get_all_assessment_basic_details_using_get
+  records_path: data
+  id_field: assessmentId
+  title_field: name
+  text_field: templateName
+  updated_field: lastUpdated
+  pagination: page
+  doc_type: assessment
+  tool_schema_sha256: 9551d768e3dad678a55328cd2594c83f58286f8246743eee21113b27487619bd
+  raw:
+    server: onetrust-api
+    tool: onetrust_assessments
+    action: get_all_assessment_basic_details_using_get
+    records_path: data
+    id_field: assessmentId
+    title_field: name
+    text_field: templateName
+    updated_field: lastUpdated
+    pagination: page
+    page_kind: page
+    page_param: page
+    page_size_param: size
+    doc_type: assessment
+- preset: onetrust-inventory
+  server: onetrust-api
+  tool: onetrust_data_mapping
+  action: get_list_of_inventories_using_get
+  records_path: data
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: lastUpdated
+  pagination: page
+  doc_type: inventory
+  tool_schema_sha256: e20b4770c98fcab26dedff89b0b5a50cf5fc274959e97f76d118af235dee6833
+  raw:
+    server: onetrust-api
+    tool: onetrust_data_mapping
+    action: get_list_of_inventories_using_get
+    records_path: data
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: lastUpdated
+    pagination: page
+    page_kind: page
+    page_param: page
+    page_size_param: size
+    doc_type: inventory
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - onetrust_api/connectors/mcp_source_presets.json
+  - onetrust_api/connectors/tool_schema_fingerprints.json
+  - onetrust_api/ontology/onetrust.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: a462ef0407cbc22d9c73e5052db5c194a2b29b78478492379370cfb8228c72b0
+    triple_count: 96
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 5qq_yQwamwuMQbg2Gj3YKw3AodsYyQV8xcHHVxKiaQ1vGIUEspoY04qjQaT5i0cNH367xQ94ikvywmYpMjCaCA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.Assessment.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.AssessmentTemplate.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ConsentReceipt.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Cookie.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CookieDomain.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataElement.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataSubject.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Inventory.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

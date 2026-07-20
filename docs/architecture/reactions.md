@@ -31,7 +31,7 @@ flowchart LR
 |---|---|---|
 | `AgentReaction` | ECO-4.79 | The structured output a turn emits: `{emote, target_message_id?, intensity?}`. Optional + lightweight — no reaction ⇒ `None`. `to_dict()` / `from_dict()` serialize it for envelopes and renderers. |
 | `EmoteRegistry` | AU-ECO.reactions.one-emote-registry-governance | The **one** menu of available emotes + the governance gate (`allows(emote, actor, context)`), reusing the `ActionPolicy` decision point (`reaction` kind). No per-surface emote list. |
-| `decide_reaction()` | ECO-4.79 | The instinctive, **model-agnostic** decision (a tool-free completion, bounded to 10 s) — moved out of `messaging/router.py` so every entrypoint shares one heuristic. Opt out with `REACTIONS=0` (legacy `MESSAGING_REACTIONS=0` still honored). |
+| `decide_reaction()` | ECO-4.79 | The instinctive, **model-agnostic** decision (a tool-free completion, bounded to 10 s) — moved out of `messaging/router.py` so every entrypoint shares one heuristic. Opt out with `REACTIONS=0`. |
 
 ## The renderer contract (the ONLY per-surface code)
 

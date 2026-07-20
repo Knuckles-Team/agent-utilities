@@ -50,9 +50,9 @@ The primary configuration file is located at `~/.config/agent-utilities/config.j
   ],
   "embedding_models": [
     {
-      "id": "text-embedding-nomic-embed-text-v2-moe",
+      "id": "embedding-model",
       "provider": "openai",
-      "base_url": "http://vllm-embed.arpa/v1"
+      "base_url": "https://embedding-api.example.test/v1"
     }
   ]
 }
@@ -62,18 +62,21 @@ The primary configuration file is located at `~/.config/agent-utilities/config.j
 
 *   `id`: The specific model string identifier to pass to the API.
 *   `provider`: The API provider (e.g., `openai`, `anthropic`, `ollama`).
-*   `intelligence_level`: Categorizes the model's capability (`light`, `normal`, `super`). Replaces legacy `LITE_LLM`, `SUPER_LLM` tier routing.
+*   `intelligence_level`: Categorizes the model's capability (`light`, `normal`, `super`) for current tier routing.
 *   `supports_json`: Boolean indicating if the model natively supports JSON mode.
 *   `vision`: Boolean indicating if the model supports multimodal inputs (images).
 
-### Environment Variables (`.env`)
+### Runtime secret references
 
-Environment variables are now strictly reserved for sensitive credentials. They are decoupled from routing flags.
+Durable AgentConfig stores secret references. Values come from explicit process
+injection, a configured secret backend, or the fixed private XDG runtime-secret
+source when an exact `env://` target is declared.
 
-```env
-# Sensitive Credentials Only
-LLM_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+```json
+{
+  "OIDC_CLIENT_SECRET_REF": "secret://identity/graph-os-client",
+  "LANGFUSE_SECRET_KEY_REF": "secret://observability/trace-writer"
+}
 ```
 
 ---
@@ -116,7 +119,7 @@ All XDG paths delegate to `core/paths.py`:
 
 ---
 
-## 🔒 Secrets & Authentication (CONCEPT:AU-OS.config.secrets-authentication)
+## 🔒 Secrets & Authentication (CONCEPT:AU-OS.config.secrets-authentication) { #secrets-authentication }
 
 ### Session Concurrency Management
 
@@ -162,7 +165,7 @@ Supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and 
 
 ---
 
-## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:AU-OS.config.secrets-authentication)
+## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:AU-OS.config.secrets-authentication) { #sensory-guardrails }
 
 Sensory verification utilizes declarative tool contracts (`ContractValidator`) enforcing functional pre-conditions and strict schema-validated post-conditions on execution steps. This ensures that agent steps operate strictly within validated environments and return safety-compliant data structures.
 
@@ -197,11 +200,11 @@ sequenceDiagram
 1. **Pre-condition Assertions**: Assert the prerequisite structural and environmental states required for a step to begin safely (e.g., database locks, network connections).
 2. **Post-condition Schema Enforcement**: Ensure output values match strict Pydantic structures (`post_condition_schema`) or pass customized assertion functions (`post_condition_verifier`).
 
-*   **Source Code Path**: [contract_validator.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/harness/contract_validator.py)
+*   **Source Code Path**: [contract_validator.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/harness/contract_validator.py)
 
 ---
 
-## 📈 Telemetry, Observability & Token Usage (CONCEPT:AU-OS.config.secrets-authentication)
+## 📈 Telemetry, Observability & Token Usage (CONCEPT:AU-OS.config.secrets-authentication) { #telemetry-observability }
 
 ### Token Usage Tracker
 
@@ -239,7 +242,7 @@ except ImportError:
 *   **`geniusbot`**: Standardizes all chat assistant logs to `geniusbot.log` located exclusively within the unified log directory.
 *   **Workspace Protection**: Guarantees that no developer logs, temporary telemetry databases, or debug outputs clutter workspace repositories, preserving git and build environment cleanliness.
 
-*   **Source Code**: [paths.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/paths.py)
+*   **Source Code**: [paths.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/core/paths.py)
 
 ### Telemetry & Observability
 
@@ -247,7 +250,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 *   **Source Code**: `agent_utilities/observability/telemetry.py`, `agent_utilities/harness/tracing.py`, `agent_utilities/harness/evaluators.py`
 
 #### Native Langfuse Integration
-`agent-utilities` integrates directly with the Langfuse API client (`langfuse-agent`) to provide zero-overhead, batch-flushed tracing. By providing `LANGFUSE_SECRET_KEY` in the environment, agents automatically push traces, metrics, and LLM-as-a-judge scores. Traces that fall below `LANGFUSE_DATASET_CAPTURE_THRESHOLD` are promoted to Langfuse Datasets for closed-loop continuous improvement.
+`agent-utilities` integrates directly with the Langfuse API client (`langfuse-agent`). Persist only `LANGFUSE_PUBLIC_KEY_REF` and `LANGFUSE_SECRET_KEY_REF`; their key material is resolved in memory at the runtime boundary. Configure the canonical `LANGFUSE_HOST`, and reference private trust with `LANGFUSE_TLS_PROFILE_REF`. TLS verification cannot be disabled. `TRACE_EXPORT_ENABLED` is the explicit emission gate, and `LANGFUSE_CAPTURE_CONTENT=false` keeps traces metadata-only. The `@trace` path emits one bounded event when each decorated call completes; the graph-run exporter follows the Langfuse SDK lifecycle and flushes at explicit flush boundaries. Langfuse MCP availability is independently gated by `LANGFUSE_MCP_ENABLED`, so direct tracing and failure evolution do not require an MCP launcher. Traces below `LANGFUSE_DATASET_CAPTURE_THRESHOLD` may be proposed for governed dataset capture; proposal does not authorize promotion or raw-content retention.
 
 ---
 
@@ -309,7 +312,7 @@ Scaling to **100,000,000 concurrent agents** requires swapping out local memory 
 ### Key Capabilities
 
 1. **Pluggable Event Fabrics**: Local, in-memory queues are abstracted using a unified `QueueBackend` interface (`CONCEPT:AU-ECO.bus.pluggable-event-queue`). The system supports zero-overhead memory backends, NATS messaging clusters (`NatsQueueBackend`), and distributed Apache Kafka partitions (`KafkaQueueBackend`) for multi-host, high-throughput event sourcing.
-2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans run in the compiled Rust `epistemic-graph` engine (`CONCEPT:AU-KG.ingest.engineering-rules`), reached **out-of-process** over a MessagePack/UDS (or TCP) client — there is **no PyO3** in the primary path — substantially reducing analytical overhead.
+2. **Compiled Rust Graph Compute**: High-performance epistemic reasoning, transitive closure calculations, and topological analogy scans run in the compiled Rust `epistemic-graph` engine (`CONCEPT:AU-KG.ingest.engineering-rules`), reached **out-of-process** over a MessagePack/UDS (or TCP) client — there is **no PyO3** in the primary path — substantially reducing analytical overhead. The one supported `epistemic-graph[full]` artifact is a hard `agent-utilities` base dependency: `[mcp]` adds serving dependencies and `[agent-runtime]` adds model orchestration, but neither extra changes engine availability or selects another build.
 3. **WebAssembly sandboxed Micro-Agents**: Untrusted or user-generated micro-agents are executed inside an isolated WebAssembly sandbox using `wasmtime` (`CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel`). Sandboxes enforce strict gas limits, precise memory caps, and virtualized system calls. If WebAssembly compilation is unavailable on the host system, execution dynamically falls back to a secure Python emulation layer.
 
 *   **Source Code Paths**:
@@ -328,22 +331,22 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
 
 1. **Deterministic Replay & Trace Ontology (`OS-5.6`)**:
    Captures step-by-step agent executions (prompts, tool calls, memory state transitions) and registers them as first-class OWL sub-graphs under the **PROV-O (Provenance Ontology)**. This creates crypotographically immutable, auditable provenance logs.
-   * *Source Code*: [replay_engine.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/observability/replay_engine.py)
+   * *Source Code*: [replay_engine.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/observability/replay_engine.py)
 
 2. **Hardened WASM Sandbox Executor (`AU-OS.deployment.platform-journey`)**:
    Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), executing with microsecond-level process containment.
-   * *Source Code*: [sandboxed_executor.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/sandboxed_executor.py)
+   * *Source Code*: [sandboxed_executor.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/sandboxed_executor.py)
 
 3. **Epistemic Resource Scheduler (`OS-5.8`)**:
    An advanced CPU/thread scheduler that dynamically calculates the **eigenvector/out-degree centrality** of active agent nodes in the live Knowledge Graph. High-centrality orchestrator blocks are scaled with increased execution quotas, while low-centrality crawler blocks are checkpointed and paged to disk under system load.
-   * *Source Code*: [cognitive_scheduler.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/cognitive_scheduler.py)
+   * *Source Code*: [cognitive_scheduler.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/core/cognitive_scheduler.py)
 
 4. **Ontological Guardrail Engine (`AU-OS.governance.reactive-multi-axis-budget`)**:
    Intercepts tool schemas and checks parameter payload arguments using real-time OWL subsumption reasoning. Automatically blocks access to files, network targets, or commands if they inherit from banned policy classes inside the Knowledge Graph.
-   * *Source Code*: [tool_guard.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/tool_guard.py)
+   * *Source Code*: [tool_guard.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/tool_guard.py)
 
 For a complete architectural analysis, refer to the detailed guide:
-👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](file:///home/apps/workspace/agent-packages/agent-utilities/docs/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
+👉 [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
 
 ---
 
@@ -354,9 +357,13 @@ Identity is established **server-side**, never trusted from the client:
 1. **JWT-minted ActorContext**: the `ActorIdentityMiddleware`
    (`agent_utilities/security/request_identity.py`) validates
    `Authorization: Bearer` tokens against the configured JWKS and scopes every
-   request to a server-minted `ActorContext` (actor id, tenant, roles). With
-   `KG_AUTH_REQUIRED`, unauthenticated requests are rejected with 401;
-   `GET /metrics` is the deliberate exemption (scrapers cannot mint JWTs).
+   request to a server-minted `ActorContext` and `GraphSession` (actor id,
+   tenant, audience, roles, policy revision). Unauthenticated requests are
+   rejected with 401; only non-fingerprinting health probes are exempt. Those
+   probes return status-only JSON with `Cache-Control: no-store`; component,
+   readiness, version, and topology detail require authenticated surfaces.
+   Graph administration requires the literal effective `kg:admin` capability;
+   a generic `admin` application role never grants it.
 2. **Fail-closed permissioning**: an ACL-check exception denies; permission
    evaluation never falls open (`security/auth.py`,
    `knowledge_graph/ontology/permissioning.py`).
@@ -490,11 +497,13 @@ Full design: [Fleet Autonomy](../architecture/fleet_autonomy.md); postures:
 
 ## 🧭 Shard Topology Visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 
-When the engine tier is sharded (AU-KG.sharding.tenant-partitioned-sharding-hrw), the topology is observable:
+When the engine deployment is sharded (AU-KG.sharding.tenant-partitioned-sharding-hrw), the topology is observable:
 `shard_topology_status()` reports per-shard transport-level reachability and
 breaker state on the unified daemon status, the gateway dashboard exposes it
-at the `daemon/shards` route, and graph-os `GET /health` carries a config-only
-summary. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
+at the authenticated `daemon/shards` route, and the authenticated doctor and
+GraphOS status tools expose operational readiness. The unauthenticated
+GraphOS `GET /health` response is deliberately status-only and never exposes
+server identity or topology. Metrics: `agent_utilities_engine_shard_up{endpoint}` and
 `agent_utilities_engine_shard_requests_total{endpoint,outcome}`. See
 [Engine Sharding](../architecture/engine_sharding.md).
 

@@ -1,18 +1,123 @@
 name: Build|Upload|Release Python Package
 
 on:
-  push:
+  workflow_run:
+    workflows: ['Guardrails']
+    types: [completed]
     branches:
       - 'main'
 
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
+  build-wheel:
+    name: Build immutable Agent Utilities wheel
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_DATE_EPOCH: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # A wheel build does not import its runtime engine. The matrix below installs
+      # this exact wheel and its declared epistemic-graph[full] dependency.
+      - name: Sync immutable wheel-build environment (no runtime engine)
+        run: |
+          uv sync --frozen --group guardrails \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
+      - name: Build primary wheel from the validated source revision
+        run: uv build --wheel --no-build-isolation --out-dir dist-primary
+      - name: Build reproduction wheel from the same source revision
+        run: uv build --wheel --no-build-isolation --out-dir dist-reproduction
+      - name: Validate both packaged release candidates
+        run: |
+          uv run --no-sync python -m pytest tests/gates/test_exact_local_release_contract.py -q -p no:cacheprovider -o addopts=""
+          uv run --no-sync python scripts/release/check_release_wheel.py dist-primary/agent_utilities-*.whl
+          uv run --no-sync python scripts/release/check_release_wheel.py dist-reproduction/agent_utilities-*.whl
+          uv run --no-sync python scripts/check_wheel_privacy.py dist-primary/agent_utilities-*.whl
+          uv run --no-sync python scripts/check_wheel_privacy.py dist-reproduction/agent_utilities-*.whl
+      - name: Require byte-identical wheels and stage the sole candidate
+        run: |
+          python -c "from hashlib import sha256; from pathlib import Path; primary=sorted(Path('dist-primary').glob('agent_utilities-*.whl')); reproduction=sorted(Path('dist-reproduction').glob('agent_utilities-*.whl')); assert len(primary)==len(reproduction)==1, 'release wheel cardinality mismatch'; assert primary[0].name==reproduction[0].name, 'release wheel filename mismatch'; assert sha256(primary[0].read_bytes()).digest()==sha256(reproduction[0].read_bytes()).digest(), 'release wheel digest mismatch'; print('release_wheel_reproducibility=passed')"
+          mkdir dist
+          cp dist-primary/agent_utilities-*.whl dist/
+      - name: Upload the sole publish candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-utilities-wheel
+          path: dist/agent_utilities-*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  numeric-runtime-gate:
+    name: numeric runtime (${{ matrix.os }})
+    needs: build-wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+      - name: Download the sole publish candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: agent-utilities-wheel
+          path: dist
+      - name: Install exact Agent Utilities wheel with declared full engine
+        run: python -c "from pathlib import Path; import subprocess; subprocess.check_call(['uv', 'pip', 'install', '--system', str(next(Path('dist').glob('agent_utilities-*.whl')))])"
+      - name: Smoke installed numeric runtime outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: python "${{ github.workspace }}/scripts/check_numeric_runtime.py"
+      - name: Smoke installed Langfuse privacy support outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: python -c "import agent_utilities.observability.langfuse_trust; import agent_utilities.security.persistence_privacy"
+
   publish-pypi:
-    uses: Knuckles-Team/pipelines/.github/workflows/python_pipeline.yml@main
-    secrets:
-      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    needs: numeric-runtime-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: agent-utilities-wheel
+          path: dist
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+      - name: Publish the exact wheel validated on Linux and Windows
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
   publish-docker:
     needs: publish-pypi
-    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@main
+    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@dc60f5ca0cfd00bf2e66f912a33d6d0f8ee62874 # v2.0.1
+    permissions:
+      contents: read
     secrets:
       DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}

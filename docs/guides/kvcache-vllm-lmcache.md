@@ -31,7 +31,7 @@ and every vLLM process on the box (or, later, across boxes) pools into one store
 
 ```mermaid
 flowchart LR
-    subgraph GB10["GB10 (DGX Spark, 10.0.0.18) — host network"]
+    subgraph HOST["Accelerator host — deployment network"]
         direction TB
         vllm["vLLM (nightly)\n--enable-prefix-caching\n--kv-transfer-config LMCacheConnectorV1 (kv_both)"]
         subgraph lm["LMCache (in vLLM process)"]
@@ -68,11 +68,12 @@ difference is the wire LMCache speaks.
 
 ## Files
 
-All deployment artifacts live in `services/vllm/` (co-located on GB10):
+Reference deployment artifacts live in `services/vllm/`; render their endpoints,
+credentials, trust, and image references for the target environment:
 
 | File | Role |
 |---|---|
-| `compose.kvcache.yml` | the **epistemic-kvcache** engine server (EG-KG.backend.is-configured-so-co + Redis wire) on GB10 |
+| `compose.kvcache.yml` | the **epistemic-kvcache** engine server (EG-KG.backend.is-configured-so-co + Redis wire) |
 | `Dockerfile.lmcache` | vLLM nightly + `pip install lmcache` (+ `agent-utilities` for Path A) |
 | `compose.lmcache.yml` | **opt-in override** — adds `--kv-transfer-config` + `LMCACHE_CONFIG_FILE` to the live `vllm-llm` |
 | `lmcache/lmcache.redis.yaml` | Path B config (`remote_url: redis://localhost:6379`) |
@@ -195,7 +196,7 @@ signals a Linux `eventfd`, and delegates every `put`/`get`/`contains` to `Episte
 
 `adapter_params` are forwarded as keyword args (all optional — with none supplied the connector
 reads `EPISTEMIC_GRAPH_KVCACHE_URL|ADDR|TOKEN` via `KvCacheConfig.from_env`): `base_url` / `addr`,
-`token`, `timeout_s`, `num_workers`, `max_connections`, `verify_tls`. There is deliberately **no**
+`token`, `timeout_s`, `num_workers`, `max_connections`, `tls_profile`, `tls_profile_ref`. There is deliberately **no**
 `submit_batch_delete` — the shared pool is evicted by the engine's own tiered store (EG-185), so
 LMCache never deletes remote blocks (the wrapper logs L2 delete as a no-op). Every transport error
 degrades to a cache miss (KG-2.306), so an unreachable engine never crashes token generation.
@@ -222,7 +223,7 @@ and `logical_bytes` grow on a first put, and a **repeat-key** put trips `dedup_h
 | Compressed-KV (DeepSeek-V4-style) | ❌ | unsupported → native-APC fallback |
 | Vision-language | ✅ **text KV only** | vision KV not cached |
 
-### Validated live (Qwen3.6-27B hybrid, GB10)
+### Representative hybrid-model validation
 
 MP connector boots on the hybrid (V1 crash-loops); 64 layers register as **separate object
 groups** (attention bf16 + Mamba-state uint8); KV offloads block-by-block to the server;
@@ -233,19 +234,19 @@ restart — reuse that native APC (GPU-only) cannot provide.
 ## Deploy
 
 > The live vLLM is unchanged until you opt in. Nothing below restarts the live
-> service until Step 3, which is an explicit, windowed restart (GB10 SBSA reset
-> risk — do it deliberately).
+> service until Step 3, which is an explicit, windowed restart. Apply the target
+> accelerator platform's restart and recovery policy.
 
 ### 1. Build a KV-cache-enabled engine image
 
 The fleet's default `epistemic-graph` image does **not** compile the KV features.
-Build a tag that does (multi-arch — GB10 needs `linux/arm64`):
+Build a tag for the deployment-selected platform and registry:
 
 ```bash
 cd agent-packages/epistemic-graph
-docker buildx build --platform linux/arm64 \
+docker buildx build --platform "${TARGET_PLATFORM}" \
   --build-arg EG_FEATURES="node,ast-extended,kvcache-server,redis-wire" \
-  -t registry.arpa/epistemic-graph:kvcache \
+  -t "${REGISTRY}/epistemic-graph:kvcache" \
   -f docker/Dockerfile --push .
 ```
 
@@ -253,18 +254,19 @@ docker buildx build --platform linux/arm64 \
 (only needed for Path B). (These features ship on epistemic-graph branch
 `feat/udb-w21-kvcache` — merge to `main` so the fleet CI build carries them.)
 
-### 2. Bring up the kvcache-server on GB10
+### 2. Bring up the kvcache-server on the cache node
 
-Seed a bearer token (mirror to OpenBao `apps/epistemic-kvcache`), then start it:
+Resolve a bearer token from the deployment's secret provider, then start it:
 
 ```bash
-# on GB10 / via DOCKER_HOST
-export EPISTEMIC_GRAPH_KVCACHE_TOKEN="$(openssl rand -hex 32)"   # into services/vllm/.env
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+# Resolve the same reference independently on the server and client.
+export EPISTEMIC_GRAPH_KVCACHE_TOKEN_REF=secret://platform/kvcache/token
+DOCKER_HOST=ssh://${DEPLOY_USER}@${ACCELERATOR_HOST} \
   docker compose -f compose.kvcache.yml up -d
 
 # verify the KV surface
-curl -fsS http://10.0.0.18:9130/kv/stats
+curl --fail --silent --show-error \
+  --cacert "${KVCACHE_CA_BUNDLE}" "${EPISTEMIC_GRAPH_KVCACHE_URL}/kv/stats"
 # → {"unique_blocks":0,"total_refs":0,"dedup_savings_bytes":0,...}
 ```
 
@@ -272,12 +274,12 @@ curl -fsS http://10.0.0.18:9130/kv/stats
 
 The customized vLLM image (vLLM nightly + `lmcache` + the connector + configs) is a
 **first-class build definition** at **`images/vllm`**, built by GitLab CI and pushed
-to the private registry as **`registry.arpa/vllm-lmcache`** (arm64/GB10). Prefer the
+to the deployment registry as **`${REGISTRY}/vllm-lmcache`**. Prefer the
 pre-compiled registry image; `compose.lmcache.yml` already references it:
 
 ```bash
-# ensure GB10 resolves the registry (once): 10.0.0.13 registry.arpa in /etc/hosts
-DOCKER_HOST=ssh://genius@10.0.0.18 docker pull registry.arpa/vllm-lmcache:latest
+DOCKER_HOST=ssh://${DEPLOY_USER}@${ACCELERATOR_HOST} \
+  docker pull "${REGISTRY}/vllm-lmcache:${IMAGE_TAG}"
 ```
 
 Offline / local build (no registry) — the in-tree `Dockerfile.lmcache` mirrors the
@@ -285,7 +287,8 @@ Offline / local build (no registry) — the in-tree `Dockerfile.lmcache` mirrors
 
 ```bash
 cd services/vllm
-DOCKER_HOST=ssh://genius@10.0.0.18 docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
+DOCKER_HOST=ssh://${DEPLOY_USER}@${ACCELERATOR_HOST} \
+  docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
 ```
 
 Enable the override (recreates `vllm-llm` on the custom image — the windowed restart):
@@ -295,7 +298,7 @@ Enable the override (recreates `vllm-llm` on the custom image — the windowed r
 #   Path B (default): /etc/lmcache/lmcache.redis.yaml   (-> engine Redis wire :6379)
 #   Path A:           /etc/lmcache/lmcache.epistemic.yaml (-> EG-KG.backend.is-configured-so-co HTTP :9130)
 
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+DOCKER_HOST=ssh://${DEPLOY_USER}@${ACCELERATOR_HOST} \
   docker compose -f compose.standalone.yml -f compose.lmcache.yml up -d vllm-llm
 ```
 
@@ -311,7 +314,7 @@ to confirm dedup + `/kv/stats` before committing to a windowed vLLM restart:
 import os, select
 from agent_utilities.kvcache import EpistemicGraphL2Connector, EpistemicGraphKVBackend, KvCacheConfig
 
-BASE = "http://10.0.0.18:9130"   # or loopback on GB10
+BASE = os.environ["EPISTEMIC_GRAPH_KVCACHE_URL"]
 def stats():
     b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE));  s = b.stats().model_dump();  b.close();  return s
 
@@ -343,7 +346,8 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
 
 1. **KV server is live and empty:**
    ```bash
-   curl -fsS http://10.0.0.18:9130/kv/stats
+   curl --fail --silent --show-error --cacert "${KVCACHE_CA_BUNDLE}" \
+     "${EPISTEMIC_GRAPH_KVCACHE_URL}/kv/stats"
    ```
 2. **vLLM loaded LMCache:** `docker logs vllm-llm 2>&1 | grep -i lmcache` shows the
    connector init (and, Path A, `EpistemicGraphExternalBackend ready (base_url=…)`).
@@ -352,16 +356,17 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
    ```bash
    PROMPT=$(printf 'You are a careful assistant.%.0s ' {1..400})
    for i in 1 2; do
-     curl -s http://10.0.0.18:8000/v1/completions \
+     curl --silent --cacert "${MODEL_CA_BUNDLE}" "${MODEL_BASE_URL}/completions" \
        -H 'content-type: application/json' \
-       -d "{\"model\":\"qwen/qwen3.6-27b\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
+       -d "{\"model\":\"${CHAT_MODEL_ID}\",\"prompt\":\"$PROMPT explain KV caching.\",\"max_tokens\":16}" \
        -o /dev/null -w "run $i: %{time_total}s\n"
    done
    ```
    Expect **run 2 < run 1** (prefix loaded from LMCache/the engine, not recomputed).
 4. **Blocks + dedup are growing in the engine:**
    ```bash
-   curl -fsS http://10.0.0.18:9130/kv/stats
+   curl --fail --silent --show-error --cacert "${KVCACHE_CA_BUNDLE}" \
+     "${EPISTEMIC_GRAPH_KVCACHE_URL}/kv/stats"
    # unique_blocks > 0, total_refs ≥ unique_blocks, dedup_savings_bytes grows as
    # identical pages recur (EG-186). get_hits climbs on the warm run.
    ```
@@ -370,8 +375,146 @@ adapter shows **no** `/kv/stats` movement because it writes the generic Redis ke
 5. **OOM-offload behavior.** Under memory pressure LMCache offloads KV to the remote
    tier instead of dropping it: push concurrency (`--max-num-seqs` worth of distinct
    long prompts) and watch `unique_blocks`/`resident_bytes` climb while vLLM stays
-   healthy (`curl http://10.0.0.18:8000/health`) — the cold tier absorbs eviction
+   healthy (probe `${MODEL_HEALTH_URL}` with the configured trust bundle) — the cold tier absorbs eviction
    (EG-185) rather than the box recomputing every prefill.
+
+## App-level bundle caching (Seam 6, app-level half)
+
+Everything above is the **token-block** path: LMCache hashes raw KV bytes over
+token ids and the engine dedups/pools them — it has no notion of "a compiled
+context bundle."
+
+`ContextCompiler.compile` (`CONCEPT:AU-KG.retrieval.context-compiler`, the X-7
+policy-aware context compiler — `agent_utilities/knowledge_graph/retrieval/context_compiler.py`)
+adds a second, **app-level** use of the SAME `EpistemicGraphKVBackend` connector
+(`CONCEPT:AU-KG.retrieval.context-compiler-kv-seam`): pass `kv_backend=` (any object
+exposing the connector's `get(key) -> bytes | None` / `put(key, bytes) -> bool`
+shape) and `compile` will:
+
+1. Retrieve + policy-filter candidates as normal (unavoidable — this is how it
+   knows whether the underlying evidence changed).
+2. Compute a stable key from the **sorted post-policy evidence-id set** +
+   `session.policy_version` + `token_budget` (folding in `top_k`,
+   `diversity_lambda`, `weights`, `freshness_half_life_days`, `as_of`,
+   `mask_redactions` so nothing that changes the result can collide) —
+   `compute_bundle_cache_key`.
+3. On a hit, deserialize and return the previously-assembled `ContextBundle`
+   (`bundle.kv_cache_hit = True`) — skipping relevance/evidence/freshness
+   scoring, MMR diversity selection, budget-fitting, and proof-graph
+   construction.
+4. On a miss, assemble normally and `put` the serialized bundle under that key
+   for the next caller.
+
+This is opt-in (`kv_backend=None`, the default, leaves `compile` unchanged) and
+reuses the exact same `/kv/<hash>` HTTP surface and connector as the LMCache path
+— same server, same content-addressed store, same `graph_kvcache` MCP tool for
+inspection (`action="stats"` shows both kinds of keys mixed into one
+`unique_blocks` count; a `ctxbundle:<sha256>` key prefix distinguishes an
+app-level bundle entry from a raw LMCache token-block hash at a glance). It is
+**not** a second cache implementation.
+
+## Serving-layer wire (Seam 6, deep half) — the compiled bundle reaches vLLM's OWN KV cache
+
+The app-level half above caches the *assembled bundle object*; it does not by
+itself make vLLM's prefix cache reuse anything, because that requires the
+SAME rendered prompt STRING to reach the server on a later call, and
+`ContextCompiler` hands its `as_text()` output to whatever caller builds the
+prompt — until now, nothing standardized that handoff.
+
+**What's wired.** `agent_utilities/knowledge_graph/retrieval/context_compiler.py`
+adds `ContextBundle.as_prompt_messages(turn_text, *, system_preamble=...)`:
+renders an OpenAI-style `messages` list where the `system` message is a FIXED
+literal preamble (`DEFAULT_BUNDLE_SYSTEM_PREAMBLE`) followed by `as_text()` —
+BYTE-IDENTICAL for two calls sharing the same bundle, whatever `turn_text` is —
+and the `user` message is `turn_text`, the only part that varies. Because it
+is both the first message and content-identical across calls, vLLM's chat
+template tokenizes an identical leading token run every time the same bundle
+is used, which is exactly what vLLM's enabled **automatic prefix cache** and
+LMCache's token-hash cache key off of. A different bundle (different
+evidence/policy/budget) renders different
+`as_text()` output and therefore a different prefix — no false reuse.
+
+`agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py` is the
+thin real-call wrapper: `resolve_bundle_chat_client()` builds a sync
+`openai.OpenAI` client the SAME way every other AU→vLLM caller already does
+(`knowledge_graph/enrichment/cards.py`'s `make_llm_fn`,
+`knowledge_graph/extraction/fact_extractor.py`'s `make_streaming_extract_fn`,
+`harness/g_eval.py`'s `_live_endpoint`) — from the explicitly configured
+default chat model, endpoint, trust policy, bounded timeout, and retries — and
+`bundle_chat_completion(bundle, turn_text, ...)` builds `messages` via
+`as_prompt_messages` and calls `client.chat.completions.create(...)`, so a
+caller gets the end-to-end wire (compile → stable-prefix render → real vLLM
+call) in one call, without hand-rolling `messages=` around `as_text()`.
+
+### Verify prefix caching in your deployment
+
+Do not assume a server image, model, or cache setting. Confirm that the
+configured model service exports prefix-cache counters and that the counters
+increase during a controlled repeated-prefix test:
+
+```bash
+curl --fail --cacert "${MODEL_CA_BUNDLE}" \
+  "${MODEL_METRICS_URL}" | grep prefix_cache
+```
+
+### Measure KV reuse
+
+`scripts/measure_bundle_kv_reuse.py` builds THREE independent real
+`ContextBundle`s via `ContextCompiler` (each with a fresh per-run nonce folded
+into the candidate text, so every invocation is genuinely novel to the
+server's persistent prefix cache — otherwise only the very first run of the
+script would show a true cold baseline), renders each with
+`as_prompt_messages`, and sends 6 SHORT (`max_tokens=8`) chat-completion calls
+through `bundle_chat_completion` to the configured service — one COLD call
+(first-ever exposure) then one WARM call (same bundle, different `turn_text`)
+per bundle —
+reading `vllm:prefix_cache_hits_total` / `_queries_total` from `/metrics`
+immediately before/after each call plus wall-clock latency. Run:
+
+```bash
+python3 scripts/measure_bundle_kv_reuse.py --base-url "${MODEL_BASE_URL}"
+```
+
+Record results in deployment-owned observability rather than in source. A
+valid run should show this reproducible pattern across independent bundles:
+
+- **Every cold (first-ever) call hit exactly 0 prefix-cache tokens** — clean
+  proof there is no reuse to be had (and no false reuse leaking in) before the
+  bundle has ever been sent.
+- **Every warm (same-bundle, different question) call hits a nonzero,
+  block-quantized number of prefix-cache tokens**, consistent with the block
+  size reported by the configured model server.
+- **Every warm call was faster than that SAME bundle's own cold call**
+  under comparable load. Absolute latency can vary with unrelated traffic, so
+  use the cache-counter deltas as the primary evidence and latency as a
+  secondary signal.
+
+This is the serving-layer proof the earlier "app-level bundle caching" section
+above was missing: the SAME bundle, rendered through `as_prompt_messages`
+twice with a different trailing question, measurably reuses vLLM's own KV
+cache on the second call — via the exact wire (`ContextCompiler.compile` →
+`ContextBundle.as_prompt_messages` → `bundle_chat_completion` →
+`client.chat.completions.create`) a real caller would use.
+
+### How the two halves compose
+
+App-level bundle caching (this doc's earlier section) and the serving-layer
+wire are independent and stack:
+
+1. **App-level (`kv_backend=`)** — skips re-running MMR/scoring/proof-graph
+   assembly when the identical evidence/policy/budget recurs (saves CPU,
+   engine round-trips).
+2. **Serving-layer (`as_prompt_messages` / `bundle_chat_completion`)** — once
+   assembled (fresh OR from the app-level cache), rendering it through the
+   SAME stable prefix every time lets vLLM's own token-level KV cache skip
+   recomputing that prefix's prefill (saves GPU time / TTFT on the actual
+   generation call).
+
+A caller can use either alone or both together: `compiler.compile(..., kv_backend=kv)`
+then `bundle.as_prompt_messages(turn_text)` / `bundle_chat_completion(bundle, turn_text, ...)` —
+the *epistemic* quality path (Seam 6 app-level) and the *serving-latency* path
+(the rest of this doc) now connect end-to-end instead of independently hitting
+the same backend as they did before this wire.
 
 ## Rollback
 
@@ -379,7 +522,7 @@ Redeploy the live service from the base compose only (drops the override, back t
 the untouched vLLM) — again a windowed restart:
 
 ```bash
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+DOCKER_HOST=ssh://${DEPLOY_USER}@${ACCELERATOR_HOST} \
   docker compose -f compose.standalone.yml up -d vllm-llm
 ```
 

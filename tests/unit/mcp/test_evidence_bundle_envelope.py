@@ -1,12 +1,8 @@
-"""Live-path tests for the additive `envelope` param on the LLM-facing MCP tools
-(Epistemic Substrate Program, workstream C1 — CONCEPT:evidence-bundle-envelope).
+"""Live-path tests for the current EvidenceBundle LLM-facing MCP contract.
 
 Covers:
-  * `graph_ask` / `nl_query` (query_tools.py) — `envelope="raw"` (default/unset)
-    stays BYTE-IDENTICAL to the pre-existing behavior; `envelope="bundle"`
-    additively attaches an `evidence_bundle` key without touching anything else.
-  * `graph_analyze action=code_context` (analysis_tools.py) — same raw/bundle
-    contract over `build_code_context`'s output.
+  * `graph_ask` / `nl_query` return an EvidenceBundle directly.
+  * `graph_analyze action=code_context` returns the same current contract.
   * `graph_analyze action=executable_rag` (analysis_tools.py) — brand-new MCP
     exposure of the executable-RAG interpreter; no legacy consumer, so it
     returns the EvidenceBundle directly (no wrapping toggle needed).
@@ -20,10 +16,7 @@ so the tests run with no live engine or model.
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
-
-import pytest
 
 from agent_utilities.knowledge_graph.retrieval.executable_rag import RagResult
 from agent_utilities.mcp import kg_server
@@ -59,58 +52,25 @@ _CANNED_NL_PAYLOAD = {
 }
 
 
-def test_graph_ask_envelope_raw_is_byte_identical(monkeypatch):
+def test_graph_ask_returns_typed_bundle(monkeypatch):
     _register_query_tools()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.nl_query.nl_to_query",
         lambda *a, **kw: dict(_CANNED_NL_PAYLOAD),
     )
-    expected = json.dumps(_CANNED_NL_PAYLOAD, default=str)
-
-    # envelope entirely unset (the pre-existing call shape).
-    default_out = asyncio.run(
+    out = asyncio.run(
         kg_server._execute_tool("graph_ask", question="which agents call run_agent?")
-    )
-    # envelope explicitly "raw".
-    explicit_raw_out = asyncio.run(
-        kg_server._execute_tool(
-            "graph_ask", question="which agents call run_agent?", envelope="raw"
-        )
-    )
-
-    assert default_out == expected
-    assert explicit_raw_out == expected
-    assert "evidence_bundle" not in json.loads(default_out)
-
-
-def test_graph_ask_envelope_bundle_adds_evidence_bundle_additively(monkeypatch):
-    _register_query_tools()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.nl_query.nl_to_query",
-        lambda *a, **kw: dict(_CANNED_NL_PAYLOAD),
+    ).model_dump()
+    assert out["claims"] == _CANNED_NL_PAYLOAD["results"]
+    assert out["evidence_spans"] == [{"ref": "agent:foo"}]
+    assert out["confidence"] is None
+    assert out["reasoning_trace"][-1]["generated_query"] == (
+        _CANNED_NL_PAYLOAD["generated_query"]
     )
 
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool(
-                "graph_ask",
-                question="which agents call run_agent?",
-                envelope="bundle",
-            )
-        )
-    )
-    # every raw field is still present, unmodified
-    for key, val in _CANNED_NL_PAYLOAD.items():
-        assert out[key] == val
-    bundle = out["evidence_bundle"]
-    assert bundle["claims"] == _CANNED_NL_PAYLOAD["results"]
-    assert bundle["evidence_spans"] == [{"ref": "agent:foo"}]
-    assert bundle["confidence"] is None
 
-
-def test_nl_query_envelope_raw_is_byte_identical(monkeypatch):
+def test_nl_query_returns_typed_bundle(monkeypatch):
     _register_query_tools()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     monkeypatch.setattr(
@@ -120,29 +80,12 @@ def test_nl_query_envelope_raw_is_byte_identical(monkeypatch):
 
     out = asyncio.run(
         kg_server._execute_tool("nl_query", text="which agents call run_agent?")
+    ).model_dump()
+    assert out["claims"] == _CANNED_NL_PAYLOAD["results"]
+    assert out["confidence"] is None
+    assert out["reasoning_trace"][-1]["generated_query"] == (
+        _CANNED_NL_PAYLOAD["generated_query"]
     )
-    assert out == json.dumps(_CANNED_NL_PAYLOAD, default=str)
-
-
-def test_nl_query_envelope_bundle_wraps_additively(monkeypatch):
-    _register_query_tools()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.nl_planner.nl_query",
-        lambda *a, **kw: dict(_CANNED_NL_PAYLOAD),
-    )
-
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool(
-                "nl_query",
-                text="which agents call run_agent?",
-                envelope="bundle",
-            )
-        )
-    )
-    assert out["generated_query"] == _CANNED_NL_PAYLOAD["generated_query"]
-    assert out["evidence_bundle"]["confidence"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -162,13 +105,14 @@ class _FakeMCP:
         return _decorator
 
 
-def _register_graph_analyze():
-    from agent_utilities.mcp.tools import analysis_tools
+def _register_analysis_suite():
+    from agent_utilities.mcp.tools import analysis_tools, analyze_suite
 
     fake = _FakeMCP()
     analysis_tools.register_analysis_tools(fake)
+    analyze_suite.register_analyze_suite_tools(fake)
     assert kg_server.REGISTERED_TOOLS.get("graph_analyze") is fake.tools["graph_analyze"]
-    return fake.tools["graph_analyze"]
+    return fake
 
 
 _CANNED_CODE_CONTEXT = {
@@ -196,53 +140,20 @@ _CANNED_CODE_CONTEXT = {
 }
 
 
-def test_graph_analyze_code_context_raw_is_byte_identical(monkeypatch):
-    _register_graph_analyze()
+def test_graph_code_context_returns_typed_bundle(monkeypatch):
+    _register_analysis_suite()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.retrieval.code_context.build_code_context",
         lambda *a, **kw: dict(_CANNED_CODE_CONTEXT),
     )
 
-    out_default = asyncio.run(
+    out = asyncio.run(
         kg_server._execute_tool(
-            "graph_analyze", action="code_context", query="how does run_agent work"
+            "graph_code", action="code_context", query="how does run_agent work"
         )
-    )
-    out_explicit_raw = asyncio.run(
-        kg_server._execute_tool(
-            "graph_analyze",
-            action="code_context",
-            query="how does run_agent work",
-            envelope="raw",
-        )
-    )
-    expected = json.dumps(_CANNED_CODE_CONTEXT, default=str)
-    assert out_default == expected
-    assert out_explicit_raw == expected
-
-
-def test_graph_analyze_code_context_bundle_is_additive(monkeypatch):
-    _register_graph_analyze()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.retrieval.code_context.build_code_context",
-        lambda *a, **kw: dict(_CANNED_CODE_CONTEXT),
-    )
-
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool(
-                "graph_analyze",
-                action="code_context",
-                query="how does run_agent work",
-                envelope="bundle",
-            )
-        )
-    )
-    for key, val in _CANNED_CODE_CONTEXT.items():
-        assert out[key] == val
-    bundle = out["evidence_bundle"]
+    ).model_dump()
+    bundle = out
     assert bundle["answer_candidate"] == _CANNED_CODE_CONTEXT["answer"]
     assert bundle["evidence_spans"] == _CANNED_CODE_CONTEXT["citations"]
     assert bundle["confidence"] is None
@@ -251,12 +162,12 @@ def test_graph_analyze_code_context_bundle_is_additive(monkeypatch):
 # ---------------------------------------------------------------------------
 # graph_analyze action=executable_rag (brand-new MCP exposure)
 # ---------------------------------------------------------------------------
-def test_graph_analyze_executable_rag_returns_evidence_bundle(monkeypatch):
+def test_graph_explain_executable_rag_returns_evidence_bundle(monkeypatch):
     from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
         HybridRetriever,
     )
 
-    _register_graph_analyze()
+    _register_analysis_suite()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
 
     canned = RagResult(
@@ -271,15 +182,13 @@ def test_graph_analyze_executable_rag_returns_evidence_bundle(monkeypatch):
         lambda self, query, **kw: canned,
     )
 
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool(
-                "graph_analyze",
-                action="executable_rag",
-                query="what does run_agent do?",
-            )
+    out = asyncio.run(
+        kg_server._execute_tool(
+            "graph_explain",
+            action="executable_rag",
+            query="what does run_agent do?",
         )
-    )
+    ).model_dump()
     # No wrapping toggle needed — the bundle IS the top-level shape.
     assert out["answer_candidate"] == canned.answer
     assert out["evidence_spans"] == [{"id": "n1"}, {"id": "n2"}]
@@ -287,24 +196,10 @@ def test_graph_analyze_executable_rag_returns_evidence_bundle(monkeypatch):
     assert out["reasoning_trace"][-1] == {"step": "final", "success": True}
 
 
-def test_graph_analyze_executable_rag_requires_query(monkeypatch):
-    _register_graph_analyze()
+def test_graph_explain_executable_rag_requires_query(monkeypatch):
+    _register_analysis_suite()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
     out = asyncio.run(
-        kg_server._execute_tool("graph_analyze", action="executable_rag", query="")
+        kg_server._execute_tool("graph_explain", action="executable_rag", query="")
     )
-    assert "needs a question" in out
-
-
-@pytest.mark.parametrize("envelope_value", ["raw", "", "RAW"])
-def test_envelope_values_normalize_to_raw(monkeypatch, envelope_value):
-    _register_query_tools()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.nl_query.nl_to_query",
-        lambda *a, **kw: dict(_CANNED_NL_PAYLOAD),
-    )
-    out = asyncio.run(
-        kg_server._execute_tool("graph_ask", question="q", envelope=envelope_value)
-    )
-    assert "evidence_bundle" not in json.loads(out)
+    assert "needs a question" in out.answer_candidate

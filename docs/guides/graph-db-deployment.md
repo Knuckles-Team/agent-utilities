@@ -1,266 +1,198 @@
 # Graph Database Deployment & Multi-Backend Guide
 
-> **CONCEPT:AU-KG.query.object-graph-mapper** — High-Scale Graph Database Backends
+> **CONCEPT:AU-KG.query.object-graph-mapper** — governed graph deployment
 
-This guide provides a comprehensive, production-ready reference for deploying, configuring, and maintaining scale-out persistent graph backends for the `agent-utilities` Knowledge Graph engine.
+The Rust-native `epistemic-graph` engine is the sole primary authority and
+system of record. It serves operational reads, commits writes, runs graph and
+multimodal compute, and persists authoritative state. PostgreSQL/Apache AGE,
+Neo4j, FalkorDB, LadybugDB/Kuzu, GraphQL, and remote graph engines are optional
+external systems with one of two explicit roles:
 
-The **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`) is the zero-config, zero-dependency embedded default, and **PostgreSQL + pgvector (pg-age)** is the primary durable/production tier. The demoted **contrib** backends — **LadybugDB**, **FalkorDB**, and **Neo4j** — remain fully supported as opt-in imports (`backends/contrib/`) with Cypher CRUD, HNSW vector embeddings, and relationship indexing. Select any of them via `create_backend()` or the `GRAPH_BACKEND` environment variable.
+- **mirror** — receives the engine's governed replication stream for interop,
+  analytics, external query, or disaster recovery;
+- **read source** — is discovered and mapped under approval, then materialized
+  into the engine through native `ChangeEnvelope` transactions.
 
----
+An external database never replaces the engine authority, receives direct
+operational lifecycle writes, or becomes an implicit fallback.
 
-## 📊 Database Comparison Matrix
-
-Select the right database backend based on your scale, infrastructure constraints, and architectural patterns:
-
-> [!NOTE]
-> The zero-config embedded default is the **Rust-native EpistemicGraph** (`GRAPH_BACKEND=memory`/`file`), not listed below. **PostgreSQL + pg-age** is the primary durable/production tier. LadybugDB, FalkorDB, and Neo4j are demoted **contrib** backends (`backends/contrib/`) — fully supported but opt-in (require their driver packages).
-
-| Metric / Feature | 🐞 LadybugDB (contrib) | 🦅 FalkorDB (contrib) | 🟢 Neo4j (contrib) | 🐘 PostgreSQL + pg-age |
-|---|---|---|---|---|
-| **Primary Use Case** | Embedded / Local Dev | Low Latency / High Throughput | Enterprise Property Graph | Relational + Graph Unity |
-| **ACID Compliance** | Single-writer WAL | In-Memory (Optional AOF) | Full ACID (Clustered) | Full ACID (Standard Relational) |
-| **Vector Search (HNSW)**| ✅ Embedded | ✅ Redis-native | ✅ Neo4j GenAI Index | ✅ `pgvector` HNSW |
-| **Full-Text BM25 Search**| — | — | — | ✅ ParadeDB `pg_search` |
-| **Scale Limits** | Single Node / Local | Sharded Redis Cluster | Multi-region clusters | High-scale Postgres instances |
-| **Zero Configuration** | ✅ Yes | ❌ Requires Docker/Server | ❌ Requires Docker/Server | ❌ Requires Docker/Server |
-| **Traversal Engine** | Native SQLite Cypher | Redis RESP-native RESP | Native Bolt JVM | pg-age CSR Traversal |
-
----
-
-## 🛠️ Docker Deployment and Configuration
-
-Below are the complete, production-grade Docker Compose configurations and environment parameters for deploying each database backend.
-
-> [!NOTE]
-> For development environments running on the same host, ensure database ports do not conflict. The compose configurations below use standard testing/staging ports, but can be customized as needed.
-
-### 1. FalkorDB (Low-Latency Graph Workloads)
-
-FalkorDB is a low-latency, high-throughput graph database built on Redis, utilizing the fast RESP protocol and sparse matrix multiplication to achieve near-instantaneous Cypher evaluations.
-
-#### 🐳 Docker Compose (`docker/falkordb.compose.yml`)
-```yaml
-version: "3.8"
-
-services:
-  falkordb-db:
-    image: falkordb/falkordb:latest
-    container_name: agent-falkordb
-    ports:
-      - "6380:6379"
-    volumes:
-      - falkordb-data:/data
-    restart: unless-stopped
-
-volumes:
-  falkordb-data:
-```
-
-#### ⚙️ Configuration Setup
-To point your agents to FalkorDB, set the following variables:
-```bash
-export GRAPH_BACKEND=falkordb
-export GRAPH_DB_HOST=localhost
-export GRAPH_DB_PORT=6380
-export GRAPH_DB_NAME=agent_graph
-```
-
-#### 🔌 Python Connection Example
-```python
-from agent_utilities.knowledge_graph.backends import create_backend
-
-backend = create_backend(
-    backend_type="falkordb",
-    host="localhost",
-    port=6380,
-    db_name="agent_graph"
-)
-# The backend auto-initializes the schema on connection
-```
-
----
-
-### 2. Neo4j (Enterprise Property Graphs)
-
-Neo4j is the industry standard for ACID property graphs, supporting multi-region clustering, fine-grained role permissions, and the APOC (Awesome Procedures on Cypher) plugin suite.
-
-#### 🐳 Docker Compose (`docker/neo4j.compose.yml`)
-```yaml
-version: "3.8"
-
-services:
-  neo4j-db:
-    image: neo4j:latest
-    container_name: agent-neo4j
-    environment:
-      - NEO4J_AUTH=neo4j/password
-      - NEO4J_PLUGINS=["apoc"]
-      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
-    ports:
-      - "7474:7474"   # HTTP Admin Dashboard
-      - "7687:7687"   # Bolt Query Protocol
-    volumes:
-      - neo4j-data:/data
-    restart: unless-stopped
-
-volumes:
-  neo4j-data:
-```
-
-#### ⚙️ Configuration Setup
-Configure your environment to point to Neo4j via the Bolt protocol:
-```bash
-export GRAPH_BACKEND=neo4j
-export GRAPH_DB_URI=bolt://localhost:7687
-export GRAPH_DB_USER=neo4j
-export GRAPH_DB_PASSWORD=password
-```
-
-#### 🔌 Python Connection Example
-```python
-from agent_utilities.knowledge_graph.backends import create_backend
-
-backend = create_backend(
-    backend_type="neo4j",
-    uri="bolt://localhost:7687",
-    user="neo4j",
-    password="password"
-)
-```
-
----
-
-### 3. PostgreSQL + pg-age (Relational & Graph Unity)
-
-The PostgreSQL backend leverages `pgvector` for HNSW cosine search, ParadeDB (`pg_search`) for BM25 lexical search, and the `pg-age` extension for highly optimized CSR (Compressed Sparse Row) graph traversals. The `CypherTranspiler` translates Cypher queries directly into PostgreSQL SQL parameters.
-
-#### 🐳 Docker Compose (`docker/pg-age.compose.yml`)
-```yaml
-version: "3.8"
-
-services:
-  pg-age-db:
-    image: paradedb/paradedb:latest
-    container_name: agent-pg-age
-    environment:
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent
-      POSTGRES_DB: agent_kg
-    ports:
-      - "5433:5432"   # Mapped to 5433 to avoid host conflicts
-    volumes:
-      - pg-age-data:/var/lib/postgresql
-      - ./pg-age-init:/docker-entrypoint-initdb.d
-    restart: unless-stopped
-
-volumes:
-  pg-age-data:
-```
-
-#### 📜 Initialization Script (`docker/pg-age-init/01-extensions.sql`)
-Place the following inside the initialization directory to enable the required extensions automatically on container boot:
-```sql
--- pg-age + pgvector initialization script
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
-
--- ParadeDB extensions (included in paradedb image)
-CREATE EXTENSION IF NOT EXISTS pg_search;
-
--- pg-age extension (optional, uncomment if installed)
--- CREATE EXTENSION IF NOT EXISTS pg-age;
-```
-
-#### ⚙️ Configuration Setup
-Point your agents to the Postgres graph backend:
-```bash
-export GRAPH_BACKEND=postgresql
-export GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
-export GRAPH_POOL_MIN=2
-export GRAPH_POOL_MAX=10
-export GRAPH_PGGRAPH_SCHEMA=public
-```
-
-#### 🔌 Python Connection Example
-```python
-from agent_utilities.knowledge_graph.backends import create_backend
-
-backend = create_backend(
-    backend_type="postgresql",
-    uri="postgresql://agent:agent@localhost:5433/agent_kg",
-    db_name="agent_graph"
-)
-```
-
----
-
-## 🔄 Verification & Operations
-
-### Health Checks
-Before starting the agent workflow or running pipelines, verify that the databases are online and accessible. You can do this programmatically or via CLI.
-
-#### Dynamic Connectivity Verifier (`verify_connection.py`)
-```python
-import socket
-import time
-
-def wait_for_db(host: str, port: int, timeout: int = 30):
-    start_time = time.time()
-    while True:
-        try:
-            with socket.create_connection((host, port), timeout=1):
-                print(f"✅ Connection successful to {host}:{port}!")
-                return True
-        except (socket.timeout, ConnectionRefusedError):
-            if time.time() - start_time > timeout:
-                raise TimeoutError(f"Database at {host}:{port} failed to start in {timeout}s.")
-            print(f"Waiting for database at {host}:{port}...")
-            time.sleep(1)
-
-# Example: Check pg-age port
-wait_for_db("localhost", 5433)
-```
-
----
-
-## 🧪 Sequential Integration Testing Harness
-
-To prevent resource starvation or port collisions on localized development environments, the integration test suite runs sequentially. The harness manages starting the container, waiting for it to accept connections, executing deep CRUD/vector operations, stress-testing with the ingestion pipeline, and tearing down the container cleanly.
-
-```bash
-# Run the sequential multi-backend integration tests
-PYTHONPATH=. pytest tests/integration/knowledge_graph/test_multibackend_integration.py -v -s
-```
-
-### Flow Diagram of the Testing Lifecycle
+## Authority contract
 
 ```mermaid
-graph TD
-    A[Start integration run] --> B[Initialize Docker Container]
-    B --> C[Check Connectivity Socket]
-    C -->|Waiting...| C
-    C -->|Connected| D[Init DB Backend Schema]
-    D --> E["CRUD & Node Writes"]
-    E --> F["Vector Search & HNSW Indexing"]
-    F --> G[Run Ingestion Pipeline]
-    G --> H[Stop and Prune Container]
-    H --> I[Execute Next Database Backend]
+flowchart LR
+    CLIENT["GraphOS · API · engine clients"] --> SESSION["Verified GraphSession"]
+    SESSION --> EG["epistemic-graph<br/>sole authority"]
+    EG -->|"durable governed outbox"| MIRRORS["Optional mirrors<br/>AGE · Neo4j · FalkorDB · LadybugDB/Kuzu"]
+    SOURCES["Optional read sources<br/>graphs · GraphQL · remote engine"] --> DISCOVER["Bounded discovery<br/>proposal · approval · drift gate"]
+    DISCOVER --> ENVELOPE["ChangeEnvelope<br/>ACL · provenance · idempotency"]
+    ENVELOPE --> EG
 ```
 
----
+The engine authority requires no selector or external graph service. Declaring
+one or more `role=mirror` connections (or naming them in
+`GRAPH_MIRROR_TARGETS`) automatically adds governed fan-out around the same
+authority. Alternate-authority and backend-mode selectors are not accepted.
 
-## ⚠️ Troubleshooting & Best Practices
+## Role and capability matrix
 
-### 1. Vector Dimension Mismatch
-Ensure your embedding chunk sizes match what the database indexes were configured with. The standard configuration uses `768` dimensions (for nomic-embed).
-- **Symptom**: `ERROR: vector dimension mismatch` on Postgres or `Vector index dimension size mismatch` on Neo4j.
-- **Fix**: Verify `embedding_models` in `config.json` is set to the same model provider and chunk size dimensions.
+| System | Allowed role | Typical purpose | Operational authority |
+|---|---|---|---|
+| `epistemic-graph` | authority | Graph, semantic, vector, multimodal, work-state, and durable compute | **Yes — sole authority** |
+| PostgreSQL + Apache AGE | mirror or read source | openCypher, vector/relational analytics, BI, DR | No |
+| Neo4j | mirror or read source | Native-Cypher interoperability and external analysis | No |
+| FalkorDB | mirror or read source | Redis-backed graph interoperability | No |
+| LadybugDB/Kuzu | mirror or read source | Embedded, single-writer external graph copy | No |
+| Remote `epistemic-graph` | read source | Governed federation/materialization | No |
+| GraphQL | read source | Schema-discovered document or domain ingestion | No |
 
-### 2. Neo4j Authentication Failures
-If you get `Neo.ClientError.Security.Unauthorized`, double check `NEO4J_AUTH` in docker-compose matches `GRAPH_DB_PASSWORD`.
-- **Note**: Neo4j requires the password to be at least 8 characters. Do not use extremely simple passwords like `123` as Neo4j will reject them during container boot.
+External products are independently deployed and operated. Agent Utilities
+stores only neutral aliases and secret references; endpoint, database, identity,
+credential, TLS, query, schema, mapping, and ontology material stay in the
+operator's runtime secret system.
 
-### 3. Transaction Deadlocks on Scale-Out
-Under heavy multi-agent concurrency, database locks might trigger transaction retries.
-- **SQLite (LadybugDB)**: File locking can occur. Use a unique `GRAPH_DB_PATH` per agent or switch to **Neo4j** or **PostgreSQL** which natively support row-level locks and high-concurrency connections.
-- **Postgres Connection Pool**: Set `GRAPH_POOL_MAX` appropriately based on the number of active agents. Each agent should get a dedicated connection from the pool.
+## Deploy the authority
+
+Install GraphOS with the bundled full engine. Configure the engine's
+persistence, transport, authentication, and TLS through AgentConfig and runtime
+secret references appropriate to the selected deployment profile. There is no
+backend or authority selector to set.
+
+For a durable deployment, configure an engine persistence directory through the
+deployment layer. The engine's built-in redb store commits before acknowledgement;
+no PostgreSQL, Neo4j, or embedded Python database is required for authority
+durability. See [Deployment Configurations](deployment-configurations.md) for the
+single-node and clustered profiles.
+
+## Add an optional mirror
+
+Declare each mirror by a neutral name, backend kind, `role=mirror`, and a
+runtime connection-profile reference. The referenced document holds all
+transport and trust material and is resolved only when the mirror connects.
+
+```json
+{
+  "GRAPH_MIRROR_TARGETS": ["analytics-mirror"],
+  "KG_CONNECTIONS": [
+    {
+      "name": "analytics-mirror",
+      "backend": "age",
+      "role": "mirror",
+      "connection_profile_ref": "secret://graph-connections/analytics-mirror"
+    }
+  ]
+}
+```
+
+The write path is:
+
+1. Commit the mutation to `epistemic-graph`.
+2. Append the mutation to the named mirror's durable outbox.
+3. Apply asynchronously through the mirror's single drainer.
+4. Retain and replay an unavailable mirror's ordered tail after recovery.
+
+A file-locked LadybugDB/Kuzu mirror is still owned by one drainer. Agent and MCP
+processes must not open it directly. A mirror is eventually consistent and must
+not be used to answer authority reads.
+
+### Mirror operations
+
+```text
+graph_configure action=list_connections
+graph_configure action=mirror_status
+graph_configure action=reconcile config_key=analytics-mirror
+```
+
+`mirror_status` reports bounded health and lag without returning endpoints,
+credentials, certificate paths, or raw error payloads. Reconciliation copies
+the authoritative graph into the mirror through backend-native, idempotent
+upserts.
+
+## Add an optional external graph source
+
+A source is not a mirror. It is read only, and its records become operational
+only after the governed connector materializes them into the engine. Supported
+adapters include Neo4j/openCypher, Apache AGE, LadybugDB/Kuzu, remote
+`epistemic-graph`, and GraphQL.
+
+AgentConfig stores a reference-only declaration:
+
+```json
+{
+  "EXTERNAL_GRAPH_CONNECTORS": [
+    {
+      "name": "domain-source",
+      "source_alias": "domain-source",
+      "backend": "neo4j",
+      "connection_profile_ref": "secret://external-graphs/domain-source/connection",
+      "mapping_policy_ref": "secret://external-graphs/domain-source/mapping",
+      "tls_profile_ref": "secret://external-graphs/domain-source/tls",
+      "require_approval": true
+    }
+  ]
+}
+```
+
+Then run the current-only lifecycle:
+
+```text
+graph_configure action=discover_connection_schema config_key=domain-source
+graph_configure action=propose_connection_mapping config_key=domain-source
+graph_configure action=approve_connection_mapping config_key=domain-source
+graph_configure action=external_graph_doctor config_key=domain-source
+graph_configure action=ingest_connection config_key=domain-source
+```
+
+Discovery is bounded and read-only. Approval binds the source schema digest,
+mapping-policy digest, identity rule, ACL policy, and ingestion bounds. Every
+ingest rediscovers the schema and fails closed on partial discovery or drift.
+The approved mapping emits native, idempotent `ChangeEnvelope` transactions;
+raw source identifiers are keyed to opaque identities before persistence.
+
+GraphQL uses the same lifecycle. Its operation, variables, headers, and schema
+remain in referenced runtime documents. Introspection is opt-in, generated
+mappings still require approval, and mutation/subscription operations are
+rejected.
+
+See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+and [Privacy-safe External Graph Ingestion](../architecture/privacy-safe-external-ingestion.md)
+for adapter limits and profile schemas.
+
+## Verification gates
+
+Run the focused doctor checks after changing authority, mirror, source, or trust
+configuration:
+
+```bash
+agent-utilities-doctor --only engine graph_backend graph_connections transport_security
+```
+
+The deployment is ready only when:
+
+- the engine authority is reachable and durable under the selected profile;
+- every named mirror has a resolvable reference, verified TLS, and no stalled
+  outbox tail;
+- every external source passes the connector capability gate and has an
+  approved, drift-free mapping;
+- no inline endpoint, credential, certificate, query, custom ontology, local
+  path, or personal identifier exists in AgentConfig or tracked files.
+
+For backend conformance tests, use the sequential matrix in
+[Backend Parity and Profile Testing](backend-parity-and-profile-testing.md).
+Those tests validate optional systems; they do not promote one to authority.
+
+## Failure handling
+
+- **Authority unavailable:** fail closed. Do not redirect reads or writes to a
+  mirror.
+- **Mirror unavailable:** the authority continues; retain the outbox tail,
+  repair the runtime profile, then reconcile.
+- **Source unavailable or drifting:** ingest applies no authoritative snapshot
+  deletion and does not advance its checkpoint. Rediscover, review, and approve
+  a new mapping.
+- **TLS verification failure:** repair the referenced CA/mTLS profile. Never
+  hardcode `verify=false` or disable certificate validation.
+- **Single-writer mirror contention:** stop unmanaged writers and leave ownership
+  with the one governed mirror drainer.
+
+The deeper storage and replication design is documented in
+[Graph Backend Architecture](../architecture/graph_backends_architecture.md).

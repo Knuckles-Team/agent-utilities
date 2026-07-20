@@ -131,6 +131,18 @@ def test_native_sparql_passthrough(backend, fake_stardog):
     assert rows == [{"s": "app:1"}]
 
 
+def test_public_read_uses_stardog_query_operation(backend, fake_stardog):
+    fake_stardog.select.return_value = {
+        "results": {"bindings": [{"s": {"value": "app:1"}}]}
+    }
+
+    assert backend.execute_read("SELECT ?s WHERE { ?s ?p ?o }") == [
+        {"s": "app:1"}
+    ]
+    fake_stardog.select.assert_called_once()
+    fake_stardog.update.assert_not_called()
+
+
 def test_unknown_cypher_is_noop(backend, fake_stardog):
     assert backend.execute("MATCH (n) DETACH DELETE n") == []
 
@@ -152,5 +164,5 @@ def test_factory_builds_stardog_backend(fake_stardog, monkeypatch):
     )
 
     be = create_backend(backend_type="stardog", endpoint="http://sd:5820")
-    assert isinstance(be, StardogSparqlBackend)
+    assert isinstance(getattr(be, "inner", be), StardogSparqlBackend)
     assert be.supports_sparql is True

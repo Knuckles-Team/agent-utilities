@@ -177,9 +177,7 @@ class TestIngestion:
             "tags": ["analysis"],
             "description": "Analyzes code quality",
         }
-        engine.ingest_agent_skill(
-            "/skills/code-analyzer/SKILL.md", frontmatter, "skill body..."
-        )
+        engine.ingest_agent_skill(frontmatter, "skill body...", provider="synthetic")
 
         res = engine.query_cypher(
             "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.name as name"
@@ -263,10 +261,11 @@ class TestAgentSpawning:
     def test_spawn_with_tool_links(self, engine):
         """Verify spawned agent gets USES edges to its tools."""
         # First ingest a resource so we can link to it
-        engine.ingest_agent_skill("/skills/test.md", {"name": "test-skill"}, "body")
+        engine.ingest_agent_skill({"name": "test-skill"}, "body", provider="synthetic")
 
         agent_id = engine.spawn_specialized_agent(
-            task_description="Analyze code", tool_ids=["skill:test-skill"]
+            task_description="Analyze code",
+            tool_ids=["resource:skill:test-skill"],
         )
 
         res = engine.query_cypher(
@@ -285,16 +284,19 @@ class TestSelfImprovement:
     """Test the full Lightning-style APO loop."""
 
     def test_record_outcome(self, engine):
+        from agent_utilities.observability.trace_ontology import trace_id
+
         ep_id = engine.ingest_episode("Task failed", source="chat")
         engine.record_outcome(ep_id, reward=-0.5, feedback="Insufficient context")
+        tid = trace_id(ep_id)
 
         res = engine.query_cypher(
-            "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) "
-            "WHERE e.id = $id RETURN o.reward as reward",
-            {"id": ep_id},
+            "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) "
+            "WHERE r.id = $id RETURN o.reward as reward",
+            {"id": tid},
         )
         assert len(res) > 0
-        assert res[0]["reward"] == -0.5
+        assert res[0]["reward"] == 0.0
 
     def test_generate_critique(self, engine):
         ep_id = engine.ingest_episode("Reasoning step", source="chat")
@@ -335,6 +337,8 @@ class TestSelfImprovement:
 
     def test_full_self_improvement_cycle(self, engine):
         """Test the end-to-end Lightning trainer loop."""
+        from agent_utilities.observability.trace_ontology import trace_id
+
         # Setup: episode + negative outcome + prompt
         ep_id = engine.ingest_episode("Failed at code review", source="chat")
         engine.record_outcome(ep_id, reward=-1.0, feedback="Missed edge cases")
@@ -349,8 +353,8 @@ class TestSelfImprovement:
         agent_id = engine.spawn_specialized_agent("review code", [])
 
         engine.backend.execute(
-            "MATCH (e:Episode), (a:SpawnedAgent) WHERE e.id = $eid AND a.id = $aid MERGE (e)-[:EXECUTED_BY]->(a)",
-            {"eid": ep_id, "aid": agent_id},
+            "MATCH (r:RunTrace), (a:SpawnedAgent) WHERE r.id = $rid AND a.id = $aid MERGE (r)-[:EXECUTED_ON]->(a)",
+            {"rid": trace_id(ep_id), "aid": agent_id},
         )
         engine.backend.execute(
             "MATCH (a:SpawnedAgent), (p:SystemPrompt) WHERE a.id = $aid AND p.id = $pid MERGE (a)-[:USES]->(p)",

@@ -95,7 +95,9 @@ def test_emit_trace_rolls_up_tool_calls_from_spans():
     spans = [
         SpanNode(id="s1", name="a", trace_id="trace:tool-rollup", span_kind="tool"),
         SpanNode(id="s2", name="b", trace_id="trace:tool-rollup", span_kind="tool"),
-        SpanNode(id="s3", name="c", trace_id="trace:tool-rollup", span_kind="retrieval"),
+        SpanNode(
+            id="s3", name="c", trace_id="trace:tool-rollup", span_kind="retrieval"
+        ),
     ]
     be.emit_trace(trace, spans=spans)
     assert trace.tool_calls == 2
@@ -106,10 +108,18 @@ def test_record_event_rolls_up_tool_calls_incrementally():
     be = KGTraceBackend()
     be.record_event(trace_id="trace:incr", span_id="root", name="root", is_root=True)
     be.record_event(
-        trace_id="trace:incr", span_id="tool:1", name="search", is_root=False, kind="tool"
+        trace_id="trace:incr",
+        span_id="tool:1",
+        name="search",
+        is_root=False,
+        kind="tool",
     )
     be.record_event(
-        trace_id="trace:incr", span_id="tool:2", name="fetch", is_root=False, kind="tool"
+        trace_id="trace:incr",
+        span_id="tool:2",
+        name="fetch",
+        is_root=False,
+        kind="tool",
     )
     be.record_event(
         trace_id="trace:incr",
@@ -120,6 +130,61 @@ def test_record_event_rolls_up_tool_calls_incrementally():
     )
     entry = be.get_trace("trace:incr")
     assert entry["trace"].tool_calls == 2
+
+
+def test_record_event_sanitizes_content_and_rejects_unsafe_identity():
+    kg = _FakeKG()
+    be = KGTraceBackend(backend=kg)
+
+    be.record_event(
+        trace_id="trace:safe",
+        span_id="root",
+        name="run contact@example.test",
+        is_root=True,
+        input_text="read /home/example/private/input.md",
+        output_text="contact@example.test",
+    )
+
+    entry = be.get_trace("trace:safe")
+    assert entry is not None
+    assert "example.test" not in entry["trace"].name
+    assert "/home/example" not in entry["trace"].input
+    assert "example.test" not in entry["trace"].output
+
+    be.record_event(
+        trace_id="contact@example.test",
+        span_id="unsafe",
+        name="rejected",
+        is_root=True,
+    )
+    assert be.get_trace("contact@example.test") is None
+    assert "contact@example.test" not in kg.nodes
+
+
+def test_emit_trace_sanitizes_batch_nodes_before_persistence():
+    kg = _FakeKG()
+    be = KGTraceBackend(backend=kg)
+    trace = TraceNode(
+        id="trace:batch-safe",
+        name="read /home/example/private/input.md",
+        metadata={"owner": "Example Person", "email": "contact@example.test"},
+    )
+    generation = GenerationNode(
+        id="gen:batch-safe",
+        name="llm contact@example.test",
+        trace_id="trace:batch-safe",
+        error="failed at /home/example/private/input.md",
+    )
+
+    be.emit_trace(trace, generations=[generation])
+
+    stored = be.get_trace("trace:batch-safe")
+    assert stored is not None
+    serialized = repr(stored)
+    assert "Example Person" not in serialized
+    assert "contact@example.test" not in serialized
+    assert "/home/example" not in serialized
+    assert "Example Person" not in repr(kg.nodes)
 
 
 def test_kg_is_the_default_backend_when_no_vendor_configured(monkeypatch):

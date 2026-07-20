@@ -71,7 +71,7 @@ class KGTeamComposer:
             2. If no proven team: dynamically synthesize subgraph using KG primitives
             3. Return a fully specified TeamComposition
         """
-        team_id = f"team:{uuid.uuid4().hex[:12]}"
+        team_id = f"team:{uuid.uuid4().hex}"
 
         # Step 1: Try to reuse a proven team configuration
         proven = self._try_reuse_proven_team(query)
@@ -140,7 +140,7 @@ class KGTeamComposer:
             if tools:
                 tool_assignments[role] = tools
 
-        node_id = f"tc:{uuid.uuid4().hex[:8]}"
+        node_id = f"tc:{uuid.uuid4().hex}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node_data = {

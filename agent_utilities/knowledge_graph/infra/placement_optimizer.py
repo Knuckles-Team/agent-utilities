@@ -18,9 +18,9 @@ deployment-planner skill documented:
   4. **Resilience** — reward anti-affinity: spread a service's replicas across
      distinct hosts/chassis.
 
-``FINAL = Σ wᵢ·objᵢ`` with efficiency-dominant default weights (so the optimizer
-is back-compatible with the documented planner); other objectives are opt-in via
-``weights=``. The planner core is pure over dataclasses (deterministic, testable);
+``FINAL = Σ wᵢ·objᵢ`` with efficiency-dominant canonical weights; callers may
+select a different objective balance via ``weights=``. The planner core is pure over
+dataclasses (deterministic, testable);
 :func:`optimize_from_graph` adapts the live KG and writes the plan back
 propose-only.
 """

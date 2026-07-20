@@ -1,0 +1,384 @@
+connector: langfuse-agent
+ontology_source: langfuse
+schema_version: '1'
+resources:
+- name: Dataset
+  label: Dataset
+  id_prefix: dataset
+  relations: []
+- name: DatasetRun
+  label: Dataset Run
+  id_prefix: datasetrun
+  relations:
+  - name: runOf
+    label: run of
+    target: Dataset
+    lpg_rel_type: ''
+- name: Generation
+  label: Generation
+  id_prefix: generation
+  relations:
+  - name: usedModel
+    label: used model
+    target: Model
+    lpg_rel_type: ''
+  - name: usedPrompt
+    label: used prompt
+    target: Prompt
+    lpg_rel_type: ''
+- name: Model
+  label: Model
+  id_prefix: model
+  relations: []
+- name: Observation
+  label: Observation
+  id_prefix: observation
+  relations:
+  - name: parentObservation
+    label: parent observation
+    target: Observation
+    lpg_rel_type: ''
+- name: Prompt
+  label: Prompt
+  id_prefix: prompt
+  relations: []
+- name: Score
+  label: Score
+  id_prefix: score
+  relations:
+  - name: scores
+    label: scores
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: usesConfig
+    label: uses config
+    target: ScoreConfig
+    lpg_rel_type: ''
+- name: ScoreConfig
+  label: Score Config
+  id_prefix: scoreconfig
+  relations: []
+- name: Session
+  label: Session
+  id_prefix: session
+  relations: []
+- name: Trace
+  label: Trace
+  id_prefix: trace
+  relations:
+  - name: inSession
+    label: in session
+    target: Session
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: langfuse-sessions.updated
+  resource: session
+  description: "Watermark event for 'langfuse-sessions' \u2014 advances on createdAt (mcp_source_presets.json)."
+- name: langfuse-traces.updated
+  resource: trace
+  description: "Watermark event for 'langfuse-traces' \u2014 advances on timestamp (mcp_source_presets.json)."
+identity:
+  id_field:
+    session: id
+    trace: id
+  title_field:
+    session: id
+    trace: name
+  text_field:
+    session: id
+    trace: name
+  updated_field:
+    session: createdAt
+    trace: timestamp
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Dataset:
+    ontology_class: Dataset
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  DatasetRun:
+    ontology_class: Dataset
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Generation:
+    ontology_class: Observation
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Model:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Observation:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Prompt:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Score:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  ScoreConfig:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Session:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+  Trace:
+    ontology_class: null
+    fields:
+      dataType: xsd:string
+      endTime: xsd:dateTime
+      environment: xsd:string
+      latency: xsd:decimal
+      level: xsd:string
+      modelName: xsd:string
+      observationType: xsd:string
+      promptVersion: xsd:integer
+      release: xsd:string
+      scoreValue: xsd:string
+      startTime: xsd:dateTime
+      timestamp: xsd:dateTime
+      totalCost: xsd:decimal
+      totalTokens: xsd:integer
+sync:
+- preset: langfuse-sessions
+  server: langfuse-agent
+  tool: langfuse_observability
+  action: sessions_list
+  records_path: data
+  id_field: id
+  title_field: id
+  text_field: id
+  updated_field: createdAt
+  pagination: page
+  doc_type: session
+  tool_schema_sha256: 2a854a0bd2d854bb5f8c97196459eb2e13932c2c327fc12dd6e5f70fbc9e33de
+  raw:
+    server: langfuse-agent
+    tool: langfuse_observability
+    params_style: args
+    action: sessions_list
+    records_path: data
+    id_field: id
+    title_field: id
+    text_field: id
+    updated_field: createdAt
+    metadata_fields:
+    - createdAt
+    - environment
+    pagination: page
+    page_kind: number
+    page_param: page
+    page_size_param: limit
+    doc_type: session
+- preset: langfuse-traces
+  server: langfuse-agent
+  tool: langfuse_observability
+  action: trace_list
+  records_path: data
+  id_field: id
+  title_field: name
+  text_field: name
+  updated_field: timestamp
+  pagination: page
+  doc_type: trace
+  tool_schema_sha256: 2a854a0bd2d854bb5f8c97196459eb2e13932c2c327fc12dd6e5f70fbc9e33de
+  raw:
+    server: langfuse-agent
+    tool: langfuse_observability
+    params_style: args
+    action: trace_list
+    records_path: data
+    id_field: id
+    title_field: name
+    text_field: name
+    updated_field: timestamp
+    metadata_fields:
+    - timestamp
+    - release
+    - version
+    - environment
+    - tags
+    pagination: page
+    page_kind: number
+    page_param: page
+    page_size_param: limit
+    doc_type: trace
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-19T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - langfuse_agent/connectors/mcp_source_presets.json
+  - langfuse_agent/connectors/tool_schema_fingerprints.json
+  - langfuse_agent/ontology/langfuse.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 5184df2ae408cd2a0a91d4937bbb727631a6e880a6c22cc9b88002a9b88b86e1
+    triple_count: 107
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: og_h_qFaZsA0Pb-HDbSFTirN2Af2T1_N6x03YWQpFGM
+  signature: HH9kFMkYYTHv2aYA2dX7d39HmxzfWCuFBc4Dls2jg2IQjIHm2Wj_hsntbBfbYcSEjsVjoW32XlUhlrrcSCqlCQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'belongsToTrace' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'tracedUser' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Dataset.ontology_class = 'Dataset' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.DatasetRun.ontology_class = 'Dataset' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Generation.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Model.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Observation.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Prompt.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Score.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ScoreConfig.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Session.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Trace.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

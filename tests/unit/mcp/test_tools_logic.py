@@ -7,10 +7,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.mcp_utilities import (
-    create_mcp_parser,
-    load_mcp_servers_from_config,
-)
+from agent_utilities.core.config import load_mcp_servers_from_config
+from agent_utilities.mcp.server_factory import create_mcp_parser
 from agent_utilities.models import MCPToolInfo
 
 
@@ -50,8 +48,8 @@ def test_load_mcp_config_expansion(tmp_path):
             # Verify the temp file passed to load_mcp_toolsets had expanded content
             content = captured_content["data"]
             assert content["mcpServers"]["test-server"]["args"] == ["expanded-value"]
-            # Verify Suppress RequestsDependencyWarning is added
-            assert "PYTHONWARNINGS" in content["mcpServers"]["test-server"]["env"]
+            # Dependency and TLS warnings must remain visible in child servers.
+            assert "PYTHONWARNINGS" not in content["mcpServers"]["test-server"]["env"]
 
 
 def test_mcp_tool_info_model():

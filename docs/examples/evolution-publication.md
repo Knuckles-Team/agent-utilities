@@ -3,7 +3,7 @@
 **What this demonstrates.** CONCEPT:AU-AHE.harness.evolution-branch-bridge, the evolution-to-branch bridge:
 a golden-loop proposal that cleared promotion governance (CONCEPT:AU-AHE.harness.promotion-governance-validator) is
 published as a **local, never-pushed git branch** through the
-`graph_orchestrate action=publish_proposal` surface — gated by the OS-5.24
+`graph_evolution action=publish_proposal` surface — gated by the OS-5.24
 ActionPolicy's `merge_promotion` tier, which by default queues a human
 approval. You see the enable flags, the approval round-trip, the exact publish
 report, and what the produced branch contains. Deep dive:
@@ -23,8 +23,10 @@ being a git checkout. The evolution daemon ticks are opt-in flags; the one-shot
 All typed on `AgentConfig` (`agent_utilities/core/config.py`), all off by
 default — the platform is propose-only until you opt in:
 
-```bash
-# .env
+The notation below names AgentConfig aliases. Put non-secret values in the XDG
+`config.json`; this is not a repository dotenv file.
+
+```text
 KG_LOOP=1                  # 60-min golden-loop daemon tick (KG-2.7)
 KG_LOOP_INTERVAL=3600
 KG_LOOP_TOPICS=5
@@ -77,16 +79,16 @@ an SDD plan skeleton under `.specify/specs/<topic>/`.
 
 ```json
 {
-  "tool": "graph_orchestrate",
+  "tool": "graph_evolution",
   "arguments": {
     "action": "publish_proposal",
-    "task": "proposal:retry_backoff:demo1"
+    "target": "proposal:retry_backoff:demo1"
   }
 }
 ```
 
-REST twin: `POST /api/graph/orchestrate/publish-proposal` with body
-`{"proposal_id": "proposal:retry_backoff:demo1"}`.
+REST twin: `POST /api/graph/evolution` with body
+`{"action":"publish_proposal","target":"proposal:retry_backoff:demo1"}`.
 
 The governed entry point (`governed_publish` in
 `agent_utilities/knowledge_graph/research/change_publisher.py`) asks the
@@ -158,7 +160,7 @@ publishes through the resolved `ChangePublisher`.
     "proposal_id": "proposal:retry_backoff:demo1",
     "branch": "evolution/add-jittered-retry-backoff-to-the-harvest-client-2945a9fb",
     "commit_sha": "73ce4e056803dfd73d92e05e214350730d47dfe9",
-    "repo_path": "/home/apps/worktrees/au-docs-refresh",
+    "repo_path": "${WORKTREE_ROOT}/au-docs-refresh",
     "worktree_path": ".../evolution_worktrees/evolution--add-jittered-retry-backoff-to-the-harvest-client-2945a9fb",
     "gate_result": "not_run",
     "tests_passed": null,

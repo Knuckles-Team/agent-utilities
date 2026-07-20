@@ -242,7 +242,7 @@ class DecomposedRewardRecord(BaseModel):
         timestamp: ISO timestamp when this record was created.
     """
 
-    id: str = Field(default_factory=lambda: f"drr_{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"drr_{uuid.uuid4().hex}")
     trajectory_id: str = ""
     trajectory_reward: TrajectoryReward = Field(default_factory=TrajectoryReward)
     step_rewards: list[StepReward] = Field(default_factory=list)

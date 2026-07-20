@@ -41,7 +41,7 @@ import-populated registries (property types, value types, interfaces, links,
 functions, derived properties) plus the durable edit ledger, the object-index
 funnel, object-set factories, permissioning, and document processing — and, when
 constructed with a live graph, resolves Functions-on-Objects / derived compute /
-interface targeting against the real store + L2 semantic (OWL/SHACL) + retrieval
+interface targeting against the real store + semantic (OWL/SHACL) + retrieval
 (HNSW) layers. The Action System (`knowledge_graph/actions/`) supplies the verbs.
 
 ## 3. Ontology capability gap matrix

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelMessage
 
@@ -126,7 +126,9 @@ class GraphCheckpointStore(CheckpointStore):
             # Link to episode
             episode_id = checkpoint.metadata.get("episode_id")
             if episode_id:
-                self.engine.graph.add_edge(node.id, episode_id, type="SNAPSHOT_OF")
+                self.engine.graph.add_edge(
+                    node.id, episode_id, relationship="SNAPSHOT_OF"
+                )
         except Exception as e:
             logger.error(f"Failed to save checkpoint to graph: {e}")
 
@@ -185,7 +187,7 @@ class CheckpointToolset:
 
     async def create_checkpoint(self, ctx: RunContext[Any], label: str) -> str:
         """Manually create a checkpoint of the current state."""
-        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex}"
         messages = getattr(ctx, "messages", [])
         turn = len(messages) // 2
         cp = Checkpoint(
@@ -232,7 +234,7 @@ class CheckpointMiddleware(AbstractCapability[Any]):
         return kwargs.get("result")
 
     async def _checkpoint(self, ctx: RunContext[Any], label: str) -> str:
-        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+        checkpoint_id = f"ckpt_{int(time.time())}_{uuid.uuid4().hex}"
         messages = ctx.messages
 
         cp = Checkpoint(
@@ -247,7 +249,7 @@ class CheckpointMiddleware(AbstractCapability[Any]):
 
 
 async def fork_from_checkpoint(
-    agent: Agent, checkpoint: Checkpoint, user_input: str
+    agent: Any, checkpoint: Checkpoint, user_input: str
 ) -> Any:
     """Start a new run from a specific checkpoint."""
     return await agent.run(user_input, message_history=checkpoint.messages)

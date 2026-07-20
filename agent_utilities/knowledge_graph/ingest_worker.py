@@ -23,12 +23,9 @@ Delivery semantics (documented contract):
 * **At-least-once.** Offsets are committed only AFTER a task finishes (or is
   durably marked failed); a worker crash redelivers the message to another
   group member.
-* **Idempotent claims.** The task's ``job_id`` is its idempotency key: the
-  claim MERGEs the ``:Task`` node and skips any job already
-  ``running``/``completed``/``failed``/``cancelled`` (guarded cross-host by the
-  KG-2.54 ``state_claim_guard`` advisory lock when ``STATE_DB_URI`` is set).
-  Graph writes themselves are MERGE-based, so a rare duplicate execution
-  converges instead of corrupting.
+* **Idempotent claims.** Kafka is notification transport only. Every consumer
+  must atomically claim the deterministic WorkItem; a negative claim is final
+  and never consults a second status or lock authority.
 * **Per-key ordering.** Kafka orders within a partition; the KG-2.56 key
   hierarchy (tenant → repo/corpus → task type) therefore gives per-tenant /
   per-repo ordering without global serialization. There is no cross-partition
@@ -49,13 +46,13 @@ import json
 import logging
 import threading
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from .core.engine_tasks import (
-    _decode_metadata,
-    _encode_metadata,
+    _authorized_background_thread,
+    _capture_verified_background_session,
+    _resolve_task_target,
     compute_ingest_worker_count,
 )
 from .core.kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
@@ -63,8 +60,7 @@ from .core.kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
 logger = logging.getLogger(__name__)
 
 #: Long-running parse/LLM tasks must not trip a group rebalance mid-task.
-_MAX_POLL_INTERVAL_MS = 3_600_000  # 1h — above the reaper's runtime cap default
-_TERMINAL_OR_ACTIVE = {"running", "completed", "failed", "cancelled"}
+_MAX_POLL_INTERVAL_MS = 3_600_000  # 1h — below the native WorkItem lease cap
 
 
 def claim_task_envelope(
@@ -72,52 +68,43 @@ def claim_task_envelope(
 ) -> tuple[str, Path, bool, str] | None:
     """Idempotently claim ONE consumed task envelope (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
-    MERGEs the ``:Task`` node as ``running`` with this process's ownership
-    stamp (the same ``claimed_by``/``claim_unix`` contract the zombie reaper
-    audits) and returns ``(job_id, target, is_codebase, task_type)`` — or
-    ``None`` when the message is a duplicate delivery of an already
-    claimed/finished job (at-least-once dedup) or malformed.
+    Claims the deterministic WorkItem and returns
+    ``(job_id, target, is_codebase, task_type)``. A
+    duplicate delivery receives an authoritative negative claim and is skipped.
     """
-    from agent_utilities.core.state_store import state_claim_guard
+    from agent_utilities.orchestration import work_item as _wi
 
     job_id = envelope.get("job_id")
     if not job_id:
         logger.warning("Ingest message without job_id skipped: %.120s", envelope)
         return None
-    props = dict(envelope.get("props") or {})
-    meta = _decode_metadata(props.get("metadata"))
+    token = engine._get_host_token()
+    item_id = _wi.ingest_task_work_item_id(job_id)
+    claim = _wi.claim_specific(
+        engine._work_item_engine,
+        item_id,
+        token=token,
+        lease_ttl_s=_MAX_POLL_INTERVAL_MS / 1000.0,
+    )
+    if claim is None:
+        logger.debug("Duplicate delivery of %s skipped by ClaimWorkItem.", job_id)
+        return None
+    if not _wi.mark_running(engine._work_item_engine, item_id, claim):
+        return None
+    meta = engine._ingest_task_metadata(job_id)
     target = meta.get("target")
     task_type = meta.get("type", "document")
-
-    # Cross-host claim atomicity (CONCEPT:AU-KG.ingest.cross-host-safe-kg): partition assignment already
-    # routes a message to exactly one group member; the advisory-lock guard
-    # additionally serializes the status-check/claim against redeliveries.
-    with state_claim_guard("kg-task-claim"):
-        rows = engine.query_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
-        )
-        status = rows[0].get("s") if rows else None
-        if status in _TERMINAL_OR_ACTIVE:
-            logger.debug(
-                "Duplicate delivery of %s (status=%s) skipped.", job_id, status
-            )
-            return None
-        meta["started_at"] = datetime.now(UTC).isoformat()
-        meta["claimed_by"] = engine._get_host_token()
-        meta["claim_unix"] = time.time()
-        props["status"] = "running"
-        props["metadata"] = _encode_metadata(meta)
-        engine.add_node(job_id, "Task", properties=props)
+    engine._remember_work_item_claim(job_id, claim)
 
     if not target:
-        logger.error("Task %s has no target in metadata, failing.", job_id)
+        logger.error("WorkItem %s has no target in metadata, failing.", item_id)
         engine._update_task_status(
             job_id,
             "failed",
             {"error": "Missing target in task metadata", "type": "unknown"},
         )
         return None
-    return job_id, Path(target), task_type == "codebase", task_type
+    return job_id, _resolve_task_target(str(target)), task_type == "codebase", task_type
 
 
 def run_ingest_consumer_loop(
@@ -198,6 +185,7 @@ def start_ingest_consumer_pool(
     bootstrap_servers: str | None = None,
     stop_event: threading.Event | None = None,
     consumer_factory: Any = None,
+    background_session: Any = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` ``kg-ingest`` consumer threads (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
@@ -211,6 +199,8 @@ def start_ingest_consumer_pool(
     stop = stop_event or threading.Event()
     servers = _resolve_bootstrap_servers(engine, bootstrap_servers)
     make_consumer = consumer_factory or (lambda: _default_consumer_factory(servers))
+    worker_session = background_session or _capture_verified_background_session()
+    worker_session.engine_verified_context()
 
     threads: list[threading.Thread] = []
     for i in range(count):
@@ -224,7 +214,11 @@ def start_ingest_consumer_pool(
                 if callable(close):
                     close()
 
-        t = threading.Thread(target=_runner, name=f"KGIngestConsumer-{i}", daemon=True)
+        t = _authorized_background_thread(
+            worker_session,
+            _runner,
+            name=f"KGIngestConsumer-{i}",
+        )
         t.start()
         threads.append(t)
     logger.info(
@@ -271,44 +265,64 @@ def main(argv: list[str] | None = None) -> int:
     # flock, never spawn the consolidated daemon — this process only consumes.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
+    from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    engine = IntelligenceGraphEngine()
-
-    # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE joining the group:
-    # a worker that cannot reach the engine must fail loud, not consume+drop.
-    try:
-        engine.query_cypher("MATCH (t:Task) RETURN count(t) AS c")
-    except Exception as e:  # noqa: BLE001
-        parser.exit(
-            2,
-            "Cannot reach the epistemic-graph engine as a client: "
-            f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS / GRAPH_SERVICE_TCP_ADDR / "
-            "GRAPH_SERVICE_SOCKET and the "
-            "shared HMAC secret (GRAPH_SERVICE_AUTH_SECRET or the host's "
-            "data_dir()/engine_secret — CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
-        )
-
-    stop = threading.Event()
-
-    def _shutdown(signum: int, _frame: Any) -> None:
-        logger.info("Signal %s received — draining and stopping workers.", signum)
-        stop.set()
-
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-    threads = start_ingest_consumer_pool(
-        engine,
-        worker_count=args.workers,
-        bootstrap_servers=args.bootstrap_servers,
-        stop_event=stop,
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        mint_actor_from_token_sync,
+        mint_graph_session,
     )
-    while any(t.is_alive() for t in threads) and not stop.is_set():
-        time.sleep(1.0)
-    for t in threads:
-        t.join(timeout=10.0)
-    return 0
+
+    token = acquire_process_identity_token(config)
+    actor = mint_actor_from_token_sync(token)
+    session = mint_graph_session(actor)
+    session.engine_verified_context()
+
+    with use_actor(session.actor), use_session(session):
+        engine = IntelligenceGraphEngine.get_or_create()
+
+        # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE joining the group:
+        # a worker that cannot reach the engine must fail loud, not consume+drop.
+        try:
+            native = engine._work_item_engine._native_work_items()
+            if not callable(getattr(native, "claim_work_item", None)):
+                raise RuntimeError("engine does not expose native ClaimWorkItem")
+            engine._work_item_engine.query_cypher(
+                "MATCH (w:WorkItem) RETURN count(w) AS c"
+            )
+        except Exception as e:  # noqa: BLE001
+            parser.exit(
+                2,
+                "Cannot reach the epistemic-graph engine as a client: "
+                f"{e}\nCheck GRAPH_SERVICE_ENDPOINTS (external) or the packaged-local "
+                "transport and "
+                "shared HMAC secret (GRAPH_SERVICE_AUTH_SECRET or the host's "
+                "data_dir()/engine_secret — CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
+            )
+
+        stop = threading.Event()
+
+        def _shutdown(signum: int, _frame: Any) -> None:
+            logger.info("Signal %s received — draining and stopping workers.", signum)
+            stop.set()
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+        threads = start_ingest_consumer_pool(
+            engine,
+            worker_count=args.workers,
+            bootstrap_servers=args.bootstrap_servers,
+            stop_event=stop,
+            background_session=session,
+        )
+        while any(t.is_alive() for t in threads) and not stop.is_set():
+            time.sleep(1.0)
+        for t in threads:
+            t.join(timeout=10.0)
+        return 0
 
 
 if __name__ == "__main__":

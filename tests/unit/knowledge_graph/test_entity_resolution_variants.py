@@ -38,12 +38,9 @@ def test_existing_normalize_behavior_preserved():
     assert normalize_name("Sun Microsystems") != normalize_name("Microsystems Sun")
 
 
-def test_transliteration_when_available():
-    unidecode = pytest.importorskip("unidecode")  # noqa: F841 — extra may be absent
+def test_standard_library_accent_folding():
     assert normalize_name("José") == normalize_name("Jose")
-    assert normalize_name("Müller") == normalize_name("Mueller") or normalize_name(
-        "Müller"
-    ) == normalize_name("Muller")
+    assert normalize_name("Müller") == normalize_name("Muller")
 
 
 def test_strip_version():

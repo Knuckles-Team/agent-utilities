@@ -57,6 +57,17 @@ def resolve_web_fetch(
     otherwise precedence applies. Returns ``None`` only if every available backend
     fails — callers treat that as an unreachable source.
     """
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.http_safety import (
+        configured_source_http_policy,
+        require_safe_source_url,
+    )
+
+    policy = configured_source_http_policy()
+    require_safe_source_url(
+        url,
+        allowed_private_hosts=policy["allowed_private_hosts"],
+    )
     order = (
         [prefer]
         if prefer
@@ -71,13 +82,17 @@ def resolve_web_fetch(
         "requests": _fetch_via_requests,
     }
     for name in order:
+        if name == "crawl4ai" and not config.source_http_allow_browser_fetch:
+            continue
         fn = backends.get(name)
         if fn is None:
             continue
         try:
             page = fn(url, timeout)
         except Exception as exc:  # noqa: BLE001 — try the next backend
-            logger.debug("web-fetch backend %s failed for %s: %s", name, url, exc)
+            logger.debug(
+                "web-fetch backend %s failed (%s)", name, type(exc).__name__
+            )
             page = None
         if page is not None and page.markdown.strip():
             return page
@@ -195,7 +210,7 @@ def _records(result: Any) -> list[dict[str, Any]]:
 
 
 def _fetch_via_crawl4ai(url: str, timeout: float) -> FetchedPage | None:
-    """Fetch one page with the crawl4ai web-crawler (depth 0, single page)."""
+    """Fetch one page with the crawl4ai web-crawler (single page, no recursion)."""
     from agent_utilities.knowledge_graph.distillation.skill_graph_pipeline import (
         SourceSpec,
         _crawl_via_script,
@@ -206,8 +221,16 @@ def _fetch_via_crawl4ai(url: str, timeout: float) -> FetchedPage | None:
     if crawler is None:
         return None
     crawler_py, script = crawler
+    # ``max_depth: 1`` (not 0) — the recursive strategy's ``for depth in
+    # range(max_depth)`` loop body is what actually fetches+saves a page, so
+    # ``max_depth=0`` crawled ZERO pages and this backend always returned None.
+    # ``no_sitemap: True`` keeps this a genuine single-page fetch — without it,
+    # a seed URL whose domain publishes a sitemap.xml auto-upgrades to a
+    # whole-site ``sitemap-parallel`` crawl, defeating "one page" semantics.
     spec = SourceSpec(
-        "web", url, {"max_depth": 0, "max_pages": 1, "crawl_timeout": timeout}
+        "web",
+        url,
+        {"max_depth": 1, "max_pages": 1, "crawl_timeout": timeout, "no_sitemap": True},
     )
     docs = _crawl_via_script(spec, crawler_py, script)
     if not docs:
@@ -227,27 +250,37 @@ def _fetch_via_requests(url: str, timeout: float) -> FetchedPage | None:
     import os
     import tempfile
 
-    import requests
+    from agent_utilities.protocols.source_connectors.http_safety import (
+        configured_source_http_policy,
+        safe_get_text,
+    )
 
     # A browser-like UA: many sites (e.g. turingpost) 403 the default
     # ``python-requests`` agent. crawl4ai/ArchiveBox sidestep this when present;
     # the floor must too.
     to = min(timeout, 60.0)
-    resp = requests.get(url, timeout=to, headers={"User-Agent": _UA})
-    resp.raise_for_status()
-    raw = resp.text
+    raw = safe_get_text(
+        url,
+        timeout=to,
+        headers={"User-Agent": _UA},
+        **configured_source_http_policy(),
+    )
 
     text = raw
     try:
         from markitdown import MarkItDown
 
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".html", delete=False, encoding="utf-8"
-        ) as tmp:
-            tmp.write(raw)
-            tmp_path = tmp.name
-        text = MarkItDown().convert(tmp_path).text_content
-        os.unlink(tmp_path)
+        tmp_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".html", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+            text = MarkItDown().convert(tmp_path).text_content
+        finally:
+            if tmp_path:
+                os.unlink(tmp_path)
     except Exception:  # noqa: BLE001 — degrade to a light tag strip
         text = re.sub(r"<[^>]+>", " ", raw)
 

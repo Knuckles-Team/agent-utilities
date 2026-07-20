@@ -53,22 +53,18 @@ class MeanVarianceOptimizer:
         if hasattr(cov_matrix, "tolist"):
             cov_matrix = cov_matrix.tolist()
 
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
-        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
-        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
-            resp = client.finance.optimize_portfolio(
-                expected_returns,
-                cov_matrix,
-                risk_free_rate,
-                min_weight=min_weight,
-                max_weight=max_weight,
-            )
+        client = GraphComputeEngine.get_or_create().client
+        resp = client.finance.optimize_portfolio(
+            expected_returns,
+            cov_matrix,
+            risk_free_rate,
+            min_weight=min_weight,
+            max_weight=max_weight,
+        )
 
         weights = resp.get("weights", [])
         port_return = resp.get("expected_return", 0.0)
@@ -110,16 +106,12 @@ class RiskParityOptimizer:
         if hasattr(cov_matrix, "tolist"):
             cov_matrix = cov_matrix.tolist()
 
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
-        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
-        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
-            resp = client.finance.risk_parity(cov_matrix)
+        client = GraphComputeEngine.get_or_create().client
+        resp = client.finance.risk_parity(cov_matrix)
 
         weights = resp.get("weights", [])
         port_vol = resp.get("portfolio_volatility", 0.0)
@@ -183,18 +175,14 @@ class BlackLittermanOptimizer:
             [mc / total_cap for mc in market_caps] if total_cap > 0 else [1.0 / n] * n
         )
 
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
         )
 
-        # Centralized resolution (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): same endpoint/auth the
-        # chokepoint uses, so a remote/sharded/insecure deployment is honoured.
-        with SyncEpistemicGraphClient.connect(**client_connect_kwargs()) as client:
-            resp = client.finance.black_litterman(
-                market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion
-            )
+        client = GraphComputeEngine.get_or_create().client
+        resp = client.finance.black_litterman(
+            market_weights, cov_matrix, views, pick_matrix, tau, risk_aversion
+        )
 
         weights = resp.get("weights", [])
         port_return = resp.get("expected_return", 0.0)

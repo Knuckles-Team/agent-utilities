@@ -299,10 +299,10 @@ def extract_edits(
         "Preserve every number with its owner/action/event/exactness. Do not dump raw text."
     )
     try:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
         model = create_model(role="learner")
-        agent = Agent(model=model, system_prompt=system_prompt)
+        agent = create_context_agent(model=model, system_prompt=system_prompt)
         result: Any = agent.run_sync(resolved)
         raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
     except Exception as e:  # pragma: no cover - learner is best-effort

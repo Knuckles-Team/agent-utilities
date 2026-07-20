@@ -1,12 +1,12 @@
 {
   "target": "agent-utilities",
-  "target_path": "/home/apps/workspace/agent-packages/agent-utilities",
+  "target_path": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
   "items_scored": 2,
   "rankings": [
     {
       "id": "hermes-agent",
       "type": "codebase",
-      "path": "/home/apps/workspace/open-source-libraries/hermes-agent",
+      "path": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent",
       "semantic": 7.2,
       "concept_overlap": 4.0,
       "arch_compat": 5.0,
@@ -17,7 +17,7 @@
     {
       "id": "hermes_levels_article",
       "type": "paper",
-      "path": "/home/apps/workspace/prompts/conversations/new/hermes_levels_article.txt",
+      "path": "${WORKSPACE_ROOT}/prompts/conversations/new/hermes_levels_article.txt",
       "semantic": 0.73,
       "concept_overlap": 0.0,
       "arch_compat": 0.0,

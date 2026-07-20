@@ -4,7 +4,7 @@
   "kg_query": null,
   "projects": [
     {
-      "path": "/home/apps/workspace/open-source-libraries/hermes-agent",
+      "path": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent",
       "name": "hermes-agent",
       "exists": true,
       "type": "codebase",
@@ -69,7 +69,7 @@
       "source": "filesystem"
     },
     {
-      "path": "/home/apps/workspace/agent-packages/agent-utilities",
+      "path": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
       "name": "agent-utilities",
       "exists": true,
       "type": "codebase",
@@ -138,7 +138,7 @@
       "source": "filesystem"
     },
     {
-      "path": "/home/apps/workspace/prompts/conversations/new/hermes_levels_article.txt",
+      "path": "${WORKSPACE_ROOT}/prompts/conversations/new/hermes_levels_article.txt",
       "name": "hermes_levels_article.txt",
       "exists": true,
       "type": "research",

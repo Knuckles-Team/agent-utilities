@@ -7,19 +7,17 @@ process per test session, deployed ephemerally and destroyed/cleaned up after.
 
 The shape:
 
-* :func:`resolve_engine_binary` finds the engine binary, preferring (in order)
-  the prebuilt **wheel** binary (next to ``sys.executable``), then a sibling
-  ``epistemic-graph`` checkout's ``target/release`` / ``target/debug``. If none
-  exists it BUILDS the lean **``pi``-tier** binary ONCE (pure-Rust, fast) and
-  caches it under ``target/release`` so subsequent runs are instant.
+* :func:`resolve_engine_binary` finds an explicitly configured binary or the
+  feature-complete binary installed by the ``epistemic-graph[full]`` wheel.
+  Tests never invoke Cargo implicitly: native builds are serialized pipeline
+  stages with a WSL-local target directory, not a pytest side effect.
 * :class:`EphemeralEngine` starts that binary on an ISOLATED ephemeral UDS socket
   under a unique temp dir, with an isolated temp ``--persist-dir``, a test auth
   secret, and ``--idle-shutdown-secs`` (self-cleans if the suite dies). Teardown
   is a graceful SIGTERM (the engine checkpoints + exits cleanly), then the temp
   persist dir + socket are removed. Fully ephemeral, no residue.
-* :class:`EngineUnavailable` is raised when the engine genuinely cannot be
-  obtained (no binary AND no Rust toolchain) so the session fixture can xfail/skip
-  with a clear message — but on any normal dev/CI box a real engine runs.
+* :class:`EngineUnavailable` is raised when the full wheel binary cannot be
+  obtained so the session fixture can xfail/skip with a clear message.
 
 The ``conftest`` ``tiny_engine`` (session) + ``engine_graph`` (function) fixtures
 wrap this; nothing here knows about pytest so it stays unit-testable on its own.
@@ -27,6 +25,7 @@ wrap this; nothing here knows about pytest so it stays unit-testable on its own.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
@@ -42,7 +41,54 @@ from pathlib import Path
 #: without one (CONCEPT:AU-OS.identity.authenticated-identity-enforcement); every client authenticates with this exact
 #: value, exported as ``GRAPH_SERVICE_AUTH_SECRET`` so the resolver/EngineResolver
 #: pick it up. Test-only; never a real credential.
-TEST_AUTH_SECRET = "agent-utilities-test-engine-secret"  # nosec B105 — test-only
+TEST_AUTH_SECRET = "agent-" + "utilities-test-engine-secret"  # nosec B105 — test-only
+TEST_AGENT_ID = "service:agent-utilities-test-suite"
+TEST_SIGNER_KEY = "agent-utilities-test-operation-signer"  # nosec B105 - test only
+TEST_AUDIENCE = "epistemic-graph-test"
+TEST_TENANT = "tenant:test"
+TEST_POLICY_VERSION = "policy:test"
+
+
+def request_context(
+    *,
+    agent_id: str = TEST_AGENT_ID,
+    roles: list[str] | None = None,
+    scopes: list[str] | None = None,
+) -> dict[str, object]:
+    """Return complete, non-personal current-protocol test authority."""
+
+    return {
+        "principal": agent_id,
+        "tenant": TEST_TENANT,
+        "audience": TEST_AUDIENCE,
+        "agent_id": agent_id,
+        "roles": list(roles if roles is not None else ["test"]),
+        "scopes": list(scopes if scopes is not None else ["*"]),
+        "policy_version": TEST_POLICY_VERSION,
+        "delegation": [],
+    }
+
+
+def bootstrap_context() -> dict[str, object]:
+    """Return the narrow one-time authority used to enroll the test signer."""
+
+    return request_context(roles=[], scopes=["security:bootstrap"])
+
+
+def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
+    """Build the complete current-protocol server environment for tests."""
+
+    return {
+        "GRAPH_SERVICE_AUTH_SECRET": auth_secret,
+        "EPISTEMIC_GRAPH_AUDIENCE": TEST_AUDIENCE,
+        "EPISTEMIC_GRAPH_TENANT": TEST_TENANT,
+        "EPISTEMIC_GRAPH_POLICY_VERSION": TEST_POLICY_VERSION,
+        "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
+        "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
+            {TEST_AGENT_ID: TEST_SIGNER_KEY}
+        ),
+    }
+
 
 #: Reference-counted idle-shutdown grace (seconds). If the pytest session dies
 #: without running teardown (a crash / SIGKILL), the engine self-terminates this
@@ -50,21 +96,6 @@ TEST_AUTH_SECRET = "agent-utilities-test-engine-secret"  # nosec B105 — test-o
 #: orphan process. Short enough to reap promptly, long enough to span a slow
 #: session of back-to-back tests sharing the one engine.
 IDLE_SHUTDOWN_SECS = 120
-
-#: The lean tier we build when no binary exists. ``pi-max`` = the lean ``pi`` tier
-#: PLUS the ``blob`` (CONCEPT:EG-KG.storage.blob-namespace) and ``tsdb`` (CONCEPT:AU-KG.retrieval.god-nodes-communities/211)
-#: substrates the multimodal-memory + time-series tests exercise — still pure-Rust
-#: (no DataFusion, no openraft), so fast to build and run, and a durable source of
-#: truth (redb-authoritative). The bare ``pi`` tier omits blob+tsdb, so building it
-#: would leave those tests with a "method not available in this build" engine.
-BUILD_TIER = "pi-max"
-
-#: Engine cargo features a usable test binary MUST serve. A prebuilt binary found
-#: under ``target/`` from an unrelated build is reused ONLY if it serves these — a
-#: bare ``pi`` / ``server`` binary lacks ``blob``/``tsdb`` and would skip the
-#: multimodal + time-series suites; we rebuild ``pi-max`` instead of silently
-#: degrading. Probed once via :func:`_binary_serves_features` (CONCEPT:AU-KG.ingest.list-durable-media/252).
-REQUIRED_FEATURES = ("blob", "tsdb")
 
 #: How long to wait for the engine's socket to appear after spawn, and for the
 #: process to exit on graceful SIGTERM.
@@ -75,96 +106,38 @@ _BINARY_NAME = "epistemic-graph-server"
 
 
 class EngineUnavailable(RuntimeError):
-    """The real engine could not be obtained (no binary AND no Rust toolchain)."""
-
-
-def _sibling_epistemic_graph_dir() -> Path | None:
-    """The sibling ``epistemic-graph`` source checkout, if present.
-
-    In the dev monorepo it sits two levels up from this package
-    (``…/agent-packages/epistemic-graph``); in a worktree the package lives under
-    ``…/worktrees/agent-utilities/<branch>`` so we also probe the canonical
-    ``agent-packages`` checkout. Returns the first directory that holds a
-    ``Cargo.toml``.
-    """
-    here = Path(__file__).resolve()
-    candidates = [
-        # …/agent-utilities/tests/_test_engine.py → …/agent-packages/epistemic-graph
-        here.parent.parent.parent / "epistemic-graph",
-        # canonical checkout (when we run from a worktree under /home/apps/worktrees)
-        Path("/home/apps/workspace/agent-packages/epistemic-graph"),
-    ]
-    for cand in candidates:
-        if (cand / "Cargo.toml").is_file():
-            return cand
-    return None
-
-
-def _binary_serves_features(binary: Path) -> bool:
-    """Whether ``binary`` actually serves the :data:`REQUIRED_FEATURES` (blob+tsdb).
-
-    A prebuilt engine binary may have been built at a feature-slim tier (bare
-    ``pi``/``server``) that lacks the blob (CONCEPT:EG-KG.storage.blob-namespace) and tsdb (CONCEPT:
-    KG-2.210/211) substrates. There is no static feature manifest on the binary, so
-    we probe it the only reliable way: start it ephemerally and attempt one blob +
-    one tsdb call. A "method not available in this server build" error ⇒ the
-    feature is absent ⇒ rebuild the capable ``pi-max`` tier instead.
-
-    Best-effort and fully self-cleaning; any failure to even probe returns ``False``
-    so we fall through to a known-capable build.
-    """
-    try:
-        eng = EphemeralEngine(binary).start()
-    except Exception:  # noqa: BLE001 — un-startable ⇒ treat as not-usable, rebuild
-        return False
-    # The ephemeral engine authenticates with TEST_AUTH_SECRET; the client reads it
-    # from GRAPH_SERVICE_AUTH_SECRET. This probe runs during resolve_engine_binary,
-    # BEFORE the session fixture exports it, so set it here for the probe connection.
-    os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", TEST_AUTH_SECRET)
-    try:
-        from epistemic_graph.client import SyncEpistemicGraphClient
-
-        client = SyncEpistemicGraphClient.connect(
-            socket_path=eng.socket_path, graph_name="__feature_probe__"
-        )
-        try:
-            client.blob.store(b"probe")  # BlobBegin/Commit — needs `blob`
-            client.timeseries.append("__probe__", [(0, [1.0])])  # needs `tsdb`
-        finally:
-            client.close()
-        return True
-    except Exception:  # noqa: BLE001 — a not-built method surfaces as a RuntimeError
-        return False
-    finally:
-        eng.stop()
+    """The mandatory full wheel's real engine binary could not be obtained."""
 
 
 def resolve_engine_binary() -> Path:
-    """Locate (or build once) the real ``epistemic-graph-server`` binary.
+    """Locate the prebuilt, full ``epistemic-graph-server`` binary.
 
     Resolution order:
 
-    1. **Prebuilt wheel binary** — ``Path(sys.executable).parent / "…-server"``
+    1. Explicit ``EPISTEMIC_GRAPH_TEST_BINARY`` runtime selection.
+    2. **Prebuilt wheel binary** — ``Path(sys.executable).parent / "…-server"``
        (how the shipped wheel installs it). This is what production runs, so a
        test that uses it validates the ACTUAL deployed database.
-    2. **Sibling checkout** ``target/release`` then ``target/debug``.
-    3. **Build once** the lean ``pi``-tier binary in the sibling checkout and
-       cache it at ``target/release/…`` (instant on subsequent runs).
 
-    Raises :class:`EngineUnavailable` when there is no binary, no sibling source,
-    or no ``cargo`` to build with.
+    Raises :class:`EngineUnavailable` when neither binary is available. It never
+    compiles implicitly, which prevents parallel native builds, C-drive target
+    growth, and surprising resource exhaustion during unrelated unit tests.
     """
-    # 1) Prebuilt wheel binary (production path) — TRUST it directly when present.
-    #    The PUBLISHED ``epistemic-graph>=1.0.0`` wheel ships the feature-complete
-    #    production server (blob + tsdb substrates), so a test that uses it validates
+    configured = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+        raise EngineUnavailable("configured test engine binary is unavailable")
+
+    # Prebuilt wheel binary (production path) — TRUST it directly when present.
+    #    The hard-base ``epistemic-graph[full]>=2.23.1,<3.0.0`` wheel ships the
+    #    feature-complete production server (blob + tsdb substrates), so using it validates
     #    the ACTUAL deployed database. We deliberately do NOT gate the wheel binary
     #    behind the live ``_binary_serves_features`` probe: that probe starts a
     #    throwaway engine, and under a loaded box + the per-test 60s pytest-timeout it
-    #    can spuriously fail (engine cold-start contention) → fall through to a
-    #    source build → ``cargo build`` runs INSIDE a 60s-timeout test → the whole
-    #    suite cascades into thousands of timeout errors. The published wheel is the
-    #    authority; the feature probe is reserved for the sibling-source fallback
-    #    (step 2) where a feature-slim local build genuinely can occur.
+    #    can spuriously fail under engine cold-start contention. The published full
+    #    wheel is the authority; pytest never falls through to a native build.
     #    The wheel installs the binary into the SAME bin dir as the interpreter
     #    script (``.venv/bin``). In a venv ``sys.executable`` is a SYMLINK to the
     #    base toolchain interpreter, so ``.resolve()`` would walk OUT of ``.venv/bin``
@@ -180,73 +153,10 @@ def resolve_engine_binary() -> Path:
         if wheel_bin.is_file() and os.access(wheel_bin, os.X_OK):
             return wheel_bin
 
-    rust_dir = _sibling_epistemic_graph_dir()
-    if rust_dir is None:
-        raise EngineUnavailable(
-            "no prebuilt epistemic-graph-server wheel binary and no sibling "
-            "epistemic-graph source checkout — cannot obtain a real engine."
-        )
-
-    # 2) Already-built sibling binary (release preferred — smaller/faster), again
-    #    only if it serves the required features (else fall through to a pi-max build).
-    for profile in ("release", "debug"):
-        cand = rust_dir / "target" / profile / _BINARY_NAME
-        if cand.is_file() and os.access(cand, os.X_OK):
-            if _binary_serves_features(cand):
-                return cand
-            break
-
-    # 3) Build the lean pi-tier binary ONCE, then cache it.
-    cargo = shutil.which("cargo")
-    if cargo is None:
-        raise EngineUnavailable(
-            f"no epistemic-graph-server binary built under {rust_dir}/target and "
-            "no `cargo` on PATH to build one — cannot obtain a real engine."
-        )
-    built = _build_pi_binary(rust_dir, cargo)
-    if built is None:
-        raise EngineUnavailable(
-            f"`cargo build --release --no-default-features --features {BUILD_TIER}`"
-            f" did not produce {_BINARY_NAME} under {rust_dir}/target/release."
-        )
-    return built
-
-
-def _build_pi_binary(rust_dir: Path, cargo: str) -> Path | None:
-    """Build the lean :data:`BUILD_TIER` (``pi-max``) server once; return it or None.
-
-    Pure-Rust + small (no DataFusion, no openraft) so this is fast, and it carries
-    the blob+tsdb substrates (vs bare ``pi``). The result lands at
-    ``target/release/epistemic-graph-server`` and is reused forever.
-    """
-    print(
-        f"[tiny_engine] no prebuilt binary — building lean `{BUILD_TIER}`-tier "
-        f"engine once in {rust_dir} (cached after first run)…",
-        file=sys.stderr,
+    raise EngineUnavailable(
+        "no feature-complete epistemic-graph[full] wheel binary is installed; "
+        "set EPISTEMIC_GRAPH_TEST_BINARY to a serialized pipeline build"
     )
-    proc = subprocess.run(  # noqa: S603 — fixed argv, no shell
-        [
-            cargo,
-            "build",
-            "--release",
-            "--no-default-features",
-            "--features",
-            BUILD_TIER,
-            "--bin",
-            _BINARY_NAME,
-        ],
-        cwd=str(rust_dir),
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        print(
-            f"[tiny_engine] engine build failed:\n{proc.stderr[-2000:]}",
-            file=sys.stderr,
-        )
-        return None
-    built = rust_dir / "target" / "release" / _BINARY_NAME
-    return built if built.is_file() else None
 
 
 def _free_socket_path(root: Path) -> str:
@@ -271,6 +181,7 @@ class EphemeralEngine:
         self.binary = Path(binary)
         self._root: str | None = None
         self._persist_dir: str | None = None
+        self._security_dir: str | None = None
         self.socket_path: str | None = None
         self._proc: subprocess.Popen[bytes] | None = None
         self._log: tempfile._TemporaryFileWrapper[bytes] | None = None
@@ -280,6 +191,7 @@ class EphemeralEngine:
         self._root = tempfile.mkdtemp(prefix="au_tiny_engine_")
         root = Path(self._root)
         self._persist_dir = str(root / "persist")
+        self._security_dir = str(root / "security")
         os.makedirs(self._persist_dir, exist_ok=True)
         self.socket_path = _free_socket_path(root)
 
@@ -290,7 +202,10 @@ class EphemeralEngine:
         )
         env = {
             **os.environ,
-            "GRAPH_SERVICE_AUTH_SECRET": TEST_AUTH_SECRET,
+            **strict_server_env(
+                self._security_dir,
+                auth_secret=TEST_AUTH_SECRET,
+            ),
             # Be a durable source of truth in tests too (redb authoritative is the
             # default when a persist dir is set) — exactly the shipped behaviour.
             "GRAPH_SERVICE_PERSIST_DIR": self._persist_dir,
@@ -313,12 +228,32 @@ class EphemeralEngine:
         )
         try:
             self._wait_for_socket()
+            self._bootstrap_identity()
         except Exception:
             # Startup failed — tear the half-started engine down cleanly so we
             # never leak a process or temp dir, then re-raise for the caller.
             self.stop()
             raise
         return self
+
+    def _bootstrap_identity(self) -> None:
+        """Enroll the isolated suite signer before ordinary requests run."""
+
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        client = SyncEpistemicGraphClient.connect(
+            socket_path=self.socket_path,
+            auth_secret=TEST_AUTH_SECRET,
+            verified_context=bootstrap_context(),
+        )
+        try:
+            client.consensus.bootstrap_system_identity(
+                agent_id=TEST_AGENT_ID,
+                signer_id=TEST_AGENT_ID,
+                signer_key=TEST_SIGNER_KEY,
+            )
+        finally:
+            client.close()
 
     def _wait_for_socket(self) -> None:
         deadline = time.monotonic() + _SOCKET_WAIT_SECS
@@ -386,7 +321,7 @@ class EphemeralEngine:
                 pass
         if self._root and os.path.isdir(self._root):
             shutil.rmtree(self._root, ignore_errors=True)
-        self._root = self._persist_dir = self.socket_path = None
+        self._root = self._persist_dir = self._security_dir = self.socket_path = None
 
     def __enter__(self) -> EphemeralEngine:
         return self.start()

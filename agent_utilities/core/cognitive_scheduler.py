@@ -184,7 +184,7 @@ class AgentProcess(BaseModel):
         inference_budget: Cost-aware inference budget with tier management.
     """
 
-    id: str = Field(default_factory=lambda: f"proc:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"proc:{uuid.uuid4().hex}")
     agent_id: str = ""
     priority: int = SchedulerPriority.NORMAL
     state: str = ProcessState.WAITING
@@ -263,7 +263,7 @@ class CognitiveScheduler:
                     return float(degree) / (num_nodes - 1)
         except Exception as e:
             logger.debug(
-                "Failed to calculate graph centrality for agent %s: %s", agent_id, e
+                "Failed to calculate graph centrality (%s)", type(e).__name__
             )
 
         return 0.0
@@ -322,10 +322,8 @@ class CognitiveScheduler:
                 proc.state = ProcessState.RUNNING
                 proc._running_event.set()
                 logger.info(
-                    "Scheduler: %s → RUNNING (priority=%d, agent=%s, centrality=%.2f, quota=%d)",
-                    proc.id,
+                    "Scheduler: RUNNING (priority=%d, centrality=%.2f, quota=%d)",
                     proc.priority,
-                    proc.agent_id,
                     centrality,
                     proc.token_quota,
                 )
@@ -333,10 +331,8 @@ class CognitiveScheduler:
                 proc.state = ProcessState.WAITING
                 await self._queue.put((proc.priority, proc.created_at, proc.id))
                 logger.info(
-                    "Scheduler: %s → WAITING (queue depth=%d, agent=%s, centrality=%.2f, quota=%d)",
-                    proc.id,
+                    "Scheduler: WAITING (queue_depth=%d, centrality=%.2f, quota=%d)",
                     self._queue.qsize(),
-                    proc.agent_id,
                     centrality,
                     proc.token_quota,
                 )
@@ -362,11 +358,9 @@ class CognitiveScheduler:
             if proc:
                 proc.state = ProcessState.COMPLETED
                 logger.info(
-                    "Scheduler: %s → COMPLETED (tokens=%d/%d, agent=%s)",
-                    proc.id,
+                    "Scheduler: COMPLETED (tokens=%d/%d)",
                     proc.tokens_used,
                     proc.token_quota,
-                    proc.agent_id,
                 )
                 self._persist_process(proc)
 
@@ -384,10 +378,7 @@ class CognitiveScheduler:
             if proc:
                 proc.state = ProcessState.FAILED
                 logger.warning(
-                    "Scheduler: %s → FAILED (reason=%s, agent=%s)",
-                    proc.id,
-                    reason[:100] or "unknown",
-                    proc.agent_id,
+                    "Scheduler: FAILED",
                 )
                 self._persist_process(proc)
 
@@ -423,15 +414,12 @@ class CognitiveScheduler:
             proc.preempted_at = time.time()
 
             # Generate checkpoint ID
-            checkpoint_id = f"ckpt:{uuid.uuid4().hex[:8]}"
+            checkpoint_id = f"ckpt:{uuid.uuid4().hex}"
             proc.checkpoint_id = checkpoint_id
 
             logger.info(
-                "Scheduler: PREEMPT %s (reason=%s, checkpoint=%s, agent=%s)",
-                proc.id,
-                reason,
-                checkpoint_id,
-                proc.agent_id,
+                "Scheduler: PREEMPT reason_code=%s",
+                "quota" if reason == "quota" else "policy",
             )
 
             self._persist_process(proc)
@@ -500,23 +488,19 @@ class CognitiveScheduler:
 
         if proc.tokens_used >= proc.token_quota:
             logger.warning(
-                "Scheduler: %s OVER QUOTA (%d/%d tokens, agent=%s)",
-                proc.id,
+                "Scheduler: OVER QUOTA (%d/%d tokens)",
                 proc.tokens_used,
                 proc.token_quota,
-                proc.agent_id,
             )
             return False
 
         threshold = int(proc.token_quota * self.preemption_threshold)
         if proc.tokens_used >= threshold:
             logger.info(
-                "Scheduler: %s NEAR QUOTA (%d/%d tokens, %.0f%%, agent=%s)",
-                proc.id,
+                "Scheduler: NEAR QUOTA (%d/%d tokens, %.0f%%)",
                 proc.tokens_used,
                 proc.token_quota,
                 (proc.tokens_used / proc.token_quota) * 100,
-                proc.agent_id,
             )
 
         return True
@@ -577,25 +561,21 @@ class CognitiveScheduler:
                 budget.current_tier = next_tier
                 downgraded = True
                 logger.info(
-                    "Scheduler: %s AUTO-DOWNGRADE %s → %s "
-                    "(budget %.1f%% used, $%.4f/$%.4f, agent=%s)",
-                    proc.id,
+                    "Scheduler: AUTO-DOWNGRADE %s → %s "
+                    "(budget %.1f%% used, $%.4f/$%.4f)",
                     old_tier,
                     next_tier,
                     budget.budget_usage_pct * 100,
                     budget.cost_used_usd,
                     budget.cost_budget_usd,
-                    proc.agent_id,
                 )
 
         within_budget = budget.cost_used_usd < budget.cost_budget_usd
         if not within_budget:
             logger.warning(
-                "Scheduler: %s OVER COST BUDGET ($%.4f/$%.4f, agent=%s)",
-                proc.id,
+                "Scheduler: OVER COST BUDGET ($%.4f/$%.4f)",
                 budget.cost_used_usd,
                 budget.cost_budget_usd,
-                proc.agent_id,
             )
 
         return {
@@ -729,9 +709,7 @@ class CognitiveScheduler:
             proc.state = ProcessState.RUNNING
             proc._running_event.set()
             logger.info(
-                "Scheduler: %s → RUNNING (from queue, agent=%s)",
-                proc.id,
-                proc.agent_id,
+                "Scheduler: RUNNING from queue",
             )
             self._persist_process(proc)
             return proc

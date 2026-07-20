@@ -19,7 +19,7 @@ from typing import Any
 
 from agent_utilities.core.config import setting
 
-from .gateway import MediaServiceError, _request
+from .gateway import MediaServiceError, _request, _required_url
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ __all__ = ["Transcriber", "transcribe"]
 
 DEFAULT_WHISPER_URL = setting(
     "WHISPER_URL",
-    setting("FASTER_WHISPER_URL", "http://faster-whisper.arpa:8000"),
+    setting("FASTER_WHISPER_URL", ""),
 )
 
 
@@ -48,7 +48,10 @@ class Transcriber:
         model: str = "whisper-1",
         http_fn: Any = None,
     ) -> None:
-        self.base_url = (base_url or DEFAULT_WHISPER_URL).rstrip("/")
+        self.base_url = _required_url(
+            base_url or DEFAULT_WHISPER_URL,
+            "WHISPER_URL (or FASTER_WHISPER_URL)",
+        )
         self.model = model
         self._http_fn = http_fn
 

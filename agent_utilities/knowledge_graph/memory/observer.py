@@ -81,7 +81,7 @@ def observe_transcript(
 
     # Call LLM to extract observations
     try:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
         from ...core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
         from ...core.model_factory import create_model
@@ -89,7 +89,7 @@ def observe_transcript(
         model = create_model(
             provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
         )
-        agent = Agent(model, system_prompt=OBSERVER_SYSTEM_PROMPT)
+        agent = create_context_agent(model, system_prompt=OBSERVER_SYSTEM_PROMPT)
 
         from ...core.event_loop import allow_nested_run_sync
 
@@ -114,8 +114,8 @@ def observe_transcript(
 
         try:
             compress_to_memento(engine, messages, source=source, dry_run=dry_run)
-        except Exception as e:
-            logger.warning("Failed to compress Memento: %s", e)
+        except Exception:
+            logger.warning("Failed to compress privacy-safe Memento")
 
     return observations_text
 
@@ -205,7 +205,7 @@ def _persist_observations(
                 emoji, "normal"
             )
 
-            obs_id = f"obs_{hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:10]}"
+            obs_id = f"obs_{hashlib.sha256(content.encode()).hexdigest()[:32]}"
             engine.add_node(
                 obs_id,
                 "observation",

@@ -2,7 +2,7 @@
 
 > **Concepts:** CONCEPT:AU-KG.query.object-graph-mapper, CONCEPT:AU-KG.query.object-graph-mapper, CONCEPT:AU-ORCH.execution.inject-signal-board-observations, CONCEPT:AU-KG.memory.tiered-memory-caching, CONCEPT:AU-ORCH.adapter.hot-cache-invalidation
 >
-> See also: [First Principles Architecture](../1_graph_orchestration/first-principles.md) for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
+> See also: [First Principles Architecture](first-principles.md) for CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction (Registry Cache, TeamConfig, AgentCapability, PlannerGraphSkill).
 
 This document describes the Emergent Architecture layer of `agent-utilities` — a suite of five interconnected modules that enable dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering.
 
@@ -64,16 +64,16 @@ The OGM provides declarative, bidirectional mapping between Pydantic `RegistryNo
 
 ```python
 from agent_utilities.knowledge_graph.core.ogm import KGMapper
-from agent_utilities.models.knowledge_graph import SelfModelNode
+from agent_utilities.models.knowledge_graph import MemoryRetrieverNode
 
 mapper = KGMapper(engine)
 
 # Upsert a node
-node = SelfModelNode(id="sm:001", name="Self-Model v1", version=1)
+node = MemoryRetrieverNode(id="sm:001", name="Self-Model v1", version=1)
 mapper.upsert(node)
 
 # Load it back
-loaded = mapper.load("sm:001", SelfModelNode)
+loaded = mapper.load("sm:001", MemoryRetrieverNode)
 
 # Create an edge
 mapper.upsert_edge("sm:001", "sm:000", "SUPERSEDES")
@@ -188,7 +188,7 @@ pool.prune_losers(base_prompt.id, keep=3)
 
 ## CONCEPT:AU-KG.memory.tiered-memory-caching — Persistent Self-Model
 
-**Module:** `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the `SelfModel` name and the `knowledge_graph/self_model.py` import path are retained as back-compat aliases)
+**Module:** `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`)
 
 A versioned metacognitive self-model that aggregates session outcomes into a persistent KG representation of the agent's capabilities, strengths, and known failure modes.
 
@@ -201,14 +201,14 @@ A versioned metacognitive self-model that aggregates session outcomes into a per
                                                     ──SUPERSEDES──→ [SelfModel v1]
 ```
 
-- **Versioned chain**: Each session creates a new `SelfModelNode`
+- **Versioned chain**: Each session creates a new `MemoryRetrieverNode`
 - **CURRENT pointer**: O(1) lookup of latest version via `CURRENT_SELF_MODEL` edge
 - **Temporal analysis**: Traverse `SUPERSEDES` chain for trend analysis
 
 ### Data Model
 
 ```python
-class SelfModelNode(RegistryNode):
+class MemoryRetrieverNode(RegistryNode):
     version: int                           # Monotonically increasing
     domain_success_rates: dict[str, float] # e.g., {"gitlab": 0.85}
     capability_confidence: dict[str, float]
@@ -233,9 +233,9 @@ This enables the OWL reasoner to infer routing decisions like "I am competent at
 ### Usage
 
 ```python
-from agent_utilities.knowledge_graph.self_model import SelfModel
+from agent_utilities.knowledge_graph.retrieval.memory_retriever import MemoryRetriever
 
-sm = SelfModel(engine)
+sm = MemoryRetriever(engine)
 model = sm.get_or_create()
 
 # After a session
@@ -324,8 +324,8 @@ gwt.broadcast_to_kg(winners, engine, task_id="task:123")
 | `SELF_MODEL` | CONCEPT:AU-KG.memory.tiered-memory-caching | Versioned metacognitive self-model |
 | `SWARM_COALITION` | CONCEPT:AU-KG.query.object-graph-mapper | Dynamic agent coalition record |
 | `PROPOSAL` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | GWT specialist output proposal |
-| `TEAM_CONFIG` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Proven specialist coalition template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `AGENT_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Dynamic capability with trigger conditions (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `TEAM_CONFIG` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Proven specialist coalition template (see [first-principles.md](first-principles.md)) |
+| `AGENT_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Dynamic capability with trigger conditions (see [first-principles.md](first-principles.md)) |
 
 ### Edge Types (RegistryEdgeType)
 
@@ -336,9 +336,9 @@ gwt.broadcast_to_kg(winners, engine, task_id="task:123")
 | `SPAWNED_BY` | CONCEPT:AU-KG.query.object-graph-mapper | Tracks swarm agent parentage |
 | `COORDINATED_BY` | CONCEPT:AU-KG.query.object-graph-mapper | Links specialist to coordinator |
 | `PROPOSED_FOR` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links proposal to its specialist |
-| `HAS_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links specialist → capability node (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `REUSED_TEAM` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links session → TeamConfig for reuse tracking (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
-| `USES_PROMPT` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links specialist → JSON prompt template (see [first-principles.md](../1_graph_orchestration/first-principles.md)) |
+| `HAS_CAPABILITY` | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation | Links specialist → capability node (see [first-principles.md](first-principles.md)) |
+| `REUSED_TEAM` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links session → TeamConfig for reuse tracking (see [first-principles.md](first-principles.md)) |
+| `USES_PROMPT` | CONCEPT:AU-AHE.evaluation.interpretability-tests | Links specialist → JSON prompt template (see [first-principles.md](first-principles.md)) |
 
 ---
 

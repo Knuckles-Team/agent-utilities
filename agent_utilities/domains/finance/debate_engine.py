@@ -195,7 +195,9 @@ class DebateEngine:
                 return ""
             return evaluate_persona(persona, metrics).citation()
         except Exception as exc:  # noqa: BLE001 — evidence is best-effort
-            logger.debug("persona heuristic evidence unavailable: %s", exc)
+            logger.debug(
+                "persona heuristic evidence unavailable (%s)", type(exc).__name__
+            )
             return ""
 
     def _heuristic_block(self, persona: str | None, context: DebateContext) -> str:
@@ -209,12 +211,11 @@ class DebateEngine:
         """Generate Bull Researcher argument using LLM (persona voice if bound)."""
         logger.info(f"Generating Bull argument for {context.ticker}, round {round_num}")
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 output_type=DebateArgument,
                 system_prompt=self._bull_system_prompt(),
@@ -254,12 +255,11 @@ class DebateEngine:
         """Generate Bear Researcher argument using LLM (persona voice if bound)."""
         logger.info(f"Generating Bear argument for {context.ticker}, round {round_num}")
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 output_type=DebateArgument,
                 system_prompt=self._bear_system_prompt(),
@@ -296,12 +296,11 @@ class DebateEngine:
         """Risk Manager team evaluates the debate and makes a final call."""
         logger.info(f"Evaluating risk for {context.ticker} debate")
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
             model = self.llm or create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 output_type=RiskVeto,
                 system_prompt=(
@@ -371,18 +370,22 @@ class DebateEngine:
         node_id = f"Debate_{session.session_id}_{session.context.ticker}"
 
         self.engine.add_node(
-            id=node_id,
+            node_id=node_id,
             node_type="DebateSession",
-            ticker=session.context.ticker,
-            decision=session.final_decision,
-            rounds=len(session.rounds),
+            properties={
+                "ticker": session.context.ticker,
+                "decision": session.final_decision,
+                "rounds": len(session.rounds),
+            },
         )
 
         if session.risk_assessment:
             self.engine.add_node(
-                id=f"{node_id}_Risk",
+                node_id=f"{node_id}_Risk",
                 node_type="RiskAssessment",
-                approved=session.risk_assessment.approved,
-                reasoning=session.risk_assessment.reasoning,
+                properties={
+                    "approved": session.risk_assessment.approved,
+                    "reasoning": session.risk_assessment.reasoning,
+                },
             )
             self.engine.add_edge(node_id, f"{node_id}_Risk", "EVALUATED_BY")

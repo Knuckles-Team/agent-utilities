@@ -58,7 +58,7 @@ def create_workspace(
     when a daemon is reachable, else fall back to the always-available local backend (the
     zero-infra floor) so the runtime works out-of-the-box.
     """
-    rid = run_id or uuid.uuid4().hex[:12]
+    rid = run_id or uuid.uuid4().hex
     backend: WorkspaceBackend
     if prefer_docker and root is None:
         candidate = DockerWorkspace(run_id=rid, image=image)

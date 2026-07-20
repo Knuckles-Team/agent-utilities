@@ -200,15 +200,24 @@ class TestMCPConfigParsing:
     def test_config_hash_deterministic(self):
         """Same config produces same hash."""
         engine = _create_engine()
-        h1 = engine._compute_config_hash("test", "uv", ["run", "test"], {"A": "1"})
-        h2 = engine._compute_config_hash("test", "uv", ["run", "test"], {"A": "1"})
+        declaration = {
+            "command": "uv",
+            "args": ["run", "test"],
+            "env": {"A": "1"},
+        }
+        h1 = engine._compute_config_hash("test", declaration)
+        h2 = engine._compute_config_hash("test", declaration)
         assert h1 == h2
 
     def test_config_hash_changes_on_diff(self):
         """Different config produces different hash."""
         engine = _create_engine()
-        h1 = engine._compute_config_hash("test", "uv", ["run", "test"], {"A": "1"})
-        h2 = engine._compute_config_hash("test", "uv", ["run", "test"], {"A": "2"})
+        h1 = engine._compute_config_hash(
+            "test", {"command": "uv", "args": ["run", "test"], "env": {"A": "1"}}
+        )
+        h2 = engine._compute_config_hash(
+            "test", {"command": "uv", "args": ["run", "test"], "env": {"A": "2"}}
+        )
         assert h1 != h2
 
 
@@ -491,8 +500,8 @@ class TestUnifiedIngestion:
         assert len(result["errors"]) == 0
 
     @pytest.mark.asyncio
-    async def test_ingest_real_portainer_fallback_to_flags(self):
-        """When live discovery fails, fall back to tool flag extraction."""
+    async def test_ingest_real_portainer_discovery_failure_is_closed(self):
+        """A failed live discovery never synthesizes an authoritative catalog."""
         portainer_path = _MCP_CONFIGS.get("portainer")
         if not portainer_path or not portainer_path.exists():
             pytest.skip("portainer mcp_config.json not found on disk")
@@ -502,10 +511,13 @@ class TestUnifiedIngestion:
         with patch.object(
             engine, "discover_mcp_tools", new_callable=AsyncMock
         ) as mock_discover:
-            mock_discover.return_value = []  # Live discovery fails
+            from agent_utilities.knowledge_graph.core.engine_mcp_discovery import (
+                MCPDiscoveryError,
+            )
+
+            mock_discover.side_effect = MCPDiscoveryError("mcp_discovery_unavailable")
             result = await engine.ingest_agent_toolkit([str(portainer_path)])
 
-        assert result["mcp_servers"] == 1
-        # Should have fallen back to tool flags (10 flags for portainer)
-        assert result["tools_discovered"] == 10
-        assert len(result["errors"]) == 0
+        assert result["mcp_servers"] == 0
+        assert result["tools_discovered"] == 0
+        assert result["errors"] == ["MCP child discovery unavailable"]

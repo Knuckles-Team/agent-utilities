@@ -37,15 +37,22 @@ HEADING = "## Environment Variables"
 _VAR = re.compile(r"^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=(.*)$")
 # A section banner comment we must NOT treat as a description.
 _BANNER = re.compile(r"^\s*#\s*([-=*_]{2,}|.*[-=]{3,}.*)\s*$")
+_CREDENTIAL_NAME_PARTS = frozenset({"KEY", "PASSWORD", "SECRET", "TOKEN"})
 
 # Curated INHERITED set — agent-utilities variables every connector honours.
 # (name -> (example, description)). Package-declared vars take precedence; an
 # inherited var already in the package's .env.example is not duplicated here.
 INHERITED_ENV: dict[str, tuple[str, str]] = {
     "TRANSPORT": ("stdio", "MCP transport: `stdio` | `streamable-http` | `sse`"),
-    "HOST": ("0.0.0.0", "Bind host (HTTP transports)"),
+    "HOST": (
+        "127.0.0.1",
+        "Loopback bind host (set an authenticated ingress explicitly)",
+    ),
     "PORT": ("8000", "Bind port (HTTP transports)"),
-    "MCP_TOOL_MODE": ("condensed", "Tool surface: `condensed` | `verbose` | `both`"),
+    "MCP_TOOL_MODE": (
+        "intent",
+        "Tool surface: `intent` | `condensed` | `verbose` | `both`",
+    ),
     "MCP_ENABLED_TOOLS": ("", "Comma-separated tool allow-list"),
     "MCP_DISABLED_TOOLS": ("", "Comma-separated tool deny-list"),
     "MCP_ENABLED_TAGS": ("", "Comma-separated tag allow-list"),
@@ -60,12 +67,18 @@ INHERITED_ENV: dict[str, tuple[str, str]] = {
         "Outbound MCP child auth: `oidc-client-credentials` | `basic` | `none`",
     ),
     "OIDC_CLIENT_ID": ("", "OIDC client id (service-account auth)"),
-    "OIDC_CLIENT_SECRET": ("", "OIDC client secret (service-account auth)"),
+    "OIDC_CLIENT_SECRET_REF": (
+        "secret://identity/oidc-client-secret",
+        "Runtime secret reference for the OIDC service account",
+    ),
     "MCP_BASIC_AUTH_USERNAME": ("", "HTTP Basic username (`MCP_CLIENT_AUTH=basic`)"),
-    "MCP_BASIC_AUTH_PASSWORD": ("", "HTTP Basic password (`MCP_CLIENT_AUTH=basic`)"),
+    "MCP_BASIC_AUTH_PASSWORD_REF": (
+        "secret://identity/mcp-basic-password",
+        "Runtime secret reference for HTTP Basic auth (`MCP_CLIENT_AUTH=basic`)",
+    ),
     "DEBUG": ("False", "Verbose logging"),
     "PYTHONUNBUFFERED": ("1", "Unbuffered stdout (recommended in containers)"),
-    # agent CLI — the full `[agent]` runtime only
+    # agent CLI — the full `[agent-runtime]` environment only
     "MCP_URL": (
         "http://localhost:8000/mcp",
         "URL of the MCP server the agent connects to",
@@ -101,10 +114,26 @@ def parse_env_example(text: str) -> list[tuple[str, str, str]]:
         stripped = line.strip()
         if stripped.startswith("#") and not _BANNER.match(line):
             # a standalone comment -> candidate description for the next var
-            pending_desc = stripped.lstrip("# ").strip()
+            comment = stripped.lstrip("# ").strip()
+            pending_desc = f"{pending_desc} {comment}".strip()
         elif not stripped:
             pending_desc = ""
     return rows
+
+
+def _is_direct_credential_name(name: str) -> bool:
+    """Return whether a variable directly carries credential material.
+
+    Secret-reference variables remain useful, safe examples in generated docs;
+    only direct credential values are replaced.
+    """
+    parts = name.split("_")
+    return parts[-1] != "REF" and bool(_CREDENTIAL_NAME_PARTS.intersection(parts))
+
+
+def _markdown_cell(value: str) -> str:
+    """Keep generated content inside one Markdown table cell."""
+    return value.replace("|", r"\|").replace("\r", " ").replace("\n", " ")
 
 
 def _table(rows: list[tuple[str, str, str]]) -> list[str]:
@@ -113,8 +142,12 @@ def _table(rows: list[tuple[str, str, str]]) -> list[str]:
         "|----------|---------|-------------|",
     ]
     for name, example, desc in rows:
-        ex = f"`{example}`" if example else "—"
-        out.append(f"| `{name}` | {ex} | {desc or ''} |")
+        if _is_direct_credential_name(name):
+            ex = "secret-injected"
+        else:
+            safe_example = _markdown_cell(example)
+            ex = f"`{safe_example}`" if safe_example else "—"
+        out.append(f"| `{name}` | {ex} | {_markdown_cell(desc or '')} |")
     return out
 
 

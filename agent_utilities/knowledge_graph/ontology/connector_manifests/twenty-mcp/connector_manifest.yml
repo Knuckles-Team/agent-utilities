@@ -1,0 +1,239 @@
+connector: twenty-mcp
+ontology_source: twenty
+schema_version: '1'
+resources:
+- name: Company
+  label: Company
+  id_prefix: company
+  relations: []
+- name: CrmNote
+  label: CRM Note
+  id_prefix: crmnote
+  relations: []
+- name: CrmTask
+  label: CRM Task
+  id_prefix: crmtask
+  relations: []
+- name: Opportunity
+  label: Opportunity
+  id_prefix: opportunity
+  relations:
+  - name: atStage
+    label: at stage
+    target: PipelineStage
+    lpg_rel_type: ''
+  - name: opportunityFor
+    label: opportunity for
+    target: Company
+    lpg_rel_type: ''
+  - name: pointOfContact
+    label: point of contact
+    target: Person
+    lpg_rel_type: ''
+- name: PipelineStage
+  label: Pipeline Stage
+  id_prefix: pipelinestage
+  relations: []
+actions: []
+events:
+- name: twenty-companies.updated
+  resource: crm-company
+  description: "Watermark event for 'twenty-companies' \u2014 advances on updatedAt (mcp_source_presets.json)."
+- name: twenty-opportunities.updated
+  resource: crm-opportunity
+  description: "Watermark event for 'twenty-opportunities' \u2014 advances on updatedAt (mcp_source_presets.json)."
+- name: twenty-people.updated
+  resource: crm-contact
+  description: "Watermark event for 'twenty-people' \u2014 advances on updatedAt (mcp_source_presets.json)."
+identity:
+  id_field:
+    crm-company: id
+    crm-opportunity: id
+    crm-contact: id
+  title_field:
+    crm-company: name
+    crm-opportunity: name
+    crm-contact: name.firstName
+  text_field:
+    crm-company: domainName.primaryLinkUrl
+    crm-opportunity: stage
+    crm-contact: jobTitle
+  updated_field:
+    crm-company: updatedAt
+    crm-opportunity: updatedAt
+    crm-contact: updatedAt
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Company:
+    ontology_class: Organization
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:dateTime
+      currencyCode: xsd:string
+      domainName: xsd:string
+      employees: xsd:integer
+      externalToolId: xsd:string
+      jobTitle: xsd:string
+      primaryEmail: xsd:string
+      stage: xsd:string
+  CrmNote:
+    ontology_class: Document
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:dateTime
+      currencyCode: xsd:string
+      domainName: xsd:string
+      employees: xsd:integer
+      externalToolId: xsd:string
+      jobTitle: xsd:string
+      primaryEmail: xsd:string
+      stage: xsd:string
+  CrmTask:
+    ontology_class: Action
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:dateTime
+      currencyCode: xsd:string
+      domainName: xsd:string
+      employees: xsd:integer
+      externalToolId: xsd:string
+      jobTitle: xsd:string
+      primaryEmail: xsd:string
+      stage: xsd:string
+  Opportunity:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:dateTime
+      currencyCode: xsd:string
+      domainName: xsd:string
+      employees: xsd:integer
+      externalToolId: xsd:string
+      jobTitle: xsd:string
+      primaryEmail: xsd:string
+      stage: xsd:string
+  PipelineStage:
+    ontology_class: null
+    fields:
+      amount: xsd:decimal
+      closeDate: xsd:dateTime
+      currencyCode: xsd:string
+      domainName: xsd:string
+      employees: xsd:integer
+      externalToolId: xsd:string
+      jobTitle: xsd:string
+      primaryEmail: xsd:string
+      stage: xsd:string
+sync:
+- preset: twenty-companies
+  server: twenty-mcp
+  tool: twenty_mcp_crm
+  action: get_companies
+  records_path: data.companies
+  id_field: id
+  title_field: name
+  text_field: domainName.primaryLinkUrl
+  updated_field: updatedAt
+  pagination: null
+  doc_type: crm-company
+  tool_schema_sha256: 6a16237312c6d8f754bbce0342d089c23155b1e0abe65dd925bf2c76a2be1ee4
+  raw:
+    server: twenty-mcp
+    tool: twenty_mcp_crm
+    action: get_companies
+    records_path: data.companies
+    id_field: id
+    title_field: name
+    text_field: domainName.primaryLinkUrl
+    updated_field: updatedAt
+    doc_type: crm-company
+- preset: twenty-opportunities
+  server: twenty-mcp
+  tool: twenty_mcp_crm
+  action: get_opportunities
+  records_path: data.opportunities
+  id_field: id
+  title_field: name
+  text_field: stage
+  updated_field: updatedAt
+  pagination: null
+  doc_type: crm-opportunity
+  tool_schema_sha256: 6a16237312c6d8f754bbce0342d089c23155b1e0abe65dd925bf2c76a2be1ee4
+  raw:
+    server: twenty-mcp
+    tool: twenty_mcp_crm
+    action: get_opportunities
+    records_path: data.opportunities
+    id_field: id
+    title_field: name
+    text_field: stage
+    updated_field: updatedAt
+    doc_type: crm-opportunity
+- preset: twenty-people
+  server: twenty-mcp
+  tool: twenty_mcp_crm
+  action: get_people
+  records_path: data.people
+  id_field: id
+  title_field: name.firstName
+  text_field: jobTitle
+  updated_field: updatedAt
+  pagination: null
+  doc_type: crm-contact
+  tool_schema_sha256: 6a16237312c6d8f754bbce0342d089c23155b1e0abe65dd925bf2c76a2be1ee4
+  raw:
+    server: twenty-mcp
+    tool: twenty_mcp_crm
+    action: get_people
+    records_path: data.people
+    id_field: id
+    title_field: name.firstName
+    text_field: jobTitle
+    updated_field: updatedAt
+    doc_type: crm-contact
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - twenty_mcp/connectors/mcp_source_presets.json
+  - twenty_mcp/connectors/tool_schema_fingerprints.json
+  - twenty_mcp/ontology/twenty.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: f3c112283f5562c787dd1fdf36bad4bd6153550c385531013c9eeaebb56054f4
+    triple_count: 61
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: fWSF1fJO0KPMbblYllsJpvnqPrnG1rzEWR7trQwFFPy3ZsCDnCIle38fxuqpXIQUiZ6bykEP6p23UERBnXXcBw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'assignedTo' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'noteOn' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'taskOn' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'worksAt' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Company.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.CrmNote.ontology_class = 'Document' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.CrmTask.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Opportunity.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PipelineStage.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -32,11 +32,16 @@ from typing import (
 )
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
 from packaging import version
 from typing_extensions import ParamSpec
 
-from agent_utilities.core.config import setting
+from agent_utilities._version import __version__ as __version__
+
+# This module is imported by ``core.config`` for its conversion primitives, so
+# importing the settings model here creates an order-dependent cycle before
+# ``to_boolean`` exists. The dependency-free accessor is the correct low-level
+# boundary for base utilities.
+from agent_utilities.core._env import setting
 
 if TYPE_CHECKING:
     pass
@@ -44,9 +49,6 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 P = ParamSpec("P")
 F = TypeVar("F", bound=Callable[..., Any])
-
-
-__version__ = "1.15.0"
 
 
 def to_float(string=None) -> float:
@@ -257,17 +259,6 @@ def is_loopback_url(
         return False
 
 
-def GET_DEFAULT_SSL_VERIFY() -> bool:
-    """Read SSL verification setting from the environment.
-
-    Returns:
-        The value of the 'SSL_VERIFY' environment variable as a boolean.
-        Defaults to True if not set.
-
-    """
-    return to_boolean(setting("SSL_VERIFY", "true"))
-
-
 def ensure_package_installed(package_name: str, auto_install: bool = False) -> bool:
     """Check if a package is installed, optionally attempting to install it.
 
@@ -316,50 +307,6 @@ def ensure_package_installed(package_name: str, auto_install: bool = False) -> b
         return False
 
 
-def load_env_vars(override: bool = False) -> None:
-    """Load environment variables from a .env file located in the caller's directory.
-
-    This function searches for a .env file by traversing up to 5 levels of parent
-    directories from the calling module's location.
-
-    Args:
-        override: Whether to override existing environment variables. Defaults to False.
-
-    """
-    try:
-        package_name = retrieve_package_name()
-        if package_name and package_name != "unknown_package":
-            stack = inspect.stack()
-            caller_file = None
-            for frame in stack:
-                if "agent_utilities" not in frame.filename:
-                    caller_file = frame.filename
-                    break
-
-            if caller_file:
-                start_dir = Path(caller_file).parent
-                dotenv_path = None
-                curr = start_dir
-
-                for _ in range(5):
-                    candidate = curr / ".env"
-                    if candidate.exists():
-                        dotenv_path = str(candidate)
-                        break
-                    if curr == curr.parent:
-                        break
-                    curr = curr.parent
-
-                if dotenv_path:
-                    load_dotenv(dotenv_path, override=override)
-
-                else:
-                    pass
-
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Error loading .env file: {e}")
-
-
 def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") -> str:
     """Serialize a model object to a JSON file (safe alternative to pickle).
 
@@ -381,8 +328,6 @@ def safe_save_model(model: Any, file_name: str = "model", file_path: str = ".") 
     data = model
     if hasattr(model, "model_dump"):
         data = model.model_dump(mode="json")
-    elif hasattr(model, "dict"):
-        data = model.dict()
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
     return json_file

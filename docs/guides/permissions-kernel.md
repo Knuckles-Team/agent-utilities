@@ -6,7 +6,7 @@
 
 The Permissions Kernel (`agent_utilities/security/permissions_kernel.py`) shifts agent security from **tool-centric** ("is this tool dangerous?") to **identity-centric** ("which agent is requesting, and do they have permission?").
 
-Every specialist agent receives a **signed identity** (HMAC-SHA256) when spawned, binding it to a role and a set of capabilities. Tool access is governed by **role-based policies** loaded from `agent_policies.json` and synced to the Knowledge Graph.
+Every specialist agent receives a **signed identity** (HMAC-SHA256) when spawned, binding it to a role and a set of capabilities. Its stored ID is a stable HMAC-derived pseudonym of the construction subject, so display names are not copied into the identity graph. Tool access is governed by **role-based policies** loaded from `agent_policies.json` and synced to the Knowledge Graph.
 
 ## Architecture
 
@@ -26,9 +26,7 @@ flowchart LR
         POLICY --> |ALLOW| EXEC[Execute Tool]
     end
 
-    subgraph Fallback
-        POLICY --> |No kernel| GUARD[Pattern-based Tool Guard]
-    end
+    POLICY --> |Missing kernel or identity| BLOCK
 ```
 
 ## Role Hierarchy
@@ -71,18 +69,48 @@ flowchart LR
 | Variable | Default | Description |
 |:---|:---|:---|
 | `AGENT_POLICIES_PATH` | `None` | Path to `agent_policies.json` |
-| `PERMISSIONS_SIGNING_KEY` | Auto-generated | HMAC key for identity signing |
+| `PERMISSIONS_SIGNING_KEY_REF` | `None` | `env://`, `vault://`, or `secret://` reference resolving to at least 32 bytes of stable HMAC material |
+
+Raw signing material is not an AgentConfig field. For example, an environment
+deployment can set `PERMISSIONS_SIGNING_KEY_REF=env://AGENT_PERMISSION_AUTHORITY`
+and inject the referenced value at process start. Production requires the
+reference even when the built-in role policy set is used.
 
 ## Integration with Tool Guard
 
-The Permissions Kernel integrates as a **pre-check** in the existing `tool_guard.py` pipeline:
+The Permissions Kernel is the authorization authority for MCP tools in the
+`tool_guard.py` pipeline:
 
-1. If a `PermissionsKernel` and `AgentIdentity` are available → identity-based policy check
+1. A `PermissionsKernel` and signed `AgentIdentity` are mandatory; a missing authority fails closed
 2. If the policy returns `ALLOW` → tool executes without further checks
-3. If the policy returns `DENY` or `REQUIRE_APPROVAL` → approval flow triggered
-4. If no kernel is available → falls back to existing pattern-based matching
+3. If the policy returns `DENY` → execution is rejected and cannot be approved around
+4. If the policy returns `REQUIRE_APPROVAL` → the human-approval flow is triggered
+5. Ontological argument guardrails remain an additional policy constraint
 
-This ensures **full backward compatibility** — existing deployments without `agent_policies.json` work exactly as before.
+A non-empty identity capability list is an additional closed-world constraint,
+not an elevation: the requested tool name must match one of its glob grants, or
+the governed action's declared `required_capability` must match. The role policy
+still applies afterward, so a capability never overrides a role denial. An empty
+capability list leaves the role policy as the governing boundary.
+
+Native function tools use `TOOL_GUARD_MODE=on` for configured sensitivity
+patterns or `TOOL_GUARD_MODE=strict` for approval on every non-read-only tool.
+There is no disabled mode, and those patterns are not an MCP authorization
+fallback.
+
+When no external `agent_policies.json` is configured, the kernel uses its
+current built-in role policies; guest and sandbox roles remain deny-by-default.
+When `AGENT_POLICIES_PATH` is configured, an absent, oversized, duplicate-key,
+empty, incomplete, or malformed document aborts bootstrap with no fallback to
+broader defaults.
+
+Graph construction and the generic served-agent factory both call the same
+verified context bootstrap. An explicitly injected kernel and identity must be
+provided together and verify against each other; otherwise the signing-key
+reference is resolved in memory and one shared context is issued. Ontology
+`ActionExecutor` instances likewise require an explicit kernel and never create
+their own authority. Run `agent-utilities doctor --only permission_governance`
+to verify the redacted signing, policy, and identity contract.
 
 ## Integration with systems-manager
 
@@ -106,5 +134,5 @@ sequenceDiagram
 ## KG Persistence
 
 - **Policies** → `PolicyNode` entries (synced at startup)
-- **Identities** → `AgentIdentityNode` entries (created on issue)
+- **Identities** → `AgentIdentityNode` entries keyed by opaque derived IDs (created on issue)
 - **Relationships**: `HAS_IDENTITY` (agent→identity), `AUTHORIZED_FOR` (identity→tool)

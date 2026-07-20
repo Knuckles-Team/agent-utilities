@@ -6,7 +6,7 @@ resident agent **population** and an **active fraction** onto the infrastructure
 required along three independent axes:
 
 1. **Active concurrency** -> worker pool size / node count.
-2. **Resident population** -> Postgres shards and L0 (in-memory) shards.
+2. **Resident population** -> Postgres shards and native engine shards.
 3. **Event throughput** -> Kafka partitions.
 
 The single *measured* anchor is the epistemic-graph transport benchmark
@@ -44,9 +44,8 @@ SINGLE_CONNECTION_OPS_PER_SEC = 5_000
 #: Sized for headroom on a single well-provisioned primary + replicas.
 RESIDENTS_PER_PG_SHARD = 250_000
 
-#: Resident agents whose *hot* working set fits in one in-memory L0 shard.
-#: L0 is the hot tier, so it holds fewer residents than a durable PG shard.
-RESIDENTS_PER_L0_SHARD = 50_000
+#: Resident agents whose active graph state fits in one native engine shard.
+RESIDENTS_PER_ENGINE_SHARD = 50_000
 
 #: Active (concurrently executing) agents one worker can service.
 #: An "active" agent is not pinned to a worker for its whole turn; workers
@@ -136,8 +135,10 @@ def pg_shards_for(residents: int, per_shard: int = RESIDENTS_PER_PG_SHARD) -> in
     return max(1, _ceil_div(residents, per_shard))
 
 
-def l0_shards_for(residents: int, per_shard: int = RESIDENTS_PER_L0_SHARD) -> int:
-    """In-memory L0 (hot tier) shards needed for ``residents``."""
+def engine_shards_for(
+    residents: int, per_shard: int = RESIDENTS_PER_ENGINE_SHARD
+) -> int:
+    """Native engine shards needed for ``residents``."""
     if residents <= 0:
         return 0
     return max(1, _ceil_div(residents, per_shard))
@@ -200,7 +201,7 @@ class CapacityPlan:
     active_fraction: float
     active_agents: int
     pg_shards: int
-    l0_shards: int
+    engine_shards: int
     workers: int
     nodes: int
     kafka_partitions: int
@@ -218,7 +219,7 @@ def plan_for(residents: int, active_fraction: float = 0.02) -> CapacityPlan:
         active_fraction=active_fraction,
         active_agents=active_agents(residents, active_fraction),
         pg_shards=pg_shards_for(residents),
-        l0_shards=l0_shards_for(residents),
+        engine_shards=engine_shards_for(residents),
         workers=workers_for(residents, active_fraction),
         nodes=nodes_for(residents, active_fraction),
         kafka_partitions=kafka_partitions_for(residents, active_fraction),
@@ -260,13 +261,13 @@ REFERENCE_POPULATIONS = (1_000, 100_000, 1_000_000, 100_000_000)
 
 if __name__ == "__main__":  # pragma: no cover - manual inspection helper
     print(
-        f"{'residents':>12} {'active':>8} {'pg':>5} {'l0':>5} "
+        f"{'residents':>12} {'active':>8} {'pg':>5} {'engine':>6} "
         f"{'workers':>8} {'nodes':>6} {'kafka':>6} {'events/s':>10}"
     )
     for pop in REFERENCE_POPULATIONS:
         p = plan_for(pop, 0.02)
         print(
-            f"{p.residents:>12} {p.active_agents:>8} {p.pg_shards:>5} {p.l0_shards:>5} "
+            f"{p.residents:>12} {p.active_agents:>8} {p.pg_shards:>5} {p.engine_shards:>5} "
             f"{p.workers:>8} {p.nodes:>6} {p.kafka_partitions:>6} "
             f"{p.event_throughput_per_sec:>10.0f}"
         )

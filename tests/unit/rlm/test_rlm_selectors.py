@@ -30,7 +30,10 @@ def test_env_reads_max_turns_from_config():
 
 def test_strategy_rlm_lossless_when_triggered():
     cfg = RLMConfig(
-        enabled=False, trigger_on_large_output=True, max_context_threshold=100
+        enabled=False,
+        allow_auto_trigger=True,
+        trigger_on_large_output=True,
+        max_context_threshold=100,
     )
     assert cfg.select_long_context_strategy(output_size=150) == "rlm_lossless"
 

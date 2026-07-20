@@ -1,189 +1,457 @@
 #!/usr/bin/python
-"""Unified XDG install of every provider contribution — CONCEPT:AU-OS.governance.concept-2.
+"""Transactional XDG materialization for skills, prompts, and ontologies.
 
-The three federation legs (skills + prompts + ontologies, discovered via the
-``agent_utilities.*_providers`` entry-points in :mod:`agent_utilities.core.providers`)
-are materialized into **one** XDG data tree so the runtime reads assets from a single
-location instead of walking every installed package's ``site-packages`` on demand::
-
-    $XDG_DATA_HOME/agent-utilities/skills/<provider>/<skill>/SKILL.md
-    $XDG_DATA_HOME/agent-utilities/prompts/<provider>/*.json
-    $XDG_DATA_HOME/agent-utilities/ontologies/<provider>/<pkg>.ttl (+ shapes/)
-
-The hub's OWN contributions land in the same tree under provider name
-``agent-utilities``. Its skills come through its ``skill_providers`` entry-point like
-any package, but it deliberately declares **no** ``prompt_providers`` /
-``ontology_providers`` entry-point (that would double-ingest the base prompts / core
-TBox at the registry level), so its prompts and core/upper ontologies are sourced via
-a **direct package-data path** here. For robustness against stale editable dist-info,
-the hub's skills are ALSO sourced directly (deduped against the provider loop by name).
-
-The materialization is idempotent and overwrite-on-reinstall (``force=True`` default):
-each provider's destination subtree is replaced wholesale, so a reinstall always
-reflects the currently-installed provider. Failure is isolated per provider — one
-unresolvable/broken package never blocks the rest.
+Every provider root contains immutable content-addressed generations.  A bounded v2
+marker is the atomic activation pointer.  Installer locks serialize writers; readers
+validate the current registration, source manifest, marker, and generation before
+using XDG content.  Unmarked destinations are operator-owned and are never replaced.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import secrets
 import shutil
+import stat
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from agent_utilities.core.paths import (
-    data_dir,
-    ontology_dir,
-    skills_dir,
-    unified_prompts_dir,
+from agent_utilities.core.paths import ontology_dir, skills_dir, unified_prompts_dir
+from agent_utilities.core.provider_materialization import (
+    MANAGED_PROVIDER_GENERATIONS,
+    MANAGED_PROVIDER_LEGS,
+    MAX_PROVIDER_FILES,
+    AssetManifest,
+    EmptyProviderAssets,
+    ProviderAssetError,
+    ProviderMaterializationError,
+    ProviderOwnershipConflict,
+    build_asset_manifest,
+    copy_manifest,
+    inactive_marker,
+    is_safe_provider_name,
+    marker_for_manifest,
+    read_managed_provider_marker,
+    registration_digest,
+    write_managed_provider_marker,
 )
 from agent_utilities.core.providers import (
     ONTOLOGY_PROVIDER_GROUP,
     PROMPT_PROVIDER_GROUP,
     SKILL_PROVIDER_GROUP,
-    iter_provider_dirs,
+    ProviderRegistration,
+    provider_registrations,
 )
 
 logger = logging.getLogger(__name__)
 
-# The hub's own contributions are namespaced under this provider name in every leg.
 OWN_PROVIDER = "agent-utilities"
-
-_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+_LOCK_FILE = ".agent-utilities-materialization.lock"
+_MAX_MANAGED_TREE_ENTRIES = MAX_PROVIDER_FILES * 8
 
 
 def unified_skills_dir() -> Path:
-    """The unified-tree skills root (``$XDG.../skills/``) — same dir the factory reads."""
     return skills_dir()
 
 
 def unified_ontologies_dir() -> Path:
-    """The unified-tree ontologies root (``$XDG.../ontologies/``)."""
     return ontology_dir()
 
 
-def _copy_tree(src: Path, dst: Path, force: bool) -> int:
-    """Copy a provider asset directory ``src`` → ``dst`` (whole subtree).
-
-    Overwrite-on-reinstall when ``force``; otherwise a populated ``dst`` is left as-is.
-    ``__pycache__``/compiled files are never copied. Returns the number of files
-    materialized (0 when skipped).
-    """
-    if not src.is_dir():
-        return 0
-    if dst.exists():
-        if not force:
-            return 0
-        shutil.rmtree(dst)
-    shutil.copytree(src, dst, ignore=_IGNORE)
-    return sum(1 for p in dst.rglob("*") if p.is_file())
+def _safe_directory(path: Path) -> bool:
+    try:
+        info = path.lstat()
+    except OSError:
+        return False
+    return stat.S_ISDIR(info.st_mode) and not _is_linklike(path)
 
 
-def _copy_ontology(src: Path, dst: Path, force: bool) -> int:
-    """Materialize the ``*.ttl`` (+ ``shapes/*.ttl``) an ontology provider ships.
-
-    Unlike skills/prompts this flattens to just the ontology data (never the
-    ``__init__.py`` / package machinery of a ``<pkg>.ontology`` module).
-    Overwrite-on-reinstall when ``force``. Returns the count of TTL files copied.
-    """
-    ttls = sorted(src.glob("*.ttl"))
-    shapes_src = src / "shapes"
-    shapes = sorted(shapes_src.glob("*.ttl")) if shapes_src.is_dir() else []
-    if not ttls and not shapes:
-        return 0
-    if dst.exists():
-        if not force:
-            return 0
-        shutil.rmtree(dst)
-    dst.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for t in ttls:
-        shutil.copy2(t, dst / t.name)
-        n += 1
-    if shapes:
-        (dst / "shapes").mkdir(parents=True, exist_ok=True)
-        for s in shapes:
-            shutil.copy2(s, dst / "shapes" / s.name)
-            n += 1
-    return n
+def _is_linklike(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction is not None and is_junction())
 
 
-def _install_own(force: bool, result: dict[str, dict[str, int]]) -> None:
-    """Materialize the hub's OWN skills + prompts + core ontologies (direct path).
+@contextlib.contextmanager
+def _materialization_lock(root: Path) -> Iterator[None]:
+    """Serialize materialization writers with a non-following local lock file."""
 
-    Sourced from the installed ``agent_utilities`` package data — not via a
-    self-entry-point — so they land in the unified tree under ``agent-utilities``
-    regardless of entry-point/dist-info state.
-    """
-    import agent_utilities
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if not _safe_directory(root):
+        raise ProviderOwnershipConflict("materialization root is not a regular directory")
+    lock_path = root / _LOCK_FILE
+    try:
+        lock_info = lock_path.lstat()
+    except FileNotFoundError:
+        lock_info = None
+    if lock_info is not None and (
+        _is_linklike(lock_path) or not stat.S_ISREG(lock_info.st_mode)
+    ):
+        raise ProviderOwnershipConflict("materialization lock is unsafe")
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ProviderOwnershipConflict("materialization lock is not a regular file")
+        opened_path = lock_path.lstat()
+        if (
+            _is_linklike(lock_path)
+            or opened_path.st_dev != info.st_dev
+            or opened_path.st_ino != info.st_ino
+        ):
+            raise ProviderOwnershipConflict("materialization lock changed during open")
+        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+            import msvcrt
 
-    pkg = Path(agent_utilities.__file__).resolve().parent
+            if info.st_size == 0:
+                os.write(descriptor, b"\0")
+                os.fsync(descriptor)
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
 
-    n = _copy_tree(pkg / "skills", unified_skills_dir() / OWN_PROVIDER, force)
-    if n or (pkg / "skills").is_dir():
-        result["skills"][OWN_PROVIDER] = n
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+            import msvcrt
 
-    n = _copy_tree(pkg / "prompts", unified_prompts_dir() / OWN_PROVIDER, force)
-    if n or (pkg / "prompts").is_dir():
-        result["prompts"][OWN_PROVIDER] = n
+            try:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass
+        else:
+            import fcntl
 
-    # Core + upper ontologies live directly in knowledge_graph/ (ontology.ttl,
-    # ontology_*.ttl, shapes/*.ttl) — the same set the publisher/backend glob.
-    n = _copy_ontology(
-        pkg / "knowledge_graph", unified_ontologies_dir() / OWN_PROVIDER, force
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(descriptor)
+
+
+def _assert_non_overlapping(source: Path, destination: Path) -> None:
+    source_root = source.resolve(strict=True)
+    destination_root = destination.resolve(strict=False)
+    if source_root == destination_root:
+        raise ProviderOwnershipConflict("provider source overlaps its destination")
+    if destination_root.is_relative_to(source_root) or source_root.is_relative_to(
+        destination_root
+    ):
+        raise ProviderOwnershipConflict("provider source overlaps its destination")
+
+
+def _provider_root(root: Path, provider: str, leg: str) -> tuple[Path, bool]:
+    if not is_safe_provider_name(provider):
+        raise ProviderOwnershipConflict("provider destination name is unsafe")
+    if leg not in MANAGED_PROVIDER_LEGS:
+        raise ProviderOwnershipConflict("provider materialization leg is unsupported")
+    destination = root / provider
+    created = False
+    if destination.exists():
+        if not _safe_directory(destination):
+            raise ProviderOwnershipConflict("provider destination is not a regular directory")
+        marker = read_managed_provider_marker(
+            destination, provider=provider, leg=leg
+        )
+        if marker is None:
+            raise ProviderOwnershipConflict("provider destination is operator-owned")
+    else:
+        try:
+            destination.lstat()
+        except OSError:
+            pass
+        else:
+            raise ProviderOwnershipConflict("provider destination is an unsafe link")
+        destination.mkdir(mode=0o700)
+        created = True
+    generations = destination / MANAGED_PROVIDER_GENERATIONS
+    if generations.exists():
+        if not _safe_directory(generations):
+            raise ProviderOwnershipConflict("provider generation root is unsafe")
+    else:
+        generations.mkdir(mode=0o700)
+    return destination, created
+
+
+def _safe_generated_tree(path: Path) -> bool:
+    if not _safe_directory(path):
+        return False
+    pending = [path]
+    entry_count = 0
+    while pending:
+        directory = pending.pop()
+        try:
+            scanner = os.scandir(directory)
+        except OSError:
+            return False
+        with scanner:
+            for directory_entry in scanner:
+                entry_count += 1
+                if entry_count > _MAX_MANAGED_TREE_ENTRIES:
+                    return False
+                child = Path(directory_entry.path)
+                try:
+                    info = directory_entry.stat(follow_symlinks=False)
+                except OSError:
+                    return False
+                if _is_linklike(child):
+                    return False
+                if stat.S_ISDIR(info.st_mode):
+                    pending.append(child)
+                elif not stat.S_ISREG(info.st_mode):
+                    return False
+    return True
+
+
+def _remove_generated_tree(path: Path) -> None:
+    if not _safe_generated_tree(path):
+        raise ProviderOwnershipConflict("managed provider tree is unsafe to remove")
+    shutil.rmtree(path)
+
+
+def _materialize_provider(
+    *,
+    root: Path,
+    provider: str,
+    leg: str,
+    registration: str,
+    source: Path,
+    manifest: AssetManifest,
+) -> int:
+    """Stage one immutable generation and atomically activate its v2 marker."""
+
+    _assert_non_overlapping(source, root / provider)
+    destination, created = _provider_root(root, provider, leg)
+    generations = destination / MANAGED_PROVIDER_GENERATIONS
+    generation = generations / manifest.content_digest
+    stage: Path | None = None
+    try:
+        if generation.exists():
+            try:
+                existing = build_asset_manifest(generation, leg=leg)
+            except (OSError, ProviderAssetError, ValueError):
+                existing = None
+            if existing != manifest:
+                # The manifest dataclass contains source paths, so compare only its
+                # path-free summary before deciding whether an immutable generation
+                # can be reused.
+                matching = existing is not None and (
+                    existing.content_digest == manifest.content_digest
+                    and existing.file_count == manifest.file_count
+                    and existing.byte_count == manifest.byte_count
+                )
+                if not matching:
+                    quarantine = generations / f".invalid-{secrets.token_hex(8)}"
+                    os.replace(generation, quarantine)
+                    _remove_generated_tree(quarantine)
+        if not generation.exists():
+            stage = Path(tempfile.mkdtemp(prefix=".stage-", dir=generations))
+            copy_manifest(manifest, stage)
+            os.replace(stage, generation)
+            stage = None
+            # Make the immutable generation rename durable before publishing its
+            # marker as the active reader view.
+            from agent_utilities.core.provider_materialization import _fsync_directory
+
+            _fsync_directory(generations)
+        write_managed_provider_marker(
+            destination,
+            marker_for_manifest(
+                provider=provider,
+                leg=leg,
+                registration=registration,
+                manifest=manifest,
+            ),
+        )
+    except BaseException:
+        if stage is not None and stage.exists() and _safe_generated_tree(stage):
+            shutil.rmtree(stage)
+        if created and not (destination / ".agent-utilities-managed.json").exists():
+            try:
+                _remove_generated_tree(destination)
+            except ProviderMaterializationError:
+                pass
+        raise
+    return manifest.file_count
+
+
+def _deactivate_provider(
+    *, root: Path, provider: str, leg: str, registration: str
+) -> None:
+    destination, _created = _provider_root(root, provider, leg)
+    write_managed_provider_marker(
+        destination,
+        inactive_marker(provider=provider, leg=leg, registration=registration),
     )
-    result["ontologies"][OWN_PROVIDER] = n
 
 
-def install_unified(force: bool = True) -> dict[str, Any]:
-    """Materialize all three provider legs (+ the hub's own) into the XDG data tree.
+def _prune_removed_managed(root: Path, *, leg: str, registered: set[str]) -> int:
+    if not _safe_directory(root):
+        return 0
+    removed = 0
+    for child in sorted(root.iterdir(), key=lambda item: item.name.casefold()):
+        if child.name.startswith(".") or child.name in registered:
+            continue
+        if not _safe_directory(child):
+            continue
+        marker = read_managed_provider_marker(child, provider=child.name, leg=leg)
+        if marker is None:
+            continue
+        _remove_generated_tree(child)
+        removed += 1
+    return removed
 
-    CONCEPT:AU-OS.governance.concept-2. Idempotent; ``force`` (default) replaces each provider subtree so
-    a reinstall reflects the installed set. Returns a report::
 
-        {"data_dir": ..., "skills": {provider: n_files}, "prompts": {...},
-         "ontologies": {provider: n_ttls}}
+def _own_source(leg: str) -> tuple[Path, str, AssetManifest]:
+    from agent_utilities._version import __version__
 
-    where ``agent-utilities`` is the hub's own contribution in each leg.
-    """
-    result: dict[str, Any] = {
-        "data_dir": str(data_dir()),
-        "skills": {},
-        "prompts": {},
-        "ontologies": {},
+    package_root = Path(__file__).resolve().parent.parent
+    source = {
+        "skills": package_root / "skills",
+        "prompts": package_root / "prompts",
+        "ontologies": package_root / "knowledge_graph",
+    }[leg]
+    target = {
+        "skills": "agent_utilities.skills",
+        "prompts": "agent_utilities.prompts",
+        "ontologies": "agent_utilities.knowledge_graph",
+    }[leg]
+    digest = registration_digest(
+        {
+            "group": {
+                "skills": SKILL_PROVIDER_GROUP,
+                "prompts": PROMPT_PROVIDER_GROUP,
+                "ontologies": ONTOLOGY_PROVIDER_GROUP,
+            }[leg],
+            "provider": OWN_PROVIDER,
+            "target": target,
+            "owner": OWN_PROVIDER,
+            "version": __version__,
+        }
+    )
+    return source, digest, build_asset_manifest(source, leg=leg)
+
+
+def own_provider_asset(leg: str) -> tuple[Path, str, AssetManifest]:
+    """Return the trusted hub source using the same manifest contract as providers."""
+
+    return _own_source(leg)
+
+
+def _install_registration(
+    *, root: Path, leg: str, registration: ProviderRegistration
+) -> tuple[int, bool]:
+    if registration.source_root is None:
+        _deactivate_provider(
+            root=root,
+            provider=registration.name,
+            leg=leg,
+            registration=registration.digest,
+        )
+        return 0, False
+    try:
+        manifest = build_asset_manifest(
+            registration.source_root,
+            leg=leg,
+            allowed_relative_paths=registration.owned_paths,
+        )
+    except EmptyProviderAssets:
+        _deactivate_provider(
+            root=root,
+            provider=registration.name,
+            leg=leg,
+            registration=registration.digest,
+        )
+        return 0, False
+    count = _materialize_provider(
+        root=root,
+        provider=registration.name,
+        leg=leg,
+        registration=registration.digest,
+        source=registration.source_root,
+        manifest=manifest,
+    )
+    return count, True
+
+
+def install_unified() -> dict[str, Any]:
+    """Reconcile all current provider legs without returning local filesystem data."""
+
+    legs = {
+        "skills": (SKILL_PROVIDER_GROUP, unified_skills_dir()),
+        "prompts": (PROMPT_PROVIDER_GROUP, unified_prompts_dir()),
+        "ontologies": (ONTOLOGY_PROVIDER_GROUP, unified_ontologies_dir()),
     }
+    registrations: dict[str, tuple[ProviderRegistration, ...]] = {}
+    # Duplicate/case-fold conflicts fail before the first mutation.
+    for leg, (group, _root) in legs.items():
+        registrations[leg] = provider_registrations(group)
 
-    # Fleet providers — the hub's own provider name is handled directly below, so it
-    # is skipped here to avoid a redundant (and dist-info-dependent) second pass.
-    for provider, src in iter_provider_dirs(SKILL_PROVIDER_GROUP):
-        if provider == OWN_PROVIDER:
-            continue
-        try:
-            result["skills"][provider] = _copy_tree(
-                src, unified_skills_dir() / provider, force
+    result: dict[str, Any] = {
+        "skills": {"providers": 0, "files": 0, "failed": 0},
+        "prompts": {"providers": 0, "files": 0, "failed": 0},
+        "ontologies": {"providers": 0, "files": 0, "failed": 0},
+        "pruned": {},
+        "path_free": True,
+    }
+    for leg, (_group, root) in legs.items():
+        current = registrations[leg]
+        names = {item.name for item in current}
+        names.add(OWN_PROVIDER)
+        with _materialization_lock(root):
+            result["pruned"][leg] = _prune_removed_managed(
+                root, leg=leg, registered=names
             )
-        except OSError as e:  # noqa: BLE001 — one bad provider never blocks the rest
-            logger.warning("Skill provider %s not materialized: %s", provider, e)
-
-    for provider, src in iter_provider_dirs(PROMPT_PROVIDER_GROUP):
-        if provider == OWN_PROVIDER:
-            continue
-        try:
-            result["prompts"][provider] = _copy_tree(
-                src, unified_prompts_dir() / provider, force
-            )
-        except OSError as e:  # noqa: BLE001
-            logger.warning("Prompt provider %s not materialized: %s", provider, e)
-
-    for provider, src in iter_provider_dirs(ONTOLOGY_PROVIDER_GROUP):
-        if provider == OWN_PROVIDER:
-            continue
-        try:
-            result["ontologies"][provider] = _copy_ontology(
-                src, unified_ontologies_dir() / provider, force
-            )
-        except OSError as e:  # noqa: BLE001
-            logger.warning("Ontology provider %s not materialized: %s", provider, e)
-
-    _install_own(force, result)
+            for item in current:
+                if item.name == OWN_PROVIDER:
+                    continue
+                try:
+                    count, active = _install_registration(
+                        root=root, leg=leg, registration=item
+                    )
+                    result[leg]["providers"] += int(active)
+                    result[leg]["files"] += count
+                    result[leg]["failed"] += int(not active)
+                except (OSError, shutil.Error, ProviderMaterializationError, ValueError) as exc:
+                    result[leg]["failed"] += 1
+                    logger.warning(
+                        "Provider materialization failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
+            try:
+                source, digest, manifest = _own_source(leg)
+                count = _materialize_provider(
+                    root=root,
+                    provider=OWN_PROVIDER,
+                    leg=leg,
+                    registration=digest,
+                    source=source,
+                    manifest=manifest,
+                )
+                result[leg]["providers"] += 1
+                result[leg]["files"] += count
+            except (OSError, shutil.Error, ProviderMaterializationError, ValueError) as exc:
+                result[leg]["failed"] += 1
+                logger.warning(
+                    "Hub materialization failed (exception_type=%s)", type(exc).__name__
+                )
     return result
+
+
+__all__ = [
+    "OWN_PROVIDER",
+    "install_unified",
+    "own_provider_asset",
+    "unified_ontologies_dir",
+    "unified_prompts_dir",
+    "unified_skills_dir",
+]

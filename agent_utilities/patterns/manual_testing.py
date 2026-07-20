@@ -66,7 +66,7 @@ class ExecutionNotes:
                 metadata={"caption": caption},
             )
         )
-        logger.info(f"ExecutionNote [IMAGE]: {path}")
+        logger.info("ExecutionNote [IMAGE] recorded")
 
     def to_markdown(self) -> str:
         """Convert the notes to a markdown artifact."""

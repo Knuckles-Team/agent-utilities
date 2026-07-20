@@ -57,7 +57,7 @@ graph TD
         WasmRunner["core/wasm_runner.py [WasmAgentRunner]<br/>(Safe Sandbox Execution)"]
         CompanyPy["models/company.py [CorporateGovernanceDoc]<br/>(Base Schema Definitions)"]
         LawPy["domains/law/models.py [LegalMatterNode]<br/>(Legal Baseline Models)"]
-        KGCoord["mcp/kg_coordinator.py & GraphBackend<br/>(PostgreSQL/epistemic_graph — Transactional Graph Access)"]
+        KGCoord["knowledge_graph/facade.py & GraphComputeEngine<br/>(epistemic-graph — Transactional Graph Authority)"]
         Guard["security/guardrails.py<br/>(Input/Output Sanitization)"]
     end
 
@@ -77,7 +77,7 @@ end
    - We reuse the existing `CorporateGovernanceDoc` and `RegulatoryFiling` classes in `agent_utilities/models/company.py` to represent LLC Operating Agreements, Articles of Organization, and IRS filing records.
    - We extend `agent_utilities/domains/law/models.py` by adding our new `LegalTrustNode` subclass directly alongside `CaseLawNode`, `StatuteNode`, `ContractClauseNode`, and `LegalMatterNode`.
 2. **Knowledge Graph Transactions**:
-   - All serialization, node storage, and edge creation utilize the unified `kg_coordinator.py` transactional pipeline via the configured `GraphBackend` (PostgreSQL durable / `epistemic_graph` primary; `ladybug` is an opt-in contrib backend) with full rollback support in case of structural failures.
+   - All serialization, node storage, and edge creation pass through the unified `KnowledgeGraph` facade and `GraphComputeEngine` into the authoritative `epistemic-graph` transaction boundary. Optional external stores remain governed interoperability mirrors rather than alternate authorities.
 3. **High-Fidelity Document Generation**:
    - Instead of writing bespoke PDF generation wrappers, we reuse the existing `document-tools` skill and the `stirlingpdf-agent` Docker service for professional, legal-grade PDF formatting (margins, signatures, notarial blocks).
 4. **Sandboxed Operations**:

@@ -18,53 +18,19 @@ from fastmcp import Context
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_json
 
 
 def _bus_actor_scope(action: str) -> contextlib.AbstractContextManager:
-    """Scope a ``graph_bus`` call to the request's server-minted identity (CONCEPT:AU-ECO.bus.bus-register-under-served).
+    """Scope ``graph_bus`` to middleware/process-minted authority.
 
     ``graph_bus`` is a standalone FastMCP tool, so — unlike every action routed
-    through :func:`kg_server._execute_tool` — it does NOT otherwise apply the
-    validated per-request actor. That left the bus writing/reading as the ambient
-    unauthenticated ``SYSTEM_ACTOR`` under the served profile (``KG_BRAIN_ENFORCE``):
-    a ``register`` write was unattributed and, depending on the engine's isolation
-    rules, did not land — surfacing as ``ok:false``. This mirrors ``_execute_tool``'s
-    identity handling so an *authenticated* session registers under its own
-    ``ActorContext`` (the write lands + the roster shows it), while an
-    *unauthenticated* MCP caller is correctly rejected under ``KG_AUTH_REQUIRED``
-    for the mutating actions instead of silently writing as SYSTEM.
-
-    The bus is fleet-coordination INFRASTRUCTURE, so the read-only presence actions
-    (``roster``/``status``/``list_hubs``) stay reachable for an unauthenticated caller
-    (parity with :data:`kg_server.ANONYMOUS_READ_TOOLS`); the mutating actions require
-    a real identity when the server enforces auth.
+    through :func:`kg_server._execute_tool` — it must enter the same verified
+    session scope explicitly. Read and write actions both require tenant-bound
+    authority; anonymous roster/status access would otherwise leak fleet state.
     """
-    from agent_utilities.security.brain_context import current_actor, use_actor
-
-    _READ_ONLY = {"roster", "status", "list_hubs"}
-
-    # If the gateway middleware already scoped this request (REST surface), keep it.
-    if current_actor().authenticated:
-        return contextlib.nullcontext()
-
-    actor = kg_server._actor_from_mcp_token()
-    if actor is None and kg_server._PROCESS_ACTOR is not None:
-        actor = kg_server._PROCESS_ACTOR
-
-    if actor is not None:
-        return use_actor(actor)
-
-    # No server-minted identity. Under enforced auth a mutating action may not run
-    # as the ambient privileged SYSTEM actor — reject it with a clear reason so the
-    # caller learns it must authenticate (rather than landing an unattributed write).
-    if kg_server._kg_auth_required() and action not in _READ_ONLY:
-        raise PermissionError(
-            f"KG_AUTH_REQUIRED=1: graph_bus action {action!r} needs an authenticated "
-            "identity (an OIDC client-credentials Bearer token on the MCP connection, "
-            "or KG_AUTH_TOKEN for stdio). Read-only presence actions "
-            f"({sorted(_READ_ONLY)}) are exempt. (CONCEPT:AU-OS.identity.authenticated-identity-enforcement / ECO-4.98)"
-        )
-    return contextlib.nullcontext()
+    del action
+    return kg_server.verified_tool_session_scope()
 
 
 def _session_identity(ctx: Context | None) -> str:
@@ -101,15 +67,14 @@ def register_bus_tools(mcp):
             "the bus), 'heartbeat' (agent_id → stay online), 'roster' ([provider|capability|"
             "online_only] → discover peers + presence), 'send' (sender + payload + to|topic → "
             "message a peer or a topic, governed by bus.send), 'receive' (agent_id [+since] → "
-            "new messages + cursor), 'subscribe'/'unsubscribe' (agent_id + topic), 'ack' "
-            "(agent_id + message_id), 'dispatch' (sender + objective [+kind,priority] → hand an "
+            "new messages + cursor), 'subscribe'/'unsubscribe' (agent_id + topic), "
+            "'dispatch' (sender + objective [+kind,priority] → hand an "
             "objective to the fleet as a Loop, governed by bus.dispatch), 'leave' (agent_id), "
             "'status'. Mesh/federation (ECO-4.86): 'register_hub' (agent_id=name + url), "
             "'list_hubs', 'federate' (group [+scope] → forward a message group to peer hubs), "
-            "'federate_in' (apply a forwarded group). Durable + cross-host: state lives in the KG. "
-            "Store-and-forward (ECO-4.91): a 'send' to a topic is also LEFT for peers who "
-            "subscribe later (replayed once via a per-(agent,topic) cursor; subscribe with "
-            "replay_recent=true to backfill a recent window). Auto-presence (ECO-4.92): merely "
+            "'federate_in' (apply a forwarded group). Durable + cross-host: committed inboxes, "
+            "outboxes, subscriptions, and WorkItems live in the KG; message transport uses a "
+            "bounded partitioned log. Auto-presence (ECO-4.92): merely "
             "using any action keeps this session online + rosterable — no explicit 'register' needed."
         ),
         tags=["graph-os", "messaging", "bus", "a2a"],
@@ -119,7 +84,7 @@ def register_bus_tools(mcp):
             default="roster",
             description=(
                 "register | heartbeat | roster | send | receive | subscribe | "
-                "unsubscribe | ack | dispatch | leave | status"
+                "unsubscribe | dispatch | leave | status"
             ),
         ),
         agent_id: str = Field(
@@ -154,7 +119,6 @@ def register_bus_tools(mcp):
         session_id: str = Field(
             default="", description="Originating session id (register)."
         ),
-        message_id: str = Field(default="", description="Message id to ack."),
         since: int = Field(
             default=0, description="Cursor: messages already consumed (receive)."
         ),
@@ -171,10 +135,6 @@ def register_bus_tools(mcp):
             default="commons",
             description="Marking scope for federation: commons|org|private (federate).",
         ),
-        replay_recent: bool = Field(
-            default=False,
-            description="Subscribe: backfill a bounded recent topic window for a late joiner.",
-        ),
         ctx: Context | None = None,
     ) -> str:
         from agent_utilities.messaging.bus import AgentBus
@@ -187,9 +147,12 @@ def register_bus_tools(mcp):
         # unauthenticated caller is cleanly rejected for mutating actions rather than
         # silently writing as the ambient SYSTEM actor (CONCEPT:AU-ECO.bus.bus-register-under-served / OS-5.14).
         try:
+            await kg_server._ensure_process_authority_current()
             _scope = _bus_actor_scope(action)
         except PermissionError as exc:
-            return json.dumps({"ok": False, "error": str(exc)})
+            return public_error_json(
+                exc, code="permission_denied", context={"ok": False}
+            )
         with _scope:
             return _dispatch_bus(
                 bus,
@@ -207,7 +170,6 @@ def register_bus_tools(mcp):
                 host=host,
                 capabilities=capabilities,
                 session_id=session_id,
-                message_id=message_id,
                 since=since,
                 online_only=online_only,
                 reason=reason,
@@ -215,7 +177,6 @@ def register_bus_tools(mcp):
                 group=group,
                 origin=origin,
                 scope=scope,
-                replay_recent=replay_recent,
                 ctx=ctx,
             )
 
@@ -236,7 +197,6 @@ def register_bus_tools(mcp):
         host: str,
         capabilities: str,
         session_id: str,
-        message_id: str,
         since: int,
         online_only: bool,
         reason: str,
@@ -244,7 +204,6 @@ def register_bus_tools(mcp):
         group: str,
         origin: str,
         scope: str,
-        replay_recent: bool,
         ctx: Context | None,
     ) -> str:
         # CONCEPT:AU-ECO.bus.auto-register-online-presence — auto-register + presence: a session that has this tool appears
@@ -261,7 +220,6 @@ def register_bus_tools(mcp):
                 "subscribe",
                 "unsubscribe",
                 "heartbeat",
-                "ack",
                 "leave",
                 "deregister",
             ):
@@ -310,13 +268,9 @@ def register_bus_tools(mcp):
         if action == "receive":
             return json.dumps(bus.receive(agent_id, since=since), default=str)
         if action == "subscribe":
-            return json.dumps(
-                {"ok": bus.subscribe(agent_id, topic, replay_recent=replay_recent)}
-            )
+            return json.dumps({"ok": bus.subscribe(agent_id, topic)})
         if action == "unsubscribe":
             return json.dumps({"ok": bus.unsubscribe(agent_id, topic)})
-        if action == "ack":
-            return json.dumps({"ok": bus.ack(agent_id, message_id)})
         if action == "dispatch":
             return json.dumps(
                 bus.dispatch(

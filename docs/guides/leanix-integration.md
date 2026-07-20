@@ -6,8 +6,8 @@ and backfeed KG-derived knowledge back into LeanIX.
 
 This is the operator runbook. The end-to-end flow is also driven by the
 **`leanix-integration`** agent skill (which references this guide for
-troubleshooting). The enterprise self-setup (`agent-utilities-deployment` /
-`agent-os-genesis`) delegates the LeanIX data-source step here rather than
+troubleshooting). The enterprise `agent-utilities-deployment` workflow delegates the
+LeanIX data-source step here rather than
 duplicating it.
 
 ---
@@ -17,29 +17,36 @@ duplicating it.
 | Capability | How | Surface |
 |---|---|---|
 | **Discover the metamodel → OWL** | introspect the live LeanIX data model, generate a faithful `ontology_leanix.ttl` (every fact sheet type → `owl:Class` ArchiMate-aligned, every relation → `owl:ObjectProperty`, every field → `owl:DatatypeProperty`) | `ontology_leanix_sync` MCP / `POST /api/ontology/leanix/sync` |
-| **Mirror all fact sheets** | typed extractor + `ingest_external_batch`; every node stamped `externalToolId` + `domain="leanix"` | `source_sync` MCP (`source=leanix mode=full`) / `POST /api/source/sync` / `graph_hydrate source=leanix` |
-| **Delta sync** | watermark poll (only fact sheets changed since last run) + webhook narrowing + nightly reconcile for deletions | `source_sync` MCP (`source=leanix mode=delta`/`reconcile`) + `deploy/schedules.yml` |
+| **Mirror all fact sheets** | typed extractor + engine-native `ApplyChangeEnvelope`; graph rows, policy, lineage, outbox, versions, and cursor commit atomically | `source_sync` MCP (`source=leanix mode=full`) / `POST /api/source/sync` |
+| **Delta sync** | engine-owned typed cursor (only fact sheets changed since last run) + webhook narrowing + nightly reconcile for deletions | `source_sync` MCP (`source=leanix mode=delta`/`reconcile`) + `deploy/schedules.yml` |
 | **Backfeed to LeanIX** | inferred relationships, enrichment attrs/tags, new fact sheets — fail-closed, dry-run-first | `graph_writeback target=leanix` MCP / `POST /api/graph/writeback` |
 
 ---
 
 ## 1. Configure
 
-Set these in `~/.config/agent-utilities/config.json` (injected into the env; never
-read bare):
+Persist only the non-secret settings in AgentConfig:
 
 ```json
 {
   "LEANIX_URL": "https://<your-workspace>.leanix.net",
-  "LEANIX_TOKEN": "<api-token>",
-  "LEANIX_VERIFY_SSL": true,
+  "TLS_PROFILE": "enterprise-ca",
   "LEANIX_ENABLE_WRITE": false
 }
 ```
 
+Resolve the technical-user token outside the application and inject the concrete
+value into the supervised process:
+
+```bash
+LEANIX_TOKEN="$(secret-controller read leanix/primary-token)" graph-os
+```
+
 - `LEANIX_URL` — your LeanIX base (the token is exchanged for a bearer at
   `/services/mtm/v1/oauth2/token`).
-- `LEANIX_TOKEN` (alias `LEANIX_API_TOKEN`) — a LeanIX **technical-user API token**.
+- `LEANIX_TOKEN` (alias `LEANIX_API_TOKEN`) — a runtime-only LeanIX
+  **technical-user API token**; AgentConfig rejects it from durable JSON.
+- `TLS_PROFILE` / `TLS_PROFILE_REF` — optional runtime trust selection; verification is mandatory.
 - `LEANIX_ENABLE_WRITE` — **fail-closed gate for backfeed**. Leave `false`; live
   write-back refuses unless it is `true`.
 
@@ -72,8 +79,7 @@ This regenerates `agent_utilities/knowledge_graph/ontology_leanix.ttl` (a
 
 ```bash
 graph-os call source_sync '{"source": "leanix", "mode": "full"}'  # full mirror (first run)
-# or via hydration:
-graph-os call graph_hydrate '{"source": "leanix"}'  # delta by default
+graph-os call source_sync '{"source": "leanix", "mode": "delta"}' # subsequent delta
 ```
 
 Confirm:
@@ -87,9 +93,10 @@ federation key the write-back layer resolves against.
 
 ## 4. Keep it in sync (delta)
 
-- **Watermark poll** — `source_sync source=leanix mode=delta` persists the max
-  `updatedAt` on a per-source `SourceSyncState` node and, on the next run, fetches
-  only newer fact sheets. Runs every 30 min via `deploy/schedules.yml`
+- **Typed cursor poll** — each successful fact-sheet envelope advances its source
+  cursor in the same engine transaction as the object. Records are committed
+  oldest-first and the handler stops at the first failure, so a newer cursor cannot
+  skip an uncommitted record. Runs every 30 min via `deploy/schedules.yml`
   (`leanix-delta-sync`).
 - **Reconcile** — `source_sync source=leanix mode=reconcile` compares the live
   fact-sheet id set with the KG and tombstones (`archived=true`) ones deleted in
@@ -102,10 +109,10 @@ federation key the write-back layer resolves against.
   graph-os call source_sync '{"source": "leanix", "mode": "delta", "ids_json": "[\"<fs-id>\"]"}'
   ```
 
-> **Standardized:** `source_sync` is source-agnostic — `source=camunda`,
-> `servicenow`, etc. all sync through the same tool/scheduler. Sources without a
-> native delta handler fall back to a full hydrate; LeanIX is the first
-> delta-capable source (see `core/source_sync.py` `_DELTA_HANDLERS`).
+> **Standardized:** `source_sync` is source-agnostic. Every registered durable
+> handler commits through the native ChangeEnvelope boundary; an unowned,
+> uncertified, or non-native connector fails closed instead of falling back to an
+> ad hoc hydrate path.
 
 ## 5. Backfeed into LeanIX
 
@@ -147,8 +154,8 @@ graph-os call graph_writeback '{"target": "leanix", "inferences_json": "[...]", 
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `get_leanix_client()` returns `None` | `LEANIX_URL`/`LEANIX_TOKEN` unset | Set both in `config.json`; confirm with the snippet in §1. |
-| `ontology_leanix_sync` → `{"status":"skipped","reason":"empty LeanIX metamodel..."}` | unreachable host / bad token / SSL | Check `LEANIX_URL` reachability; re-mint the API token; if self-signed, set `LEANIX_VERIFY_SSL=false`. |
+| `get_leanix_client()` returns `None` | `LEANIX_URL`/`LEANIX_TOKEN` unset | Persist the URL in AgentConfig and inject the token at process start; confirm with §1. |
+| `ontology_leanix_sync` → `{"status":"skipped","reason":"empty LeanIX metamodel..."}` | unreachable host / bad token / TLS trust | Check `LEANIX_URL` reachability; re-mint the API token; install the complete CA chain and point `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE` at its PEM bundle. Keep verification enabled. |
 | `source_sync source=leanix` returns 0 nodes | token lacks read scope, or empty watermark mismatch | Run `mode=full` once; verify the technical user can read fact sheets in LeanIX. |
 | Generated types not reasoned over | `ontology_leanix_sync` never applied (still the 4-class bootstrap), or owl_bridge built before sync | Run `ontology_leanix_sync dry_run=false`; restart the engine/daemon so a fresh `OWLBridge` picks up the dynamic promotable set. |
 | Relations missing in the KG | relation fields not in the metamodel, or unusual envelope | Confirm the relation appears in `client.meta_model()`; the extractor walks every `rel*` field tolerantly — file the envelope shape if a custom one is dropped. |

@@ -17,13 +17,13 @@ entrypoints:
   config: setup-config generate --profile <profile>
   verify: agent-utilities-doctor
   single_node_skill: agent-utilities-deployment
-  multi_node_skill: agent-os-genesis
+  multi_node_skill: agent-utilities-deployment
 profiles:
   tiny:
     summary: zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start
     recipe: docs/recipes/tiny.md
     docker: false
-    secrets: engine-encrypted-or-dotenv
+    secrets: engine-encrypted-or-runtime-reference
     servers: none
     skill: agent-utilities-deployment
     orchestrator: docker-compose
@@ -31,7 +31,6 @@ profiles:
     idp: none
     ontology_host: local
     engine: autostart
-    engine_tier: pi-max
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
   single-node-prod:
@@ -41,27 +40,26 @@ profiles:
     secrets: openbao-or-engine-encrypted
     servers: core
     skill: agent-utilities-deployment
-    orchestrator: docker-swarm
+    orchestrator: docker-compose
     install_mode: deploy-container
     idp: keycloak
     ontology_host: local
     engine: container
-    engine_tier: node
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
   enterprise:
-    summary: multi-host Docker Swarm, full integration (Vault/SSO/DNS/ingress/observability + all connectors)
+    summary: multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak
+      SSO/DNS/ingress/observability + all connectors)
     recipe: docs/recipes/enterprise.md
     docker: true
     secrets: openbao
     servers: all
-    skill: agent-os-genesis
+    skill: agent-utilities-deployment
     orchestrator: kubernetes
     install_mode: deploy-container
     idp: keycloak
-    ontology_host: stardog
+    ontology_host: local
     engine: remote
-    engine_tier: cluster
     engine_lifecycle: refcounted
     engine_idle_shutdown_secs: 60
 run_plan:
@@ -96,12 +94,6 @@ run_plan:
   - autostart
   - container
   - remote
-  engine_tiers:
-  - pi
-  - pi-max
-  - node
-  - cluster
-  - full
   install_modes:
   - deploy-container
   - deploy-baremetal
@@ -124,8 +116,8 @@ run_plan:
     - last-active
     - broadcast
   single_package_deploy:
-    invoke: deploy <package> with agent-os-genesis
-    catalog: universal-skills agent-os-genesis references/connector-catalog.md
+    invoke: deploy <package> with agent-utilities-deployment
+    catalog: agent-utilities-deployment
   provisioner_by_orchestrator:
     docker-swarm: swarm-mesh-provisioner
     kubernetes: kubernetes-mesh-provisioner
@@ -138,33 +130,24 @@ preflight:
   always:
   - python>=3.11,<3.15
   - uv-or-pip
-  - epistemic-graph>=1.0.0 — a prebuilt multi-arch WHEEL (linux x86_64/aarch64, macOS, windows); a Pi
-    pip-installs the lean pi/pi-max tier and NEVER compiles. Rust toolchain only as a build-from-source
-    fallback.
+  - epistemic-graph[full]>=2.23.1,<3.0.0 — the hard Agent Utilities base dependency; install the approved
+    platform wheel with its bundled server and folded numeric kernel. Runtime installation never compiles.
   docker_when: profile != tiny
 engine:
-  version: epistemic-graph>=1.0.0
-  extra: pip install 'agent-utilities[engine]'  (bumps to the published wheel)
+  version: epistemic-graph[full]>=2.23.1,<3.0.0
+  install: pip install agent-utilities (the full engine is a hard base dependency)
   authority: redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)
   resolver: CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local ->
-    autostart the pi-tier binary; refcounted (auto-stops idle) or persistent lifecycle
-  wheels: prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64, windows) — the Pi tiers never
-    compile
-  docker_image: engine-as-a-DB multi-arch image (linux/amd64+arm64) for container/remote shapes (single-node-prod,
-    enterprise)
-  tiers:
-    pi: '~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming (pure-Rust, no DataFusion/C)'
-    pi-max: '~6.96MB: pi + tsdb+blob+security/encryption-at-rest (still pure-Rust, no DataFusion/C)'
-    node: pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation
-    cluster: node + multi-Raft replication+pgwire+distributed/cross-shard-2PC (HA)
-    full: all single-node features, size-optimized (no raft/pgwire)
+    autostart the bundled full binary; refcounted (auto-stops idle) or persistent lifecycle
+  wheel: one approved platform wheel containing the full server and folded ABI3 numeric kernel; runtime
+    installation never compiles
+  docker_image: engine-as-a-DB image for container/remote shapes (single-node-prod, enterprise)
   secret_store:
     graph: __secrets__
     label: Secret
     encryption_key_env: EPISTEMIC_GRAPH_ENCRYPTION_KEY
-    note: default embedded secret store (OS-5.66); needs a security-feature tier (pi-max/node/cluster/full).
-      Local SQLite caches (registry graph, card cache, time-series) also route to the engine — no SQLite
-      fallback.
+    note: default embedded secret store (OS-5.66) in the full engine. Local SQLite caches (registry graph,
+      card cache, time-series) also route to the engine — no SQLite fallback.
 components:
   agent-terminal-ui:
     connect: http
@@ -190,8 +173,9 @@ components:
     container: false
     note: PySide6 desktop app; needs an X11/Wayland display — not headless/cloud
 ide_targets:
-  install_skills: install-skills --all-detected
+  install: agent-utilities install
   install_mcp: mcp-installer --all-detected
+  register_codex_mcp: setup-config codex
   harness_fence: setup-config harness-fence --target ~/.claude
   tools:
   - claude
@@ -277,7 +261,7 @@ private_repos:
     tiny: 0
     single-node-prod: 1
     enterprise: 2
-  step: agent-os-genesis Step 9b (CONCEPT:AU-OS.deployment.concept-2)
+  step: agent-utilities-deployment enterprise workflow (CONCEPT:AU-OS.deployment.concept-2)
   tokens:
   - GIT_NAMESPACE
   - DEFAULT_BRANCH

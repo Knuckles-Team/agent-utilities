@@ -1,7 +1,7 @@
 exclude: ^scripts/
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v6.0.0
+  rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
   - id: check-added-large-files
     args: ["--maxkb=2000"]
@@ -20,7 +20,7 @@ repos:
   - id: end-of-file-fixer
     exclude: \.ttl$
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.2.2
+  rev: cc575a3e5800b42ffbb5182b53d87203b2c4fc26 # v0.2.2
   hooks:
   - id: ruff
     args: ["--fix", "--unsafe-fixes", "--ignore=E402"]
@@ -28,40 +28,40 @@ repos:
   - id: ruff-format
     exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
-  rev: v1.20.2
+  rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
   - id: mypy
-    additional_dependencies: [pydantic, types-PyYAML, types-requests]
+    additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518]
     args: ["--ignore-missing-imports"]
     # Align with ruff/bandit/codespell, which all exclude tests — the repo does
     # not statically type-check test code (validated at runtime by pytest).
     exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/jendrikseipp/vulture
-  rev: v2.16
+  rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
   - id: vulture
     pass_filenames: false
     args: [".", "vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests"]
     require_serial: true
 - repo: https://github.com/codespell-project/codespell
-  rev: v2.4.2
+  rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.codespellignore"]
     exclude: ^(tests/|test/|scripts/|script/|\.specify/)
 - repo: https://github.com/PyCQA/bandit
-  rev: 1.9.4
+  rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
   - id: bandit
     args: ["--skip", "B101,B104,B105,B110,B112,B404,B603,B607,B608"]
     exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py|\.specify/)
 - repo: https://github.com/nbQA-dev/nbQA
-  rev: 1.9.1
+  rev: d31b7eae1767c43460afb3ba130e0a6602933abe # 1.9.1
   hooks:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.5.11
+  rev: 6a280ba12b7901e47757c868c8c13c6a624c9ecb # 0.11.7
   hooks:
   # --locked: fail (don't silently rewrite) if uv.lock is out of sync with
   # pyproject.toml — keeps the committed lock authoritative and never stale.
@@ -74,6 +74,12 @@ repos:
     entry: python3 scripts/audit_dependencies.py uv.lock
     language: system
     files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt)$
+    pass_filenames: false
+  - id: supply-chain-source-contract
+    name: enforce immutable workflow, container, and dependency sources
+    entry: python3 scripts/check_fleet_supply_chain.py .
+    language: system
+    files: ^(\.github/workflows/.*\.ya?ml|.*(?:Dockerfile|\.dockerfile).*|.*(?:compose|stack).*\.ya?ml|pyproject\.toml|package\.json|Cargo\.toml|.*\.lock|pnpm-lock\.yaml)$
     pass_filenames: false
   - id: check-mermaid
     name: Check Mermaid syntax
@@ -92,19 +98,19 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: check-concept-gaps
-    name: Check Concept ID Gap contiguousness
-    entry: python3 scripts/check_concept_gaps.py
+  - id: env-var-drift
+    name: Env-var / config drift guard (.env.example matches the code-read surface)
+    entry: python3 -m agent_utilities.mcp.check_env_var_drift --check
     language: system
-    files: concept_map\.md$
-    pass_filenames: true
+    pass_filenames: false
+    always_run: true
   - id: turtle-format
-    name: Format Turtle with rdflib
+    name: Format Turtle with rdflib==7.6.0
     entry: python -m scripts.format_ttl
     language: python
-    additional_dependencies: [rdflib]
+    additional_dependencies: [rdflib==7.6.0]
     files: \.ttl$
-    # SHACL shape files use anonymous `sh:property [ ]` shapes that rdflib's
+    # SHACL shape files use anonymous `sh:property [ ]` shapes that rdflib==7.6.0's
     # turtle serializer cannot canonicalize idempotently (blank-node relabeling),
     # so the formatter would rewrite them on every run. They remain valid turtle
     # and are parsed/validated by the SHACL gate — just not cosmetically reformatted.
@@ -150,7 +156,7 @@ repos:
     pass_filenames: false
     always_run: true
 - repo: https://github.com/AleksaC/hadolint-py
-  rev: v2.14.0
+  rev: 458cb25edf664682e3e856a53a2f9af33e068297 # v2.14.0
   hooks:
   - id: hadolint
     args:
@@ -160,7 +166,7 @@ repos:
     - --ignore=DL4006
     - --ignore=SC2102
 - repo: https://github.com/IamTheFij/docker-pre-commit
-  rev: v3.0.1
+  rev: f626253b23de45412865c07fd076ff95d4cd77a7 # v3.0.1
   hooks:
   - id: docker-compose-check
 - repo: local
@@ -186,12 +192,6 @@ repos:
   - id: guardrail-concept-freshness
     name: Guardrail — concept registry freshness
     entry: python3 scripts/check_concepts.py
-    language: system
-    pass_filenames: false
-    always_run: true
-  - id: guardrail-no-legacy-concepts
-    name: Guardrail — no legacy CONCEPT ids (OKF-CIS)
-    entry: python3 scripts/check_no_legacy_markers.py agent_utilities scripts
     language: system
     pass_filenames: false
     always_run: true
@@ -222,28 +222,80 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-cpd-drift
+    name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
+    entry: python3 scripts/check_cpd.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-docs-contract
+    name: Guardrail — docs catalog, links, nav, and generated inventories
+    entry: python3 scripts/docs_contract.py --check
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-tracked-privacy
+    name: Guardrail — tracked public artifacts contain no host-specific data or local identities
+    entry: python3 scripts/check_tracked_privacy.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: guardrail-kg-skill-coverage
-    name: Guardrail — every graph-os verb has a kg-* skill
-    # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: the operator-facing kg-* skill suite must
-    # stay 1:1 with the graph-os verb surface (no verb without a skill, no skill
-    # pointing at a dead verb). Same core as tests/unit/test_gateway_mcp_parity.py,
-    # run standalone for a fast crisp signal.
+    name: Guardrail — every Graph-OS verb has domain-skill coverage
+    # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: every live
+    # verb must be claimed explicitly in an agents/graph-os.yaml sidecar.
     entry: python3 -m agent_utilities.mcp.skill_coverage
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-prebundled-skills
+    name: Guardrail — consolidated pre-bundled skills stay valid
+    entry: python3 scripts/check_prebundled_skills.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-epistemic-operations-protocol
+    name: Guardrail — Epistemic Operations schema/Python/Rust parity
+    entry: |-
+      bash -c 'canonical_repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${EPISTEMIC_GRAPH_ROOT:-"$(dirname "$canonical_repo")/epistemic-graph"}; python3 scripts/check_epistemic_operations_protocol.py --epistemic-graph-root "$root"'
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-version-consistency
+    name: Guardrail — release version consistency
+    entry: python3 scripts/check_version_consistency.py
     language: system
     pass_filenames: false
     always_run: true
   - id: guardrail-no-pyo3
     name: Guardrail — PyO3 fully excised
-    entry: bash /home/apps/workspace/agent-packages/epistemic-graph/scripts/check_no_pyo3.sh
+    entry: |-
+      bash -c 'canonical_repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); root=${EPISTEMIC_GRAPH_ROOT:-"$(dirname "$canonical_repo")/epistemic-graph"}; script="$root/scripts/check_no_pyo3.sh"; if [ ! -f "$script" ]; then echo "Set EPISTEMIC_GRAPH_ROOT to run the cross-repository gate"; exit 1; fi; bash "$script"'
     language: system
     pass_filenames: false
     always_run: true
+  # ADVISORY: the cross-UI parity matrix (per CONTRIBUTING-guardrails.md at the
+  # agent-packages workspace root) compares feature "Full"/"Absent" status across
+  # the 3 UI frontends (agent-webui, agent-terminal-ui, geniusbot) via a
+  # workspace-level `scripts/check_parity.py` + `design-system/parity_matrix.yaml`.
+  # Neither has ever been implemented (confirmed absent from every repo's git
+  # history workspace-wide, not merely moved/renamed) — building it is real
+  # multi-repo product work (a genuine feature-parity audit across 3 frontends
+  # this repo's worktree cannot touch), not a mechanical path fix, and
+  # .github/workflows/guardrails.yml already documents this exact gate as
+  # un-runnable in isolated per-repo CI for the same reason. Kept as a visible,
+  # non-blocking advisory (rather than hard-failing every commit, in every
+  # checkout, on a hardcoded host-specific absolute path that cannot exist
+  # anywhere else). Flip back to blocking once the workspace-level script +
+  # parity_matrix.yaml are actually built.
   - id: guardrail-parity
-    name: Guardrail — cross-UI parity matrix
-    entry: python3 /home/apps/workspace/agent-packages/scripts/check_parity.py
+    name: Guardrail — cross-UI parity matrix (ADVISORY, script not yet implemented)
+    entry: |-
+      bash -c 'canonical_repo=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)"); script=${WORKSPACE_PARITY_SCRIPT:-"$(dirname "$canonical_repo")/scripts/check_parity.py"}; if [ -f "$script" ]; then python3 "$script"; else echo "SKIP -- configure WORKSPACE_PARITY_SCRIPT when the workspace parity gate is available; advisory, not blocking"; fi'
     language: system
     pass_filenames: false
     always_run: true
+    verbose: true
   - id: guardrail-retrieval-quality
     name: Guardrail — retrieval quality (Recall@k / MRR floor)
     entry: python3 scripts/check_retrieval_quality.py
@@ -328,10 +380,10 @@ repos:
   # is heavier than a per-commit gate, and the deploy itself is push-to-main
   # only. Run it via:  pre-commit run docs-build --hook-stage manual --all-files
   - id: docs-build
-    name: CI parity — mkdocs docs build (pages.yml)
-    entry: bash -c 'mkdocs build --site-dir "$(mktemp -d)/site"'
+    name: CI parity — strict mkdocs docs build (pages.yml)
+    entry: bash -c 'mkdocs build --strict --site-dir "$(mktemp -d)/site"'
     language: python
-    additional_dependencies: [mkdocs-material, mkdocs-awesome-pages-plugin]
+    additional_dependencies: [mkdocs-material==9.7.6, mkdocs-awesome-pages-plugin==2.10.1]
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
@@ -388,7 +440,7 @@ repos:
   # guardrails.yml ENVIRONMENT parity — the highest-value parity closure. The
   # gates above run in the developer's FULL install; CI's "Guardrails" job runs
   # them in a deliberately LEAN install (`pip install -e .` + numpy/pyyaml/pytest/
-  # rdflib/pyshacl/owlrl — NO [agent]/[all] extras). A gate that transitively
+  # rdflib==7.6.0/pyshacl/owlrl — NO [agent-runtime]/[all] extras). A gate that transitively
   # imports an extra-only dep (pydantic_ai, httpx, fastmcp, …) passes locally but
   # dies in CI. This hook reproduces CI's lean env in a throwaway venv and runs
   # EVERY guardrail gate inside it (install + gate list both derived from

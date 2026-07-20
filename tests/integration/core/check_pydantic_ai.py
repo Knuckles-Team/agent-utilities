@@ -2,17 +2,16 @@
 
 import asyncio
 
-from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
+
+from agent_utilities.core.contextual_model import create_context_agent
 
 
 async def test():
-    agent = Agent("google-gla:gemini-1.5-flash")  # Dummy model
     try:
         # We don't actually run it, just check the result type hints if possible
         # Or run with a mock
-        from pydantic_ai.models.test import TestModel
-
-        agent = Agent(TestModel())
+        agent = create_context_agent(TestModel())
         res = await agent.run("hello")
         print(f"Result type: {type(res)}")
         print(f"Result attrs: {dir(res)}")

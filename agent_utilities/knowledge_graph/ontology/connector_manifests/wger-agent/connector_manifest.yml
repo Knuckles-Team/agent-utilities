@@ -1,0 +1,632 @@
+connector: wger-agent
+ontology_source: wellness
+schema_version: '1'
+resources:
+- name: BodyMeasurement
+  label: Body Measurement
+  id_prefix: bodymeasurement
+  relations: []
+- name: CalorieExpenditure
+  label: Calorie Expenditure
+  id_prefix: calorieexpenditure
+  relations: []
+- name: DailyNutrientSummary
+  label: Daily Nutrient Summary
+  id_prefix: dailynutrientsummary
+  relations:
+  - name: calorieBalance
+    label: calorie balance
+    target: CalorieExpenditure
+    lpg_rel_type: ''
+- name: Exercise
+  label: Exercise
+  id_prefix: exercise
+  relations:
+  - name: hasSet
+    label: has set
+    target: ExerciseSet
+    lpg_rel_type: ''
+- name: ExerciseSet
+  label: Exercise Set
+  id_prefix: exerciseset
+  relations: []
+- name: FitnessGoal
+  label: Fitness Goal
+  id_prefix: fitnessgoal
+  relations: []
+- name: Ingredient
+  label: Ingredient
+  id_prefix: ingredient
+  relations: []
+- name: MealEntry
+  label: Meal Entry
+  id_prefix: mealentry
+  relations:
+  - name: hasNutrientProfile
+    label: has nutrient profile
+    target: NutrientProfile
+    lpg_rel_type: ''
+  - name: usesRecipe
+    label: uses recipe
+    target: Recipe
+    lpg_rel_type: ''
+- name: MealPlan
+  label: Meal Plan
+  id_prefix: mealplan
+  relations:
+  - name: containsMeal
+    label: contains meal
+    target: MealEntry
+    lpg_rel_type: ''
+  - name: motivatedBy
+    label: motivated by
+    target: BodyMeasurement
+    lpg_rel_type: ''
+- name: NutrientProfile
+  label: Nutrient Profile
+  id_prefix: nutrientprofile
+  relations:
+  - name: aggregatesTo
+    label: aggregates to
+    target: DailyNutrientSummary
+    lpg_rel_type: ''
+- name: NutritionPlan
+  label: Nutrition Plan
+  id_prefix: nutritionplan
+  relations: []
+- name: NutritionTarget
+  label: Nutrition Target
+  id_prefix: nutritiontarget
+  relations: []
+- name: Recipe
+  label: Recipe
+  id_prefix: recipe
+  relations:
+  - name: hasIngredient
+    label: has ingredient
+    target: Ingredient
+    lpg_rel_type: ''
+- name: ShoppingList
+  label: Shopping List
+  id_prefix: shoppinglist
+  relations:
+  - name: compiledFrom
+    label: compiled from
+    target: MealPlan
+    lpg_rel_type: ''
+- name: WellnessScore
+  label: Wellness Score
+  id_prefix: wellnessscore
+  relations: []
+- name: WorkoutRoutine
+  label: Workout Routine
+  id_prefix: workoutroutine
+  relations:
+  - name: targetsGoal
+    label: targets goal
+    target: FitnessGoal
+    lpg_rel_type: ''
+- name: WorkoutSession
+  label: Workout Session
+  id_prefix: workoutsession
+  relations:
+  - name: estimatedExpenditure
+    label: estimated expenditure
+    target: CalorieExpenditure
+    lpg_rel_type: ''
+  - name: performedExercise
+    label: performed exercise
+    target: Exercise
+    lpg_rel_type: ''
+  - name: sessionOfRoutine
+    label: session of routine
+    target: WorkoutRoutine
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: wger-exercises.updated
+  resource: exercise
+  description: "Watermark event for 'wger-exercises' \u2014 advances on last_update (mcp_source_presets.json)."
+- name: wger-nutrition-plans.updated
+  resource: nutrition_plan
+  description: "Watermark event for 'wger-nutrition-plans' \u2014 advances on creation_date (mcp_source_presets.json)."
+identity:
+  id_field:
+    exercise: id
+    nutrition_plan: id
+  title_field:
+    exercise: name
+    nutrition_plan: description
+  text_field:
+    exercise: description
+    nutrition_plan: description
+  updated_field:
+    exercise: last_update
+    nutrition_plan: creation_date
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  BodyMeasurement:
+    ontology_class: Observation
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  CalorieExpenditure:
+    ontology_class: Observation
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  DailyNutrientSummary:
+    ontology_class: NutrientProfile
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  Exercise:
+    ontology_class: Action
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  ExerciseSet:
+    ontology_class: BFO_0000015
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  FitnessGoal:
+    ontology_class: Goal
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  Ingredient:
+    ontology_class: BFO_0000004
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  MealEntry:
+    ontology_class: BFO_0000015
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  MealPlan:
+    ontology_class: Procedure
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  NutrientProfile:
+    ontology_class: Observation
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  NutritionPlan:
+    ontology_class: Procedure
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  NutritionTarget:
+    ontology_class: Goal
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  Recipe:
+    ontology_class: CreativeWork
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  ShoppingList:
+    ontology_class: Dataset
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  WellnessScore:
+    ontology_class: OutcomeEvaluation
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  WorkoutRoutine:
+    ontology_class: Procedure
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+  WorkoutSession:
+    ontology_class: BFO_0000015
+    fields:
+      bodyFatPercent: xsd:float
+      bodyWeightKg: xsd:float
+      calories: xsd:float
+      caloriesBurned: xsd:float
+      carbGrams: xsd:float
+      durationMinutes: xsd:integer
+      fatGrams: xsd:float
+      fiberGrams: xsd:float
+      goalEnergy: xsd:float
+      goalProtein: xsd:float
+      mealType: xsd:string
+      measurementDate: xsd:date
+      muscleMassKg: xsd:float
+      proteinGrams: xsd:float
+      reps: xsd:integer
+      sodiumMg: xsd:float
+      sugarGrams: xsd:float
+      weightKg: xsd:float
+sync:
+- preset: wger-exercises
+  server: wger-agent
+  tool: wger_exercise
+  action: get_exercises
+  records_path: results
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: last_update
+  pagination: offset
+  doc_type: exercise
+  tool_schema_sha256: 46c06fb46595c3e294e8e39b8e5a9d6e53dabd63a1859f7f0ae0455403ef466b
+  raw:
+    server: wger-agent
+    tool: wger_exercise
+    action: get_exercises
+    records_path: results
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: last_update
+    pagination: offset
+    page_kind: offset
+    page_param: offset
+    page_size_param: limit
+    doc_type: exercise
+- preset: wger-nutrition-plans
+  server: wger-agent
+  tool: wger_nutrition
+  action: get_nutrition_plans
+  records_path: results
+  id_field: id
+  title_field: description
+  text_field: description
+  updated_field: creation_date
+  pagination: offset
+  doc_type: nutrition_plan
+  tool_schema_sha256: 4676ee3a0c4fc76592c936e8c5118ce40965745c0ed5847237a4ce5268f601f3
+  raw:
+    server: wger-agent
+    tool: wger_nutrition
+    action: get_nutrition_plans
+    records_path: results
+    id_field: id
+    title_field: description
+    text_field: description
+    updated_field: creation_date
+    pagination: offset
+    page_kind: offset
+    page_param: offset
+    page_size_param: limit
+    doc_type: nutrition_plan
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - wger_agent/connectors/mcp_source_presets.json
+  - wger_agent/connectors/tool_schema_fingerprints.json
+  - wger_agent/ontology/wellness.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 0cefd2f7260450e7a338cb64409f6ee841f465c929b8232bdc65db574928fd46
+    triple_count: 178
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: NI5f1ZARZPbnkNaSW3AyPQYnfLFjxVW8dHuQRsBHKKDlbTLhYeSEKLyH176T0Ei6FwsG2RSb-mD-TYV9SW3rDg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'completedSession' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'followsRoutine' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'prescribedDiet' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'targetsNutrition' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'trackedMeasurement' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'wellnessEvaluation' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.BodyMeasurement.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CalorieExpenditure.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DailyNutrientSummary.ontology_class = 'NutrientProfile' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Exercise.ontology_class = 'Action' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ExerciseSet.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.FitnessGoal.ontology_class = 'Goal' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Ingredient.ontology_class = 'BFO_0000004' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MealEntry.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MealPlan.ontology_class = 'Procedure' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NutrientProfile.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NutritionPlan.ontology_class = 'Procedure' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NutritionTarget.ontology_class = 'Goal' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Recipe.ontology_class = 'CreativeWork' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ShoppingList.ontology_class = 'Dataset' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WellnessScore.ontology_class = 'OutcomeEvaluation' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WorkoutRoutine.ontology_class = 'Procedure' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WorkoutSession.ontology_class = 'BFO_0000015' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."

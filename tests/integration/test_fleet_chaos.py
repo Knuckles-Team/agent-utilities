@@ -58,7 +58,6 @@ def fleet_env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
     )
-    monkeypatch.setenv("DURABLE_EXECUTION_DB", str(tmp_path / "durable.db"))
 
     async def _fast_sleep(_delay):
         return None

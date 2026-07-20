@@ -174,7 +174,7 @@ class TestExecutorEscalationLivePath:
             required_capability="kg.read",
             produces_effect=ActionEffect.READ,
         )
-        kernel = PermissionsKernel()
+        kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
         ex = ActionExecutor(
             _registry_with(action, handler), kernel=kernel, persist=False
         )
@@ -203,7 +203,7 @@ class TestExecutorEscalationLivePath:
             idempotent=False,
             value_tier="high",
         )
-        kernel = PermissionsKernel()
+        kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
         ex = ActionExecutor(
             _registry_with(action, handler), kernel=kernel, persist=False
         )
@@ -234,7 +234,7 @@ class TestExecutorEscalationLivePath:
             idempotent=False,
             value_tier="high",
         )
-        kernel = PermissionsKernel()
+        kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
         ex = ActionExecutor(
             _registry_with(action, handler), kernel=kernel, persist=False
         )

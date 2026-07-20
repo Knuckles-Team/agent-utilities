@@ -1,6 +1,7 @@
 """CONCEPT:AU-KG.query.object-graph-mapper"""
 
 import logging
+import re
 from typing import Any
 
 from ...backends import create_backend
@@ -11,6 +12,13 @@ from ..types import (
 )
 
 logger = logging.getLogger(__name__)
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def _safe_graph_identifier(value: object, *, default: str = "") -> str:
+    rendered = re.sub(r"\W+", "_", str(value or default)).strip("_")
+    return rendered if _CYPHER_IDENTIFIER.fullmatch(rendered) else default
+
 
 # Mapping from RegistryNodeType enum values to DDL table names
 # This ensures sync uses the exact table names defined in schema_definition.py
@@ -78,23 +86,61 @@ async def execute_sync(
         return {"status": "skipped", "reason": "graph backend not available"}
     graph = ctx.graph
 
+    authority_backend = getattr(db, "_authority", db)
+    if authority_backend.__class__.__name__ == "EpistemicGraphBackend":
+        # The operational graph authority accepts one governed native graph
+        # slice. Do not compile the in-memory graph into client-side Cypher or
+        # emulate UNWIND batches in Python.
+        from ...core.materialization import write_entities
+
+        entities: list[dict[str, Any]] = []
+        for node_id, data in graph.nodes(data=True):
+            raw_type = str(data.get("node_type", "")).strip()
+            if not raw_type:
+                continue
+            props = {key: value for key, value in data.items() if value is not None}
+            props.update({"id": str(node_id), "node_type": raw_type})
+            if "ingestion_timestamp" in ctx.metadata:
+                props["last_seen_timestamp"] = ctx.metadata["ingestion_timestamp"]
+            entities.append(props)
+
+        relationships = [
+            {
+                **{
+                    key: value
+                    for key, value in data.items()
+                    if key not in {"type", "rel_type", "relationship_type", "relation"}
+                    and value is not None
+                },
+                "source": str(source),
+                "target": str(target),
+                "relationship": str(data.get("relationship") or "RELATED"),
+            }
+            for source, target, data in graph.edges(data=True)
+        ]
+        return write_entities(
+            db,
+            "code-graph",
+            entities,
+            relationships,
+            delta=True,
+        )
+
     nodes_synced = 0
     edges_synced = 0
 
     # Sync Nodes
     nodes_by_group: dict[tuple[str, tuple[str, ...]], list[dict[str, Any]]] = {}
     for node_id, data in graph.nodes(data=True):
-        raw_type = str(data.get("type", "")).lower()
+        raw_type = str(data.get("node_type", "")).lower()
         label = _TYPE_TO_TABLE.get(raw_type) or "".join(
             word.capitalize() for word in raw_type.replace("_", " ").split()
         )
+        label = _safe_graph_identifier(label)
         if not label:
             continue
 
         props = {k: v for k, v in data.items() if v is not None}
-        # Preserve original semantic type for Code nodes (file/symbol/module)
-        if label == "Code" and raw_type and raw_type != "code":
-            props["type"] = raw_type
         if "ingestion_timestamp" in ctx.metadata:
             props["last_seen_timestamp"] = ctx.metadata["ingestion_timestamp"]
 
@@ -135,7 +181,10 @@ async def execute_sync(
             [
                 k
                 for k in props.keys()
-                if k != "id" and (valid_keys is None or k in valid_keys)
+                if k != "id"
+                and isinstance(k, str)
+                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and (valid_keys is None or k in valid_keys)
             ]
         )
         group_key = (label, tuple(keys))
@@ -160,25 +209,28 @@ async def execute_sync(
             try:
                 db.execute_batch(query, chunk)
                 nodes_synced += len(chunk)
-            except Exception as e:
-                logger.error(f"Failed to sync chunk for label {label}: {e}")
+            except Exception as exc:
+                logger.error(
+                    "Failed to sync node chunk: error_type=%s", type(exc).__name__
+                )
 
     # Sync Edges
     edges_by_type: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
     for u, v, data in graph.edges(data=True):
-        etype = str(data.get("type", "rel")).upper()
-        etype = "".join(c for c in etype if c.isalnum() or c == "_")
+        etype = _safe_graph_identifier(str(data.get("relationship", "rel")).upper())
         if not etype:
             continue
 
-        u_type = str(graph.nodes[u].get("type", "")).lower()
-        v_type = str(graph.nodes[v].get("type", "")).lower()
+        u_type = str(graph.nodes[u].get("node_type", "")).lower()
+        v_type = str(graph.nodes[v].get("node_type", "")).lower()
         u_label = _TYPE_TO_TABLE.get(u_type) or "".join(
             word.capitalize() for word in u_type.replace("_", " ").split()
         )
         v_label = _TYPE_TO_TABLE.get(v_type) or "".join(
             word.capitalize() for word in v_type.replace("_", " ").split()
         )
+        u_label = _safe_graph_identifier(u_label, default="Code")
+        v_label = _safe_graph_identifier(v_label, default="Code")
 
         u_label_str = f":{u_label}" if u_label else ":Code"
         v_label_str = f":{v_label}" if v_label else ":Code"
@@ -196,8 +248,10 @@ async def execute_sync(
             try:
                 db.execute_batch(query, chunk)
                 edges_synced += len(chunk)
-            except Exception as e:
-                logger.error(f"Failed to sync edges for type {etype}: {e}")
+            except Exception as exc:
+                logger.error(
+                    "Failed to sync edge chunk: error_type=%s", type(exc).__name__
+                )
 
     # Sweep stale codebase nodes
     if "ingestion_timestamp" in ctx.metadata:
@@ -209,8 +263,10 @@ async def execute_sync(
                 {"workspace_path": workspace_path, "ts": ts},
             )
             logger.info("Sweep complete: deleted stale codebase nodes.")
-        except Exception as e:
-            logger.debug(f"Failed to sweep stale nodes: {e}")
+        except Exception as exc:
+            logger.debug(
+                "Failed to sweep stale nodes: error_type=%s", type(exc).__name__
+            )
 
     return {"nodes_synced": nodes_synced, "edges_synced": edges_synced}
 

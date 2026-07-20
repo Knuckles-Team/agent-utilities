@@ -64,7 +64,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** The closed loop can promote, govern, sandbox-validate and branch a code change, but nothing in the live path **generates the diff.** A human still writes every line.
 - **Leverage:** **high.** Closeable: **yes.**
 - **Proposed direction:** Add a code-synthesis stage between promotion and `change_synthesis`: an RLM/agent step that, for a `failure_gap`/concept proposal whose target component is known (`failure_analyzer` already attributes `component_type` + `file_path`), reads the target file(s) and emits a `{path, content}` diff into the proposal's `files` field — reusing the existing change_synthesis→sandbox→publisher pipeline unchanged. Constrain to single-file component-attributed edits first; wire `EvolveAgent` (already proposes file-level `ComponentEdits`, has a verifier) as the generator.
-- **Concept / SDD:** `AHE-3.22` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo`
+- **Concept / SDD:** `AHE-3.22` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo`
 - **Refs:** AHE-3.21, AU-AHE.harness.failure-evolution, AHE-3.0, ORCH-1.38
 
 #### AU-OS.scaling.kg-provenance-panel-data (§5.1 scaling — data wall) — No conversion of test-time search outputs into training/distillation data
@@ -73,7 +73,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** AU generates exactly the artifacts the paper calls the synthetic-data goldmine (diverse verified candidate sets, scored RLM trajectories, golden-loop results) but **never harvests them** into a curated trainable corpus (rejection-sampled best trajectories, preference pairs, distillation targets). No self-play/search-distillation factory feeds the existing trainer (ML-001..007, data-science-mcp). **Highest-leverage scaling lever AU leaves on the floor.**
 - **Leverage:** **high.** Closeable: **yes.**
 - **Proposed direction:** Build a `SearchDistillation` harvester: tap AU-AHE.harness.width-diverse-best-k candidate sets + `harness/verifier.py` scores + RLM RunTraces, apply rejection sampling/best-of-k to mint `(prompt → best-trajectory)` SFT rows and `(winner, loser)` preference pairs, dedup via the KG-2.2 LSH/deduplicator pipeline, persist a versioned synthetic corpus the data-science-mcp trainer (ML-001..007) consumes. Run it as a new gated `distil-to-data` golden-loop stage. Pure in-repo wiring.
-- **Concept / SDD:** `AU-OS.scaling.kg-provenance-panel-data` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/os-5-34-no-conversion-of-test-time-search-outputs-into-t`
+- **Concept / SDD:** `AU-OS.scaling.kg-provenance-panel-data` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/os-5-34-no-conversion-of-test-time-search-outputs-into-t`
 - **Refs:** KG-2.2, AU-AHE.harness.width-diverse-best-k, ORCH-1.29, AU-AHE.trainer.high-caliber-llm-trainer, KG-2.7
 
 #### AHE-3.25 (§5.3 recursive — memetic RSI) — No recursive distillation of test-time search back into a prior (AlphaZero-style)
@@ -82,7 +82,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** AU converts test-time compute into a routing reward and propose-only preference pairs, but never closes the AlphaZero loop (improved-search-output → fine-tune the prior → cheaper/stronger next search) — the memetic mechanism the paper highlights as likely most important for AGI→ASI.
 - **Leverage:** **high.** Closeable: **yes** (loop is buildable in-repo; scaling-law *theory* stays external).
 - **Proposed direction:** Recursive-distillation tick: harvest best-of-k winners + verifier-passed traces into a preference/SFT corpus (shared with AU-OS.scaling.kg-provenance-panel-data), trigger a periodic in-house fine-tune (ML-001..007), gate the new model behind the CapabilityRatchet (AU-AHE.evaluation.capability-benchmark-regression-ratchet), promote on pass as the new generation prior. Log distillation cadence vs capability delta to empirically probe agenda-4d degeneration on AU's own loop.
-- **Concept / SDD:** `AHE-3.25` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/ahe-3-25-no-recursive-distillation-of-test-time-search-ba`
+- **Concept / SDD:** `AHE-3.25` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/ahe-3-25-no-recursive-distillation-of-test-time-search-ba`
 - **Refs:** AU-AHE.harness.width-diverse-best-k, AU-AHE.harness.preference-corpus-reliability, AHE-3.1 (tightly coupled to AU-OS.scaling.kg-provenance-panel-data)
 
 ### MEDIUM leverage
@@ -93,7 +93,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** The component that actually closes the loop is dead-on-the-live-path per AU's own Wire-First rule.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** Wire `EvolveAgent`→`ManifestVerifier` as the engine of the failure_ingest tick: after a change set branches, run reliability suite + targeted evals to build a post-change `EvidenceCorpus`, call `ManifestVerifier.verify` against the pre-change baseline, feed confirm/revert as the **authoritative** regression verdict; auto-abandon the branch on `full_revert`.
-- **Concept / SDD:** `AHE-3.23` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/ahe-3-23-evolveagent-manifestverifier-the-real-apply-veri`
+- **Concept / SDD:** `AHE-3.23` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/ahe-3-23-evolveagent-manifestverifier-the-real-apply-veri`
 - **Refs:** AHE-3.0, AU-AHE.harness.failure-evolution, AHE-3.21
 
 #### AU-AHE.evaluation.capability-benchmark-regression-ratchet (§5.3 recursive) — No full-suite / capability-benchmark regression ratchet
@@ -102,7 +102,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** A merged change can pass its own targeted tests and the spike monitor while regressing untested capabilities — exactly the "degeneration" mode the paper warns about. No monotone capability ratchet.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** A `CapabilityRatchet` that runs `build_reliability_suite` + LongMemEval-S (+ optionally the full unit suite) in the publisher worktree, stores a per-capability score vector baseline node, and requires post-change scores ≥ baseline (within tolerance) on every tracked capability before publish/merge. Persist score vectors to start fitting AU-local recursive-improvement curves (agenda 4a).
-- **Concept / SDD:** `AU-AHE.evaluation.capability-benchmark-regression-ratchet` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/ahe-3-24-no-full-suite-capability-benchmark-regression-ra`
+- **Concept / SDD:** `AU-AHE.evaluation.capability-benchmark-regression-ratchet` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/ahe-3-24-no-full-suite-capability-benchmark-regression-ra`
 - **Refs:** AHE-3.1, AHE-3.12, AU-AHE.assimilation.research-auto-merge, AU-AHE.harness.promotion-governance-validator
 
 #### AU-AHE.sdd.recursive-improvement-instrumentation-aggregating / AU-OS.audit.recursive-improvement-velocity-tracker (§5.3 / §7.4) — No RSI instrumentation: per-mechanism effect measurement & self-improvement curve tracking
@@ -112,8 +112,8 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Leverage:** medium. Closeable: **yes** (pure wiring over existing nodes).
 - **Proposed direction:** An RSI-metrics aggregator / `ImprovementCycle` ledger over persisted audit/publication/CapabilityRatchet nodes: per cycle `{mechanism, proposals, merges, capability_delta_vector, compute_cost, wall_clock}`; expose a `/api/fleet` (or graph_query) series + Grafana panel; fit a simple early-curve model per mechanism; alert when the derivative goes negative ("research gets harder" signal).
 - **Concept / SDD (two specs, near-duplicate):**
-  - `AU-AHE.sdd.recursive-improvement-instrumentation-aggregating` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/ahe-3-26-no-rsi-instrumentation-per-mechanism-effect-meas`
-  - `AU-OS.audit.recursive-improvement-velocity-tracker` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/safe-1-3-recursive-improvement-velocity-is-not-instrument`
+  - `AU-AHE.sdd.recursive-improvement-instrumentation-aggregating` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/ahe-3-26-no-rsi-instrumentation-per-mechanism-effect-meas`
+  - `AU-OS.audit.recursive-improvement-velocity-tracker` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/safe-1-3-recursive-improvement-velocity-is-not-instrument`
   - *(These overlap heavily; recommend implementing as one ledger satisfying both.)*
 - **Refs:** AU-AHE.assimilation.research-auto-merge, AHE-3.21, AU-OS.observability.no-op-without-metrics, AU-AHE.optimization.performance-anomaly-consumer / ECO-4.40, AU-ECO.mcp.usage-cost-observability-surface
 
@@ -123,16 +123,16 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** Effort/diversity/sample-count are chosen up front and never adjusted by observed marginal return; no measured returns-on-compute curve, no adaptive stopping. AU can scale test-time compute but not allocate it compute-optimally.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** A `ComputeGovernor` that consumes RunTrace usage (ORCH-1.29) + verifier/diversity scores (AU-AHE.harness.width-diverse-best-k `mean_pairwise_distance`, `harness/verifier.py`) to estimate per-sample marginal gain, and stops fan-out/decomposition when Δquality per ΔUSD (priced via ECO-4.40) drops below threshold; expose as an adaptive best-of-k controller feeding `diverse_fan_out_width` + `reasoning_effort`, ledger to `usage/recorder.py` (AU-OS.observability.persist-this-graph-run).
-- **Concept / SDD:** `AU-OS.scaling.bridge-developer-workspace-mutating` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/os-5-33-no-compute-optimal-value-aware-test-time-compute`
+- **Concept / SDD:** `AU-OS.scaling.bridge-developer-workspace-mutating` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/os-5-33-no-compute-optimal-value-aware-test-time-compute`
 - **Refs:** AHE-3.1, AU-AHE.harness.width-diverse-best-k, ORCH-1.29, ORCH-1.2, ECO-4.40, AU-OS.observability.persist-this-graph-run
 
 #### OS-5.35 (§5.1 scaling) — Autoscaler is reactive single-metric, not throughput/cost-optimal across heterogeneous compute
 - **Paper claim:** §5.1: sustaining scaling = co-scaling compute/data/cost in compute-optimal regimes; the digital-worker-collective lever depends on running workers "orders of magnitude faster thanks to more compute and more compute efficiency" — place work on the cheapest/fastest compute, not just add replicas anywhere.
 - **AU current state:** OS-5.29 `fleet_autoscaler.py` does per-service target-tracking on **one** signal (queue_depth/consumer_lag/cpu) vs static registry bounds; placement is uniform queue-pull (`agent_dispatch.py:35` marks affinity "future work"). The deployment-planner skill does compute-weighted placement but lives in universal-skills, off the live loop. No GPU/accelerator-aware or $-per-token-aware objective. `resource_optimizer.py` (OS-5.2) is per-session model-cost only.
-- **Gap:** Scaling is "add replicas when one metric is hot," not "maximize collective throughput per dollar/joule across heterogeneous nodes." Doesn't consider per-node cost/speed (GB10 GPU vs CPU), tier price (ECO-4.40), or batch/MoE efficiency.
+- **Gap:** Scaling is "add replicas when one metric is hot," not "maximize collective throughput per dollar/joule across heterogeneous nodes." Doesn't consider per-node cost/speed (accelerator vs CPU), tier price (ECO-4.40), or batch/MoE efficiency.
 - **Leverage:** medium. Closeable: **yes** (heterogeneous hardware needed only to tune coefficients).
 - **Proposed direction:** Extend the autoscaler objective from single-signal target-tracking to a cost/throughput utility: combine `scaling_signals` load + ECO-4.40 per-tier pricing + node-class capability metadata to choose **both** replica count and placement tier (cheap-CPU vs GPU) maximizing throughput-per-USD under SLA; fold the deployment-planner's compute-weighted placement into the live OS-5.29 loop as the affinity step.
-- **Concept / SDD:** `OS-5.35` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/os-5-35-autoscaler-is-reactive-single-metric-not-through`
+- **Concept / SDD:** `OS-5.35` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/os-5-35-autoscaler-is-reactive-single-metric-not-through`
 - **Refs:** OS-5.29, ORCH-1.45, ECO-4.40, OS-5.24
 
 #### KG-2.64 (§5.2 paradigm) — No learned world model / environment-dynamics state to plan against
@@ -141,7 +141,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** No manipulable predictive model of *how actions change state* that an agent can roll forward; the graph is a static/descriptive store. The agent can retrieve the past, not imagine futures.
 - **Leverage:** medium. Closeable: **yes** (symbolic forward-sim backend; parametric backend slot left open).
 - **Proposed direction:** A first-class `WorldModel` abstraction (`state × action → next_state + predicted_reward`) wrapping the existing graph, with a symbolic forward-simulation backend over the OWL/LPG layer (predict node/edge deltas from AU-KG.domains.legal-automation inference + historical `OutcomeEvaluationNode` transitions, reusing the existing Markov/SCM kernels) and a parametric backend slot; persist rollouts as KG nodes (graph-native).
-- **Concept / SDD:** `KG-2.64` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/kg-2-64-no-learned-world-model-environment-dynamics-stat`
+- **Concept / SDD:** `KG-2.64` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/kg-2-64-no-learned-world-model-environment-dynamics-stat`
 - **Refs:** KG-2.1, KG-2.6, AU-KG.domains.legal-automation, AHE-3.3, AHE-3.2
 
 #### KG-2.65 (§5.2 paradigm) — No first-class Reasoner/Paradigm abstraction
@@ -150,7 +150,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** Model-agnostic but **not paradigm-agnostic** — no seam at which an alternative inference engine slots in behind the orchestrator. Highest-leverage *structural* gap for §5.2.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** Define a `Reasoner` protocol (`context+goal → action/answer+trace`), refactor the three existing engines (Predict-RLM, GEPA, OWL inference) to register as concrete `Reasoner`s, route via a registry mirroring `ModelRegistry.pick_for_task()` (select by capability tag / task topology). Converts paradigm-absorption from a rewrite into a registration.
-- **Concept / SDD:** `KG-2.65` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/kg-2-65-no-first-class-reasoner-paradigm-abstraction-rea`
+- **Concept / SDD:** `KG-2.65` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/kg-2-65-no-first-class-reasoner-paradigm-abstraction-rea`
 - **Refs:** ORCH-1.27, ORCH-1.12, AU-ORCH.optimization.optimize-skill-prompt-gepa, AU-KG.domains.legal-automation, ECO-4.0
 
 #### KG-2.66 (§5.2 / §4 paradigm) — No program-synthesis / neuro-symbolic search paradigm
@@ -159,7 +159,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** AU cannot search a structured program/hypothesis space biased toward low-complexity solutions — the Solomonoff-prior-flavoured inductive search the paper grounds intelligence in. Variation operators only mutate text or floats.
 - **Leverage:** medium. Closeable: **yes** (pure-Python; depends on KG-2.65 seam existing first).
 - **Proposed direction:** A `ProgramSynthesis` `Reasoner` searching a small typed DSL — initially over the RLM pure-function tool-composition space — with a length/MDL prior as an explicit `selection_operators.py` objective (a finite stand-in for the universal prior); validate candidates in the ORCH-1.38 sandbox.
-- **Concept / SDD:** `KG-2.66` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/kg-2-66-no-program-synthesis-neuro-symbolic-search-parad`
+- **Concept / SDD:** `KG-2.66` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/kg-2-66-no-program-synthesis-neuro-symbolic-search-parad`
 - **Refs:** AHE-3.3, AHE-3.2, ORCH-1.12, ORCH-1.38, AU-ORCH.optimization.optimize-skill-prompt-gepa
 
 #### ORCH-1.46 (§5.4 multiagent) — No market / virtual-agent-economy task allocation (price-signal coordination)
@@ -168,7 +168,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** No mechanism where agents hold/spend a budget, bid for tasks, and a market clears via price — the collective can't self-organize allocation or surface scarcity/value signals; coordination is top-down or round-robin.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** An "agent market" allocation backend behind the dispatch seam: sealed-bid / second-price (or continuous double) auction over the ORCH-1.45 `AgentTurnEnvelope` where workers bid a cost (token budget + calibration confidence) for capability-matched tasks; clearing prices recorded as KG nodes and fed back as scarcity signals into OS-5.29. Queue-pull stays default; market mode is a flag; AU-KG.domains.agent-calibration-reputation-tracking calibration is the bid-quality prior, ActionPolicy the spend gate.
-- **Concept / SDD:** `ORCH-1.46` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/orch-1-46-no-market-virtual-agent-economy-task-allocation-`
+- **Concept / SDD:** `ORCH-1.46` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/orch-1-46-no-market-virtual-agent-economy-task-allocation-`
 - **Refs:** ORCH-1.45, OS-5.5, AU-KG.domains.agent-calibration-reputation-tracking, OS-5.29, AU-AHE.reward.this-is-read-back
 
 #### ORCH-1.47 (§5.4 / §5.3 multiagent) — Specialists are hand-declared; no emergent specialization / division-of-labor discovery
@@ -177,7 +177,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** Nothing analyzes task-stream structure to discover under-served niches and instantiate new specialist roles/prompts; the collective can't autonomously increase division-of-labor.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** A specialization-discovery job: cluster failing/expensive task embeddings from `CoordinationTrace`+`Episode`, detect niches where no archetype has high competence, auto-propose a new specialist `TeamComposition` role (prompt + tool scope) through the AHE-3.4 `MutationProposal` → regression-gated golden-loop path; use MASS heterogeneity (ORCH-1.32) as the objective (promote proposals that raise archetype entropy AND outcome quality).
-- **Concept / SDD:** `ORCH-1.47` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/orch-1-47-specialists-are-hand-declared-no-emergent-specia`
+- **Concept / SDD:** `ORCH-1.47` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/orch-1-47-specialists-are-hand-declared-no-emergent-specia`
 - **Refs:** AHE-3.4, AU-ORCH.execution.autonomous-department-orchestration, ORCH-1.32, AU-ORCH.optimization.optimize-skill-prompt-gepa
 
 #### AU-ORCH.planning.repo-map-skeleton (§5.4 multiagent) — Coordination protocols don't scale past small N
@@ -186,7 +186,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** No federated/hierarchical protocol (cluster-local consensus → representative roll-up) bounding interaction density as population grows; at thousands of agents the global-aggregation step is an O(N) bottleneck and a single convergence-failure point.
 - **Leverage:** medium. Closeable: **yes** (composition of existing primitives).
 - **Proposed direction:** A hierarchical/federated `CoordinationProtocol` running ORCH-1.3 protocols **within** MASS graph neighborhoods (ORCH-1.32 `observable_messages` / degree centrality), aggregating only cluster representatives upward via the existing named log-pool operators; recurse the tree for thousands.
-- **Concept / SDD:** `AU-ORCH.planning.repo-map-skeleton` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/orch-1-48-coordination-protocols-don-t-scale-past-small-n-`
+- **Concept / SDD:** `AU-ORCH.planning.repo-map-skeleton` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/orch-1-48-coordination-protocols-don-t-scale-past-small-n-`
 - **Refs:** ORCH-1.3, ORCH-1.32, ORCH-1.8
 
 #### AU-ORCH.execution.robust-multi-format-edit / AU-OS.scaling.multi-agent-scaling-law (§5.4 / §6 / §7.5 multiagent) — No Multi-Agent Scaling-Law measurement
@@ -196,8 +196,8 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Leverage:** medium. Closeable: **yes** at small scale (truly-large-N needs external compute).
 - **Proposed direction:** A scaling-law eval harness sweeping (N, density, archetype-mix) configs through `ParallelEngine` over a fixed task suite, recording collective-quality vs N + token/compute (ECO-4.40/AU-OS.observability.no-op-without-metrics), fitting `capability ~ instances^α` with confidence bands stored as KG nodes (mirror AU-KG.domains.agent-calibration-reputation-tracking calibration nodes); reuse `social_system.py` for topology variants and `population_drift.py` for collapse gating; feed the empirical knee to AHE-3.4 team evolution.
 - **Concept / SDD (two specs, near-duplicate):**
-  - `AU-ORCH.execution.robust-multi-format-edit` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/orch-1-49-no-multi-agent-scaling-law-measurement-collectiv`
-  - `AU-OS.scaling.multi-agent-scaling-law` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/safe-1-2-multi-agent-scaling-laws-are-not-measured`
+  - `AU-ORCH.execution.robust-multi-format-edit` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/orch-1-49-no-multi-agent-scaling-law-measurement-collectiv`
+  - `AU-OS.scaling.multi-agent-scaling-law` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/safe-1-2-multi-agent-scaling-laws-are-not-measured`
   - *(Implement as one harness satisfying both.)*
 - **Refs:** ORCH-1.32, ORCH-1.8, AHE-3.4, AHE-3.1, AU-OS.observability.no-op-without-metrics, ECO-4.40, AU-ORCH.execution.autonomous-department-orchestration
 
@@ -207,7 +207,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** No methodology that keeps producing signal past the human/known-answer ceiling, no automated benchmark generation, no saturation detector — AU can't distinguish "genuine capability jump" from "metric saturation," the central measurement risk.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** A non-saturating eval family in `harness/`: (1) a setter-solver loop (reuse `adversarial_verifier` "Hacker Agent" as setter); (2) a self-play/zero-sum Elo scorer over agent-vs-agent task duels + a compression-based `EvalScorer`; (3) a saturation detector flagging evals whose pass-rate has collapsed to ceiling across recent agent versions. Wire as new reliability scorers + a `benchmark.py` "frontier" mode feeding the AU-AHE.harness.failure-evolution regression gate.
-- **Concept / SDD:** `SAFE-1.1` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/safe-1-1-no-non-saturating-superhuman-progress-tracker-be`
+- **Concept / SDD:** `SAFE-1.1` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/safe-1-1-no-non-saturating-superhuman-progress-tracker-be`
 - **Refs:** AHE-3.12, AHE-3.1, AHE-3.2, ORCH-1.32
 
 #### AU-OS.safety.model-collapse-guard-self (§5.5 / §7.4 frictions) — Self-evolution loop has no model-collapse / synthetic-data degeneration guard
@@ -216,7 +216,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** AU detects collapse in the **agent population** but not in the **self-generated corpus** the loop distills from; no provenance-aware diversity/degeneration gate before data re-enters the loop.
 - **Leverage:** medium. Closeable: **yes.**
 - **Proposed direction:** Apply the `population_drift.py` Wasserstein-1 collapse detector to the self-generated corpora (preference pairs, failure_gap concepts, eval_corpus additions): track embedding-space diversity + human-vs-synthetic provenance ratio per cycle; gate `GovernedAutoMerger` / corpus ingestion when diversity drops below a floor or synthetic-fraction exceeds a cap. Tightly coupled to AU-OS.scaling.kg-provenance-panel-data/AHE-3.25 (guards the corpus they mint).
-- **Concept / SDD:** `AU-OS.safety.model-collapse-guard-self` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/safe-1-4-self-evolution-loop-has-no-model-collapse-synthe`
+- **Concept / SDD:** `AU-OS.safety.model-collapse-guard-self` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/safe-1-4-self-evolution-loop-has-no-model-collapse-synthe`
 - **Refs:** AHE-3.2, AU-AHE.harness.failure-evolution, AU-AHE.harness.preference-corpus-reliability, KG-2.36
 
 #### SAFE-1.5 (§6 frictions — autonomy/objectives) — Autonomy safety lacks corrigibility / knowledge-seeking objective primitives
@@ -225,7 +225,7 @@ The rest of the gaps are medium/low leverage **instrumentation and seam** gaps (
 - **Gap:** AU gates **what** autonomous actions are permitted (external policy) but the agents' **objective** has no built-in corrigibility (indifference to interruption) or knowledge-seeking/irreversibility-aversion. As autonomy rises, policy-gating alone is brittle.
 - **Leverage:** medium. Closeable: **yes** (engineering primitive in-repo; deep theory external).
 - **Proposed direction:** Objective-level primitives alongside the policy plane: (1) a corrigibility/interruptibility wrapper making goal-loops (AU-ORCH.session.durable-session-autonomous-goal durable goal persistence) checkpoint-and-yield on a shutdown signal without resisting, generalizing the wasm epoch-interrupt; (2) an optional knowledge-seeking/info-gain objective (reward = expected uncertainty reduction over the KG belief) selectable for autonomous exploration loops, with irreversible-action aversion enforced via ActionPolicy blast-radius.
-- **Concept / SDD:** `SAFE-1.5` → `/home/apps/workspace/agent-packages/agent-utilities/.specify/specs/safe-1-5-autonomy-safety-lacks-corrigibility-knowledge-se`
+- **Concept / SDD:** `SAFE-1.5` → `${WORKSPACE_ROOT}/agent-packages/agent-utilities/.specify/specs/safe-1-5-autonomy-safety-lacks-corrigibility-knowledge-se`
 - **Refs:** OS-5.24, AU-OS.governance.reactive-multi-axis-budget, AU-OS.safety.ontological-guardrail, AU-OS.safety.tool-agnostic-file-safety, AU-ORCH.session.durable-session-autonomous-goal
 
 ### LOW leverage (closeable in-repo; no SDD spec reserved)

@@ -26,7 +26,7 @@ This is the same shape-coupling the fan-out backend already relies on
 (``_EDGE_MERGE_RE`` in ``fanout_backend.py``): we parse only the structural bits
 (label / rel-type) and take the data from ``params``/``batch`` — never from the
 Cypher text. Unrecognised queries (ad-hoc reads) return ``[]`` — reads are served by
-the authority store in a tiered/fan-out deployment, with SPARQL the native query
+the authority store in a fan-out deployment, with SPARQL the native query
 language here.
 
 Instance data is partitioned into ``urn:source:<system>`` named graphs by
@@ -50,7 +50,7 @@ from urllib.parse import quote
 from agent_utilities.core.config import setting
 
 from .base import SparqlAdapter
-from .source_partition import graph_uri_for
+from .source_partition import graph_uri_for, route_graph_uri
 
 logger = logging.getLogger(__name__)
 
@@ -220,10 +220,26 @@ class StardogSparqlBackend(SparqlAdapter):
     # GraphBackend ABC — write via Cypher translation, read via SPARQL
     # ------------------------------------------------------------------
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Route a query: native SPARQL passes through; the engine's Cypher MERGE
-        shapes translate to SPARQL; everything else is a no-op read (``[]``)."""
+        shapes translate to SPARQL; everything else is a no-op read (``[]``).
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1): this triplestore
+        tier has no id-seeded epistemic-envelope primitive, so a ``True`` request
+        degrades to ``[]`` per the ABC contract rather than raising or silently
+        returning plain rows.
+        """
+        if include_epistemic:
+            logger.debug(
+                "StardogSparqlBackend.execute(include_epistemic=True): no "
+                "epistemic envelope primitive; returning []"
+            )
+            return []
         params = params or {}
         stripped = query.strip()
         upper = stripped.upper()
@@ -266,6 +282,20 @@ class StardogSparqlBackend(SparqlAdapter):
         )
         return []
 
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute only through Stardog's SPARQL query operation."""
+        if include_epistemic:
+            return []
+        if params:
+            raise ValueError("Stardog read parameters must be bound in SPARQL")
+        return self.execute_sparql_query(query)
+
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -295,7 +325,7 @@ class StardogSparqlBackend(SparqlAdapter):
     def add_node(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         """Add/update a node and ALL its properties as RDF triples."""
         props = dict(properties or {})
-        label = str(props.get("type") or "Node")
+        label = str(props.get("node_type") or "Node")
         self._upsert_node_triples(label, {"id": node_id, **props})
 
     def add_edge(
@@ -303,7 +333,7 @@ class StardogSparqlBackend(SparqlAdapter):
     ) -> None:
         """Add an edge as a direct RDF triple ``source <rel> target``."""
         props = dict(properties or {})
-        rel = str(props.get("type") or "relatedTo")
+        rel = str(props.get("relationship") or "relatedTo")
         self._upsert_edge_triple(rel, source_id, target_id, props=props)
 
     # ------------------------------------------------------------------
@@ -379,7 +409,9 @@ class StardogSparqlBackend(SparqlAdapter):
         if node_id is None:
             return
         s = self._iri(node_id)
-        g = graph_uri_for(params)
+        # Guarded routing: records a default-graph landing by label (leak observability) and,
+        # under strict mode, refuses an un-sourced external entity (CONCEPT:AU-KG.ingest.default-graph-leak-guard).
+        g = route_graph_uri(params, label)
         go, gc = self._graph_open(g), self._graph_close(g)
         ops: list[str] = [f"INSERT DATA {{ {go}{s} a {self._iri(label)} .{gc} }}"]
         for key, val in params.items():

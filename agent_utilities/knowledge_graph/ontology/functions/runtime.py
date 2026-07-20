@@ -68,7 +68,7 @@ class FunctionResult(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if not self.id:
-            self.id = f"fninvoke:{self.function_name}:{uuid.uuid4().hex[:12]}"
+            self.id = f"fninvoke:{self.function_name}:{uuid.uuid4().hex}"
 
 
 def coerce_output(value: Any, expected: type) -> Any:

@@ -66,22 +66,22 @@ Measures citation quality in agent responses. Extracts KG node references (`[KG:
 
 ---
 
-## Evolved Self-Evolution Capabilities (Phase 10 — DSPy-Driven Self-Evolution)
+## Evolved Self-Evolution Capabilities (Phase 10 — Native Program Evolution)
 
 ### Physical Knowledge Distillation Engine (AHE-3.9) 🔬
 The **Physical Knowledge Distillation Engine** represents a monumental architectural breakthrough in self-evolution. Rather than restricting optimized prompts and tool schemas to dynamic, volatile in-memory Knowledge Graph nodes, the distiller maps semantic components from the graph back into structural, human-readable file system changes. This allows the system to bridge the divide between runtime optimization and permanent code enhancement.
 - **Source Code**: `agent_utilities/knowledge_graph/distillation/physical_distiller.py`
 - **Hot Path**: `PhysicalDistillationEngine.distill_skill(...)` / `distill_mcp_tool(...)` / `distill_system_prompt(...)`
 
-### Multi-Optimizer Prompt Selection Strategy (AHE-3.10) 🔬
-The **Multi-Optimizer Prompt Selection Strategy** ensures that the optimization behavior scales appropriately based on the failure footprint. When optimizing prompt signatures via DSPy, the system dynamically inspects failure cluster scales. For highly localized failures, lightweight bootstrap optimizers (like `BootstrapFewShot`) are used. For widespread systemic regressions, the system employs high-parameter multi-generation optimization (like `MIPROv2`) to perform multi-stage hyperparameter tuning.
+### Governed Program Optimization (AHE-3.10) 🔬
+The engine-owned program optimizer consumes bounded trace evidence, authority-rebinds policy, and returns typed candidate or executable-plan rows. Python does not select or emulate a second optimizer.
 - **Source Code**: `agent_utilities/harness/evolve_agent.py`
-- **Hot Path**: `EvolveAgent._dspy_optimize_cluster(failure_cluster=...)`
+- **Hot Path**: `EvolveAgent._optimize_cluster(failure_cluster=...)`
 
-> **What can be evolved, and how DSPy fits the whole substrate** — for the full map of
+> **What can be evolved** — for the full map of
 > the evolvable surface (prompts, sampling profiles, MCP tool descriptions, agent skills,
-> KG extraction, routing policies), the optimizer/substrate/metric model, and where a DSPy
-> pass hooks into the live loop, see **[The Evolvable Surface](../architecture/evolvable_surface.md)**.
+> KG extraction, routing policies), the native job and metric model, see
+> **[The Evolvable Surface](../architecture/evolvable_surface.md)**.
 > For per-call inference-parameter evolution (temperature/top_p/…), see
 > **[Task-Aware Sampling Profiles](../architecture/sampling_profiles.md)** (AHE-3.38).
 
@@ -131,8 +131,8 @@ A comparative analysis of the 2026 reasoning-RL landscape (GRPO, DPO, RLVR, DAPO
 GSPO, DHPO, EP-GRPO, TR-GRPO, DPPO, ARPO, VPO, InSPO, TI-DPO, RAPPO) found that most of the
 toolkit is *already covered* by the AHE-3.1 reward spine and the capability reward-EMA router.
 The high-leverage gaps are the **agentic adaptations** below, not re-implementing GRPO. See
-[`COMPARATIVE_ANALYSIS.md`](../../.specify/specs/reasoning-rl-2026/COMPARATIVE_ANALYSIS.md) and
-[`ACTIONABLE_PLAN.md`](../../.specify/specs/reasoning-rl-2026/ACTIONABLE_PLAN.md).
+[`COMPARATIVE_ANALYSIS.md`](https://github.com/Knuckles-Team/agent-utilities/blob/main/.specify/specs/reasoning-rl-2026/COMPARATIVE_ANALYSIS.md) and
+[`ACTIONABLE_PLAN.md`](https://github.com/Knuckles-Team/agent-utilities/blob/main/.specify/specs/reasoning-rl-2026/ACTIONABLE_PLAN.md).
 
 ### AU-AHE.reward.this-is-read-back — Agent-Step Policy Optimization (ARPO, arXiv:2507.19849)
 For multi-turn tool agents the decisive uncertainty is at *intermediate* tool/decision steps,
@@ -174,7 +174,7 @@ The self-evolution loop learns from **failures observed in production telemetry*
 from research. Errors, low scores, and cost/latency anomalies are pulled from **Langfuse**,
 clustered into recurring **failure signatures**, and materialized into the durable KG as
 `PerformanceAnomaly` / `ExecutionSummary` nodes plus synthetic **`failure_gap` `Concept`**
-topics (with `evidence_trace_ids` back to Langfuse). The golden loop addresses those gaps
+topics (with non-reversible `evidence_trace_refs`). The golden loop addresses those gaps
 **directly** (an explicit `run_one_cycle(topics=…)` override, so a brand-new gap is never
 lost in a limited generic scan) and synthesizes a `TeamSpec`/`AgentSpec` remediation. Merge
 of a failure remediation is gated by a **regression check** bound to the originating
@@ -182,11 +182,12 @@ failures (held while a signature is spiking; AU-AHE.assimilation.research-auto-m
 - **Source**: `knowledge_graph/adaptation/failure_analyzer.py` (`FailureAnalyzer`,
   `cluster_failures`, `make_regression_check`, `run_failure_ingest`),
   `harness/trace_backend.py` (Langfuse failure-read surface).
-- **Run it**: `graph_orchestrate(action="failure_ingest")` (on demand) or the daemon
+- **Run it**: `graph_evolution(action="failure_ingest")` (on demand) or the daemon
   `failure_ingest` tick (opt-in `KG_FAILURE_EVOLUTION`). Replaced the dead
   `telemetry_ingestion` sweep.
-- **Langfuse vars** are the official SDK names — `LANGFUSE_HOST` / `LANGFUSE_PUBLIC_KEY` /
-  `LANGFUSE_SECRET_KEY` (no deprecated `LANGFUSE_BASE_URL` fallback).
+- **Langfuse configuration** uses `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY_REF`, and
+  `LANGFUSE_SECRET_KEY_REF`. Graph-OS resolves the references in memory and
+  supplies the official SDK key variables only to the isolated child process.
 - Full detail: [`docs/architecture/failure_driven_evolution.md`](../architecture/failure_driven_evolution.md).
 
 ### AU-AHE.optimization.performance-anomaly-consumer — Performance Anomaly Consumer
@@ -216,7 +217,7 @@ promoted proposal into concrete edits, validates them in the RLM sandbox, and a
 governed **`ChangePublisher`** seam (`research/change_publisher.py`) publishes
 them as a regression-gated **local** git branch — never pushed. Publication
 itself is an ActionPolicy-gated action (`publish_proposal` on
-`graph_orchestrate`, REST twin `/api/graph/orchestrate/publish-proposal`),
+`graph_evolution`, REST twin `/api/graph/evolution`),
 which under the shipped default policy requires human approval (OS-5.24).
 Walkthrough: [evolution publication example](../examples/evolution-publication.md).
 
@@ -227,8 +228,8 @@ with a graduated fuzzy-match ladder (exact → leading-whitespace-flexible → d
 `SequenceMatcher` closest-window), so edits land even when whitespace drifts; failures
 return did-you-mean hints, and `apply_with_reflection` re-prompts the model on
 malformed/failed edits (with an optional lint/test verify gate as the checker half).
-Surfaced as the `apply_edits` tool (`tools/developer_tools.py`); `replace_in_file` is
-kept for the trivial exact path. Full design:
+Consumed inside the governed DevWorkspace edit path; direct host-file mutation
+is not exposed as a developer tool. Full design:
 [Edit-Application Engine](../architecture/edit_application_engine.md).
 
 ### AHE-3.25 — Plain-English Regression Assertions

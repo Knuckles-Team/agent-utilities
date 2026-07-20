@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/component-signature-bundle-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "scheme", "subjectDigest", "artifactDigest", "signature", "verificationMaterialDigest", "signerIdentityDigest"],
+  "properties": {
+    "schema": {"const": "graphos-external-signature/2"},
+    "scheme": {"type": "string", "pattern": "^[a-z0-9][a-z0-9+._-]{1,63}$"},
+    "subjectDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "artifactDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "signature": {"type": "string", "pattern": "^[A-Za-z0-9+/_=-]{16,16384}$"},
+    "verificationMaterialDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "signerIdentityDigest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"}
+  }
+}

@@ -8,7 +8,7 @@ Covers:
   * tool_guard.py: is_sensitive_tool, is_safe_tool, build_sensitive_tool_names,
     flag_mcp_tool_definitions, apply_tool_guard_approvals
   * middlewares.py: UserTokenMiddleware, JWTClaimsLoggingMiddleware
-  * tools/memory_tools.py: read_agents_md, update_agents_md, init_agents_md
+  * tools/memory_tools.py: read_agents_md
   * tools/team_tools.py: spawn_team, assign_team_task, message_teammate,
     list_team_tasks
   * tools/style_tools.py: set_output_style, list_output_styles
@@ -19,11 +19,10 @@ Covers:
 
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 # ---------------------------------------------------------------------------
 # tool_guard
@@ -118,14 +117,20 @@ def test_build_sensitive_tool_names_handles_exception(
     assert result == set()
 
 
-def test_flag_mcp_tool_definitions_guard_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    """TOOL_GUARD_MODE=off returns toolsets unchanged."""
+def test_flag_mcp_tool_definitions_cannot_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Even a stale off value cannot bypass mandatory MCP identity policy."""
     import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "off")
-    toolsets = [MagicMock()]
-    result = tg.flag_mcp_tool_definitions(toolsets)
-    assert result is toolsets
+    toolsets = [MagicMock(spec=["list_tools"])]
+    with pytest.raises(PermissionError, match="identity policy is required"):
+        tg.flag_mcp_tool_definitions(
+            toolsets,
+            permissions_kernel=None,
+            agent_identity=None,
+        )
 
 
 def test_flag_mcp_tool_definitions_wraps_mcp(
@@ -138,38 +143,142 @@ def test_flag_mcp_tool_definitions_wraps_mcp(
     mcp_ts = MagicMock(spec=["list_tools"])
     mcp_ts.list_tools = MagicMock()
     other_ts = MagicMock(spec=[])
+    kernel = MagicMock()
+    kernel.authorize_tool.return_value = "allow"
 
-    result = tg.flag_mcp_tool_definitions([mcp_ts, other_ts])
+    result = tg.flag_mcp_tool_definitions(
+        [mcp_ts, other_ts],
+        permissions_kernel=kernel,
+        agent_identity=object(),
+    )
     # mcp_ts should be wrapped, other_ts passes through
     assert len(result) == 2
     assert result[1] is other_ts
 
 
-def test_flag_mcp_tool_definitions_with_sensitive_names(
+def test_mcp_authorization_receives_declared_required_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Sensitive names are used in the wrapper."""
     import agent_utilities.security.tool_guard as tg
 
     monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
     mcp_ts = MagicMock(spec=["list_tools"])
-    result = tg.flag_mcp_tool_definitions([mcp_ts], sensitive_names={"dangerous_tool"})
-    assert len(result) == 1
+    kernel = MagicMock()
+    kernel.authorize_tool.return_value = "allow"
+    identity = object()
+    wrapped = tg.flag_mcp_tool_definitions(
+        [mcp_ts], permissions_kernel=kernel, agent_identity=identity
+    )[0]
+
+    assert (
+        wrapped.approval_required_func(
+            MagicMock(),
+            SimpleNamespace(
+                name="knowledge_query",
+                metadata={"required_capability": "kg.read"},
+            ),
+            {},
+        )
+        is False
+    )
+    kernel.authorize_tool.assert_called_once_with(
+        identity,
+        "knowledge_query",
+        required_capability="kg.read",
+    )
 
 
-def test_apply_tool_guard_approvals_guard_off(
+def test_flag_mcp_tool_definitions_requires_identity_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """TOOL_GUARD_MODE=off returns immediately."""
+    """An MCP toolset cannot bind without the current identity contract."""
     import agent_utilities.security.tool_guard as tg
 
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
+    mcp_ts = MagicMock(spec=["list_tools"])
+    with pytest.raises(PermissionError, match="identity policy is required"):
+        tg.flag_mcp_tool_definitions(
+            [mcp_ts], permissions_kernel=None, agent_identity=None
+        )
+
+
+def test_flag_mcp_tool_definitions_hard_deny_is_not_approvable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An RBAC DENY must never be downgraded to a human approval request."""
+    import agent_utilities.security.tool_guard as tg
+
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
+    mcp_ts = MagicMock(spec=["list_tools"])
+    kernel = MagicMock()
+    kernel.authorize_tool.return_value = "deny"
+    wrapped = tg.flag_mcp_tool_definitions(
+        [mcp_ts], permissions_kernel=kernel, agent_identity=object()
+    )[0]
+
+    with pytest.raises(PermissionError, match="identity policy"):
+        wrapped.approval_required_func(
+            MagicMock(), SimpleNamespace(name="read_file"), {}
+        )
+
+
+def test_flag_mcp_tool_definitions_authorization_error_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_utilities.security.tool_guard as tg
+
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
+    mcp_ts = MagicMock(spec=["list_tools"])
+    kernel = MagicMock()
+    kernel.authorize_tool.side_effect = RuntimeError("policy backend detail")
+    wrapped = tg.flag_mcp_tool_definitions(
+        [mcp_ts], permissions_kernel=kernel, agent_identity=object()
+    )[0]
+
+    with pytest.raises(PermissionError, match="authorization unavailable") as exc:
+        wrapped.approval_required_func(
+            MagicMock(), SimpleNamespace(name="read_file"), {}
+        )
+    assert "policy backend detail" not in str(exc.value)
+
+
+def test_flag_mcp_tool_definitions_unknown_decision_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import agent_utilities.security.tool_guard as tg
+
+    monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "on")
+    mcp_ts = MagicMock(spec=["list_tools"])
+    kernel = MagicMock()
+    kernel.authorize_tool.return_value = "not-a-policy-decision"
+    wrapped = tg.flag_mcp_tool_definitions(
+        [mcp_ts], permissions_kernel=kernel, agent_identity=object()
+    )[0]
+
+    with pytest.raises(PermissionError, match="no valid decision"):
+        wrapped.approval_required_func(
+            MagicMock(), SimpleNamespace(name="read_file"), {}
+        )
+
+
+def test_apply_tool_guard_approvals_cannot_be_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale off value does not skip native function-tool inspection."""
+    import agent_utilities.security.tool_guard as tg
+
+    class TrackingAgent:
+        accessed = False
+
+        @property
+        def toolsets(self):
+            self.accessed = True
+            return []
+
     monkeypatch.setattr("agent_utilities.core.config.TOOL_GUARD_MODE", "off")
-    agent = MagicMock()
+    agent = TrackingAgent()
     tg.apply_tool_guard_approvals(agent)
-    # Agent toolsets not accessed
-    agent.toolsets.__iter__.assert_not_called() if hasattr(
-        agent.toolsets, "__iter__"
-    ) else None
+    assert agent.accessed is True
 
 
 # ---------------------------------------------------------------------------
@@ -192,31 +301,47 @@ async def test_user_token_middleware_delegation_disabled() -> None:
 
 @pytest.mark.asyncio
 async def test_user_token_middleware_delegation_enabled() -> None:
-    """Delegation enabled with valid Bearer token stores it."""
-    from agent_utilities.mcp.middlewares import UserTokenMiddleware, local
-
-    mw = UserTokenMiddleware(config={"enable_delegation": True})
-    ctx = MagicMock()
-    ctx.message.headers = {"Authorization": "Bearer abc123"}
-    ctx.auth.claims = {"sub": "user1"}
-
-    call_next = AsyncMock(return_value="ok")
-    result = await mw.on_request(ctx, call_next)
-    assert result == "ok"
-    assert local.user_token == "abc123"
-
-
-@pytest.mark.asyncio
-async def test_user_token_middleware_missing_header() -> None:
-    """Delegation enabled with no header raises ValueError."""
+    """Delegation uses only FastMCP's validated access token."""
     from agent_utilities.mcp.middlewares import UserTokenMiddleware
 
     mw = UserTokenMiddleware(config={"enable_delegation": True})
     ctx = MagicMock()
-    ctx.message.headers = {}
     call_next = AsyncMock(return_value="ok")
-    with pytest.raises(ValueError, match="Missing or invalid Authorization"):
-        await mw.on_request(ctx, call_next)
+    access_token = SimpleNamespace(token="abc123", claims={"sub": "user1"})
+    identity_tokens = (MagicMock(), MagicMock())
+    with (
+        patch(
+            "fastmcp.server.dependencies.get_access_token",
+            return_value=access_token,
+        ),
+        patch(
+            "agent_utilities.mcp.delegated_auth._set_delegated_identity",
+            return_value=identity_tokens,
+        ) as set_identity,
+        patch(
+            "agent_utilities.mcp.delegated_auth._reset_delegated_identity"
+        ) as reset_identity,
+    ):
+        result = await mw.on_call_tool(ctx, call_next)
+    assert result == "ok"
+    set_identity.assert_called_once_with("abc123", {"sub": "user1"})
+    reset_identity.assert_called_once_with(identity_tokens)
+
+
+@pytest.mark.asyncio
+async def test_user_token_middleware_missing_header() -> None:
+    """Delegation fails closed without a validated access token."""
+    from agent_utilities.mcp.middlewares import UserTokenMiddleware
+
+    mw = UserTokenMiddleware(config={"enable_delegation": True})
+    ctx = MagicMock()
+    call_next = AsyncMock(return_value="ok")
+    with (
+        patch("fastmcp.server.dependencies.get_access_token", return_value=None),
+        pytest.raises(PermissionError, match="Validated user token required"),
+    ):
+        await mw.on_call_tool(ctx, call_next)
+    call_next.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -246,7 +371,7 @@ async def test_read_agents_md_empty(tmp_path: Path) -> None:
     ctx = MagicMock()
     ctx.deps.workspace_path = str(tmp_path)
     result = await read_agents_md(ctx)
-    assert "No AGENTS.md found" in result
+    assert "No project memory is configured" in result
 
 
 @pytest.mark.asyncio
@@ -259,7 +384,6 @@ async def test_read_agents_md_with_file(tmp_path: Path) -> None:
     ctx.deps.workspace_path = str(tmp_path)
     result = await read_agents_md(ctx)
     assert "# Rules" in result
-    assert "AGENTS.md" in result
 
 
 @pytest.mark.asyncio
@@ -274,64 +398,6 @@ async def test_read_agents_md_multiple_files(tmp_path: Path) -> None:
     result = await read_agents_md(ctx)
     assert "main content" in result
     assert "local content" in result
-
-
-@pytest.mark.asyncio
-async def test_update_agents_md(tmp_path: Path) -> None:
-    """Update writes to disk."""
-    from agent_utilities.tools.memory_tools import update_agents_md
-
-    ctx = MagicMock()
-    ctx.deps.workspace_path = str(tmp_path)
-    result = await update_agents_md(ctx, "new content")
-    assert "Successfully updated" in result
-    assert (tmp_path / "AGENTS.md").read_text() == "new content"
-
-
-@pytest.mark.asyncio
-async def test_update_agents_md_local(tmp_path: Path) -> None:
-    """Update AGENTS.local.md also works."""
-    from agent_utilities.tools.memory_tools import update_agents_md
-
-    ctx = MagicMock()
-    ctx.deps.workspace_path = str(tmp_path)
-    result = await update_agents_md(ctx, "local", filename="AGENTS.local.md")
-    assert "Successfully updated" in result
-
-
-@pytest.mark.asyncio
-async def test_update_agents_md_invalid_filename(tmp_path: Path) -> None:
-    """Invalid filename rejected."""
-    from agent_utilities.tools.memory_tools import update_agents_md
-
-    ctx = MagicMock()
-    ctx.deps.workspace_path = str(tmp_path)
-    result = await update_agents_md(ctx, "x", filename="malicious.md")
-    assert "Error" in result
-
-
-@pytest.mark.asyncio
-async def test_init_agents_md_creates(tmp_path: Path) -> None:
-    """init creates a new AGENTS.md."""
-    from agent_utilities.tools.memory_tools import init_agents_md
-
-    ctx = MagicMock()
-    ctx.deps.workspace_path = str(tmp_path)
-    result = await init_agents_md(ctx)
-    assert "Initialized" in result
-    assert (tmp_path / "AGENTS.md").exists()
-
-
-@pytest.mark.asyncio
-async def test_init_agents_md_existing(tmp_path: Path) -> None:
-    """init skips if file exists."""
-    from agent_utilities.tools.memory_tools import init_agents_md
-
-    (tmp_path / "AGENTS.md").write_text("existing")
-    ctx = MagicMock()
-    ctx.deps.workspace_path = str(tmp_path)
-    result = await init_agents_md(ctx)
-    assert "already exists" in result
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +465,7 @@ async def test_list_team_tasks_empty() -> None:
     from agent_utilities.tools.team_tools import list_team_tasks
 
     engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
+    engine.graph.nodes.return_value = []
     ctx = MagicMock()
     ctx.deps.graph_engine = engine
     result = await list_team_tasks(ctx)
@@ -412,14 +478,17 @@ async def test_list_team_tasks_with_tasks() -> None:
     from agent_utilities.tools.team_tools import list_team_tasks
 
     engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
-    engine.graph.add_node(
-        "task1",
-        type="task",
-        status="pending",
-        assigned_to="agent_x",
-        content="Do thing",
-    )
+    engine.graph.nodes.return_value = [
+        (
+            "task1",
+            {
+                "type": "task",
+                "status": "pending",
+                "assigned_to": "agent_x",
+                "content": "Do thing",
+            },
+        )
+    ]
     ctx = MagicMock()
     ctx.deps.graph_engine = engine
     result = await list_team_tasks(ctx)
@@ -473,13 +542,12 @@ async def test_set_output_style_from_kb() -> None:
     from agent_utilities.tools.style_tools import set_output_style
 
     engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
-    engine.graph.add_node(
-        "art:1",
-        type="article",
-        name="mystyle",
-        content="Be verbose.",
-    )
+    engine.graph.nodes.return_value = [
+        (
+            "art:1",
+            {"type": "article", "name": "mystyle", "content": "Be verbose."},
+        )
+    ]
     ctx = MagicMock()
     ctx.deps.metadata = {}
     ctx.deps.graph_engine = engine
@@ -508,13 +576,12 @@ async def test_list_output_styles_with_kb() -> None:
     from agent_utilities.tools.style_tools import list_output_styles
 
     engine = MagicMock()
-    engine.graph = GraphComputeEngine(backend_type="rust")
-    engine.graph.add_node(
-        "art:1",
-        type="article",
-        name="sassy",
-        tags=["style"],
-    )
+    engine.graph.nodes.return_value = [
+        (
+            "art:1",
+            {"type": "article", "name": "sassy", "tags": ["style"]},
+        )
+    ]
     ctx = MagicMock()
     ctx.deps.graph_engine = engine
     result = await list_output_styles(ctx)

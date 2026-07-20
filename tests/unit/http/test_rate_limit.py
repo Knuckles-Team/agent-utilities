@@ -7,8 +7,8 @@ and the stateful RateLimitCapture.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from email.utils import format_datetime
-from datetime import datetime, timedelta, timezone
 
 from agent_utilities.http.rate_limit import (
     RateLimitCapture,
@@ -50,7 +50,7 @@ def test_parses_okta_x_rate_limit_family_case_insensitively():
 
 def test_parses_retry_after_seconds_and_http_date():
     assert parse_rate_limit({"Retry-After": "7"}).retry_after_s == 7.0
-    when = datetime.now(timezone.utc) + timedelta(seconds=60)
+    when = datetime.now(UTC) + timedelta(seconds=60)
     snapshot = parse_rate_limit({"Retry-After": format_datetime(when)})
     assert snapshot is not None
     assert 55.0 <= snapshot.retry_after_s <= 61.0

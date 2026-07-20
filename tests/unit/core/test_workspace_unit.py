@@ -99,11 +99,13 @@ def test_md_file_operations(temp_workspace):
         workspace.write_md_file("not_md.txt", "content")
 
 
-def test_skill_lifecycle(temp_workspace):
+def test_skill_lifecycle(temp_workspace, monkeypatch):
+    skill_root = temp_workspace / "xdg-skills"
+    monkeypatch.setattr(workspace, "skills_dir", lambda: skill_root)
     # Create
     msg = workspace.create_new_skill("Test Skill", "A test skill")
-    assert "✅ Created" in msg
-    skill_dir = temp_workspace / "skills" / "test-skill"
+    assert msg == "Created skill 'test-skill'."
+    skill_dir = skill_root / "test-skill"
     assert skill_dir.exists()
     assert (skill_dir / "SKILL.md").exists()
 
@@ -113,25 +115,28 @@ def test_skill_lifecycle(temp_workspace):
 
     # Update
     msg = workspace.write_skill_md("Test Skill", "updated content")
-    assert "✅ Updated" in msg
+    assert msg == "Updated skill 'test-skill'."
     assert workspace.read_skill_md("Test Skill").strip() == "updated content"
 
     # Delete
     msg = workspace.delete_skill_from_disk("Test Skill")
-    assert "✅ Deleted" in msg
+    assert msg == "Deleted skill 'test-skill'."
     assert not skill_dir.exists()
 
 
-def test_delete_missing_skill(temp_workspace):
+def test_delete_missing_skill(temp_workspace, monkeypatch):
+    monkeypatch.setattr(workspace, "skills_dir", lambda: temp_workspace / "skills")
     msg = workspace.delete_skill_from_disk("Missing Skill")
-    assert "❌ Skill" in msg
+    assert msg == "Skill 'missing-skill' was not found."
 
 
-def test_read_missing_skill(temp_workspace):
+def test_read_missing_skill(temp_workspace, monkeypatch):
+    monkeypatch.setattr(workspace, "skills_dir", lambda: temp_workspace / "skills")
     msg = workspace.read_skill_md("Missing Skill")
     assert "❌ SKILL.md not found" in msg
 
 
-def test_write_missing_skill(temp_workspace):
+def test_write_missing_skill(temp_workspace, monkeypatch):
+    monkeypatch.setattr(workspace, "skills_dir", lambda: temp_workspace / "skills")
     msg = workspace.write_skill_md("Missing Skill", "content")
     assert "❌ Skill" in msg

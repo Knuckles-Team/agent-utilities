@@ -1,4 +1,4 @@
-"""CONCEPT:AU-ORCH.routing.conductor-per-step-model (RLM extension) — RLM-GEPA role bindings + resolution."""
+"""Depth-specific RLM role bindings and resolution."""
 
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ def _model(mid, tier, tags):
 def test_rlm_roles_registered_in_default_map():
     for role in RLM_ROLES:
         assert role in _DEFAULT_ROLE_ROUTING, role
-    # Executor/sub-LM are cheap (light); proposer is strong (reasoning).
+    # Executor/sub-LM are cheap (light); the root is strong (reasoning).
     assert _DEFAULT_ROLE_ROUTING["rlm-executor"].tier == "light"
     assert _DEFAULT_ROLE_ROUTING["rlm-sublm"].tier == "light"
-    assert _DEFAULT_ROLE_ROUTING["rlm-proposer"].tier == "reasoning"
+    assert _DEFAULT_ROLE_ROUTING["rlm-root"].tier == "reasoning"
 
 
 @pytest.mark.concept(id="AU-ORCH.routing.conductor-per-step-model")
@@ -38,10 +38,10 @@ def test_pick_for_role_resolves_rlm_roles_on_a_pool():
         ]
     )
     assert reg.pick_for_role("rlm-executor").id == "cheap"
-    assert reg.pick_for_role("rlm-proposer").id == "strong"
+    assert reg.pick_for_role("rlm-root").id == "strong"
 
 
 @pytest.mark.concept(id="AU-ORCH.routing.conductor-per-step-model")
 def test_rlm_role_model_falls_back_without_raising():
     # No registry file configured under test → returns the fallback, never raises.
-    assert rlm_role_model("rlm-proposer", fallback="openai:gpt-4o-mini") is not None
+    assert rlm_role_model("rlm-root", fallback="openai:gpt-4o-mini") is not None

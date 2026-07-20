@@ -37,7 +37,11 @@ Exit 0 = all ontologies valid + connected + documented, 1 = violation(s) found.
 from __future__ import annotations
 
 import argparse
+import os
+import re
+import stat
 import sys
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,24 +61,193 @@ _OWN_PREFIXES = ("http://knuckles.team/kg", "https://agent-utilities.dev/")
 OWL_IMPORTS = "http://www.w3.org/2002/07/owl#imports"
 OWL_ONTOLOGY = "http://www.w3.org/2002/07/owl#Ontology"
 
+_PROVIDER_ID = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$", re.ASCII)
+_MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_MAX_PROVIDERS = 256
+_MAX_DIRECTORY_ENTRIES = 4_096
+_MAX_ASSETS = 2_048
+_MAX_ASSET_BYTES = 4 * 1024 * 1024
+_MAX_TOTAL_BYTES = 128 * 1024 * 1024
+_MAX_PYPROJECT_BYTES = 1024 * 1024
+_SOURCE_LABELS: dict[Path, Path] = {}
+
+
+class FleetScanError(RuntimeError):
+    """Privacy-safe provider source scan failure."""
+
 
 def _fail(violations: list[str], msg: str) -> None:
     violations.append(msg)
 
 
 def _rel(p: Path) -> Path | str:
-    """``p`` relative to the repo root when possible, else the absolute path.
+    """Return a repository-relative or generic provider-owned display path.
 
     Contributed (federated) ontology TTLs live inside another package's wheel /
-    editable checkout — outside this repo — so ``relative_to(ROOT)`` would raise.
+    editable checkout. Their machine-local installation paths must never cross this
+    gate's diagnostic boundary.
     """
+    if p in _SOURCE_LABELS:
+        return _SOURCE_LABELS[p]
     try:
         return p.relative_to(ROOT)
     except ValueError:
-        return p
+        return Path("provider-assets") / p.name
 
 
-def _provider_ttls() -> list[Path]:
+def _read_regular(path: Path, *, maximum: int, code: str) -> bytes:
+    """Read one bounded regular file without following a link or retaining its path."""
+
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_size > maximum:
+            raise FleetScanError(code)
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != before.st_dev
+                or opened.st_ino != before.st_ino
+                or opened.st_size > maximum
+            ):
+                raise FleetScanError(code)
+            data = b""
+            while len(data) <= maximum:
+                chunk = os.read(descriptor, min(1024 * 1024, maximum + 1 - len(data)))
+                if not chunk:
+                    break
+                data += chunk
+            if len(data) > maximum:
+                raise FleetScanError(code)
+            return data
+        finally:
+            os.close(descriptor)
+    except FleetScanError:
+        raise
+    except OSError as exc:
+        raise FleetScanError(code) from exc
+
+
+def _require_directory(path: Path, code: str) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError as exc:
+        raise FleetScanError(code) from exc
+    if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+        raise FleetScanError(code)
+
+
+def _bounded_children(path: Path, *, maximum: int, code: str) -> list[Path]:
+    """List a directory deterministically without accepting an unbounded fan-out."""
+
+    children: list[Path] = []
+    try:
+        for child in path.iterdir():
+            if child.name.startswith("."):
+                continue
+            if len(children) >= maximum:
+                raise FleetScanError(code)
+            children.append(child)
+    except FleetScanError:
+        raise
+    except OSError as exc:
+        raise FleetScanError(code) from exc
+    return sorted(children, key=lambda item: item.name.casefold())
+
+
+def _source_provider_ttls(agents_root: Path) -> list[Path]:
+    """Discover declared provider assets from a bounded, no-follow source fleet."""
+
+    _require_directory(agents_root, "provider-root-type")
+    children = _bounded_children(
+        agents_root, maximum=_MAX_PROVIDERS, code="provider-count-bound"
+    )
+    if len(children) > _MAX_PROVIDERS:
+        raise FleetScanError("provider-count-bound")
+
+    assets: list[Path] = []
+    total_bytes = 0
+    for project in children:
+        try:
+            project_metadata = project.lstat()
+        except OSError as exc:
+            raise FleetScanError("provider-project-read") from exc
+        if not stat.S_ISDIR(project_metadata.st_mode):
+            # The fleet root may contain non-provider aliases or marker files.
+            # Never follow them; authoritative membership is enforced by the
+            # separate provider-fleet/workspace gate.
+            continue
+        pyproject = project / "pyproject.toml"
+        if not pyproject.exists():
+            continue
+        try:
+            document = tomllib.loads(
+                _read_regular(
+                    pyproject,
+                    maximum=_MAX_PYPROJECT_BYTES,
+                    code="provider-metadata-type",
+                ).decode("utf-8")
+            )
+        except FleetScanError:
+            raise
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            raise FleetScanError("provider-metadata-parse") from exc
+        try:
+            registrations = document["project"]["entry-points"][
+                "agent_utilities.ontology_providers"
+            ]
+        except (KeyError, TypeError):
+            continue
+        if not isinstance(registrations, dict) or not registrations:
+            raise FleetScanError("provider-registration")
+        for provider, module in sorted(registrations.items()):
+            if (
+                not isinstance(provider, str)
+                or _PROVIDER_ID.fullmatch(provider) is None
+                or not isinstance(module, str)
+                or _MODULE.fullmatch(module) is None
+            ):
+                raise FleetScanError("provider-registration")
+            ontology_dir = project.joinpath(*module.split("."))
+            current = project
+            for component in module.split("."):
+                current /= component
+                _require_directory(current, "provider-ontology-root")
+            candidates: list[tuple[Path, Path]] = []
+            for entry in _bounded_children(
+                ontology_dir,
+                maximum=_MAX_DIRECTORY_ENTRIES,
+                code="provider-ontology-entry-bound",
+            ):
+                if entry.suffix == ".ttl":
+                    candidates.append((entry, Path(entry.name)))
+            shapes = ontology_dir / "shapes"
+            if shapes.exists():
+                _require_directory(shapes, "provider-shapes-root")
+                for entry in _bounded_children(
+                    shapes,
+                    maximum=_MAX_DIRECTORY_ENTRIES,
+                    code="provider-shapes-entry-bound",
+                ):
+                    if entry.suffix == ".ttl":
+                        candidates.append((entry, Path("shapes") / entry.name))
+            for asset, relative in candidates:
+                data = _read_regular(
+                    asset, maximum=_MAX_ASSET_BYTES, code="provider-asset-type"
+                )
+                total_bytes += len(data)
+                if len(assets) >= _MAX_ASSETS or total_bytes > _MAX_TOTAL_BYTES:
+                    raise FleetScanError("provider-assets-bound")
+                assets.append(asset)
+                _SOURCE_LABELS[asset] = Path("provider-assets") / provider / relative
+    return sorted(assets, key=lambda path: _SOURCE_LABELS[path].as_posix())
+
+
+def _provider_ttls(provider_root: Path | None = None) -> list[Path]:
     """Contributed ontology TTLs from installed fleet packages (CONCEPT:AU-KG.ontology.package-owned-ontology).
 
     Reuses the federation read-path resolver (XDG-first, CONCEPT:AU-OS.deployment.unified-install-tree) so the gate
@@ -83,6 +256,8 @@ def _provider_ttls() -> list[Path]:
     Failure-isolated: if the resolver (or its package) can't be imported, federation
     is simply an empty superset.
     """
+    if provider_root is not None:
+        return _source_provider_ttls(provider_root)
     try:
         from agent_utilities.knowledge_graph.core.ontology_federation import (
             resolve_provider_ontologies,
@@ -114,7 +289,7 @@ def _is_shape(p: Path) -> bool:
     return p.parent.name == "shapes"
 
 
-def _domain_modules() -> list[Path]:
+def _domain_modules(provider_ttls: list[Path] | None = None) -> list[Path]:
     """Domain modules — the set the loader/publisher glob over, plus federated ones.
 
     Bundled: ``ontology_*.ttl`` directly in ``knowledge_graph/`` (the same glob the
@@ -125,19 +300,22 @@ def _domain_modules() -> list[Path]:
     connectivity/closure-checked exactly like a bundled one.
     """
     bundled = [p for p in KG_DIR.glob("ontology_*.ttl")]
-    federated = [p for p in _provider_ttls() if not _is_shape(p)]
+    providers = _provider_ttls() if provider_ttls is None else provider_ttls
+    federated = [p for p in providers if not _is_shape(p)]
     return sorted(set(bundled + federated))
 
 
-def _all_ttls() -> list[Path]:
-    return sorted(set(list(KG_DIR.rglob("*.ttl")) + _provider_ttls()))
+def _all_ttls(provider_ttls: list[Path] | None = None) -> list[Path]:
+    providers = _provider_ttls() if provider_ttls is None else provider_ttls
+    return sorted(set(list(KG_DIR.rglob("*.ttl")) + providers))
 
 
 def _parse(path: Path):
     import rdflib
 
     g = rdflib.Graph()
-    g.parse(str(path), format="turtle")
+    raw = _read_regular(path, maximum=_MAX_ASSET_BYTES, code="ontology-asset-type")
+    g.parse(data=raw.decode("utf-8"), format="turtle")
     return g
 
 
@@ -158,21 +336,50 @@ def _imports(g) -> list[str]:
     return [str(o) for o in g.objects(predicate=rdflib.URIRef(OWL_IMPORTS))]
 
 
-def check(verbose: bool = False) -> int:
+def _has_import_path(
+    iri: str, import_graph: dict[str, set[str]], anchors: set[str]
+) -> bool:
+    """Return whether an ontology IRI reaches the canonical import component."""
+
+    pending = [iri]
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in anchors:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        pending.extend(import_graph.get(current, ()))
+    return False
+
+
+def check(verbose: bool = False, provider_root: Path | None = None) -> int:
     violations: list[str] = []
     notes: list[str] = []
 
     try:
-        import rdflib  # noqa: F401
-    except ImportError:
-        print("check_ontology: rdflib not installed — cannot validate; failing closed.")
+        import owlrl
+        import pyshacl
+        import rdflib
+    except Exception:  # noqa: BLE001 - an unusable validator must fail closed
+        print(
+            "check_ontology: required validation dependencies unavailable; "
+            "failing closed."
+        )
         return 1
 
     if not CANONICAL.exists():
         print(f"check_ontology: canonical ontology missing: {CANONICAL}")
         return 1
 
-    all_ttls = _all_ttls()
+    _SOURCE_LABELS.clear()
+    try:
+        provider_ttls = _provider_ttls(provider_root)
+        all_ttls = _all_ttls(provider_ttls)
+    except FleetScanError as exc:
+        print(f"check_ontology: provider fleet scan failed ({exc}).")
+        return 1
     parsed: dict[Path, object] = {}
 
     # ── 1. Syntax: every .ttl parses ────────────────────────────────────────
@@ -180,7 +387,10 @@ def check(verbose: bool = False) -> int:
         try:
             parsed[t] = _parse(t)
         except Exception as exc:  # noqa: BLE001
-            _fail(violations, f"[syntax] {_rel(t)} does not parse: {exc}")
+            _fail(
+                violations,
+                f"[syntax] {_rel(t)} does not parse ({type(exc).__name__})",
+            )
     notes.append(f"parsed {len(parsed)}/{len(all_ttls)} TTL files")
 
     # ── 2. No duplicate ontology IRIs (drift / duplicate guard) ─────────────
@@ -199,7 +409,23 @@ def check(verbose: bool = False) -> int:
     # ── 5. Connectivity: every domain module declares an IRI and is imported ─
     canonical_g = parsed.get(CANONICAL)
     canon_imports = set(_imports(canonical_g)) if canonical_g is not None else set()
-    for mod in _domain_modules():
+    missing_registered = sorted(_federated_iris() - canon_imports)
+    for iri in missing_registered:
+        _fail(
+            violations,
+            f"[unlinked-registry] canonical ontology.ttl does not import <{iri}>",
+        )
+    canonical_iris = (
+        set(_declared_ontology_iris(canonical_g)) if canonical_g is not None else set()
+    )
+    import_graph: dict[str, set[str]] = {}
+    for graph in parsed.values():
+        imports = set(_imports(graph))
+        for iri in _declared_ontology_iris(graph):
+            import_graph.setdefault(iri, set()).update(imports)
+    connectivity_anchors = canonical_iris | canon_imports
+
+    for mod in _domain_modules(provider_ttls):
         g = parsed.get(mod)
         if g is None:
             continue  # syntax failure already reported
@@ -216,11 +442,13 @@ def check(verbose: bool = False) -> int:
                 violations,
                 f"[multi-iri] {mod.name} declares >1 owl:Ontology IRI: {iris}",
             )
-        if not any(iri in canon_imports for iri in iris):
+        if not any(
+            _has_import_path(iri, import_graph, connectivity_anchors) for iri in iris
+        ):
             _fail(
                 violations,
-                f"[unlinked] {mod.name} ({iris[0]}) is NOT imported by the canonical "
-                f"ontology.ttl — add an owl:imports edge so the module is connected.",
+                f"[unlinked] {_rel(mod)} ({iris[0]}) has no import path to the "
+                "canonical ontology component.",
             )
 
     # ── 6. No dangling imports in our own namespace ─────────────────────────
@@ -239,17 +467,8 @@ def check(verbose: bool = False) -> int:
                 )
 
     # ── 4. SHACL shapes well-formed + runnable ──────────────────────────────
-    try:
-        import pyshacl  # noqa: F401
-
-        have_pyshacl = True
-    except ImportError:
-        have_pyshacl = False
-        notes.append("pyshacl not installed — SHACL well-formedness check skipped")
-    if have_pyshacl and SHAPES_DIR.exists():
-        import rdflib
-
-        for shape_file in sorted(SHAPES_DIR.glob("*.ttl")):
+    if SHAPES_DIR.exists():
+        for shape_file in sorted(t for t in all_ttls if _is_shape(t)):
             sg = parsed.get(shape_file)
             if sg is None:
                 continue
@@ -266,26 +485,25 @@ def check(verbose: bool = False) -> int:
             except Exception as exc:  # noqa: BLE001
                 _fail(
                     violations,
-                    f"[shacl] {shape_file.relative_to(ROOT)} is not well-formed SHACL: {exc}",
+                    f"[shacl] {_rel(shape_file)} is not well-formed SHACL "
+                    f"({type(exc).__name__})",
                 )
 
     # ── 3. OWL-RL closure over the merged graph (no reasoning breakage) ──────
     try:
-        import owlrl
-        import rdflib
-
         merged = rdflib.Graph()
-        for mod in [CANONICAL, *_domain_modules()]:
+        for mod in [CANONICAL, *_domain_modules(provider_ttls)]:
             g = parsed.get(mod)
             if g is not None:
                 for triple in g:
                     merged.add(triple)
         owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(merged)
         notes.append(f"OWL-RL closure ok ({len(merged)} triples after expansion)")
-    except ImportError:
-        notes.append("owlrl not installed — OWL-RL closure check skipped")
     except Exception as exc:  # noqa: BLE001
-        _fail(violations, f"[owl-rl] merged ontology breaks OWL-RL closure: {exc}")
+        _fail(
+            violations,
+            f"[owl-rl] merged ontology breaks OWL-RL closure ({type(exc).__name__})",
+        )
 
     # ── 7. Documentation: every .ttl listed in the library index ────────────
     if not LIBRARY_DOC.exists():
@@ -296,10 +514,23 @@ def check(verbose: bool = False) -> int:
     else:
         doc = LIBRARY_DOC.read_text()
         for t in all_ttls:
-            if t.name not in doc:
+            display = _rel(t)
+            if t in _SOURCE_LABELS:
+                provider = display.parts[1]
+                relative = Path(*display.parts[2:]).as_posix()
+                documented = any(
+                    f"`{provider}`" in line and f"`{relative}`" in line
+                    for line in doc.splitlines()
+                )
+            else:
+                relative = t.relative_to(KG_DIR).as_posix()
+                documented = any(
+                    f"`{candidate}`" in doc for candidate in (t.name, relative)
+                )
+            if not documented:
                 _fail(
                     violations,
-                    f"[docs] {t.name} is not listed in docs/architecture/ontology_library.md",
+                    f"[docs] {display} is not listed with its owner in the ontology library",
                 )
 
     # ── Report ──────────────────────────────────────────────────────────────
@@ -322,8 +553,13 @@ def main() -> int:
     ap.add_argument(
         "-v", "--verbose", action="store_true", help="print per-check detail"
     )
+    ap.add_argument(
+        "--provider-root",
+        type=Path,
+        help="explicit provider fleet agents root for source certification",
+    )
     args = ap.parse_args()
-    return check(verbose=args.verbose)
+    return check(verbose=args.verbose, provider_root=args.provider_root)
 
 
 if __name__ == "__main__":

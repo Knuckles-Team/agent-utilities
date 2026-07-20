@@ -434,9 +434,6 @@ class MemoryOptimizationEngine:
             entropy=entropy,
         )
 
-    # Backward-compatible alias for LatentSpaceRegularizer API
-    compute_diversity_metrics = compute_diversity
-
     # --- EWC with diversity preservation ---
 
     def synthesize_ewc(
@@ -496,9 +493,6 @@ class MemoryOptimizationEngine:
         if norm > 0:
             ewc_result = ewc_result / norm
         return ewc_result.tolist()
-
-    # Backward-compatible alias for LatentSpaceRegularizer API
-    diversity_preserving_consolidation = synthesize_ewc
 
     # --- CKA diagnostics (from embedding_diagnostics.py) ---
 
@@ -658,20 +652,6 @@ class MemoryOptimizationEngine:
             cka_vs_baseline=cka_baseline,
             drift_severity=drift,
             recommendation=rec,
-        )
-
-    # Backward-compatible static method for EmbeddingDiagnostics API
-    @staticmethod
-    def embedding_health_check(
-        current_embeddings: NDArray | list[list[float]],
-        baseline_embeddings: NDArray | list[list[float]] | None = None,
-        collapse_threshold: float = 0.1,
-        drift_threshold: float = 0.7,
-    ) -> EmbeddingHealthReport:
-        """Static backward-compatible wrapper for health_check()."""
-        engine = MemoryOptimizationEngine(collapse_threshold=collapse_threshold)
-        return engine.health_check(
-            current_embeddings, baseline_embeddings, drift_threshold
         )
 
     # --- Predictive consistency ---
@@ -853,7 +833,7 @@ class AutoSimilarityLinker:
 
             if sim >= self.config.similarity_threshold:
                 edge = SimilarityEdgeNode(
-                    id=f"sim_{uuid.uuid4().hex[:8]}",
+                    id=f"sim_{uuid.uuid4().hex}",
                     name=f"Similarity: {new_node.name} ↔ {candidate.name}",
                     description=(
                         f"Auto-created similarity edge (cosine={sim:.3f}) "
@@ -880,7 +860,7 @@ class AutoSimilarityLinker:
     def _build_edge(self, src: str, dst: str, sim: float) -> SimilarityEdgeNode:
         now = time.time()
         return SimilarityEdgeNode(
-            id=f"sim_{uuid.uuid4().hex[:8]}",
+            id=f"sim_{uuid.uuid4().hex}",
             name=f"Similarity: {src} ↔ {dst}",
             description=f"Auto-created similarity edge (cosine={sim:.3f}) between {src} and {dst}",
             source_node_id=src,
@@ -907,8 +887,8 @@ class AutoSimilarityLinker:
         already resident in the graph store — one round-trip, zero per-vector marshaling. This also
         *wires* that native op, which was previously never invoked.
 
-        Falls back to an in-process numpy O(n²) pass over ``nodes`` when the Rust core isn't running
-        (e.g. tests, or ``GRAPH_COMPUTE_FALLBACK=embedded``), so behaviour is identical either way.
+        A bounded local pass over caller-supplied ``nodes`` remains available for isolated
+        unit tests; production graph execution requires the native engine authority.
         """
         threshold = self.config.similarity_threshold
 
@@ -1099,7 +1079,7 @@ class EvaluationCapture:
 
         try:
             record = EvaluationRecordNode(  # type: ignore[call-arg]
-                id=f"eval:{uuid.uuid4().hex[:8]}",
+                id=f"eval:{uuid.uuid4().hex}",
                 name=f"Eval: {query[:20]}",
                 query=query,
                 method=method,
@@ -1317,7 +1297,7 @@ def run_reflector(
 
     # Call LLM
     try:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
         from ...core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
         from ...core.model_factory import create_model
@@ -1325,7 +1305,7 @@ def run_reflector(
         model = create_model(
             provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
         )
-        agent = Agent(model, system_prompt=REFLECTOR_SYSTEM_PROMPT)
+        agent = create_context_agent(model, system_prompt=REFLECTOR_SYSTEM_PROMPT)
 
         from ...core.event_loop import allow_nested_run_sync
 
@@ -1367,7 +1347,7 @@ def _gather_observations(
         return [
             dict(a)
             for _, a in engine.graph.nodes(data=True)
-            if a.get("type") == "observation"
+            if a.get("node_type") == "observation"
         ][:limit]
     try:
         res = engine.backend.execute(
@@ -1379,7 +1359,7 @@ def _gather_observations(
         return [
             dict(a)
             for _, a in engine.graph.nodes(data=True)
-            if a.get("type") == "observation"
+            if a.get("node_type") == "observation"
         ][:limit]
 
 
@@ -1392,7 +1372,7 @@ def _gather_reflections(
         return [
             dict(a)
             for _, a in engine.graph.nodes(data=True)
-            if a.get("type") == "reflection"
+            if a.get("node_type") == "reflection"
         ][:limit]
     try:
         res = engine.backend.execute(
@@ -1422,7 +1402,7 @@ def _persist_reflections(engine: IntelligenceGraphEngine, text: str) -> int:
         if not content or content.startswith("*"):
             continue
 
-        node_id = f"ref_{hashlib.md5(content.encode(), usedforsecurity=False).hexdigest()[:10]}"
+        node_id = f"ref_{hashlib.sha256(content.encode()).hexdigest()[:32]}"
         category = current_section.lower().replace(" & ", "_").replace(" ", "_")
 
         # Detect if this is a preference
@@ -1557,15 +1537,15 @@ class SynthesisRule(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Rule 1 — Episode-to-Preference (example / skeleton)
+# Rule 1 — canonical trace-to-preference
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class EpisodeToPreferenceRule:
-    """Rule 1 (§4.3) — Episodic → Preference abstraction.
+    """Rule 1 (§4.3) — canonical execution trace → Preference abstraction.
 
-    **Heuristic:** N ≥ ``min_evidence_count`` ``EpisodeNode`` instances that
+    **Heuristic:** N ≥ ``min_evidence_count`` canonical ``RunTrace`` instances that
     all share a single tool / agent used with high outcome reward (≥
     ``reward_threshold``) → propose a ``PreferenceNode`` saying "agent
     prefers tool X for this kind of work".
@@ -1589,20 +1569,19 @@ class EpisodeToPreferenceRule:
         proposals: list[SynthesisProposal] = []
         graph = engine.graph
 
-        # Count per-tool co-occurrence of successful episodes.
-        tool_to_episode_ids: dict[str, list[str]] = {}
+        # Count per-tool co-occurrence of successful canonical traces.
+        tool_to_trace_ids: dict[str, list[str]] = {}
 
-        for episode_id, attrs in graph.nodes(data=True):
-            if attrs.get("type") != "episode":
+        for trace_id, attrs in graph.nodes(data=True):
+            if attrs.get("node_type") not in {"run_trace", "RunTrace"}:
                 continue
 
-            # Outgoing edges: EPISODE -[:PRODUCED_OUTCOME]-> OutcomeEvaluation
-            # and EPISODE -[:USED_TOOL / USED_RESOURCE]-> ToolCall/Resource.
+            # Canonical outgoing edges: RunTrace -> outcome and tool call.
             outcome_reward: float | None = None
             tool_names: set[str] = set()
 
-            for _src, tgt, edge_attrs in graph.out_edges(episode_id, data=True):
-                edge_type = edge_attrs.get("type", "")
+            for _src, tgt, edge_attrs in graph.out_edges(trace_id, data=True):
+                edge_type = str(edge_attrs.get("relationship", "")).lower()
                 if edge_type == "produced_outcome":
                     outcome_attrs = graph.nodes.get(tgt, {})
                     reward = outcome_attrs.get("reward")
@@ -1610,7 +1589,7 @@ class EpisodeToPreferenceRule:
                         outcome_reward = float(reward)
                 elif edge_type in {"used_tool", "used_resource"}:
                     tgt_attrs = graph.nodes.get(tgt, {})
-                    # ToolCallNode.tool_name, or fall-back on node name
+                    # Canonical ToolCall.tool_name, or fall back to the node name.
                     tool_name = tgt_attrs.get("tool_name") or tgt_attrs.get("name")
                     if tool_name:
                         tool_names.add(tool_name)
@@ -1619,21 +1598,21 @@ class EpisodeToPreferenceRule:
                 continue
 
             for tool_name in tool_names:
-                tool_to_episode_ids.setdefault(tool_name, []).append(episode_id)
+                tool_to_trace_ids.setdefault(tool_name, []).append(trace_id)
 
         # Emit one proposal per tool with enough evidence.
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        for tool_name, ep_ids in tool_to_episode_ids.items():
-            if len(ep_ids) < self.min_evidence_count:
+        for tool_name, trace_ids in tool_to_trace_ids.items():
+            if len(trace_ids) < self.min_evidence_count:
                 continue
             # Simple confidence model: more evidence → higher confidence.
-            confidence = min(1.0, self.min_confidence + 0.05 * len(ep_ids))
+            confidence = min(1.0, self.min_confidence + 0.05 * len(trace_ids))
             payload = {
                 "category": "tool",
                 "value": tool_name,
                 "statement": (
                     f"Agent repeatedly succeeded using '{tool_name}' "
-                    f"(across {len(ep_ids)} successful episodes)."
+                    f"(across {len(trace_ids)} successful traces)."
                 ),
             }
             proposal = SynthesisProposal(
@@ -1643,7 +1622,7 @@ class EpisodeToPreferenceRule:
                 rule_name=self.name,
                 proposed_node_type="PreferenceNode",
                 proposed_payload=payload,
-                evidence_node_ids=sorted(ep_ids),
+                evidence_node_ids=sorted(trace_ids),
                 confidence=confidence,
                 created_at=now,
                 status="pending",
@@ -1682,7 +1661,7 @@ class DecisionToPrincipleRule:
         pattern_to_decisions: dict[str, list[str]] = {}
 
         for node_id, attrs in graph.nodes(data=True):
-            if attrs.get("type") != "decision":
+            if attrs.get("node_type") != "decision":
                 continue
 
             approach = attrs.get("approach", "")
@@ -1759,7 +1738,7 @@ class TraceToSkillRule:
         pattern_to_traces: dict[str, list[tuple[str, dict]]] = {}
 
         for node_id, attrs in graph.nodes(data=True):
-            node_type = str(attrs.get("type", "")).lower()
+            node_type = str(attrs.get("node_type", "")).lower()
             if node_type not in (
                 "chatturn",
                 "executiontrace",
@@ -1913,14 +1892,14 @@ class SynthesisEngine:
     def _persist_proposals(self, proposals: list[SynthesisProposal]) -> None:
         """Persist proposals as ProposalNode instances in the graph.
 
-        Each proposal becomes a graph node with ``type="proposal"`` and
+        Each proposal becomes a graph node with ``node_type="proposal"`` and
         edges linking it to its evidence nodes.
         """
         for p in proposals:
             # Create proposal node
             self.engine.graph.add_node(
                 p.proposal_id,
-                type="proposal",
+                node_type="proposal",
                 rule_name=p.rule_name,
                 proposed_node_type=p.proposed_node_type,
                 proposed_payload=p.proposed_payload,
@@ -1934,10 +1913,10 @@ class SynthesisEngine:
             for evidence_id in p.evidence_node_ids:
                 if evidence_id in self.engine.graph:
                     self.engine.graph.add_edge(
-                        evidence_id, p.proposal_id, type="EVIDENCE_FOR"
+                        evidence_id, p.proposal_id, relationship="EVIDENCE_FOR"
                     )
             logger.info(
-                "Persisted proposal %s (rule=%s, type=%s, "
+                "Persisted proposal %s (rule=%s, relationship=%s, "
                 "confidence=%.2f, evidence=%d)",
                 p.proposal_id,
                 p.rule_name,
@@ -1966,7 +1945,7 @@ class SynthesisEngine:
         """Query the graph for all proposals with status='pending'."""
         pending: list[dict[str, Any]] = []
         for node_id, data in self.engine.graph.nodes(data=True):
-            if data.get("type") == "proposal" and data.get("status") == "pending":
+            if data.get("node_type") == "proposal" and data.get("status") == "pending":
                 pending.append({"proposal_id": node_id, **data})
         return pending
 
@@ -1999,14 +1978,14 @@ class SynthesisEngine:
 
         self.engine.graph.add_node(
             real_node_id,
-            type=node_type.lower(),
+            node_type=node_type.lower(),
             name=payload.get("statement", payload.get("value", "")),
             importance_score=data.get("confidence", 0.5),
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             **{k: v for k, v in payload.items() if k not in ("statement",)},
         )
         # Link proposal to real node
-        self.engine.graph.add_edge(proposal_id, real_node_id, type="PROMOTED_TO")
+        self.engine.graph.add_edge(proposal_id, real_node_id, relationship="PROMOTED_TO")
         logger.info("Approved proposal %s → created %s", proposal_id, real_node_id)
         return True
 

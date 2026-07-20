@@ -50,12 +50,12 @@ Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical 
 - **ORCH-1.10**: Reactive Event Sourcing — reactive event-driven state and graph staging dispatcher
 - **AU-ORCH.sandbox.compiled-orchestration-kernel**: WASM Micro-Agent Execution — isolated WebAssembly sandbox runner with gas/memory limits and Python emulation fallback (the RLM execution tier is now realized by **ORCH-1.38**)
 - **ORCH-1.12**: [**Structured Predict-RLM Runtime**](1_graph_orchestration/ORCH-1.12-Structured_RLM_Outputs.md) — standard Pydantic signatures and dynamic skill injection wrapper for sandboxed REPL, plus **schema-constrained subagent contracts** so RLM fan-out returns typed values (bool/model/list) instead of free-form prose
-- **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — uniform `Sandbox` contract with four real backends (local / **monty** / wasm / docker) behind a deterministic `ast` capability router that escalates per-snippet (monty→wasm→docker→local); monty is the fast isolated default that still serves the RLM host helpers, Docker serves them over a UDS bridge under `--network none`, and the wasm tier is real CPython-WASI (replacing the AU-ORCH.sandbox.compiled-orchestration-kernel stub)
+- **ORCH-1.38**: [**Tiered RLM Code Sandbox + Capability Router**](1_graph_orchestration/ORCH-1.38-Tiered_RLM_Sandbox.md) — deterministic capability routing across isolated backends; unavailable isolation fails closed, while legacy local `exec()` requires an explicit dangerous opt-in
 - **AU-ORCH.optimization.optimize-skill-prompt-gepa**: [**GEPA Reflective Prompt Optimizer**](1_graph_orchestration/ORCH-1.13-GEPA_Optimization.md) — Genetic-Pareto optimization loop with reflective mutation and structural crossover for prompt evolution
 - **ORCH-1.37**: Orchestration execution-flow mermaid-diagram surfacing in `graph_orchestrate` responses (additive, backward-compatible)
 - **ORCH-1.39**: Invoker→spawned-agent handoff of curated context, token budget, tool scope, and credential *reference* (raw secret never persisted/logged) — see [KG-Native Orchestration § Invoker to Spawned Handoff](../guides/kg_native_orchestration.md#invoker-to-spawned-agent-handoff-and-native-channels)
 - **AU-ORCH.session.session-anchored-collections-native**: Session-anchored collections (`Session` node + `HAS_CONTEXT`/`HAS_MESSAGE`/`HAS_RUN` edges) and native cross-process invoker↔spawned message channels with a durable backstop and elicitation bridge (`graph_context`, `graph_message` MCP tools)
-- **ORCH-1.41**: Process Plan Compiler — `graph_orchestrate(action="compile_process")` lifts a descriptive BPMN process into an executable plan (see [Ontology-to-Workflow Execution](#orch-141--142--143--ontology-to-workflow-execution-path))
+- **ORCH-1.41**: Process Plan Compiler — `graph_workflows(action="compile_process")` lifts a descriptive BPMN process into an executable plan (see [Ontology-to-Workflow Execution](#ontology-workflow-execution))
 - **AU-ORCH.execution.ontology-validation-execution-path**: Execution Ontology Gate — ontology validation on the execution path before a compiled process runs (`knowledge_graph/core/workflow_gate.py`)
 - **ORCH-1.43**: Workflow Lineage Close-Out — run lineage written back to the KG, closing the descriptive↔executable provenance loop (`workflows/runner.py`)
 - **AU-ORCH.session.durable-goal-registry-goals**: Durable Goal Registry — goals persist across restarts; stranded runs rehydrate as orphaned instead of silently vanishing (see [State Externalization](../architecture/state_externalization.md))
@@ -92,7 +92,7 @@ graph LR
     end
 ```
 
-→ **Deep-dive**: [docs/first-principles.md](docs/pillars/1_graph_orchestration/first-principles.md) · [docs/registry-cache.md](docs/pillars/1_graph_orchestration/registry-cache.md) · [docs/process-lifecycle.md](docs/pillars/5_agent_os_infrastructure/process-lifecycle.md)
+→ **Deep-dive**: [first-principles.md](../guides/first-principles.md) · [registry-cache.md](../guides/registry-cache.md) · [process-lifecycle.md](../guides/process-lifecycle.md)
 
 ## Architecture & Orchestration Overview
 
@@ -366,14 +366,14 @@ so peers announce work and share findings instead of duplicating. Heavy work is 
 fleet with `graph_bus(action='dispatch')`. Full design:
 [Agent Communication Bus](../architecture/agent_bus.md).
 
-### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path
+### ORCH-1.41 / 1.42 / 1.43 — Ontology-to-Workflow Execution Path { #ontology-workflow-execution }
 
 Descriptive process knowledge in the KG is now executable, with the ontology in
 the loop at every step:
 
 - **ORCH-1.41 — Process Plan Compiler** (`knowledge_graph/process_plan_compiler.py`):
-  `graph_orchestrate(action="compile_process")` (REST twin
-  `/api/graph/orchestrate/compile-process`) lifts a descriptive BPMN process —
+  `graph_workflows(action="compile_process")` (REST twin
+  `/api/graph/workflows`) lifts a descriptive BPMN process —
   ingested via the Camunda extractor and given step-level ontology shape by
   **AU-KG.ontology.descriptive-process-world-gains** — into an executable plan.
 - **AU-ORCH.execution.ontology-validation-execution-path — Execution Ontology Gate** (`knowledge_graph/core/workflow_gate.py`):
@@ -400,8 +400,8 @@ a crashed host rehydrates as `orphaned` instead of silently vanishing
 
 Agent turns (goal-loop iterations and orchestrator jobs) can dispatch through a
 session-partitioned durable queue instead of the in-process scheduler:
-`AGENT_DISPATCH_BACKEND=queue` makes `graph_orchestrate(action="dispatch")` and
-the goal machinery enqueue a typed `AgentTurnEnvelope`
+`graph_jobs(action="dispatch")` and the goal machinery enqueue a
+typed `AgentTurnEnvelope`
 (`orchestration/agent_dispatch.py` — job id as idempotency key; payload stays a
 *reference* into the state store) onto the `agent_turns` queue (Kafka, Postgres
 SKIP LOCKED, or per-host SQLite — composing the KG-2.55 transport stack with a

@@ -13,7 +13,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent_utilities.knowledge_graph import setup as dbsetup
+from agent_utilities.knowledge_graph.backends.fanout_backend import FanOutBackend
 from agent_utilities.knowledge_graph.setup import database_environment as de
+
+_PROFILE_REF = "env://GRAPH_DB_CONNECTION_PROFILE"
 
 
 class _MockMCP:
@@ -71,20 +74,30 @@ def _patch_pg(monkeypatch, **flags):
     )
 
 
+def _patch_profile(monkeypatch, uri="postgresql://agent:secret@h:5432/db"):
+    import agent_utilities.knowledge_graph.backends as backends_mod
+
+    monkeypatch.setattr(
+        backends_mod,
+        "_resolve_connection_profile",
+        lambda reference: {"uri": uri, "db_name": "agent_kg"},
+    )
+
+
 def test_verify_postgres_all_present(monkeypatch):
     _patch_pg(monkeypatch, age=True, vector=True, search=True)
-    out = de.verify_postgres("postgresql://agent:secret@h:5432/db")
+    _patch_profile(monkeypatch)
+    out = de.verify_postgres(_PROFILE_REF)
     assert out["status"] == "success"
     assert out["ready"] is True
     assert out["missing"] == []
-    # Password must be redacted in the echoed DSN.
-    assert "secret" not in out["dsn"]
-    assert "***" in out["dsn"]
+    assert "dsn" not in out
 
 
 def test_verify_postgres_reports_missing(monkeypatch):
     _patch_pg(monkeypatch, age=False, vector=True, search=False)
-    out = de.verify_postgres("postgresql://h/db")
+    _patch_profile(monkeypatch)
+    out = de.verify_postgres(_PROFILE_REF)
     assert out["ready"] is False
     assert set(out["missing"]) == {"age", "pg_search"}
     assert "hint" in out
@@ -97,9 +110,11 @@ def test_verify_postgres_connection_error(monkeypatch):
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(pgmod, "PostgreSQLBackend", _boom)
-    out = de.verify_postgres("postgresql://h/db")
+    _patch_profile(monkeypatch)
+    out = de.verify_postgres(_PROFILE_REF)
     assert out["status"] == "error"
-    assert "connection refused" in out["error"]
+    assert out["error"] == "Postgres verification failed"
+    assert out["error_type"] == "RuntimeError"
 
 
 # ── configure_backend ──────────────────────────────────────────────────────
@@ -109,20 +124,21 @@ def test_configure_backend_persists_keys(monkeypatch, tmp_path):
     import agent_utilities.knowledge_graph.backends as backends_mod
 
     monkeypatch.setattr(backends_mod, "set_active_backend", lambda b: None)
+    _patch_profile(monkeypatch, "postgresql://agent:pw@h:5432/agent_kg")
 
-    out = de.configure_backend("postgresql://agent:pw@h:5432/agent_kg")
+    out = de.configure_backend(_PROFILE_REF)
     assert out["status"] == "success"
     cfg = json.loads((tmp_path / "config.json").read_text())
-    assert cfg["GRAPH_DB_URI"] == "postgresql://agent:pw@h:5432/agent_kg"
+    assert cfg["GRAPH_DB_CONNECTION_PROFILE_REF"] == _PROFILE_REF
     assert cfg["GRAPH_PG_AGE"] == "1"
-    assert cfg["GRAPH_BACKEND"] == "fanout"
+    assert "GRAPH_" + "BACKEND" not in cfg
+    assert "GRAPH_" + "AUTHORITY" not in cfg
     assert json.loads(cfg["GRAPH_MIRROR_TARGETS"]) == ["age"]
     # Live process env is set too (cross-process signalling).
     import os
 
     assert os.environ["GRAPH_PG_AGE"] == "1"
-    # The reported DSN is redacted.
-    assert "pw" not in out["applied"]["GRAPH_DB_URI"]
+    assert "GRAPH_DB_CONNECTION_PROFILE_REF" in out["applied_settings"]
 
 
 def test_configure_backend_mirror_targets(monkeypatch, tmp_path):
@@ -130,7 +146,8 @@ def test_configure_backend_mirror_targets(monkeypatch, tmp_path):
     import agent_utilities.knowledge_graph.backends as backends_mod
 
     monkeypatch.setattr(backends_mod, "set_active_backend", lambda b: None)
-    de.configure_backend("postgresql://h/db", mirror_targets=["neo4j", "falkordb"])
+    _patch_profile(monkeypatch)
+    de.configure_backend(_PROFILE_REF, mirror_targets=["neo4j", "falkordb"])
     cfg = json.loads((tmp_path / "config.json").read_text())
     assert json.loads(cfg["GRAPH_MIRROR_TARGETS"]) == ["neo4j", "falkordb"]
 
@@ -164,23 +181,34 @@ def test_publish_ontology_stardog_delegates(monkeypatch):
 
 
 # ── backfill_to_age ────────────────────────────────────────────────────────
-class _FakeTiered:
-    def reconcile_to_durable(self):
-        return {"nodes": 5, "edges": 4, "nodes_missing": 0, "edges_missing": 0}
+class _FakeFanOut(FanOutBackend):
+    def __init__(self):
+        pass
+
+    def reconcile(self, mirror=None):
+        return {
+            "age": {
+                "nodes": 5,
+                "edges": 4,
+                "nodes_missing": 0,
+                "edges_missing": 0,
+                "errors": 0,
+            }
+        }
 
     def durability_stats(self):
-        return {"l3_writes": 9, "l3_failures": 0}
+        return {"authority_writes": 9, "mirrors": {"age": {"failures": 0}}}
 
 
 def test_backfill_to_age_consistent(monkeypatch):
     import agent_utilities.knowledge_graph.backends as backends_mod
 
-    monkeypatch.setattr(backends_mod, "get_active_backend", lambda: _FakeTiered())
+    monkeypatch.setattr(backends_mod, "get_active_backend", lambda: _FakeFanOut())
     out = de.backfill_to_age()
     assert out["status"] == "success"
     assert out["consistent"] is True
-    assert out["reconcile"]["nodes"] == 5
-    assert out["durability"]["l3_writes"] == 9
+    assert out["reconcile"]["age"]["nodes"] == 5
+    assert out["durability"]["authority_writes"] == 9
 
 
 def test_backfill_to_age_no_backend(monkeypatch):
@@ -253,6 +281,7 @@ def test_setup_environment_prod_targets_stardog(monkeypatch, tmp_path):
         "verify_postgres",
         "configure_backend",
         "publish_ontology",
+        "register_stardog_mirror",
         "verify_sparql",
     ):
         monkeypatch.setattr(
@@ -274,12 +303,16 @@ async def test_graph_configure_verify_databases_live_path(
     monkeypatch.setattr(
         dbsetup,
         "verify_postgres",
-        lambda dsn: {"status": "success", "dsn": dsn, "ready": True},
+        lambda connection_profile_ref: {
+            "status": "success",
+            "connection_profile_ref": connection_profile_ref,
+            "ready": True,
+        },
     )
     raw = await kg_server._execute_tool(
         "graph_configure",
         action="verify_databases",
-        config_value=json.dumps({"dsn": "postgresql://h/db"}),
+        config_value=json.dumps({"connection_profile_ref": _PROFILE_REF}),
     )
     out = json.loads(raw)
     assert out["status"] == "success"
@@ -302,10 +335,14 @@ async def test_graph_configure_setup_databases_live_path(monkeypatch, registered
         action="setup_databases",
         config_key="prod",
         config_value=json.dumps(
-            {"postgres_mode": "existing", "dsn": "postgresql://h/db"}
+            {
+                "postgres_mode": "existing",
+                "connection_profile_ref": _PROFILE_REF,
+            }
         ),
     )
     out = json.loads(raw)
     assert out["status"] == "success"
     assert seen["profile"] == "prod"
     assert seen["postgres_mode"] == "existing"
+    assert seen["connection_profile_ref"] == _PROFILE_REF

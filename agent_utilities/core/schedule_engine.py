@@ -4,9 +4,9 @@ Collapses the four historical scheduling surfaces — fixed-interval maintenance
 ticks, the static ``deploy/schedules.yml`` cron, the loop-cycle tick, and the
 legacy OS-5.2 ``MaintenanceCron`` — into ONE durable, dynamic scheduler. The
 scheduler is the sole *producer* of recurring work: when a schedule is due it
-**enqueues** a ``scheduled_job`` ``:Task`` onto the one hardened priority+
+**enqueues** a ``scheduled_job`` WorkItem onto the native priority+
 scheduled queue (KG-2.113), which the one worker pool drains under the
-existing throttle / lease / reaper hardening. Nothing recurring runs inline in
+existing throttle and native lease hardening. Nothing recurring runs inline in
 the scheduler thread anymore.
 
 A schedule is a durable ``:Schedule`` graph node (survives restart and
@@ -18,9 +18,14 @@ the node carries live state (last-run, next-run, failure backoff). Triggers:
   * ``interval`` — every ``interval_s`` seconds (the former maintenance ticks)
   * ``adaptive`` — interval that widens on repeated failure / can be re-tuned live
 
-The payload describes WHAT to run (``kind``: skill / script / workflow / agent /
-maint / loop / research_feed); :func:`run_scheduled_job` is the single dispatcher
+The payload describes WHAT to run (``kind``: skill / workflow / agent / maint /
+loop / research_feed); :func:`run_scheduled_job` is the single dispatcher
 the worker calls, so the routing lives in exactly one place.
+
+Scheduled host-script execution is intentionally unsupported.  Schedule nodes
+are graph data and therefore an untrusted control-plane boundary; treating a
+``ref`` property as a local executable path would turn graph write access into
+host code execution.
 """
 
 from __future__ import annotations
@@ -28,8 +33,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import subprocess
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -47,18 +50,112 @@ _SCHEDULE_LABEL = "Schedule"
 # hammering the queue without an operator disabling it.
 _ADAPTIVE_MAX_BACKOFF_MULT = 16
 
+# A graph-carried schedule is untrusted input even when most schedules originate
+# from the packaged desired-state file.  Keep dispatch envelopes small and
+# restrict dynamic attribute lookup to the maintenance ticks registered by this
+# release.  Without the explicit allowlist, ``kind=maint`` could invoke any
+# future/private ``_tick_*`` method merely by writing a Schedule node.
+_MAX_SCHEDULE_PAYLOAD_BYTES = 64 * 1024
+_MAX_SCHEDULE_TEXT_BYTES = 32 * 1024
+_MAX_SCHEDULE_IDENTIFIER_BYTES = 128
+_SCHEDULE_KINDS = frozenset(
+    {"maint", "research_feed", "feed_sweep", "skill", "workflow", "agent", "script"}
+)
+_MAINTENANCE_REF_ALLOWLIST = frozenset(
+    {
+        "anomaly_consumer",
+        "compaction",
+        "enrichment",
+        "evolution",
+        "failure_ingest",
+        "file_watch",
+        "fleet_autoscale_reactive",
+        "fleet_autoscaler",
+        "fleet_reconciler",
+        "fuseki_publish",
+        "goal_sla",
+        "hygiene",
+        "kg_analysis",
+        "loop",
+        "optimize_components",
+        "package_install_ingest",
+        "reconcile_mirrors",
+        "sai_factory",
+        "tenant_gc",
+        "usage_log_sync",
+        "usage_pricing_refresh",
+        "warm_parent_reap",
+    }
+)
+
+
+def _bounded_schedule_string(value: Any, *, allow_empty: bool = True) -> bool:
+    """Return whether a control-plane string is bounded and contains no controls."""
+
+    if not isinstance(value, str):
+        return False
+    encoded = value.encode("utf-8", errors="strict")
+    if (not allow_empty and not encoded) or len(
+        encoded
+    ) > _MAX_SCHEDULE_IDENTIFIER_BYTES:
+        return False
+    return all(ord(char) >= 0x20 and char != "\x7f" for char in value)
+
+
+def _validate_schedule_payload(payload: Any) -> str | None:
+    """Validate a graph-carried dispatch envelope and return a stable reason code."""
+
+    if not isinstance(payload, dict):
+        return "invalid_payload"
+    try:
+        raw = json.dumps(payload, allow_nan=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError, UnicodeError):
+        return "invalid_payload"
+    if len(raw) > _MAX_SCHEDULE_PAYLOAD_BYTES:
+        return "payload_too_large"
+
+    kind = payload.get("kind", "skill")
+    if (
+        not _bounded_schedule_string(kind, allow_empty=False)
+        or kind not in _SCHEDULE_KINDS
+    ):
+        return "unsupported_kind"
+    for key in ("ref", "action", "name"):
+        if key in payload and not _bounded_schedule_string(payload[key]):
+            return "invalid_identifier"
+    for key in ("task", "description"):
+        value = payload.get(key)
+        if value is not None:
+            if (
+                not isinstance(value, str)
+                or len(value.encode("utf-8")) > _MAX_SCHEDULE_TEXT_BYTES
+            ):
+                return "invalid_text"
+    kwargs = payload.get("kwargs", {})
+    if not isinstance(kwargs, dict) or len(kwargs) > 64:
+        return "invalid_kwargs"
+    if any(
+        not _bounded_schedule_string(key, allow_empty=False) or key.startswith("__")
+        for key in kwargs
+    ):
+        return "invalid_kwargs"
+    return None
+
 
 def _control_backend(engine: Any) -> Any:
     """The engine's isolated control-plane backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
 
-    The scheduler operates on :Schedule and :Task nodes — the CONTROL plane —
-    which live on the dedicated ``__control__`` engine graph so they never
-    contend with sustained content ingestion on ``__commons__``'s write lock.
-    Returns ``engine.control_backend`` when present, else falls back to
-    ``engine.backend`` (unchanged behaviour where no isolated control backend
-    was built).
+    The scheduler operates on :Schedule nodes and WorkItems — the CONTROL plane —
+    through the configured native control authority. Missing control authority
+    is a hard configuration error; scheduler state may never spill into the
+    content backend.
     """
-    return getattr(engine, "control_backend", None) or getattr(engine, "backend", None)
+    control = getattr(engine, "control_backend", None)
+    if control is None:
+        raise RuntimeError("The scheduler requires the configured control authority")
+    return control
 
 
 def _registry_path() -> Path:
@@ -193,11 +290,11 @@ def _upsert(engine: Any, spec: ScheduleSpec) -> None:
     """Upsert a ``:Schedule`` node via the engine-native O(1)-by-id ``add_node``.
 
     PERF (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): a write-Cypher ``MATCH (s:Schedule {id: $id}) SET …``
-    forces the L1 engine to scan the whole graph to locate the node (no write-path
+    forces the native engine to scan the whole graph to locate the node (no write-path
     id index) — ~5s per call on the live graph. The scheduler upserts ~27 schedules
     every boot, so that scan-per-upsert blocked the single-threaded maintenance loop
     for minutes (contending with ingestion on the engine write lock) and the
-    scheduler/collapse/reaper effectively never ran. ``add_node`` is a direct,
+    scheduler/collapse tick effectively never ran. ``add_node`` is a direct,
     O(1)-by-id upsert that replaces the property blob — exactly what we want here,
     since ``spec.to_props()`` is the full desired state and callers
     (:func:`register_schedule`/:func:`seed_schedules`) already merge live runtime
@@ -338,8 +435,6 @@ def register_schedule(engine: Any, spec: ScheduleSpec) -> None:
 
 
 # ── Stale-tick collapse (CONCEPT:AU-OS.state.stale-tick-collapse) ────────────────────────────────────
-# The active statuses an un-consumed scheduler tick can hold.
-_ACTIVE_TICK_STATUSES = ("pending", "scheduled", "blocked")
 # The task types the scheduler enqueues for a due :Schedule. ``scheduled_job`` is
 # the default (maint lane); a schedule may pick its own to land in a dedicated lane
 # (CONCEPT:AU-KG.ontology.capability-card-backfill-lane, e.g. ``enrichment_backfill``). Both are interval ticks subject
@@ -366,44 +461,30 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     has ≤1 active tick it issues only the read probes and no writes. Best-effort —
     it must never raise into the scheduler tick.
 
-    CONCEPT:AU-KG.backend.schedule-on-control-graph — operates on :Task ticks via the CONTROL backend (the ticks
-    live on the isolated ``__control__`` graph); ``engine.query_cypher`` already
-    routes those :Task reads there too.
+    Operates only through ingestion WorkItems and native cancellation.
     """
-    backend = _control_backend(engine)
-    if backend is None:
-        return {"schedules_collapsed": 0, "cancelled": 0}
-    cas = getattr(backend, "compare_and_set_node_fields", None)
-    if not callable(cas):
-        return {"schedules_collapsed": 0, "cancelled": 0}
-    # Per-status reads return only ACTIVE ticks (a label+equality MATCH the L1
-    # transpiler supports), carrying each tick's id so we cancel by id — never the
-    # terminal-tick history.
     by_schedule: dict[str, list[str]] = {}
     # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — collapse every scheduler-enqueued tick TYPE, not just
     # ``scheduled_job``: a schedule can now land its tick in a dedicated lane via a
     # custom task type (e.g. ``enrichment_backfill`` for OWL card backfill), and
     # those interval ticks must also never accumulate a stale backlog.
-    for tkind in _SCHEDULED_TICK_TYPES:
-        for status in _ACTIVE_TICK_STATUSES:
-            try:
-                rows = engine.query_cypher(
-                    "MATCH (t:Task {tkind: $tkind, status: $status}) "
-                    "RETURN t.id AS id, t.schedule AS schedule",
-                    {"tkind": tkind, "status": status},
-                )
-            except Exception as e:  # noqa: BLE001 — probe failure ⇒ skip this cycle
-                logger.warning(
-                    "[OS-5.53] collapse read failed (tkind=%s status=%s): %s",
-                    tkind,
-                    status,
-                    e,
-                )
-                return {"schedules_collapsed": 0, "cancelled": 0}
-            for row in rows or []:
-                name, tid = (row or {}).get("schedule"), (row or {}).get("id")
-                if name and tid:
-                    by_schedule.setdefault(name, []).append(tid)
+    try:
+        work = engine._ingest_work_item_index()
+    except Exception as exc:  # noqa: BLE001 — scheduler reports a closed failure
+        logger.warning(
+            "[OS-5.53] WorkItem collapse read failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+        return {"schedules_collapsed": 0, "cancelled": 0}
+    for job_id, item in work.items():
+        meta = item.get("metadata") or {}
+        if meta.get("type") not in _SCHEDULED_TICK_TYPES:
+            continue
+        if item.get("status") not in {"submitted", "ready"}:
+            continue
+        name = meta.get("schedule")
+        if name:
+            by_schedule.setdefault(str(name), []).append(job_id)
     over = {name: ids for name, ids in by_schedule.items() if len(ids) > 1}
     logger.info(
         "[OS-5.53] collapse scan: active=%d schedules=%d over=%d",
@@ -415,7 +496,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
         return {"schedules_collapsed": 0, "cancelled": 0}
     # Cancel every active tick of an over-subscribed schedule by id via the
     # engine-native O(1) compare-and-set (CONCEPT:AU-KG.compute.user-override-prompt-library) — NOT a write-Cypher
-    # ``MATCH … SET`` (which forces an O(N) full-graph scan on L1 and, run per
+    # ``MATCH … SET`` (which forces an O(N) full-graph scan and, run per
     # (schedule, status), contended with ingestion on the engine write lock). The
     # due-evaluation that follows re-enqueues exactly one fresh tick per due
     # schedule, so a schedule keeps neither a stale tick nor a duplicate.
@@ -423,7 +504,7 @@ def collapse_stale_ticks(engine: Any) -> dict[str, Any]:
     for ids in over.values():
         for tid in ids:
             try:
-                if cas(tid, {}, {"status": "cancelled"}):
+                if engine.cancel_task(tid).get("status") == "success":
                     cancelled += 1
             except Exception:  # noqa: BLE001 — best-effort per tick
                 continue
@@ -447,8 +528,11 @@ def _is_due(spec: ScheduleSpec, now: datetime, now_unix: float) -> bool:
         try:
             if not cron_matches(spec.cron, now):
                 return False
-        except ValueError as e:
-            logger.warning("schedule %s: %s", spec.name, e)
+        except ValueError as exc:
+            logger.warning(
+                "schedule cron validation failed (exception_type=%s)",
+                type(exc).__name__,
+            )
             return False
         minute_key = int(now.replace(second=0, microsecond=0).timestamp())
         return spec.last_minute < minute_key
@@ -469,8 +553,10 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     if not getattr(engine, "_schedules_seeded", False):
         try:
             seed_schedules(engine)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("schedule seed failed: %s", e)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "schedule seed failed (exception_type=%s)", type(exc).__name__
+            )
         engine._schedules_seeded = True
 
     # Curb/recover any duplicate interval-tick backlog before evaluating due
@@ -478,8 +564,10 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     # tick; never raises into the tick.
     try:
         collapse_stale_ticks(engine)
-    except Exception:  # noqa: BLE001
-        logger.debug("collapse_stale_ticks failed", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "collapse_stale_ticks failed (exception_type=%s)", type(exc).__name__
+        )
 
     now = now or datetime.now()
     now_unix = time.time()
@@ -505,17 +593,13 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         # unbounded backlog of duplicate ticks (one per due-minute, per schedule).
         # Cheap top-level ``schedule``-property probe (not the O(N) metadata
         # dedupe scan). (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
-        try:
-            pend = engine.query_cypher(
-                "MATCH (t:Task) WHERE t.schedule = $name AND t.status IN "
-                "['pending', 'running', 'scheduled', 'blocked'] "
-                "RETURN count(t) AS n",
-                {"name": spec.name},
-            )
-            if pend and int((pend[0] or {}).get("n", 0) or 0) > 0:
-                continue  # an un-consumed tick is already queued
-        except Exception:  # noqa: BLE001 — best-effort; fall through to enqueue
-            pass
+        work = engine._ingest_work_item_index()
+        if any(
+            (item.get("metadata") or {}).get("schedule") == spec.name
+            and item.get("status") not in {"succeeded", "failed", "cancelled", "dead_letter"}
+            for item in work.values()
+        ):
+            continue
         job_id = f"sched:{spec.name}:{minute_key}"
         try:
             engine.submit_task(
@@ -532,20 +616,66 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 extra_meta={"schedule": spec.name, "payload": spec.payload},
             )
             fired.append(spec.name)
-        except Exception as e:  # noqa: BLE001
-            logger.error("schedule %s enqueue error: %s", spec.name, e)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "schedule enqueue failed (exception_type=%s)", type(exc).__name__
+            )
     if fired:
-        logger.info("scheduler fired: %s", fired)
+        logger.info("scheduler fired schedule(s) (count=%d)", len(fired))
     logger.info("[OS-5.44] scheduler tick: end (fired=%d)", len(fired))
     return {"fired": fired, "count": len(fired)}
 
 
-def record_schedule_result(engine: Any, name: str, ok: bool) -> None:
+def _job_outcome(status: str | None, ok: bool) -> str:
+    """Bounded outcome label (ok|failed|skipped) for the per-job metric (CONCEPT:AU-OS.observability.no-op-without-metrics)."""
+    if status == "skipped":
+        return "skipped"
+    return "ok" if ok else "failed"
+
+
+def _record_job_metrics(
+    name: str, ok: bool, status: str | None, duration_s: float | None
+) -> None:
+    """Per-job outcome counter + duration histogram (Phase-0 daemon telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics).
+
+    Reuses the existing ``observability/gateway_metrics`` Prometheus registry —
+    default-on where the optional ``metrics`` extra is configured, a no-op
+    otherwise. Best-effort: telemetry must never break scheduling.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            SCHEDULED_JOB_DURATION,
+            SCHEDULED_JOB_RUNS,
+        )
+
+        outcome = _job_outcome(status, ok)
+        SCHEDULED_JOB_RUNS.labels(schedule=name, outcome=outcome).inc()
+        if duration_s is not None:
+            SCHEDULED_JOB_DURATION.labels(schedule=name).observe(duration_s)
+    except Exception as exc:  # noqa: BLE001 — telemetry is best-effort, never fatal
+        logger.debug(
+            "schedule metrics recording failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
+def record_schedule_result(
+    engine: Any,
+    name: str,
+    ok: bool,
+    *,
+    duration_s: float | None = None,
+    status: str | None = None,
+) -> None:
     """Update a schedule's failure backoff after its job ran (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
 
     Called by the worker after ``run_scheduled_job`` so an ``adaptive`` schedule
     widens its interval on repeated failure and a failing job is throttled.
+    Also emits the per-job outcome/duration telemetry (Phase-0 daemon
+    telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics) — ``duration_s``/``status`` are optional so
+    existing callers are unaffected.
     """
+    _record_job_metrics(name, ok, status, duration_s)
     spec = _load_one(engine, name)
     if spec is None:
         return
@@ -598,15 +728,32 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute one scheduled job's payload — the worker calls this.
 
     The single dispatcher for every recurring job, routed by ``payload['kind']``
-    so the routing lives in exactly one place (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent).
+    so the routing lives in exactly one place (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent). Times the
+    dispatch and stamps the result with ``duration_s`` (Phase-0 daemon
+    telemetry, CONCEPT:AU-OS.observability.no-op-without-metrics) so :func:`record_schedule_result` can emit
+    per-job duration telemetry — purely additive, every other key in the
+    returned dict is unchanged.
     """
+    start = time.perf_counter()
+    result = _dispatch_scheduled_job(engine, payload)
+    result["duration_s"] = time.perf_counter() - start
+    return result
+
+
+def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """The routing body of :func:`run_scheduled_job` at the untrusted graph boundary."""
+    invalid_reason = _validate_schedule_payload(payload)
+    if invalid_reason is not None:
+        return {"status": "error", "reason": invalid_reason}
     kind = payload.get("kind", "skill")
     if kind == "maint":
         # A former fixed-interval maintenance tick: an engine ``_tick_<ref>`` method.
         ref = payload.get("ref", "")
+        if ref not in _MAINTENANCE_REF_ALLOWLIST:
+            return {"status": "skipped", "reason": "maintenance_not_allowed"}
         tick = getattr(engine, f"_tick_{ref}", None)
-        if tick is None:
-            return {"status": "skipped", "reason": f"no_maint_tick:{ref}"}
+        if not callable(tick):
+            return {"status": "skipped", "reason": "maintenance_unavailable"}
         tick()
         return {"status": "ok"}
     if kind in ("research_feed", "feed_sweep"):
@@ -647,17 +794,10 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
             return run_writeback(ref, backend=backend, engine=engine, dry_run=False)
         return {"status": "skipped", "reason": "no_handler"}
     if kind == "script":
-        ref = payload.get("ref", "")
-        res = subprocess.run(  # noqa: S603
-            [sys.executable, ref, *map(str, payload.get("args", []))],
-            capture_output=True,
-            text=True,
-            timeout=payload.get("timeout", 600),
-        )
-        return {
-            "status": "ok" if res.returncode == 0 else "error",
-            "rc": res.returncode,
-        }
+        # Retired security boundary: graph data must never select a host path to
+        # execute.  Use a governed skill/workflow handler backed by an isolated
+        # runtime instead.
+        return {"status": "skipped", "reason": "host_script_execution_retired"}
     if kind in ("workflow", "agent"):
         try:
             import asyncio
@@ -669,9 +809,11 @@ def run_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
             )
             asyncio.get_event_loop().run_until_complete(coro)
             return {"status": "ok"}
-        except Exception as e:  # noqa: BLE001
-            return {"status": "error", "reason": str(e)}
-    return {"status": "skipped", "reason": f"unknown_kind:{kind}"}
+        except Exception as exc:  # noqa: BLE001
+            from agent_utilities.security.error_surface import public_error_payload
+
+            return public_error_payload(exc, logger=logger)
+    return {"status": "skipped", "reason": "unsupported_kind"}
 
 
 # ── Runtime control — enable/disable/reprioritize/retune, surfaced via MCP + REST (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
@@ -684,7 +826,7 @@ def set_enabled(engine: Any, name: str, enabled: bool) -> dict[str, Any]:
     return {"status": "success", "name": name, "enabled": enabled}
 
 
-def set_priority(engine: Any, name: str, priority: int | str) -> dict[str, Any]:
+def set_priority(engine: Any, name: str, priority: int) -> dict[str, Any]:
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
 
     spec = _load_one(engine, name)

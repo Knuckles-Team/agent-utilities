@@ -137,5 +137,5 @@ def test_available_embedder_returns_real_multidim_vectors(monkeypatch):
     _install(monkeypatch, fake, capacity=1)
     out = make_embed_fn(batch_size=4)(["hello world"])
     assert len(out) == 1
-    assert len(out[0]) > 1  # real embedding, NOT the 1-dim [0.0] stub
+    assert len(out[0]) > 1  # real embedding, NOT the 1-dim [0.0] degenerate fallback
     assert out[0] != [0.0]

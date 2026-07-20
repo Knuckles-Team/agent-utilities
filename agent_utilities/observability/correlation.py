@@ -40,10 +40,6 @@ TENANT_HEADER = "x-tenant-id"
 ACTOR_HEADER = "x-actor-id"
 
 
-def _hex(n: int) -> str:
-    return uuid.uuid4().hex[:n].ljust(n, "0")
-
-
 def get_correlation_id() -> str | None:
     """Return the current run-wide correlation id, if any."""
     return _correlation_id.get()

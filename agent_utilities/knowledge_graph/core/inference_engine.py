@@ -30,7 +30,7 @@ class InferenceEngine:
         (the uppercased relationship-type slot); older writers used ``type``.
         """
         if isinstance(props, dict):
-            return str(props.get("rel_type") or props.get("type") or "")
+            return str(props.get("relationship") or "")
         return ""
 
     def run_inference(self) -> int:
@@ -152,10 +152,10 @@ class InferenceEngine:
         # backend, and also as a fall-through when the Cypher rules produced
         # nothing — the epistemic-graph backend cannot evaluate multi-hop
         # ``MATCH (a)-[:R]->(b)-[:R]->(c)`` path patterns, so transitive rules
-        # must be derived by traversing the resident L0 graph directly.
+        # must be derived by traversing the native graph directly.
         if not self.engine.backend or new_inferences == 0:
             logger.info(
-                "InferenceEngine (GCE Fallback): Running topological inference."
+                "InferenceEngine: running native topological inference."
             )
 
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

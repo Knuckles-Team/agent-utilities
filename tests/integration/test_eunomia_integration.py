@@ -1,28 +1,42 @@
-import pytest
-from eunomia_mcp import create_eunomia_middleware
-from eunomia_sdk import EunomiaClient
+"""Opt-in live validation for an operator-configured Eunomia service."""
 
-# Every test here talks to a real remote Eunomia server (http://eunomia.arpa) — a live
-# external service, absent in CI/sandbox — so exclude from the default `-m "not live"` run.
+import pytest
+from eunomia_core import schemas
+
 pytestmark = pytest.mark.live
 
 
-def test_eunomia_client_connection():
-    """Verify that we can connect to the running Eunomia remote server and list policies."""
-    client = EunomiaClient(endpoint="http://eunomia.arpa")
-    policies = client.get_policies()
-    assert len(policies) > 0, "No policies found in remote Eunomia server"
+@pytest.mark.asyncio
+async def test_runtime_configured_eunomia_decision_point():
+    from agent_utilities.core.config import setting
 
-    # Check that at least one policy matches the standard naming convention
-    mcp_policies = [p for p in policies if p.name.endswith("-mcp-policy")]
-    assert len(mcp_policies) > 0, "No MCP policies found on Eunomia server"
+    endpoint = setting("EUNOMIA_TEST_URL")
+    if not endpoint:
+        pytest.skip("EUNOMIA_TEST_URL is not configured")
 
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
 
-def test_eunomia_middleware_creation():
-    """Verify that the Eunomia middleware can be instantiated with remote config."""
-    middleware = create_eunomia_middleware(
-        policy_file=None,
-        use_remote_eunomia=True,
-        eunomia_endpoint="http://eunomia.arpa",
+    api_key_ref = (
+        "env://EUNOMIA_TEST_API_KEY"
+        if setting("EUNOMIA_TEST_API_KEY")
+        else None
     )
-    assert middleware is not None, "Failed to create remote Eunomia middleware"
+    middleware = create_eunomia_middleware(
+        use_remote_eunomia=True,
+        eunomia_endpoint=endpoint,
+        api_key_ref=api_key_ref,
+        require_verified_principal=True,
+    )
+    response = await middleware._eunomia.check(
+        schemas.CheckRequest(
+            principal=schemas.PrincipalCheck(
+                uri="agent:integration-probe", attributes={"jwt_verified": True}
+            ),
+            resource=schemas.ResourceCheck(
+                uri="mcp:tool:integration-probe",
+                attributes={"component_type": "tool", "name": "integration-probe"},
+            ),
+            action="list",
+        )
+    )
+    assert isinstance(response, schemas.CheckResponse)

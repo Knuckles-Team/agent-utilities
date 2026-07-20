@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.MEDIA
     description = "Download client — torrents, speed, and transfer stats"
     env_prefix = "QBITTORRENT"
-    default_url = "https://qbittorrent.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -47,7 +46,7 @@ class Widget(BaseWidget):
             torrents = client.list_torrents() or []
             transfer = client.get_transfer_info() or {}
         except Exception as e:
-            logger.debug("qBittorrent fetch: %s", e)
+            logger.debug("qBittorrent fetch: %s", type(e).__name__)
             torrents = []
             transfer = {}
 

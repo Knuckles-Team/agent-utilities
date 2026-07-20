@@ -19,6 +19,8 @@ Two jobs, one place:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from typing import Any
 
@@ -110,8 +112,8 @@ def scholarx_feed_documents(
 
 # ── First-class feed registry (presets → KG, CONCEPT:AU-KG.compute.first-class-rss-atom) ───────────────
 def _feed_node_id(source_system: str, key: str) -> str:
-    safe = str(key).replace(":", "-").replace("/", "-")
-    return f"feed:{source_system}:{safe[:160]}"
+    digest = hashlib.sha256(str(key).encode("utf-8")).hexdigest()[:32]
+    return f"feed:{source_system}:{digest}"
 
 
 def upsert_feed_source(
@@ -139,10 +141,25 @@ def upsert_feed_source(
         "kind": kind,
     }
     stamp_source(props, source_system)
-    try:
-        engine.add_node(node_id, _FEED_LABEL, properties=props)
-    except Exception as e:  # noqa: BLE001 — registry write is best-effort
-        logger.debug("upsert_feed_source failed for %s: %s", node_id, e)
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_envelope,
+    )
+
+    record = {"id": node_id, "type": _FEED_LABEL, **props}
+    record["updatedAt"] = hashlib.sha256(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    env = ChangeEnvelope.from_connector_record(
+        record,
+        connector=source_system,
+        id_field="id",
+        version_field="updatedAt",
+        source_acl=ExternalAccess.public(),
+    )
+    applied = ingest_envelope(engine, env)
+    if applied.get("status") not in {"success", "skipped"}:
+        raise RuntimeError("native FeedSource ChangeEnvelope failed")
     return node_id
 
 
@@ -187,18 +204,20 @@ def register_feed_nodes(
 
 def remove_feed_source(engine: Any, *, key: str, source_system: str = "rss") -> bool:
     """Tombstone a registered feed by its url/key (CONCEPT:AU-KG.compute.first-class-rss-atom). Best-effort."""
-    backend = getattr(engine, "backend", None)
-    if backend is None:
-        return False
     node_id = _feed_node_id(source_system, key)
-    try:
-        backend.execute(
-            "MATCH (f:FeedSource {id: $id}) DETACH DELETE f", {"id": node_id}
-        )
-        return True
-    except Exception as e:  # noqa: BLE001
-        logger.debug("remove_feed_source failed for %s: %s", node_id, e)
-        return False
+    from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        ingest_envelope,
+    )
+
+    env = ChangeEnvelope(
+        connector=source_system,
+        operation="delete",
+        source_object_id=node_id,
+        source_version="deleted",
+    )
+    applied = ingest_envelope(engine, env)
+    return applied.get("status") in {"success", "skipped"}
 
 
 def list_feed_sources(engine: Any) -> list[dict[str, Any]]:

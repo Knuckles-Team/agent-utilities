@@ -104,8 +104,8 @@ The engine extracts security-relevant targets from tool arguments by key name:
 |---|---|---|
 | `path`, `filepath` | Filesystem path | `/etc/passwd` |
 | `dir`, `directory` | Directory path | `/var/run/docker` |
-| `host`, `hostname` | Network host | `admin.internal.corp` |
-| `url` | URL | `https://production_db.corp/api` |
+| `host`, `hostname` | Network host | `admin.example.test` |
+| `url` | URL | `https://policy-target.example.test/api` |
 | `db`, `database` | Database name | `production_db` |
 | `table` | Database table | `admin_users` |
 
@@ -176,8 +176,8 @@ blocked = check_ontological_guardrails(
 ```
 
 ## Implementation Details
-- **Source Code**: [`tool_guard.py`](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/security/tool_guard.py) (314 lines)
+- **Source Code**: [`tool_guard.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/tool_guard.py) (314 lines)
 - **Function**: `check_ontological_guardrails()`
-- **Tests**: [`test_synergies.py`](file:///home/apps/workspace/agent-packages/agent-utilities/tests/unit/knowledge_graph/test_synergies.py)
+- **Tests**: [`test_synergies.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/tests/unit/knowledge_graph/test_synergies.py)
 - **Pillar**: OS
 - **Dependencies**: `pydantic-ai` (ApprovalRequiredToolset), KG engine (optional)

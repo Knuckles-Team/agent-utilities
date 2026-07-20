@@ -1,215 +1,223 @@
-# Enterprise Enablement Runbook — turning the built platform on
+# Enterprise enablement runbook
 
-> **Why this exists.** The enterprise scale-out and autonomy capabilities are **already
-> built and merged**, but they ship **off by default** so the zero-infra laptop
-> experience stays byte-for-byte unchanged. Getting to "running enterprise agent OS" is
-> therefore an **operational** sequence — push → deploy → enable flags under a chosen
-> autonomy posture — not an engineering project. This runbook is that sequence.
+This runbook enables the current enterprise deployment posture in a deliberate
+order: publish, establish identity and transport security, externalize state,
+scale the engine, and then enable governed autonomy.
 
-Each stage is independently reversible (unset the flag → previous behavior). Enable them
-**in order**: security first (so multi-tenant is safe before you scale it), then state
-externalization (so the stateless tiers can multiply), then sharding, then the brain,
-then autonomy. Verify each stage before the next.
+## Configuration boundary
 
----
+Keep deployment state outside the source tree:
 
-## Stage A — Publish (push the locally-merged work)
+- Store non-secret settings and runtime references in
+  `$XDG_CONFIG_HOME/agent-utilities/config.json`.
+- Resolve `secret://`, `vault://`, or `env://` references through the configured
+  secret provider at process start. The reference name is stable; the resolved
+  value is never written to AgentConfig, logs, traces, or reports.
+- Fields that consume resolved connection material, including `STATE_DB_URI` and
+  a distributed engine's HMAC secret, must be injected into process memory by the
+  deployment secret resolver. Do not mirror them into a repository `.env` file.
+- Store CA bundles, client certificates, server names, and verification policy in
+  reusable TLS profiles. Reference those profiles from AgentConfig; never disable
+  verification in application code.
+- Keep host inventory, placement, and provider-specific secret paths in the
+  operator's external deployment system.
 
-Everything is merged to local `main` across the repos but **not pushed**. Releases MUST
-use the phased path so dependents never build before an upstream version is on PyPI.
-
-```bash
-# from the workspace-validator / repository-manager
-auto_push --phased            # waits per workspace.yml: each dep phase's CI → PyPI → next
-```
-
-- **Do not** bare-`git push` every repo at once — that races publish order (dependents
-  build against a not-yet-published upstream version).
-- Order is driven by `workspace.yml` dependency phases; `agent-utilities` and
-  `epistemic-graph` publish before the connector/surface repos that depend on them.
-- **Verify:** each phase's CI is green and the new version is visible on PyPI / the image
-  is on the registry before the next phase starts.
-
-## Stage B — Deploy the engine + gateway
-
-1. **Swap the `epistemic-graph` engine binary** on the canonical host and restart the
-   daemon. The new binary **refuses an empty auth secret** — set
-   `GRAPH_SERVICE_AUTH_SECRET` (or the gateway mints/sets it) *before* restart or the
-   engine will not start.
-2. **Restart the gateway** (`python -m agent_utilities`) so it picks up the new
-   `agent_utilities` release and middleware (identity, rate-limit, metrics).
-3. **Verify:** `GET /metrics` returns `agent_utilities_*` series; the engine answers a
-   `graph_query` over the socket; `multiplexer_status` is healthy.
-
-## Stage C — Security gate (enable FIRST of the flags) — OS-5.14
-
-This is the 06-10 review's #1 blocker. The platform supports exactly **one trust domain**
-until these are on.
-
-| Flag | Effect |
-|---|---|
-| `GRAPH_SERVICE_AUTH_SECRET` | HMAC engine auth (already required by the new binary) |
-| `KG_AUTH_REQUIRED=true` | gateway rejects unauthenticated requests with 401 |
-| `KG_AUTH_TOKEN` / JWKS (`auth_jwt_jwks_uri`, `auth_jwt_issuer`, `auth_jwt_audience`) | server mints `ActorContext` from a validated JWT |
-| `KG_ACL_DEFAULT_ALLOW=false` | permission checks **fail closed** |
-
-- **Verify:** an unauthenticated request → 401; a request with a valid JWT scopes to the
-  right tenant; a cross-tenant read is denied (not silently allowed).
-
-## Stage D — Externalize state (multiply stateless tiers) — AU-OS.state.unified-durable-state-externalization–18, AU-KG.ingest.cross-host-safe-kg
+Run the identity and transport preflight before starting a graph surface:
 
 ```bash
-export STATE_DB_URI=postgresql://agent:agent@pg-age.arpa:5432/agent_kg
+agent-utilities doctor --only config auth secrets transport_security graph_connections
 ```
 
-Moves durable-execution checkpoints, sessions/turns/goals, and the KG task queue off
-per-host SQLite onto shared Postgres — with `SKIP LOCKED` queue claims and advisory-lock
-daemon leadership (singleton ticks run on exactly one host). Now you can run **N gateway
-replicas** behind Caddy and they share state.
+## Stage A — Publish in dependency order
 
-- **Verify:** two gateway replicas claim queue items without double-processing; kill the
-  leader → another host acquires the advisory lock and resumes background ticks; a
-  running goal rehydrates as `orphaned` (not lost) after a restart.
-
-## Stage E — Shard the engines (scale the graph) — AU-KG.sharding.tenant-partitioned-sharding-hrw / AU-OS.scaling.shard-topology-visibility-per
+Use repository-manager with the ecosystem `workspace.yml` so upstream packages
+publish before their consumers:
 
 ```bash
-export GRAPH_SERVICE_ENDPOINTS=unix:///run/eg-0.sock,unix:///run/eg-1.sock,unix:///run/eg-2.sock
+auto_push --phased
 ```
 
-With 2+ endpoints, clients route each named graph to its owning shard via HRW
-(rendezvous) hashing. Use the `docker/engine-shards.compose.yml` 3-shard recipe.
+Verify each dependency phase before advancing. The workspace manifest, rather than
+machine-specific paths or a handwritten repository list, defines the order.
 
-- **Verify:** the gateway `daemon/shards` route shows all shards reachable; a query to a
-  graph lands on its owning shard; an unreachable shard fails loud (not silent).
+## Stage B — Establish identity and secure transport
 
-## Stage F — Company Brain (governed retrieval) — KG_BRAIN_ENFORCE
+Configure one client identity mode and the server JWT policy in XDG AgentConfig.
+This neutral shape illustrates the boundary; substitute runtime-discovered service
+names and operator-owned reference identifiers:
 
-```bash
-export KG_BRAIN_ENFORCE=true
+```json
+{
+  "GRAPH_SERVICE_ENDPOINTS": ["tls://engine.example.invalid:9100"],
+  "ENGINE_TLS_PROFILE_REF": "secret://tls/engine-client-profile",
+  "KG_IDENTITY_OAUTH2": {
+    "token_url": "https://identity.example.invalid/oauth2/token",
+    "client_id": "graph-client",
+    "client_secret": "secret://identity/graph-client-secret",
+    "audience": "graph-services"
+  },
+  "AUTH_JWT_JWKS_URI": "https://identity.example.invalid/.well-known/jwks.json",
+  "AUTH_JWT_AUDIENCE": "graph-services",
+  "KG_POLICY_VERSION": "current"
+}
 ```
 
-Turns on the 6-layer brain: source-authority conflict resolution with trust decay,
-field-level survivorship, data-level ACLs + tenant scoping + read audit, and the
-human-correction → durable rule → eval feedback loop. **Off, the brain is legacy
-byte-for-byte** — so enable only after Stage C (identity) is verified.
+`KG_AUTH_TOKEN_REF` is the alternative for deployments that issue a governed static
+runtime token. Configure exactly one of `KG_AUTH_TOKEN_REF` and
+`KG_IDENTITY_OAUTH2`. Missing identity, invalid JWTs, absent ACL infrastructure,
+and ambiguous engine placement fail closed.
 
-- **Verify:** conflicting source values resolve to the higher-trust source; an ACL-marked
-  field is dropped for an unauthorized reader; a human correction persists as a rule.
+For a supervised local engine, AgentConfig may omit `GRAPH_SERVICE_ENDPOINTS`; the
+packaged engine and its per-install authentication material are managed under the
+XDG runtime/data boundary. A distributed engine receives its shared authentication
+material from the deployment secret resolver at launch.
 
-## Stage G — Autonomy loops (under an ActionPolicy posture) — AU-AHE.harness.failure-evolution–21, AU-OS.config.fleet-event-ingress/5.24–29
+Verify that unauthenticated access is rejected, valid identities resolve the intended
+tenant, cross-tenant reads are denied, and every remote certificate chains through
+the selected TLS profile.
 
-The control plane is built; these flags let it *act*. **Gate everything mutating through
-an ActionPolicy posture** — start locked-down, graduate deliberately.
+## Stage C — Deploy the engine and surfaces
 
-1. **Choose a posture** (`examples/action-policies/`): `locked-down.yml` (approve
-   everything) → `supervised.yml` (auto-notify, human-approves mutations) →
-   `scoped-autonomous.yml` (auto within blast-radius caps + rate limits + windows). The
-   shipped `deploy/action-policy.default.yml` requires approval for everything mutating.
-2. **Wire monitoring in:** point alertmanager / uptime-kuma / Portainer webhooks at
-   `POST /api/fleet/events` so the pull-only monitoring stack becomes a wake-up source.
-3. **Enable the propose-only learning loops** (still off by default):
-   ```bash
-   export KG_LOOP=true            # research assimilation tick (propose-only)
-   export KG_FAILURE_EVOLUTION=true      # Langfuse-failure-driven remediation (propose-only)
-   ```
-   These publish reviewable **local branches** via the ActionPolicy-gated `ChangePublisher`
-   — **never auto-pushed**. Auto-merge stays off.
-4. **Optional, later:** `AGENT_DISPATCH_BACKEND=queue` (session-keyed dispatch, ORCH-1.45)
-   and `TASK_QUEUE_BACKEND=kafka` (fail-loud ingest scale-out, KG-2.55–57) once the queue
-   infra is deployed.
+Deploy pinned artifacts through the operator-owned orchestrator, then start only the
+surfaces required by the topology:
 
-- **Verify:** a synthetic unhealthy-service event ingests as a `FleetEvent`; the
-  reconciler proposes (dry-run) a remediation; the ActionPolicy decision is recorded and
-  requires approval under the chosen posture; a golden-loop tick produces a proposal
-  branch, not a push.
+- `graph-os` for MCP and fleet delegation;
+- `graph-os-daemon` for a headless KG host without an HTTP API;
+- `python -m agent_utilities` for the REST/API gateway.
 
-## Stage H — Deploy the semantic plane (ontology-driven, optional) — KG-2.52
+Hot-swap one compatible deployment unit at a time behind health checks. Verify
+metrics, an authenticated graph query, multiplexer health, and a clean doctor report
+before advancing.
 
-Turn on the Fuseki publish tick (`KG_FUSEKI_PUBLISH` + a Fuseki dataset with OWL-mini
-inference) so the authoritative TBox is SPARQL-queryable by every agent via jena-mcp, and
-`graph_orchestrate(action="compile_process")` lifts descriptive processes into executable
-plans against it.
+## Stage D — Externalize durable state
 
-- **Verify:** the published TBox answers a SPARQL query in Fuseki; a harvested
-  `BusinessProcess` compiles to a `WorkflowDefinition` with a `REALIZES` edge.
+For multi-host gateways, configure the secret provider to inject the resolved
+PostgreSQL DSN as `STATE_DB_URI` at process start. The DSN is secret material and is
+not an AgentConfig literal. Non-secret pool controls remain in XDG AgentConfig:
 
----
-
-## Rollback
-
-Every stage is a flag. To revert a stage, unset its flag(s) and restart the affected tier;
-behavior returns to the prior stage. The only ordering constraint on rollback is the
-inverse of enablement (disable autonomy before brain before sharding before state before
-security) so you never widen blast radius while a higher layer is still trusting it.
-
-## Reference
-
-- Per-flag inventory & audit: [docs/architecture/configuration.md](../architecture/configuration.md)
-- Postures: `examples/action-policies/{locked-down,supervised,scoped-autonomous}.yml`
-- Scale-out deep dives: [state_externalization](../architecture/state_externalization.md) ·
-  [engine_sharding](../architecture/engine_sharding.md) ·
-  [fleet_autonomy](../architecture/fleet_autonomy.md) ·
-  [gateway_scaling](../architecture/gateway_scaling.md)
-- Thin/scalable frontends: [scalable-frontends.md](scalable-frontends.md)
-
----
-
-## Where each flag and secret lives
-
-Three homes, by kind:
-
-- **Secrets** (engine HMAC secret, the state-DB DSN with credentials) → **OpenBao**,
-  `kv2` mount `apps/`, path **`apps/agent-utilities/deployment`**. Mirrored into the
-  gitignored deployment `.env`. Pull at runtime by setting `SECRETS_BACKEND=vault` +
-  `SECRETS_VAULT_URL=http://openbao.arpa` + `SECRETS_VAULT_MOUNT=apps`.
-- **Flags / endpoints** (non-secret booleans + URIs) → the deployment **`.env`**
-  (`agent-utilities/.env`, gitignored) or the XDG `config.json` key.
-- **Defaults** → `agent_utilities/core/config.py` (`AgentConfig`).
-
-| Capability | Env / config key | Default | Secret? (OpenBao key) | Auto-config |
-|---|---|---|---|---|
-| Engine HMAC auth | `GRAPH_SERVICE_AUTH_SECRET` | unset | **yes** (`GRAPH_SERVICE_AUTH_SECRET`) | engine refuses empty |
-| Request auth (OS-5.14) | `KG_AUTH_REQUIRED` | `false` | no | **auto-on** when `AUTH_JWT_ISSUER`/`AUTH_JWT_JWKS_URI` set |
-| Fail-closed ACL | `KG_ACL_DEFAULT_ALLOW` | `false` | no | deny-by-default |
-| Shared state (AU-OS.state.unified-durable-state-externalization) | `STATE_DB_URI` | unset | **yes** (`STATE_DB_URI`) | uses Postgres when set, else SQLite |
-| Sharding (AU-KG.sharding.tenant-partitioned-sharding-hrw) | `GRAPH_SERVICE_ENDPOINTS` | unset | no | 2+ endpoints → HRW sharding |
-| Company Brain | `KG_BRAIN_ENFORCE` | `false` | no | explicit |
-| Loop engine | `KG_LOOP` | `false` | no | explicit (propose-only) |
-| Failure evolution | `KG_FAILURE_EVOLUTION` | `false` | no | explicit (propose-only) |
-| Queue dispatch | `AGENT_DISPATCH_BACKEND` | `inline` | no | explicit |
-| Kafka ingest | `TASK_QUEUE_BACKEND` | unset | no | fail-loud when set |
-| Fuseki publish (KG-2.52) | `KG_FUSEKI_PUBLISH` | `false` | no | **auto-on** when `KG_FUSEKI_ENDPOINT`/`JENA_FUSEKI_URL` set |
-| Thin frontend | `KG_DAEMON_ROLE` | `auto` (host) | no | `client` → reach shared host |
-
-### Configure-by-default (and how to opt out)
-
-Two flags **engage automatically once their deployment dependency is configured**, so a
-real deployment does not have to remember a second knob — while the zero-infra laptop
-default stays byte-for-byte unchanged (no dependency → nothing turns on). This is the
-`AgentConfig` model validator `_auto_enable_from_dependencies` (`core/config.py`):
-
-- Configure a JWT issuer/JWKS → **`KG_AUTH_REQUIRED` engages**. Opt out with an explicit
-  `KG_AUTH_REQUIRED=false` (an explicit value always wins — it lands in `model_fields_set`).
-- Configure a Fuseki endpoint → **`KG_FUSEKI_PUBLISH` engages**. Opt out with `KG_FUSEKI_PUBLISH=false`.
-
-### Storing / rotating the secrets
-
-Write or rotate a secret in OpenBao, then mirror it into the deployment `.env`:
-
-```bash
-TOKEN=$(grep BAO_ROOT_TOKEN services/openbao/.env | cut -d= -f2)
-# read current deployment secrets
-curl -s -H "X-Vault-Token: $TOKEN" \
-  http://openbao.arpa/v1/apps/data/agent-utilities/deployment | jq '.data.data | keys'
-# rotate the engine secret
-curl -s -X POST -H "X-Vault-Token: $TOKEN" \
-  -d '{"data":{"GRAPH_SERVICE_AUTH_SECRET":"<new>","STATE_DB_URI":"<dsn>"}}' \
-  http://openbao.arpa/v1/apps/data/agent-utilities/deployment
+```json
+{
+  "STATE_DB_POOL_SIZE": 8,
+  "TASK_QUEUE_BACKEND": "postgres"
+}
 ```
 
-> **Local dev vs deployment.** The local/laptop instance resolves its config from the
-> *workspace* path and stays zero-infra; the per-repo `agent-utilities/.env` is the
-> *deployment* config (read when agent-utilities runs from its own directory or a
-> container). Keeping auth/secrets in the deployment `.env` + OpenBao therefore does not
-> arm the local dev instance — exactly the configure-by-default / opt-out split.
+This externalizes session/turn/fleet metadata and queue-delivery state. It does
+not move execution checkpoints or create a second goal lifecycle: the
+engine-native WorkItem remains authoritative for claim, lease, fencing,
+`checkpoint_id`, idempotency, and terminal result. Verify that two gateway
+replicas cannot process the same delivery claim, leadership moves after a
+replica exits, and an interrupted WorkItem resumes only through its current
+native lease.
+
+## Stage E — Scale engine authority
+
+Clients contact a stable coordinator and never infer placement from endpoint names:
+
+```json
+{
+  "GRAPH_SERVICE_ENDPOINTS": ["tls://engine.example.invalid:9100"],
+  "ENGINE_TLS_PROFILE_REF": "secret://tls/engine-client-profile"
+}
+```
+
+If a deployment exposes Raft groups separately, add the strict
+`GRAPH_RAFT_GROUP_ENDPOINTS` map generated from the external placement inventory.
+The coordinator remains authoritative for graph ownership, epochs, and fences.
+Unreachable or ambiguous authority fails closed.
+
+Verify coordinator health, route a graph to its authoritative group, and confirm
+that a failed group produces an explicit error rather than a local substitute.
+
+## Stage F — Verify governed retrieval
+
+The Company Brain boundary applies source-authority arbitration, confidence decay,
+field-level survivorship, tenant scoping, data ACLs, read audit, and durable human
+corrections. Identity from Stage B is mandatory.
+
+Verify a source conflict, an ACL-protected field, and a human correction end to end.
+
+## Stage G — Enable propose-only learning and autonomy
+
+Start with the locked-down ActionPolicy and graduate only after recorded approvals
+and failure drills. Keep mutation, development, and merge gates review-first:
+
+```json
+{
+  "KG_LOOP": true,
+  "KG_LOOP_BREADTH": true,
+  "KG_LOOP_MINE_DISCOVERY": true,
+  "KG_LOOP_BELIEF_REVISION": true,
+  "KG_LOOP_INSIGHT_VALIDATION": true,
+  "KG_LOOP_TRACE_MINING": true,
+  "KG_OPTIMIZATION_ENABLED": true,
+  "ENABLE_OTEL": true,
+  "TRACE_EXPORT_ENABLED": true,
+  "LANGFUSE_CAPTURE_CONTENT": false,
+  "KG_FAILURE_REGRESSION_DATASET": false,
+  "KG_GOLDEN_AUTO_MERGE": false,
+  "KG_AGENT_AUTO_APPLY": false,
+  "KG_LOOP_AUTO_DEVELOP": false,
+  "KG_INSIGHT_AUTONOMY": false
+}
+```
+
+Configure Langfuse with `LANGFUSE_PUBLIC_KEY_REF`, `LANGFUSE_SECRET_KEY_REF`, and
+`LANGFUSE_TLS_PROFILE_REF`. When both credential references resolve, the Langfuse
+MCP child and propose-only failure evolution auto-enable unless explicitly disabled.
+Trace export, content capture, and KG auto-ingestion remain explicit opt-ins. Enabling
+auto-ingestion also requires `LANGFUSE_PERSISTENCE_HMAC_KEY_REF`.
+
+Feed monitoring events through the authenticated fleet-event endpoint using
+`FLEET_EVENTS_TOKEN_REF`. A synthetic event must create a reviewable proposal and an
+ActionPolicy decision; it must not silently mutate infrastructure or push code.
+
+Kafka is an optional queue transport for larger fleets. Its brokers, credentials,
+and TLS material belong in the external deployment profile and runtime secret/TLS
+references.
+
+## Stage H — Enable the semantic publication plane
+
+To publish the authoritative TBox to Fuseki, configure the discovered HTTPS dataset
+endpoint, a runtime password reference, and the explicit publish gate:
+
+```json
+{
+  "KG_FUSEKI_ENDPOINT": "https://semantic.example.invalid/dataset",
+  "GRAPH_FUSEKI_USER": "publisher",
+  "GRAPH_FUSEKI_PASSWORD_REF": "secret://semantic/fuseki-publisher-password",
+  "KG_FUSEKI_PUBLISH": true
+}
+```
+
+Verify that the dataset answers a SPARQL query and that a harvested business process
+compiles to a governed workflow with provenance.
+
+## Capability shutdown
+
+Disable autonomous and mutating capabilities before removing their dependent
+identity, state, or transport services. Preserve audit records and confirm quiescence
+before scaling down a tier.
+
+## Secret rotation
+
+Rotation is provider-neutral:
+
+1. Write the new value under the operator-owned secret identifier.
+2. Keep the AgentConfig reference unchanged.
+3. restart or hot-reload the affected workload through the orchestrator.
+4. Re-run `doctor` and an authenticated smoke test.
+5. Revoke the superseded value after all consumers report healthy.
+
+Do not use a root token, embed a provider API path, retrieve secrets with shell
+history-visible commands, or copy resolved values into a repository file.
+
+## References
+
+- [Configuration reference](configuration.md)
+- [Configuration architecture audit](../architecture/configuration.md)
+- [Deployment configurations](deployment-configurations.md)
+- [Engine sharding](../architecture/engine_sharding.md)
+- [State externalization](../architecture/state_externalization.md)
+- [Fleet autonomy](../architecture/fleet_autonomy.md)
+- [Scalable frontends](scalable-frontends.md)

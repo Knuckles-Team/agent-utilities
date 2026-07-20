@@ -96,7 +96,7 @@ def test_intelligence_shortest_path(mock_graph):
     mock_graph.add_edge("tool:search", "T2", type=RegistryEdgeType.DEPENDS_ON)
 
     engine = IntelligenceGraphEngine(db_path=":memory:")
-    path = engine.get_shortest_path("TestBot", "T2")
+    path = engine.find_path("TestBot", "T2")
     assert path == ["TestBot", "tool:search", "T2"]
 
 

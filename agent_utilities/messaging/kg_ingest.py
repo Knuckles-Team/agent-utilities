@@ -111,10 +111,9 @@ async def ingest_message_to_kg(
         )
 
         logger.debug(
-            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Ingested message to KG: %s (platform=%s, user=%s)",
-            memory_id,
+            "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] "
+            "Ingested message to KG platform=%s",
             platform,
-            user,
         )
         return memory_id
 

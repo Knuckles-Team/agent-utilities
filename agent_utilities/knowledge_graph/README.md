@@ -35,6 +35,6 @@ async def search_kg(ctx: RunContext[AgentDeps], query: str):
 
 ## Maintenance
 
-- **Persistence**: Ensure `GRAPH_BACKEND` is configured correctly (defaults to `epistemic_graph` — the engine authority; durable by itself).
+- **Persistence**: The epistemic-graph authority is durable by itself; configure optional external projections with `GRAPH_MIRROR_TARGETS`.
 - **Pruning**: The `GraphMaintainer` runs periodically to remove low-importance nodes (PageRank < 0.05).
 - **Schema**: All nodes and edges follow the Pydantic schemas defined in `agent_utilities/models/knowledge_graph.py`.

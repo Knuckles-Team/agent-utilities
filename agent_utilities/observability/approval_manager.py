@@ -195,7 +195,7 @@ async def run_with_approvals(
             return result
 
         # Serialize tool calls for the UI
-        request_id = f"{request_id_prefix}{uuid.uuid4().hex[:12]}"
+        request_id = f"{request_id_prefix}{uuid.uuid4().hex}"
         tool_call_infos: list[dict[str, Any]] = []
         for tc in output.approvals:
             tool_call_infos.append(

@@ -15,7 +15,7 @@ the nightly job — never in the default PR suite.
 
 from __future__ import annotations
 
-import os
+import json
 import time
 import uuid
 from typing import Any
@@ -37,14 +37,18 @@ def enterprise_env(
 ) -> dict[str, Any]:
     """Pin the process to the full enterprise profile against the live containers."""
     pg_uri = ephemeral_pg_age["uri"]
-    monkeypatch.setenv("GRAPH_BACKEND", "postgresql")
-    monkeypatch.setenv("GRAPH_DB_URI", pg_uri)
+    monkeypatch.setenv(
+        "GRAPH_DB_CONNECTION_PROFILE",
+        json.dumps({"uri": pg_uri, "db_name": "agent_kg"}),
+    )
+    monkeypatch.setenv(
+        "GRAPH_DB_CONNECTION_PROFILE_REF", "env://GRAPH_DB_CONNECTION_PROFILE"
+    )
     monkeypatch.setenv("STATE_DB_URI", pg_uri)
     monkeypatch.setenv("TASK_QUEUE_BACKEND", "kafka")
     monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", ephemeral_kafka["bootstrap_servers"])
-    monkeypatch.setenv("AGENT_DISPATCH_BACKEND", "queue")
     monkeypatch.setenv("KG_FUSEKI_PUBLISH", "true")
-    monkeypatch.setenv("GRAPH_FUSEKI_URL", ephemeral_fuseki["url"])
+    monkeypatch.setenv("KG_FUSEKI_ENDPOINT", ephemeral_fuseki["url"])
     monkeypatch.setenv("GRAPH_FUSEKI_DATASET", ephemeral_fuseki["dataset"])
     set_active_backend(None)
     IntelligenceGraphEngine.set_active(None)
@@ -63,28 +67,27 @@ def _fresh_config() -> Any:
     return AgentConfig()
 
 
-def test_graph_writes_are_durable_in_pggraph(enterprise_env: dict[str, Any]) -> None:
-    """A node written through the engine persists to pggraph across a reconnect."""
-    if not os.environ.get("GRAPH_SERVICE_SOCKET"):
-        pytest.skip("epistemic-graph engine required (GRAPH_SERVICE_SOCKET unset)")
-
-    backend = create_backend(backend_type="postgresql", uri=enterprise_env["pg_uri"])
+def test_external_pggraph_projection_is_durable(enterprise_env: dict[str, Any]) -> None:
+    """The explicit pggraph projection adapter persists across a reconnect."""
+    backend = create_backend(
+        backend_type="postgresql",
+        uri=enterprise_env["pg_uri"],
+        db_name="agent_kg",
+    )
     assert backend is not None, "psycopg/pgvector not installed?"
     node_id = f"ent:{uuid.uuid4().hex[:8]}"
     try:
-        set_active_backend(backend)
-        engine = IntelligenceGraphEngine(backend=backend)
-        IntelligenceGraphEngine.set_active(engine)
-        engine.add_node(node_id, "Agent", {"name": "enterprise-durable"})
+        backend.execute(
+            "CREATE (n:Agent {id: $id, name: $name})",
+            {"id": node_id, "name": "enterprise-durable"},
+        )
     finally:
         backend.close()
 
     reopened = create_backend(backend_type="postgresql", uri=enterprise_env["pg_uri"])
     assert reopened is not None
     try:
-        set_active_backend(reopened)
-        eng2 = IntelligenceGraphEngine(backend=reopened)
-        rows = eng2.query_cypher(
+        rows = reopened.execute(
             "MATCH (n:Agent) WHERE n.id = $id RETURN n.id AS id", {"id": node_id}
         )
         assert rows and rows[0]["id"] == node_id
@@ -102,8 +105,7 @@ def test_task_queue_resolves_to_kafka_and_roundtrips(
     )
 
     config = _fresh_config()
-    choice, explicit = resolve_task_queue_backend(config)
-    assert (choice, explicit) == ("kafka", True)
+    assert resolve_task_queue_backend(config) == "kafka"
 
     queue, backend_name = create_task_queue(config, str(tmp_path / "fallback.db"))
     assert backend_name == "kafka"

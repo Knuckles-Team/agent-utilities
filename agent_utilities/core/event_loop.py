@@ -25,11 +25,16 @@ the process stays unpatched.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
+from collections.abc import Callable
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["allow_nested_run_sync"]
+__all__ = ["allow_nested_run_sync", "run_sync_isolated"]
+
+_T = TypeVar("_T")
 
 
 def allow_nested_run_sync() -> None:
@@ -61,3 +66,38 @@ def allow_nested_run_sync() -> None:
         logger.debug(
             "nest_asyncio unavailable; nested run_sync may fail", exc_info=True
         )
+
+
+def run_sync_isolated(fn: Callable[[], _T]) -> _T:
+    """Run a blocking ``asyncio.run``-based callable (e.g. ``Agent.run_sync``)
+    safely regardless of whether the calling thread already has a running loop.
+
+    Not to be confused with :func:`agent_utilities.mcp.concurrency.run_blocking`
+    (an ``async def`` helper an *async* caller ``await``s to offload a blocking
+    call off the event loop). This one is for plain **sync** call sites that
+    themselves invoke a sync-facade-over-asyncio (``Agent.run_sync``) and may be
+    reached from a thread that already has a loop running — there is no
+    ``await`` available at those call sites to hand off to.
+
+    CONCEPT:AU-KG.query.ask-gateway-rest-twin — the worker-thread sibling of
+    :func:`allow_nested_run_sync`, for call sites where patching global asyncio
+    state (``nest_asyncio``) is undesirable and a plain per-call escape hatch is
+    enough. ``nl_planner.AuNlPlanner._default_run`` established this exact
+    pattern for the one-shot NL→query planning call
+    (fixing "RuntimeError: This event loop is already running" for `nl_query`);
+    this is the same fix extracted so sibling one-shot sync-LLM call sites
+    (``nl_query.nl_to_query`` → ``graph_ask``/``ask_data``,
+    ``data_analyst.DataAnalystAgent._default_synthesize`` → ``ask_data``) share
+    it instead of re-deriving it.
+
+    With no running loop on this thread, ``fn`` runs in-place natively (zero
+    overhead). With a running loop, ``fn`` runs on a short-lived single worker
+    thread (which has no loop of its own), so the nested ``asyncio.run()``
+    inside ``fn`` never collides with the caller's loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return fn()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(fn).result()

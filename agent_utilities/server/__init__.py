@@ -7,16 +7,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai import Agent
-
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
-    DEFAULT_A2A_BROKER_URL,
     DEFAULT_A2A_CONFIG,
     DEFAULT_A2A_STORAGE,
-    DEFAULT_A2A_STORAGE_URL,
     DEFAULT_ACP_SESSION_ROOT,
-    DEFAULT_AGENT_NAME,
     DEFAULT_AGENT_SYSTEM_PROMPT,
     DEFAULT_CUSTOM_SKILLS_DIRECTORY,
     DEFAULT_DEBUG,
@@ -25,8 +20,6 @@ from agent_utilities.core.config import (
     DEFAULT_ENABLE_TERMINAL_UI,
     DEFAULT_ENABLE_WEB_LOGS,
     DEFAULT_ENABLE_WEB_UI,
-    DEFAULT_GRAPH_PERSISTENCE_PATH,
-    DEFAULT_GRAPH_PERSISTENCE_TYPE,
     DEFAULT_HOST,
     DEFAULT_LITE_LLM_MODEL_ID,
     DEFAULT_LLM_API_KEY,
@@ -37,13 +30,9 @@ from agent_utilities.core.config import (
     DEFAULT_MCP_URL,
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     DEFAULT_PORT,
     DEFAULT_ROUTER_MODEL,
-    DEFAULT_SSL_VERIFY,
     setting,
 )
 from agent_utilities.core.config import (
@@ -59,6 +48,31 @@ logger = logging.getLogger(__name__)
 
 
 _CLEANUP_REGISTERED = False
+
+
+def _uvicorn_boundary_kwargs(debug: bool = False) -> dict[str, Any]:
+    """One bounded Uvicorn configuration for every agent-server launch path."""
+    from agent_utilities.core.config import config
+
+    values: dict[str, Any] = {
+        "timeout_keep_alive": 5,
+        "timeout_graceful_shutdown": 15,
+        "limit_concurrency": config.server_max_connections,
+        "backlog": min(config.server_max_connections * 2, 65_535),
+        "h11_max_incomplete_event_size": 65_536,
+        "ws_max_size": 65_536,
+        "ws_max_queue": 16,
+        "ws_ping_interval": 20.0,
+        "ws_ping_timeout": 20.0,
+        "proxy_headers": False,
+        "log_level": "debug" if debug else "info",
+    }
+    if config.server_tls_certfile and config.server_tls_keyfile:
+        values.update(
+            ssl_certfile=config.server_tls_certfile,
+            ssl_keyfile=config.server_tls_keyfile,
+        )
+    return values
 
 
 def _resolve_gateway_workers(is_pytest: bool, enable_terminal_ui: bool) -> int:
@@ -124,14 +138,12 @@ def _fork_gateway_workers(workers: int, host: str, port: int):
     shared_socket = _bind_gateway_socket(host, port)
     logger.warning(
         "GATEWAY_WORKERS=%d: pre-forking %d gateway workers on a shared "
-        "listen socket (%s:%s). State is PER-PROCESS: exactly ONE worker wins "
+        "listen socket. State is PER-PROCESS: exactly ONE worker wins "
         "the KG host flock and runs the daemon/ticks (the rest are clients); "
         "/metrics scrapes sample one worker; GATEWAY_RATE_LIMIT is effectively "
         "multiplied by the worker count. (CONCEPT:AU-OS.observability.no-op-without-metrics)",
         workers,
         workers,
-        host,
-        port,
     )
     child_pids: list[int] = []
     for _ in range(workers - 1):
@@ -150,9 +162,7 @@ def _serve_on_socket(app: Any, sock: Any, host: str, port: int, debug: bool) -> 
         app,
         host=host,
         port=port,
-        timeout_keep_alive=1800,
-        timeout_graceful_shutdown=60,
-        log_level="debug" if debug else "info",
+        **_uvicorn_boundary_kwargs(debug),
     )
     uvicorn.Server(server_config).run(sockets=[sock])
 
@@ -169,32 +179,25 @@ def _run_agent_server(
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
     enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Callable[[Agent], Any] | None = None,
+    custom_web_app: Callable[[Any], Any] | None = None,
     custom_web_mount_path: str = "/",
     web_ui_instructions: str | None = None,
     html_source: str | Path | None = None,
-    ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: str | None = None,
     system_prompt: str | None = None,
     enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
     otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_headers: str | None = None,
+    otel_public_key: str | None = None,
+    otel_secret_key: str | None = None,
     otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
     a2a_config: str | None = DEFAULT_A2A_CONFIG,
     skill_types: list[str] | None = None,
-    agent_instance: Agent | None = None,
+    agent_instance: Any | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
-    persistence_type: str = "file",
-    persistence_path: str | None = None,
-    persistence_dsn: str | None = None,
-    persistence_url: str | None = None,
     enable_terminal_ui: bool = False,
     enable_acp: bool = DEFAULT_ENABLE_ACP,
     acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
@@ -267,15 +270,7 @@ def _run_agent_server(
             except (OSError, ValueError):
                 pass  # nosec B110 — signal registration may fail in threads
 
-    print(
-        f"Starting {DEFAULT_AGENT_NAME}:"
-        f"\tprovider={provider}"
-        f"\tmodel={model_id}"
-        f"\tbase_url={base_url}"
-        f"\tmcp={mcp_url} | {mcp_config}"
-        f"\tssl_verify={ssl_verify}",
-        file=sys.stderr,
-    )
+    print("Starting agent server", file=sys.stderr)
 
     # Multi-worker readiness (CONCEPT:AU-OS.observability.no-op-without-metrics): fork BEFORE building the app
     # so every worker constructs its own app, engine connections and daemon
@@ -287,7 +282,7 @@ def _run_agent_server(
     if workers > 1:
         shared_socket, child_pids = _fork_gateway_workers(
             workers,
-            host or "0.0.0.0",
+            host or "127.0.0.1",
             port or 9000,  # nosec B104
         )
     is_worker_child = shared_socket is not None and not child_pids
@@ -306,7 +301,6 @@ def _run_agent_server(
         custom_web_mount_path=custom_web_mount_path,
         web_ui_instructions=web_ui_instructions,
         html_source=html_source,
-        ssl_verify=ssl_verify,
         name=name,
         system_prompt=system_prompt,
         enable_otel=enable_otel,
@@ -317,16 +311,10 @@ def _run_agent_server(
         otel_protocol=otel_protocol,
         workspace=workspace,
         a2a_broker=a2a_broker,
-        a2a_broker_url=a2a_broker_url,
         a2a_storage=a2a_storage,
-        a2a_storage_url=a2a_storage_url,
         skill_types=skill_types,
         agent_instance=agent_instance,
         graph_bundle=graph_bundle,
-        persistence_type=persistence_type,
-        persistence_path=persistence_path,
-        persistence_dsn=persistence_dsn,
-        persistence_url=persistence_url,
         isolate_mcp=isolate_mcp,
         mcp_toolsets=mcp_toolsets,
         model_registry=model_registry,
@@ -352,21 +340,23 @@ def _run_agent_server(
         def run_server():
             uvicorn.run(
                 reloadable,
-                host=host or "0.0.0.0",
+                host=host or "127.0.0.1",
                 port=port or 8000,
-                timeout_keep_alive=1800,
-                timeout_graceful_shutdown=60,
-                log_level="error",  # Suppress server logs in CLI mode
+                **{
+                    **_uvicorn_boundary_kwargs(bool(debug)),
+                    "log_level": "error",
+                },
             )
 
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
 
-        logger.info(
-            f"Launching Agent Terminal UI connecting to http://{host}:{port}..."
-        )
+        logger.info("Launching Agent Terminal UI")
         env = os.environ.copy()
-        env["AGENT_URL"] = f"http://{host}:{port}"
+        from agent_utilities.core.config import config as _config
+
+        scheme = "https" if _config.server_tls_certfile else "http"
+        env["AGENT_URL"] = f"{scheme}://{host}:{port}"
         if log_file_path:
             env["AGENT_LOG_FILE"] = log_file_path
 
@@ -374,8 +364,8 @@ def _run_agent_server(
             subprocess.run(["agent-terminal-ui"], env=env, check=False)  # nosec B607
         except FileNotFoundError:
             print("\nError: 'agent-terminal-ui' command not found.")
-        except Exception as e:
-            print(f"Error launching TUI: {e}")
+        except Exception:
+            print("Error launching TUI.")
 
         return
 
@@ -386,7 +376,7 @@ def _run_agent_server(
             _serve_on_socket(
                 reloadable,
                 shared_socket,
-                host or "0.0.0.0",  # nosec B104
+                host or "127.0.0.1",
                 port or 9000,
                 bool(debug),
             )
@@ -407,11 +397,9 @@ def _run_agent_server(
 
     uvicorn.run(
         reloadable,
-        host=host or "0.0.0.0",  # nosec B104
+        host=host or "127.0.0.1",
         port=port or 9000,
-        timeout_keep_alive=1800,
-        timeout_graceful_shutdown=60,
-        log_level="debug" if debug else "info",
+        **_uvicorn_boundary_kwargs(bool(debug)),
     )
 
 
@@ -433,30 +421,23 @@ def create_agent_server(
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
     enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Callable[[Agent], Any] | None = None,
+    custom_web_app: Callable[[Any], Any] | None = None,
     custom_web_mount_path: str = "/",
     web_ui_instructions: str | None = None,
     html_source: str | Path | None = None,
-    ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: str | None = None,
     system_prompt: str | None = None,
     enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
     otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_headers: str | None = None,
+    otel_public_key: str | None = None,
+    otel_secret_key: str | None = None,
     otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
     graph_bundle: tuple[Any, ...] | None = None,
     sub_agents: dict[str, Any] | None = None,
-    persistence_type: str = DEFAULT_GRAPH_PERSISTENCE_TYPE,
-    persistence_path: str | None = DEFAULT_GRAPH_PERSISTENCE_PATH,
-    persistence_dsn: str | None = None,
-    persistence_url: str | None = None,
     enable_terminal_ui: bool = DEFAULT_ENABLE_TERMINAL_UI,
     skill_types: list[str] | None = None,
     custom_headers: dict[str, Any] | None = None,
@@ -485,19 +466,20 @@ def create_agent_server(
         from agent_utilities.core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = workspace
-        logger.info(f"Graph Agent: Workspace set early to {workspace}")
+        logger.info("Graph Agent: workspace configured")
     elif not _ws_sentinel:
         from agent_utilities.core.workspace import get_agent_workspace
 
         _auto_ws = get_agent_workspace()
-        logger.info(f"Graph Agent: Auto-detected workspace {_auto_ws}")
+        logger.info("Graph Agent: workspace auto-detected")
 
-    # Embedded engine auto-provision (CONCEPT:AU-OS.deployment.embedded-auto-provision). For a tiny/embedded
-    # deployment (e.g. a connector's agent_server.py) with no remote engine
-    # configured, scan-or-spawn the ONE engine authority as a lifecycle-coupled
+    # Packaged engine auto-provision (CONCEPT:AU-OS.deployment.embedded-auto-provision).
+    # With no explicit coordinator topology (e.g. a connector's agent_server.py),
+    # scan-or-spawn the ONE engine authority as a lifecycle-coupled
     # child via the existing machinery (it spawns coupled by default, dies with
-    # this process). No-op when GRAPH_SERVICE_ENDPOINTS points at a remote shard
-    # or when EPISTEMIC_GRAPH_AUTOSTART is off. Host-reuse (host_lock/engine_lock)
+    # this process). This is skipped for every configured connect-only topology.
+    # Host reuse
+    # (host_lock/engine_lock)
     # means co-located servers share the one engine — no new locking here.
     _embedded_engine: Any = None
     try:
@@ -512,18 +494,20 @@ def create_agent_server(
             )
     except Exception as _eng_exc:  # noqa: BLE001 — provisioning is best-effort
         logger.debug(
-            "Graph Agent: embedded engine auto-provision skipped: %s", _eng_exc
+            "Graph Agent: embedded engine auto-provision skipped (exception_type=%s)",
+            type(_eng_exc).__name__,
         )
 
     if enable_terminal_ui:
         import subprocess
         import threading
 
-        logger.info(
-            f"Launching Agent Terminal UI connecting to http://{host or '0.0.0.0'}:{port or 9000}..."
-        )
+        logger.info("Launching Agent Terminal UI")
         env = os.environ.copy()
-        env["AGENT_URL"] = f"http://{host or '0.0.0.0'}:{port or 9000}"
+        from agent_utilities.core.config import config as _config
+
+        scheme = "https" if _config.server_tls_certfile else "http"
+        env["AGENT_URL"] = f"{scheme}://{host or '127.0.0.1'}:{port or 9000}"
 
         if enable_web_logs:
             from agent_utilities.server.dependencies import setup_server_file_logging
@@ -584,7 +568,7 @@ def create_agent_server(
 
     _mcp_url = mcp_url or setting("MCP_URL")
     if _mcp_url:
-        logger.info(f"Graph Agent: Using external MCP server at {_mcp_url}")
+        logger.info("Graph Agent: external MCP server configured")
     else:
         logger.debug("Graph Agent: No external MCP URL provided.")
 
@@ -616,9 +600,7 @@ def create_agent_server(
             ):
                 from agent_utilities.mcp.agent_manager import sync_mcp_agents
 
-                logger.info(
-                    f"Ingesting MCP tools from {_mcp_cfg_path} to Knowledge Graph in background..."
-                )
+                logger.info("Ingesting MCP tools into the Knowledge Graph")
                 try:
                     asyncio.get_running_loop().create_task(
                         sync_mcp_agents(config_path=_mcp_cfg_path)
@@ -640,7 +622,6 @@ def create_agent_server(
                 base_url=_mcp_url,
                 custom_headers=custom_headers,
                 workspace=workspace,
-                ssl_verify=ssl_verify,
             )
             tag_prompts = graph_config.get("tag_prompts", {})
         else:
@@ -663,19 +644,15 @@ def create_agent_server(
 
     if tag_prompts:
         logger.info(
-            f"Graph Agent '{graph_name}' initialized with {len(tag_prompts)} domain nodes"
+            "Graph agent initialized with %d domain nodes", len(tag_prompts)
         )
-
-    from ..graph import get_graph_mermaid
-
-    logger.info(f"Mermaid diagram:\n{get_graph_mermaid(graph, graph_config)}")
 
     domain_list = ", ".join(graph_config["valid_domains"])
     base_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
     graph_prompt = (
         f"{base_prompt}\n\n"
         f"## Graph Orchestration Mode\n"
-        f"You have a `run_graph_flow` tool that routes queries through a graph "
+        f"You have an `execute_graph` tool that routes queries through the graph "
         f"orchestrator with specialized domain nodes for: {domain_list}.\n"
         f"Use this tool for domain-specific operations. The graph automatically "
         f"classifies the query, routes to the correct domain node, and executes "
@@ -702,7 +679,6 @@ def create_agent_server(
             custom_web_mount_path=custom_web_mount_path,
             web_ui_instructions=web_ui_instructions,
             html_source=html_source,
-            ssl_verify=ssl_verify,
             name=name,
             system_prompt=graph_prompt,
             enable_otel=enable_otel,
@@ -713,14 +689,8 @@ def create_agent_server(
             otel_protocol=otel_protocol,
             workspace=workspace,
             a2a_broker=a2a_broker,
-            a2a_broker_url=a2a_broker_url,
             a2a_storage=a2a_storage,
-            a2a_storage_url=a2a_storage_url,
             graph_bundle=(graph, graph_config),
-            persistence_type=persistence_type,
-            persistence_path=persistence_path,
-            persistence_dsn=persistence_dsn,
-            persistence_url=persistence_url,
             isolate_mcp=True,
             mcp_toolsets=graph_config.get("mcp_toolsets", []),
             model_registry=model_registry,

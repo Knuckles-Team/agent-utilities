@@ -58,9 +58,9 @@ not to understand — then close the loop with `graph_feedback correction_type=r
 Hand a task an ingested skill / workflow / agent can already do to the local model:
 
 ```text
-graph_orchestrate action=execute_agent    agent=agent-utilities-expert  task="<ecosystem task>"
-graph_orchestrate action=execute_agent    agent=<ingested-skill>        task="…"
-graph_orchestrate action=execute_workflow name=<workflow>               …
+graph_orchestrate agent=agent-utilities-expert task="<ecosystem task>"
+graph_orchestrate agent=<ingested-skill> task="…"
+graph_workflows action=execute workflow=<workflow> task="…"
 ```
 
 The **`agent-utilities-expert`** is the default delegate for ecosystem work — a native,
@@ -88,7 +88,8 @@ exhausted, and approve/veto rather than implement by hand.
 flowchart TD
     H["Claude / harness<br/>(orchestrator + exception-resolver)"]
     H -->|understand code| KG["graph_analyze code_context<br/>(KG-2.134/135) → cited answer"]
-    H -->|do a task| EX["graph_orchestrate execute_agent/execute_workflow<br/>on agent-utilities-expert / an ingested skill (local LLM)"]
+    H -->|one agent| EX["graph_orchestrate<br/>agent-utilities-expert / ingested skill"]
+    H -->|workflow DAG| WF["graph_workflows execute<br/>local LLM per step"]
     H -->|evolve/manage| LOOP["graph_loops + evolution flywheel<br/>:SpecProposal → AU-OS.config.autonomous-spec-develop-off review-veto"]
     EX --> ENGINE["engine_&lt;domain&gt; surface (AU-ECO.mcp.full-api-mcp-surface)<br/>+ multiplexer meta-tools"]
     EX --> PROV[":ToolCall / RunTrace provenance (KG-2.296)<br/>+ run_id handle (AU-ORCH.execution.rich-result-wrapper)"]
@@ -121,8 +122,9 @@ A delegate (or the harness) reaches it through the multiplexer like any other to
   automatically once the client wraps it; no hand-maintained list to rot.
 - **Verbose 1:1 surface** — `MCP_TOOL_MODE=verbose`/`both` emits one
   `engine_<domain>_<method>` tool per method (generated from `ENGINE_DOMAINS` by the
-  graph-os verbose builder / `gen_graphos_manifest`); the default condensed mode keeps the
-  one action-routed tool per domain.
+  graph-os verbose builder / `gen_graphos_manifest`). The default `intent` mode
+  keeps these granular operations reachable through `find_tools`/`load_tools`
+  without placing the full set in the resident model context.
 
 This is why the delegation-first model can push **heavy compute to the engine** (vector
 similarity, ANN, graph algorithms, ML math, finance) instead of writing an O(N) loop in
@@ -133,13 +135,13 @@ Python: the full engine is one MCP call away. Python orchestrates; the engine co
 ### Provenance — `:ToolCall` / `RunTrace` (KG-2.296)
 
 Every delegated run writes its provenance to the epistemic-graph: a run-level `RunTrace`
-(`trace:<run_id>`) and a first-class `:ToolCall` node per tool call the local LLM made,
-linked `(:RunTrace)-[:MADE_TOOL_CALL]->(:ToolCall)`, capturing `tool_name`, `server`,
-secret-redacted `args`, `result_preview`, `error`, `status`, and `sequence`. The MCP
+with an opaque canonical id and a first-class `:ToolCall` node per tool call the local LLM made,
+linked `(:RunTrace)-[:USED_TOOL]->(:ToolCall)`, capturing `tool_name`, privacy-guarded
+content digests/counts, `status`, and `sequence`. The MCP
 `execute_agent` / `execute_workflow` surfaces return a **`run_id`** handle (AU-ORCH.execution.rich-result-wrapper) so a
 delegation is trackable. This is the keystone: **full visibility + steerability is
-guaranteed by design** — query a run over graph-os and see exactly which tools the local
-LLM called, with what args, and what came back. Mechanics in
+guaranteed by design** — query a run over graph-os and see which tools the local LLM
+called and correlate opaque payload digests without disclosing durable raw payloads. Mechanics in
 [`orchestration-execution-seam.md`](orchestration-execution-seam.md).
 
 ### The resource-priority edict (AU-ORCH.scheduling.resource-priority-edict/1.99)
@@ -157,10 +159,11 @@ orchestrate through; with it, delegation scales.
 When a delegated run fails, is ungrounded, or the system couldn't self-troubleshoot —
 **that is the harness's job.** The loop:
 
-1. **Read the provenance.** Pull the run's `RunTrace` + `:ToolCall` chain
-   (`graph_query MATCH (t:RunTrace {id:'trace:<run_id>'})-[:MADE_TOOL_CALL]->(tc:ToolCall)
-   RETURN … ORDER BY tc.sequence`), or drive the **`troubleshoot` provider**
-   (`graph_analyze action=explain target="troubleshoot:run" node_id=<run_id>`,
+1. **Read the provenance.** Call `graph_jobs action=status` with the public run handle,
+   then use its returned `trace_id` for
+   `graph_query MATCH (t:RunTrace {id: $trace_id})-[:USED_TOOL]->(tc:ToolCall)
+   RETURN … ORDER BY tc.sequence`, or drive the **`troubleshoot` provider**
+   (`graph_explain action=explain target="troubleshoot:run" node_id=<run_id>`,
    [`troubleshooting.md`](troubleshooting.md)) to trace across every layer (app →
    container → system → host → cross-cutting).
 2. **Find why.** The first failing `:ToolCall` (wrong tool, bad args, unbound tool, a

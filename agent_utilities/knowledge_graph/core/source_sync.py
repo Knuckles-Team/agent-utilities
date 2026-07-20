@@ -5,9 +5,9 @@ One sync mechanism for every external source registered in the hydration
 single entrypoint, scheduler dispatch, and operational model instead of each
 re-hydrating ad hoc:
 
-* **Watermark poll (delta)** — the max ``updatedAt`` seen for a source is persisted
-  on a per-source ``SourceSyncState`` node; the next run fetches only what changed.
-  "Grab the delta on the next ingest" falls out for free.
+* **Watermark poll (delta)** — every durable source commits its typed cursor in
+  the same ``ApplyChangeEnvelope`` transaction as its graph change; the next run
+  fetches only what changed.
 * **Reconcile** — watermark deltas never surface deletions, so a reconcile compares
   the live id set with the KG's ``domain=<source>`` nodes and tombstones the gone.
 * **Webhook narrowing** — a source's webhook can drive a sync for a specific set of
@@ -18,14 +18,32 @@ Sources opt into **delta** by registering a handler in :data:`_DELTA_HANDLERS`
 entrypoint — it just falls back to a **full hydrate** via the capability registry
 until it grows a delta handler. This keeps the surface uniform while being honest
 about which sources are incremental today.
+
+**AU-P1-5 ChangeEnvelope consolidation** (CONCEPT:AU-KG.ingest.envelope-atomic-
+transaction, :mod:`~..ingestion.envelope_ingest`): every durable delta handler,
+materialize extractor, and generic capability hydrate routes normalized graph
+material through ``ChangeEnvelope`` / ``ingest_graph_slice`` — one native
+``ApplyChangeEnvelope`` redb/Raft commit for graph material, policy, lineage,
+typed content version, source cursor, and CDC/projection outbox. A native
+capability/session/persistence failure is fail-closed; it never downgrades to
+the historical Python write sequence. Every durable handler in
+:data:`ENVELOPE_NATIVE_SOURCES` commits through that boundary. The sole
+:data:`ORCHESTRATION_ONLY_SOURCES` entry, ``package_install``, emits no graph
+material itself; a static architecture gate proves it only delegates to its
+owned package-reload orchestrator.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
+
+from ..backends.sparql.source_partition import make_source_id
 
 logger = logging.getLogger(__name__)
 
@@ -33,66 +51,118 @@ logger = logging.getLogger(__name__)
 SYNC_ACTIONS = {"delta", "full", "reconcile"}
 
 
-# ── Per-source watermark store (keyed by source) ─────────────────────────────
+def _read_envelope_watermark(
+    engine: Any,
+    connector: str,
+    *,
+    source_instance: str = "",
+) -> str | None:
+    """Read the native cursor for a ChangeEnvelope-emitting handler.
 
+    An absent or temporarily unavailable native cursor produces a safe full pull
+    rather than elevating a separately-written watermark to authority.
+    """
+    from ..ingestion.envelope_ingest import (
+        NativeChangeEnvelopeUnavailable,
+        read_change_cursor,
+    )
 
-def _watermark_id(source: str) -> str:
-    return f"sync:{source}"
-
-
-def _read_watermark(backend: Any, source: str) -> str | None:
-    if backend is None:
+    try:
+        return read_change_cursor(engine, connector, source_instance=source_instance)
+    except NativeChangeEnvelopeUnavailable:
+        logger.warning(
+            "%s native source cursor is unavailable; using a safe full pull",
+            connector,
+        )
         return None
-    try:
-        rows = backend.execute(
-            "MATCH (n:SourceSyncState {id: $id}) RETURN n.watermark AS w",
-            {"id": _watermark_id(source)},
-        )
-        for r in rows or []:
-            if isinstance(r, dict) and r.get("w"):
-                return str(r["w"])
-    except Exception:  # noqa: BLE001 - watermark is best-effort; full pull is safe
-        logger.debug("%s watermark read failed", source, exc_info=True)
-    return None
 
 
-def _write_watermark(backend: Any, source: str, watermark: str | None) -> None:
-    if backend is None or not watermark:
-        return
-    try:
-        backend.execute(
-            "MERGE (n:SourceSyncState {id: $id}) SET n.watermark = $wm, n.source = $src",
-            {"id": _watermark_id(source), "wm": watermark, "src": source},
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("%s watermark write failed", source, exc_info=True)
+def _reconcile_allowed_empty_sources() -> set[str]:
+    """Source keys allowed to tombstone on an authoritatively-empty snapshot (CONCEPT:AU-P0-4).
+
+    ``SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`` is a comma-separated allowlist of
+    ``sync_source`` source keys (e.g. ``"leanix,twenty"``) an operator has
+    explicitly confirmed CAN legitimately report a fully-empty authoritative
+    snapshot (a real "everything was deleted upstream" event). Empty by
+    default: no source tombstones on an empty live-id set unless named here,
+    so a transient upstream/client hiccup that happens to yield zero ids can
+    never wipe previously-known data.
+    """
+    from ...core.config import setting
+
+    raw = setting("SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE", default="") or ""
+    return {s.strip().lower() for s in str(raw).split(",") if s.strip()}
 
 
-def _reconcile(engine: Any, source: str, live_ids: set[str]) -> dict[str, Any]:
-    """Tombstone ``domain=<source>`` KG nodes whose external id is no longer live."""
-    backend = getattr(engine, "backend", None)
-    if not live_ids:
-        return {"status": "skipped", "reason": "no live ids returned"}
-    tombstoned = 0
-    if backend is not None:
-        try:
-            rows = backend.execute(
-                "MATCH (n) WHERE n.domain = $src AND n.externalToolId IS NOT NULL "
-                "RETURN n.id AS id, n.externalToolId AS guid",
-                {"src": source},
-            )
-            for r in rows or []:
-                guid = r.get("guid") if isinstance(r, dict) else None
-                if guid and guid not in live_ids:
-                    backend.execute(
-                        "MATCH (n {id: $id}) SET n.archived = true, "
-                        "n.archivedReason = $reason",
-                        {"id": r["id"], "reason": f"absent-from-{source}"},
-                    )
-                    tombstoned += 1
-        except Exception:  # noqa: BLE001
-            logger.debug("%s reconcile query failed", source, exc_info=True)
-    return {"status": "completed", "live": len(live_ids), "tombstoned": tombstoned}
+def _reconcile(
+    engine: Any,
+    source: str,
+    live_ids: set[str],
+    *,
+    fetch_ok: bool = True,
+) -> dict[str, Any]:
+    """Commit an authoritative snapshot decision through ApplyChangeEnvelope."""
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    snapshot_digest = hashlib.sha256(
+        json.dumps(sorted(str(value) for value in live_ids)).encode("utf-8")
+    ).hexdigest()
+    marker = ChangeEnvelope.snapshot_complete(
+        connector=source,
+        live_ids=live_ids,
+        fetch_ok=fetch_ok,
+        source_version=snapshot_digest,
+    )
+    applied = ingest_envelope(engine, marker)
+    if applied.get("status") not in {"success", "skipped"}:
+        return {
+            "status": "error",
+            "live": len(live_ids),
+            "tombstoned": 0,
+            "reason": applied.get("error") or applied.get("status"),
+        }
+    writes = applied.get("write_result") or {}
+    return {
+        "status": "completed",
+        "live": len(live_ids),
+        "tombstoned": int(writes.get("tombstoned", 0) or 0),
+    }
+
+
+def _ingest_graph_slice_via_envelope(
+    engine: Any,
+    connector: str,
+    entities: list[dict[str, Any]],
+    relationships: list[dict[str, Any]] | None = None,
+    *,
+    source_instance: str = "",
+    checkpoint: str | None = None,
+    version_field: str = "updatedAt",
+) -> dict[str, Any]:
+    """Map source DTO kinds to canonical graph properties and commit atomically."""
+    from ..ingestion.envelope_ingest import ingest_graph_slice
+
+    canonical_entities = []
+    for item in entities:
+        row = dict(item)
+        row["node_type"] = row.pop("type")
+        canonical_entities.append(row)
+    canonical_relationships = []
+    for item in relationships or []:
+        row = dict(item)
+        row["relationship"] = row.pop("type")
+        canonical_relationships.append(row)
+
+    return ingest_graph_slice(
+        engine,
+        connector,
+        canonical_entities,
+        canonical_relationships,
+        source_instance=source_instance,
+        checkpoint=checkpoint,
+        version_field=version_field,
+    )
 
 
 # ── Fleet capability elevation (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical) ────────────────────────────
@@ -201,9 +271,9 @@ def _existing_disabled(engine: Any, node_id: str) -> bool:
 def _derive_tool_mode(input_schema: dict | None) -> str:
     """Classify a served tool as ``condensed`` or ``verbose`` (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
 
-    The fleet exposes two surfaces per server (MCP_TOOL_MODE=both, ECO-4.82): a *condensed*
-    action-routed tool (one tool with ``action`` + ``params_json``) and *verbose* 1:1 tools
-    (one typed tool per operation). Both are ingested as distinct ``Tool`` nodes; tagging the
+    A probed catalog may expose a *condensed* action-routed tool (one tool with
+    ``action`` + ``params_json``) and *verbose* 1:1 tools (one typed tool per
+    operation). Both are ingested as distinct ``Tool`` nodes; tagging the
     variant lets selection/analytics prefer the right altitude (condensed for broad, verbose
     for a specific operation) instead of guessing from the name.
     """
@@ -226,8 +296,8 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     unchanged tools on re-sync. Factored out of :func:`_sync_fleet` so it is
     testable without spawning any servers.
     """
-    servers_written = 0
-    tools_written = 0
+    entities: list[dict[str, Any]] = []
+    relationships: list[dict[str, Any]] = []
     unreachable: dict[str, str] = {}
 
     for server_name, info in (catalog or {}).items():
@@ -244,25 +314,15 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
         synonyms = derive_capability_synonyms(server_name)
         product = _capability_product(server_name)
         server_node_id = f"mcp_server_{server_name}"
-        # Defensively upsert the server node so the SERVES edge always resolves
-        # even when this runs via the MCP/REST surface (not the boot ingest that
-        # writes command/args). MERGE+SET only touches the keys we pass, so a
-        # prior richer write (command/args) is preserved.
-        try:
-            engine.add_node(
-                server_node_id,
-                "MCPServer",
-                {
-                    "name": server_name,
-                    "synonyms": synonyms,
-                    "disabled": _existing_disabled(engine, server_node_id),
-                },
-            )
-            servers_written += 1
-        except Exception:  # noqa: BLE001 — one bad server never aborts the sweep
-            logger.debug(
-                "fleet: server upsert failed for %s", server_name, exc_info=True
-            )
+        entities.append(
+            {
+                "id": server_node_id,
+                "type": "MCPServer",
+                "name": server_name,
+                "synonyms": synonyms,
+                "disabled": _existing_disabled(engine, server_node_id),
+            }
+        )
 
         for entry in tools:
             if not isinstance(entry, dict):
@@ -271,36 +331,34 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
             if not tool_name:
                 continue
             tool_node_id = f"tool_{server_name}_{tool_name}"
-            try:
-                engine.add_node(
-                    tool_node_id,
-                    "Tool",
-                    {
-                        "name": tool_name,
-                        "description": entry.get("description", "") or "",
-                        "mcp_server": server_name,
-                        "tags": [product] if product else [],
-                        "relevance_score": 0.5,
-                        "requires_approval": False,
-                        "synonyms": synonyms,
-                        "kind": "mcp_tool",
-                        "tool_mode": _derive_tool_mode(entry.get("inputSchema")),
-                        "disabled": _existing_disabled(engine, tool_node_id),
-                    },
-                )
-                engine.link_nodes(server_node_id, tool_node_id, "SERVES", {})
-                tools_written += 1
-            except Exception:  # noqa: BLE001 — isolate per-tool failures
-                logger.debug(
-                    "fleet: tool write failed for %s/%s",
-                    server_name,
-                    tool_name,
-                    exc_info=True,
-                )
+            entities.append(
+                {
+                    "id": tool_node_id,
+                    "type": "Tool",
+                    "name": tool_name,
+                    "description": entry.get("description", "") or "",
+                    "mcp_server": server_name,
+                    "tags": [product] if product else [],
+                    "relevance_score": 0.5,
+                    "requires_approval": False,
+                    "synonyms": synonyms,
+                    "kind": "mcp_tool",
+                    "tool_mode": _derive_tool_mode(entry.get("inputSchema")),
+                    "disabled": _existing_disabled(engine, tool_node_id),
+                }
+            )
+            relationships.append(
+                {"source": server_node_id, "target": tool_node_id, "type": "SERVES"}
+            )
+
+    if entities:
+        _ingest_graph_slice_via_envelope(
+            engine, "fleet", entities, relationships, source_instance="catalog"
+        )
 
     return {
-        "servers_written": servers_written,
-        "tools_written": tools_written,
+        "servers_written": sum(1 for item in entities if item["type"] == "MCPServer"),
+        "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
         "unreachable": unreachable,
     }
 
@@ -311,8 +369,8 @@ def _resolve_fleet_config():
     Returns the first candidate that actually parses to ≥1 ``mcpServers`` entry,
     so an empty/placeholder file (e.g. a 0-byte ``~/.gemini/antigravity/
     mcp_config.json``) is skipped rather than silently yielding a 0-server probe.
-    Order follows the connector convention (``MCP_CONFIG_PATH``/``MCP_CONFIG`` env
-    → ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
+    Order follows the connector convention (``MCP_CONFIG`` →
+    ``WORKSPACE_PATH/mcp_config.json``) before the multiplexer's own default
     search, so it stays deployment-agnostic (genesis sets the env).
     """
     import json
@@ -321,11 +379,10 @@ def _resolve_fleet_config():
     from ...core.config import setting
 
     candidates: list[Path] = []
-    for key in ("MCP_CONFIG_PATH", "MCP_CONFIG"):
-        val = (setting(key, default="") or "").strip()
-        if val:
-            candidates.append(Path(val))
-    ws = (setting("WORKSPACE_PATH", default="/home/apps/workspace") or "").strip()
+    configured = (setting("MCP_CONFIG", default="") or "").strip()
+    if configured:
+        candidates.append(Path(configured))
+    ws = (setting("WORKSPACE_PATH", default="") or "").strip()
     if ws:
         candidates.append(Path(ws) / "mcp_config.json")
     try:
@@ -402,6 +459,16 @@ def _sync_fleet(
 def _sync_leanix(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
+    """AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): object
+
+    writes route through :func:`~..ingestion.envelope_ingest.ingest_envelope`.
+    Each fact sheet is one native ``ApplyChangeEnvelope`` transaction. The
+    relation projection is a separate, deterministic ChangeEnvelope applied
+    after the object envelopes, so cross-delta endpoints may already exist while
+    graph rows, edge rows, policy, lineage, content version, cursor, and outbox
+    still share one authoritative engine transaction. There is no direct batch
+    write or post-commit watermark write on this path.
+    """
     if client is None:
         from ...ecosystem.ea_clients import get_leanix_client
 
@@ -411,18 +478,26 @@ def _sync_leanix(
 
     if mode == "reconcile":
         live: set[str] = set()
+        # CONCEPT:AU-P0-4: track whether the live-id fetch actually succeeded —
+        # an exception here must NOT be silently indistinguishable from a
+        # legitimate authoritatively-empty snapshot (both used to collapse to
+        # ``live = set()``, and an empty set used to always tombstone).
+        fetch_ok = False
         getter = getattr(client, "fact_sheet_ids", None)
         if callable(getter):
             try:
                 live = getter() or set()
+                fetch_ok = True
             except Exception:  # noqa: BLE001
                 live = set()
-        return _reconcile(engine, "leanix", live)
+                fetch_ok = False
+        return _reconcile(engine, "leanix", live, fetch_ok=fetch_ok)
 
-    backend = getattr(engine, "backend", None)
-    since = None if mode == "full" else _read_watermark(backend, "leanix")
+    since = None if mode == "full" else _read_envelope_watermark(engine, "leanix")
 
     from ..enrichment.extractors.leanix import extract as leanix_extract
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
 
     batch = leanix_extract(SimpleNamespace(client=client, since=since, ids=ids))
     entities = [{"id": n.id, "type": n.type, **n.props} for n in batch.nodes]
@@ -430,21 +505,92 @@ def _sync_leanix(
         {"source": e.source, "target": e.target, "type": e.rel_type, **e.props}
         for e in batch.edges
     ]
-    if entities:
-        engine.ingest_external_batch("leanix", entities, relationships)
 
-    seen = [e["updatedAt"] for e in entities if e.get("updatedAt")]
-    new_watermark = max(seen) if seen else None
-    if new_watermark and (since is None or new_watermark > since):
-        _write_watermark(backend, "leanix", new_watermark)
+    ordered_entities = sorted(
+        entities, key=lambda item: _checkpoint_order(item.get("updatedAt"))
+    )
+    failed = 0
+    applied_entities = 0
+    new_watermark = since
+    for record in ordered_entities:
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector="leanix",
+            id_field="id",
+            version_field="updatedAt",
+            checkpoint=record.get("updatedAt"),
+        )
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            failed += 1
+            logger.warning(
+                "leanix envelope %s failed: %s",
+                env.idempotency_key,
+                result.get("error"),
+            )
+            # A later record may carry a newer cursor. Stop here so a retry can
+            # still observe this failed record instead of skipping past it.
+            break
+        applied_entities += 1
+        checkpoint = record.get("updatedAt")
+        if checkpoint:
+            new_watermark = str(checkpoint)
+    relations_hydrated = 0
+    if relationships and not failed:
+        # A relation can connect nodes from different delta pages. Applying the
+        # projection only after object envelopes preserves that shape without
+        # choosing an arbitrary object as the relation owner. Sorting makes an
+        # upstream ordering-only change idempotent.
+        canonical_relationships = sorted(
+            relationships,
+            key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(",", ":"), default=str
+            ),
+        )
+        relation_version = hashlib.sha256(
+            json.dumps(
+                canonical_relationships,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        relation_record = {
+            "id": make_source_id("leanix", "relationship-projection"),
+            "type": "SourceRelationshipProjection",
+            "updatedAt": relation_version,
+            "relationship_count": len(canonical_relationships),
+            "_links": canonical_relationships,
+        }
+        relation_env = ChangeEnvelope.from_connector_record(
+            relation_record,
+            connector="leanix",
+            id_field="id",
+            version_field="updatedAt",
+            checkpoint=new_watermark,
+        )
+        relation_result = ingest_envelope(engine, relation_env)
+        if relation_result.get("status") not in {"success", "skipped"}:
+            failed += 1
+            logger.warning(
+                "leanix relation envelope %s failed: %s",
+                relation_env.idempotency_key,
+                relation_result.get("error"),
+            )
+        else:
+            relations_hydrated = len(canonical_relationships)
+
+    # This is only a reported summary; the native cursor is committed inside
+    # each successful ChangeEnvelope transaction.
 
     return {
-        "status": "ok",
+        "status": "partial" if failed else "ok",
         "source": "leanix",
         "mode": mode,
         "delta_capable": True,
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(relationships),
+        "nodes_hydrated": applied_entities,
+        "relations_hydrated": relations_hydrated,
+        "failed": failed,
         "since": since,
         "watermark": new_watermark or since,
     }
@@ -467,12 +613,10 @@ def _sync_archivebox(
     if not (setting("ARCHIVEBOX_URL", default="") or "").strip():
         return {"status": "skipped", "reason": "ARCHIVEBOX_URL not configured"}
 
-    backend = getattr(engine, "backend", None)
-    since = None if mode == "full" else _read_watermark(backend, "archivebox")
+    since = None if mode == "full" else _read_envelope_watermark(engine, "archivebox")
 
-    from ...protocols.source_connectors.connectors.mcp_package import _run_async
     from ...protocols.source_connectors.registry import build_connector
-    from ..ingestion.engine import ContentType, IngestionEngine, IngestionManifest
+    from ..ingestion.web_fetch import resolve_web_fetch
 
     params: dict[str, Any] = {}
     if since:
@@ -485,27 +629,52 @@ def _sync_archivebox(
     conn = build_connector("mcp_tool", config)
     docs = list(conn.poll_all()) if hasattr(conn, "poll_all") else list(conn.load())  # type: ignore[attr-defined]
 
-    urls = [
-        u for d in docs if (u := (d.metadata or {}).get("url") or "").startswith("http")
-    ]
-    manifests = [
-        IngestionManifest(
-            content_type=ContentType.DOCUMENT,
-            source_uri=u,
-            metadata={"source_system": "archivebox"},
-        )
-        for u in urls
-    ]
     ingested = 0
-    if manifests:
-        engine_ie = IngestionEngine(kg_engine=engine)
-        results = _run_async(engine_ie.ingest_batch(manifests))
-        ingested = sum(1 for r in results if r and r.status == "success")
+    processor = _confluence_processor(engine)
+    for doc in _ordered_documents(docs):
+        url = str((getattr(doc, "metadata", None) or {}).get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            continue
+        page = resolve_web_fetch(url)
+        text = page.markdown if page is not None else (getattr(doc, "text", "") or "")
+        if not text.strip():
+            continue
+        stable = hashlib.sha256(
+            str(getattr(doc, "id", "") or url).encode("utf-8")
+        ).hexdigest()[:32]
+        processor.process(
+            text,
+            document_id=f"archivebox:{stable}",
+            title=getattr(doc, "title", "") or url,
+            doc_type="archived_web_page",
+            source=url,
+            metadata={
+                "source_system": "archivebox",
+                "fetch_backend": page.backend if page is not None else "connector",
+                "updated_at": getattr(doc, "updated_at", None),
+            },
+            external_access=getattr(doc, "external_access", None),
+            connector="archivebox",
+            checkpoint=getattr(doc, "updated_at", None),
+        )
+        ingested += 1
 
     seen = [d.updated_at for d in docs if d.updated_at]
     new_watermark = max(seen) if seen else None
-    if new_watermark and (since is None or new_watermark > since):
-        _write_watermark(backend, "archivebox", new_watermark)
+    if new_watermark and (since is None or str(new_watermark) > str(since)):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "archivebox",
+            [
+                {
+                    "id": "archivebox:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
 
     return {
         "status": "ok",
@@ -560,7 +729,6 @@ def _sync_fleet_connectors(
     from ...protocols.source_connectors.registry import build_connector
 
     servers = _load_mcp_config() or {}
-    backend = getattr(engine, "backend", None)
 
     synced: dict[str, Any] = {}
     skipped: dict[str, str] = {}
@@ -582,11 +750,18 @@ def _sync_fleet_connectors(
         if server not in servers and package not in servers:
             skipped[package] = f"{server} not in mcp_config"
             continue
-        wm_key = f"fleet:{package}"
-        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        since = (
+            None
+            if mode == "full"
+            else _read_envelope_watermark(
+                engine,
+                "fleet_connectors",
+                source_instance=package,
+            )
+        )
         try:
             conn = build_connector("mcp", {"package": package})
-            docs = _drain_incremental(conn, since)
+            docs = _ordered_documents(_drain_incremental(conn, since))
             doc_type = str(preset.get("doc_type") or "document")
             ingested = 0
             for doc in docs:
@@ -603,15 +778,32 @@ def _sync_fleet_connectors(
                     doc_type=doc_type,
                     source=getattr(doc, "source_uri", "") or "",
                     metadata={
-                        "source_system": f"fleet:{package}",
+                        "source_system": make_source_id("fleet", package),
                         "package": package,
                         "updated_at": getattr(doc, "updated_at", None),
                     },
+                    external_access=getattr(doc, "external_access", None),
+                    connector="fleet_connectors",
+                    source_instance=package,
+                    checkpoint=getattr(doc, "updated_at", None),
                 )
                 ingested += 1
             watermark = _max_updated(docs)
             if watermark and (since is None or str(watermark) > str(since)):
-                _write_watermark(backend, wm_key, watermark)
+                _ingest_graph_slice_via_envelope(
+                    engine,
+                    "fleet_connectors",
+                    [
+                        {
+                            "id": f"fleet:{package}:review-checkpoint",
+                            "type": "SourceReviewCheckpoint",
+                            "updatedAt": watermark,
+                            "items_seen": len(docs),
+                        }
+                    ],
+                    source_instance=package,
+                    checkpoint=watermark,
+                )
             synced[package] = {
                 "records_seen": len(docs),
                 "documents_ingested": ingested,
@@ -629,7 +821,7 @@ def _sync_fleet_connectors(
                 logger.warning("fleet_connectors: %s failed: %s", package, exc)
 
     return {
-        "status": "ok",
+        "status": "partial" if errors else "ok",
         "source": "fleet_connectors",
         "mode": mode,
         "delta_capable": True,
@@ -642,6 +834,288 @@ def _sync_fleet_connectors(
             "errors": len(errors),
         },
     }
+
+
+# ── L27: live sync_source call sites for 6 mandatory-manifest ops connectors ──
+#
+# ``connector_manifest_gate.MANDATORY_NAMED_CONNECTOR_SOURCES`` names 12 connectors
+# whose ``connector_manifest.yml`` is unconditionally required (AU-P1-6). 7 already
+# had a live ``sync_source`` call site; 6 did not (its own docstring said so
+# explicitly): ``microsoft-agent``, ``container-manager-mcp``, ``documentdb-mcp``,
+# ``repository-manager``, ``systems-manager``, ``vector-mcp`` — the compile-before-
+# sync gate was correct but reached no runtime path. This closes that ledger item
+# (L27): each gets a real, dispatchable ``_DELTA_HANDLERS`` entry, envelope-native
+# from day one (CONCEPT:AU-KG.ingest.envelope-atomic-transaction, AU-P1-5) — the
+# gate now actually runs whenever ``sync_source(<connector>)`` is called.
+#
+# These are action/ops MCP servers, not document-corpus sources.  Their listing
+# tools and field maps are owned by the connector packages as data-only preset
+# providers and copied into the signed manifest.  Runtime deliberately has no
+# central fallback table: a missing provider or any preset drift is a gate error,
+# never permission to invoke a guessed tool.
+
+_OPS_PRIVATE_METADATA_KEYS = frozenset(
+    {
+        "base_url",
+        "endpoint",
+        "file_path",
+        "overlay_source",
+        "path",
+        "source_url",
+        "url",
+    }
+)
+
+
+def _safe_ops_value(value: Any) -> Any:
+    """Remove private fields and sanitize an ops record before persistence."""
+    if isinstance(value, dict):
+        filtered = {
+            key: _safe_ops_value(item)
+            for key, item in value.items()
+            if str(key).lower() not in _OPS_PRIVATE_METADATA_KEYS
+        }
+    elif isinstance(value, list):
+        filtered = [_safe_ops_value(item) for item in value]
+    elif isinstance(value, str) and (
+        os.path.isabs(value)
+        or value.startswith("file://")
+        or (len(value) > 2 and value[1] == ":" and value[2] in "\\/")
+    ):
+        filtered = "configured-resource"
+    else:
+        filtered = value
+    from ...security.persistence_privacy import sanitize_for_persistence
+
+    clean, _ = sanitize_for_persistence(filtered)
+    return clean
+
+
+def _safe_ops_id(value: Any, *, source: str) -> str:
+    from ...security.persistence_privacy import persistence_reference
+
+    return persistence_reference("connector_object", value, namespace=source)
+
+
+def _ops_connector_config(package: str) -> tuple[dict[str, Any], Any]:
+    """Resolve one mandatory connector's signed, provider-owned sync preset."""
+    import yaml
+
+    from ...protocols.source_connectors.connectors.mcp_tool import (
+        provider_tool_presets,
+        provider_tool_schema_fingerprints,
+    )
+    from ..ontology.connector_manifest import ConnectorManifest
+    from ..ontology.connector_manifest_gate import (
+        check_manifest_bytes,
+        find_connector_manifest,
+    )
+
+    manifest_path = find_connector_manifest(package)
+    if manifest_path is None:
+        raise RuntimeError("mandatory connector manifest is unavailable")
+    if check_manifest_bytes(
+        manifest_path, require_signature=True, require_provider=True
+    ):
+        raise RuntimeError("mandatory connector manifest contract did not verify")
+    manifest = ConnectorManifest.model_validate(
+        yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    )
+    provider_presets = provider_tool_presets(manifest.connector)
+    if provider_presets is None:
+        raise RuntimeError("mandatory connector preset provider is unavailable")
+    if not manifest.sync:
+        raise RuntimeError("mandatory connector manifest has no sync preset")
+
+    schema_pins = provider_tool_schema_fingerprints(manifest.connector)
+    if not schema_pins:
+        raise RuntimeError(
+            "mandatory connector tool-schema certification is unavailable"
+        )
+
+    sync = manifest.sync[0]
+    provider_preset = provider_presets.get(sync.preset)
+    if provider_preset is None:
+        raise RuntimeError("mandatory connector provider is missing its signed preset")
+    if json.dumps(provider_preset, sort_keys=True, separators=(",", ":")) != json.dumps(
+        sync.raw, sort_keys=True, separators=(",", ":")
+    ):
+        raise RuntimeError(
+            "mandatory connector provider differs from its signed preset"
+        )
+    schema_pin = schema_pins.get(sync.tool)
+    if not schema_pin or schema_pin != sync.tool_schema_sha256:
+        raise RuntimeError("mandatory connector live tool-schema pin is invalid")
+    return {
+        **provider_preset,
+        "strict_schema": True,
+        "verify_live_schema": True,
+        # Release-certified structural pin. Presentation text and runtime
+        # defaults may change; arguments and constraints remain fail-closed.
+        "tool_schema_sha256": schema_pin,
+    }, sync
+
+
+def _sync_ops_mcp_connector(
+    engine: Any,
+    *,
+    mode: str,
+    ids: list[str] | None,
+    client: Any,
+    package: str,
+) -> dict[str, Any]:
+    """L27 minimal snapshot pull for one action/ops MCP connector (CONCEPT:AU-KG.ontology.connector-manifest-gate).
+
+    Shared by the thin ``_sync_<package>`` wrappers below. Reaches the connector
+    through the generic strict ``mcp_tool`` adapter using its installed,
+    provider-owned preset, drains the signed listing tool, and routes each record through
+    :func:`~..ingestion.envelope_ingest.ingest_envelope` — envelope-native from
+    day one and subject to the same fail-closed native capability boundary.
+    """
+    try:
+        conn_config, sync = _ops_connector_config(package)
+    except Exception as exc:  # noqa: BLE001 - mandatory contract lookup is fail-closed
+        return {
+            "status": "error",
+            "source": package,
+            "reason": f"mandatory connector contract unavailable ({type(exc).__name__})",
+        }
+
+    since = None if mode == "full" else _read_envelope_watermark(engine, package)
+
+    if client is not None:
+        conn_config["client"] = client
+
+    from ...protocols.source_connectors.registry import build_connector
+
+    try:
+        conn = build_connector("mcp_tool", conn_config)
+        if mode == "reconcile":
+            docs = list(conn.load())  # type: ignore[attr-defined]
+        else:
+            docs = _ordered_documents(_drain_incremental(conn, since))
+    except Exception as exc:  # noqa: BLE001 - mandatory execution is fail-closed
+        return {
+            "status": "error",
+            "source": package,
+            "reason": f"mandatory connector execution failed ({type(exc).__name__})",
+        }
+
+    if mode == "reconcile":
+        raw_live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
+        live = {_safe_ops_id(value, source=package) for value in raw_live}
+        return _reconcile(engine, package, live) | {"source": package}
+
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    processed = 0
+    failed = 0
+    watermark = since
+    for doc in docs:
+        raw = _record_of(doc)
+        record: dict[str, Any] = (
+            _safe_ops_value(dict(raw))
+            if isinstance(raw, dict)
+            else {
+                "id": getattr(doc, "id", ""),
+                "name": getattr(doc, "title", ""),
+                "text": getattr(doc, "text", ""),
+            }
+        )
+        safe_id = _safe_ops_id(getattr(doc, "id", ""), source=package)
+        record["id"] = safe_id
+        if sync.id_field and "." not in sync.id_field:
+            record[sync.id_field] = safe_id
+        record.setdefault("name", _safe_ops_value(getattr(doc, "title", "")))
+        record.setdefault("text", _safe_ops_value(getattr(doc, "text", "")))
+        updated_at = getattr(doc, "updated_at", None)
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector=package,
+            id_field="id",
+            version_field=sync.updated_field or "id",
+            checkpoint=updated_at,
+            source_acl=getattr(doc, "external_access", None),
+        )
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            failed += 1
+            logger.warning(
+                "%s envelope %s failed closed",
+                package,
+                env.idempotency_key,
+            )
+            break
+        processed += 1
+        if updated_at and (watermark is None or str(updated_at) > str(watermark)):
+            watermark = updated_at
+
+    return {
+        "status": "partial" if failed else "ok",
+        "source": package,
+        "mode": mode,
+        "delta_capable": bool(sync.updated_field),
+        "records_seen": len(docs),
+        "ingested": processed,
+        "failed": failed,
+        "since": since,
+        "watermark": watermark,
+    }
+
+
+def _sync_microsoft_agent(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``microsoft-agent`` (Graph API messages/Teams/SharePoint)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="microsoft-agent"
+    )
+
+
+def _sync_container_manager_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``container-manager-mcp`` (docker/podman/k8s fleet)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="container-manager-mcp"
+    )
+
+
+def _sync_documentdb_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``documentdb-mcp``."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="documentdb-mcp"
+    )
+
+
+def _sync_repository_manager(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``repository-manager`` (git repo/worktree fleet)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="repository-manager"
+    )
+
+
+def _sync_systems_manager(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``systems-manager`` (host/systems inventory)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="systems-manager"
+    )
+
+
+def _sync_vector_mcp(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """L27 live call site for ``vector-mcp`` (vector-store collections)."""
+    return _sync_ops_mcp_connector(
+        engine, mode=mode, ids=ids, client=client, package="vector-mcp"
+    )
 
 
 def _as_epoch(value: Any) -> int | None:
@@ -691,24 +1165,20 @@ def _sync_freshrss(
             "freshrss-mcp server to mcp_config)",
         }
 
-    # Register FreshRSS as a first-class :FeedSource node (CONCEPT:AU-KG.compute.first-class-rss-atom) for
-    # symmetry with the RSS/scholarx feeds — idempotent, best-effort upsert.
-    try:
-        from ...automation.feed_sources import upsert_feed_source
+    # Registry material is part of this external source's durable projection.
+    # A native commit failure is not a reason to continue and advance its cursor.
+    from ...automation.feed_sources import upsert_feed_source
 
-        upsert_feed_source(
-            engine,
-            key="freshrss",
-            source_system="freshrss",
-            feed_url=(setting("FRESHRSS_URL", default="") or ""),
-            kind="FeedSource",
-            name="FreshRSS",
-        )
-    except Exception:  # noqa: BLE001 — registry write is best-effort
-        pass
+    upsert_feed_source(
+        engine,
+        key="freshrss",
+        source_system="freshrss",
+        feed_url=(setting("FRESHRSS_URL", default="") or ""),
+        kind="FeedSource",
+        name="FreshRSS",
+    )
 
-    backend = getattr(engine, "backend", None)
-    since = None if mode == "full" else _read_watermark(backend, "freshrss")
+    since = None if mode == "full" else _read_envelope_watermark(engine, "freshrss")
 
     from ...automation.worldmodel_pipeline import WorldModelPipelineRunner
     from ...protocols.source_connectors.registry import build_connector
@@ -739,18 +1209,34 @@ def _sync_freshrss(
     wm_config = WorldModelConfig(
         use_novelty=to_boolean(setting("FRESHRSS_USE_NOVELTY", default="False"))
     )
-    report = WorldModelPipelineRunner(engine=engine, config=wm_config).run_gated_ingest(
-        docs
-    )
+    report = WorldModelPipelineRunner(
+        engine=engine, config=wm_config, connector="freshrss"
+    ).run_gated_ingest(docs)
 
     seen = [e for d in docs if (e := _as_epoch(d.updated_at)) is not None]
     new_watermark = str(max(seen)) if seen else None
     since_epoch = _as_epoch(since) if since else None
-    if new_watermark and (since_epoch is None or int(new_watermark) > since_epoch):
-        _write_watermark(backend, "freshrss", new_watermark)
+    if (
+        not report.failed
+        and new_watermark
+        and (since_epoch is None or int(new_watermark) > since_epoch)
+    ):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "freshrss",
+            [
+                {
+                    "id": "freshrss:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
 
     return {
-        "status": "ok",
+        "status": "partial" if report.failed else "ok",
         "source": "freshrss",
         "mode": mode,
         "delta_capable": True,
@@ -760,6 +1246,7 @@ def _sync_freshrss(
         "marginal": report.marginal,
         "research": report.research,
         "skipped_unchanged": report.skipped,
+        "failed": report.failed,
         "since": since,
         "watermark": new_watermark or since,
     }
@@ -813,8 +1300,7 @@ def _sync_rss(
             "reason": "no native RSS feeds (set KG_RSS_FEEDS) and scholarx not installed",
         }
 
-    backend = getattr(engine, "backend", None)
-    since = None if mode == "full" else _read_watermark(backend, "rss")
+    since = None if mode == "full" else _read_envelope_watermark(engine, "rss")
 
     # Materialize the feed registry on the live sweep path (Wire-First, KG-2.122).
     register_feed_nodes(
@@ -834,15 +1320,29 @@ def _sync_rss(
     if scholarx_ok:
         docs.extend(scholarx_feed_documents())
 
-    report = WorldModelPipelineRunner(engine=engine).run_gated_ingest(docs)
+    report = WorldModelPipelineRunner(engine=engine, connector="rss").run_gated_ingest(
+        docs
+    )
 
     iso_dates = [d.updated_at for d in docs if getattr(d, "updated_at", None)]
     new_watermark = max(iso_dates) if iso_dates else None
-    if new_watermark and (since is None or new_watermark > since):
-        _write_watermark(backend, "rss", new_watermark)
+    if not report.failed and new_watermark and (since is None or new_watermark > since):
+        _ingest_graph_slice_via_envelope(
+            engine,
+            "rss",
+            [
+                {
+                    "id": "rss:review-checkpoint",
+                    "type": "SourceReviewCheckpoint",
+                    "updatedAt": new_watermark,
+                    "items_seen": len(docs),
+                }
+            ],
+            checkpoint=new_watermark,
+        )
 
     return {
-        "status": "ok",
+        "status": "partial" if report.failed else "ok",
         "source": "rss",
         "mode": mode,
         "delta_capable": True,
@@ -852,6 +1352,7 @@ def _sync_rss(
         "marginal": report.marginal,
         "research": report.research,
         "skipped_unchanged": report.skipped,
+        "failed": report.failed,
         "since": since,
         "watermark": new_watermark or since,
     }
@@ -878,13 +1379,10 @@ def _sync_gitlab(
     )
 
     graph_compute = getattr(engine, "graph_compute", None)
-    if graph_compute is None or not getattr(
-        graph_compute, "supports_index_repository", False
+    if graph_compute is None or not callable(
+        getattr(graph_compute, "index_repository", None)
     ):
-        return {
-            "status": "skipped",
-            "reason": "engine does not advertise IndexRepository (rebuild with the resolver)",
-        }
+        raise RuntimeError("current engine is missing mandatory IndexRepository")
 
     # An injected `client` is an explicit single-source override (tests / a caller
     # supplying its own GitLabSource): use one sentinel instance, ignore config.
@@ -892,14 +1390,20 @@ def _sync_gitlab(
     if not instances:
         return {"status": "skipped", "reason": "no GitLab instance configured"}
 
-    backend = getattr(engine, "backend", None)
     project_ids = {str(i) for i in ids} if ids else None
 
     results: list[dict[str, Any]] = []
     for inst in instances:
         name = inst.name if inst is not None else "gitlab"
-        wm_key = f"gitlab:{name}"
-        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        since = (
+            None
+            if mode == "full"
+            else _read_envelope_watermark(
+                engine,
+                "gitlab",
+                source_instance=name,
+            )
+        )
         # `inst is None` only occurs on the injected-client override path (above),
         # so a real instance always pairs with the REST source.
         if client is not None:
@@ -907,20 +1411,43 @@ def _sync_gitlab(
         else:
             assert inst is not None
             source = GitLabRestSource(inst)
+
+        def _commit_project_slice(
+            _domain: str,
+            entities: list[dict[str, Any]],
+            relationships: list[dict[str, Any]],
+            instance_name: str = name,
+        ) -> dict[str, Any]:
+            checkpoint = next(
+                (
+                    str(item.get("updatedAt"))
+                    for item in entities
+                    if item.get("type") == "Repository" and item.get("updatedAt")
+                ),
+                None,
+            )
+            return _ingest_graph_slice_via_envelope(
+                engine,
+                "gitlab",
+                entities,
+                relationships,
+                source_instance=instance_name,
+                checkpoint=checkpoint,
+            )
+
         summary = index_instance(
             instance=name,
             source=source,
             index_fn=graph_compute.index_repository,
-            ingest=engine.ingest_external_batch,
+            ingest=_commit_project_slice,
             project_ids=project_ids,
             since=since,
         )
-        if summary.watermark and (since is None or summary.watermark > since):
-            _write_watermark(backend, wm_key, summary.watermark)
         results.append(summary.as_dict())
 
+    failures = sum(len(r.get("errors") or []) for r in results)
     return {
-        "status": "ok",
+        "status": "partial" if failures else "ok",
         "source": "gitlab",
         "mode": mode,
         "delta_capable": True,
@@ -928,6 +1455,7 @@ def _sync_gitlab(
         "projects_indexed": sum(r["projects_indexed"] for r in results),
         "symbols": sum(r["symbols"] for r in results),
         "calls_resolved": sum(r["calls_resolved"] for r in results),
+        "failed": failures,
     }
 
 
@@ -1009,6 +1537,38 @@ def _max_updated(docs: list[Any]) -> str | None:
     return max(seen, key=str) if seen else None
 
 
+def _checkpoint_order(value: Any) -> tuple[int, int, float | str]:
+    """Order source records oldest-first before any cursor-bearing commit.
+
+    Versionless dependency/container rows sort first. Numeric and ISO timestamps
+    retain their source order semantics; provider-opaque values get a stable
+    lexical order only as a deterministic last resort.
+    """
+    if value in (None, ""):
+        return (0, 0, 0.0)
+    raw = str(value)
+    try:
+        return (1, 0, float(raw))
+    except (TypeError, ValueError):
+        pass
+    try:
+        from datetime import UTC, datetime
+
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return (1, 1, parsed.timestamp())
+    except (TypeError, ValueError, OverflowError):
+        return (1, 2, raw)
+
+
+def _ordered_documents(docs: list[Any]) -> list[Any]:
+    """Stable oldest-first order for per-document transactional cursors."""
+    return sorted(
+        docs, key=lambda doc: _checkpoint_order(getattr(doc, "updated_at", None))
+    )
+
+
 def _jira_jql_date(value: Any) -> str | None:
     """Render an ISO8601 watermark as a Jira JQL datetime (``yyyy-MM-dd HH:mm``)."""
     import re
@@ -1042,13 +1602,17 @@ def _jira_jql(inst: dict[str, Any], since: str | None, ids: list[str] | None) ->
     )
 
 
-def _jira_entities(
-    docs: list[Any], instance: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Map drained Jira records → issue/person/epic entities + relationships
-    (the mapping inherited from the removed ``_hydrate_jira``)."""
+def _jira_entities(docs: list[Any], instance: str) -> list[dict[str, Any]]:
+    """Map drained Jira records → issue/person/epic entities (the mapping inherited
+    from the removed ``_hydrate_jira``).
+
+    AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): the assignee's
+    ``has_role`` edge and the epic's ``part_of`` edge are both self-sourced from the
+    issue's own record (assignee/epic are derived from the SAME issue document, never
+    fetched separately) and carried on the ISSUE's own ``_links`` — the issue is also
+    the only one of the three entity types with a real per-record ``updatedAt``.
+    """
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     src = f"jira:{instance}"
     for doc in docs:
         key = getattr(doc, "id", None)
@@ -1056,20 +1620,7 @@ def _jira_entities(
             continue
         fields = _record_of(doc).get("fields") or {}
         node_id = f"jira:{instance}:issue:{key}"
-        entities.append(
-            {
-                "id": node_id,
-                "type": "issue",
-                "name": fields.get("summary") or f"Issue {key}",
-                "status": (fields.get("status") or {}).get("name", ""),
-                "priority": (fields.get("priority") or {}).get("name", ""),
-                "issueKey": str(key),
-                "domain": "jira",
-                "source_system": src,
-                "externalToolId": str(key),
-                "updatedAt": fields.get("updated"),
-            }
-        )
+        issue_links: list[dict[str, Any]] = []
         assignee = fields.get("assignee")
         if isinstance(assignee, dict):
             uid = assignee.get("accountId") or assignee.get("name")
@@ -1084,7 +1635,7 @@ def _jira_entities(
                         "source_system": src,
                     }
                 )
-                rels.append(
+                issue_links.append(
                     {
                         "source": node_id,
                         "target": user_node,
@@ -1109,7 +1660,7 @@ def _jira_entities(
                     "source_system": src,
                 }
             )
-            rels.append(
+            issue_links.append(
                 {
                     "source": node_id,
                     "target": epic_node,
@@ -1117,7 +1668,22 @@ def _jira_entities(
                     "domain": "jira",
                 }
             )
-    return entities, rels
+        entities.append(
+            {
+                "id": node_id,
+                "type": "issue",
+                "name": fields.get("summary") or f"Issue {key}",
+                "status": (fields.get("status") or {}).get("name", ""),
+                "priority": (fields.get("priority") or {}).get("name", ""),
+                "issueKey": str(key),
+                "domain": "jira",
+                "source_system": src,
+                "externalToolId": str(key),
+                "updatedAt": fields.get("updated"),
+                "_links": issue_links,
+            }
+        )
+    return entities
 
 
 def _sync_jira(
@@ -1128,15 +1694,19 @@ def _sync_jira(
     Per configured instance, drains the ``jira`` mcp_tool preset over its
     ``atlassian-mcp`` server with a JQL ``updated >= <watermark>`` server-side delta
     (the write-layer content-hash is the second guard); rebuilds the issue graph from
-    each record and ``ingest_external_batch``-es it. ``ids`` narrows to specific keys
-    (webhook). Replaces the removed single-shot ``_hydrate_jira``.
+    each record and emits one ChangeEnvelope per typed object. ``ids`` narrows to
+    specific keys (webhook). Replaces the removed single-shot ``_hydrate_jira``.
 
     Deployment note (CONCEPT:AU-KG.compute.jira-first-class-delta): wire ``atlassian-mcp`` in the source
-    ``mcp_config`` over streamable-http (``transport``/``url`` →
-    ``http://atlassian-mcp.arpa/mcp``), mirroring freshrss-mcp / plane-mcp — never a
-    local ``command`` venv binary, which would (mis)spawn a stdio server on the host.
+    ``mcp_config`` over a runtime-injected streamable-http ``url``, mirroring
+    freshrss-mcp / plane-mcp — never a local ``command`` venv binary, which would
+    incorrectly spawn a stdio server on the host.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    issue/person/epic is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`,
+    ``source_instance=<jira instance name>`` so the per-envelope watermark key
+    (``jira:<name>``) matches this handler's own existing ``wm_key`` format exactly.
     """
-    backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(
         "jira_instances",
         default_name="jira",
@@ -1145,12 +1715,19 @@ def _sync_jira(
         scope_setting="JIRA_PROJECT_KEYS",
     )
     results: list[dict[str, Any]] = []
-    total_e = total_r = 0
+    total_e = total_failed = 0
     for inst in instances:
         name = str(inst.get("name") or "jira")
         server = str(inst.get("server") or "atlassian-mcp")
-        wm_key = f"jira:{name}"
-        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        since = (
+            None
+            if mode == "full"
+            else _read_envelope_watermark(
+                engine,
+                "jira",
+                source_instance=name,
+            )
+        )
         if mode == "reconcile":
             conn = _build_preset_conn(
                 "jira", server, {"jql": _jira_jql(inst, None, None)}
@@ -1160,15 +1737,13 @@ def _sync_jira(
             continue
         conn = _build_preset_conn("jira", server, {"jql": _jira_jql(inst, since, ids)})
         docs = _drain_incremental(conn, since)
-        entities, rels = _jira_entities(docs, name)
-        if entities:
-            engine.ingest_external_batch("jira", entities, rels)
-        watermark = _max_updated(docs)
-        if watermark and (since is None or str(watermark) > str(since)):
-            _write_watermark(backend, wm_key, watermark)
-        total_e += len(entities)
-        total_r += len(rels)
-        results.append({"instance": name, "issues": len(docs), "watermark": watermark})
+        entities = _jira_entities(docs, name)
+        ok, failed = _ingest_entities_via_envelope(
+            engine, "jira", entities, source_instance=name
+        )
+        total_e += ok
+        total_failed += failed
+        results.append({"instance": name, "issues": len(docs), "since": since})
     return {
         "status": "ok",
         "source": "jira",
@@ -1176,17 +1751,22 @@ def _sync_jira(
         "delta_capable": True,
         "instances": results,
         "nodes_hydrated": total_e,
-        "relations_hydrated": total_r,
+        "failed": total_failed,
     }
 
 
 def _plane_entities(
     docs: list[Any], instance: str, project_id: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
     """Map drained Plane work items → issue + project entities (inherited from the
-    removed ``_hydrate_plane``)."""
+    removed ``_hydrate_plane``).
+
+    AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): an issue's ``part_of``
+    edge to its project is self-sourced (both are resolved from the SAME per-project
+    drain) and carried on the ISSUE's own ``_links`` — the issue also carries the real
+    per-record ``updated_at``, unlike the versionless synthetic project node.
+    """
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     src = f"plane:{instance}"
     proj_node = f"plane:{instance}:proj:{project_id}"
     proj_emitted = False
@@ -1198,19 +1778,6 @@ def _plane_entities(
         state = rec.get("state")
         state_name = state.get("name", "") if isinstance(state, dict) else (state or "")
         node_id = f"plane:{instance}:issue:{iid}"
-        entities.append(
-            {
-                "id": node_id,
-                "type": "issue",
-                "name": rec.get("name") or f"Plane Issue {iid}",
-                "state": state_name,
-                "priority": rec.get("priority") or "",
-                "domain": "plane",
-                "source_system": src,
-                "externalToolId": str(iid),
-                "updatedAt": rec.get("updated_at"),
-            }
-        )
         if not proj_emitted:
             entities.append(
                 {
@@ -1222,15 +1789,28 @@ def _plane_entities(
                 }
             )
             proj_emitted = True
-        rels.append(
+        entities.append(
             {
-                "source": node_id,
-                "target": proj_node,
-                "type": "part_of",
+                "id": node_id,
+                "type": "issue",
+                "name": rec.get("name") or f"Plane Issue {iid}",
+                "state": state_name,
+                "priority": rec.get("priority") or "",
                 "domain": "plane",
+                "source_system": src,
+                "externalToolId": str(iid),
+                "updatedAt": rec.get("updated_at"),
+                "_links": [
+                    {
+                        "source": node_id,
+                        "target": proj_node,
+                        "type": "part_of",
+                        "domain": "plane",
+                    }
+                ],
             }
         )
-    return entities, rels
+    return entities
 
 
 def _sync_plane(
@@ -1242,8 +1822,13 @@ def _sync_plane(
     ``plane-mcp`` server (a SECOND Plane workspace is a second instance row pointing at
     a second server). Delta = the ``updated_at`` watermark + content-hash. Replaces the
     removed ``_hydrate_plane``.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    issue/project is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`,
+    ``source_instance=<instance>:<project_id>`` so the per-envelope watermark key
+    (``plane:<instance>:<project_id>``) matches this handler's own existing ``wm_key``
+    format exactly.
     """
-    backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(
         "plane_instances",
         default_name="plane",
@@ -1252,7 +1837,7 @@ def _sync_plane(
         scope_setting="PLANE_PROJECT_IDS",
     )
     results: list[dict[str, Any]] = []
-    total_e = total_r = 0
+    total_e = total_failed = 0
     for inst in instances:
         name = str(inst.get("name") or "plane")
         server = str(inst.get("server") or "plane-mcp")
@@ -1266,29 +1851,36 @@ def _sync_plane(
                 }
             )
             continue
-        inst_e: list[dict[str, Any]] = []
-        inst_r: list[dict[str, Any]] = []
+        inst_ok = inst_failed = inst_issues = 0
         for pid in projects:
-            wm_key = f"plane:{name}:{pid}"
-            since = None if mode == "full" else _read_watermark(backend, wm_key)
+            source_instance = f"{name}:{pid}"
+            since = (
+                None
+                if mode == "full"
+                else _read_envelope_watermark(
+                    engine,
+                    "plane",
+                    source_instance=source_instance,
+                )
+            )
             params: dict[str, Any] = {"project_id": pid}
             if ids:
                 params["filters"] = {"id": ids}
             conn = _build_preset_conn("plane", server, params)
             docs = _drain_incremental(conn, since)
-            e, r = _plane_entities(docs, name, pid)
-            inst_e += e
-            inst_r += r
-            watermark = _max_updated(docs)
-            if watermark and (since is None or str(watermark) > str(since)):
-                _write_watermark(backend, wm_key, watermark)
-        if inst_e:
-            engine.ingest_external_batch("plane", inst_e, inst_r)
-        total_e += len(inst_e)
-        total_r += len(inst_r)
-        results.append(
-            {"instance": name, "issues": sum(1 for x in inst_e if x["type"] == "issue")}
-        )
+            entities = _plane_entities(docs, name, pid)
+            ok, failed = _ingest_entities_via_envelope(
+                engine,
+                "plane",
+                entities,
+                source_instance=source_instance,
+            )
+            inst_ok += sum(1 for e in entities if e["type"] == "issue")
+            inst_failed += failed
+            inst_issues += len(docs)
+        total_e += inst_ok
+        total_failed += inst_failed
+        results.append({"instance": name, "issues": inst_issues})
     return {
         "status": "ok",
         "source": "plane",
@@ -1296,7 +1888,7 @@ def _sync_plane(
         "delta_capable": True,
         "instances": results,
         "nodes_hydrated": total_e,
-        "relations_hydrated": total_r,
+        "failed": total_failed,
     }
 
 
@@ -1304,7 +1896,10 @@ def _confluence_processor(engine: Any) -> Any:
     from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
 
     return DocumentProcessor(
-        getattr(engine, "backend", None), chunking=ChunkingConfig(), contextual=True
+        getattr(engine, "backend", None),
+        engine=engine,
+        chunking=ChunkingConfig(),
+        contextual=True,
     )
 
 
@@ -1321,15 +1916,14 @@ def _sync_confluence(
     NOT relevance-gated — internal wiki is curated knowledge.
 
     Deployment note (CONCEPT:AU-KG.compute.confluence-first-class-delta): the ``atlassian-mcp`` server is reached over
-    streamable-http at its fleet URL (``http://atlassian-mcp.arpa/mcp``) — wire it in
-    the source ``mcp_config`` with ``transport``/``url`` (mirroring freshrss-mcp /
-    plane-mcp), never a local ``command`` venv binary. Confluence Cloud v2 paths are
+    streamable-http at its runtime-injected fleet URL — wire it in the source
+    ``mcp_config`` with ``transport``/``url`` (mirroring freshrss-mcp / plane-mcp),
+    never a local ``command`` venv binary. Confluence Cloud v2 paths are
     bare (``/spaces``, ``/pages``), so the **service** must set
     ``ATLASSIAN_CONFLUENCE_CLOUD_URL=https://<site>.atlassian.net/wiki/api/v2`` — the
     per-suite override in ``atlassian_agent.auth.get_confluence_cloud_client``;
     otherwise the client falls back to the Jira base URL and every call 404s.
     """
-    backend = getattr(engine, "backend", None)
     instances = _resolve_tracker_instances(
         "confluence_instances",
         default_name="confluence",
@@ -1340,6 +1934,7 @@ def _sync_confluence(
     proc: Any = None
     results: list[dict[str, Any]] = []
     total = 0
+    total_failed = 0
     for inst in instances:
         name = str(inst.get("name") or "confluence")
         server = str(inst.get("server") or "atlassian-mcp")
@@ -1347,18 +1942,28 @@ def _sync_confluence(
             str(s) for s in (inst.get("spaces") or []) if s
         ] or [None]
         pages = 0
+        instance_failed = False
         for space in spaces:
-            wm_key = f"confluence:{name}:{space or 'all'}"
-            since = None if mode == "full" else _read_watermark(backend, wm_key)
+            source_instance = f"{name}:{space or 'all'}"
+            since = (
+                None
+                if mode == "full"
+                else _read_envelope_watermark(
+                    engine,
+                    "confluence",
+                    source_instance=source_instance,
+                )
+            )
             params: dict[str, Any] = {}
             if space:
                 params["space_id"] = [space]
             if ids:
                 params["id_"] = ids
             conn = _build_preset_conn("confluence", server, params)
-            docs = _drain_incremental(conn, since)
+            docs = _ordered_documents(_drain_incremental(conn, since))
             if docs and proc is None:
                 proc = _confluence_processor(engine)
+            partition_failed = False
             for doc in docs:
                 doc_id = f"confluence:{name}:{getattr(doc, 'id', '')}"
                 rec = _record_of(doc)
@@ -1370,12 +1975,16 @@ def _sync_confluence(
                         doc_type="wiki",
                         source=getattr(doc, "source_uri", ""),
                         metadata={
-                            "source_system": f"confluence:{name}",
+                            "source_system": make_source_id("confluence", name),
                             "space_id": rec.get("spaceId"),
                             "version": (rec.get("version") or {}).get("number"),
                             "confluence_page_id": str(getattr(doc, "id", "")),
                             "updated_at": getattr(doc, "updated_at", None),
                         },
+                        external_access=getattr(doc, "external_access", None),
+                        connector="confluence",
+                        source_instance=source_instance,
+                        checkpoint=getattr(doc, "updated_at", None),
                     )
                     pages += 1
                 except Exception as exc:  # noqa: BLE001 — one bad page must not abort
@@ -1384,18 +1993,28 @@ def _sync_confluence(
                         getattr(doc, "id", "?"),
                         exc,
                     )
-            watermark = _max_updated(docs)
-            if watermark and (since is None or str(watermark) > str(since)):
-                _write_watermark(backend, wm_key, watermark)
+                    partition_failed = True
+                    instance_failed = True
+                    total_failed += 1
+                    break
+            if partition_failed:
+                break
         total += pages
-        results.append({"instance": name, "pages": pages})
+        results.append(
+            {
+                "instance": name,
+                "pages": pages,
+                "status": "partial" if instance_failed else "ok",
+            }
+        )
     return {
-        "status": "ok",
+        "status": "partial" if total_failed else "ok",
         "source": "confluence",
         "mode": mode,
         "delta_capable": True,
         "instances": results,
         "pages_ingested": total,
+        "failed": total_failed,
     }
 
 
@@ -1465,22 +2084,67 @@ def _drain_preset(
     return list(conn.load())  # type: ignore[attr-defined]
 
 
-def _ingest_typed(
+def _ingest_entities_via_envelope(
     engine: Any,
-    source: str,
+    connector: str,
     entities: list[dict[str, Any]],
-    rels: list[dict[str, Any]],
     *,
-    wm_key: str,
-    since: str | None,
-    watermark: str | None,
-) -> None:
-    """Ingest a typed entity/relationship batch + advance the watermark (shared tail)."""
-    if entities:
-        engine.ingest_external_batch(source, entities, rels)
-    backend = getattr(engine, "backend", None)
-    if watermark and (since is None or str(watermark) > str(since)):
-        _write_watermark(backend, wm_key, watermark)
+    source_instance: str = "",
+    version_field: str = "updatedAt",
+) -> tuple[int, int]:
+    """AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction) shared migration tail for the
+    "typed OWL entity" handlers below — replaces the old ``_ingest_typed`` single
+    ``engine.ingest_external_batch(source, entities, rels)`` call.
+
+    Each handler already builds its whole ``entities`` list from records fetched
+    in ONE handler invocation (self-sourced: an entity's cross-references —
+    "this image's repo", "this issue's assignee", "this transaction's account"
+    — are always derived from the SAME drain call, never a separate delta
+    batch), so a relationship is attached to whichever entity in this list is
+    the one that actually carries a real per-record ``version_field`` (that
+    entity's own ``_links`` key, built by the caller BEFORE this is invoked) —
+    an unchanged entity's envelope is safely idempotent-skipped, while a
+    new/changed entity's envelope still (re-)asserts every edge attached to
+    it. A relationship attached to a VERSIONLESS entity (e.g. a static
+    namespace/registry/project container whose own fields never change) would
+    silently stop being re-asserted after that entity's first successful
+    write, since its idempotency key never changes again — callers MUST NOT
+    attach ``_links`` to a versionless entity for this reason.
+
+    Returns ``(succeeded, failed)`` entity counts. The watermark advance
+    happens per-envelope, atomically, inside :func:`~..ingestion.envelope_ingest.ingest_envelope`
+    itself — there is no separate ``_write_watermark`` call left to make here.
+    """
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
+    ok = failed = 0
+    ordered_entities = sorted(
+        entities, key=lambda item: _checkpoint_order(item.get(version_field))
+    )
+    for record in ordered_entities:
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector=connector,
+            source_instance=source_instance,
+            id_field="id",
+            version_field=version_field,
+            checkpoint=record.get(version_field),
+        )
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            failed += 1
+            logger.warning(
+                "%s envelope %s failed: %s",
+                connector,
+                env.idempotency_key,
+                result.get("error"),
+            )
+            # A later envelope can carry a newer source cursor. Stop on the
+            # first failure so crash-resume cannot skip this record.
+            break
+        ok += 1
+    return ok, failed
 
 
 def _sync_dockerhub(
@@ -1497,6 +2161,17 @@ def _sync_dockerhub(
     :func:`~..etl.transforms.coalesce` for the image-name fallback and
     :func:`~..etl.transforms.stable_id` for the ``dockerhub:<ns>[/<name>]`` node ids
     — as the first migrated handler proving the pattern.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    image is one ``ChangeEnvelope`` routed through
+    :func:`~..ingestion.envelope_ingest.ingest_envelope` via the shared
+    :func:`_ingest_entities_via_envelope` tail. The namespace's :Repository is
+    versionless (its own fields never change), so the ``contains`` edge is
+    carried on the IMAGE's ``_links`` (self-sourced — repo and image are always
+    resolved together from the SAME per-namespace drain) rather than the
+    repo's: attaching it to the repo would silently stop re-asserting new
+    images once the repo's own idempotency-key-fixed envelope stops
+    re-applying after its first successful write.
     """
     if not _server_configured(("dockerhub-mcp", "dockerhub-api")):
         return {"status": "skipped", "reason": "dockerhub-mcp not in mcp_config"}
@@ -1514,12 +2189,19 @@ def _sync_dockerhub(
     if not namespaces:
         return {"status": "skipped", "reason": "no DockerHub namespace configured"}
 
-    backend = getattr(engine, "backend", None)
     total = 0
+    total_failed = 0
     results: list[dict[str, Any]] = []
     for ns in namespaces:
-        wm_key = f"dockerhub:{ns}"
-        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        since = (
+            None
+            if mode == "full"
+            else _read_envelope_watermark(
+                engine,
+                "dockerhub",
+                source_instance=ns,
+            )
+        )
         docs = _drain_preset("dockerhub-repos", params={"namespace": ns})
         repo_node = stable_id(ns, prefix="dockerhub")
         entities: list[dict[str, Any]] = [
@@ -1528,10 +2210,9 @@ def _sync_dockerhub(
                 "type": "repository",
                 "name": ns,
                 "domain": "dockerhub",
-                "source_system": f"dockerhub:{ns}",
+                "source_system": make_source_id("dockerhub", ns),
             }
         ]
-        rels: list[dict[str, Any]] = []
         for doc in docs:
             rec = _record_of(doc)
             name = coalesce(rec, "name") or getattr(doc, "id", None)
@@ -1548,30 +2229,29 @@ def _sync_dockerhub(
                     "star_count": rec.get("star_count"),
                     "is_private": rec.get("is_private"),
                     "domain": "dockerhub",
-                    "source_system": f"dockerhub:{ns}",
+                    "source_system": make_source_id("dockerhub", ns),
                     "externalToolId": f"{ns}/{name}",
                     "updatedAt": rec.get("last_updated"),
+                    "_links": [
+                        {
+                            "source": repo_node,
+                            "target": img_id,
+                            "type": "contains",
+                            "domain": "dockerhub",
+                        }
+                    ],
                 }
             )
-            rels.append(
-                {
-                    "source": repo_node,
-                    "target": img_id,
-                    "type": "contains",
-                    "domain": "dockerhub",
-                }
-            )
-        _ingest_typed(
-            engine,
-            "dockerhub",
-            entities,
-            rels,
-            wm_key=wm_key,
-            since=since,
-            watermark=_max_updated(docs),
+        _ok, failed = _ingest_entities_via_envelope(
+            engine, "dockerhub", entities, source_instance=ns
         )
+        total_failed += failed
+        # NOTE: the per-envelope watermark advance already happened atomically
+        # inside ingest_envelope (monotonic-guarded per entity) — `since` above
+        # is only this run's read of the last-advanced watermark, not a second
+        # write (AU-P1-5).
         total += len(docs)
-        results.append({"namespace": ns, "images": len(docs)})
+        results.append({"namespace": ns, "images": len(docs), "since": since})
     return {
         "status": "ok",
         "source": "dockerhub",
@@ -1579,6 +2259,7 @@ def _sync_dockerhub(
         "delta_capable": True,
         "namespaces": results,
         "images_ingested": total,
+        "failed": total_failed,
     }
 
 
@@ -1592,18 +2273,21 @@ def _sync_langfuse(
     ``langfuse-mcp``; each trace is a :Trace, each observation a :Observation (LLM-call
     observations — ``type == 'GENERATION'`` — are :Generation), linked ``part_of`` their
     trace via ``traceId``. Delta = the ``timestamp`` / ``startTime`` watermark.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    trace/observation is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`.
+    An observation's ``part_of`` edge to its trace is carried on the OBSERVATION's own
+    ``_links`` — self-sourced (both are drained together in this one call) and the
+    observation is itself the entity that changes version-to-version.
     """
     if not _server_configured(("langfuse-mcp", "langfuse-agent")):
         return {"status": "skipped", "reason": "langfuse-mcp not in mcp_config"}
-    backend = getattr(engine, "backend", None)
-    wm_key = "langfuse"
-    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    since = None if mode == "full" else _read_envelope_watermark(engine, "langfuse")
     src = "langfuse"
 
     trace_docs = _drain_preset("langfuse-traces")
     obs_docs = _drain_preset("langfuse-observations")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     for doc in trace_docs:
         tid = getattr(doc, "id", None)
         if not tid:
@@ -1629,36 +2313,27 @@ def _sync_langfuse(
         rec = _record_of(doc)
         is_gen = str(rec.get("type") or "").upper() == "GENERATION"
         node_id = f"langfuse:obs:{oid}"
-        entities.append(
-            {
-                "id": node_id,
-                "type": "generation" if is_gen else "observation",
-                "name": rec.get("name") or f"Observation {oid}",
-                "model": rec.get("model"),
-                "domain": "langfuse",
-                "source_system": src,
-                "externalToolId": str(oid),
-                "updatedAt": rec.get("startTime"),
-            }
-        )
+        entity: dict[str, Any] = {
+            "id": node_id,
+            "type": "generation" if is_gen else "observation",
+            "name": rec.get("name") or f"Observation {oid}",
+            "model": rec.get("model"),
+            "domain": "langfuse",
+            "source_system": src,
+            "externalToolId": str(oid),
+            "updatedAt": rec.get("startTime"),
+        }
         if tid := rec.get("traceId"):
-            rels.append(
+            entity["_links"] = [
                 {
                     "source": node_id,
                     "target": f"langfuse:trace:{tid}",
                     "type": "part_of",
                     "domain": "langfuse",
                 }
-            )
-    _ingest_typed(
-        engine,
-        src,
-        entities,
-        rels,
-        wm_key=wm_key,
-        since=since,
-        watermark=_max_updated(trace_docs + obs_docs),
-    )
+            ]
+        entities.append(entity)
+    ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
         "source": "langfuse",
@@ -1666,8 +2341,9 @@ def _sync_langfuse(
         "delta_capable": True,
         "traces": len(trace_docs),
         "observations": len(obs_docs),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
+        "since": since,
     }
 
 
@@ -1681,6 +2357,13 @@ def _sync_technitium(
     a :DnsRecord ``part_of`` its zone. Dict-shaped Technitium envelope (``response.zones`` /
     ``response.records``) → calls the tool directly via ``call_tool_once``. Full snapshot
     each run (DNS is small); the write-layer content-hash makes a re-run a no-op.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each zone
+    and record is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`. Neither
+    Technitium object carries a natural version marker (no per-record ``updatedAt`` — same
+    as the L27 ops connectors with no ``updated_field``), so a record's ``part_of`` edge is
+    carried on the RECORD's own ``_links`` (self-sourced — zone and record are always
+    drained together in this one call).
     """
     server = _configured_server(("technitium-dns-mcp", "technitium-dns"))
     if server is None:
@@ -1704,7 +2387,6 @@ def _sync_technitium(
         (_dig(zones_res, "response.zones") or []) if isinstance(zones_res, dict) else []
     )
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     records_total = 0
     for zone in zones:
         if not isinstance(zone, dict):
@@ -1765,19 +2447,18 @@ def _sync_technitium(
                     "disabled": rec.get("disabled"),
                     "domain": "technitium",
                     "source_system": "technitium",
-                }
-            )
-            rels.append(
-                {
-                    "source": rec_node,
-                    "target": zone_node,
-                    "type": "part_of",
-                    "domain": "technitium",
+                    "_links": [
+                        {
+                            "source": rec_node,
+                            "target": zone_node,
+                            "type": "part_of",
+                            "domain": "technitium",
+                        }
+                    ],
                 }
             )
             records_total += 1
-    if entities:
-        engine.ingest_external_batch("technitium", entities, rels)
+    ok, failed = _ingest_entities_via_envelope(engine, "technitium", entities)
     return {
         "status": "ok",
         "source": "technitium",
@@ -1785,8 +2466,8 @@ def _sync_technitium(
         "delta_capable": False,
         "zones": len(zones),
         "records": records_total,
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
     }
 
 
@@ -1799,6 +2480,11 @@ def _sync_tunnel_manager(
     not a record list) — so it goes through ``call_tool_once`` directly. Each alias → a
     :Host (hostname/user/port + any ``extra_config`` inventory keys); a configured
     ``proxy_command`` (a jump/tunnel) → a :Tunnel the host ``connects_via``.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each host
+    (+ its optional tunnel) is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`.
+    The ``connects_via`` edge is self-sourced from the host's own record and carried on
+    the HOST's own ``_links``.
     """
     server = _configured_server(("tunnel-manager-mcp", "tunnel-manager"))
     if server is None:
@@ -1817,27 +2503,24 @@ def _sync_tunnel_manager(
     )
     hosts = (res.get("hosts") if isinstance(res, dict) else None) or {}
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     for alias, cfg in hosts.items():
         if not isinstance(cfg, dict):
             continue
         extra = ec if isinstance((ec := cfg.get("extra_config")), dict) else {}
         host_node = f"tunnel:host:{alias}"
-        entities.append(
-            {
-                "id": host_node,
-                "type": "host",
-                "name": str(alias),
-                "hostname": cfg.get("hostname"),
-                "ssh_user": cfg.get("user"),
-                "ssh_port": cfg.get("port"),
-                "group": extra.get("group") or extra.get("ansible_group"),
-                "ip_address": extra.get("ansible_host") or cfg.get("hostname"),
-                "domain": "tunnel_manager",
-                "source_system": "tunnel_manager",
-                "externalToolId": str(alias),
-            }
-        )
+        host_entity: dict[str, Any] = {
+            "id": host_node,
+            "type": "host",
+            "name": str(alias),
+            "hostname": cfg.get("hostname"),
+            "ssh_user": cfg.get("user"),
+            "ssh_port": cfg.get("port"),
+            "group": extra.get("group") or extra.get("ansible_group"),
+            "ip_address": extra.get("ansible_host") or cfg.get("hostname"),
+            "domain": "tunnel_manager",
+            "source_system": "tunnel_manager",
+            "externalToolId": str(alias),
+        }
         if proxy := cfg.get("proxy_command"):
             tun_node = f"tunnel:link:{alias}"
             entities.append(
@@ -1850,16 +2533,16 @@ def _sync_tunnel_manager(
                     "source_system": "tunnel_manager",
                 }
             )
-            rels.append(
+            host_entity["_links"] = [
                 {
                     "source": host_node,
                     "target": tun_node,
                     "type": "connects_via",
                     "domain": "tunnel_manager",
                 }
-            )
-    if entities:
-        engine.ingest_external_batch("tunnel_manager", entities, rels)
+            ]
+        entities.append(host_entity)
+    ok, failed = _ingest_entities_via_envelope(engine, "tunnel_manager", entities)
     return {
         "status": "ok",
         "source": "tunnel_manager",
@@ -1867,8 +2550,8 @@ def _sync_tunnel_manager(
         "delta_capable": False,
         "hosts": sum(1 for e in entities if e["type"] == "host"),
         "tunnels": sum(1 for e in entities if e["type"] == "tunnel"),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
     }
 
 
@@ -1884,6 +2567,12 @@ def _sync_uptime_kuma(
     per monitor → a :HeartbeatStat ``part_of`` it (status/ping). Full snapshot each run;
     the write-layer content-hash makes unchanged monitors a no-op — for service-health and
     failure-pattern analysis over the KG.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    monitor/heartbeat is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`.
+    The ``part_of`` edge is self-sourced from the heartbeat's own record and carried on
+    the HEARTBEAT's own ``_links`` (it also carries the real per-record ``updatedAt``, so
+    the edge is re-asserted whenever the heartbeat actually changes).
     """
     server = _configured_server(("uptime-mcp", "uptime-kuma-mcp", "uptime-kuma-agent"))
     if server is None:
@@ -1923,7 +2612,6 @@ def _sync_uptime_kuma(
     hb_map = heartbeats if isinstance(heartbeats, dict) else {}
 
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     for mon in mon_list:
         mid = mon.get("id")
         if mid is None:
@@ -1957,26 +2645,25 @@ def _sync_uptime_kuma(
                     "domain": "uptime_kuma",
                     "source_system": "uptime_kuma",
                     "updatedAt": last.get("time"),
+                    "_links": [
+                        {
+                            "source": hb_node,
+                            "target": mon_node,
+                            "type": "part_of",
+                            "domain": "uptime_kuma",
+                        }
+                    ],
                 }
             )
-            rels.append(
-                {
-                    "source": hb_node,
-                    "target": mon_node,
-                    "type": "part_of",
-                    "domain": "uptime_kuma",
-                }
-            )
-    if entities:
-        engine.ingest_external_batch("uptime_kuma", entities, rels)
+    ok, failed = _ingest_entities_via_envelope(engine, "uptime_kuma", entities)
     return {
         "status": "ok",
         "source": "uptime_kuma",
         "mode": mode,
         "delta_capable": False,
         "monitors": len(mon_list),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
     }
 
 
@@ -1989,15 +2676,24 @@ def _sync_home_assistant(
     ``home-assistant-mcp``. Each ``entity_id`` → an :Entity (state + attributes); its
     domain prefix (``light``/``sensor``/…) rolls up to a :Device the entity is ``part_of``.
     Delta = the ``last_updated`` watermark.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each HA
+    entity is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`. The
+    ``part_of`` edge is self-sourced from the entity's own record and carried on the
+    ENTITY's own ``_links`` (it also carries the real per-record ``updatedAt``).
     """
     if not _server_configured(("home-assistant-mcp", "home-assistant-agent")):
         return {"status": "skipped", "reason": "home-assistant-mcp not in mcp_config"}
-    backend = getattr(engine, "backend", None)
-    wm_key = "home_assistant"
-    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "home_assistant",
+        )
+    )
     docs = _drain_preset("home-assistant-states")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     devices: set[str] = set()
     for doc in docs:
         eid = getattr(doc, "id", None)
@@ -2007,20 +2703,6 @@ def _sync_home_assistant(
         attrs = a if isinstance((a := rec.get("attributes")), dict) else {}
         device_class = str(eid).split(".", 1)[0]  # light / sensor / switch / …
         ent_node = f"hass:entity:{eid}"
-        entities.append(
-            {
-                "id": ent_node,
-                "type": "entity",
-                "name": attrs.get("friendly_name") or str(eid),
-                "entity_id": str(eid),
-                "state": rec.get("state"),
-                "device_class": device_class,
-                "domain": "home_assistant",
-                "source_system": "home_assistant",
-                "externalToolId": str(eid),
-                "updatedAt": rec.get("last_updated"),
-            }
-        )
         dev_node = f"hass:device:{device_class}"
         if device_class not in devices:
             entities.append(
@@ -2033,23 +2715,29 @@ def _sync_home_assistant(
                 }
             )
             devices.add(device_class)
-        rels.append(
+        entities.append(
             {
-                "source": ent_node,
-                "target": dev_node,
-                "type": "part_of",
+                "id": ent_node,
+                "type": "entity",
+                "name": attrs.get("friendly_name") or str(eid),
+                "entity_id": str(eid),
+                "state": rec.get("state"),
+                "device_class": device_class,
                 "domain": "home_assistant",
+                "source_system": "home_assistant",
+                "externalToolId": str(eid),
+                "updatedAt": rec.get("last_updated"),
+                "_links": [
+                    {
+                        "source": ent_node,
+                        "target": dev_node,
+                        "type": "part_of",
+                        "domain": "home_assistant",
+                    }
+                ],
             }
         )
-    _ingest_typed(
-        engine,
-        "home_assistant",
-        entities,
-        rels,
-        wm_key=wm_key,
-        since=since,
-        watermark=_max_updated(docs),
-    )
+    ok, failed = _ingest_entities_via_envelope(engine, "home_assistant", entities)
     return {
         "status": "ok",
         "source": "home_assistant",
@@ -2057,8 +2745,9 @@ def _sync_home_assistant(
         "delta_capable": True,
         "entities": sum(1 for e in entities if e["type"] == "entity"),
         "devices": len(devices),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
+        "since": since,
     }
 
 
@@ -2072,19 +2761,22 @@ def _sync_twenty(
     over ``twenty-mcp``. People with a ``companyId`` are linked ``member_of`` their company;
     opportunities with a ``companyId`` are linked ``part_of`` it. Delta = the ``updatedAt``
     watermark across the three object types.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    person/company/opportunity is one ``ChangeEnvelope`` via
+    :func:`_ingest_entities_via_envelope`. Both edges are self-sourced (person/opportunity
+    are drained in the SAME call as the companies they reference) and carried on the
+    person's/opportunity's own ``_links``.
     """
     if not _server_configured(("twenty-mcp", "twenty")):
         return {"status": "skipped", "reason": "twenty-mcp not in mcp_config"}
-    backend = getattr(engine, "backend", None)
-    wm_key = "twenty"
-    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    since = None if mode == "full" else _read_envelope_watermark(engine, "twenty")
     src = "twenty"
 
     people = _drain_preset("twenty-people")
     companies = _drain_preset("twenty-companies")
     opps = _drain_preset("twenty-opportunities")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
 
     def _company_id(rec: dict[str, Any]) -> str | None:
         cid = rec.get("companyId")
@@ -2125,63 +2817,53 @@ def _sync_twenty(
             else str(name)
         )
         node_id = f"twenty:person:{pid}"
-        entities.append(
-            {
-                "id": node_id,
-                "type": "person",
-                "name": full or f"Person {pid}",
-                "job_title": rec.get("jobTitle"),
-                "domain": "twenty",
-                "source_system": src,
-                "externalToolId": str(pid),
-                "updatedAt": rec.get("updatedAt"),
-            }
-        )
+        person: dict[str, Any] = {
+            "id": node_id,
+            "type": "person",
+            "name": full or f"Person {pid}",
+            "job_title": rec.get("jobTitle"),
+            "domain": "twenty",
+            "source_system": src,
+            "externalToolId": str(pid),
+            "updatedAt": rec.get("updatedAt"),
+        }
         if cid := _company_id(rec):
-            rels.append(
+            person["_links"] = [
                 {
                     "source": node_id,
                     "target": f"twenty:company:{cid}",
                     "type": "member_of",
                     "domain": "twenty",
                 }
-            )
+            ]
+        entities.append(person)
     for doc in opps:
         oid = getattr(doc, "id", None)
         if not oid:
             continue
         rec = _record_of(doc)
         node_id = f"twenty:opportunity:{oid}"
-        entities.append(
-            {
-                "id": node_id,
-                "type": "opportunity",
-                "name": rec.get("name") or f"Opportunity {oid}",
-                "stage": rec.get("stage"),
-                "domain": "twenty",
-                "source_system": src,
-                "externalToolId": str(oid),
-                "updatedAt": rec.get("updatedAt"),
-            }
-        )
+        opp: dict[str, Any] = {
+            "id": node_id,
+            "type": "opportunity",
+            "name": rec.get("name") or f"Opportunity {oid}",
+            "stage": rec.get("stage"),
+            "domain": "twenty",
+            "source_system": src,
+            "externalToolId": str(oid),
+            "updatedAt": rec.get("updatedAt"),
+        }
         if cid := _company_id(rec):
-            rels.append(
+            opp["_links"] = [
                 {
                     "source": node_id,
                     "target": f"twenty:company:{cid}",
                     "type": "part_of",
                     "domain": "twenty",
                 }
-            )
-    _ingest_typed(
-        engine,
-        src,
-        entities,
-        rels,
-        wm_key=wm_key,
-        since=since,
-        watermark=_max_updated(people + companies + opps),
-    )
+            ]
+        entities.append(opp)
+    ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
         "source": "twenty",
@@ -2190,8 +2872,9 @@ def _sync_twenty(
         "people": len(people),
         "companies": len(companies),
         "opportunities": len(opps),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
+        "since": since,
     }
 
 
@@ -2220,6 +2903,13 @@ def _sync_audiobookshelf(
     ``{"authors": [...]}`` (each :Author, with books linked ``authored_by``). Dict-shaped /
     multi-step → calls the tool directly via ``call_tool_once``. Full snapshot each run; the
     write-layer content-hash makes a re-run a no-op.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    library/book/author is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`.
+    Both a book's edges (``part_of`` its library, ``authored_by`` each author) are
+    self-sourced from the book's own record (library/book/authors are always drained
+    together in this one call) and carried on the BOOK's own ``_links`` — the book also
+    carries the real per-record ``updatedAt``, unlike the versionless library/author.
     """
     server = _configured_server(("audiobookshelf-mcp", "audiobookshelf-agent"))
     if server is None:
@@ -2244,7 +2934,6 @@ def _sync_audiobookshelf(
     if isinstance(libs_res, list):  # some ABS builds return a bare list
         libraries = libs_res
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     books_total = 0
     authors_total = 0
     for lib in libraries:
@@ -2285,6 +2974,30 @@ def _sync_audiobookshelf(
             meta = mm if isinstance((mm := media.get("metadata")), dict) else {}
             title = meta.get("title") or item.get("title") or f"Book {item_id}"
             book_node = f"abs:book:{item_id}"
+            book_links: list[dict[str, Any]] = [
+                {
+                    "source": book_node,
+                    "target": lib_node,
+                    "type": "part_of",
+                    "domain": "audiobookshelf",
+                }
+            ]
+            for author in meta.get("authors") or []:
+                if not isinstance(author, dict):
+                    continue
+                aid = author.get("id")
+                aname = author.get("name")
+                if not (aid or aname):
+                    continue
+                author_node = f"abs:author:{aid or aname}"
+                book_links.append(
+                    {
+                        "source": book_node,
+                        "target": author_node,
+                        "type": "authored_by",
+                        "domain": "audiobookshelf",
+                    }
+                )
             entities.append(
                 {
                     "id": book_node,
@@ -2300,32 +3013,9 @@ def _sync_audiobookshelf(
                     "source_system": "audiobookshelf",
                     "externalToolId": str(item_id),
                     "updatedAt": item.get("updatedAt"),
+                    "_links": book_links,
                 }
             )
-            rels.append(
-                {
-                    "source": book_node,
-                    "target": lib_node,
-                    "type": "part_of",
-                    "domain": "audiobookshelf",
-                }
-            )
-            for author in meta.get("authors") or []:
-                if not isinstance(author, dict):
-                    continue
-                aid = author.get("id")
-                aname = author.get("name")
-                if not (aid or aname):
-                    continue
-                author_node = f"abs:author:{aid or aname}"
-                rels.append(
-                    {
-                        "source": book_node,
-                        "target": author_node,
-                        "type": "authored_by",
-                        "domain": "audiobookshelf",
-                    }
-                )
             books_total += 1
         try:
             authors_res = _call("authors", {"id": lib_id})
@@ -2354,8 +3044,7 @@ def _sync_audiobookshelf(
                 }
             )
             authors_total += 1
-    if entities:
-        engine.ingest_external_batch("audiobookshelf", entities, rels)
+    ok, failed = _ingest_entities_via_envelope(engine, "audiobookshelf", entities)
     return {
         "status": "ok",
         "source": "audiobookshelf",
@@ -2364,8 +3053,8 @@ def _sync_audiobookshelf(
         "libraries": sum(1 for e in entities if e["type"] == "library"),
         "books": books_total,
         "authors": authors_total,
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
     }
 
 
@@ -2384,21 +3073,31 @@ def _sync_firefly_iii(
     :func:`~..etl.transforms.dig` for the JSON:API ``attributes`` envelope unwrap
     (replacing the handler-local ``_attrs`` helper), :func:`~..etl.transforms.coalesce`
     for name fallbacks, and :func:`~..etl.transforms.stable_id` for node ids.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    account/budget/transaction is one ``ChangeEnvelope`` via
+    :func:`_ingest_entities_via_envelope`. Both edges are self-sourced from the
+    transaction's own record (accounts/budgets/transactions are always drained together
+    in this one call) and carried on the TRANSACTION's own ``_links``.
     """
     if not _server_configured(("firefly-iii-mcp", "firefly-iii-agent")):
         return {"status": "skipped", "reason": "firefly-iii-mcp not in mcp_config"}
     from ..etl.transforms import coalesce, dig, stable_id
 
-    backend = getattr(engine, "backend", None)
-    wm_key = "firefly_iii"
-    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "firefly_iii",
+        )
+    )
     src = "firefly_iii"
 
     accounts = _drain_preset("firefly-accounts")
     transactions = _drain_preset("firefly-transactions")
     budgets = _drain_preset("firefly-budgets")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
 
     for doc in accounts:
         aid = getattr(doc, "id", None)
@@ -2446,6 +3145,25 @@ def _sync_firefly_iii(
         first = splits[0] if isinstance(splits, list) and splits else {}
         first = first if isinstance(first, dict) else {}
         node_id = stable_id(tid, prefix="firefly:transaction")
+        tx_links: list[dict[str, Any]] = []
+        if src_acct := first.get("source_id"):
+            tx_links.append(
+                {
+                    "source": node_id,
+                    "target": stable_id(src_acct, prefix="firefly:account"),
+                    "type": "part_of",
+                    "domain": "firefly_iii",
+                }
+            )
+        if budget_id := first.get("budget_id"):
+            tx_links.append(
+                {
+                    "source": node_id,
+                    "target": stable_id(budget_id, prefix="firefly:budget"),
+                    "type": "member_of",
+                    "domain": "firefly_iii",
+                }
+            )
         entities.append(
             {
                 "id": node_id,
@@ -2461,35 +3179,10 @@ def _sync_firefly_iii(
                 "source_system": src,
                 "externalToolId": str(tid),
                 "updatedAt": attrs.get("updated_at"),
+                "_links": tx_links,
             }
         )
-        if src_acct := first.get("source_id"):
-            rels.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(src_acct, prefix="firefly:account"),
-                    "type": "part_of",
-                    "domain": "firefly_iii",
-                }
-            )
-        if budget_id := first.get("budget_id"):
-            rels.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(budget_id, prefix="firefly:budget"),
-                    "type": "member_of",
-                    "domain": "firefly_iii",
-                }
-            )
-    _ingest_typed(
-        engine,
-        src,
-        entities,
-        rels,
-        wm_key=wm_key,
-        since=since,
-        watermark=_max_updated(accounts + transactions + budgets),
-    )
+    ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
         "source": "firefly_iii",
@@ -2498,8 +3191,9 @@ def _sync_firefly_iii(
         "accounts": len(accounts),
         "transactions": len(transactions),
         "budgets": len(budgets),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
+        "since": since,
     }
 
 
@@ -2517,21 +3211,31 @@ def _sync_paperless_ngx(
     Uses the shared transform primitives (CONCEPT:AU-KG.etl.transform-primitives) —
     :func:`~..etl.transforms.coalesce` for name fallbacks and
     :func:`~..etl.transforms.stable_id` for the ``paperless:<type>:<id>`` node ids.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    correspondent/tag/document is one ``ChangeEnvelope`` via
+    :func:`_ingest_entities_via_envelope`. Both edges are self-sourced from the
+    document's own record (correspondents/tags/documents are always drained together
+    in this one call) and carried on the DOCUMENT's own ``_links``.
     """
     if not _server_configured(("paperless-ngx-mcp", "paperless-ngx-agent")):
         return {"status": "skipped", "reason": "paperless-ngx-mcp not in mcp_config"}
     from ..etl.transforms import coalesce, stable_id
 
-    backend = getattr(engine, "backend", None)
-    wm_key = "paperless_ngx"
-    since = None if mode == "full" else _read_watermark(backend, wm_key)
+    since = (
+        None
+        if mode == "full"
+        else _read_envelope_watermark(
+            engine,
+            "paperless_ngx",
+        )
+    )
     src = "paperless_ngx"
 
     correspondents = _drain_preset("paperless-correspondents")
     tags = _drain_preset("paperless-tags")
     documents = _drain_preset("paperless-documents")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
 
     for doc in correspondents:
         cid = getattr(doc, "id", None)
@@ -2571,6 +3275,25 @@ def _sync_paperless_ngx(
             continue
         rec = _record_of(doc)
         node_id = stable_id(did, prefix="paperless:document")
+        doc_links: list[dict[str, Any]] = []
+        if (corr := rec.get("correspondent")) is not None:
+            doc_links.append(
+                {
+                    "source": node_id,
+                    "target": stable_id(corr, prefix="paperless:correspondent"),
+                    "type": "member_of",
+                    "domain": "paperless_ngx",
+                }
+            )
+        for tag_id in rec.get("tags") or []:
+            doc_links.append(
+                {
+                    "source": node_id,
+                    "target": stable_id(tag_id, prefix="paperless:tag"),
+                    "type": "tagged_with",
+                    "domain": "paperless_ngx",
+                }
+            )
         entities.append(
             {
                 "id": node_id,
@@ -2583,35 +3306,10 @@ def _sync_paperless_ngx(
                 "source_system": src,
                 "externalToolId": str(did),
                 "updatedAt": rec.get("modified"),
+                "_links": doc_links,
             }
         )
-        if (corr := rec.get("correspondent")) is not None:
-            rels.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(corr, prefix="paperless:correspondent"),
-                    "type": "member_of",
-                    "domain": "paperless_ngx",
-                }
-            )
-        for tag_id in rec.get("tags") or []:
-            rels.append(
-                {
-                    "source": node_id,
-                    "target": stable_id(tag_id, prefix="paperless:tag"),
-                    "type": "tagged_with",
-                    "domain": "paperless_ngx",
-                }
-            )
-    _ingest_typed(
-        engine,
-        src,
-        entities,
-        rels,
-        wm_key=wm_key,
-        since=since,
-        watermark=_max_updated(documents),
-    )
+    ok, failed = _ingest_entities_via_envelope(engine, src, entities)
     return {
         "status": "ok",
         "source": "paperless_ngx",
@@ -2620,8 +3318,9 @@ def _sync_paperless_ngx(
         "documents": len(documents),
         "correspondents": len(correspondents),
         "tags": len(tags),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
+        "since": since,
     }
 
 
@@ -2638,6 +3337,16 @@ def _sync_gramps(
     ``part_of`` (via the person's ``event_ref_list``). Full snapshot each run; the write-layer
     content-hash makes a re-run a no-op. The genealogy graph is the substrate for relationship
     reasoning over the KG.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    person/family/event is one ``ChangeEnvelope`` via :func:`_ingest_entities_via_envelope`.
+    A person's own ``part_of`` event edge is carried on the PERSON's own ``_links``
+    (self-sourced). A family's father/mother/child ``member_of`` edges — whose ``source``
+    is a PERSON id, not the family's — are carried on the FAMILY's own ``_links`` instead:
+    people/families/events are always drained together in this one call (self-sourced),
+    and the family (not the referenced person) is the entity whose own ``change`` marker
+    actually reflects a membership edit, so attaching there is what re-asserts the edge
+    whenever membership changes.
     """
     server = _configured_server(("gramps-mcp", "gramps-agent"))
     if server is None:
@@ -2671,7 +3380,6 @@ def _sync_gramps(
     families = _collection("gramps_families", "get_families")
     events = _collection("gramps_events", "get_events")
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
 
     def _person_name(rec: dict[str, Any]) -> str:
         name = rec.get("primary_name")
@@ -2694,6 +3402,19 @@ def _sync_gramps(
             continue
         person_handles.add(str(handle))
         node_id = f"gramps:person:{handle}"
+        person_links: list[dict[str, Any]] = []
+        for eref in rec.get("event_ref_list") or []:
+            if not isinstance(eref, dict):
+                continue
+            if ev := eref.get("ref"):
+                person_links.append(
+                    {
+                        "source": node_id,
+                        "target": f"gramps:event:{ev}",
+                        "type": "part_of",
+                        "domain": "gramps",
+                    }
+                )
         entities.append(
             {
                 "id": node_id,
@@ -2705,25 +3426,28 @@ def _sync_gramps(
                 "source_system": "gramps",
                 "externalToolId": str(handle),
                 "updatedAt": rec.get("change"),
+                "_links": person_links,
             }
         )
-        for eref in rec.get("event_ref_list") or []:
-            if not isinstance(eref, dict):
-                continue
-            if ev := eref.get("ref"):
-                rels.append(
-                    {
-                        "source": node_id,
-                        "target": f"gramps:event:{ev}",
-                        "type": "part_of",
-                        "domain": "gramps",
-                    }
-                )
     for rec in families:
         handle = rec.get("handle")
         if not handle:
             continue
         fam_node = f"gramps:family:{handle}"
+        members: list[Any] = [rec.get("father_handle"), rec.get("mother_handle")]
+        for child in rec.get("child_ref_list") or []:
+            if isinstance(child, dict) and child.get("ref"):
+                members.append(child["ref"])
+        fam_links = [
+            {
+                "source": f"gramps:person:{member}",
+                "target": fam_node,
+                "type": "member_of",
+                "domain": "gramps",
+            }
+            for member in members
+            if member
+        ]
         entities.append(
             {
                 "id": fam_node,
@@ -2739,22 +3463,9 @@ def _sync_gramps(
                 "source_system": "gramps",
                 "externalToolId": str(handle),
                 "updatedAt": rec.get("change"),
+                "_links": fam_links,
             }
         )
-        members: list[Any] = [rec.get("father_handle"), rec.get("mother_handle")]
-        for child in rec.get("child_ref_list") or []:
-            if isinstance(child, dict) and child.get("ref"):
-                members.append(child["ref"])
-        for member in members:
-            if member:
-                rels.append(
-                    {
-                        "source": f"gramps:person:{member}",
-                        "target": fam_node,
-                        "type": "member_of",
-                        "domain": "gramps",
-                    }
-                )
     for rec in events:
         handle = rec.get("handle")
         if not handle:
@@ -2777,8 +3488,9 @@ def _sync_gramps(
                 "updatedAt": rec.get("change"),
             }
         )
-    if entities:
-        engine.ingest_external_batch("gramps", entities, rels)
+    ok, failed = _ingest_entities_via_envelope(
+        engine, "gramps", entities, version_field="updatedAt"
+    )
     return {
         "status": "ok",
         "source": "gramps",
@@ -2787,8 +3499,8 @@ def _sync_gramps(
         "people": len(people),
         "families": len(families),
         "events": len(events),
-        "nodes_hydrated": len(entities),
-        "relations_hydrated": len(rels),
+        "nodes_hydrated": ok,
+        "failed": failed,
     }
 
 
@@ -2911,15 +3623,19 @@ def _resolve_ard_registries() -> list[dict[str, Any]]:
     return out
 
 
-def _ard_entities(
-    docs: list[Any], registry_name: str
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Map drained ARD resource docs → typed KG entities + relationships (KG-2.188).
+def _ard_entities(docs: list[Any], registry_name: str) -> list[dict[str, Any]]:
+    """Map drained ARD resource docs → typed KG entities (KG-2.188).
 
     ``application/mcp-server*`` → ``:MCPServer``; ``application/ai-skill`` → ``:Skill``;
     every resource links ``registeredIn`` its ``:ResourceRegistry`` and ``providesCapability``
     a ``:ServiceCapability`` per tag — reusing the a2a/capability ontology terms so an
     ingested external capability is queryable exactly like a native one.
+
+    AU-P1-5 (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): both edges are
+    self-sourced from the resource's own record (registry/resource/capabilities are
+    always resolved together in this one drain) and carried on the RESOURCE's own
+    ``_links`` — the resource also carries the real per-record ``updated_at``, unlike
+    the versionless registry/capability nodes.
     """
     import re as _re
 
@@ -2927,7 +3643,6 @@ def _ard_entities(
         return _re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-") or "x"
 
     entities: list[dict[str, Any]] = []
-    rels: list[dict[str, Any]] = []
     src = f"ard:{registry_name}"
     registry_node = f"ard:registry:{_slug(registry_name)}"
     entities.append(
@@ -2949,28 +3664,14 @@ def _ard_entities(
         node_type = "Skill" if media == "application/ai-skill" else "MCPServer"
         node_id = f"ard:{registry_name}:{_slug(eid)}"
         publisher_domain = str((record.get("publisher") or {}).get("domain", ""))
-        entities.append(
-            {
-                "id": node_id,
-                "type": node_type,
-                "name": getattr(doc, "title", None) or str(eid),
-                "description": getattr(doc, "text", "") or "",
-                "domain": "ard",
-                "source_system": src,
-                "externalToolId": str(eid),
-                "ardMediaType": media,
-                "publisherDomain": publisher_domain,
-                "updatedAt": getattr(doc, "updated_at", None),
-            }
-        )
-        rels.append(
+        resource_links: list[dict[str, Any]] = [
             {
                 "source": node_id,
                 "target": registry_node,
                 "type": "registeredIn",
                 "domain": "ard",
             }
-        )
+        ]
         for tag in record.get("tags") or []:
             cap = str(tag).strip().lower()
             if not cap:
@@ -2985,7 +3686,7 @@ def _ard_entities(
                     "source_system": src,
                 }
             )
-            rels.append(
+            resource_links.append(
                 {
                     "source": node_id,
                     "target": cap_node,
@@ -2993,7 +3694,22 @@ def _ard_entities(
                     "domain": "ard",
                 }
             )
-    return entities, rels
+        entities.append(
+            {
+                "id": node_id,
+                "type": node_type,
+                "name": getattr(doc, "title", None) or str(eid),
+                "description": getattr(doc, "text", "") or "",
+                "domain": "ard",
+                "source_system": src,
+                "externalToolId": str(eid),
+                "ardMediaType": media,
+                "publisherDomain": publisher_domain,
+                "updatedAt": getattr(doc, "updated_at", None),
+                "_links": resource_links,
+            }
+        )
+    return entities
 
 
 def _sync_ard(
@@ -3003,9 +3719,15 @@ def _sync_ard(
 
     For every registry in ``ARD_REGISTRIES`` (e.g. ``[{"name":"hf","preset":"huggingface"}]``)
     this drains the ``ard`` connector (signature-verified), maps each resource to a typed
-    ``:MCPServer``/``:Skill`` node linked to its ``:ResourceRegistry`` + capabilities, and
-    ``ingest_external_batch``-es it under ``domain="ard"``. ``mode='reconcile'`` tombstones
+    ``:MCPServer``/``:Skill`` node linked to its ``:ResourceRegistry`` + capabilities,
+    then emits one ChangeEnvelope per typed object. ``mode='reconcile'`` tombstones
     resources no longer present. ``client`` may inject a fetch function for offline tests.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction): each
+    registry/resource/capability node is one ``ChangeEnvelope`` via
+    :func:`_ingest_entities_via_envelope`, ``source_instance=<registry name>`` so the
+    per-envelope watermark key (``ard:<name>``) matches this handler's own existing
+    ``wm_key`` format exactly.
     """
     from ...protocols.source_connectors.registry import build_connector
 
@@ -3013,9 +3735,8 @@ def _sync_ard(
     if not registries:
         return {"status": "skipped", "reason": "no ARD_REGISTRIES configured"}
 
-    backend = getattr(engine, "backend", None)
     results: list[dict[str, Any]] = []
-    total_e = total_r = total_fail = 0
+    total_e = total_fail = 0
     all_live: set[str] = set()
     for reg in registries:
         name = str(reg.get("name") or reg.get("preset") or "ard")
@@ -3029,30 +3750,34 @@ def _sync_ard(
                 {"registry": name, "status": "skipped", "reason": str(exc)[:160]}
             )
             continue
-        wm_key = f"ard:{name}"
-        since = None if mode == "full" else _read_watermark(backend, wm_key)
+        since = (
+            None
+            if mode == "full"
+            else _read_envelope_watermark(
+                engine,
+                "ard",
+                source_instance=name,
+            )
+        )
         docs = _drain_incremental(conn, since)
         live = {str(getattr(d, "id", "")) for d in docs if getattr(d, "id", None)}
         all_live |= live
         if mode == "reconcile":
             results.append(_reconcile(engine, "ard", live) | {"registry": name})
             continue
-        entities, rels = _ard_entities(docs, name)
-        if entities:
-            engine.ingest_external_batch("ard", entities, rels)
-        watermark = _max_updated(docs)
-        if watermark and (since is None or str(watermark) > str(since)):
-            _write_watermark(backend, wm_key, watermark)
-        fails = int(getattr(conn, "verify_failures", 0) or 0)
-        total_e += len(entities)
-        total_r += len(rels)
+        entities = _ard_entities(docs, name)
+        ok, failed = _ingest_entities_via_envelope(
+            engine, "ard", entities, source_instance=name
+        )
+        fails = int(getattr(conn, "verify_failures", 0) or 0) + failed
+        total_e += ok
         total_fail += fails
         results.append(
             {
                 "registry": name,
                 "resources": len(docs),
                 "verify_failures": fails,
-                "watermark": watermark,
+                "since": since,
             }
         )
     return {
@@ -3062,7 +3787,6 @@ def _sync_ard(
         "delta_capable": True,
         "registries": results,
         "nodes_hydrated": total_e,
-        "relations_hydrated": total_r,
         "verify_failures": total_fail,
     }
 
@@ -3096,6 +3820,24 @@ def _parse_memory_file(path: Any) -> tuple[str, str, str, str, str, list[str]]:
     return slug, name, description, mtype, body.strip(), links
 
 
+def _sync_package_install(
+    engine: Any, *, mode: str, ids: list[str] | None, client: Any
+) -> dict[str, Any]:
+    """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
+
+    Thin wiring over :func:`~..ingestion.package_install_ingest.sync_package_install`
+    (the actual logic lives there, next to ``skill_workflow_ingest``/
+    ``change_envelope`` — kept out of this already-large module): reads the
+    universal-installer's ``install-manifest.json`` as a change signal and
+    re-drives the EXISTING prompt-registry / ontology-federation /
+    workflow-skill reloads rather than reimplementing ingestion. See that
+    module's docstring for the full design.
+    """
+    from ..ingestion.package_install_ingest import sync_package_install
+
+    return sync_package_install(engine, mode=mode, ids=ids, client=client)
+
+
 def _sync_claude_memory(
     engine: Any, *, mode: str, ids: list[str] | None, client: Any
 ) -> dict[str, Any]:
@@ -3110,10 +3852,20 @@ def _sync_claude_memory(
 
     Zero-infra + offline (reads local markdown, no network). The memory dir is
     ``CLAUDE_MEMORY_DIR`` when set, else every ``~/.claude/projects/*/memory`` is swept.
-    Delta is the content-hash write-delta in ``ingest_external_batch`` (unchanged topic
-    files are skipped even on a full sweep); ``ids`` narrows to specific slugs. The
-    ``MEMORY.md`` / ``MEMORY-ARCHIVE.md`` indexes themselves are skipped — only the
-    per-memory topic files are ingested.
+    Delta is the content-hash write-delta (unchanged topic files are skipped even
+    on a full sweep); ``ids`` narrows to specific slugs. The ``MEMORY.md`` /
+    ``MEMORY-ARCHIVE.md`` indexes themselves are skipped — only the per-memory
+    topic files are ingested.
+
+    AU-P1-5 envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction):
+    each topic file becomes one ``ChangeEnvelope`` (its ``RELATED_TO`` links
+    carried as ``_links``, since a memory's edges are always self-authored —
+    ``source`` is always this record's own id, so attaching them to its own
+    envelope is lossless) routed through
+    :func:`~..ingestion.envelope_ingest.ingest_envelope` — graph material,
+    policy, lineage, version, cursor, and outbox per file in one native commit.
+    Migrated second (after ``leanix``) as the simplest self-contained offline
+    exemplar.
     """
     import glob
     import os
@@ -3142,56 +3894,70 @@ def _sync_claude_memory(
             "reason": "no Claude memory dir (set CLAUDE_MEMORY_DIR) or no *.md topic files",
         }
 
+    from ..ingestion.change_envelope import ChangeEnvelope
+    from ..ingestion.envelope_ingest import ingest_envelope
+
     id_filter = set(ids or [])
-    entities: list[dict[str, Any]] = []
-    relationships: list[dict[str, Any]] = []
+    nodes = 0
+    edges = 0
+    failed = 0
     for f in files:
         slug, name, description, mtype, body, links = _parse_memory_file(f)
         if id_filter and slug not in id_filter:
             continue
         eid = f"claude_memory:{slug}"
-        entities.append(
-            {
-                "id": eid,
-                "type": "AgentMemory",
-                "name": name,
-                "slug": slug,
-                "memory_type": mtype,
-                "description": description,
-                "text": (f"{description}\n\n{body}").strip(),
-                "source_uri": str(f),
-            }
-        )
-        for tgt in dict.fromkeys(links):  # de-dup, preserve order
-            if tgt != slug:
-                relationships.append(
-                    {
-                        "source": eid,
-                        "target": f"claude_memory:{tgt}",
-                        "type": "RELATED_TO",
-                    }
-                )
+        record: dict[str, Any] = {
+            "id": eid,
+            "type": "AgentMemory",
+            "name": name,
+            "slug": slug,
+            "memory_type": mtype,
+            "description": description,
+            "text": (f"{description}\n\n{body}").strip(),
+            # The durable envelope may identify the configured source class,
+            # never the host/user-specific filesystem location.
+            "source_uri": "configured-memory",
+        }
+        rel_links = [
+            {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
+            for tgt in dict.fromkeys(links)  # de-dup, preserve order
+            if tgt != slug
+        ]
+        if rel_links:
+            record["_links"] = rel_links
 
-    result = (
-        engine.ingest_external_batch("claude_memory", entities, relationships)
-        if entities
-        else {}
-    )
+        env = ChangeEnvelope.from_connector_record(
+            record, connector="claude_memory", id_field="id", version_field="id"
+        )
+        result = ingest_envelope(engine, env)
+        if result.get("status") not in {"success", "skipped"}:
+            failed += 1
+            logger.warning(
+                "claude_memory envelope %s failed: %s",
+                env.idempotency_key,
+                result.get("error"),
+            )
+            continue
+        wr = result.get("write_result") or {}
+        nodes += wr.get("nodes", 0)
+        edges += wr.get("edges", 0)
+
     return {
         "status": "ok",
         "source": "claude_memory",
         "mode": mode,
         "delta_capable": True,
         "memories_seen": len(files),
-        "nodes": result.get("nodes", 0),
-        "edges": result.get("edges", 0),
-        "skipped_unchanged": result.get("skipped_unchanged", 0),
+        "nodes": nodes,
+        "edges": edges,
+        "failed": failed,
     }
 
 
 # Sources with a native delta (watermark/reconcile) handler. Add an entry here to
 # make another source incremental (e.g. Camunda once its extractor takes `since`).
 _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
+    "package_install": _sync_package_install,
     "claude_memory": _sync_claude_memory,
     "leanix": _sync_leanix,
     "archivebox": _sync_archivebox,
@@ -3218,7 +3984,24 @@ _DELTA_HANDLERS: dict[str, Callable[..., dict[str, Any]]] = {
     "ard": _sync_ard,
     "fleet": _sync_fleet,
     "fleet_connectors": _sync_fleet_connectors,
+    # L27 (AU-P1-5): live sync_source call sites for the 6 mandatory-manifest ops
+    # connectors that previously had none — see ``_ops_connector_config`` above.
+    # Envelope-native from day one (CONCEPT:AU-KG.ingest.envelope-atomic-transaction).
+    "microsoft-agent": _sync_microsoft_agent,
+    "container-manager-mcp": _sync_container_manager_mcp,
+    "documentdb-mcp": _sync_documentdb_mcp,
+    "repository-manager": _sync_repository_manager,
+    "systems-manager": _sync_systems_manager,
+    "vector-mcp": _sync_vector_mcp,
 }
+
+# Every durable external-ingestion handler is native. ``package_install`` is a
+# write-free dispatcher in this module; its downstream package-owned reloaders
+# retain their own authority boundaries and are audited separately.
+ORCHESTRATION_ONLY_SOURCES: frozenset[str] = frozenset({"package_install"})
+ENVELOPE_NATIVE_SOURCES: frozenset[str] = (
+    frozenset(_DELTA_HANDLERS) - ORCHESTRATION_ONLY_SOURCES
+)
 
 
 def sync_source(
@@ -3235,20 +4018,17 @@ def sync_source(
     do incremental watermark/reconcile; any other registered source falls back to a
     full hydrate via the capability registry.
 
-    The heterogeneous result each of the ~20 ``_sync_*`` handlers / the
-    materialize core / the capability-registry hydrate / the fleet sweep returns
-    is coerced through :class:`..etl.result.EtlResult` (CONCEPT:AU-KG.etl.result-contract)
-    at this single choke point — every dispatch path gets a validated ``status``/
-    ``counts`` contract without any handler needing to be rewritten (their extra,
-    handler-specific fields pass through unedited).
+    Every dispatch path is projected onto the strict
+    :class:`..etl.result.EtlResult` wire schema
+    (CONCEPT:AU-KG.etl.result-contract). Connector-specific diagnostics are
+    namespaced under ``details`` and are not interpreted as canonical counts.
 
     Before dispatch, a **compile-before-sync** gate (CONCEPT:AU-KG.ontology.connector-manifest-gate,
-    D17) looks up this source's ``agents/<pkg>/connector_manifest.yml`` (if any) and
-    re-verifies its compiled canonical hash. No manifest yet -> silent pass-through
-    (most sources aren't onboarded to C5 yet); a manifest that fails to compile or
-    whose hash no longer matches its signed ``provenance.integrity.hash`` -> **fail
-    closed**, the sync is refused rather than pulling data through a manifest that
-    doesn't match what was actually reviewed/signed.
+    D17) requires this source's owned ``connector_manifest.yml``, re-verifies its
+    compiled canonical hash and release signature, and requires the installed
+    connector-owned provider presets to match the signed tool/field maps exactly.
+    Missing manifests/providers, drift, or a precheck exception fail closed before
+    dispatch. There is no unowned runtime connector pass-through.
     """
     from ..etl.result import EtlResult
 
@@ -3259,33 +4039,51 @@ def sync_source(
             from ..ontology.connector_manifest_gate import precheck_source
 
             gate = precheck_source(norm_source)
-        except Exception:  # noqa: BLE001 — the gate itself must never break sync
-            logger.debug(
-                "connector-manifest precheck unavailable for %s",
+        except Exception as exc:  # noqa: BLE001 - gate failure must fail closed
+            logger.warning(
+                "connector-manifest precheck failed closed for %s (%s)",
                 norm_source,
-                exc_info=True,
+                type(exc).__name__,
             )
-            gate = {"checked": False}
-        if gate.get("checked") and not gate.get("ok"):
+            return EtlResult(
+                status="error",
+                source=norm_source or None,
+                mode=mode,
+                reason="connector-manifest precheck failed closed "
+                f"({type(exc).__name__})",
+            ).model_dump()
+        if not gate.get("checked") or not gate.get("ok"):
             logger.warning(
                 "source_sync: %s refused — connector_manifest.yml failed the "
                 "compile-before-sync gate: %s",
                 norm_source,
                 gate.get("violations"),
             )
-            return EtlResult.coerce(
-                {
-                    "status": "error",
-                    "source": norm_source,
-                    "reason": "connector_manifest.yml failed the compile-before-sync "
-                    f"gate ({gate.get('connector')}): {gate.get('violations')}",
-                },
+            return EtlResult(
+                status="error",
                 source=norm_source or None,
                 mode=mode,
+                reason="connector_manifest.yml failed the compile-before-sync "
+                f"gate ({gate.get('connector')}): {gate.get('violations')}",
             ).model_dump()
 
     res = _dispatch_sync_source(engine, norm_source, mode=mode, ids=ids, client=client)
-    return EtlResult.coerce(res, source=norm_source or None, mode=mode).model_dump()
+    if isinstance(res, EtlResult):
+        return res.model_dump()
+    if not isinstance(res, dict):
+        return EtlResult(
+            status="error",
+            source=norm_source or None,
+            mode=mode,
+            error="connector returned a non-object result",
+        ).model_dump()
+    canonical_fields = set(EtlResult.model_fields)
+    payload = {key: value for key, value in res.items() if key in canonical_fields}
+    details = {key: value for key, value in res.items() if key not in canonical_fields}
+    payload.setdefault("source", norm_source or None)
+    payload.setdefault("mode", mode)
+    payload["details"] = {**dict(payload.get("details") or {}), **details}
+    return EtlResult.model_validate(payload).model_dump()
 
 
 def _dispatch_sync_source(
@@ -3388,8 +4186,8 @@ def sweep_all_sources(
     watermark/delta/full machinery. ``mode`` defaults to ``"delta"`` so a
     scheduled sweep only pulls (and, via the write-layer content-hash delta, only
     writes) what changed. Per-source failures are isolated and recorded — a
-    background sweep never aborts on one bad connector, and unconfigured sources
-    are reported as *skipped*, not *errored*.
+    background sweep never aborts on one bad connector. Optional unconfigured
+    sources are reported as *skipped*; mandatory contract failures are *errored*.
     """
     candidates: set[str] = set(_DELTA_HANDLERS)
     # ``fleet`` capability elevation re-probes ~62 MCP servers; the capability
@@ -3478,11 +4276,14 @@ def sweep_all_sources(
                     or "error"
                 )
             else:
-                synced[src] = {
-                    k: res[k]
-                    for k in ("nodes", "edges", "ingested", "skipped_unchanged")
-                    if isinstance(res, dict) and k in res
-                } or status
+                synced[src] = (
+                    {
+                        "counts": dict(res.get("counts") or {}),
+                        "details": dict(res.get("details") or {}),
+                    }
+                    if isinstance(res, dict)
+                    else status
+                )
         except Exception as e:  # noqa: BLE001 — isolate one bad connector
             msg = str(e)
             if any(t in msg.lower() for t in _UNCONFIGURED):

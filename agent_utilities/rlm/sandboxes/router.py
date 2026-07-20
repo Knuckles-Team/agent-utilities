@@ -2,9 +2,9 @@
 
 Given a snippet, pick the cheapest backend that can run it and return an *escalation chain*:
 the executor tries each in order, advancing on :class:`SandboxRejected` (and stopping on
-:class:`~agent_utilities.rlm.telemetry.SandboxFatalError`). The floor backend (``local``,
-which can run anything) always anchors the tail, so the chain is never empty and the RLM loop
-always has somewhere to run.
+:class:`~agent_utilities.rlm.telemetry.SandboxFatalError`). Routing contains only
+real confinement boundaries and fails closed when none is available. A Boolean
+flag can no longer weaken that invariant.
 
 Routing is pure capability matching — see :class:`~.base.SandboxCapabilities`. Three hard
 filters come from static analysis: third-party imports require ``third_party_libs``, class /
@@ -19,13 +19,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from ..telemetry import SandboxFatalError
 from .analyzer import Analyzer, AstAnalyzer, CodeRequirements
 from .base import Sandbox
 
 logger = logging.getLogger(__name__)
 
 # CONCEPT:AU-ORCH.sandbox.rung-escalation — how far a rung's reward-EMA may shift its effective rank. Rungs are spaced
-# ~5 apart (monty 0, wasm 10, forkserver 15, container_fork 18, docker 20, local 30); a weight of
+# across the governed tiers (monty 0, wasm 10, docker 20, firecracker 25); a weight of
 # 10 maps reward∈[0,1] (centered 0.5) to a ±5 shift — so a *fully broken* rung drops by ~one tier
 # and a *fully healthy* one rises by ~one, while steady-state (~0.5) preserves the rank order.
 _REWARD_WEIGHT = 10.0
@@ -41,15 +42,11 @@ class SandboxRouter:
         *,
         reward_fn: Callable[[str], float] | None = None,
     ):
-        if not backends:
-            raise ValueError("SandboxRouter needs at least one backend")
         self._backends = backends
         self._analyzer = analyzer or AstAnalyzer()
         # Optional reward-EMA per backend name (CONCEPT:AU-ORCH.sandbox.rung-escalation): when supplied, a persistently
         # failing rung is routed around. Default None => pure deterministic rank order (unchanged).
         self._reward_fn = reward_fn
-        # The floor: lowest-preference (highest rank) backend that runs anything.
-        self._floor = max(backends, key=lambda b: b.capabilities.preference_rank)
 
     def _score(self, backend: Sandbox) -> float:
         """Effective ordering score: rank, nudged by the bounded reward shift (lower = first)."""
@@ -62,34 +59,36 @@ class SandboxRouter:
     def select(self, code: str, *, force: str | None = None) -> list[Sandbox]:
         """Return the escalation chain for ``code``.
 
-        ``force`` pins a named backend (the config override). A forced-but-unavailable backend
-        degrades to the auto chain rather than dying — isolation preference should never make
-        the RLM loop unrunnable.
+        ``force`` pins a named backend (the config override). An unavailable or
+        non-isolated forced backend fails closed.
         """
         if force:
             forced = self._by_name(force)
-            if forced is not None and forced.is_available():
+            if (
+                forced is not None
+                and forced.is_available()
+                and forced.capabilities.isolated
+            ):
                 return [forced]
-            logger.warning(
-                "Forced sandbox %r unavailable/unknown; falling back to auto routing.",
-                force,
+            raise SandboxFatalError(
+                "requested RLM sandbox is unavailable or lacks an approved isolation boundary"
             )
 
         req = self._analyzer.analyze(code)
-        if not req.syntax_ok:
-            # Parses nowhere — surface the SyntaxError cheaply via the floor backend.
-            return [self._floor]
-
         chain = [
-            b for b in self._backends if b.is_available() and self._satisfies(b, req)
+            b
+            for b in self._backends
+            if b.is_available()
+            and b.capabilities.isolated
+            and (not req.syntax_ok or self._satisfies(b, req))
         ]
         # Primary order is the reward-nudged score; ties break on raw rank for determinism.
         chain.sort(key=lambda b: (self._score(b), b.capabilities.preference_rank))
 
-        # Guarantee the floor anchors the tail even if a capability check excluded it
-        # (it shouldn't, since it satisfies everything — but never return an empty chain).
-        if self._floor.is_available() and self._floor not in chain:
-            chain.append(self._floor)
+        if not chain:
+            raise SandboxFatalError(
+                "no approved isolated RLM sandbox is available for this snippet"
+            )
 
         logger.debug(
             "Sandbox route: %s -> %s",

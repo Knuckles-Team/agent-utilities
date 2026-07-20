@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: graphos-object-archive
+  namespace: graphos-cell
+  labels:
+    graphos.io/storage-role: object-archive
+spec:
+  storageClassName: graphos-cross-cell-object-rwx
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 2Ti
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: graphos-restore-validation
+  namespace: graphos-cell
+  labels:
+    graphos.io/storage-role: restore-validation
+spec:
+  storageClassName: graphos-retained-rwo
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 512Gi

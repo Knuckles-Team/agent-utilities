@@ -33,11 +33,11 @@ class FakeEngine:
 
 
 def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) -> None:
-    """Add episode nodes with high reward to the graph.
+    """Add canonical trace nodes with high reward to the graph.
 
-    The EpisodeToPreferenceRule detects via outgoing edges:
-    - episode -[used_tool]-> tool_node
-    - episode -[produced_outcome]-> outcome_node (with reward attr)
+    The compatibility-named EpisodeToPreferenceRule detects via outgoing edges:
+    - RunTrace -[used_tool]-> tool_node
+    - RunTrace -[produced_outcome]-> outcome_node (with reward attr)
     """
     # Create a shared tool node
     engine.graph.add_node(
@@ -46,7 +46,7 @@ def _populate_episodes(engine: FakeEngine, count: int = 6, reward: float = 0.9) 
     for i in range(count):
         ep_id = f"ep_{i}"
         outcome_id = f"outcome_{i}"
-        engine.graph.add_node(ep_id, type="episode", importance_score=0.5)
+        engine.graph.add_node(ep_id, type="RunTrace", importance_score=0.5)
         engine.graph.add_node(outcome_id, type="outcome_evaluation", reward=reward)
         engine.graph.add_edge(ep_id, "tool_code_search", type="used_tool")
         engine.graph.add_edge(ep_id, outcome_id, type="produced_outcome")

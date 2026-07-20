@@ -218,6 +218,19 @@ def test_unparseable_xml_is_tolerated():
     assert len(batch.nodes) == 1
 
 
+def test_bpmn_xml_entities_are_rejected_without_materialization():
+    class EntityXmlClient(XmlCapableClient):
+        def get_process_definition_xml(self, id=None, key=None):
+            return """<!DOCTYPE definitions [<!ENTITY injected "unexpected">]>
+            <definitions><process id="&injected;" /></definitions>"""
+
+    batch = extract({"client": EntityXmlClient()})
+
+    assert len(batch.nodes) == 1
+    assert batch.nodes[0].type == "BusinessProcess"
+    assert all("unexpected" not in str(node.props) for node in batch.nodes)
+
+
 def test_egeria_guid_recorded_as_external_id_and_aligned_with_edge():
     class ReconciledClient:
         def list_process_definitions(self):

@@ -1,7 +1,7 @@
 """_checkpoint_db must never run a raw query on a non-SQLite backend.
 
-Regression: the live ``TieredGraphBackend`` (and the epistemic/Postgres
-backends) route ``execute()`` through the Cypher engine, so the old raw
+Regression: graph and mirror backends route ``execute()`` through a Cypher
+surface, so a raw
 ``execute("CHECKPOINT;")`` fallback misparsed that string and blocked
 indefinitely on the engine — deadlocking every task worker after each
 ``_update_task_status``. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
@@ -17,7 +17,7 @@ from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
 
 class _GraphBackend:
-    """A tiered/graph backend: it has no WAL, and execute() hits the engine."""
+    """A graph backend has no SQLite WAL, and execute() hits the engine."""
 
     def execute(self, *_a, **_k):  # pragma: no cover - must never be called
         raise AssertionError(

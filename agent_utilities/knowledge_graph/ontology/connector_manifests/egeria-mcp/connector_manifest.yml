@@ -1,0 +1,163 @@
+connector: egeria-mcp
+ontology_source: egeria
+schema_version: '1'
+resources:
+- name: DataAsset
+  label: Data Asset
+  id_prefix: dataasset
+  relations: []
+- name: Endpoint
+  label: Endpoint
+  id_prefix: endpoint
+  relations: []
+- name: GlossaryCategory
+  label: Glossary Category
+  id_prefix: glossarycategory
+  relations: []
+- name: GlossaryTerm
+  label: Glossary Term
+  id_prefix: glossaryterm
+  relations: []
+- name: GovernanceRule
+  label: Governance Rule
+  id_prefix: governancerule
+  relations: []
+actions: []
+events:
+- name: egeria-glossary-terms.updated
+  resource: glossary_term
+  description: "Watermark event for 'egeria-glossary-terms' \u2014 advances on updateTime (mcp_source_presets.json)."
+- name: egeria-governance-definitions.updated
+  resource: governance_rule
+  description: "Watermark event for 'egeria-governance-definitions' \u2014 advances on updateTime (mcp_source_presets.json)."
+identity:
+  id_field:
+    glossary_term: guid
+    governance_rule: guid
+  title_field:
+    glossary_term: displayName
+    governance_rule: displayName
+  text_field:
+    glossary_term: summary
+    governance_rule: summary
+  updated_field:
+    glossary_term: updateTime
+    governance_rule: updateTime
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  DataAsset:
+    ontology_class: DataConnector
+    fields:
+      confidentialityLevel: xsd:string
+      qualifiedName: xsd:string
+      retentionPeriod: xsd:string
+  Endpoint:
+    ontology_class: TechnologyLayer
+    fields:
+      confidentialityLevel: xsd:string
+      qualifiedName: xsd:string
+      retentionPeriod: xsd:string
+  GlossaryCategory:
+    ontology_class: Concept
+    fields:
+      confidentialityLevel: xsd:string
+      qualifiedName: xsd:string
+      retentionPeriod: xsd:string
+  GlossaryTerm:
+    ontology_class: Concept
+    fields:
+      confidentialityLevel: xsd:string
+      qualifiedName: xsd:string
+      retentionPeriod: xsd:string
+  GovernanceRule:
+    ontology_class: Policy
+    fields:
+      confidentialityLevel: xsd:string
+      qualifiedName: xsd:string
+      retentionPeriod: xsd:string
+sync:
+- preset: egeria-glossary-terms
+  server: egeria-mcp
+  tool: egeria_glossary_lookup
+  action: list
+  records_path: ''
+  id_field: guid
+  title_field: displayName
+  text_field: summary
+  updated_field: updateTime
+  pagination: null
+  doc_type: glossary_term
+  tool_schema_sha256: 55f797757add396ac31a2f9ed9ec7ed7ecacd8f831178e0ab807722e1d17c85f
+  raw:
+    server: egeria-mcp
+    tool: egeria_glossary_lookup
+    action: list
+    records_path: ''
+    id_field: guid
+    title_field: displayName
+    text_field: summary
+    updated_field: updateTime
+    doc_type: glossary_term
+- preset: egeria-governance-definitions
+  server: egeria-mcp
+  tool: egeria_list_policies
+  action: list
+  records_path: ''
+  id_field: guid
+  title_field: displayName
+  text_field: summary
+  updated_field: updateTime
+  pagination: null
+  doc_type: governance_rule
+  tool_schema_sha256: 5fa78151ad2794cfdd67d4ed3a297b7115385c6ed2981e260e76934a52598bf2
+  raw:
+    server: egeria-mcp
+    tool: egeria_list_policies
+    action: list
+    records_path: ''
+    id_field: guid
+    title_field: displayName
+    text_field: summary
+    updated_field: updateTime
+    doc_type: governance_rule
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - egeria_mcp/connectors/mcp_source_presets.json
+  - egeria_mcp/connectors/tool_schema_fingerprints.json
+  - egeria_mcp/ontology/egeria.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
+    triple_count: 33
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Ya5rvh2XIVhQiexkAe5rkq-8MGA6jwhlppIeAKWqR6Hi1hTpFcAjZqEDbR_odvBP__A3VqCSrAmYQuTP08GIDA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'dependsOn' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'derivesFrom' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'flowsTo' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.DataAsset.ontology_class = 'DataConnector' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Endpoint.ontology_class = 'TechnologyLayer' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.GlossaryCategory.ontology_class = 'Concept' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.GlossaryTerm.ontology_class = 'Concept' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.GovernanceRule.ontology_class = 'Policy' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."

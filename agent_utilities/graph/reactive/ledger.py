@@ -110,7 +110,7 @@ class EventLedger:
         Returns:
             The created and persisted EventNode.
         """
-        event_id = f"evt:{uuid.uuid4().hex[:8]}"
+        event_id = f"evt:{uuid.uuid4().hex}"
         ts = _next_event_timestamp()
         props = payload or {}
         from ...models.knowledge_graph import EventNode
@@ -140,7 +140,9 @@ class EventLedger:
                 edge_type="OCCURRED_DURING",
             )
         except Exception as e:
-            logger.debug("Failed to link occurred_during edge (non-fatal): %s", e)
+            logger.debug(
+                "Failed to link occurred_during edge (%s)", type(e).__name__
+            )
 
         # 3. Establish temporal lineage using 'was_derived_from'
         prev_id = self._last_event_ids.get(run_id)

@@ -27,6 +27,12 @@ import base64
 import json
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from agent_utilities.core.config import setting
+from agent_utilities.security.persistence_privacy import (
+    persistence_reference,
+    sanitize_for_persistence,
+)
+
 from .events import ComputerUseAction, Observation, ScreenObservation
 
 if TYPE_CHECKING:
@@ -35,8 +41,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ComputerUseDriver(Protocol):
-    async def run(self, action: ComputerUseAction) -> Observation:
-        ...
+    async def run(self, action: ComputerUseAction) -> Observation: ...
 
 
 class NullComputerUseDriver:
@@ -104,9 +109,9 @@ class ContainerExecComputerUseDriver:
         manager_type: str | None = None,
         session_id: str = "",
         engine: Any | None = None,
-        display: str = ":1",
-        user: str = "sandbox",
-        home: str = "/home/sandbox",
+        display: str | None = None,
+        user: str | None = None,
+        home: str | None = None,
     ) -> None:
         self.container_id = container_id
         self.host = host
@@ -114,9 +119,13 @@ class ContainerExecComputerUseDriver:
         self.session_id = session_id
         # gui-sandbox runs its X session + AT-SPI bus as this unprivileged user; the
         # actuator must exec as it (not root) so a11y-dump can reach the a11y bus.
-        self.display = display
-        self.user = user
-        self.home = home
+        self.display = str(
+            display if display is not None else setting("COMPUTER_USE_DISPLAY", ":1")
+        )
+        self.user = str(
+            user if user is not None else setting("COMPUTER_USE_USER", "sandbox")
+        )
+        self.home = str(home if home is not None else setting("COMPUTER_USE_HOME", ""))
         self._engine = engine  # optional GraphComputeEngine for observe_screen ingest
         self._manager: Any | None = None
         # Grounding cache from the last capture: element_id -> (cx, cy) screen center.
@@ -140,7 +149,10 @@ class ContainerExecComputerUseDriver:
 
     async def _exec(self, command: list[str], binary: bool = False) -> dict:
         manager = self._manager_or_create()
-        env = ["env", f"DISPLAY={self.display}", f"HOME={self.home}", *command]
+        assignments = [f"DISPLAY={self.display}"] if self.display else []
+        if self.home:
+            assignments.append(f"HOME={self.home}")
+        env = ["env", *assignments, *command]
         # Drop to the desktop user so X + the AT-SPI accessibility bus are reachable.
         full = ["runuser", "-u", self.user, "--", *env] if self.user else env
         return await asyncio.to_thread(
@@ -160,12 +172,15 @@ class ContainerExecComputerUseDriver:
             if res.get("exit_code"):
                 return ScreenObservation(
                     session_id=self.session_id,
-                    error=f"{action.op} failed: {res.get('output')}",
+                    error="input action failed",
                 )
             # Input ops don't auto-screenshot; the agent captures when it wants to see.
             return ScreenObservation(session_id=self.session_id)
         except Exception as exc:  # noqa: BLE001 - surface as a typed observation
-            return ScreenObservation(session_id=self.session_id, error=str(exc))
+            return ScreenObservation(
+                session_id=self.session_id,
+                error=f"input action failed ({type(exc).__name__})",
+            )
 
     def _resolve_target(
         self, action: ComputerUseAction
@@ -221,34 +236,35 @@ class ContainerExecComputerUseDriver:
         return out
 
     async def _maybe_ingest(self, image_b64: str, elements: list[dict]) -> None:
-        """Feed the frame to the engine's observe_screen enrichment if available.
+        """Feed the frame to the current engine's mandatory screen enrichment.
 
-        Optional (KG-2.185): when an engine with ``observe_screen`` is wired, the
-        PNG + accessibility tree are materialised as durable :UIElement nodes for
-        cross-frame grounding. The driver works fully without it.
+        When an engine is wired, the PNG + privacy-sanitized accessibility tree
+        are materialised as durable :UIElement nodes for cross-frame grounding.
         """
         engine = self._engine
         if engine is None or not image_b64:
             return
         observe = getattr(engine, "observe_screen", None)
-        if observe is None or not getattr(engine, "supports_observe_screen", False):
-            return
-        try:
-            result = await asyncio.to_thread(
-                observe,
-                base64.b64decode(image_b64),
-                session_id=self.session_id or "default",
-                frame_seq=self._frame_seq,
-                prev_frame_id=self._prev_frame_id,
-                prev_hash=self._prev_hash,
-                elements=elements,
-            )
-            # Advance the frame chain so the next capture links via succeededBy.
-            self._frame_seq += 1
-            self._prev_frame_id = (result or {}).get("frame_id", "")
-            self._prev_hash = (result or {}).get("hash", 0)
-        except Exception:  # noqa: BLE001 - ingestion is best-effort, never blocks actuation
-            return
+        if not callable(observe):
+            raise RuntimeError("current engine is missing mandatory ObserveScreen")
+        safe_elements, _privacy = sanitize_for_persistence(elements)
+        result = await asyncio.to_thread(
+            observe,
+            base64.b64decode(image_b64),
+            session_id=persistence_reference(
+                "computer_use_session",
+                self.session_id or "runtime",
+                namespace="screen-observation",
+            ),
+            frame_seq=self._frame_seq,
+            prev_frame_id=self._prev_frame_id,
+            prev_hash=self._prev_hash,
+            elements=safe_elements if isinstance(safe_elements, list) else [],
+        )
+        # Advance the frame chain so the next capture links via succeededBy.
+        self._frame_seq += 1
+        self._prev_frame_id = (result or {}).get("frame_id", "")
+        self._prev_hash = (result or {}).get("hash", 0)
 
 
 def _png_dimensions(data: bytes) -> tuple[int, int]:

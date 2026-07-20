@@ -133,14 +133,20 @@ class FakeEngine:
 
     # ── durable task queue surface ──────────────────────────────────
     def submit_task(
-        self, target_path, is_codebase, provenance, task_type=None, skip_dedupe=False
+        self,
+        target_path,
+        is_codebase,
+        provenance,
+        task_type=None,
+        skip_dedupe=False,
+        extra_meta=None,
     ):
         job_id = f"job-{len(self.submitted)}"
         self.nodes[job_id] = {
             "id": job_id,
-            "type": "Task",
-            "status": "pending",
-            **(provenance or {}),
+            "type": "WorkItem",
+            "status": "ready",
+            "metadata": {**(provenance or {}), **(extra_meta or {})},
         }
         self.submitted.append(
             {"job_id": job_id, "target": target_path, "task_type": task_type}

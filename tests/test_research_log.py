@@ -11,7 +11,6 @@ from agent_utilities.harness.research_log import (
     ResearchLog,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fake corpus shapes (no LLM / network)
 # ---------------------------------------------------------------------------

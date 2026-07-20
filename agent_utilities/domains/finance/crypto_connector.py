@@ -8,15 +8,16 @@ Provides abstractions for crypto-specific market data:
 - Protocol metrics (TVL, Active Addresses)
 """
 
-import json
 import logging
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.protocols.source_connectors.http_safety import (
+    SourceEgressError,
+    safe_get_json,
+)
 
 from .errors import ProviderNotConfigured, ProviderRequestError
 
@@ -26,13 +27,16 @@ _DEFILLAMA_BASE = "https://api.llama.fi"
 
 
 def _http_get_json(url: str, timeout: float = 10.0) -> Any:
-    """GET a URL and parse JSON. Raises ProviderRequestError on failure."""
-    req = urllib.request.Request(url, headers={"User-Agent": "agent-utilities/finance"})
+    """GET bounded JSON through the canonical DNS-pinned egress boundary."""
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310
-            return json.loads(resp.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise ProviderRequestError(f"request to {url} failed: {exc}") from exc
+        return safe_get_json(
+            url,
+            timeout=timeout,
+            max_bytes=2 * 1024 * 1024,
+            max_redirects=0,
+        )
+    except (SourceEgressError, TimeoutError, ValueError) as exc:
+        raise ProviderRequestError("finance provider request failed") from exc
 
 
 @dataclass

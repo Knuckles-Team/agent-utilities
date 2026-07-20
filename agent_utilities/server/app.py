@@ -1,25 +1,25 @@
 import asyncio
+import ipaddress
 import logging
 import os
+import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
 import anyio
-from fastapi import Depends, FastAPI, Request
-from pydantic_ai import Agent
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agent_utilities.agent.factory import create_agent
 from agent_utilities.core.config import (
     DEFAULT_A2A_BROKER,
-    DEFAULT_A2A_BROKER_URL,
     DEFAULT_A2A_CONFIG,
     DEFAULT_A2A_REFRESH_INTERVAL,
     DEFAULT_A2A_STORAGE,
-    DEFAULT_A2A_STORAGE_URL,
     DEFAULT_ACP_SESSION_ROOT,
     DEFAULT_AGENT_DESCRIPTION,
     DEFAULT_AGENT_NAME,
@@ -35,28 +35,110 @@ from agent_utilities.core.config import (
     DEFAULT_LLM_PROVIDER,
     DEFAULT_MCP_URL,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     DEFAULT_PORT,
-    DEFAULT_SSL_VERIFY,
     config,
     setting,
 )
 from agent_utilities.core.scheduler import background_processor
 from agent_utilities.core.workspace import get_skills_path
+from agent_utilities.gateway.rate_limit import GatewayRateLimitMiddleware
 from agent_utilities.observability.custom_observability import setup_otel
 from agent_utilities.prompting.builder import load_identity
+from agent_utilities.security.http_boundary import (
+    AuthenticationBoundaryMiddleware,
+    BoundedRequestBodyMiddleware,
+    OriginPolicyMiddleware,
+)
 from agent_utilities.tools.tool_filtering import load_skills_from_directory
 
 from ..base_utilities import __version__, to_boolean
-from .concurrency import AsyncioConcurrencyManager, RedisConcurrencyManager
-from .dependencies import inject_reload_app, resolve_model_registry, verify_api_key
+from .concurrency import AsyncioConcurrencyManager
+from .dependencies import inject_reload_app, resolve_model_registry
 from .models import ReloadableApp
 from .routers import agent_ui, ard, commands, core, human, interop, proxy
 
 logger = logging.getLogger(__name__)
+_MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
+
+
+def _csv_values(value: str | None) -> list[str]:
+    """Return non-empty, de-duplicated comma-separated configuration values."""
+    return list(
+        dict.fromkeys(part.strip() for part in (value or "").split(",") if part.strip())
+    )
+
+
+def _is_loopback_listener(host: str | None) -> bool:
+    """Return whether *host* can only bind a loopback interface."""
+    candidate = (host or "").strip().lower()
+    if candidate == "localhost":
+        return True
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
+def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
+    """Validate the REST listener boundary and return CORS/Host allowlists.
+
+    This validation deliberately runs while the app is constructed so a remote,
+    unauthenticated or Host-header-wildcard deployment fails before it listens.
+    """
+    jwt_auth = bool(config.auth_jwt_jwks_uri)
+
+    loopback = _is_loopback_listener(host)
+    if not loopback and not jwt_auth:
+        raise RuntimeError("A non-loopback REST listener requires JWT authentication")
+    if not loopback:
+        direct_tls = bool(config.server_tls_certfile and config.server_tls_keyfile)
+        if bool(config.server_tls_certfile) != bool(config.server_tls_keyfile):
+            raise RuntimeError("SERVER_TLS_CERTFILE and SERVER_TLS_KEYFILE are a pair")
+        if direct_tls and not (
+            Path(str(config.server_tls_certfile)).is_file()
+            and Path(str(config.server_tls_keyfile)).is_file()
+        ):
+            raise RuntimeError("Server TLS material is unavailable")
+        if config.server_tls_terminated and not config.server_trusted_proxy_cidrs:
+            raise RuntimeError(
+                "SERVER_TLS_TERMINATED requires SERVER_TRUSTED_PROXY_CIDRS"
+            )
+        if not direct_tls and not config.server_tls_terminated:
+            raise RuntimeError(
+                "A non-loopback REST listener requires direct TLS or a trusted "
+                "TLS-terminating ingress"
+            )
+    if jwt_auth and not (config.auth_jwt_issuer and config.auth_jwt_audience):
+        raise RuntimeError(
+            "JWT authentication requires explicit AUTH_JWT_ISSUER and AUTH_JWT_AUDIENCE"
+        )
+
+    origins = _csv_values(config.allowed_origins)
+    if config.cors_allow_credentials and (not origins or "*" in origins):
+        raise RuntimeError(
+            "CORS_ALLOW_CREDENTIALS requires explicit ALLOWED_ORIGINS without '*'"
+        )
+
+    hosts = _csv_values(config.allowed_hosts)
+    if not hosts:
+        if not loopback:
+            raise RuntimeError(
+                "A non-loopback REST listener requires an explicit ALLOWED_HOSTS allowlist"
+            )
+        # ``testserver`` is Starlette's in-process test authority; it does not
+        # broaden the network bind, which remains loopback-only here.
+        hosts = ["localhost", "127.0.0.1", "[::1]", "testserver"]
+    if any(
+        "*" in value
+        or len(value) > 253
+        or any(character in value for character in "/\\@?#\r\n\t ")
+        for value in hosts
+    ):
+        raise RuntimeError("Host-header trust requires exact authorities")
+    return origins, hosts
 
 
 def build_agent_app(
@@ -71,31 +153,24 @@ def build_agent_app(
     host: str | None = DEFAULT_HOST,
     port: int | None = DEFAULT_PORT,
     enable_web_ui: bool | None = DEFAULT_ENABLE_WEB_UI,
-    custom_web_app: Callable[[Agent], Any] | None = None,
+    custom_web_app: Callable[[Any], Any] | None = None,
     custom_web_mount_path: str = "/",
     web_ui_instructions: str | None = None,
     html_source: str | Path | None = None,
-    ssl_verify: bool = DEFAULT_SSL_VERIFY,
     name: str | None = None,
     system_prompt: str | None = None,
     enable_otel: bool | None = DEFAULT_ENABLE_OTEL,
     otel_endpoint: str | None = DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    otel_headers: str | None = DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-    otel_public_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    otel_secret_key: str | None = DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
+    otel_headers: str | None = None,
+    otel_public_key: str | None = None,
+    otel_secret_key: str | None = None,
     otel_protocol: str | None = DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
     workspace: str | None = None,
     a2a_broker: str = DEFAULT_A2A_BROKER,
-    a2a_broker_url: str | None = DEFAULT_A2A_BROKER_URL,
     a2a_storage: str = DEFAULT_A2A_STORAGE,
-    a2a_storage_url: str | None = DEFAULT_A2A_STORAGE_URL,
     skill_types: list[str] | None = None,
-    agent_instance: Agent | None = None,
+    agent_instance: Any | None = None,
     graph_bundle: tuple[Any, ...] | None = None,
-    persistence_type: str = "file",
-    persistence_path: str | None = None,
-    persistence_dsn: str | None = None,
-    persistence_url: str | None = None,
     enable_terminal_ui: bool = False,
     enable_acp: bool = DEFAULT_ENABLE_ACP,
     acp_session_root: str | None = DEFAULT_ACP_SESSION_ROOT,
@@ -122,7 +197,7 @@ def build_agent_app(
         from agent_utilities.core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = workspace
-        logger.info(f"Workspace override set to: {workspace}")
+        logger.info("Workspace override configured")
 
     reloadable: ReloadableApp | None = None
 
@@ -158,16 +233,30 @@ def build_agent_app(
                 mcp_url=mcp_url,
                 mcp_config=mcp_config,
                 custom_skills_directory=custom_skills_directory,
-                ssl_verify=ssl_verify,
                 name=_name,
                 system_prompt=system_prompt,
                 debug=debug,
                 skill_types=skill_types,
                 graph_bundle=graph_bundle,
-                tool_guard_mode=setting("TOOL_GUARD_MODE", "on"),
                 isolate_mcp=isolate_mcp,
                 mcp_toolsets=mcp_toolsets,
             )
+        else:
+            from agent_utilities.security.tool_guard import (
+                apply_tool_guard_approvals,
+            )
+
+            toolsets = list(getattr(_agent_instance, "toolsets", ()) or ())
+            if any(
+                hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool")
+                for toolset in toolsets
+            ):
+                raise RuntimeError(
+                    "prebuilt served agents cannot bind MCP toolsets; use the "
+                    "governed agent factory"
+                )
+            if hasattr(_agent_instance, "toolsets"):
+                apply_tool_guard_approvals(_agent_instance)
 
         _skill_types = skill_types or []
         from agent_utilities.core.config import DEFAULT_VALIDATION_MODE
@@ -232,8 +321,11 @@ def build_agent_app(
                     logger.info(
                         "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Registered PlannerGraphSkill as A2A-native skill"
                     )
-                except Exception as e:
-                    logger.warning(f"PlannerGraphSkill registration failed: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "PlannerGraphSkill registration failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
 
             if not skills_list:
                 skills_list = [
@@ -247,56 +339,55 @@ def build_agent_app(
                     )
                 ]
 
-        a2a_kwargs = {}
-        if a2a_broker == "redis":
-            try:
-                from a2a_redis import RedisBroker  # type: ignore
+        # CONCEPT:AU-KB-CURRENCY (A2A projection, `04-five-intersections.md`
+        # item 1/4: "no epistemic descriptors" on the AgentCard). Advertised
+        # unconditionally and additively (never replaces the skills a
+        # deployment already registers above) — every agent-utilities server
+        # shares the SAME one-engine KG, so `epistemic_status`/`why`/
+        # `what_changed` over it (the `graph-query-and-explanation` skill's
+        # `explain_provenance_by_ids`/`explain_belief`/`epistemic_status`/
+        # `explain_policy` actions) is a real, already-implemented
+        # capability of every deployment, not an aspirational one.
+        skills_list.append(
+            Skill(
+                id="epistemic-answer",
+                name=f"{_name} Epistemic Answer",
+                description=(
+                    "Answers epistemic_status/why/what_changed queries over the "
+                    "shared knowledge graph: calibrated confidence, evidence/"
+                    "source citations, belief justification trees, bitemporal "
+                    "valid/tx history, and policy-redaction-aware provenance."
+                ),
+                tags=["epistemic", "provenance", "confidence", "kg"],
+                examples=[
+                    "Why do you believe X?",
+                    "What is the epistemic status of Y?",
+                    "What changed about Z since last week?",
+                ],
+                input_modes=["text"],
+                output_modes=["text"],
+            )
+        )
 
-                a2a_kwargs["broker"] = RedisBroker(
-                    url=a2a_broker_url or "redis://localhost:6379"
-                )
-            except ImportError:
-                pass
-        elif a2a_broker == "postgres":
-            try:
-                from a2a_postgres import PostgresBroker  # type: ignore
+        if a2a_broker != "epistemic_graph" or a2a_storage != "epistemic_graph":
+            raise ValueError(
+                "A2A_BROKER and A2A_STORAGE must both select 'epistemic_graph'"
+            )
+        from agent_utilities.protocols.a2a_epistemic import (
+            agent_to_epistemic_a2a,
+            build_epistemic_graph_a2a_backends,
+        )
 
-                a2a_kwargs["broker"] = PostgresBroker(
-                    url=a2a_broker_url or "postgresql+asyncpg://localhost:5432/a2a"
-                )
-            except ImportError:
-                pass
-
-        if a2a_storage == "redis":
-            try:
-                from a2a_redis import RedisStorage  # type: ignore
-
-                a2a_kwargs["storage"] = RedisStorage(
-                    url=a2a_storage_url or "redis://localhost:6379"
-                )
-            except ImportError:
-                pass
-        elif a2a_storage == "postgres":
-            try:
-                from a2a_postgres import PostgresStorage  # type: ignore
-
-                a2a_kwargs["storage"] = PostgresStorage(
-                    url=a2a_storage_url or "postgresql+asyncpg://localhost:5432/a2a"
-                )
-            except ImportError:
-                pass
-
-        # pydantic-ai v2 removed Agent.to_a2a(); the bridge now lives in fasta2a.
-        from fasta2a.pydantic_ai import agent_to_a2a
-
-        a2a_app = agent_to_a2a(
+        native_broker, native_storage = build_epistemic_graph_a2a_backends(config)
+        a2a_app = agent_to_epistemic_a2a(
             _agent_instance,
+            broker=native_broker,
+            storage=native_storage,
             name=_name,
             description=DEFAULT_AGENT_DESCRIPTION,
             version=__version__,
             skills=skills_list,
             debug=debug or False,
-            **a2a_kwargs,
         )
 
         @asynccontextmanager
@@ -307,13 +398,13 @@ def build_agent_app(
             try:
                 _mcp_path = resolve_mcp_config_path(mcp_config)
                 if _mcp_path and (enable_acp or should_sync(_mcp_path)):
-                    logger.info(
-                        f"Startup Sync: Ingesting MCP tools from {_mcp_path} to Knowledge Graph..."
-                    )
+                    logger.info("Startup sync: ingesting MCP tools")
                     asyncio.create_task(sync_mcp_agents(config_path=_mcp_path))
-            except Exception as e:
+            except Exception as exc:
                 logger.error(
-                    f"Automatic Knowledge Graph ingestion failed on startup: {e}"
+                    "Automatic Knowledge Graph ingestion failed on startup "
+                    "(exception_type=%s)",
+                    type(exc).__name__,
                 )
 
             # CONCEPT:AU-ECO.messaging.native-backend-abstraction: A2A agent sync and periodic refresh
@@ -332,8 +423,11 @@ def build_agent_app(
                             interval_seconds=DEFAULT_A2A_REFRESH_INTERVAL,
                         )
                     )
-                except Exception as e:
-                    logger.warning(f"A2A startup sync failed: {e}")
+                except Exception as exc:
+                    logger.warning(
+                        "A2A startup sync failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
 
             processor_task = asyncio.create_task(background_processor(_agent_instance))
 
@@ -351,7 +445,7 @@ def build_agent_app(
                     SynthesisEngine,
                 )
 
-                engine = IntelligenceGraphEngine()
+                engine = IntelligenceGraphEngine.get_or_create()
                 synthesis = SynthesisEngine(engine=engine)
 
                 # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
@@ -374,7 +468,10 @@ def build_agent_app(
                             "Preloaded bundled ontology TBox into local OWL store"
                         )
                 except Exception as _tbox_e:  # noqa: BLE001 — best-effort
-                    logger.debug("TBox preload skipped: %s", _tbox_e)
+                    logger.debug(
+                        "TBox preload skipped (exception_type=%s)",
+                        type(_tbox_e).__name__,
+                    )
 
                 # Boot Phase 5 Daemon using the SAME engine
                 gov_agent = GraphGovernanceAgent(
@@ -391,7 +488,10 @@ def build_agent_app(
                     except asyncio.CancelledError:
                         break
                     except Exception as ce:
-                        logger.error("SynthesisEngine error: %s", ce)
+                        logger.error(
+                            "SynthesisEngine error (exception_type=%s)",
+                            type(ce).__name__,
+                        )
                         await asyncio.sleep(60)
 
             synthesis_task = asyncio.create_task(run_synthesis_daemon())
@@ -419,6 +519,19 @@ def build_agent_app(
                 except asyncio.CancelledError:
                     pass
 
+        _origins, _hosts = _http_boundary_settings(host)
+        if debug and not _is_loopback_listener(host):
+            raise RuntimeError("Debug exception responses are restricted to loopback")
+        if not _origins and _is_loopback_listener(host):
+            scheme = "https" if config.server_tls_certfile else "http"
+            listen_port = int(port or DEFAULT_PORT)
+            default_port = {"http": 80, "https": 443}[scheme]
+            suffix = "" if listen_port == default_port else f":{listen_port}"
+            _origins = [
+                f"{scheme}://localhost{suffix}",
+                f"{scheme}://127.0.0.1{suffix}",
+                f"{scheme}://[::1]{suffix}",
+            ]
         app = FastAPI(
             title=f"{_agent_emoji} {_name} - Agent Server",
             description=_agent_description or "",
@@ -436,34 +549,57 @@ def build_agent_app(
                     "description": "A2A and external bridge endpoints",
                 },
             ],
-            dependencies=[Depends(verify_api_key)] if config.enable_api_auth else [],
         )
 
-        _origins = (
-            [o.strip() for o in config.allowed_origins.split(",")]
-            if config.allowed_origins
-            else ["*"]
-        )
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=_origins,
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        if _origins:
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=_origins,
+                allow_credentials=config.cors_allow_credentials,
+                allow_methods=["GET", "POST", "OPTIONS"],
+                allow_headers=[
+                    "Authorization",
+                    "Content-Type",
+                    "X-Agent-Model-Id",
+                ],
+            )
 
-        _hosts = (
-            [h.strip() for h in config.allowed_hosts.split(",")]
-            if config.allowed_hosts
-            else ["*"]
+        effective_rate = (
+            config.gateway_rate_limit
+            if config.gateway_rate_limit > 0
+            else (50.0 if not _is_loopback_listener(host) else 0.0)
         )
-        app.add_middleware(TrustedHostMiddleware, allowed_hosts=_hosts)
 
         @app.middleware("http")
         async def _model_override_middleware(request: Request, call_next):
             from ..graph.state import REQUESTED_MODEL_ID_CTX
 
-            header_value = request.headers.get("x-agent-model-id") or None
+            values = [
+                value
+                for key, value in request.scope.get("headers", ())
+                if key.lower() == b"x-agent-model-id"
+            ]
+            if len(values) > 1:
+                return JSONResponse(
+                    {"error": "invalid model override"},
+                    status_code=400,
+                    headers={"Cache-Control": "no-store"},
+                )
+            try:
+                header_value = values[0].decode("ascii") if values else None
+            except UnicodeDecodeError:
+                header_value = None
+                valid = False
+            else:
+                valid = header_value is None or bool(
+                    _MODEL_ID_RE.fullmatch(header_value)
+                )
+            if not valid:
+                return JSONResponse(
+                    {"error": "invalid model override"},
+                    status_code=400,
+                    headers={"Cache-Control": "no-store"},
+                )
             request.state.requested_model_id = header_value
             token = REQUESTED_MODEL_ID_CTX.set(header_value)
             try:
@@ -488,19 +624,13 @@ def build_agent_app(
         app.state.agent_name = _name
         app.state.mcp_config = mcp_config
 
-        # OS-5.3 Session Concurrency Manager
-        if "broker" in a2a_kwargs and hasattr(a2a_kwargs["broker"], "redis"):
-            app.state.concurrency_manager = RedisConcurrencyManager(
-                a2a_kwargs["broker"].redis
-            )
-        else:
-            app.state.concurrency_manager = AsyncioConcurrencyManager()
+        # OS-5.3 process-local run coordination is separate from the durable
+        # native A2A broker.  No removed Redis broker shape is detected here.
+        app.state.concurrency_manager = AsyncioConcurrencyManager()
 
-        _default_model = _resolved_registry.get_default()
         logger.info(
-            "Model registry bootstrapped with %d model(s); default=%s",
+            "Model registry bootstrapped with %d model(s)",
             len(_resolved_registry.models),
-            _default_model.id if _default_model else None,
         )
         if graph_bundle is not None and len(_resolved_registry.models) > 0:
             _graph_obj, _graph_cfg = graph_bundle
@@ -562,8 +692,11 @@ def build_agent_app(
                 "Mounted centralized Gateway API "
                 "(Dashboard + Knowledge Graph + Observability)"
             )
-        except ImportError as e:
-            logger.error(f"Failed to load Gateway APIs: {e}")
+        except ImportError as exc:
+            logger.error(
+                "Failed to load Gateway APIs (exception_type=%s)",
+                type(exc).__name__,
+            )
 
         if enable_acp:
             from agent_utilities.protocols.acp_adapter import (
@@ -596,7 +729,7 @@ def build_agent_app(
         if custom_web_app is not None:
             web_app = custom_web_app(_agent_instance)
             app.mount(custom_web_mount_path, web_app)
-            logger.info(f"Mounted custom web UI at {custom_web_mount_path}")
+            logger.info("Mounted custom web UI")
         elif enable_web_ui:
             try:
                 from .routers import enhanced
@@ -626,9 +759,11 @@ def build_agent_app(
                 _model_id_ui = model_id or setting("MODEL_ID") or "google/gemma-4-31b"
 
                 def _graph_native_list_skills():
-                    from ..knowledge_graph.backends import create_backend
+                    from ..knowledge_graph.core.engine import (
+                        IntelligenceGraphEngine,
+                    )
 
-                    backend = create_backend()
+                    backend = IntelligenceGraphEngine.get_or_create().backend
                     if backend is None:
                         return []
 
@@ -705,6 +840,37 @@ def build_agent_app(
                 logger.error(
                     "agent-web package not found. Enhanced UI dashboard disabled."
                 )
+
+        # Add these last so Starlette places them outside every router,
+        # middleware installed by the centralized graph API, and mounted
+        # A2A/ACP/custom application. Route dependencies do not cover mounts.
+        from agent_utilities.security.request_identity import HEALTH_PATHS
+
+        app.add_middleware(
+            BoundedRequestBodyMiddleware,
+            max_bytes=config.max_upload_size,
+        )
+        app.add_middleware(
+            AuthenticationBoundaryMiddleware,
+            exempt_paths=HEALTH_PATHS,
+        )
+        if effective_rate > 0:
+            app.add_middleware(
+                GatewayRateLimitMiddleware,
+                rate=effective_rate,
+                burst=(config.gateway_rate_burst or None),
+            )
+        app.add_middleware(OriginPolicyMiddleware, allowed_origins=_origins)
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=_hosts)
+        if config.server_tls_terminated:
+            from agent_utilities.security.http_boundary import (
+                TrustedProxyPeerMiddleware,
+            )
+
+            app.add_middleware(
+                TrustedProxyPeerMiddleware,
+                trusted_cidrs=config.server_trusted_proxy_cidrs,
+            )
 
         return app
 

@@ -48,7 +48,8 @@ def _read_roles(access: ExternalAccess) -> list[str]:
     """
     roles: list[str] = [f"group:{g}" for g in access.group_ids if g]
     roles += [f"user:{e}" for e in access.user_emails if e]
-    return roles
+    roles += [str(role).strip() for role in access.read_roles if str(role).strip()]
+    return list(dict.fromkeys(roles))
 
 
 def sync_access(
@@ -57,6 +58,7 @@ def sync_access(
     chunk_edges: list[tuple[str, str]] | None = None,
     *,
     data_owner: str = "",
+    classification: DataClassification | None = None,
 ) -> NodeACL | None:
     """Mirror a source document's external access into the KG-2.46 model.
 
@@ -64,44 +66,66 @@ def sync_access(
 
     Args:
         document_id: The ``Document`` node id the access applies to.
-        access: The connector-reported :class:`ExternalAccess`. ``None`` or a
-            ``is_public`` descriptor means "no restriction" → no ACL is written
-            (the default-allow gate passes it through), but any markings are still
-            applied + propagated.
+        access: The connector-reported :class:`ExternalAccess`. ``None`` means no
+            descriptor was supplied. Every supplied descriptor receives an
+            explicit ACL: public records get a ``PUBLIC`` ACL, while non-public
+            records get an ``INTERNAL`` ACL, including a deny-all ACL when they
+            have no principals. Markings are applied + propagated.
         chunk_edges: ``(document_id, chunk_id)`` edges (the ``HAS_CHUNK`` set from
             ``DocumentProcessor``). The document's markings/classification
             propagate onto each chunk so chunk-level retrieval is governed too.
         data_owner: Optional data-owner principal recorded on the ACL.
+        classification: Optional authoritative local classification. When
+            omitted it is derived from ``access.is_public``. A public source
+            assertion and local classification must agree.
 
     Returns:
-        The registered :class:`NodeACL` when a restriction was applied, else
-        ``None`` (public / no principals). Markings are applied regardless.
+        The registered :class:`NodeACL` when a descriptor was supplied, else
+        ``None``. Markings are applied whenever a descriptor is present.
     """
     if access is None:
         return None
 
     acl: NodeACL | None = None
     roles = _read_roles(access)
+    resolved_classification = classification or (
+        DataClassification.PUBLIC if access.is_public else DataClassification.INTERNAL
+    )
+    if access.is_public != (resolved_classification == DataClassification.PUBLIC):
+        raise ValueError("source access and local classification disagree")
 
-    # Only register a discretionary ACL when the source actually restricts the
-    # document. A public doc with no principals stays open (default-allow gate).
-    if not access.is_public and roles:
-        acl = build_acl(
-            document_id,
-            classification=DataClassification.INTERNAL,
-            read_roles=roles,
-            data_owner=data_owner,
-        )
+    # Every governed object gets an explicit ACL. Public is a positive source
+    # assertion, not an absent policy row; restricted with no principals is the
+    # intentional deny-all case.
+    acl = build_acl(
+        document_id,
+        classification=resolved_classification,
+        read_roles=roles,
+        data_owner=data_owner,
+    )
 
     # Mandatory markings always apply (they cannot be relaxed by an ACL).
     for name in access.markings:
         if name:
             apply_marking(document_id, Marking(name))
 
+    # Discretionary ACLs do not inherit read_roles through classification-only
+    # propagation, so register the same source ACL on every materialized child.
+    # This is especially important for quarantine: an empty role list is an
+    # intentional deny-all decision, not an absent ACL.
+    if chunk_edges:
+        for _source_id, target_id in chunk_edges:
+            build_acl(
+                target_id,
+                classification=acl.classification,
+                read_roles=roles,
+                data_owner=data_owner,
+            )
+
     # Propagate the document's mandatory controls onto its chunks so chunk-level
     # retrieval honours the same access (KG-2.46 propagation; classification flows
     # to the strictest along the edge).
-    if chunk_edges and (acl is not None or access.markings):
+    if chunk_edges:
         propagate_over_edges(list(chunk_edges))
 
     logger.debug(

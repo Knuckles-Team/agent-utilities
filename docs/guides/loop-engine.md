@@ -27,7 +27,7 @@ twin).
 | You want to… | Surface | Call |
 |---|---|---|
 | Advance all active Loops one cycle (the classic "golden loop" run) | **MCP** | `graph_loops(action="run", max_topics=5)` |
-| Same, inside the orchestrate tool | **MCP** | `graph_orchestrate(action="loop_cycle", max_fan_out=5)` |
+| Advance all loops once | **MCP** | `graph_loops(action="run", max_topics=5)` |
 | Drive ONE objective to completion, durably (resume / checkpoint / corrigible) | **MCP** | `graph_loops(action="drive", loop_id="loop:research:…")` |
 | Create a Loop (goal / research topic / skill run) | **MCP** | `graph_loops(action="submit", objective="…", kind="develop", validation_cmd="pytest -q")` |
 | Inspect / cancel | **MCP** | `graph_loops(action="list")` · `graph_loops(action="cancel", loop_id="…")` |
@@ -65,10 +65,10 @@ graph_loops(action="drive", loop_id="loop:develop:make-ci-green")
   excluded so a goal is never double-driven).
 - **`cancel`** — terminate a Loop by `loop_id`.
 
-### 2. MCP — `graph_orchestrate(action="loop_cycle")`
+### 2. MCP — `graph_loops(action="run")`
 
 ```jsonc
-graph_orchestrate(action="loop_cycle", max_fan_out=5)
+graph_loops(action="run", max_topics=5)
 ```
 
 Same single-cycle run, exposed inside the orchestrate tool. This is the renamed
@@ -131,7 +131,7 @@ stage flags gate the heavier stages:
 |---|---|
 | `GoldenLoopController` | `LoopController` |
 | `research/golden_loop.py` | `research/loop_controller.py` |
-| `graph_orchestrate(action="golden_loop")` | `graph_orchestrate(action="loop_cycle")` — **no alias** |
+| Advance the loop engine | `graph_loops(action="run")` |
 | `KG_GOLDEN_LOOP` / `_INTERVAL` / `_TOPICS` | `KG_LOOP` / `KG_LOOP_INTERVAL` / `KG_LOOP_TOPICS` |
 | `KG_GOLDEN_BREADTH` / `_DISCOVER` / `_DISTILL` / `_STANDARDIZE` | `KG_LOOP_BREADTH` / `_DISCOVER` / `_DISTILL` / `_STANDARDIZE` |
 | separate goal-runner (`run_goal_loop`) + `goals` SQLite table | folded into `LoopController.run_loop`; goal state lives on the **KG Loop node** |
@@ -157,7 +157,7 @@ highest-priority loops first, and `graph_loops action=prioritize` bumps one.
 ## Scheduling and the unified queue (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
 
 The recurring **`loop_cycle`** is no longer a hardcoded daemon tick — it is a
-durable `:Schedule` the unified scheduler enqueues as a `scheduled_job` `:Task`,
+durable `:Schedule` the unified scheduler enqueues as a `scheduled_job` WorkItem,
 so the heavy controller runs in the worker pool under the throttle/lease/reaper
 rather than on the scheduler thread. A loop stage that fans out (e.g. the
 ScholarX RSS **`research_feed`** screen) **enqueues prioritized child tasks** onto

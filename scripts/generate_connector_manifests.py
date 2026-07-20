@@ -19,8 +19,10 @@ Every field that cannot be derived losslessly from those artifacts (the ontology
 crosswalk, PII/RLS policy) is filled with a documented heuristic default and flagged in
 ``review_todos`` — never silently guessed, never invented by an LLM.
 
-Same input -> byte-identical output (pass ``--now`` to pin the provenance timestamp for
-reproducible/test runs; a real run without it stamps the current UTC time).
+Same input, timestamp, and explicit release key -> byte-identical output. Pass ``--now``
+to pin the provenance timestamp for reproducible/test runs. Applying a manifest requires
+``ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF``; no development fallback or raw
+configuration value can produce release evidence.
 
 Usage:
   python3 scripts/generate_connector_manifests.py --connector-root <path> [--output PATH]
@@ -117,6 +119,7 @@ def _detect_ontology_source(graph: Any) -> str | None:
             predicate=rdflib.RDF.type,
             object=rdflib.URIRef("http://www.w3.org/2002/07/owl#Ontology"),
         )
+        if isinstance(s, rdflib.URIRef)
     )
     for iri in iris:
         if iri.startswith("http://knuckles.team/kg/"):
@@ -147,6 +150,7 @@ def _read_ontology(
             for s in graph.subjects(
                 predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_CLASS)
             )
+            if isinstance(s, rdflib.URIRef)
         }
     )
     class_locals = {_local(u) for u in class_uris}
@@ -168,6 +172,7 @@ def _read_ontology(
             for s in graph.subjects(
                 predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_DATATYPE_PROPERTY)
             )
+            if isinstance(s, rdflib.URIRef)
         }
     ):
         rng = next(
@@ -188,6 +193,7 @@ def _read_ontology(
             for s in graph.subjects(
                 predicate=rdflib.RDF.type, object=rdflib.URIRef(_OWL_OBJECT_PROPERTY)
             )
+            if isinstance(s, rdflib.URIRef)
         }
     ):
         domain = next(
@@ -202,13 +208,9 @@ def _read_ontology(
             ),
             None,
         )
-        target = (
-            _local(str(rng))
-            if rng is not None and _local(str(rng)) in class_locals
-            else (_local(str(rng)) if rng is not None else "owl:Thing")
-        )
+        target = _local(str(rng)) if isinstance(rng, rdflib.URIRef) else "owl:Thing"
         local = _local(uri)
-        if domain is not None and _local(str(domain)) in class_locals:
+        if isinstance(domain, rdflib.URIRef) and _local(str(domain)) in class_locals:
             relations_by_domain.setdefault(_local(str(domain)), []).append(
                 ResourceRelation(name=local, label=_label(uri), target=target)
             )
@@ -235,9 +237,13 @@ def _read_ontology(
         # (3) HUB_NAME_HEURISTIC_CROSSWALK (nearest hub-ontology class by name — a
         #     best-effort DRAFT, human sign-off required, never auto-enforced).
         # Never invented beyond this conservative table: no hit anywhere -> left None.
-        subclass_crosswalk = _local(str(parent_ref)) if parent_ref is not None else None
+        subclass_crosswalk = (
+            _local(str(parent_ref)) if isinstance(parent_ref, rdflib.URIRef) else None
+        )
         archimate_crosswalk = (
-            DEFAULT_ARCHIMATE_CROSSWALK.get(name) if subclass_crosswalk is None else None
+            DEFAULT_ARCHIMATE_CROSSWALK.get(name)
+            if subclass_crosswalk is None
+            else None
         )
         hub_name_crosswalk = (
             nearest_hub_class(name)
@@ -292,6 +298,21 @@ def _read_sync(
         return sync, identity, events, permissions
 
     data = json.loads(presets_path.read_text(encoding="utf-8"))
+    fingerprint_path = module_dir / "connectors" / "tool_schema_fingerprints.json"
+    fingerprints: dict[str, str] = {}
+    if fingerprint_path.exists():
+        fingerprint_data = json.loads(fingerprint_path.read_text(encoding="utf-8"))
+        raw_fingerprints = (
+            fingerprint_data.get("tools", fingerprint_data)
+            if isinstance(fingerprint_data, dict)
+            else {}
+        )
+        if isinstance(raw_fingerprints, dict):
+            fingerprints = {
+                str(name): str(digest).strip().lower()
+                for name, digest in raw_fingerprints.items()
+                if not str(name).startswith("_")
+            }
     for key in sorted(k for k in data if not k.startswith("_")):
         preset = data[key]
         if not isinstance(preset, dict):
@@ -309,6 +330,7 @@ def _read_sync(
                 updated_field=preset.get("updated_field"),
                 pagination=preset.get("pagination"),
                 doc_type=preset.get("doc_type"),
+                tool_schema_sha256=fingerprints.get(str(preset.get("tool", ""))),
                 raw=preset,
             )
         )
@@ -369,7 +391,10 @@ def _pii_policy(schema_mappings: dict[str, SchemaMapping]) -> dict[str, list[str
 
 
 def build_manifest(
-    connector_root: Path, *, now: datetime | None = None
+    connector_root: Path,
+    *,
+    now: datetime | None = None,
+    release_signer: ontology_integrity.ReleaseSigner | None = None,
 ) -> ConnectorManifest:
     """Build a :class:`ConnectorManifest` for one connector — pure, deterministic, offline."""
     connector = connector_root.name
@@ -397,6 +422,14 @@ def build_manifest(
                     (module_dir / "connectors" / "mcp_source_presets.json").relative_to(
                         connector_root
                     )
+                )
+            )
+        if (module_dir / "connectors" / "tool_schema_fingerprints.json").exists():
+            source_artifacts.append(
+                str(
+                    (
+                        module_dir / "connectors" / "tool_schema_fingerprints.json"
+                    ).relative_to(connector_root)
                 )
             )
     else:
@@ -446,16 +479,22 @@ def build_manifest(
     digest, triple_count = ontology_integrity.canonical_hash(g)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    provenance = ProvenanceSpec(
+    signer = release_signer or ontology_integrity.ReleaseSigner.from_runtime()
+    unsigned_provenance = ProvenanceSpec(
         generated_at=stamp,
         source_artifacts=sorted(source_artifacts),
         integrity=IntegrityInfo(hash=digest, triple_count=triple_count),
-        signer=ontology_integrity.DEFAULT_SIGNER_ID,
-        signature=ontology_integrity.sign(
-            digest, signer_id=ontology_integrity.DEFAULT_SIGNER_ID
-        ),
+        signer=signer.signer_id,
+        signature_algorithm=signer.algorithm,
+        signing_public_key=signer.public_key,
+        signature=None,
     )
-    return placeholder.model_copy(update={"provenance": provenance})
+    unsigned = placeholder.model_copy(update={"provenance": unsigned_provenance})
+    manifest_hash = ontology_integrity.canonical_manifest_hash(unsigned)
+    provenance = unsigned_provenance.model_copy(
+        update={"signature": signer.sign(manifest_hash)}
+    )
+    return unsigned.model_copy(update={"provenance": provenance})
 
 
 def _to_yaml(manifest: ConnectorManifest) -> str:
@@ -474,8 +513,9 @@ def write_manifest(
 ) -> ConnectorManifest:
     manifest = build_manifest(connector_root, now=now)
     text = _to_yaml(manifest)
+    output_label = f"{output.parent.name}/{output.name}"
     if dry_run:
-        print(f"# --- {output} ---")
+        print(f"# --- {output_label} ---")
         print(text)
     else:
         output.write_text(text, encoding="utf-8")
@@ -537,7 +577,7 @@ def main() -> int:
 
     for root in roots:
         if not root.is_dir():
-            print(f"skip: {root} is not a directory", file=sys.stderr)
+            print(f"skip: connector {root.name!r} is not a directory", file=sys.stderr)
             continue
         out = (
             args.output
@@ -550,7 +590,8 @@ def main() -> int:
         )
         manifest = write_manifest(root, out, now=now, dry_run=args.dry_run)
         print(
-            f"generated {out}: {len(manifest.resources)} resources, {len(manifest.sync)} sync presets"
+            f"generated {out.parent.name}/{out.name}: {len(manifest.resources)} "
+            f"resources, {len(manifest.sync)} sync presets"
         )
 
     return 0

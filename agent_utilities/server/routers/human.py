@@ -4,6 +4,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from agent_utilities.observability.approval_manager import ApprovalManager
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,8 @@ async def resolve_approval(request: Request):
             {"error": "Request not found or already resolved"},
             status_code=404,
         )
-    except Exception as e:
-        logger.exception("Approval resolution error")
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 @router.post(

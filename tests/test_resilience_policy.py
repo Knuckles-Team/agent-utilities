@@ -326,10 +326,10 @@ async def test_resilience_wired_into_execute_specialist_live_path(monkeypatch):
 
     _FlakyAgent.calls = []
 
-    # Patch the Agent class the executor constructs so the LLM call is the flaky
+    # Patch the governed constructor the executor calls so the LLM is the flaky
     # stand-in (no real LLM / engine needed). compute_backoff jitter is real but
     # the backoff is tiny; patch sleep so the test does not actually wait.
-    monkeypatch.setattr(executor_mod, "Agent", _FlakyAgent)
+    monkeypatch.setattr(executor_mod, "create_context_agent", _FlakyAgent)
 
     slept: list[float] = []
 

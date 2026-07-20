@@ -8,8 +8,9 @@ its own bespoke, well-typed shape — :class:`~agent_utilities.knowledge_graph.r
 code_context.CodeContextAnswer`, :class:`~agent_utilities.knowledge_graph.retrieval.
 executable_rag.RagResult`, the ``nl_to_query``/``nl_query`` payload dict — each grounded
 in its own way (file:line citations, an execution trace, a generated+audited query).
-:class:`EvidenceBundle` does NOT replace any of those: it is an additive, opt-in
-WRAPPER that projects whichever shape a caller has into one common envelope, so a
+:class:`EvidenceBundle` is the current public response contract for graph query and
+analysis surfaces. It projects whichever internal shape produced an answer into one
+common envelope, so a
 downstream consumer (a synthesis step, a UI, a future engine-side reasoner) can
 reason about "what evidence backs this answer, how fresh is it, does it conflict
 with anything else, how confident should I be" the same way regardless of which
@@ -30,6 +31,7 @@ The wrapping is deliberately conservative:
 Concept: evidence-bundle-envelope
 """
 
+import json
 import re
 from dataclasses import asdict
 from typing import Any
@@ -125,10 +127,9 @@ def _source_authority_from_citations(
 class EvidenceBundle(BaseModel):
     """Unified epistemic envelope wrapping any of the KG's structured answers.
 
-    Never a replacement for the wrapped answer — callers keep the original
-    ``CodeContextAnswer``/``RagResult``/``nl_query`` payload and additionally get
-    this common projection when they opt in (``envelope="bundle"`` on the MCP
-    tools). See the module docstring for the no-fabrication contract.
+    The complete current response contract for public graph analysis and query
+    tools. Source payload fields without dedicated slots are retained in
+    ``reasoning_trace``. See the module docstring for the no-fabrication contract.
     """
 
     answer_candidate: str = Field(
@@ -174,6 +175,76 @@ class EvidenceBundle(BaseModel):
         description="Concrete, grounded follow-ups (e.g. re-ingest, retry with a "
         "different mode) — only populated when the source signal actually implies one.",
     )
+
+    @classmethod
+    def from_payload(
+        cls,
+        payload: Any,
+        *,
+        operation: str = "graph",
+    ) -> EvidenceBundle:
+        """Project an arbitrary internal result into the sole public bundle type.
+
+        This is deliberately deterministic and lossless: dict/list payloads are
+        retained as claims and/or a trace entry, while plain text becomes the
+        answer candidate. A payload that already contains an ``evidence_bundle``
+        is validated and its sibling fields are appended to the trace rather than
+        silently discarded.
+        """
+
+        if isinstance(payload, cls):
+            return payload
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except (TypeError, ValueError):
+                return cls(
+                    answer_candidate=payload,
+                    reasoning_trace=[{"step": operation, "text": payload}],
+                )
+
+        if isinstance(payload, dict):
+            embedded = payload.get("evidence_bundle")
+            if isinstance(embedded, dict):
+                bundle = cls.model_validate(embedded)
+                siblings = {k: v for k, v in payload.items() if k != "evidence_bundle"}
+                if siblings:
+                    bundle.reasoning_trace.append(
+                        {"step": operation, "payload": siblings}
+                    )
+                return bundle
+            if set(payload).issubset(set(cls.model_fields)):
+                return cls.model_validate(payload)
+            rows = payload.get("rows")
+            results = payload.get("results")
+            candidate_rows = rows if isinstance(rows, list) else results
+            claims = (
+                [dict(row) for row in candidate_rows if isinstance(row, dict)]
+                if isinstance(candidate_rows, list)
+                else [dict(payload)]
+            )
+            error = payload.get("error")
+            answer = str(payload.get("answer") or payload.get("output") or "")
+            return cls(
+                answer_candidate="" if error else answer,
+                claims=claims,
+                contradictions=_scan_contradictions(claims),
+                reasoning_trace=[{"step": operation, "payload": payload}],
+                next_actions=["review the structured error and retry"] if error else [],
+            )
+
+        if isinstance(payload, list):
+            claims = [dict(row) for row in payload if isinstance(row, dict)]
+            return cls(
+                answer_candidate=f"{len(payload)} row(s)",
+                claims=claims,
+                contradictions=_scan_contradictions(claims),
+                reasoning_trace=[{"step": operation, "payload": payload}],
+            )
+        return cls(
+            answer_candidate=str(payload),
+            reasoning_trace=[{"step": operation, "payload": payload}],
+        )
 
     # ------------------------------------------------------------------
     # CodeContextAnswer

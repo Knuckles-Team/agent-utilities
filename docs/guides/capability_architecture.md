@@ -141,8 +141,13 @@ To add a new hydration source (e.g., a new monitoring tool):
        ...
    ```
 
+   The method may emit its normalized rows with
+   `engine.ingest_external_batch(...)`; `hydrate_source()` always supplies the
+   native ChangeEnvelope proxy, so that call is an atomic governed graph-slice
+   commit rather than a direct backend write.
+
 4. **No changes needed** in `hydrate_source()`, `hydrate_all()`, or the
-   MCP server `graph_hydrate` tool — they resolve dynamically.
+   MCP server `source_sync` tool — they resolve dynamically.
 
 ## Universal Relationship Properties (CONCEPT:AU-KG.research.research-pipeline-runner)
 
@@ -262,6 +267,35 @@ SELECT ?fork WHERE { :OriginalRepo :hasDescendant ?fork . ?fork a :SoftwareProje
 | `ProcessModel` | `ProcessModel` | Generic process model from any BPM tool |
 | `EAFactSheet` | `EAFactSheet` | Generic fact sheet from any EA tool |
 
+## Ontology-Driven Tool/Agent Routing (X-4)
+
+AU-P1-3 gave capability retrieval an engine-native filtered ANN + a durable
+contextual bandit, but candidate matching was flat exact-string equality — a
+tool declaring `providesCapability :DNSCapability` was invisible to a request
+for the broader `:ServiceCapability`, even though the ontology already models
+that as-a relationship. X-4 closes that gap: selection now combines the
+engine's filtered ANN **plus ontology subsumption** (a request for capability
+type `T` matches any tool whose declared type is `T` or a *narrower*
+`rdfs:subClassOf` subtype) **plus** tenant/policy filters, re-ranked by the
+same durable bandit, with a WHY-eligible explanation (including the concrete
+subsumption path) attached to every candidate.
+
+| Component | File |
+|-----------|------|
+| Dependency-free `rdfs:subClassOf` reader (no rdflib — safe on every install) | `knowledge_graph/ontology/capability_hierarchy.py` |
+| Versioned capability descriptor (typed I/O, side effects, cost/latency/locality, policy/approval class, calibrated reliability) | `knowledge_graph/retrieval/capability_descriptor.py` |
+| Subsumption-aware `CapabilityIndex` filtering + shared `compute_eligibility()` | `knowledge_graph/retrieval/capability_index.py` |
+| Subsumption-aware engine push-down/post-filter | `knowledge_graph/retrieval/engine_capability_search.py` |
+| Top-level routing entry point (`route_capability_request`, `explain_routing_eligibility`) | `graph/routing/enrichers/capability_routing.py` |
+
+All current primitives (`CapabilityIndex`, `compute_eligibility`,
+`engine_filtered_search`, and `route_capability_request`) resolve the bundled
+ontology singleton
+(`ontology/capability_hierarchy.get_default_hierarchy()`) when callers do not
+inject an isolated hierarchy. There is no flat exact-match fallback. The
+in-process `CapabilityIndex` is always finite-LRU bounded (default 4,096
+entities); callers may tune the positive bound but cannot disable it.
+
 ## Files Modified
 
 | File | Change |
@@ -274,4 +308,4 @@ SELECT ?fork WHERE { :OriginalRepo :hasDescendant ?fork . ?fork a :SoftwareProje
 | `hydration.py` | Added `CAPABILITY_REGISTRY`, refactored `hydrate_source()` |
 | `engine_ingestion.py` | Generalized job names and comments |
 | `owl_bridge.py` | Added capability + universal relationship types to promotable sets (178 edge types, 159 node types) |
-| `kg_server.py` | Generalized `graph_hydrate` tool description |
+| `kg_server.py` | Generalized `source_sync` tool description |

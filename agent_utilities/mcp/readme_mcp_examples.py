@@ -5,10 +5,11 @@ The README env-var table (:mod:`readme_env_vars`) and MCP-tools table
 (:mod:`readme_tools`) are regenerated on every commit, but the ``mcp_config.json``
 **example blocks** embedded in the README used to be written once at scaffold time and
 never refreshed — so they rotted (stale placeholder vars, missing ``MCP_TOOL_MODE``).
-This module closes that gap: it regenerates the stdio / streamable-http / remote-url /
-docker examples **and** rewrites every ``mcp_config*.json`` ``env`` block from the one
-authoritative set (:func:`env_sources.example_env_pairs`), so all three surfaces stay
-1:1:1 with the code.
+This module closes that gap: it regenerates the stdio, streamable-http, remote-URL,
+and least-privilege stdio-container examples **and** rewrites every
+``mcp_config*.json`` ``env`` block from the one authoritative set
+(:func:`env_sources.example_env_pairs`), so all three surfaces stay 1:1:1 with the
+code.
 
 The README block lives between::
 
@@ -91,28 +92,30 @@ def render_examples(root: Path) -> str:
     stdio_args = ["--from", f"{pkg}[mcp]", mcp_cmd]
     http_args = [*stdio_args, "--transport", "streamable-http", "--port", "8000"]
     # HTTP examples lead with the transport binding, then the package env.
-    http_env = {"TRANSPORT": "streamable-http", "HOST": "0.0.0.0", "PORT": "8000"}
+    http_env = {
+        "TRANSPORT": "streamable-http",
+        "HOST": "127.0.0.1",
+        "PORT": "8000",
+    }
     http_env.update(base_env)
 
-    docker_flags = "\n".join(
-        f"  -e {name}={_shell_value(value)} \\" for name, value in pairs
-    )
+    docker_flags = "\n".join(_docker_env_flag(name, value) for name, value in pairs)
 
     lines = [
         START,
         "",
-        f"> **Install the slim `[mcp]` extra.** All examples install `{pkg}[mcp]` — the",
-        "> MCP-server extra that pulls only the FastMCP / FastAPI tooling"
-        " (`agent-utilities[mcp]`).",
-        "> It deliberately **excludes** the heavy agent runtime (`pydantic-ai`, the"
-        " epistemic-graph",
-        "> engine, `dspy`, `llama-index`), so `uvx` / container installs are far smaller."
-        " Use the",
-        "> full `[agent]` extra only when you need the integrated Pydantic AI agent.",
+        f"> **Install the connector-focused `[mcp]` extra.** Examples use `{pkg}[mcp]` to add",
+        "> FastMCP / FastAPI through `agent-utilities[mcp]`; the required Agent Utilities core",
+        "> still carries `epistemic-graph[full]`. The `[agent-runtime]` extra additionally",
+        "> enables model orchestration.",
         "",
         "#### stdio Transport (local IDEs — Cursor, Claude Desktop, VS Code)",
         "",
         _json_block(server, stdio_args, base_env),
+        "",
+        "Runtime references require an alias-aware launcher such as GraphOS. Other",
+        "launchers must omit those entries and inject the resolved values through their",
+        "own runtime secret boundary.",
         "",
         "#### Streamable-HTTP Transport (networked / production)",
         "",
@@ -127,18 +130,25 @@ def render_examples(root: Path) -> str:
         ),
         "```",
         "",
-        "Deploying the Streamable-HTTP server via Docker:",
+        "Run a reviewed container image as a least-privilege stdio child (no",
+        "listener or published port):",
         "",
         "```bash",
-        "docker run -d \\",
-        f"  --name {server}-mcp \\",
-        "  -p 8000:8000 \\",
-        "  -e TRANSPORT=streamable-http \\",
-        "  -e HOST=0.0.0.0 \\",
-        "  -e PORT=8000 \\",
+        "docker run -i --rm \\",
+        "  --read-only \\",
+        "  --cap-drop=ALL \\",
+        "  --security-opt=no-new-privileges \\",
+        "  --pids-limit=256 \\",
+        "  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \\",
+        "  -e TRANSPORT=stdio \\",
         docker_flags,
-        f"  knucklessg1/{pkg}:mcp",
+        f"  registry.example.invalid/{pkg}@sha256:<digest> {mcp_cmd}",
         "```",
+        "",
+        "For containerized network HTTP, supply an authenticated TLS ingress (or",
+        "direct server TLS), exact `MCP_ALLOWED_HOSTS`, and an exact trusted-proxy",
+        "CIDR policy through the operator-owned deployment profile. The generator",
+        "does not emit an unauthenticated non-loopback listener.",
         "",
         "_Auto-generated from the code-read env surface (`MCP_TOOL_MODE` + package vars)"
         " — do not edit._",
@@ -152,6 +162,13 @@ def _shell_value(value: str) -> str:
     if value == "" or any(c in value for c in " \t\"'$&|;<>()"):
         return f'"{value}"'
     return value
+
+
+def _docker_env_flag(name: str, value: str) -> str:
+    """Render runtime references as inherited values, never unresolved literals."""
+    if value.startswith(("env://", "secret://", "vault://")):
+        return f"  -e {name} \\"
+    return f"  -e {name}={_shell_value(value)} \\"
 
 
 def _splice(readme: str, block: str) -> tuple[str, bool]:

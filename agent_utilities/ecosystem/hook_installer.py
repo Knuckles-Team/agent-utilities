@@ -232,16 +232,12 @@ class HookInstaller:
                 self._write_hook(config_path, surface)
                 results[agent_key] = "installed"
                 self.installed.append(agent_key)
-                logger.info(
-                    "[ECO-4.6] Installed hooks for %s at %s",
-                    surface["name"],
-                    config_path,
-                )
+                logger.info("[ECO-4.6] Installed configured hooks")
             except Exception as e:
                 results[agent_key] = f"error: {e}"
                 self.errors.append(f"{agent_key}: {e}")
                 logger.warning(
-                    "[ECO-4.6] Failed to install hooks for %s: %s", surface["name"], e
+                    "[ECO-4.6] Failed to install hooks (%s)", type(e).__name__
                 )
 
         return results

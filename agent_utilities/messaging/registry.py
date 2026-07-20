@@ -230,7 +230,10 @@ class MessagingRegistry:
         created: dict[str, Any] = {}
         for backend_id in self.list_backends():
             config = self._auto_config(backend_id)
-            if config.token or config.app_id:
+            reference_configured = backend_id == "synology" and bool(
+                str(setting("SYNOLOGY_CHAT_WEBHOOK_URL_REF", "") or "").strip()
+            )
+            if config.token or config.app_id or config.webhook_url or reference_configured:
                 try:
                     instance = self.create_backend(backend_id, config=config)
                     created[backend_id] = instance
@@ -274,7 +277,7 @@ class MessagingRegistry:
             "imessage": [],  # macOS-only
             "line": ["LINE_CHANNEL_ACCESS_TOKEN"],
             "twitch": ["TWITCH_OAUTH_TOKEN"],
-            "synology": ["SYNOLOGY_CHAT_WEBHOOK_URL"],
+            "synology": [],
             "voicecall": ["TWILIO_AUTH_TOKEN"],
             "nextcloud": ["NEXTCLOUD_TOKEN"],
         }
@@ -309,13 +312,16 @@ class MessagingRegistry:
             "yes",
         )
 
+        webhook_url = (
+            "" if backend_id == "synology" else setting(f"{prefix}WEBHOOK_URL", "")
+        )
         return MessagingConfig(
             platform=backend_id,
             enabled=True,
             token=token,
             app_id=app_id,
             app_secret=app_secret,
-            webhook_url=setting(f"{prefix}WEBHOOK_URL", ""),
+            webhook_url=webhook_url,
             webhook_port=int(setting(f"{prefix}WEBHOOK_PORT", "0")),
             use_business_api=use_business_api,
         )

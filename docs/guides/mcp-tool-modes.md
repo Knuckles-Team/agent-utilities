@@ -1,30 +1,30 @@
-# MCP Tool Modes — condensed, verbose, or both
+# MCP Tool Modes — intent, condensed, verbose, or both
 
-Every fleet MCP server (`agents/*`) can expose its operations as one of two tool
-surfaces, selected by a single knob. This guide explains the modes, how the
+Every fleet MCP server (`agents/*`) exposes one of four tool modes selected by a
+single knob. This guide explains the modes, how the
 **verbose 1:1** surface is generated, how API specs feed its **typed** tier, and
 how it ties into the one shared XDG config.
 
-## The two surfaces
+## The modes
 
 | Surface | Shape | When to use |
 |---|---|---|
-| **condensed** (default) | One action-routed tool per domain — `servicenow_cmdb(action, params_json)` — dispatching to many client methods. Small tool count. | Default. Keeps large APIs well under the ~100-tool limit; lowest token/context cost. |
+| **intent** (default) | A fixed intent-verb front door. The action-routed tools remain registered as gated backing capabilities and are revealed per session with `find_tools` / `load_tools`. | Normal use, especially local or context-constrained models. Lowest resident tool count without removing capability. |
+| **condensed** | One action-routed tool per domain — `servicenow_cmdb(action, params_json)` — dispatching to many client methods. | Explicitly expose the full action-routed surface. |
 | **verbose** | One named, documented tool **per API-client method** — `servicenow_get_cmdb_instance(...)`. The model selects the exact operation directly. | When you want maximal call accuracy for a specific connector and can afford the larger surface. |
-
-`both` registers both sets at once.
+| **both** | The condensed and verbose sets together. | Generation, inspection, or clients deliberately provisioned for the full resident catalog. |
 
 ## The knob: `MCP_TOOL_MODE`
 
 ```jsonc
-// ~/.config/agent-utilities/config.json
-{ "mcp_tool_mode": "verbose" }   // condensed | verbose | both  (default: condensed)
+// XDG AgentConfig
+{ "mcp_tool_mode": "intent" }   // intent | condensed | verbose | both
 ```
 
-Read once via `agent_utilities.mcp_utilities.tool_mode()` (backed by
-`config.setting`, so it is driven by the one XDG `config.json` — see
-[Configuration](configuration.md)). Default `condensed` ⇒ existing deployments are
-unchanged.
+Read once via `agent_utilities.mcp.verbose_tools.tool_mode()` (backed by
+`config.setting`, so it is driven by the one XDG AgentConfig — see
+[Configuration](configuration.md)). The sole default is `intent`; invalid values
+resolve back to `intent` with a warning.
 
 Every verbose tool is tagged **`verbose`** plus its domain (`cmdb`, `incidents`,
 …), so the existing visibility filter still slices the set per request:
@@ -51,7 +51,7 @@ credentials needed at registration; the live client is bound per-call via
 Destructive operations (manifest `http: DELETE`, an explicit `destructive` flag, or
 a `delete_/remove_/destroy_/...` method name) gate on a `Context` elicitation
 prompt (`ctx_confirm_destructive`) — confirmed interactively on served requests,
-allowed by default headless.
+and denied when no live context can obtain confirmation.
 
 ## Feeding the typed tier from API specs (sources of truth)
 
@@ -75,9 +75,9 @@ the same manifest for the typed verbose tier. Acquisition + codegen live in the
 ## Wiring it into an agent
 
 ```python
-from agent_utilities.mcp_utilities import (
-    load_config, tool_mode, register_verbose_tools,
-)
+from agent_utilities.core.config import load_config
+from agent_utilities.mcp.server_factory import create_mcp_server
+from agent_utilities.mcp.verbose_tools import register_verbose_tools, tool_mode
 from my_agent.api_client import Api
 from my_agent.auth import get_client
 
@@ -85,8 +85,10 @@ def get_mcp_instance():
     load_config()                      # one XDG config.json, not load_dotenv
     args, mcp, middlewares = create_mcp_server(...)
     mode = tool_mode()
-    if mode in ("condensed", "both"):
+    if mode in ("intent", "condensed", "both"):
         ...register the action-routed tools (unchanged)...
+    if mode == "intent":
+        ...gate those tools and register the intent verbs...
     if mode in ("verbose", "both"):
         register_verbose_tools(mcp, Api, get_client, service="my-agent",
                                manifest=OPERATIONS)   # omit if no spec
@@ -109,18 +111,19 @@ regardless of the ad-hoc tags the author wrote, and records the exact
 condensed tool always carries `{<domain>, …}` and a verbose tool `{verbose, <parent>}` —
 and the README generator reads the exact toggle map rather than guessing from tags.
 
-## graph-os + the multiplexer: condensed by default, verbose on demand
+## GraphOS: intent by default, granular tools on demand
 
-`graph-os` (the KG server — an action wrapper over the API gateway) runs in **`both`**
-mode (`MCP_TOOL_MODE=both` in its child env), so its full surface exists: the ~43
-condensed `graph_*` action tools **and** the ~300 verbose 1:1 tools
-(`graph_write_add_node`, …), the latter tagged `verbose`.
+`graph-os` (the KG server — an action wrapper over the API gateway) uses
+**`intent`** by default. Its intent verbs and fleet meta-tools are resident. The
+action-routed `graph_*`, `engine_*`, and related granular tools remain registered
+with the `gated` tag as backing capabilities.
 
-The **mcp-multiplexer** (dynamic mode) keeps the resident context small: when it
-mounts an always-on child, `verbose`-tagged tools are **held in the catalog but not
-auto-exposed**. So a session (e.g. Claude Code) sees only the condensed action
-surface plus the meta-tools by default, and pulls granular verbose tools in on demand
-via `find_tools` / `load_tools`. Recommended for any context-sensitive client: full
-CRUD is *reachable*, but only the small action surface is *resident*.
+GraphOS's embedded fleet gateway keeps the resident context small:
+gated tools are **held in the catalog but not auto-exposed**. A client uses
+`find_tools` to resolve the right capability and `load_tools` to reveal the exact
+action-routed tool for that session; `unload_tools` retracts it afterward. Full
+CRUD remains reachable while the default resident surface stays small. Choose
+explicit `verbose` or `both` only when a client intentionally needs the 1:1 API
+method surface resident.
 
 CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization.

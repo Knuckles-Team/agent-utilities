@@ -161,17 +161,15 @@ new_id = engine.import_team_config(bundle)
 ## Invoker to Spawned-Agent Handoff and Native Channels
 
 > **CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid, CONCEPT:AU-ORCH.session.invoker-agent-handoff, CONCEPT:AU-ORCH.session.session-anchored-collections-native** — when one agent spawns another via
-> `graph_orchestrate(action="execute_agent")`, three additive capabilities let the invoker shape,
-> observe, and converse with the spawned run. All are backward-compatible: omit the new inputs and
-> behaviour is unchanged.
+> `graph_orchestrate`, three capabilities let the invoker shape, observe, and
+> converse with the spawned run.
 
 ### ORCH-1.37 — Execution-flow diagram surfacing
 
 The ORCH-1.8 `WorkflowVisualizer` already generates a Mermaid diagram of the routed graph; ORCH-1.37
-**surfaces** it in the `graph_orchestrate` responses instead of only logging it. `swarm`,
-`compile_workflow`, and `execute_workflow` add an additive `mermaid` JSON key (null when
-unavailable); `execute_agent` returns a JSON object `{"output", "mermaid"}` when a diagram was
-produced (otherwise the bare output string, preserving the old contract).
+**surfaces** it in the current responses instead of only logging it. `graph_agents`
+swarm and `graph_workflows` compile/execute return a `mermaid` key (null when
+unavailable); `graph_orchestrate` returns `{"output", "run_id", "mermaid"}`.
 
 ### ORCH-1.39 — Curated context, budget, tool-scope & credential handoff
 
@@ -202,8 +200,8 @@ builds on that strength rather than fighting it:
   collections hang off single-hop edges — `HAS_CONTEXT → ContextBlob`, `HAS_MESSAGE → AgentMessage`,
   `HAS_RUN → RunTrace`. "List by session" is then a reliable anchored traversal
   (`MATCH (s {id:$snode})-[:HAS_CONTEXT]->(c:ContextBlob) RETURN c`), not a property scan. This also
-  hardened a latent bug: an unparsed `WHERE` no longer silently returns the whole graph (opt-in
-  `KG_ALLOW_FULL_SCAN`).
+  hardened a latent bug: an unparsed `WHERE` is rejected and can never silently
+  return the whole graph.
 
 - **Native channels.** The invoker and the spawned agent exchange ordered, cross-process messages
   over the engine's native Communication Channels (KG-2.0, ~sub-ms/op), via the **`graph_message`**

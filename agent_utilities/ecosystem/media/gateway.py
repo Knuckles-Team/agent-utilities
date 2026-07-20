@@ -7,8 +7,7 @@ CONCEPT:AU-ECO.toolkit.media-gateway-failure-path — Media Generation Gateway
 A backend-abstracted media layer: each modality (image / video / speech /
 transcription) is served by one of several interchangeable **backends**, selected
 by name, so the harness is never tied to a single model or server. Backends are
-either a self-hosted **ComfyUI** engine (workflow API — the consolidated,
-on-demand engine deployed on GB10), an **OpenAI-compatible** images/audio server,
+either a self-hosted **ComfyUI** engine (workflow API), an **OpenAI-compatible** images/audio server,
 or a **generic REST** ``/generate`` server.
 
 Named backends (override endpoint/model via env or config):
@@ -48,10 +47,11 @@ __all__ = [
     "list_speech_backends",
 ]
 
-# Consolidated ComfyUI engine (image + video on demand) — the GB10 default.
-DEFAULT_COMFYUI_URL = setting("COMFYUI_URL", "http://comfyui.arpa:8188")
-DEFAULT_XTTS_URL = setting("XTTS_URL", "http://xtts.arpa:5002")
-DEFAULT_OPENAI_TTS_URL = setting("OPENAI_TTS_URL", "http://xtts.arpa:5002")
+# Endpoints are deployment data.  Empty defaults make an unconfigured backend
+# fail before any request instead of silently targeting a site-specific host.
+DEFAULT_COMFYUI_URL = setting("COMFYUI_URL", "")
+DEFAULT_XTTS_URL = setting("XTTS_URL", "")
+DEFAULT_OPENAI_TTS_URL = setting("OPENAI_TTS_URL", "")
 # Optional per-model REST servers (used when a backend is run standalone).
 DEFAULT_FLUX_URL = setting("FLUX_URL", DEFAULT_COMFYUI_URL)
 DEFAULT_SD35_URL = setting("SD35_URL", DEFAULT_COMFYUI_URL)
@@ -136,6 +136,17 @@ class MediaServiceError(RuntimeError):
     """
 
 
+def _required_url(value: str | None, setting_name: str) -> str:
+    """Return a normalized runtime endpoint or fail with a configuration hint."""
+    url = str(value or "").strip().rstrip("/")
+    if not url:
+        raise MediaServiceError(
+            f"media backend endpoint is not configured; set {setting_name} "
+            "or pass base_url explicitly"
+        )
+    return url
+
+
 def _httpx():
     try:
         import httpx
@@ -177,7 +188,7 @@ class SpeechSynthesizer:
     def __init__(
         self, base_url: str | None = None, *, http_fn: HttpFn | None = None
     ) -> None:
-        self.base_url = (base_url or DEFAULT_XTTS_URL).rstrip("/")
+        self.base_url = _required_url(base_url or DEFAULT_XTTS_URL, "XTTS_URL")
         self._http_fn = http_fn
 
     def studio_speakers(self) -> dict[str, Any]:
@@ -254,7 +265,9 @@ class ImageGenerator:
         image_field: str = "image",
         http_fn: HttpFn | None = None,
     ) -> None:
-        self.base_url = (base_url or DEFAULT_FLUX_URL).rstrip("/")
+        self.base_url = _required_url(
+            base_url or DEFAULT_FLUX_URL, "FLUX_URL (or COMFYUI_URL)"
+        )
         self.endpoint = endpoint
         self.prompt_field = prompt_field
         self.image_field = image_field
@@ -335,7 +348,9 @@ class VideoGenerator:
         video_field: str = "video",
         http_fn: HttpFn | None = None,
     ) -> None:
-        self.base_url = (base_url or DEFAULT_HUNYUAN_URL).rstrip("/")
+        self.base_url = _required_url(
+            base_url or DEFAULT_HUNYUAN_URL, "HUNYUAN_URL (or COMFYUI_URL)"
+        )
         self.endpoint = endpoint
         self.status_endpoint = status_endpoint
         self.prompt_field = prompt_field
@@ -355,7 +370,7 @@ class VideoGenerator:
     ) -> dict[str, Any]:
         """Submit a text-to-video job → ``{"video": bytes|None, "url": str|None, "job_id": str|None}``.
 
-        Conservative defaults (short clip, 512×320) to keep the GB10 footprint
+        Conservative defaults (short clip, 512×320) keep accelerator usage
         light. Returns either inline video bytes, a URL to fetch, or a job id the
         caller can poll via :meth:`status`.
         """
@@ -399,7 +414,7 @@ class VideoGenerator:
 class ComfyUIClient:
     """ComfyUI workflow-API transport for image + video (CONCEPT:AU-ECO.toolkit.media-gateway-failure-path).
 
-    The consolidated GB10 engine. Submits a prompt workflow (``POST /prompt``),
+    Submits a prompt workflow (``POST /prompt``),
     polls ``GET /history/{id}`` until the run completes, then fetches the output
     via ``GET /view``. A minimal default txt2img / txt2video workflow is built from
     the checkpoint + prompt; callers may pass a full ``workflow`` to override.
@@ -418,7 +433,7 @@ class ComfyUIClient:
         poll_interval: float = 1.0,
         timeout: float = 600.0,
     ) -> None:
-        self.base_url = (base_url or DEFAULT_COMFYUI_URL).rstrip("/")
+        self.base_url = _required_url(base_url or DEFAULT_COMFYUI_URL, "COMFYUI_URL")
         self._http_fn = http_fn
         self.poll_interval = poll_interval
         self.timeout = timeout
@@ -564,10 +579,11 @@ def synthesize_speech(
             f"unknown speech backend {backend!r}; choose from {list_speech_backends()}"
         )
     if spec["transport"] == "openai":
+        endpoint = _required_url(spec["url"], "OPENAI_TTS_URL")
         resp = _request(
             None,
             "POST",
-            f"{spec['url'].rstrip('/')}/v1/audio/speech",
+            f"{endpoint}/v1/audio/speech",
             json={"model": "tts-1", "input": text, "voice": speaker or "alloy"},
         )
         return resp.content

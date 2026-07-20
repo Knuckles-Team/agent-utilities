@@ -44,7 +44,7 @@ async def run(req: RunRequest) -> dict[str, Any]:
 
     def factory(inst: Any) -> Any:
         return create_workspace(
-            run_id=f"swe-{inst.instance_id or uuid.uuid4().hex[:8]}",
+            run_id=f"swe-{inst.instance_id or uuid.uuid4().hex}",
             prefer_docker=req.prefer_docker,
         )
 
@@ -58,7 +58,7 @@ async def run(req: RunRequest) -> dict[str, Any]:
     if req.remediate and engine is not None:
         remediation = remediate(suite.results, engine)
 
-    run_id = f"swebench:{uuid.uuid4().hex[:8]}"
+    run_id = f"swebench:{uuid.uuid4().hex}"
     _RUNS[run_id] = {"report": report, "remediation": remediation}
     return {"run_id": run_id, "report": report, "remediation": remediation}
 
@@ -67,5 +67,5 @@ async def run(req: RunRequest) -> dict[str, Any]:
 async def report(run_id: str) -> dict[str, Any]:
     data = _RUNS.get(run_id)
     if data is None:
-        raise HTTPException(status_code=404, detail=f"unknown run {run_id}")
+        raise HTTPException(status_code=404, detail="run not found")
     return data

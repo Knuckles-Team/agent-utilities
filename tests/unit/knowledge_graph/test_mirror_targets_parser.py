@@ -1,7 +1,7 @@
 """Unit tests for the GRAPH_MIRROR_TARGETS parser (CONCEPT:AU-KG.backend.tolerant-parse).
 
-Regression for the live bug where ``create_backend(backend_type="fanout")``
-naively comma-split a JSON-array string, so ``["prod-neo4j","team-falkor"]``
+Regression for the live bug where operational backend construction naively
+comma-split a JSON-array string, so ``["prod-neo4j","team-falkor"]``
 became fragments (``'["prod-neo4j"'`` / ``'"team-falkor"]'``) — each then
 misread as a backend type ("Unknown graph backend type") and every mirror was
 silently dropped ("fanout: no mirrors configured").
@@ -63,7 +63,7 @@ def test_json_array_does_not_leak_bracket_fragments() -> None:
 
 
 def test_fanout_json_array_targets_attempts_right_mirrors(monkeypatch, caplog) -> None:
-    """A fanout backend built with a JSON-array GRAPH_MIRROR_TARGETS resolves the
+    """A fanout backend built with JSON-array-shaped mirror targets resolves the
     correct mirror names — no "Unknown graph backend type" noise from format
     fragments.
 
@@ -73,16 +73,15 @@ def test_fanout_json_array_targets_attempts_right_mirrors(monkeypatch, caplog) -
     """
     import logging
 
+    from agent_utilities.core.config import config
     from agent_utilities.knowledge_graph import backends as backends_mod
 
-    settings = {
-        "GRAPH_BACKEND": "fanout",
-        "GRAPH_AUTHORITY": "epistemic_graph",
-        "GRAPH_MIRROR_TARGETS": '["neo4j","falkordb"]',
-    }
     monkeypatch.setattr(
-        backends_mod, "setting", lambda key, default=None: settings.get(key, default)
+        config,
+        "graph_mirror_targets",
+        _parse_mirror_targets('["neo4j","falkordb"]'),
     )
+    monkeypatch.setattr(config, "kg_connections", [])
 
     captured: list[str] = []
 
@@ -115,15 +114,20 @@ def test_fanout_json_array_targets_attempts_right_mirrors(monkeypatch, caplog) -
         return _FakeMember()
 
     monkeypatch.setattr(backends_mod, "_build_member", _fake_build_member)
+    from agent_utilities.knowledge_graph.backends import fanout_backend
+
+    monkeypatch.setattr(
+        fanout_backend,
+        "_new_epistemic_authority",
+        _FakeMember,
+    )
 
     with caplog.at_level(logging.ERROR, logger="agent_utilities.knowledge_graph"):
-        backend = backends_mod.create_backend(backend_type="fanout")
+        backend = backends_mod.create_backend()
 
-    # The parser yielded the two real mirror names (plus the authority), NOT
-    # bracket/quote fragments.
-    assert "epistemic_graph" in captured  # authority
-    assert "neo4j" in captured
-    assert "falkordb" in captured
+    # The parser yielded the two real projection names. The authority is
+    # hardwired and therefore never resolved through the member factory.
+    assert captured == ["neo4j", "falkordb"]
     assert not any("[" in c or "]" in c or '"' in c for c in captured)
 
     # No "Unknown graph backend type: '[\"neo4j\"'" style error from format noise.

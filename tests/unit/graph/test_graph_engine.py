@@ -109,19 +109,19 @@ def test_nx_fallback_successful_episodes(engine):
     # Force the NetworkX query fallback path by setting backend to None
     engine.backend = None
 
-    # Setup successful episode in the in-memory graph
-    ep_id = "ep:1"
+    # Setup a successful canonical trace in the in-memory graph
+    trace_id = "trace:1"
     eval_id = "eval:1"
     tool_id = "tool:t1"
 
-    engine.graph.add_node(ep_id, type="episode", description="success task")
+    engine.graph.add_node(trace_id, type="RunTrace", task="success task")
     engine.graph.add_node(eval_id, type=RegistryNodeType.OUTCOME_EVALUATION, reward=0.9)
     engine.graph.add_node(tool_id, type="tool_call", tool_name="my_tool")
 
-    engine.graph.add_edge(ep_id, eval_id, type="PRODUCED_OUTCOME")
-    engine.graph.add_edge(ep_id, tool_id, type="USED_TOOL")
+    engine.graph.add_edge(trace_id, eval_id, type="PRODUCED_OUTCOME")
+    engine.graph.add_edge(trace_id, tool_id, type="USED_TOOL")
 
-    query = "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation), (e)-[:USED_TOOL]->(t:tool_call) WHERE o.reward >= 0.8 RETURN t.tool_name as tool"
+    query = "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation), (r)-[:USED_TOOL]->(t:tool_call) WHERE o.reward >= 0.8 RETURN t.tool_name as tool"
     results = engine.query_cypher(query)
 
     assert len(results) == 1

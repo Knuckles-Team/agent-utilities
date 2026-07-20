@@ -34,9 +34,9 @@ class CognitiveTrapDefense:
         a = g1.add_node("A")
         b = g1.add_node("B")
         c = g1.add_node("C")
-        g1.add_edge(a, b, {"type": "DEPENDS_ON"})
-        g1.add_edge(b, c, {"type": "DEPENDS_ON"})
-        g1.add_edge(c, a, {"type": "DEPENDS_ON"})
+        g1.add_edge(a, b, {"relationship": "DEPENDS_ON"})
+        g1.add_edge(b, c, {"relationship": "DEPENDS_ON"})
+        g1.add_edge(c, a, {"relationship": "DEPENDS_ON"})
         traps.append(g1)
 
         # Example Trap 2: A dense sybil cluster trap
@@ -45,12 +45,12 @@ class CognitiveTrapDefense:
         f1 = g2.add_node("Fake1")
         f2 = g2.add_node("Fake2")
         f3 = g2.add_node("Fake3")
-        g2.add_edge(center, f1, {"type": "VALIDATES"})
-        g2.add_edge(center, f2, {"type": "VALIDATES"})
-        g2.add_edge(center, f3, {"type": "VALIDATES"})
-        g2.add_edge(f1, f2, {"type": "AGREES_WITH"})
-        g2.add_edge(f2, f3, {"type": "AGREES_WITH"})
-        g2.add_edge(f3, f1, {"type": "AGREES_WITH"})
+        g2.add_edge(center, f1, {"relationship": "VALIDATES"})
+        g2.add_edge(center, f2, {"relationship": "VALIDATES"})
+        g2.add_edge(center, f3, {"relationship": "VALIDATES"})
+        g2.add_edge(f1, f2, {"relationship": "AGREES_WITH"})
+        g2.add_edge(f2, f3, {"relationship": "AGREES_WITH"})
+        g2.add_edge(f3, f1, {"relationship": "AGREES_WITH"})
         traps.append(g2)
 
         return traps

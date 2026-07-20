@@ -46,6 +46,7 @@ executes granted entries (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 import fnmatch
 import json
 import logging
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -102,14 +103,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
         {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
-        # Durable :AgentTask execution (Codex Gap-6 orchestration flow,
-        # agent_dispatch_worker.execute_agent_task_turn): the task itself was
+        # Durable WorkItem execution (agent_dispatch_worker.execute_work_item_turn):
+        # the assignment itself was
         # already approved into its DAG at creation time (out of scope for
         # this gate) — auto+notify so the claim->execute->outcome fleet loop
         # runs unattended while every execution is audited via the
         # AgentPolicyDecision this same gate writes. Tighten to
         # approval_required for a stricter posture.
-        {"kind": "agent_task.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        {"kind": "work_item.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating) default to
         # auto: the workspace container/process IS the containment boundary.
@@ -171,6 +172,16 @@ DEFAULT_POLICY: dict[str, Any] = {
         # untouched) is always safe — auto.
         {"kind": "run.select", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "run.discard", "target": "*", "tier": TIER_AUTO},
+        # Workload-aware data-placement mining (X-5, CONCEPT:AU-KG.evolution.placement-mining-canary-loop):
+        # a mined co-occurrence/hot-access finding (:PlacementProposal — shard_split/
+        # replica/cache_prewarm/materialized_join/embedding_refresh/index_change)
+        # that cleared its confidence floor and the promotion-governance validator
+        # still requires a human before ``placement_mining`` even ENTERS the measured
+        # canary (small-scope apply → measure → promote/rollback) — SAFETY-CRITICAL,
+        # this tier must never silently become auto/auto_notify (see
+        # tests/unit/knowledge_graph/test_placement_mining.py::
+        # test_apply_placement_change_default_never_auto).
+        {"kind": "apply_placement_change", "target": "*", "tier": TIER_APPROVAL},
     ],
 }
 
@@ -352,14 +363,14 @@ class ActionPolicy:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
                 logger.warning(
-                    "action_policy: %s has no rules list — using shipped default", path
+                    "action_policy has no rules list — using shipped default"
                 )
                 data = DEFAULT_POLICY
             self._file_cache = (mtime, data)
             return data
         except Exception as e:  # noqa: BLE001 — a broken file must not open the gate
             logger.warning(
-                "action_policy: failed loading %s (%s) — using default", path, e
+                "action_policy load failed (%s) — using default", type(e).__name__
             )
             return DEFAULT_POLICY
 
@@ -737,8 +748,8 @@ class ActionPolicy:
         Listed by ``GET /api/fleet/approvals``; resolved by
         ``POST /api/fleet/approvals/grant`` (job_id = this node id); executed
         by the fleet reconciler's approved-action drain (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
-        Deliberately NOT a ``Task`` node: pending Tasks are claimed by the
-        engine's task workers, which would execute the action unapproved.
+        Deliberately not a WorkItem: the immutable approval request cannot be
+        claimed or executed before a separate authorized WorkItem exists.
         """
         if self.engine is None:
             return None
@@ -754,7 +765,7 @@ class ActionPolicy:
                 return str(rows[0]["id"])
         except Exception as e:  # noqa: BLE001 — dedup is best-effort
             logger.debug("action_policy: approval dedup probe failed: %s", e)
-        approval_id = f"action_approval:{uuid.uuid4().hex[:12]}"
+        approval_id = f"action_approval:{uuid.uuid4().hex}"
         try:
             self.engine.add_node(
                 approval_id,
@@ -783,7 +794,7 @@ class ActionPolicy:
         """Write the ``ActionDecision`` audit node (also the rate/blast ledger)."""
         if self.engine is None:
             return None
-        audit_id = f"action_decision:{uuid.uuid4().hex[:12]}"
+        audit_id = f"action_decision:{uuid.uuid4().hex}"
         req = decision.request
         try:
             self.engine.add_node(
@@ -825,6 +836,86 @@ class ActionPolicy:
             )
 
 
+# CONCEPT:AU-OS.governance.action-policy-decision-point — process-wide
+# ``ActionPolicy`` instance cache keyed by ``id(engine)``. SCALE-P2-1 soak
+# finding (``scripts/scale/loadgen.py`` MAX_MESSAGE_EVENTS comment): every
+# ``AgentBus.send``/``MessagingService.send`` call — and every other
+# ``get_action_policy(engine).decide(...)`` call site — went through this
+# factory, and it used to build a BRAND-NEW ``ActionPolicy()`` on every single
+# call. ``ActionPolicy`` docstring already promised "stateless apart from an
+# mtime-cached parse of the policy file", but that cache lives on
+# ``self._file_cache`` — a throwaway instance never gets to reuse it, so a
+# fresh instance re-reads + re-parses ``deploy/action-policy.default.yml``
+# (pure-Python PyYAML, no C accelerator in most deployments) from disk on
+# EVERY ``decide()`` call. Profiled at ~13-300ms/call (env-dependent), two-plus
+# orders of magnitude above the AddNode anchor, entirely attributable to this
+# repeated parse (cProfile: ``yaml.safe_load``/composer/scanner frames
+# dominate cumulative time; the KG-backed rate/blast/KG-rule reads are cheap
+# against a mock engine).
+#
+# The fix: reuse ONE ``ActionPolicy`` per distinct engine identity so its
+# mtime-guarded YAML cache actually gets to do its job — the file is parsed
+# once and only re-parsed if its mtime changes on disk. This changes NO
+# governance semantics: KG-stored rule overrides (``_kg_rules``) and the
+# rate-limit/blast-radius ledger reads still hit the engine on every
+# ``decide()`` call (unchanged — those must reflect live mutable state); only
+# the immutable, disk-backed default/file policy is now built once and reused.
+_policy_cache_lock = threading.Lock()
+_POLICY_CACHE: dict[int, tuple[Any, ActionPolicy]] = {}
+#: Bound so a long process (or a test session that spins up many short-lived
+#: fake engines) can't grow this cache without limit — oldest entry evicted
+#: first (dict preserves insertion order). Production has effectively 1-2
+#: distinct engines for the life of the process, so this cap is never hit
+#: there; it only guards pathological test/bench usage.
+_POLICY_CACHE_MAX_SIZE = 64
+_NO_ENGINE_POLICY: ActionPolicy | None = None
+
+
 def get_action_policy(engine: Any = None) -> ActionPolicy:
-    """Construct the policy gate for ``engine`` (cheap; file parse is cached)."""
-    return ActionPolicy(engine=engine)
+    """Return the process-wide cached policy gate for ``engine``.
+
+    One ``ActionPolicy`` instance per distinct engine identity (or a single
+    shared instance when ``engine`` is ``None``) so its mtime-cached file
+    parse is actually reused across calls instead of being rebuilt from
+    scratch every time (see the module-level comment above for the SCALE-P2-1
+    perf finding this fixes). Call :func:`reset_action_policy_cache_for_tests`
+    to force re-construction (e.g. after swapping ``policy_path`` out from
+    under a long-lived engine in a test).
+    """
+    global _NO_ENGINE_POLICY
+    if engine is None:
+        if _NO_ENGINE_POLICY is None:
+            with _policy_cache_lock:
+                if _NO_ENGINE_POLICY is None:
+                    _NO_ENGINE_POLICY = ActionPolicy(engine=None)
+        return _NO_ENGINE_POLICY
+
+    key = id(engine)
+    with _policy_cache_lock:
+        cached = _POLICY_CACHE.get(key)
+        # ``cached[0] is engine`` guards against an ``id()`` being reused by an
+        # unrelated, later object once the original engine was garbage
+        # collected — a stale hit would silently hand back the WRONG engine's
+        # policy gate.
+        if cached is not None and cached[0] is engine:
+            return cached[1]
+        policy = ActionPolicy(engine=engine)
+        if len(_POLICY_CACHE) >= _POLICY_CACHE_MAX_SIZE and key not in _POLICY_CACHE:
+            _POLICY_CACHE.pop(next(iter(_POLICY_CACHE)))
+        _POLICY_CACHE[key] = (engine, policy)
+        return policy
+
+
+def reset_action_policy_cache_for_tests() -> None:
+    """Force re-construction of every cached policy gate (test-isolation seam).
+
+    Mirrors ``AgentBus.reset_log_backend_cache_for_tests`` — call this when a
+    test mutates something ``ActionPolicy.__init__`` reads once (e.g. the
+    ``ACTION_IRREVERSIBILITY_AVERSION`` env flag) and needs the NEXT
+    ``get_action_policy(engine)`` call to pick the change up rather than reuse
+    an already-cached instance.
+    """
+    global _NO_ENGINE_POLICY
+    with _policy_cache_lock:
+        _POLICY_CACHE.clear()
+        _NO_ENGINE_POLICY = None

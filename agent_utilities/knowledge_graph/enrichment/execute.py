@@ -5,7 +5,7 @@ Wires the KG-driven synthesis layer to the production orchestration:
   ``CapabilityIndex.designate`` (Plan-08 retrieval) instead of a demo embed-store.
 * :func:`execute_agent_spec` / :func:`execute_team_spec` run synthesized agents/
   teams through ``orchestration.agent_runner.run_agent`` (the
-  ``graph_orchestrate(action='execute_agent')`` entry point) against the live LLM.
+  ``graph_orchestrate`` entry point) against the live LLM.
 * :func:`persist_as_runnable` writes a synthesized agent as a resolvable KG node
   so ``run_agent`` can find it with its tools.
 
@@ -108,7 +108,7 @@ def persist_skill_as_runnable(
 
     CONCEPT:AU-ORCH.dispatch.dispatch-half-skill-ingestion — the dispatch half of skill ingestion. An ingested atomic
     skill (whether a bare ``:Skill`` node written by ``skill_workflow_ingest`` or
-    an ``AGENT_SKILL`` CallableResource that only carries a ``skill_code_path``) is
+    an ``AGENT_SKILL`` CallableResource carrying its instruction body) is
     *search corpus* until something makes it executable. This reuses the
     :func:`persist_as_runnable` shape — it upserts the SAME ``CallableResource``
     node id ``run_agent`` resolves (resource_type ``AGENT_SKILL``), now carrying the

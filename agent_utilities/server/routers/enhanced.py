@@ -1,12 +1,77 @@
 import logging
+import math
+import re
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/enhanced", tags=["Enhanced API"])
+_JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+_MAX_EXTRACT_TEXT_BYTES = 4 * 1024 * 1024
+
+
+def _enhanced_capabilities(request: Request) -> set[str] | None:
+    claims = getattr(request.state, "user_claims", None)
+    if not claims or claims.get("auth_type") == "api_key":
+        return None
+    try:
+        from agent_utilities.core.config import config
+        from agent_utilities.security.identity import (
+            base_capabilities,
+            normalize_identity,
+        )
+
+        return set(
+            base_capabilities(
+                normalize_identity(claims), config.identity_group_capability_map
+            )
+        )
+    except Exception:
+        raise HTTPException(status_code=403, detail="enhanced API capability required") from None
+
+
+async def _require_enhanced_read(request: Request) -> None:
+    capabilities = _enhanced_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(
+        {"enhanced:read", "enhanced:write", "kg:read", "kg:write", "kg:admin", "admin"}
+    ):
+        raise HTTPException(status_code=403, detail="enhanced API capability required")
+
+
+def _require_enhanced_write(request: Request) -> None:
+    capabilities = _enhanced_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(
+        {"enhanced:write", "kg:write", "kg:admin", "admin"}
+    ):
+        raise HTTPException(status_code=403, detail="enhanced API write capability required")
+
+
+def _request_owner(request: Request) -> str:
+    claims: dict[str, Any] = getattr(request.state, "user_claims", None) or {}
+    identity = "\x00".join(
+        str(claims.get(key) or "")[:1024]
+        for key in ("tenant_id", "tenant", "sub", "client_id", "auth_type")
+    ) or "local"
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    return persistence_reference("extract_owner", identity, namespace="enhanced-api")
+
+
+def _validated_job_id(job_id: str) -> str:
+    if not _JOB_ID_RE.fullmatch(job_id):
+        raise HTTPException(status_code=404, detail="extraction job not found")
+    return job_id
+
+
+router = APIRouter(
+    prefix="/api/enhanced",
+    tags=["Enhanced API"],
+    dependencies=[Depends(_require_enhanced_read)],
+)
 
 
 def _active_engine():
@@ -20,8 +85,11 @@ def _active_engine():
         from ...knowledge_graph.core.engine import IntelligenceGraphEngine
 
         return IntelligenceGraphEngine.get_active()
-    except Exception as e:  # noqa: BLE001
-        logger.debug("No active IntelligenceGraphEngine: %s", e)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "No active IntelligenceGraphEngine (exception_type=%s)",
+            type(exc).__name__,
+        )
         return None
 
 
@@ -34,8 +102,7 @@ async def get_enhanced_info():
 async def get_graph_stats():
     """Live node/edge counts from the active Knowledge Graph backend.
 
-    Counts are queried from the running engine's backend (same access pattern
-    as ``core.py:list_tools``). If no engine/backend is active, returns an
+    Counts are queried through the guarded engine facade. If no engine is active, returns an
     honest ``unavailable`` status rather than fabricated counts.
     """
     engine = _active_engine()
@@ -44,19 +111,14 @@ async def get_graph_stats():
             "status": "unavailable",
             "message": "Knowledge Graph backend is not active in this process.",
         }
-    backend = engine.backend
     try:
-        node_rows = backend.execute("MATCH (n) RETURN count(n) AS c") or []
-        edge_rows = backend.execute("MATCH ()-[r]->() RETURN count(r) AS c") or []
+        node_rows = engine.query_cypher("MATCH (n) RETURN count(n) AS c") or []
+        edge_rows = engine.query_cypher("MATCH ()-[r]->() RETURN count(r) AS c") or []
         nodes = int(node_rows[0]["c"]) if node_rows else 0
         edges = int(edge_rows[0]["c"]) if edge_rows else 0
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Graph stats query failed: %s", e)
-        return {
-            "status": "error",
-            "message": f"Graph stats query failed: {e}",
-        }
-    backend_name = type(backend).__name__
+    except Exception as exc:  # noqa: BLE001
+        return public_error_payload(exc, logger=logger)
+    backend_name = type(engine.backend).__name__
     return {"status": "ok", "nodes": nodes, "edges": edges, "backend": backend_name}
 
 
@@ -75,18 +137,17 @@ async def list_kb():
             "knowledge_bases": [],
         }
     try:
-        rows = (
-            engine.backend.execute(
-                "MATCH (kb:KnowledgeBase) "
-                "RETURN kb.id AS id, kb.name AS name, kb.topic AS topic, "
-                "kb.description AS description, kb.article_count AS article_count, "
-                "kb.status AS status"
-            )
-            or []
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("KB list query failed: %s", e)
-        return {"status": "error", "message": str(e), "knowledge_bases": []}
+        rows = engine.query_cypher(
+            "MATCH (kb:KnowledgeBase) "
+            "RETURN kb.id AS id, kb.name AS name, kb.topic AS topic, "
+            "kb.description AS description, kb.article_count AS article_count, "
+            "kb.status AS status"
+        ) or []
+    except Exception as exc:  # noqa: BLE001
+        return {
+            **public_error_payload(exc, logger=logger),
+            "knowledge_bases": [],
+        }
     knowledge_bases = [
         {
             "id": r.get("id"),
@@ -117,9 +178,8 @@ async def list_sdd_specs():
         workspace = setting("WORKSPACE_PATH") or os.getcwd()
         manager = SDDManager(workspace_path=workspace)
         raw_specs = manager.list_specs()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("SDD spec listing failed: %s", e)
-        return {"status": "error", "message": str(e), "specs": []}
+    except Exception as exc:  # noqa: BLE001
+        return {**public_error_payload(exc, logger=logger), "specs": []}
 
     specs = [
         {
@@ -144,9 +204,8 @@ async def list_resources():
         from ...agent.discovery import discover_all_specialists
 
         specialists = discover_all_specialists()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Resource (specialist) discovery failed: %s", e)
-        return {"status": "error", "message": str(e), "resources": []}
+    except Exception as exc:  # noqa: BLE001
+        return {**public_error_payload(exc, logger=logger), "resources": []}
 
     resources = [
         {
@@ -177,9 +236,8 @@ async def get_maintenance_status():
         }
     try:
         daemon = engine.unified_daemon_status()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Maintenance status query failed: %s", e)
-        return {"status": "error", "message": str(e)}
+    except Exception as exc:  # noqa: BLE001
+        return public_error_payload(exc, logger=logger)
     threads = daemon.get("threads", {})
     maintenance_running = bool(threads.get("maintenance"))
     jobs = daemon.get("maintenance_jobs", [])
@@ -209,9 +267,8 @@ async def get_pipeline_status():
         }
     try:
         daemon = engine.unified_daemon_status()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Pipeline status query failed: %s", e)
-        return {"status": "error", "message": str(e)}
+    except Exception as exc:  # noqa: BLE001
+        return public_error_payload(exc, logger=logger)
     threads = daemon.get("threads", {})
     pipeline_active = bool(
         threads.get("submission")
@@ -247,9 +304,8 @@ async def list_agents():
             for s in specialists
         ]
         return {"status": "ok", "agents": agents}
-    except Exception as e:
-        logger.error(f"Failed to discover specialists dynamically: {e}")
-        return {"status": "error", "message": str(e), "agents": []}
+    except Exception as exc:
+        return {**public_error_payload(exc, logger=logger), "agents": []}
 
 
 @router.get("/skills")
@@ -295,25 +351,51 @@ async def extract_submit(request: Request):
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable", "message": "Knowledge Graph engine is cold."}
-    body = await request.json()
+    _require_enhanced_write(request)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail="invalid JSON request") from None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="request body must be an object")
     text = body.get("text", "")
     url = body.get("url", "")
+    if not isinstance(text, str) or not isinstance(url, str):
+        raise HTTPException(status_code=422, detail="text and url must be strings")
+    if len(text.encode("utf-8")) > _MAX_EXTRACT_TEXT_BYTES or len(url) > 8192:
+        raise HTTPException(status_code=413, detail="extraction input too large")
     if url and not text:
-        text = _read_url(url)
+        import asyncio
+
+        text = await asyncio.to_thread(_read_url, url)
     if not text.strip():
-        return {"status": "error", "message": "provide non-empty 'text' or a 'url'"}
-    job_id = await mgr.submit(
-        text=text,
-        rounds=max(1, min(10, int(body.get("rounds", 1)))),
-        dedup=bool(body.get("dedup", True)),
-        dedup_field=body.get("dedup_field", "triple"),
-        dedup_threshold=float(body.get("dedup_threshold", 0.90)),
-    )
+        raise HTTPException(status_code=422, detail="non-empty text or url required")
+    try:
+        rounds = int(body.get("rounds", 1))
+        threshold = float(body.get("dedup_threshold", 0.90))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="invalid extraction options") from None
+    if not math.isfinite(threshold):
+        raise HTTPException(status_code=422, detail="invalid extraction options")
+    try:
+        job_id = await mgr.submit(
+            text=text,
+            rounds=max(1, min(10, rounds)),
+            dedup=bool(body.get("dedup", True)),
+            dedup_field=str(body.get("dedup_field", "triple"))[:32],
+            dedup_threshold=max(0.0, min(1.0, threshold)),
+            owner_ref=_request_owner(request),
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=429 if isinstance(exc, RuntimeError) else 422,
+            detail="extraction request rejected",
+        ) from None
     return {"status": "submitted", "job_id": job_id}
 
 
 @router.get("/extract/stream/{job_id}")
-async def extract_stream(job_id: str):
+async def extract_stream(job_id: str, request: Request):
     """Server-Sent-Events stream of a job's extraction events (live + replay).
 
     Emits ``round_start | fact | metrics | round_end | file_start | file_end |
@@ -326,58 +408,92 @@ async def extract_stream(job_id: str):
     if mgr is None:
         return {"status": "unavailable", "message": "Knowledge Graph engine is cold."}
 
+    job_id = _validated_job_id(job_id)
+    owner_ref = _request_owner(request)
+    if mgr.status(job_id, owner_ref=owner_ref) is None:
+        raise HTTPException(status_code=404, detail="extraction job not found")
+
     async def _gen():
-        async for event in mgr.stream(job_id):
+        async for event in mgr.stream(job_id, owner_ref=owner_ref):
             yield f"data: {_json.dumps(event)}\n\n"
 
-    return StreamingResponse(_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        _gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/extract/jobs")
-async def extract_jobs():
+async def extract_jobs(request: Request):
     """List all extraction jobs (queued/running/paused/held/done) for the queue panel."""
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable", "jobs": []}
-    return {"status": "ok", "jobs": mgr.jobs()}
+    return {"status": "ok", "jobs": mgr.jobs(owner_ref=_request_owner(request))}
 
 
 @router.get("/extract/status/{job_id}")
-async def extract_status(job_id: str):
+async def extract_status(job_id: str, request: Request):
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable"}
-    return mgr.status(job_id) or {"status": "not_found"}
+    status = mgr.status(
+        _validated_job_id(job_id), owner_ref=_request_owner(request)
+    )
+    if status is None:
+        raise HTTPException(status_code=404, detail="extraction job not found")
+    return status
 
 
 @router.get("/extract/jsonl/{job_id}")
-async def extract_jsonl(job_id: str):
+async def extract_jsonl(job_id: str, request: Request):
     """Download a job's facts as newline-delimited JSON (upstream parity)."""
     from fastapi.responses import PlainTextResponse
 
     mgr = _extraction_manager()
     if mgr is None:
         return PlainTextResponse("", media_type="application/x-ndjson")
+    try:
+        payload = mgr.jsonl(
+            _validated_job_id(job_id), owner_ref=_request_owner(request)
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="extraction job not found") from None
     return PlainTextResponse(
-        mgr.jsonl(job_id) + "\n", media_type="application/x-ndjson"
+        payload + "\n",
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store"},
     )
 
 
 @router.post("/extract/pause/{job_id}")
-async def extract_pause(job_id: str):
+async def extract_pause(job_id: str, request: Request):
+    _require_enhanced_write(request)
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable"}
-    await mgr.pause(job_id)
+    try:
+        await mgr.pause(
+            _validated_job_id(job_id), owner_ref=_request_owner(request)
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="extraction job not found") from None
     return {"status": "paused", "job_id": job_id}
 
 
 @router.post("/extract/resume/{job_id}")
-async def extract_resume(job_id: str):
+async def extract_resume(job_id: str, request: Request):
+    _require_enhanced_write(request)
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable"}
-    await mgr.resume(job_id)
+    try:
+        await mgr.resume(
+            _validated_job_id(job_id), owner_ref=_request_owner(request)
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="extraction job not found") from None
     return {"status": "resumed", "job_id": job_id}
 
 
@@ -397,5 +513,5 @@ def _read_url(url: str) -> str:
         docs = list(cls(url=url).load())
         return docs[0].text if docs else ""
     except Exception as e:  # noqa: BLE001 — a bad URL becomes an empty doc, not a 500
-        logger.warning("reader fetch failed for %s: %s", url, e)
+        logger.warning("reader fetch failed (exception_type=%s)", type(e).__name__)
         return ""

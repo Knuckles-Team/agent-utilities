@@ -64,10 +64,10 @@ __all__ = [
 HEAVY_TYPE = "codebase"
 
 # CONCEPT:AU-KG.compute.resolve — the ENGINE's real shard-writer width, resolved once from the
-# live engine and cached. In split-storage the engine is REMOTE (e.g. R510, K=4
-# from its 8 cpus) while the scheduling host is a DIFFERENT box (e.g. RW710, 16
-# cpus → the cpu-derived estimate would say 8, over-admitting against an engine
-# that only has 4 shard writers). The floor must reflect the engine's ACTUAL K, so
+# live engine and cached. In split-storage the engine may expose K=4 from eight
+# CPUs while the independent scheduling host exposes 16 CPUs. A scheduler-local
+# estimate would then say eight and over-admit against four engine shard writers.
+# The floor must reflect the engine's ACTUAL K, so
 # we ask the engine for it (it knows) and fall back to the cpu/env estimate only
 # when the engine can't be reached.
 _ENGINE_SHARD_K: int | None = None

@@ -93,7 +93,7 @@ def _build_package_map(graph: Any) -> dict[str, str]:
     package_map: dict[str, str] = {}
 
     for node, data in graph.nodes(data=True):
-        if data.get("type") != "file":
+        if data.get("node_type") != "file":
             continue
         file_path = data.get("file_path", "")
         if not file_path or not file_path.endswith(".py"):
@@ -142,7 +142,7 @@ async def execute_resolve(
     package_map = _build_package_map(graph)
 
     for node, data in graph.nodes(data=True):
-        if data.get("type") == "file":
+        if data.get("node_type") == "file":
             fp = data.get("file_path", "")
             path_map[fp] = node
             name_map[data.get("name", "")] = node
@@ -152,7 +152,7 @@ async def execute_resolve(
     edges_to_fix: list[tuple[str, str, str, dict, bool]] = []
 
     for u, v, data in graph.edges(data=True):
-        if data.get("type") != "depends_on_raw" or "raw" not in data:
+        if data.get("relationship") != "depends_on_raw" or "raw" not in data:
             continue
 
         raw_target = data["raw"]
@@ -216,7 +216,7 @@ async def execute_resolve(
         if graph.has_edge(u, old_v):
             graph.remove_edge(u, old_v)
         edge_attrs: dict[str, Any] = {
-            "type": "depends_on",
+            "relationship": "depends_on",
             "weight": data.get("weight", 1.0),
         }
         if cross_repo:

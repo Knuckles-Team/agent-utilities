@@ -370,8 +370,9 @@ flowchart TD
 | ContradictionDetector (friction surface) | AU-KG.research.explicit-node-node-contradiction | `knowledge_graph/adaptation/contradiction_detector.py` | `graph_analyze` `action="contradictions"`; MCP-only |
 | NightShiftSwarm (vault scout→…→edit) | AU-KG.research.run-one-autonomous-night | `knowledge_graph/research/night_shift.py` | `graph_analyze` `action="night_shift"`; MCP-only |
 
-All entry points are exposed through FastMCP (`query_tools.py` / `analysis_tools.py`),
-not REST; the legacy `graph_search_hybrid_endpoint` is deprecated.
+All entry points are exposed through FastMCP (`query_tools.py` / `analysis_tools.py`).
+REST clients use the current `/graph/search` action route and select `mode="hybrid"`
+in its typed request.
 
 ---
 
@@ -379,9 +380,9 @@ not REST; the legacy `graph_search_hybrid_endpoint` is deprecated.
 
 - **FST gradient run (AU-ORCH.execution.feed-cycle-outcome-fast / AU-ORCH.execution.substrate-training-job-emission).** The fast/slow loop builds the GRPO corpus
   and emits a `TrainingJobSpec`, but the actual weight-update gradient run is dispatched to
-  the **DSM** substrate on a **GB10** GPU host. The default `dispatch_fn` records-only
+  the **DSM** substrate on a configured accelerator host. The default `dispatch_fn` records-only
   (`status="recorded" | "skipped_no_substrate"`); the live GPU dispatch is deferred until
-  the GB10 substrate is available.
+  the accelerator substrate is available.
 - **Cross-encoder fine-tune (AU-KG.retrieval.unset-dependency-free).** `NeuralCrossEncoderReranker` runs a stock
   distilled model (`cross-encoder/ms-marco-MiniLM-L-6-v2`); fine-tuning the reranker on
   our own graded-relevance traces is deferred.
@@ -396,7 +397,7 @@ runs each mechanism vs a baseline on a controlled, seeded, CPU-only task and rep
 The PauseRec **training track** — the paper's actual **trainable `<pause>` tokens optimized by
 gradient descent** (`CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative`) — was re-homed to **data-science-mcp**
 (`data_science_mcp/training/pause_token_trainer.py`, reached over MCP) so agent-utilities core
-stays torch-free (see [AGENTS.md](../../AGENTS.md) "Dependency discipline"). It measured
+stays torch-free (see [AGENTS.md](https://github.com/Knuckles-Team/agent-utilities/blob/main/AGENTS.md) "Dependency discipline"). It measured
 Recall@3 = 1.00 with vs 0.67 without the trained tokens (torch, CPU); full *scale* reproduction
 (paper datasets + GPU training) remains GPU-gated. The **inference-time** deterministic adaptation
 (`retrieval/generative_recommender.py`, `bench_pauserec`) is torch-free and stays in core.

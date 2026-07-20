@@ -149,15 +149,15 @@ class ProcessPlanCompiler:
         return {}
 
     def _edge_rel(self, edge_data: dict[str, Any]) -> str:
-        return str(edge_data.get("type") or edge_data.get("rel_type") or "").upper()
+        return str(edge_data.get("relationship") or "").upper()
 
-    def _load_subgraph(
+    def _load_process_graph(
         self, process_id: str
     ) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str, Any]]]:
         """Load the process's BusinessTask nodes and FLOWS_TO sequence edges.
 
-        Reads the L1 compute graph first (always warm); falls back to backend
-        Cypher when the compute mirror has no structure for this process.
+        Reads the native graph view first; uses the configured backend query
+        surface when that view has no structure for this process.
 
         Returns:
             ``(tasks, flows)`` — ``tasks`` maps task node id → properties;
@@ -173,7 +173,7 @@ class ProcessPlanCompiler:
                     if self._edge_rel(edata or {}) != "PART_OF":
                         continue
                     props = self._node_props(src)
-                    if str(props.get("type", "BusinessTask")) != "BusinessTask":
+                    if str(props.get("node_type", "BusinessTask")) != "BusinessTask":
                         continue
                     tasks[src] = props
                 for tid in list(tasks):
@@ -181,8 +181,8 @@ class ProcessPlanCompiler:
                         if self._edge_rel(edata or {}) != "FLOWS_TO":
                             continue
                         flows.append((tid, tgt, (edata or {}).get("condition")))
-            except Exception as exc:  # noqa: BLE001 — compute mirror unavailable
-                logger.debug("[ORCH-1.41] compute-graph traversal failed: %s", exc)
+            except Exception as exc:  # noqa: BLE001 — native graph unavailable
+                logger.debug("[ORCH-1.41] native graph traversal failed: %s", exc)
                 tasks, flows = {}, []
 
         backend = getattr(self.engine, "backend", None)
@@ -197,7 +197,10 @@ class ProcessPlanCompiler:
                     if not isinstance(node, dict):
                         continue
                     nid = node.get("id")
-                    if nid and str(node.get("type", "BusinessTask")) == "BusinessTask":
+                    if (
+                        nid
+                        and str(node.get("node_type", "BusinessTask")) == "BusinessTask"
+                    ):
                         tasks[str(nid)] = dict(node)
                 if tasks:
                     flow_rows = backend.execute(
@@ -313,7 +316,7 @@ class ProcessPlanCompiler:
                 (with ``require_resolved``) unmatched tasks.
         """
         process_props = self._node_props(process_id)
-        tasks, flows = self._load_subgraph(process_id)
+        tasks, flows = self._load_process_graph(process_id)
         if not tasks:
             raise ProcessCompilationError(
                 f"BusinessProcess {process_id!r} has no BusinessTask structure "

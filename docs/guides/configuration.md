@@ -1,350 +1,386 @@
-# Configuration Reference
+# Configuration
 
-This document provides a unified reference for all environment variables, configuration files, and CLI flags used across the `agent-utilities` ecosystem.
+Agent Utilities has one durable configuration boundary: the XDG
+`agent-utilities/config.json` document validated by `AgentConfig`. Generate that
+document instead of copying a hand-maintained schema:
 
-## Environment Variables
-
-### LLM Configuration
-All LLM configuration (models, API keys, endpoints) is now managed centrally via the XDG configuration file at `~/.config/agent-utilities/config.json`.
-
-Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated** and will be ignored. API keys can optionally be provided in the `.env` file or directly inside the `config.json` model entries.
-
-### Graph Database
-
-The **epistemic-graph engine is the one database — the authority**. It serves all
-reads and is where every write commits first. `GRAPH_BACKEND=fanout` additionally
-fans committed writes out asynchronously and losslessly to the **mirrors** named
-in `GRAPH_MIRROR_TARGETS` (Postgres/pg-age, Neo4j, FalkorDB, Ladybug) for
-interop/BI/DR — mirrors are never the authority and never on the read path.
-
-| Variable | Default | Description |
-|---|---|---|
-| `GRAPH_BACKEND` | `epistemic_graph` | `epistemic_graph` (the engine only — self-contained, zero-infra), `fanout` (engine + mirrors), or `memory` (ephemeral, tests/CI) |
-| `GRAPH_MIRROR_TARGETS` | *None* | Comma-separated mirrors to fan out to under `fanout`: `postgresql`, `neo4j`, `falkordb`, `ladybug` |
-| `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the engine store (or a LadybugDB mirror) |
-| `GRAPH_DB_HOST` | `localhost` | Host for a Neo4j/FalkorDB mirror |
-| `GRAPH_DB_PORT` | `7687` | Port for a Neo4j/FalkorDB mirror |
-| `GRAPH_DB_URI` | *None* | Direct connection URI for a PostgreSQL/Neo4j mirror (overrides Host/Port) |
-| `GRAPH_DB_USER` | `neo4j` | Username for a remote mirror (Neo4j/PostgreSQL) |
-| `GRAPH_DB_PASSWORD` | *None* | Password for a remote mirror (Neo4j/PostgreSQL) |
-| `GRAPH_DB_NAME` | `agent_graph` | Database/graph name for a FalkorDB/PostgreSQL mirror |
-| `GRAPH_POOL_MIN` | `2` | Minimum PostgreSQL mirror connection pool size |
-| `GRAPH_POOL_MAX` | `10` | Maximum PostgreSQL mirror connection pool size |
-| `GRAPH_PGGRAPH_SCHEMA` | `public` | Schema for pg-age mirror table registration |
-
-### OWL Reasoning
-| Variable | Default | Description |
-|---|---|---|
-| `OWL_BACKEND` | `stardog` | Reasoning backend (`stardog`, `hermit`) |
-| `OWL_DB_PATH` | `ontology.owl` | Path to local OWL ontology file |
-| `STARDOG_ENDPOINT` | `http://localhost:5820` | Stardog server URL |
-| `STARDOG_USERNAME` | `admin` | Stardog authentication user |
-| `STARDOG_PASSWORD` | `admin` | Stardog authentication password |
-
-### Document Storage
-| Variable | Default | Description |
-|---|---|---|
-| `DOC_BACKEND` | `sqlite` | Backend for document pipeline (`sqlite`, `mongodb`, `postgresql`) |
-| `DOC_DB_URI` | *None* | Connection string for MongoDB/Postgres document stores |
-
-### Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
-| Variable | Default | Description |
-|---|---|---|
-| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](../5_agent_os_infrastructure/secrets-auth.md) |
-| `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | Path for SQLite secrets DB |
-| `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault & OpenBao |
-| `SECRETS_VAULT_MOUNT` | `secret` | Vault/OpenBao KV v2 mount point |
-| `ENABLE_API_AUTH` | `False` | Enable JWT validation on server endpoints |
-| `AUTH_JWT_JWKS_URI` | *None* | URI to fetch JSON Web Key Sets |
-| `AUTH_JWT_ISSUER` | *None* | Expected JWT issuer |
-| `AUTH_JWT_AUDIENCE` | *None* | Expected JWT audience |
-| `AGENT_API_KEY` | *None* | Static API key for basic auth |
-| `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
-| `ALLOWED_HOSTS` | `*` | Comma-separated trusted hosts |
-
-### Graph Execution
-| Variable | Default | Description |
-|---|---|---|
-| `GRAPH_DIRECT_EXECUTION`| `True` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) |
-| `VALIDATION_MODE` | `False` | Disables real LLM calls for unit testing and CI |
-| `WORKSPACE_TOOLS` | `True` | Enable workspace filesystem and grep tools |
-| `GIT_TOOLS` | `True` | Enable Git tools |
-| `BROWSER_TOOLS` | `True` | Enable browser and web search tools |
-| `A2A_TOOLS` | `True` | Enable Agent-to-Agent discovery and messaging |
-
-### RLM & AHE Observability
-| Variable | Default | Description |
-|---|---|---|
-| `ENABLE_RLM` | `True` | Enable Recursive Language Model execution |
-| `RLM_MAX_DEPTH` | `3` | Maximum recursion depth for RLM sub-shells |
-| `RLM_USE_CONTAINER` | `True` | Run RLM in an isolated container if available |
-| `AHE_TRACE_THRESHOLD` | `0.7` | Quality threshold triggering distillation traces |
-
-### Swarm & First Principles
-| Variable | Default | Description |
-|---|---|---|
-| `SWARM_MODE` | `False` | Enable swarm orchestration in dispatcher |
-| `SWARM_MAX_DEPTH` | `3` | Maximum recursion depth for sub-swarms |
-| `SWARM_MAX_AGENTS` | `10` | Maximum agents per swarm |
-
-### Observability
-| Variable | Default | Description |
-|---|---|---|
-| `OTEL_ENABLE_OTEL` | `False` | Enable OpenTelemetry exports |
-| `LANGFUSE_PUBLIC_KEY` | *None* | Langfuse integration key |
-| `LANGFUSE_SECRET_KEY` | *None* | Langfuse integration secret |
-| `LOGFIRE_TOKEN` | *None* | Pydantic Logfire token |
-| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship our own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (AU-KG.ingest.attaching-this-root-logger, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
-| `EPISTEMIC_GRAPH_OBS_ADDR` | *None* | Engine OTLP/HTTP log endpoint base address (engine AU-KG.ingest.self-ingest). Empty ⇒ self-ingest disabled. |
-| `AGENT_UTILITIES_SELF_INGEST_MODE` | `otlp` | `otlp` → `POST /v1/logs`; `bulk` → `POST /_bulk` |
-| `AGENT_UTILITIES_SELF_INGEST_SERVICE` | `agent-utilities` | OTLP `service.name` stamped on records |
-| `AGENT_UTILITIES_SELF_INGEST_LEVEL` | `INFO` | Minimum log level shipped by the handler |
-| `AGENT_UTILITIES_SELF_INGEST_BATCH` | `100` | Max records per batch |
-| `AGENT_UTILITIES_SELF_INGEST_INTERVAL` | `2.0` | Background flush interval (seconds) |
-| `AGENT_UTILITIES_SELF_INGEST_QUEUE_MAX` | `10000` | Bounded queue size; overflow is dropped (never blocks) |
-| `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | `3.0` | Per-request HTTP timeout (seconds) |
-
-### MCP Tooling
-| Variable | Default | Description |
-|---|---|---|
-| `MCP_CONFIG` | `mcp_config.json` | Path to the MCP server configuration map |
-| `MCP_SEMAPHORE_LIMIT` | `30` | Max parallel subprocesses during tool discovery |
-| `TOOL_GUARD_MODE` | `on` | Strictness of the tool execution guard (`on`, `off`, `custom`) |
-| `DISABLE_TOOL_GUARD` | `False` | Completely bypass tool elicitation and safety checks |
-
-### A2A Agent Discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
-| Variable | Default | Description |
-|---|---|---|
-| `A2A_CONFIG` | *None* | Path to `a2a_config.json` for external A2A agent discovery |
-| `A2A_REFRESH_INTERVAL` | `300` | Seconds between periodic `.well-known/agent-card.json` re-fetch |
-
-### CLI Execution
-The preferred method for running `agent-utilities` servers is via the standardized `uv` scripts:
-
-| Script | Command | Description |
-|---|---|---|
-| **KG Server** | `uv run graph-os` | Launches the Knowledge Graph (graph-os) MCP server |
-| **Main Server** | `python -m agent_utilities` | Launches the unified protocol server (ACP/A2A/AG-UI) |
-
-## CLI Flags
-
-When running `agent-utilities` commands (or `python -m agent_utilities`), the following standard flags are available:
-
-| Flag | Equivalent Env Var | Description |
-|---|---|---|
-| `--base-url` | Base URL (Overrides `config.json`) |
-| `--api-key` | API Key (Overrides `config.json`) |
-| `--port` | *None* | Server listen port (default: 8000) |
-| `--host` | *None* | Server bind host (default: 0.0.0.0) |
-| `--web` | *None* | Enables the bundled web UI proxy if present |
-| `--mcp-config` | `MCP_CONFIG` | Path to MCP config file |
-| `--debug` | *None* | Sets log level to DEBUG |
-| `--skill-types`| *None* | Comma-separated list of skills to load (`universal`, `graphs`) |
-
-
-## Configuration & Environment Variables
-
-All LLM and embedding configuration now routes **exclusively** through the `chat_models` and `embedding_models` registries in `config.json`.
-
-### Unified Agent Configuration (`config.json`)
-
-The centralized `config.json` at `~/.config/agent-utilities/config.json` (XDG-compliant) is the **single source of truth** for all configuration.
-
-#### Configuration Precedence Chain
-
-```
-config.json registry → AgentConfig defaults
+```bash
+setup-config generate --profile tiny
+setup-config reference
+agent-utilities-doctor
 ```
 
-Environment variables are no longer part of the LLM configuration chain. API keys can be specified per-model in the registry.
+The generated [runtime configuration catalog](../reference/runtime-configuration.md)
+is the field-by-field source of truth. The
+[configuration and flag audit](../architecture/configuration.md) explains why each
+setting exists and which safety checks apply. This guide covers only the choices an
+operator normally makes.
 
-#### Full `config.json` Schema
+## Configuration rules
+
+- Commit neutral aliases, bounded policy values, and runtime secret references only.
+- Keep credentials, bearer tokens, private trust material, concrete connection
+  profiles, source schemas, source queries, and machine filesystem locations outside
+  the repository.
+- Select TLS with `TLS_PROFILES_REF` and a purpose-specific profile or profile
+  reference. Certificate verification is mandatory; there is no supported
+  `verify=false` configuration.
+- Supply runtime overrides through the deployment environment only when a value must
+  differ by process. `AgentConfig` remains the typed validation boundary.
+- Run doctor after every configuration change. Doctor reports aliases, readiness,
+  counts, and digests without returning resolved secrets, endpoints, identities, or
+  paths.
+
+## MCP fleet secret aliases
+
+Keep a persistent MCP child catalog portable by placing a neutral uppercase
+alias in each credential field:
 
 ```json
 {
-  // ── Agent Identity ──────────────────────────────────────────────
-  "default_agent_name": "Agent",
-  "agent_description": "AI Agent",
-  "agent_system_prompt": null,
+  "mcpServers": {
+    "example-child": {
+      "command": "example-child",
+      "env": {
+        "ACCESS_TOKEN": "env://CHILD_ACCESS_TOKEN"
+      }
+    }
+  }
+}
+```
 
-  // ── Server ──────────────────────────────────────────────────────
-  "host": "0.0.0.0",
-  "port": 9000,
-  "debug": false,
-  "enable_web_ui": false,
-  "enable_terminal_ui": false,
-  "enable_web_logs": true,
-  "enable_acp": false,
-  "acp_port": 8001,
-  "acp_session_root": ".acp-sessions",
-  "mcp_config": null,
-  "max_upload_size": 10485760,
+The runtime may project `CHILD_ACCESS_TOKEN` directly through its environment
+or runtime-secrets source. When the direct alias is absent, durable AgentConfig
+may contain a reference-only fallback:
 
-  // ── Authentication & Security ───────────────────────────────────
-  "agent_api_key": null,
-  "enable_api_auth": false,
-  "auth_jwt_jwks_uri": null,
-  "auth_jwt_issuer": null,
-  "auth_jwt_audience": null,
-  "allowed_origins": null,
-  "allowed_hosts": null,
-  "tool_guard_mode": "strict",
-  "sensitive_tool_patterns": [".*delete.*", ".*remove.*", "..."],
+```json
+{
+  "MCP_FLEET_SECRET_REFS": {
+    "CHILD_ACCESS_TOKEN": "env://CHILD_ACCESS_TOKEN"
+  }
+}
+```
 
-  // ── Secrets Backend ─────────────────────────────────────────────
-  "secrets_backend": "inmemory",
-  "secrets_sqlite_path": null,
-  "secrets_vault_url": null,
-  "secrets_vault_mount": "secret",
+Aliases use `A-Z`, `0-9`, and `_`, beginning with a letter. Mapping values are
+limited to `env://`, `vault://`, and `secret://` runtime references; inline
+material, unsupported schemes, and traversal are rejected. A same-alias
+`env://` mapping selects that key from the runtime-secrets source; a different
+`env://` target or a store reference provides an alternate runtime source.
+Direct alias material always wins, so rotation can be projected without
+rewriting the catalog or fallback map. Validate aggregate readiness without
+disclosing aliases or references:
 
-  // ── Graph Execution ─────────────────────────────────────────────
-  "routing_strategy": "hybrid",
-  "graph_persistence_type": "file",
-  "graph_persistence_path": "~/.local/share/agent-utilities/graph_state",
-  "enable_llm_validation": false,
-  "graph_router_timeout": 300.0,
-  "graph_verifier_timeout": 300.0,
-  "graph_direct_execution": true,
-  "min_confidence": 0.4,
-  "validation_mode": false,
-  "approval_timeout": 0.0,
+```bash
+agent-utilities-doctor --only mcp_fleet_secrets mcp_fleet
+```
 
-  // ── Knowledge Graph ─────────────────────────────────────────────
-  "enable_kg_embeddings": true,
-  "kg_backups": 3,
-  "knowledge_graph_sync_background": true,
+## GraphOS process authority
 
-  // ── Observability (OTEL / Langfuse) ─────────────────────────────
-  "enable_otel": true,
-  "otel_exporter_otlp_endpoint": "http://langfuse.example.com/api/public/otel",
-  "otel_exporter_otlp_headers": null,
-  "otel_exporter_otlp_public_key": "lf_pk_...",
-  "otel_exporter_otlp_secret_key": "lf_sk_...",
-  "otel_exporter_otlp_protocol": "http/protobuf",
-  "langfuse_host": "http://langfuse.example.com",
-  "langfuse_public_key": "lf_pk_...",
-  "langfuse_secret_key": "lf_sk_...",
-  "langfuse_dataset_capture_threshold": 0.0,
+The only boundary with no external process-identity configuration is
+`graph-os --transport stdio` with all of the following:
 
-  // ── A2A Agent Discovery ─────────────────────────────────────────
-  "a2a_broker": "in-memory",
-  "a2a_broker_url": null,
-  "a2a_storage": "in-memory",
-  "a2a_storage_url": null,
-  "a2a_config": null,
-  "a2a_refresh_interval": 300,
+- `DEPLOYMENT_PROFILE=tiny`;
+- no `GRAPH_SERVICE_ENDPOINTS`;
+- no `KG_AUTH_TOKEN_REF`; and
+- no `KG_IDENTITY_OAUTH2`.
 
-  // ── LLM Inference Parameters ────────────────────────────────────
-  "max_tokens": 16384,
-  "temperature": 0.7,
-  "top_p": 1.0,
-  "timeout": 32400.0,
-  "tool_timeout": 32400.0,
-  "parallel_tool_calls": true,
-  "seed": null,
-  "presence_penalty": 0.0,
-  "frequency_penalty": 0.0,
-  "logit_bias": null,
-  "stop_sequences": null,
-  "extra_headers": null,
-  "extra_body": null,
+GraphOS creates an asymmetric key in memory, signs and validates a short-lived JWT
+with fixed neutral service claims as a one-time proof, destroys the key and token,
+and returns a process-lifetime session. It persists no user name, host name,
+endpoint, filesystem path, credential, proof material, or other local identity.
 
-  // ── Cognitive Scheduler & Agent Policies ─────────────────────────
-  "cognitive_scheduler_enabled": true,
-  "max_concurrent_agents": 5,
-  "agent_token_quota": 100000,
-  "preemption_threshold_pct": 0.85,
-  "agent_policies_path": null,
-  "permissions_signing_key": null,
-  "specialist_registry_path": null,
-  "homeostatic_downgrade_enabled": true,
-  "adversarial_verification": false,
-  "maintenance_token_budget": 0,
-  "maintenance_priority": "LOW",
-  "watchdog_patterns": ["pyproject.toml", "mcp_config.json", "requirements*.txt"],
+Every network transport, non-tiny profile, explicit engine endpoint, and other
+entry point requires exactly one external process identity source:
 
-  // ── Skills ──────────────────────────────────────────────────────
-  "custom_skills_directory": null,
-  "skill_types": null,
+- `KG_AUTH_TOKEN_REF` references a JWT provisioned by the runtime; or
+- `KG_IDENTITY_OAUTH2` describes a client-credentials flow whose `client_secret`
+  value is itself a runtime secret reference.
 
-  // ── Model Registries (PRIMARY CONFIG) ───────────────────────────
-  "chat_models": [
+The token is validated against the configured issuer/JWKS, audience, tenant
+authority, and `KG_POLICY_VERSION`. Raw tokens and client secrets are not durable
+configuration values. External stdio sessions share an in-memory expiry-only
+lease with background workers. Renewal must preserve subject, actor type,
+capabilities, tenant, authentication state, and groups. Drift is rejected;
+failure never extends the lease, and graph work fails closed at expiry while
+renewal retries. A neutral provisioned-token shape is:
+
+```json
+{
+  "KG_AUTH_TOKEN_REF": "secret://identity/graph-os-token",
+  "AUTH_JWT_JWKS_URI": "https://identity.example.invalid/.well-known/jwks.json",
+  "AUTH_JWT_AUDIENCE": "graph-services",
+  "KG_POLICY_VERSION": "current"
+}
+```
+
+Validate local authority, or external identity and secret resolution, before
+launch:
+
+```bash
+agent-utilities-doctor --only graph_identity auth secrets
+```
+
+Network requests carry their own validated bearer identity and never inherit
+process authority implicitly. A configured, unresolved, or invalid external source
+never falls back to the local authority. See
+[Identity and JWT](../examples/identity-jwt.md) for both authority modes.
+
+## External provider runtime profiles
+
+`PROVIDER_CONFIGS` is the common connection boundary for provider MCP packages.
+It replaces provider-specific durable endpoint and credential fields with a
+neutral profile whose values are runtime references:
+
+```json
+{
+  "PROVIDER_CONFIGS": {
+    "example-provider": {
+      "enabled": true,
+      "endpoint_ref": "env://EXAMPLE_PROVIDER_ENDPOINT",
+      "credential_refs": {
+        "EXAMPLE_PROVIDER_TOKEN": "secret://providers/example/token"
+      },
+      "selector_refs": {
+        "EXAMPLE_PROVIDER_SCOPE": "vault://providers/example/scope"
+      },
+      "tls_profile_ref": "secret://tls/example-provider"
+    }
+  }
+}
+```
+
+Profile names are neutral lowercase aliases. Credential and selector keys are
+bounded uppercase runtime aliases. Values use only `env://`, `vault://`, or
+`secret://` references. An endpoint reference resolves to credential-free HTTPS;
+cleartext HTTP is accepted only for an exact loopback host. Every endpoint must
+select exactly one named TLS profile or TLS-profile reference, and certificate and
+hostname verification cannot be disabled.
+
+A local MCP child selects its profile without copying deployment data into the
+child catalog:
+
+```json
+{
+  "mcpServers": {
+    "example-provider": {
+      "command": "example-provider-mcp",
+      "provider_profile": "example-provider"
+    }
+  }
+}
+```
+
+GraphOS resolves the complete profile in the trusted parent before spawning the
+child. It rewrites only that profile's resolved values to bounded, child-private
+ephemeral aliases and retains any temporary TLS material only for the child
+session. Original references, the parent configuration root, ambient Vault/engine
+authority, and unrelated process variables never cross the boundary. The child
+consumes the isolated projection at its provider boundary. Remote MCP children are
+independently deployed and cannot select a parent-local provider profile. Raw
+values, references, profile names, endpoints, identities, and paths are excluded
+from doctor output:
+
+```bash
+agent-utilities-doctor --only provider_profiles
+```
+
+Providers with independently trusted endpoints use one profile per connection.
+Customized source schemas and ontologies do not belong in these profiles; graph and
+GraphQL schema discovery remains governed by `EXTERNAL_GRAPH_CONNECTORS`.
+
+## GraphOS topology and entry points
+
+`GRAPH_SERVICE_ENDPOINTS` is the sole topology selector:
+
+- When it is absent, GraphOS supervises the packaged Rust
+  `epistemic-graph-server` as a durable, out-of-process local child over a private
+  transport.
+- When it is configured, GraphOS is connect-only and never starts a local substitute.
+  Remote engine trust belongs in `ENGINE_TLS_PROFILE_REF`.
+
+The installed entry points have distinct jobs:
+
+| Entry point | Responsibility |
+| --- | --- |
+| `graph-os` | MCP server and on-demand MCP fleet gateway over stdio or streamable HTTP |
+| `graph-os-daemon` | Headless queue, maintenance, and background-work host; it serves no HTTP API |
+| `python -m agent_utilities` | Agent and centralized REST/API gateway |
+
+For streamable HTTP outside loopback, configure JWT/OIDC authentication and trusted
+TLS termination. An unauthenticated non-loopback listener fails closed. See
+[Deployment](deployment.md) and [Consumption Models](consumption-models.md).
+
+## Models
+
+`CHAT_MODELS` and `EMBEDDING_MODELS` are typed registries in AgentConfig. Each entry
+selects a provider, model identifier, optional endpoint, bounded concurrency, and
+capabilities. Authentication is either `api_key_ref` or an OAuth2
+client-credentials block with a referenced client secret. Optional gateway headers
+use `headers_ref`, whose resolved value is a bounded JSON object. Literal `api_key`
+and `headers` fields are not part of the current model schema.
+
+```json
+{
+  "CHAT_MODELS": [
     {
-      "id": "qwen/qwen3.6-27b",
+      "id": "chat-model",
       "provider": "openai",
-      "base_url": "http://vllm.arpa/v1",
-      "supports_json": false,
-      "vision": true,
-      "reasoning": true,
+      "base_url": "https://model.example.invalid/v1",
+      "api_key_ref": "secret://models/chat-api-key",
+      "headers_ref": "env://CHAT_MODEL_HEADERS",
       "tools_enabled": true,
-      "parallel_instances": 3,
-      "context_window": 256000,
-      "intelligence_level": "normal",
       "can_route": true,
       "can_kg": true
     }
   ],
-  "embedding_models": [
+  "EMBEDDING_MODELS": [
     {
-      "id": "text-embedding-nomic-embed-text-v2-moe",
+      "id": "embedding-model",
       "provider": "openai",
-      "base_url": "http://vllm-embed.arpa/v1",
-      "parallel_instances": 4,
-      "chunk_size": 768
+      "base_url": "https://embedding.example.invalid/v1",
+      "api_key_ref": "secret://models/embedding-api-key"
     }
   ],
-
-  // ── Workspace & Paths ───────────────────────────────────────────
-  "workspace_path": "/home/apps/workspace",
-  "agent_utilities_config_dir": "~/.config/agent-utilities"
+  "MODEL_TLS_PROFILE_REF": "secret://tls/model-profile",
+  "EMBEDDING_TLS_PROFILE_REF": "secret://tls/embedding-profile"
 }
 ```
 
-> **Note:** JSON does not support comments. The `//` annotations above are for documentation purposes only. Your actual `config.json` must not include comments.
+Use independent TLS profiles when model endpoints have different trust boundaries.
+For `env://CHAT_MODEL_HEADERS`, inject a JSON object such as
+`{"X-Client-Id":"runtime-supplied"}` through the explicit process environment or
+the fixed XDG runtime-secret source. It is parsed and bounded only while the client
+is constructed; it is never copied into AgentConfig, doctor output, or a generated
+configuration.
+See [Model Registries](models.md) for routing and capacity configuration.
 
-#### Chat Model Fields
+## External graphs and GraphQL
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | ✅ | Model identifier (e.g., `gpt-4o-mini`, `qwen/qwen3.6-27b`) |
-| `provider` | string | ✅ | Provider name (`openai`, `anthropic`, `google`, etc.) |
-| `base_url` | string | ❌ | Override API endpoint (e.g., for LM Studio, Ollama) |
-| `api_key` | string | ❌ | Per-model API key override |
-| `intelligence_level` | string | ❌ | Routing hint: `light`, `normal`, `high` |
-| `supports_json` | bool | ❌ | Whether the model supports structured JSON output |
-| `vision` | bool | ❌ | Whether the model supports image inputs |
-| `reasoning` | bool | ❌ | Whether the model supports extended reasoning/thinking |
-| `tools_enabled` | bool | ❌ | Whether the model supports tool/function calling |
-| `parallel_instances` | int | ❌ | Max concurrent requests to this model |
-| `context_window` | int | ❌ | Maximum context window in tokens |
-| `can_route` | bool | ❌ | Whether the model can serve as a router in graph orchestration |
-| `can_kg` | bool | ❌ | Whether the model can serve KG analysis tasks |
+`EXTERNAL_GRAPH_CONNECTORS` declares neutral source aliases and governance bounds for
+Neo4j/openCypher, Apache AGE, LadybugDB/Kuzu, remote epistemic-graph, and GraphQL
+sources. Source endpoints, credentials, database names, queries, variables, TLS
+material, discovered schemas, and custom ontologies remain in separately resolved
+runtime documents.
 
-#### Embedding Model Fields
+```json
+{
+  "EXTERNAL_GRAPH_CONNECTORS": [
+    {
+      "name": "external-knowledge",
+      "source_alias": "external-domain",
+      "backend": "graphql",
+      "connection_profile_ref": "secret://external/connection",
+      "mapping_policy_ref": "secret://external/mapping-policy",
+      "auth_profile_ref": "secret://external/auth",
+      "tls_profile_ref": "secret://external/tls",
+      "variables_ref": "secret://external/variables",
+      "ingest_operation": "document_read",
+      "discovery_max_types": 200,
+      "discovery_max_depth": 6,
+      "ingest_max_records": 1000,
+      "require_approval": true,
+      "schema_drift_policy": "fail_closed"
+    }
+  ]
+}
+```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | ✅ | Model identifier |
-| `provider` | string | ✅ | Provider name |
-| `base_url` | string | ❌ | Override API endpoint |
-| `api_key` | string | ❌ | Per-model API key override |
-| `parallel_instances` | int | ❌ | Max concurrent embedding requests |
-| `chunk_size` | int | ❌ | Embedding dimension size (default: 768) |
+Every connector follows the same current lifecycle:
 
-#### Per-Model Provider Routing
+1. `add_connection`
+2. `discover_connection_schema`
+3. `propose_connection_mapping`
+4. `approve_connection_mapping`
+5. `external_graph_doctor`
+6. `ingest_connection`
 
-The registry supports per-model `base_url` and `api_key` overrides, enabling configurations like:
-- **LM Studio local**: `base_url: "http://vllm.arpa/v1"` (your GPU server)
-- **Official OpenAI**: `api_key: "sk-..."` (no `base_url` needed, hits api.openai.com)
-- **Ollama**: `base_url: "http://localhost:11434/v1"`, `api_key: "ollama"`
-- **Azure OpenAI**: `base_url: "https://my-resource.openai.azure.com"`, `api_key: "..."`
+Discovery is bounded and read-only. Ingestion re-discovers the schema, verifies the
+approved schema and mapping-policy digests, and writes governed `ChangeEnvelope`
+transactions to the local epistemic-graph authority. No connector ships a customized
+environment profile. See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+and [Privacy-safe External Graph Ingestion](../architecture/privacy-safe-external-ingestion.md).
 
-This allows configuring multiple models from the same provider hitting different endpoints.
+## TLS and private trust
 
-#### Migration from `.env` to `config.json`
+Store a TLS-profile catalog behind `TLS_PROFILES_REF`, then select the appropriate
+entry with a purpose-specific setting such as:
 
-1. Move all `LLM_*`, `LITE_LLM_*`, `SUPER_LLM_*`, and `EMBEDDING_*` variables from `.env` into `chat_models`/`embedding_models` registry entries
-2. API keys go directly in per-model entries via the `api_key` field
-3. Non-LLM environment variables (e.g., `GRAPH_BACKEND`, `OTEL_ENABLE_OTEL`) are now also configurable via `config.json`
+- `ENGINE_TLS_PROFILE_REF`
+- `MODEL_TLS_PROFILE_REF`
+- `EMBEDDING_TLS_PROFILE_REF`
+- `LANGFUSE_TLS_PROFILE_REF`
+- `OTEL_TLS_PROFILE_REF`
 
-> **Full Documentation:** See [docs/models.md](docs/pillars/2_epistemic_knowledge_graph/models.md) for advanced schema options, local model fallbacks, and routing logic.
+The shared resolver projects the verified profile to Requests, HTTPX, SSL, database
+drivers, and supervised MCP children. A profile may supply a complete private CA
+chain, mTLS identity, and proxy policy. Files created while resolving that material
+are private runtime artifacts and are never copied into AgentConfig, reports, traces,
+or source control.
+
+```bash
+agent-utilities-doctor --only transport_security
+```
+
+## Langfuse and failure evolution
+
+Persist only Langfuse connection metadata and references:
+
+```json
+{
+  "LANGFUSE_HOST": "https://observability.example.invalid",
+  "LANGFUSE_PUBLIC_KEY_REF": "secret://observability/langfuse-public-key",
+  "LANGFUSE_SECRET_KEY_REF": "secret://observability/langfuse-secret-key",
+  "LANGFUSE_TLS_PROFILE_REF": "secret://tls/langfuse-profile",
+  "LANGFUSE_CAPTURE_CONTENT": false,
+  "LANGFUSE_KG_AUTO_INGEST": false
+}
+```
+
+When both credential references resolve, `LANGFUSE_MCP_ENABLED` and the propose-only
+`KG_FAILURE_EVOLUTION` capability enable automatically unless either is explicitly
+set to `false`. Credential availability does **not** authorize trace export, prompt or
+response capture, or graph persistence:
+
+- `TRACE_EXPORT_ENABLED` remains an explicit export gate.
+- `LANGFUSE_CAPTURE_CONTENT` remains `false` and production remains metadata-only.
+- `LANGFUSE_KG_AUTO_INGEST` remains `false`; enabling it also requires an independent
+  `LANGFUSE_PERSISTENCE_HMAC_KEY_REF`.
+
+```bash
+agent-utilities-doctor --only langfuse
+agent-utilities-doctor --live
+```
+
+The live check performs bounded, metadata-only connectivity and trace round-trip
+proofs when configured. See [Failure-Driven Evolution](../architecture/failure_driven_evolution.md)
+and [Usage, Cost, and Observability](observability-usage-tracking.md).
+
+## Native program optimization
+
+Program optimization is supplied by the mandatory full epistemic-graph engine. It
+uses the durable `ProgramOptimize` jobs plane and has no second Python optimizer or
+model-provider dependency. The `avatar` family accepts opaque `tool_refs` and
+positive/negative governed trace references; its comparator returns a reference-only
+`tool_policy` through the existing model transport rather than introducing another
+provider setting.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `KG_OPTIMIZATION_ENABLED` | `true` | Enable propose-only scheduled optimization |
+| `KG_OPTIMIZATION_INTERVAL` | `10800` | Sweep interval in seconds |
+
+`agent-utilities-doctor --live` can submit one content-free optimizer probe to an
+already active engine. The probe never autostarts an engine or retains source content.
+
+## Universal connector and policy checks
+
+Focused static checks are available without contacting configured endpoints:
+
+```bash
+agent-utilities-doctor --only config transport_security graph_connections langfuse
+```
+
+Use `agent-utilities-doctor --live` only when bounded network and engine operations
+are authorized. The complete current setting inventory remains the generated
+[runtime configuration catalog](../reference/runtime-configuration.md); do not copy
+its tables into another manually maintained schema.

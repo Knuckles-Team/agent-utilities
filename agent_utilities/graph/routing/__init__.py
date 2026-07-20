@@ -22,8 +22,7 @@ expert_executor_step = _impl.expert_executor_step
 dynamic_mcp_routing_step = _impl.dynamic_mcp_routing_step
 mcp_server_step = _impl.mcp_server_step
 
-# Back-compat module attributes some callers/tests patch.
-Agent = _impl.Agent
+# Public module logger used by routing diagnostics.
 logger = _impl.logger
 
 from .enrichers import designate_specialists

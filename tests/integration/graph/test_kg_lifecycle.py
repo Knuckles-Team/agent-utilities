@@ -4,7 +4,7 @@ Integration tests for KG lifecycle management:
 - Soft-delete (ARCHIVED status) filtering convergence
 - DiffEntry schema validation
 - ArchiMate class schema validation
-- Task queue submit/list/clear
+- Native WorkItem queue submit/list/immutable audit
 - DocumentDeletionPipeline + QueryMixin parity
 """
 
@@ -186,11 +186,11 @@ async def test_document_update_rejects_archived():
         await pipeline.update_document("doc-003", new_content="new")
 
 
-# ── Gap 5: Task Queue Wiring ──
+# ── Native WorkItem Queue Wiring ──
 
 
 def test_task_submit_and_list(engine):
-    """Submitting a task should create a Task node retrievable via list_tasks."""
+    """Submitting ingestion work creates one WorkItem visible via list_tasks."""
     if not engine.backend:
         pytest.skip("Requires a persistent backend for task operations")
 
@@ -201,23 +201,7 @@ def test_task_submit_and_list(engine):
     )
     assert job_id.startswith("job-")
 
-    # The background worker thread is disabled during tests (AGENT_UTILITIES_TESTING),
-    # so we manually process the queue to add the task node(s) to the graph.
-    #
-    # The submission queue is sqlite-backed and persists across runs, so a single
-    # FIFO ``get()`` may return an OLD queued item rather than the task we just
-    # submitted — leaving ours in the queue and flaking the assertion below. Drain
-    # the queue fully so the just-submitted task is always materialised.
-    while True:
-        item = engine._submission_queue.get()
-        if not item:
-            break
-        item_id, task_data = item
-        engine.add_node(task_data["job_id"], "Task", properties=task_data["props"])
-        engine._submission_queue.ack(item_id)
-
     tasks = engine.list_tasks()
-    print(f"DEBUG: tasks => {tasks}")
     all_jobs = tasks["pending"] + tasks["running"]
     assert any(j["job_id"] == job_id for j in all_jobs), (
         "Submitted task must appear in list"

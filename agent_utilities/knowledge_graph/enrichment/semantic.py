@@ -83,7 +83,7 @@ def _joint_budget_cap(model_key: str, concurrency: int) -> int:
     which bypasses ``resolve_capacity`` — and therefore the per-GPU joint budget.
     That is exactly right for the PRIMARY embedder on its own dedicated endpoint
     (no contention). But while **failed-over** to a GPU shared with the generator
-    (the GB10), the joint budget MUST govern so bulk embeds can't OOM the box.
+    a shared accelerator, the joint budget MUST govern so bulk embeds cannot OOM the host.
 
     ``resolve_capacity(model_key)`` seeds the group's priority peers (the generator)
     and applies the budget; a non-``None`` ``group_allowed`` means a budget actually
@@ -152,7 +152,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
     is rebuilt for that endpoint (the cache swaps it, no stale primary client) and
     the fan-out gates on the endpoint's model KEY, so the capacity guard resolves
     the ACTIVE endpoint's config — including its ``gpu_group``. While failed-over to
-    a shared GPU (e.g. the GB10), the group's JOINT budget bounds the embed fan-out
+    a shared accelerator, the group's JOINT budget bounds the embed fan-out
     so it shares the ceiling with the generator and cannot OOM the box.
     """
     try:
@@ -219,8 +219,8 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
 
         return _fn
     except Exception as e:
-        # Zero-Stub compliance (AGENTS.md): NEVER return a degenerate stub that
-        # silently yields 1-dim ``[0.0]`` vectors. That stub previously masked a
+        # Zero-fabrication compliance (AGENTS.md): NEVER return a degenerate fallback
+        # that silently yields 1-dim ``[0.0]`` vectors. That fallback previously masked a
         # missing-embedder deployment (the serving plane shipped bare ``embeddings``
         # without ``embeddings-openai`` → ``No module named 'llama_index.embeddings'``):
         # enrichment "succeeded" while writing garbage vectors into a 1024-dim store,
@@ -276,7 +276,7 @@ def embed_and_store(
 
 
 def _result_type(r: dict[str, Any]) -> str:
-    # ``_table_label`` is set by the PostgreSQL/L3 vector search (per-label node
+    # ``_table_label`` is set by PostgreSQL vector search (per-label node
     # tables); ``type``/``node_type`` by other backends.
     return str(r.get("type") or r.get("node_type") or r.get("_table_label") or "")
 

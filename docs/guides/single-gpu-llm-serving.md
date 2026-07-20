@@ -1,7 +1,7 @@
 # Single-GPU LLM serving — tuning for extraction throughput
 
 This guide consolidates what actually moves throughput when serving a single
-mid-size GPU (e.g. an L4-class card, or our GB10 host) for the fact-extraction
+mid-size accelerator for the fact-extraction
 workload (KG-2.64) and other JSON-structured generation. The findings are
 distilled from an empirical benchmark sweep on an L4 serving a 35B-A3B MoE model;
 they generalize to any bandwidth-bound single-stream decode.
@@ -46,7 +46,7 @@ it. Neither alone reaches the ceiling.
 
 ## Applying it to our stack
 
-- We serve via **vLLM** (`vllm.arpa`), not llama.cpp — the *knowledge* transfers,
+- We serve via the configured **vLLM** endpoint, not llama.cpp — the *knowledge* transfers,
   the flags differ. The equivalents: pick a ~Q4/AWQ-or-better quant that holds
   groundedness, enable speculative decoding where the engine supports it, keep one
   high-throughput stream per extraction job, and let KG-2.65 serialize slot access

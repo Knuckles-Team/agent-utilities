@@ -2,12 +2,12 @@
   "domain": "CA-010",
   "domain_name": "Innovation Extraction",
   "source_count": 1,
-  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "target": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
   "concept_id": "",
   "kg_source_query": null,
   "results": [
     {
-      "source": "/home/apps/workspace/open-source-libraries/hermes-agent",
+      "source": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent",
       "source_type": "filesystem",
       "concept_id": "",
       "signals": {

@@ -1,0 +1,378 @@
+connector: firefly-iii-mcp
+ontology_source: firefly
+schema_version: '1'
+resources:
+- name: Account
+  label: Account
+  id_prefix: account
+  relations:
+  - name: heldBy
+    label: held by
+    target: Person
+    lpg_rel_type: ''
+- name: Bill
+  label: Bill
+  id_prefix: bill
+  relations: []
+- name: Budget
+  label: Budget
+  id_prefix: budget
+  relations: []
+- name: BudgetLimit
+  label: Budget Limit
+  id_prefix: budgetlimit
+  relations:
+  - name: limitsBudget
+    label: limits budget
+    target: Budget
+    lpg_rel_type: ''
+- name: Category
+  label: Category
+  id_prefix: category
+  relations: []
+- name: Currency
+  label: Currency
+  id_prefix: currency
+  relations: []
+- name: PiggyBank
+  label: Piggy Bank
+  id_prefix: piggybank
+  relations:
+  - name: savesToward
+    label: saves toward
+    target: Account
+    lpg_rel_type: ''
+- name: Tag
+  label: Tag
+  id_prefix: tag
+  relations: []
+- name: Transaction
+  label: Transaction
+  id_prefix: transaction
+  relations:
+  - name: destinationAccount
+    label: destination account
+    target: Account
+    lpg_rel_type: ''
+  - name: hasTag
+    label: has tag
+    target: Tag
+    lpg_rel_type: ''
+  - name: inBudget
+    label: in budget
+    target: Budget
+    lpg_rel_type: ''
+  - name: inCategory
+    label: in category
+    target: Category
+    lpg_rel_type: ''
+  - name: paysBill
+    label: pays bill
+    target: Bill
+    lpg_rel_type: ''
+  - name: sourceAccount
+    label: source account
+    target: Account
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: firefly-accounts.updated
+  resource: account
+  description: "Watermark event for 'firefly-accounts' \u2014 advances on attributes.updated_at (mcp_source_presets.json)."
+- name: firefly-budgets.updated
+  resource: budget
+  description: "Watermark event for 'firefly-budgets' \u2014 advances on attributes.updated_at (mcp_source_presets.json)."
+- name: firefly-transactions.updated
+  resource: transaction
+  description: "Watermark event for 'firefly-transactions' \u2014 advances on attributes.updated_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    account: id
+    budget: id
+    transaction: id
+  title_field:
+    account: attributes.name
+    budget: attributes.name
+    transaction: attributes.group_title
+  text_field:
+    account: attributes.type
+    budget: attributes.name
+    transaction: attributes.group_title
+  updated_field:
+    account: attributes.updated_at
+    budget: attributes.updated_at
+    transaction: attributes.updated_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Account:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Bill:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Budget:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  BudgetLimit:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Category:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Currency:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  PiggyBank:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Tag:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+  Transaction:
+    ontology_class: null
+    fields:
+      accountRole: xsd:string
+      accountType: xsd:string
+      active: xsd:boolean
+      amount: xsd:string
+      code: xsd:string
+      currencyCode: xsd:string
+      currentBalance: xsd:string
+      date: xsd:dateTime
+      externalToolId: xsd:string
+      iban: xsd:string
+      transactionType: xsd:string
+sync:
+- preset: firefly-accounts
+  server: firefly-iii-mcp
+  tool: accounts_operations
+  action: list_account
+  records_path: data
+  id_field: id
+  title_field: attributes.name
+  text_field: attributes.type
+  updated_field: attributes.updated_at
+  pagination: page
+  doc_type: account
+  tool_schema_sha256: 85ceb4b7200e9a72ac0805b570e51e26269a195fe94e45761ba28a0b55cb3bc6
+  raw:
+    server: firefly-iii-mcp
+    tool: accounts_operations
+    action: list_account
+    params_style: json
+    params:
+      params:
+        limit: 100
+    records_path: data
+    id_field: id
+    title_field: attributes.name
+    text_field: attributes.type
+    updated_field: attributes.updated_at
+    pagination: page
+    page_kind: number
+    page_param: params.page
+    page_size_param: params.limit
+    page_size: 100
+    start_page: 1
+    doc_type: account
+- preset: firefly-budgets
+  server: firefly-iii-mcp
+  tool: budgets_operations
+  action: list_budget
+  records_path: data
+  id_field: id
+  title_field: attributes.name
+  text_field: attributes.name
+  updated_field: attributes.updated_at
+  pagination: page
+  doc_type: budget
+  tool_schema_sha256: 7c7e4af5dd237d5acc832ebd161d1cc1886b0c722d33a92efa2dc48b74f08b21
+  raw:
+    server: firefly-iii-mcp
+    tool: budgets_operations
+    action: list_budget
+    params_style: json
+    params:
+      params:
+        limit: 100
+    records_path: data
+    id_field: id
+    title_field: attributes.name
+    text_field: attributes.name
+    updated_field: attributes.updated_at
+    pagination: page
+    page_kind: number
+    page_param: params.page
+    page_size_param: params.limit
+    page_size: 100
+    start_page: 1
+    doc_type: budget
+- preset: firefly-transactions
+  server: firefly-iii-mcp
+  tool: transactions_operations
+  action: list_transaction
+  records_path: data
+  id_field: id
+  title_field: attributes.group_title
+  text_field: attributes.group_title
+  updated_field: attributes.updated_at
+  pagination: page
+  doc_type: transaction
+  tool_schema_sha256: 04e4a07255bffbd1003232344f44651867104578e7ffe973a23af3a9f5e2cf2d
+  raw:
+    server: firefly-iii-mcp
+    tool: transactions_operations
+    action: list_transaction
+    params_style: json
+    params:
+      params:
+        limit: 100
+    records_path: data
+    id_field: id
+    title_field: attributes.group_title
+    text_field: attributes.group_title
+    updated_field: attributes.updated_at
+    pagination: page
+    page_kind: number
+    page_param: params.page
+    page_size_param: params.limit
+    page_size: 100
+    start_page: 1
+    doc_type: transaction
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - firefly_iii_mcp/connectors/mcp_source_presets.json
+  - firefly_iii_mcp/connectors/tool_schema_fingerprints.json
+  - firefly_iii_mcp/ontology/firefly.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 4544fe4525eb6d7b23914e433de1326c8de7d492a7a4dc82c37cd63c2498abe9
+    triple_count: 100
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: e5bX3p6oXKJ1-dvUsBBZnvL3yRzpQd0jEGUnHAmDBc6URwAwNRrJv4mbVlxFaW_6tYOJcxpBL9ebDWXAnOkQDg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'denominatedIn' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Account.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Bill.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Budget.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BudgetLimit.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Category.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Currency.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PiggyBank.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Tag.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Transaction.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

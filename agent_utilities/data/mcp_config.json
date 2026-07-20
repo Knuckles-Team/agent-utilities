@@ -9,6 +9,7 @@
         "stdio"
       ],
       "env": {
+        "MCP_TOOL_MODE": "intent",
         "API_KEY": "secret://example-mcp/api-key"
       }
     }

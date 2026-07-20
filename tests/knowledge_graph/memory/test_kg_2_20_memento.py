@@ -1,7 +1,7 @@
 """CONCEPT:AU-KG.memory.mementified-context — Mementified Context Management (MEM-0..4).
 
-Covers the judge-refine loop, semantic-boundary segmentation, lossless recoverability, and the
-live block-compress-evict capability (the Wire-First *_live_path test exercises the capability's
+Covers the judge-refine loop, semantic-boundary segmentation, policy-gated encrypted recovery, and
+the live block-compress-evict capability (the Wire-First *_live_path test exercises the capability's
 transform on real pydantic-ai ModelMessage objects, not just the helpers in isolation).
 """
 
@@ -90,7 +90,7 @@ def test_segment_respects_min_block_and_no_tiny_dangler():
     assert flat == list(range(len(msgs)))
 
 
-# ── MEM-4: lossless eviction planning + recoverability ───────────────────────────
+# ── MEM-4: eviction planning + policy-gated encrypted recovery ───────────────────
 
 
 def test_plan_eviction_preserves_head_and_recent_and_is_minimal():
@@ -108,22 +108,41 @@ def test_plan_eviction_preserves_head_and_recent_and_is_minimal():
     assert any(i >= len(msgs) - 2 for i in kept), "recent block must be preserved"
 
 
-def test_persist_memento_is_lossless_and_recoverable():
+def test_persist_memento_encrypts_approved_raw_retention(monkeypatch):
+    monkeypatch.setenv("MEMENTO_RAW_RETENTION_ENABLED", "true")
+    monkeypatch.setenv(
+        "MEMENTO_RAW_RETENTION_POLICY", mc.MEMENTO_RAW_RETENTION_POLICY
+    )
+    monkeypatch.setenv(
+        "MEMENTO_RAW_ENCRYPTION_KEY_REF", "secret://tests/memento-key"
+    )
+    monkeypatch.setattr(mc, "_resolve_secret_reference", lambda _ref: "test-key")
+
     engine = MagicMock()
     engine.backend = MagicMock()
+    raw = "the full raw block text"
     mid = mc._persist_memento(
-        engine, "MEMENTO: state", source="t", raw_block="the full raw block text"
+        engine, "MEMENTO: state", source="t", raw_block=raw
     )
     assert mid is not None
-    # a Memento node + an EvictedBlock node + a SUMMARIZES edge were written
+    # A Memento node + encrypted EvictedBlock + SUMMARIZES edge were written. Neither the source
+    # identity nor plaintext transcript is present in the persisted properties.
     node_labels = [c.args[1] for c in engine.add_node.call_args_list]
     assert "Memento" in node_labels and "EvictedBlock" in node_labels
     engine.link_nodes.assert_called_once()
     assert engine.link_nodes.call_args.args[2] == "SUMMARIZES"
+    block_call = next(
+        c for c in engine.add_node.call_args_list if c.args[1] == "EvictedBlock"
+    )
+    block_id = block_call.args[0]
+    block_props = block_call.kwargs["properties"]
+    assert block_props["content"] == mc._ENCRYPTED_CONTENT_MARKER
+    assert raw not in repr(block_props)
+    assert block_props["source"] != "t"
 
-    # recovery follows the pointer back to the raw block
-    engine.backend.execute.return_value = [{"content": "the full raw block text"}]
-    assert mc.recover_evicted_block(engine, mid) == "the full raw block text"
+    # Recovery follows the pointer and authenticates/decrypts in memory.
+    engine.backend.execute.return_value = [{"id": block_id, **block_props}]
+    assert mc.recover_evicted_block(engine, mid) == raw
 
 
 # ── MEM-1: live capability transform (Wire-First *_live_path) ─────────────────────

@@ -1,0 +1,136 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: graphos-front
+  namespace: graphos-control
+spec:
+  namespaceSelector: {matchNames: [graphos-control]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: graphos-front}
+  endpoints:
+    - {port: http, path: /metrics, interval: 15s, scheme: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: epistemic-graph
+  namespace: graphos-cell
+spec:
+  namespaceSelector: {matchNames: [graphos-cell]}
+  selector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+  endpoints:
+    - {port: metrics, path: /metrics, interval: 15s, scheme: http}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: graphos-slo
+  namespace: graphos-control
+spec:
+  groups:
+    - name: graphos.slo.recording
+      interval: 30s
+      rules:
+        - record: graphos:gateway_error_ratio:5m
+          expr: >-
+            sum(rate(agent_utilities_gateway_requests_total{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(agent_utilities_gateway_requests_total[5m])), 1)
+        - record: graphos:gateway_error_ratio:1h
+          expr: >-
+            sum(rate(agent_utilities_gateway_requests_total{status=~"5.."}[1h]))
+            /
+            clamp_min(sum(rate(agent_utilities_gateway_requests_total[1h])), 1)
+        - record: graphos:gateway_request_p99_seconds:5m
+          expr: >-
+            histogram_quantile(0.99,
+              sum by (le) (rate(agent_utilities_gateway_request_duration_seconds_bucket[5m])))
+        - record: graphos:engine_request_p99_seconds:5m
+          expr: >-
+            histogram_quantile(0.99,
+              sum by (le) (rate(epistemic_graph_request_duration_seconds_bucket[5m])))
+        - record: graphos:dispatch_queue_depth
+          expr: sum(agent_utilities_dispatch_queue_depth)
+        - record: graphos:ingest_consumer_lag
+          expr: sum(agent_utilities_kg_ingest_consumer_lag)
+        - record: graphos:analytics_jobs_ready
+          expr: sum(epistemic_graph_analytics_jobs_ready)
+    - name: graphos.slo.alerts
+      rules:
+        - alert: GraphOSFastErrorBudgetBurn
+          expr: >-
+            graphos:gateway_error_ratio:5m > (0.001 * 14.4)
+            and graphos:gateway_error_ratio:1h > (0.001 * 14.4)
+          for: 5m
+          labels: {severity: critical, slo: availability}
+          annotations:
+            summary: GraphOS is rapidly consuming its availability error budget.
+        - alert: GraphOSGatewayP99Latency
+          expr: graphos:gateway_request_p99_seconds:5m > 2
+          for: 10m
+          labels: {severity: warning, slo: latency}
+          annotations: {summary: GraphOS gateway p99 latency is above its contract.}
+        - alert: EpistemicGraphQuorumRisk
+          expr: >-
+            kube_statefulset_status_replicas_ready{
+              namespace="graphos-cell",statefulset="epistemic-graph-raft"
+            } < 2
+          for: 1m
+          labels: {severity: critical, slo: availability}
+          annotations: {summary: Fewer than two engine members are reachable.}
+        - alert: EpistemicGraphWalAppendDropped
+          expr: increase(epistemic_graph_wal_append_dropped_total[5m]) > 0
+          labels: {severity: critical, slo: durability}
+          annotations: {summary: An authoritative WAL append was dropped.}
+        - alert: EpistemicGraphAuthenticationFailureBurst
+          expr: increase(epistemic_graph_auth_failures_total[5m]) > 10
+          labels: {severity: warning, slo: security}
+          annotations: {summary: Engine authentication failures exceed the normal envelope.}
+        - alert: GraphOSDispatchBacklog
+          expr: graphos:dispatch_queue_depth > 10000
+          for: 5m
+          labels: {severity: warning, slo: queue-latency}
+          annotations: {summary: Dispatch backlog exceeds the autoscaling response envelope.}
+        - alert: GraphOSIngestLag
+          expr: graphos:ingest_consumer_lag > 10000
+          for: 10m
+          labels: {severity: warning, slo: ingestion}
+          annotations: {summary: Ingestion consumer lag exceeds the recovery envelope.}
+        - alert: GraphOSAnalyticsBacklog
+          expr: graphos:analytics_jobs_ready > 400
+          for: 10m
+          labels: {severity: warning, slo: analytics}
+          annotations: {summary: Analytics work queue exceeds its autoscaling envelope.}
+        - alert: GraphOSBackupRPOViolation
+          expr: time() - max(epistemic_graph_checkpoint_last_success_timestamp_seconds) > 120
+          for: 2m
+          labels: {severity: critical, slo: rpo}
+          annotations: {summary: No durable engine checkpoint is inside the RPO window.}
+        - alert: GraphOSRestoreValidationFailed
+          expr: >-
+            max(kube_job_status_failed{namespace="graphos-cell",job_name=~"graphos-restore-validation.*"}) > 0
+          for: 1m
+          labels: {severity: critical, slo: recoverability}
+          annotations: {summary: The scheduled offline restore and health validation failed.}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graphos-prometheus-adapter-rules
+  namespace: graphos-control
+data:
+  external-rules.yaml: |
+    externalRules:
+      - seriesQuery: 'agent_utilities_dispatch_queue_depth'
+        name: {matches: '^agent_utilities_dispatch_queue_depth$'}
+        metricsQuery: 'sum(agent_utilities_dispatch_queue_depth)'
+      - seriesQuery: 'agent_utilities_kg_ingest_consumer_lag'
+        name: {matches: '^agent_utilities_kg_ingest_consumer_lag$'}
+        metricsQuery: 'sum(agent_utilities_kg_ingest_consumer_lag{<<.LabelMatchers>>})'
+      - seriesQuery: 'agent_utilities_gateway_request_duration_seconds_bucket'
+        name: {matches: '^agent_utilities_gateway_request_duration_seconds_bucket$', as: 'agent_utilities_gateway_request_p99_seconds'}
+        metricsQuery: 'histogram_quantile(0.99, sum by (le) (rate(agent_utilities_gateway_request_duration_seconds_bucket[5m])))'
+      - seriesQuery: 'epistemic_graph_analytics_jobs_ready'
+        name: {matches: '^epistemic_graph_analytics_jobs_ready$'}
+        metricsQuery: 'sum(epistemic_graph_analytics_jobs_ready)'

@@ -13,18 +13,30 @@ Fuseki provides full SPARQL 1.1 Query + Update over HTTP, with
 TDB2 persistence, SHACL validation, and optional full-text search.
 
 Environment Variables:
-    GRAPH_FUSEKI_URL: Fuseki server URL (default: http://localhost:3030).
+    KG_FUSEKI_ENDPOINT: THE canonical Fuseki server URL (config field
+        ``kg_fuseki_endpoint``; default: the in-cluster Fuseki Service,
+        a deployment service-discovery URL). Superseded legacy
+        aliases (deleted, do not reintroduce): ``GRAPH_FUSEKI_URL``,
+        ``JENA_FUSEKI_URL``, ``FUSEKI_ENDPOINT``.
     GRAPH_FUSEKI_DATASET: Dataset name (default: agent_kg).
     GRAPH_FUSEKI_USER: Optional HTTP Basic auth username.
-    GRAPH_FUSEKI_PASSWORD: Optional HTTP Basic auth password.
+    GRAPH_FUSEKI_PASSWORD_REF: Runtime secret reference for the optional HTTP
+        Basic auth password.
 """
 
 import asyncio
 import logging
 import math
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.http_client import create_http_client
+from agent_utilities.core.transport_security import (
+    ResolvedTLSProfile,
+    resolve_configured_tls_profile,
+)
 from agent_utilities.knowledge_graph.core.event_backend import (
     TOPIC_MUTATIONS,
     EventBackend,
@@ -35,6 +47,7 @@ from .base import SparqlAdapter
 logger = logging.getLogger(__name__)
 
 _NS = "http://agent-utilities.dev/kg#"
+_DATASET_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 class JenaFusekiBackend(SparqlAdapter):
@@ -58,7 +71,9 @@ class JenaFusekiBackend(SparqlAdapter):
         jena_fuseki_url: str | None = None,
         dataset: str | None = None,
         username: str | None = None,
-        password: str | None = None,
+        password_ref: str | None = None,
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
         event_backend: EventBackend | None = None,
     ) -> None:
         try:
@@ -71,34 +86,72 @@ class JenaFusekiBackend(SparqlAdapter):
                 "Install with: pip install 'agent-utilities[jena_fuseki]'"
             ) from e
 
-        self._base_url = (
-            jena_fuseki_url or setting("GRAPH_FUSEKI_URL") or "http://localhost:3030"
-        ).rstrip("/")
+        if jena_fuseki_url:
+            resolved_url = jena_fuseki_url
+        else:
+            from agent_utilities.core.config import config as _cfg
+
+            resolved_url = _cfg.kg_fuseki_endpoint
+        self._base_url = str(resolved_url or "").strip().rstrip("/")
+        parsed = urlparse(self._base_url)
+        if (
+            parsed.scheme.casefold() not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Fuseki endpoint is missing or invalid")
         self._dataset = dataset or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
+        if not _DATASET_RE.fullmatch(str(self._dataset)):
+            raise ValueError("Fuseki dataset is invalid")
         self._username = username or setting("GRAPH_FUSEKI_USER")
-        self._password = password or setting("GRAPH_FUSEKI_PASSWORD")
+        secret_ref = password_ref or setting("GRAPH_FUSEKI_PASSWORD_REF")
+        if secret_ref:
+            try:
+                if str(secret_ref).startswith("env://"):
+                    self._password = setting(str(secret_ref)[len("env://") :])
+                else:
+                    from agent_utilities.security.secrets_client import (
+                        create_secrets_client,
+                    )
+
+                    self._password = create_secrets_client().resolve_ref(
+                        str(secret_ref)
+                    )
+            except Exception as exc:
+                raise ValueError(
+                    "Fuseki password reference could not be resolved"
+                ) from exc
+        else:
+            self._password = None
         self._event_backend = event_backend
 
         # Build auth tuple if credentials provided
         self._auth = None
+        if bool(self._username) != bool(self._password):
+            raise ValueError("Fuseki credentials are incomplete")
         if self._username and self._password:
             self._auth = (self._username, self._password)
 
         # Connection pool
-        self._client = httpx.Client(
+        self._tls_profile: ResolvedTLSProfile = resolve_configured_tls_profile(
+            "FUSEKI",
+            profile_name=tls_profile,
+            profile_ref=tls_profile_ref,
+        )
+        self._client = create_http_client(
             base_url=self._base_url,
             auth=self._auth,
             timeout=30.0,
             headers={"Accept": "application/sparql-results+json"},
+            **self._tls_profile.httpx_kwargs(),
         )
 
         self._embeddings: dict[str, list[float]] = {}
 
-        logger.info(
-            "JenaFusekiBackend initialized: url=%s, dataset=%s",
-            self._base_url,
-            self._dataset,
-        )
+        logger.info("JenaFusekiBackend initialized with a configured endpoint")
 
     @property
     def _query_url(self) -> str:
@@ -117,7 +170,11 @@ class JenaFusekiBackend(SparqlAdapter):
     # ------------------------------------------------------------------
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a SPARQL query/update against Fuseki.
 
@@ -127,18 +184,25 @@ class JenaFusekiBackend(SparqlAdapter):
         code that raised on every Cypher query). Use a SPARQL query, or an LPG
         backend for Cypher. The LPG↔OWL bridge answers SPARQL over any LPG store
         via ``OWLBridge.query_sparql`` — this backend is for a real triplestore.
+
+        ``include_epistemic`` (CONCEPT:AU-KB-CURRENCY, Seam 1): this triplestore
+        tier has no id-seeded epistemic-envelope primitive, so a ``True`` request
+        degrades to ``[]`` per the ABC contract rather than raising or silently
+        returning plain rows.
         """
+        if include_epistemic:
+            logger.debug(
+                "JenaFusekiBackend.execute(include_epistemic=True): no epistemic "
+                "envelope primitive; returning []"
+            )
+            return []
         stripped = query.strip().upper()
         if stripped.startswith(
             ("SELECT", "ASK", "CONSTRUCT", "DESCRIBE", "PREFIX", "INSERT", "DELETE")
         ):
             return self.execute_sparql(query)
 
-        logger.debug(
-            "JenaFusekiBackend received a non-SPARQL (Cypher?) query; unsupported "
-            "on the RDF/SPARQL tier: %s",
-            query[:120],
-        )
+        logger.debug("JenaFusekiBackend rejected a non-SPARQL query")
         return []
 
     def execute_batch(
@@ -159,7 +223,7 @@ class JenaFusekiBackend(SparqlAdapter):
         try:
             resp = self._client.get(f"/$/datasets/{self._dataset}")
             if resp.status_code == 200:
-                logger.debug("Fuseki dataset '%s' already exists", self._dataset)
+                logger.debug("Fuseki dataset already exists")
                 return
         except Exception:
             pass
@@ -174,16 +238,16 @@ class JenaFusekiBackend(SparqlAdapter):
                 },
             )
             if resp.status_code in (200, 201):
-                logger.info("Created Fuseki dataset: %s", self._dataset)
+                logger.info("Created the configured Fuseki dataset")
             else:
                 logger.warning(
-                    "Failed to create Fuseki dataset %s: %s %s",
-                    self._dataset,
+                    "Failed to create Fuseki dataset (HTTP %s)",
                     resp.status_code,
-                    resp.text[:200],
                 )
-        except Exception as e:
-            logger.warning("Could not create Fuseki dataset: %s", e)
+        except Exception as exc:
+            logger.warning(
+                "Could not create Fuseki dataset (%s)", type(exc).__name__
+            )
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Store embedding vector (client-side; Fuseki has no native vector index)."""
@@ -230,6 +294,7 @@ class JenaFusekiBackend(SparqlAdapter):
             self._client.close()
         except Exception:
             pass
+        self._tls_profile.cleanup()
         self._embeddings.clear()
 
     # ------------------------------------------------------------------
@@ -249,9 +314,7 @@ class JenaFusekiBackend(SparqlAdapter):
             )
 
             if resp.status_code != 200:
-                return [
-                    {"error": f"Query failed: {resp.status_code} {resp.text[:200]}"}
-                ]
+                return [{"error": f"Query failed with HTTP {resp.status_code}"}]
 
             data = resp.json()
 
@@ -269,9 +332,23 @@ class JenaFusekiBackend(SparqlAdapter):
                 results.append(row)
             return results
 
-        except Exception as e:
-            logger.error("Fuseki SPARQL query failed: %s", e)
-            return [{"error": str(e)}]
+        except Exception as exc:
+            logger.error("Fuseki SPARQL query failed (%s)", type(exc).__name__)
+            return [{"error": type(exc).__name__}]
+
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute SPARQL only through Fuseki's server-side query endpoint."""
+        if include_epistemic:
+            return []
+        if params:
+            raise ValueError("Fuseki read parameters must be bound in SPARQL")
+        return self.execute_sparql_query(query)
 
     def execute_sparql_update(self, update: str, timeout_ms: int = 30_000) -> None:
         """Execute a SPARQL INSERT or DELETE update."""
@@ -283,9 +360,7 @@ class JenaFusekiBackend(SparqlAdapter):
                 timeout=timeout_ms / 1000,
             )
             if resp.status_code not in (200, 204):
-                raise RuntimeError(
-                    f"Update failed: {resp.status_code} {resp.text[:200]}"
-                )
+                raise RuntimeError(f"Update failed with HTTP {resp.status_code}")
 
             # Emit event to backbone if available
             if self._event_backend:
@@ -298,11 +373,16 @@ class JenaFusekiBackend(SparqlAdapter):
                 if stripped.startswith("SPARQL"):
                     event_type = "SPARQL_UPDATE"
 
-                event_payload = {
+                event_payload: Any = {
                     "event_type": event_type,
                     "query": update,
                     "source": "jena_fuseki_backend",
                 }
+                from agent_utilities.security.persistence_privacy import (
+                    PersistencePrivacyGuard,
+                )
+
+                event_payload, _ = PersistencePrivacyGuard().sanitize(event_payload)
 
                 # We use asyncio.create_task to fire-and-forget the publish,
                 # assuming there's a running event loop (e.g., Tokio or Asyncio).
@@ -314,8 +394,8 @@ class JenaFusekiBackend(SparqlAdapter):
                     # No running event loop
                     pass
 
-        except Exception as e:
-            logger.error("Fuseki SPARQL update failed: %s", e)
+        except Exception as exc:
+            logger.error("Fuseki SPARQL update failed (%s)", type(exc).__name__)
             raise
 
     def upload_graph(self, ttl_content: str, graph_uri: str | None = None) -> None:
@@ -331,9 +411,7 @@ class JenaFusekiBackend(SparqlAdapter):
             params=params,
         )
         if resp.status_code not in (200, 201, 204):
-            raise RuntimeError(
-                f"Failed to upload graph: {resp.status_code} {resp.text[:200]}"
-            )
+            raise RuntimeError(f"Graph upload failed with HTTP {resp.status_code}")
 
     def download_graph(self, graph_uri: str | None = None) -> str:
         """Download the full graph as a Turtle (.ttl) string."""
@@ -345,9 +423,7 @@ class JenaFusekiBackend(SparqlAdapter):
             self._data_url, headers={"Accept": "text/turtle"}, params=params
         )
         if resp.status_code != 200:
-            raise RuntimeError(
-                f"Failed to download graph: {resp.status_code} {resp.text[:200]}"
-            )
+            raise RuntimeError(f"Graph download failed with HTTP {resp.status_code}")
         return resp.text
 
     # ------------------------------------------------------------------
@@ -357,7 +433,7 @@ class JenaFusekiBackend(SparqlAdapter):
     def add_node(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         """Add a node as RDF triples via SPARQL INSERT."""
         properties = properties or {}
-        node_type = properties.get("type", "Concept")
+        node_type = properties.get("node_type", "Concept")
 
         triples = [f"<{_NS}{node_id}> <{_NS}type> <{_NS}{node_type}> ."]
         for key, value in properties.items():
@@ -373,7 +449,7 @@ class JenaFusekiBackend(SparqlAdapter):
     ) -> None:
         """Add an edge as RDF triples via SPARQL INSERT."""
         properties = properties or {}
-        edge_type = properties.get("type", "relatedTo")
+        edge_type = properties.get("relationship", "relatedTo")
 
         triples = [f"<{_NS}{source_id}> <{_NS}{edge_type}> <{_NS}{target_id}> ."]
         self.execute_sparql(f"INSERT DATA {{ {' '.join(triples)} }}")

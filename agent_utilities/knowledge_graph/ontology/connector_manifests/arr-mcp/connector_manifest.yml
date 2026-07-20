@@ -1,0 +1,366 @@
+connector: arr-mcp
+ontology_source: arr
+schema_version: '1'
+resources:
+- name: Album
+  label: Album
+  id_prefix: album
+  relations: []
+- name: Artist
+  label: Artist
+  id_prefix: artist
+  relations:
+  - name: hasAlbum
+    label: has album
+    target: Album
+    lpg_rel_type: ''
+- name: Book
+  label: Book
+  id_prefix: book
+  relations: []
+- name: Episode
+  label: Episode
+  id_prefix: episode
+  relations: []
+- name: Indexer
+  label: Indexer
+  id_prefix: indexer
+  relations: []
+- name: MediaRequest
+  label: Media Request
+  id_prefix: mediarequest
+  relations:
+  - name: requestedBy
+    label: requested by
+    target: Person
+    lpg_rel_type: ''
+  - name: requestsMedia
+    label: requests media
+    target: owl:Thing
+    lpg_rel_type: ''
+- name: Movie
+  label: Movie
+  id_prefix: movie
+  relations: []
+- name: QualityProfile
+  label: Quality Profile
+  id_prefix: qualityprofile
+  relations: []
+- name: RootFolder
+  label: Root Folder
+  id_prefix: rootfolder
+  relations: []
+- name: Series
+  label: Series
+  id_prefix: series
+  relations:
+  - name: hasEpisode
+    label: has episode
+    target: Episode
+    lpg_rel_type: ''
+actions: []
+events:
+- name: arr-movies.updated
+  resource: movie
+  description: "Watermark event for 'arr-movies' \u2014 advances on added (mcp_source_presets.json)."
+- name: arr-series.updated
+  resource: series
+  description: "Watermark event for 'arr-series' \u2014 advances on added (mcp_source_presets.json)."
+identity:
+  id_field:
+    indexer: id
+    movie: tmdbId
+    series: tvdbId
+  title_field:
+    indexer: name
+    movie: title
+    series: title
+  text_field:
+    indexer: description
+    movie: overview
+    series: overview
+  updated_field:
+    movie: added
+    series: added
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Album:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Artist:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Book:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Episode:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Indexer:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  MediaRequest:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Movie:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  QualityProfile:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  RootFolder:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+  Series:
+    ontology_class: null
+    fields:
+      enabled: xsd:boolean
+      hasFile: xsd:boolean
+      imdbId: xsd:string
+      mediaStatus: xsd:string
+      monitored: xsd:boolean
+      overview: xsd:string
+      protocol: xsd:string
+      requestStatus: xsd:string
+      sizeOnDisk: xsd:integer
+      title: xsd:string
+      tmdbId: xsd:string
+      tvdbId: xsd:string
+      year: xsd:integer
+sync:
+- preset: arr-indexers
+  server: arr-mcp
+  tool: prowlarr_action
+  action: get_indexer
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: ''
+  pagination: null
+  doc_type: indexer
+  tool_schema_sha256: 2857678d34bb37ccb6a313cd29259d9becbc32e73681eda8c36e6a2f4035d7e5
+  raw:
+    server: arr-mcp
+    tool: prowlarr_action
+    action: get_indexer
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: ''
+    doc_type: indexer
+- preset: arr-movies
+  server: arr-mcp
+  tool: radarr_action
+  action: get_movie
+  records_path: ''
+  id_field: tmdbId
+  title_field: title
+  text_field: overview
+  updated_field: added
+  pagination: null
+  doc_type: movie
+  tool_schema_sha256: 3b6c2929b3b2407d83651d97a701999550f7280f610eb25269ca70ddb2b84876
+  raw:
+    server: arr-mcp
+    tool: radarr_action
+    action: get_movie
+    records_path: ''
+    id_field: tmdbId
+    title_field: title
+    text_field: overview
+    updated_field: added
+    doc_type: movie
+- preset: arr-series
+  server: arr-mcp
+  tool: sonarr_action
+  action: get_series
+  records_path: ''
+  id_field: tvdbId
+  title_field: title
+  text_field: overview
+  updated_field: added
+  pagination: null
+  doc_type: series
+  tool_schema_sha256: 54d5024b9c89c1a28e23128328065bedaa52421e623e9c8bdd1986e39c0d778b
+  raw:
+    server: arr-mcp
+    tool: sonarr_action
+    action: get_series
+    records_path: ''
+    id_field: tvdbId
+    title_field: title
+    text_field: overview
+    updated_field: added
+    doc_type: series
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - arr_mcp/connectors/mcp_source_presets.json
+  - arr_mcp/connectors/tool_schema_fingerprints.json
+  - arr_mcp/ontology/arr.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 8b921c452bb35f134b2d8dad809afcb49ec7abd16d78f5ee79e704ae5acb7c75
+    triple_count: 89
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Wz4J66Xb3BTH5cBQAuVCcsw9g8m_iO5vo5LtqRece5StwLXJ6Z3XomTyHKZllwdlHxgkeFf5-D5PHknzYMJLDQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'downloadedAs' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hasQualityProfile' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'indexedBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'storedIn' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Album.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Artist.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Book.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Episode.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Indexer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MediaRequest.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Movie.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.QualityProfile.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RootFolder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Series.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

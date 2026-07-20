@@ -13,7 +13,19 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from ...models import AgentDeps
-from .browser_manager import get_browser_manager
+from ...security.persistence_privacy import persistence_reference
+from .browser_manager import browser_fetch_enabled, get_browser_manager
+
+
+def _page_reference(url: str) -> str:
+    return persistence_reference("browser_page", url, namespace="navigation")
+
+
+def _disabled() -> dict[str, Any]:
+    return {
+        "success": False,
+        "error": "Browser-backed source access is disabled by policy.",
+    }
 
 
 async def navigate_to_url(ctx: RunContext[AgentDeps], url: str) -> dict[str, Any]:
@@ -27,12 +39,27 @@ async def navigate_to_url(ctx: RunContext[AgentDeps], url: str) -> dict[str, Any
         A dictionary containing the actual URL reached and the page title.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
-    await page.goto(url)
-    return {"success": True, "url": page.url, "title": await page.title()}
+    try:
+        await manager.navigate(page, url)
+    except (PermissionError, ValueError):
+        return {
+            "success": False,
+            "error": "Browser destination was rejected by policy.",
+        }
+    title = str(await page.title())
+    return {
+        "success": True,
+        "page_ref": _page_reference(page.url),
+        "title_ref": persistence_reference(
+            "browser_title", title, namespace="navigation"
+        ),
+    }
 
 
 async def browser_go_back(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
@@ -45,12 +72,14 @@ async def browser_go_back(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
         A dictionary containing the resulting URL.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.go_back()
-    return {"success": True, "url": page.url}
+    return {"success": True, "page_ref": _page_reference(page.url)}
 
 
 async def browser_go_forward(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
@@ -63,12 +92,14 @@ async def browser_go_forward(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
         A dictionary containing the resulting URL.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.go_forward()
-    return {"success": True, "url": page.url}
+    return {"success": True, "page_ref": _page_reference(page.url)}
 
 
 async def reload_page(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
@@ -81,9 +112,11 @@ async def reload_page(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
         A dictionary containing the resulting URL.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
     manager = get_browser_manager()
     page = await manager.get_current_page()
     if not page:
         return {"success": False, "error": "No active page found."}
     await page.reload()
-    return {"success": True, "url": page.url}
+    return {"success": True, "page_ref": _page_reference(page.url)}

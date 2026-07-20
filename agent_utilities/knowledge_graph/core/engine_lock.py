@@ -13,8 +13,9 @@ That cost a 107GB orphan and corrupted persistence in practice.
 
 The fix is double-checked locking around the spawn, keyed by the socket path:
 
-* An exclusive ``flock`` on ``engine-<sha8(socket)>.lock`` serializes all spawners
-  for a given socket. The lock auto-releases when the holder dies (no stale-PID bug).
+* An exclusive lock on ``engine-<sha8(transport)>.lock`` serializes all spawners
+  for a given UDS or loopback-TCP transport. The lock auto-releases when the
+  holder dies (no stale-PID bug).
 * The guard is held across *spawn + wait-until-reachable*, so a concurrent spawner
   blocks until the engine is confirmed up, then its own re-check connect succeeds —
   it never spawns a second engine.
@@ -32,7 +33,6 @@ import hashlib
 import json
 import logging
 import os
-import socket as _socket
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -74,13 +74,20 @@ def engine_lock_path(socket_path: str | None) -> Path:
     return _runtime_base() / f"engine-{digest}.lock"
 
 
-def _record_holder(fd: int, socket_path: str | None) -> None:
-    """Stamp the lock file with this spawner's identity (best-effort)."""
+def _record_holder(fd: int, transport_key: str | None) -> None:
+    """Stamp the lock with privacy-safe advisory state (best-effort).
+
+    Never persist a hostname or raw socket/filesystem path. The lock filename
+    already contains a deterministic transport digest, which is sufficient for
+    diagnostics without retaining local-machine identity.
+    """
+    opaque_transport = hashlib.sha256(
+        str(transport_key or _DEFAULT_SOCKET).encode("utf-8")
+    ).hexdigest()[:16]
     meta = {
         "pid": os.getpid(),
-        "host": _socket.gethostname(),
         "acquired_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "socket": socket_path or _DEFAULT_SOCKET,
+        "transport_digest": opaque_transport,
     }
     try:
         data = json.dumps(meta).encode("utf-8")
@@ -91,9 +98,9 @@ def _record_holder(fd: int, socket_path: str | None) -> None:
         pass
 
 
-def engine_lock_holder(socket_path: str | None) -> dict[str, Any] | None:
-    """Return the recorded spawner identity for a socket's lock, if any."""
-    path = engine_lock_path(socket_path)
+def engine_lock_holder(transport_key: str | None) -> dict[str, Any] | None:
+    """Return privacy-safe advisory holder state for a transport lock."""
+    path = engine_lock_path(transport_key)
     try:
         return json.loads(path.read_text() or "{}") or None
     except Exception:
@@ -102,9 +109,9 @@ def engine_lock_holder(socket_path: str | None) -> dict[str, Any] | None:
 
 @contextlib.contextmanager
 def engine_spawn_guard(
-    socket_path: str | None, timeout: float = _GUARD_TIMEOUT_SECS
+    transport_key: str | None, timeout: float = _GUARD_TIMEOUT_SECS
 ) -> Iterator[bool]:
-    """Hold the per-socket engine spawn lock for the duration of the block.
+    """Hold the per-transport engine spawn lock for the duration of the block.
 
     Yields ``True`` if the exclusive lock was acquired (this process is the sole
     spawner), or ``False`` if it could not be acquired within ``timeout`` (a peer
@@ -113,7 +120,7 @@ def engine_spawn_guard(
     The lock is intentionally held across the caller's spawn+wait so concurrent
     spawners serialize behind it and find the engine already up on re-check.
     """
-    path = engine_lock_path(socket_path)
+    path = engine_lock_path(transport_key)
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
     acquired = False
     deadline = time.monotonic() + max(0.0, timeout)
@@ -125,11 +132,14 @@ def engine_spawn_guard(
                 break
             except (LockUnavailable, BlockingIOError, OSError):
                 if time.monotonic() >= deadline:
-                    h = engine_lock_holder(socket_path) or {}
+                    h = engine_lock_holder(transport_key) or {}
                     logger.warning(
                         "engine spawn guard for %s held by pid=%s since %s; "
                         "proceeding without the guard after %.0fs.",
-                        socket_path or _DEFAULT_SOCKET,
+                        "transport:"
+                        + hashlib.sha256(
+                            str(transport_key or _DEFAULT_SOCKET).encode("utf-8")
+                        ).hexdigest()[:12],
                         h.get("pid", "?"),
                         h.get("acquired_at", "?"),
                         timeout,
@@ -137,7 +147,7 @@ def engine_spawn_guard(
                     break
                 time.sleep(0.2)
         if acquired:
-            _record_holder(fd, socket_path)
+            _record_holder(fd, transport_key)
         yield acquired
     finally:
         try:

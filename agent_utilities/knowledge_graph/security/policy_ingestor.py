@@ -44,6 +44,10 @@ from ...models.knowledge_graph import (
     PolicyNode,
     RegistryEdgeType,
 )
+from ...security.persistence_privacy import (
+    persistence_reference,
+    sanitize_for_persistence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -296,21 +300,33 @@ class PolicyIngestor:
                 break
 
         if not constitution_path:
-            logger.info("No constitution found in %s", root)
+            logger.info("No constitution found in the configured policy source")
             return {"policies_ingested": 0, "edges_created": 0}
 
-        content = constitution_path.read_text(encoding="utf-8")
+        if constitution_path.is_symlink():
+            raise ValueError("Constitution source must not be a symbolic link")
+        payload = constitution_path.read_bytes()
+        if len(payload) > 4 * 1024 * 1024:
+            raise ValueError("Constitution source exceeds its ingestion bound")
+        content, _privacy = sanitize_for_persistence(payload.decode("utf-8"))
+        content = str(content)
         parsed = parse_constitution_md(content)
+        constitution_ref = persistence_reference(
+            "constitution", constitution_path, namespace="policy-ingestion"
+        )
 
         stats: dict[str, Any] = {
             "policies_ingested": 0,
             "edges_created": 0,
         }
 
-        project_name = parsed["project_name"] or root.name
+        project_name = str(parsed["project_name"] or "project")
+        project_ref = persistence_reference(
+            "project", project_name, namespace="policy-ingestion"
+        )
 
         # Create a project anchor node for linking
-        project_node_id = f"project:{project_name}"
+        project_node_id = f"project:{project_ref}"
         self.engine.graph.add_node(
             project_node_id,
             type="software_project",
@@ -323,7 +339,7 @@ class PolicyIngestor:
 
         # Ingest each policy statement
         for policy_data in parsed["policies"]:
-            policy_id = f"policy:{project_name}:{uuid.uuid4().hex[:8]}"
+            policy_id = f"policy:{project_ref}:{uuid.uuid4().hex}"
 
             # Map normative statements to higher priority
             priority = 80 if policy_data["is_normative"] else 50
@@ -344,7 +360,7 @@ class PolicyIngestor:
                 id=policy_id,
                 name=statement[:80],
                 description=statement,
-                policy_id=f"{project_name}-{uuid.uuid4().hex[:6]}",
+                policy_id=f"{project_ref}-{uuid.uuid4().hex}",
                 condition=condition,
                 action=statement,
                 priority=priority,
@@ -359,7 +375,7 @@ class PolicyIngestor:
                     "section": policy_data["section"],
                     "subsection": policy_data["subsection"],
                     "is_normative": policy_data["is_normative"],
-                    "constitution_path": str(constitution_path),
+                    "constitution_ref": constitution_ref,
                 },
             )
 
@@ -371,8 +387,10 @@ class PolicyIngestor:
                             f"{project_name} policy: {statement}"
                         )
                     )
-                except Exception as e:
-                    logger.debug("Failed to embed policy %s: %s", policy_id, e)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to embed policy (%s)", type(exc).__name__
+                    )
 
             self.engine.graph.add_node(node.id, **node.model_dump())
             if self.engine.backend:
@@ -393,8 +411,7 @@ class PolicyIngestor:
             stats["edges_created"] += 1
 
         logger.info(
-            "Constitution ingestion complete for '%s': %d policies, %d edges",
-            project_name,
+            "Constitution ingestion complete: %d policies, %d edges",
             stats["policies_ingested"],
             stats["edges_created"],
         )
@@ -440,7 +457,7 @@ class PolicyIngestor:
         prompts_path = Path(str(prompts_dir))
 
         if not prompts_path.is_dir():
-            logger.warning("Prompts directory not found: %s", prompts_path)
+            logger.warning("Configured prompts directory not found")
             return {"policies_ingested": 0, "edges_created": 0}
 
         stats: dict[str, int] = {
@@ -453,7 +470,7 @@ class PolicyIngestor:
             try:
                 prompt_data = json.loads(json_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError) as e:
-                logger.debug("Skipping %s: %s", json_file.name, e)
+                logger.debug("Skipping invalid prompt policy (%s)", type(e).__name__)
                 continue
 
             if not isinstance(prompt_data, dict):
@@ -470,7 +487,7 @@ class PolicyIngestor:
             prompt_node_id = f"prompt:{task}"
 
             for rule_data in rules:
-                policy_id = f"policy:prompt:{task}:{uuid.uuid4().hex[:8]}"
+                policy_id = f"policy:prompt:{task}:{uuid.uuid4().hex}"
 
                 priority_map = {
                     "prompt_rule": 60,
@@ -482,7 +499,7 @@ class PolicyIngestor:
                     id=policy_id,
                     name=rule_data["statement"][:80],
                     description=rule_data["statement"],
-                    policy_id=f"prompt-{task}-{uuid.uuid4().hex[:6]}",
+                    policy_id=f"prompt-{task}-{uuid.uuid4().hex}",
                     condition=f"When acting as {task.replace('_', ' ')}",
                     action=rule_data["statement"],
                     priority=priority_map.get(rule_data["category"], 50),

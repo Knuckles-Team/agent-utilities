@@ -4,8 +4,9 @@ import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
 
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.graph.builder import initialize_graph_from_workspace
 from agent_utilities.graph.graph_models import ValidationResult
 from agent_utilities.models import ExecutionStep, GraphPlan
@@ -14,6 +15,7 @@ from agent_utilities.orchestration.engine import AgentOrchestrationEngine
 # Cap every test in this module at 30 s so a graph-orchestration infinite loop
 # surfaces as a clean failure instead of hanging the entire suite.
 _LIFECYCLE_RUN_TIMEOUT_S = 30.0
+_AGENT_TYPE = type(create_context_agent(TestModel()))
 
 # Known-flaky: these end-to-end orchestration tests mock `pydantic_ai.Agent`
 # at the class level, but the graph runner's dispatcher/verifier loop
@@ -107,14 +109,14 @@ async def test_full_graph_lifecycle():
         return MagicMock(output="Research data.")
 
     with (
-        patch.object(Agent, "run", new=mock_run_call),
-        patch.object(Agent, "run_stream", new=mock_run_stream),
+        patch.object(_AGENT_TYPE, "run", new=mock_run_call),
+        patch.object(_AGENT_TYPE, "run_stream", new=mock_run_stream),
         patch(
             "agent_utilities.orchestration.graph_orchestrator.create_model",
             return_value=MagicMock(),
         ),
         patch(
-            "agent_utilities.graph.steps.fetch_epistemic_context",
+            "agent_utilities.graph.hierarchical_planner.fetch_epistemic_context",
             return_value="context",
         ),
     ):
@@ -225,14 +227,14 @@ async def test_graph_parallel_and_fallback():
         return MagicMock(output="Parallel research data.")
 
     with (
-        patch.object(Agent, "run", new=mock_run_call),
-        patch.object(Agent, "run_stream", new=mock_run_stream),
+        patch.object(_AGENT_TYPE, "run", new=mock_run_call),
+        patch.object(_AGENT_TYPE, "run_stream", new=mock_run_stream),
         patch(
             "agent_utilities.orchestration.graph_orchestrator.create_model",
             return_value=MagicMock(),
         ),
         patch(
-            "agent_utilities.graph.steps.fetch_epistemic_context",
+            "agent_utilities.graph.hierarchical_planner.fetch_epistemic_context",
             return_value="context",
         ),
     ):

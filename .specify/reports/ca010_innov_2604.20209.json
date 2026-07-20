@@ -7,7 +7,7 @@
   "kg_source_query": null,
   "results": [
     {
-      "source": "/home/apps/workspace/.scholarx/papers/2604.20209_scaling_self_play_with_self_guidance.md",
+      "source": "${WORKSPACE_ROOT}/.scholarx/papers/2604.20209_scaling_self_play_with_self_guidance.md",
       "source_type": "filesystem",
       "concept_id": "",
       "signals": {

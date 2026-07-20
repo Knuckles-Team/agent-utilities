@@ -18,7 +18,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.BUSINESS
     description = "CRM — contacts, companies, deals, and pipelines"
     env_prefix = "TWENTY"
-    default_url = "https://twenty.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [

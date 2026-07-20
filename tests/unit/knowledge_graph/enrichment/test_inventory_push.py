@@ -15,7 +15,7 @@ class FakeBackend:
     def execute(self, query, params=None):
         if "ALIGNED_WITH" in query:
             return []
-        if "n.type AS type" in query:
+        if "n.node_type AS type" in query:
             return [
                 {"type": "Server", "name": "host01", "id": "server:host01"},
                 {"type": "ITComponent", "name": "PostgreSQL", "id": "itcomponent:pg"},
@@ -54,7 +54,6 @@ def test_push_inventory_dry_run():
 
 def test_push_inventory_live(monkeypatch):
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
-    api = FakeSnowApi()
     out = push_inventory(
         "servicenow", backend=FakeBackend(), engine=None, dry_run=False
     )

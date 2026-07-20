@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.knowledge_graph.enrichment.models import GraphNode
 from agent_utilities.knowledge_graph.enrichment.writeback.sinks.capability import (
     make_writeback_fn,
     push_capabilities,
     resolve_writeback_fn,
 )
-from agent_utilities.knowledge_graph.enrichment.models import GraphNode
 
 
 def _cap(name: str) -> GraphNode:

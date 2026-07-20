@@ -1,0 +1,254 @@
+connector: erpnext-agent
+ontology_source: erpnext
+schema_version: '1'
+resources:
+- name: Customer
+  label: Customer
+  id_prefix: customer
+  relations: []
+- name: Employee
+  label: Employee
+  id_prefix: employee
+  relations:
+  - name: memberOf
+    label: member of
+    target: OrgUnit
+    lpg_rel_type: ''
+- name: ErpNextIssue
+  label: ERPNext Issue
+  id_prefix: erpnextissue
+  relations: []
+- name: Invoice
+  label: Invoice
+  id_prefix: invoice
+  relations:
+  - name: billedOn
+    label: billed on
+    target: owl:Thing
+    lpg_rel_type: ''
+- name: Item
+  label: Item
+  id_prefix: item
+  relations: []
+- name: OrgUnit
+  label: Organizational Unit
+  id_prefix: orgunit
+  relations: []
+- name: PurchaseOrder
+  label: Purchase Order
+  id_prefix: purchaseorder
+  relations:
+  - name: suppliedBy
+    label: supplied by
+    target: Supplier
+    lpg_rel_type: ''
+- name: SalesOrder
+  label: Sales Order
+  id_prefix: salesorder
+  relations:
+  - name: orderedBy
+    label: ordered by
+    target: Customer
+    lpg_rel_type: ''
+  - name: placedBy
+    label: placed by
+    target: Customer
+    lpg_rel_type: ''
+- name: Supplier
+  label: Supplier
+  id_prefix: supplier
+  relations: []
+actions: []
+events:
+- name: erpnext-sales-orders.updated
+  resource: erpnext_sales_order
+  description: "Watermark event for 'erpnext-sales-orders' \u2014 advances on transaction_date (mcp_source_presets.json)."
+identity:
+  id_field:
+    erpnext_item: name
+    erpnext_sales_order: name
+  title_field:
+    erpnext_item: item_name
+    erpnext_sales_order: name
+  text_field:
+    erpnext_item: description
+    erpnext_sales_order: status
+  updated_field:
+    erpnext_sales_order: transaction_date
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Customer:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  Employee:
+    ontology_class: Person
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  ErpNextIssue:
+    ontology_class: Incident
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  Invoice:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  Item:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  OrgUnit:
+    ontology_class: Organization
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  PurchaseOrder:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  SalesOrder:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+  Supplier:
+    ontology_class: null
+    fields:
+      docStatus: xsd:integer
+      employeeName: xsd:string
+      grandTotal: xsd:float
+      postingDate: xsd:date
+sync:
+- preset: erpnext-items
+  server: erpnext-agent
+  tool: erpnext_agent_resource
+  action: list_documents
+  records_path: data
+  id_field: name
+  title_field: item_name
+  text_field: description
+  updated_field: null
+  pagination: null
+  doc_type: erpnext_item
+  tool_schema_sha256: 5d745f7b08c9a3bd2dae41f5fe1ddaca65e361c53dc4b831b6cddcb09c38febf
+  raw:
+    server: erpnext-agent
+    tool: erpnext_agent_resource
+    action: list_documents
+    params:
+      doctype: Item
+      fields:
+      - name
+      - item_code
+      - item_name
+      - item_group
+      - description
+    records_path: data
+    id_field: name
+    title_field: item_name
+    text_field: description
+    doc_type: erpnext_item
+- preset: erpnext-sales-orders
+  server: erpnext-agent
+  tool: erpnext_agent_resource
+  action: list_documents
+  records_path: data
+  id_field: name
+  title_field: name
+  text_field: status
+  updated_field: transaction_date
+  pagination: offset
+  doc_type: erpnext_sales_order
+  tool_schema_sha256: 5d745f7b08c9a3bd2dae41f5fe1ddaca65e361c53dc4b831b6cddcb09c38febf
+  raw:
+    server: erpnext-agent
+    tool: erpnext_agent_resource
+    action: list_documents
+    params:
+      doctype: Sales Order
+      fields:
+      - name
+      - customer
+      - grand_total
+      - docstatus
+      - transaction_date
+      - status
+    records_path: data
+    id_field: name
+    title_field: name
+    text_field: status
+    updated_field: transaction_date
+    pagination: offset
+    page_param: limit_start
+    page_size_param: limit_page_length
+    doc_type: erpnext_sales_order
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - erpnext_agent/connectors/mcp_source_presets.json
+  - erpnext_agent/connectors/tool_schema_fingerprints.json
+  - erpnext_agent/ontology/erpnext.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: e1db5bd3e80f09ed556b5ed40ec468baa01c855cd9f0f9e211c90298751a7929
+    triple_count: 66
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Xa1Tw_AIQ2KRIPGQJTnlD20p0iHvBeE4NqAyDcFgIq5XMDAygylxpGO8CDklzuSIOghX12d2-iXwcvma7TfvDg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'contains' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Customer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Employee.ontology_class = 'Person' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ErpNextIssue.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Invoice.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Item.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.OrgUnit.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.PurchaseOrder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SalesOrder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Supplier.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

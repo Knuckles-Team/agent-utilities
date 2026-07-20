@@ -12,11 +12,11 @@ from agent_utilities.mcp.multiplexer import (
 def test_get_server_prefix_hosts():
     # Prefixes are 100% auto-derived (no lookup table). Multi-instance servers
     # keep a readable trailing host id: initials of the rest + "_" + id.
-    assert get_server_prefix("systems-manager-mcp-r510") == "sm_r510"
-    assert get_server_prefix("systems-manager-mcp-rw710") == "sm_rw710"
-    assert get_server_prefix("systems-manager-mcp-gr1080") == "sm_gr1080"
-    assert get_server_prefix("container-manager-mcp-r510") == "cm_r510"
-    assert get_server_prefix("container-manager-mcp-gr1080") == "cm_gr1080"
+    assert get_server_prefix("systems-manager-mcp-edge101") == "sm_edge101"
+    assert get_server_prefix("systems-manager-mcp-zone202") == "sm_zone202"
+    assert get_server_prefix("systems-manager-mcp-node303") == "sm_node303"
+    assert get_server_prefix("container-manager-mcp-edge101") == "cm_edge101"
+    assert get_server_prefix("container-manager-mcp-node303") == "cm_node303"
 
     # Plain servers → initials acronym (multi-word) or short stem (single word).
     assert get_server_prefix("graph-os") == "go"
@@ -33,14 +33,14 @@ def test_get_server_prefix_hosts():
 
 def test_clean_tool_name_prefixing():
     # Verify that clean_tool_name applies prefixes correctly without collisions and within length budgets
-    prefix = get_server_prefix("systems-manager-mcp-r510")
-    assert prefix == "sm_r510"
+    prefix = get_server_prefix("systems-manager-mcp-edge101")
+    assert prefix == "sm_edge101"
 
     cleaned = clean_tool_name(
-        prefix, "systems-manager-mcp-r510", "systems_manager_mcp_run_command"
+        prefix, "systems-manager-mcp-edge101", "systems_manager_mcp_run_command"
     )
-    # Prefix (sm_r510) + "__" + stripped tool name (run_command)
-    assert cleaned == "sm_r510__run_command"
+    # Prefix (sm_edge101) + "__" + stripped tool name (run_command)
+    assert cleaned == "sm_edge101__run_command"
 
 
 def test_multiplexer_tool_filtering():

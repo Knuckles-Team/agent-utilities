@@ -716,10 +716,10 @@ async def test_extract_tool_metadata_no_config_file(tmp_path: Path) -> None:
 async def test_extract_tool_metadata_malformed_config(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Malformed JSON: mcp_servers_config falls back to empty dict."""
+    """Malformed JSON returns no configured servers."""
     cfg = tmp_path / "bad.json"
     cfg.write_text("{ this is not valid json")
-    monkeypatch.setattr(mgr, "load_mcp_config", lambda p: [])
+    monkeypatch.setattr(mgr, "load_mcp_servers_from_config", lambda p: [])
     tools = await mgr.extract_tool_metadata(cfg)
     assert tools == []
 
@@ -731,51 +731,25 @@ async def test_extract_tool_metadata_malformed_config(
 
 @pytest.mark.asyncio
 async def test_extract_inner_dynamic_failure_env_hints() -> None:
-    """Dynamic extract fails, env hints (TOOL suffix keys) provide static tools."""
+    """Dynamic failure never turns environment keys into synthetic tools."""
     failing_server = MagicMock()
     failing_server.name = "docker-mcp"
     failing_server.__aenter__.side_effect = RuntimeError("boom")
     failing_server.__aexit__.return_value = None
 
-    config = {
-        "docker-mcp": {
-            "env": {
-                "CONTAINERS_TOOL": "true",
-                "IMAGES_TOOL": "true",
-                "OTHER_KEY": "true",  # not a TOOL suffix, should be ignored
-            }
-        }
-    }
-
-    tools = await mgr._extract_single_server_metadata_inner(
-        failing_server, config, timeout=5
-    )
-    # Expect one tool per *_TOOL env key
-    tool_names = [t.name for t in tools]
-    # The factory names include a double-underscore because
-    # "CONTAINERS_TOOL".lower().replace("tool", "") = "containers_"
-    assert "docker-mcp_containers__toolset" in tool_names
-    assert "docker-mcp_images__toolset" in tool_names
-    # OTHER_KEY should NOT produce a tool
-    assert len(tools) == 2
+    tools = await mgr._extract_single_server_metadata_inner(failing_server, timeout=5)
+    assert tools == []
 
 
 @pytest.mark.asyncio
 async def test_extract_inner_dynamic_failure_no_hints() -> None:
-    """No env hints -> fallback to a single general tool per server."""
+    """Dynamic failure without hints remains fail-closed."""
     failing_server = MagicMock()
     failing_server.name = "github-mcp"
     failing_server.__aenter__.side_effect = RuntimeError("boom")
 
-    config: dict[str, Any] = {"github-mcp": {}}
-
-    tools = await mgr._extract_single_server_metadata_inner(
-        failing_server, config, timeout=5
-    )
-    assert len(tools) == 1
-    assert tools[0].name == "github-mcp_general_tools"
-    # Tag should strip -mcp
-    assert tools[0].tag == "github"
+    tools = await mgr._extract_single_server_metadata_inner(failing_server, timeout=5)
+    assert tools == []
 
 
 @pytest.mark.asyncio
@@ -794,7 +768,7 @@ async def test_extract_inner_dynamic_success_annotation_tags_list() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert len(tools) == 1
     assert tools[0].name == "my_tool"
     assert tools[0].tag == "git"
@@ -819,7 +793,7 @@ async def test_extract_inner_dynamic_success_annotation_object() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert len(tools) == 1
     assert tools[0].all_tags == ["file"]
 
@@ -840,7 +814,7 @@ async def test_extract_inner_annotation_string_tag() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert tools[0].all_tags == ["solo-tag"]
 
 
@@ -861,7 +835,7 @@ async def test_extract_inner_tool_without_annotations_but_with_meta() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert tools[0].all_tags == ["meta-tag"]
 
 
@@ -880,7 +854,7 @@ async def test_extract_inner_heuristic_tag_from_verb_name() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert tools[0].tag == "containers"
 
 
@@ -899,7 +873,7 @@ async def test_extract_inner_heuristic_tag_non_verb_first() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert tools[0].tag == "docker"
 
 
@@ -918,7 +892,7 @@ async def test_extract_inner_single_word_name_defaults_to_general() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert tools[0].tag == "general"
 
 
@@ -942,7 +916,7 @@ async def test_extract_with_semaphore() -> None:
 
     sem = _aio.Semaphore(1)
     tools = await mgr._extract_single_server_metadata(
-        server, {}, timeout=5, semaphore=sem
+        server, timeout=5, semaphore=sem
     )
     assert len(tools) == 1
 
@@ -966,7 +940,7 @@ async def test_extract_list_result_tools_attribute() -> None:
     server.__aenter__.return_value = session
     server.__aexit__.return_value = None
 
-    tools = await mgr._extract_single_server_metadata_inner(server, {}, timeout=5)
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert len(tools) == 1
 
 
@@ -985,9 +959,7 @@ async def test_extract_exception_group_reports_first() -> None:
     server.name = "s"
     server.__aenter__.side_effect = FakeExceptionGroup()
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        server, {"s": {}}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     # Falls back to general tool
     assert len(tools) == 1
 
@@ -999,9 +971,7 @@ async def test_extract_server_uses_id_when_name_missing() -> None:
     failing._id = "byid"
     failing.__aenter__.side_effect = RuntimeError("boom")
 
-    tools = await mgr._extract_single_server_metadata_inner(
-        failing, {"byid": {}}, timeout=5
-    )
+    tools = await mgr._extract_single_server_metadata_inner(failing, timeout=5)
     assert len(tools) == 1
     assert tools[0].mcp_server == "byid"
 

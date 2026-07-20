@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.DATA_SCIENCE
     description = "Vector database — collections, embeddings, and similarity search"
     env_prefix = "VECTOR"
-    default_url = "https://qdrant.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -41,8 +40,8 @@ class Widget(BaseWidget):
             collections = client.list_collections() or []
             count = len(collections) if isinstance(collections, list) else 0
         except Exception as e:
-            logger.debug("Vector DB fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Vector DB fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={"collections": count, "points": 0, "status": "Online"},

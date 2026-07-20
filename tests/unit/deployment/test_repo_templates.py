@@ -136,11 +136,10 @@ def test_render_skeleton_resolves_ci_templates():
 
 # ── the load-bearing invariant: NO operator-specific env in the repo ────────
 _FORBIDDEN = (
-    # Real operator hostnames / runner tags / project paths that must NEVER appear.
-    "Shell-R820",
-    "homelab/pipelines/gitlab-pipelines",
-    "R820",
-    "RW710",
+    # Site-specific hostnames / runner tags / project paths must NEVER appear.
+    "site-specific-runner",
+    "site-specific-namespace/private-pipelines",
+    "site-specific-host",
     "10.0.0.",
     "100.64.",
     "100.65.",

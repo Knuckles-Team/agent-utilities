@@ -48,11 +48,11 @@ store.)
 # (a) install the framework + the graph-os MCP (one-link, or scripts/install.sh)
 curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s -- --profile tiny
 
-# (b) generate a complete, profile-seeded config.json at ~/.config/agent-utilities/config.json
+# (b) generate a complete, profile-seeded config.json in the XDG config directory
 setup-config generate --profile tiny          # tiny | single-node-prod | enterprise
 
 # (c) (prod only) provision the durable Postgres+AGE tier the delta store lives on
-setup-databases --profile prod --postgres-mode managed_image --dsn "$GRAPH_DB_URI"
+setup-databases --profile prod --postgres-mode managed_image --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 
 # (d) verify
 agent-utilities-doctor --preflight --profile tiny
@@ -64,34 +64,35 @@ backend (§2) and whether a host daemon runs the sweep (§4).
 
 ---
 
-## 2. Choose the backend (the delta store)
+## 2. Use the fixed authority and optional projections
 
-Set `GRAPH_BACKEND` (env or `config.json`). All support the write-delta.
+The delta always commits to epistemic-graph. External stores may receive the
+same mutation stream as projections.
 
-| `GRAPH_BACKEND` | Config keys | Notes |
+| Shape | Config keys | Notes |
 |---|---|---|
-| `epistemic_graph` *(default)* | none | The Rust engine is the one authority — compute, cache, semantic, and durable persistence in a single store. Zero infra; the delta applies on the authority. |
-| `fanout` | `GRAPH_AUTHORITY` (=`epistemic_graph`) + `GRAPH_MIRROR_TARGETS` (resolved against `KG_CONNECTIONS`) | Engine authority + N optional mirrors; durable replay outbox. The delta applies on the authority, then fans out. |
+| Engine only *(default)* | none | The Rust engine is the one authority — compute, cache, semantic, and durable persistence in a single store. Zero infra. |
+| Engine + projections | `GRAPH_MIRROR_TARGETS` (resolved against `KG_CONNECTIONS`) | Fixed engine authority + N optional mirrors; durable replay outbox. |
 
 Mirror connection names listed in `GRAPH_MIRROR_TARGETS` are declared in
 `KG_CONNECTIONS`. Common mirror types and their config keys:
 
 | Mirror type | Config keys |
 |---|---|
-| `age` / `postgresql` | `GRAPH_DB_URI`, `GRAPH_PG_AGE=1`, `GRAPH_PGGRAPH_SCHEMA` (Postgres + Apache AGE) |
-| `neo4j` | `GRAPH_DB_URI` (`bolt://…`), `GRAPH_DB_USER`, `GRAPH_DB_PASSWORD` |
-| `falkordb` | `GRAPH_DB_HOST`, `GRAPH_DB_PORT` (6379), `GRAPH_DB_NAME` |
-| `ladybug` | `GRAPH_DB_PATH` (else XDG); embedded Kuzu, single-writer (host-role only) |
+| `age` / `postgresql` | `GRAPH_DB_CONNECTION_PROFILE_REF`, `GRAPH_PG_AGE=1`, `GRAPH_PGGRAPH_SCHEMA` (Postgres + Apache AGE) |
+| `neo4j` | `GRAPH_DB_CONNECTION_PROFILE_REF` resolving to URI, identity, credential, database, and TLS profile |
+| `falkordb` | `GRAPH_DB_CONNECTION_PROFILE_REF` resolving to host, port, and graph name |
+| `ladybug` | `GRAPH_DB_CONNECTION_PROFILE_REF` resolving to `db_path` (or the XDG embedded default); single-writer |
 
 One-command provisioning (managed Postgres image carrying AGE + pgvector +
 ParadeDB), via CLI or MCP:
 
 ```bash
-setup-databases --profile prod --postgres-mode managed_image --dsn postgresql://agent@pggraph/agent_kg --verify
+setup-databases --profile prod --postgres-mode existing --connection-profile-ref "${GRAPH_DB_CONNECTION_PROFILE_REF}" --verify
 ```
 ```
 graph_configure(action="setup_databases", config_key="prod",
-                config_value='{"postgres_mode":"managed_image","dsn":"postgresql://agent@pggraph/agent_kg"}')
+                config_value='{"postgres_mode":"existing","connection_profile_ref":"secret://graph-connections/primary"}')
 graph_configure(action="verify_databases")          # probes age + vector + pg_search
 ```
 
@@ -99,7 +100,7 @@ Add extra backends (read / mirror) without re-provisioning:
 
 ```
 graph_configure(action="add_connection",
-  config_value='{"backend":"neo4j","uri":"bolt://neo4j:7687","user":"neo4j","password":"env://NEO4J_PASSWORD","role":"mirror"}')
+  config_value='{"backend":"neo4j","connection_profile_ref":"secret://graph-connections/neo4j-mirror","role":"mirror"}')
 ```
 
 ---
@@ -112,8 +113,8 @@ at startup, so either works). Read via the `setting()` accessor.
 | Key | Default | Purpose |
 |---|---|---|
 | `KG_WRITE_DELTA` | `1` | Content-hash write-delta. `0` disables (full re-write every ingest). |
-| `GRAPH_BACKEND` | `epistemic_graph` | The delta store (see §2). **Restart-required.** |
-| `GRAPH_DB_URI` | – | Mirror DSN (Postgres/AGE, Neo4j) for `fanout`. **Restart-required.** |
+| `GRAPH_MIRROR_TARGETS` | unset | Optional projection aliases (see §2). **Restart-required.** |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | – | Secret reference for the complete mirror connection profile. **Restart-required.** |
 | `KG_DAEMON_ROLE` | `auto` | `host` runs the scheduler/sweep; `client` doesn't; `auto` = host if the flock is free. **Restart-required.** |
 | `KG_LOOP` | `false` | Enables the research/evolution Loop (separate from the delta sweep). |
 | `KG_LOOP_INTERVAL` | `3600` | Loop cadence (seconds). |
@@ -146,7 +147,7 @@ failures (unconfigured → *skipped*, not *errored*).
 Make the process the scheduler host and start the daemon:
 
 ```bash
-# in config.json / .env
+# as the KG_DAEMON_ROLE AgentConfig alias
 KG_DAEMON_ROLE=host
 # then
 graph-os-daemon            # the gateway-hosted daemon (flock-elected host runs the scheduler)
@@ -157,7 +158,9 @@ graph-os-daemon            # the gateway-hosted daemon (flock-elected host runs 
 
 ### Trigger a delta sync on demand
 
-- **MCP:** `source_sync(source="all", mode="delta")` — the canonical tool; one source: `source_sync(source="leanix", mode="delta")`. (`graph_hydrate` is a back-compat alias; `graph_ingest` is for path/URL/document content.)
+- **MCP:** `source_sync(source="all", mode="delta")`; one source:
+  `source_sync(source="leanix", mode="delta")`. `graph_ingest` is reserved for
+  path, URL, and document content.
 - **REST:** `POST /api/dashboard/hydrate/{source}` · `POST /api/dashboard/hydrate` (all) · `POST /api/dashboard/daemon/start`.
 
 ### Add a new delta-capable source
@@ -174,18 +177,18 @@ Give a hot source its own cadence by adding a `schedules.yml` entry
 
 Hand Claude this recipe in a new environment. The guided path:
 
-- **tiny / single-node** → the **`agent-utilities-deployment`** skill (alias
-  `self-setup`): composes `setup-config` + `setup-databases` + the
+- **tiny / single-node** → the **`agent-utilities-deployment`** skill: composes
+  `setup-config` + `setup-databases` + the
   `database-environment-setup` skill, then verifies with `agent-utilities-doctor`.
-- **enterprise / multi-node** → the **`agent-os-genesis`** skill (aliases `day0`,
-  `day0_bootstrap_orchestrator`), driven by the root **`genesis.yaml`** manifest.
+- **enterprise / multi-node** → the **`agent-utilities-deployment`** skill, driven by
+  the root **`genesis.yaml`** manifest.
   Its backend/config steps:
-  - **A1 `agent-utilities-install`** — install; tiny writes `GRAPH_BACKEND=epistemic_graph`.
-  - **A2 `graph-os-and-multiplexer`** — deploys `graph-os` pinned to the KG host
-    with `KG_DAEMON_ROLE=host` and the shared `~/.config/agent-utilities/config.json`
-    volume; for mirror profiles sets `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS`
-    and points `GRAPH_DB_URI` at the pggraph mirror.
-  - **A4 `integrations-wiring`** — wires `pggraph` (`GRAPH_DB_URI`), Kafka,
+  - **A1 `agent-utilities-install`** — install; tiny uses the fixed engine authority.
+  - **A2 `graph-os`** — deploys `graph-os` pinned to the KG host
+    with `KG_DAEMON_ROLE=host` and the shared XDG `config.json`
+    volume; for mirror profiles sets `GRAPH_MIRROR_TARGETS`
+    and points `GRAPH_DB_CONNECTION_PROFILE_REF` at the pggraph mirror.
+  - **A4 `integrations-wiring`** — wires `pggraph` (`GRAPH_DB_CONNECTION_PROFILE_REF`), Kafka,
     OpenBao, Keycloak.
 
 Minimal genesis-aligned sequence:
@@ -193,7 +196,7 @@ Minimal genesis-aligned sequence:
 ```bash
 scripts/install.sh --profile single-node-prod
 setup-config generate --profile single-node-prod
-setup-databases --profile prod --postgres-mode managed_image --dsn "$GRAPH_DB_URI" --verify
+setup-databases --profile prod --postgres-mode managed_image --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF" --verify
 # set KG_DAEMON_ROLE=host in config.json, then:
 graph-os-daemon
 agent-utilities-doctor --preflight --profile single-node-prod --live
@@ -223,4 +226,4 @@ source_sync(source="all", mode="delta")   # each result carries "skipped_unchang
 | `skipped_unchanged` always 0 on re-run | `KG_WRITE_DELTA=0`, or backend can't answer the prefetch | Set `KG_WRITE_DELTA=1`; confirm the backend persists `content_hash` (any real backend does). |
 | Sweep never runs | No host daemon | Set `KG_DAEMON_ROLE=host` and run `graph-os-daemon`; confirm the flock isn't held elsewhere. |
 | A source is `skipped` in the sweep | Unconfigured (no client/creds) | Add the connector's credentials; unconfigured sources are skipped, not errored. |
-| Writes not appearing in the pg-age mirror | `GRAPH_BACKEND` not `fanout`, or no mirror DSN | Set `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS`, `GRAPH_DB_URI` + `GRAPH_PG_AGE=1` (restart-required) and re-run `setup-databases`. (The engine authority is durable on its own; the mirror is optional.) |
+| Writes not appearing in the pg-age projection | No mirror declaration or profile | Set `GRAPH_MIRROR_TARGETS`, `GRAPH_DB_CONNECTION_PROFILE_REF`, and `GRAPH_PG_AGE=1` (restart-required), then re-run `setup-databases`. The engine authority is durable on its own. |

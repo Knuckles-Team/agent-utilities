@@ -155,15 +155,20 @@ class Registry:
                 available_fields=instance.get_fields(),
                 supports_websocket=getattr(instance, "supports_websocket", False),
                 env_prefix=getattr(instance, "env_prefix", ""),
-                default_url=getattr(instance, "default_url", ""),
             )
             logger.debug("Loaded widget: %s (%s)", widget_type, instance.display_name)
 
-        except ImportError as e:
-            logger.debug("Widget %s skipped — missing dependency: %s", widget_type, e)
-        except Exception as e:
+        except ImportError as exc:
+            logger.debug(
+                "Widget %s skipped (exception_type=%s)",
+                widget_type,
+                type(exc).__name__,
+            )
+        except Exception as exc:
             logger.warning(
-                "Widget %s failed to load: %s", widget_type, e, exc_info=True
+                "Widget %s failed to load (exception_type=%s)",
+                widget_type,
+                type(exc).__name__,
             )
 
 

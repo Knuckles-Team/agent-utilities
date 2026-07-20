@@ -88,10 +88,11 @@ async def test_extract_tool_metadata():
         patch("builtins.open", MagicMock()),
         patch("json.load", return_value={"mcpServers": {}}),
         patch(
-            "agent_utilities.mcp.agent_manager.load_mcp_config",
+            "agent_utilities.mcp.agent_manager.load_mcp_servers_from_config",
             return_value=[mock_server],
-        ),
+        ) as load_servers,
     ):
         tools = await extract_tool_metadata(config_path)
         assert len(tools) == 1
         assert tools[0].name == "tool1"
+        load_servers.assert_called_once_with(config_path)

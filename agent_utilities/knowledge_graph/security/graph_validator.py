@@ -212,7 +212,7 @@ class ValidationReport:
 
 
 class GraphValidator:
-    """Non-blocking, tiered graph integrity validator.
+    """Non-blocking, staged graph integrity validator.
 
     CONCEPT:AU-KG.ontology.graph-integrity-validator — Graph Integrity Validator
 
@@ -295,13 +295,13 @@ class GraphValidator:
         graph = self.engine.graph
 
         for node_id, data in list(graph.nodes(data=True)):
-            # 1a. Normalize LLM type aliases
-            node_type = data.get("type", "")
+            # 1a. Normalize LLM node-type aliases
+            node_type = data.get("node_type", "")
             if isinstance(node_type, str):
                 type_lower = node_type.lower().strip()
                 canonical = NODE_TYPE_ALIASES.get(type_lower)
                 if canonical and type_lower != canonical:
-                    graph.nodes[node_id]["type"] = canonical
+                    graph.nodes[node_id]["node_type"] = canonical
                     report.tier1_fixes.append(
                         ValidationIssue(
                             tier=1,
@@ -365,14 +365,14 @@ class GraphValidator:
                             )
                         )
 
-        # 1e. Normalize edge type aliases
+        # 1e. Normalize edge relationship aliases
         for u, v, key, data in list(graph.edges(data=True, keys=True)):
-            edge_type = data.get("type", "")
+            edge_type = data.get("relationship", "")
             if isinstance(edge_type, str):
                 type_lower = edge_type.lower().strip()
                 canonical = EDGE_TYPE_ALIASES.get(type_lower)
                 if canonical and type_lower != canonical:
-                    graph.edges[u, v, key]["type"] = canonical
+                    graph.edges[u, v, key]["relationship"] = canonical
                     report.tier1_fixes.append(
                         ValidationIssue(
                             tier=1,
@@ -450,29 +450,29 @@ class GraphValidator:
                     )
                 )
 
-        # 2c. Nodes with type=None or missing type
+        # 2c. Nodes with node_type=None or missing node_type
         for node_id, data in graph.nodes(data=True):
-            if not data.get("type"):
+            if not data.get("node_type"):
                 report.tier2_violations.append(
                     ValidationIssue(
                         tier=2,
                         category="missing_type",
                         node_id=node_id,
                         edge_key=None,
-                        message=f"Node '{node_id}' has no type",
+                        message=f"Node '{node_id}' has no node_type",
                     )
                 )
 
-        # 2d. Edges with missing type
+        # 2d. Edges with missing relationship
         for u, v, data in graph.edges(data=True):
-            if not data.get("type"):
+            if not data.get("relationship"):
                 report.tier2_violations.append(
                     ValidationIssue(
                         tier=2,
                         category="untyped_edge",
                         node_id=None,
                         edge_key=f"{u} → {v}",
-                        message=f"Edge '{u}' → '{v}' has no type",
+                        message=f"Edge '{u}' → '{v}' has no relationship",
                     )
                 )
 

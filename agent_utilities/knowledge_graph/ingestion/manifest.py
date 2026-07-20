@@ -5,15 +5,11 @@ A single, durable record of "what content has already been ingested" keyed by
 consults it before dispatching an adaptor so unchanged sources are skipped
 across process restarts; adaptors never re-parse or duplicate work.
 
-Storage: in practice the durable tier (pggraph/PostgreSQL) is SCHEMA-CONSTRAINED
-and has no ``:IngestManifest`` table, and the pure in-memory L1
-(``EpistemicGraphBackend``) isn't durable across restart — so for all real
-backends the manifest uses a small **SQLite store under ``data_dir()``**
-(``kg_ingest_manifest.db``, WAL, mirroring the proven ``SQLiteTaskQueue``
-pattern), which is durable + robust + backend-agnostic. A graph-native
-``:IngestManifest`` path (via the ``GraphBackend.execute()`` MERGE contract) is
-retained for any future backend that can durably store arbitrary labels; see
-``_NON_DURABLE_BACKENDS`` for the SQLite-fallback set.
+Storage: durable graph authorities store ``:IngestManifest`` nodes through the
+``GraphBackend.execute()`` MERGE contract. A bounded SQLite store under
+``data_dir()`` is used only when no durable backend is supplied, such as isolated
+tests. The selection is made by ``is_durable_backend`` rather than backend-name
+or topology heuristics.
 """
 
 from __future__ import annotations
@@ -22,6 +18,7 @@ import logging
 import sqlite3
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -59,7 +56,7 @@ class DeltaManifest:
         if self.mode == "sqlite":
             self._db_path = db_path or self._default_db_path()
             self._init_sqlite()
-            logger.debug("DeltaManifest: SQLite mode at %s", self._db_path)
+            logger.debug("DeltaManifest: SQLite mode active")
         else:
             logger.debug(
                 "DeltaManifest: graph mode via %s", type(self._backend).__name__
@@ -74,6 +71,7 @@ class DeltaManifest:
 
     def _init_sqlite(self) -> None:
         with self._lock:
+            Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(self._db_path, timeout=30.0)
             try:
                 with conn:

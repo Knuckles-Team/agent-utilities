@@ -21,18 +21,29 @@ incremental watermark so DB content lands in the KG as ``Document`` + ``Chunk``
 ontology objects (with all the OWL/ACL benefits the framework brings).
 """
 
+import json
+import re
 from collections.abc import Iterator
 from typing import Any
+
+from agent_utilities.security.persistence_privacy import (
+    PersistencePrivacyGuard,
+    persistence_reference,
+)
 
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
 from ..registry import register_source
+
+_SECRET_REF_RE = re.compile(r"^(?:vault|env|secret)://[A-Za-z0-9_./#-]+$")
+_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,254}$")
+_SOURCE_ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{1,62}$")
 
 
 @register_source("database")
@@ -42,9 +53,10 @@ class DatabaseConnector(LoadConnector, PollConnector):
     CONCEPT:AU-ECO.connector.document-source-framework.
 
     Config:
-        dsn: Connection string (e.g. ``postgresql://user:pw@host/db``,
-            ``mysql://…`` (MariaDB), ``mssql://…``, ``oracle://…``,
-            ``sqlite:///path.db``, ``mongodb://…``). Required.
+        connection_profile_ref: Runtime secret reference resolving to either a
+            DSN string or ``{"dsn": ..., "kind": ...}``. Required unless
+            ``conn`` is injected. The resolved profile never enters durable
+            connector config, logs, provenance, or graph identifiers.
         kind: Optional explicit backend kind (inferred from the DSN otherwise).
         query: The SQL/Mongo query whose rows become documents (required).
         id_field / title_field / text_field: row→document field map.
@@ -56,6 +68,8 @@ class DatabaseConnector(LoadConnector, PollConnector):
             rows; when unset, ``poll`` re-runs the full query and filters in-memory
             by ``updated_field``.
         conn: Optional pre-built ``UniversalConnector`` (injected for tests).
+        source_alias: Optional neutral logical alias (never an endpoint/name).
+        max_rows: Hard cap per load/poll request; overflow fails closed.
     """
 
     provider = "Database"
@@ -63,7 +77,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
     def configure(
         self,
         *,
-        dsn: str = "",
+        connection_profile_ref: str = "",
         kind: str | None = None,
         query: str = "",
         id_field: str = "id",
@@ -71,30 +85,143 @@ class DatabaseConnector(LoadConnector, PollConnector):
         text_field: str = "text",
         updated_field: str = "",
         watermark_param: str = "",
+        source_alias: str = "database-source",
+        max_rows: int = 5_000,
         conn: Any = None,
         **_: object,
     ) -> None:
-        if conn is None and not dsn:
-            raise ValueError("DatabaseConnector requires a 'dsn' (or an injected conn)")
+        if "dsn" in _:
+            raise ValueError("legacy database dsn configuration is unsupported")
+        profile_ref = str(connection_profile_ref or "").strip()
+        if conn is None and not _SECRET_REF_RE.fullmatch(profile_ref):
+            raise ValueError(
+                "DatabaseConnector requires a runtime connection_profile_ref"
+            )
+        if (
+            conn is not None
+            and profile_ref
+            and not _SECRET_REF_RE.fullmatch(profile_ref)
+        ):
+            raise ValueError("literal database connection values are not supported")
         if not query:
             raise ValueError("DatabaseConnector requires a 'query'")
-        self.dsn = dsn
-        self.kind = kind
+        if len(query.encode("utf-8")) > 65_536 or "\x00" in query:
+            raise ValueError("DatabaseConnector query is invalid")
+        if not _SOURCE_ALIAS_RE.fullmatch(source_alias):
+            raise ValueError("DatabaseConnector source_alias is invalid")
+        if not isinstance(max_rows, int) or isinstance(max_rows, bool):
+            raise ValueError("DatabaseConnector max_rows is invalid")
+        if not 1 <= max_rows <= 9_999:
+            raise ValueError("DatabaseConnector max_rows is out of range")
+        fields = (id_field, title_field, text_field)
+        if updated_field:
+            fields = (*fields, updated_field)
+        if watermark_param:
+            fields = (*fields, watermark_param)
+        if any(not _FIELD_RE.fullmatch(value) for value in fields):
+            raise ValueError("DatabaseConnector field mapping is invalid")
+        effective_kind = str(kind or "").strip().lower() or None
+        self._validate_read_query(query, effective_kind)
+        self.connection_profile_ref = profile_ref
+        self.kind = effective_kind
         self.query = query
         self.id_field = id_field
         self.title_field = title_field
         self.text_field = text_field
         self.updated_field = updated_field
         self.watermark_param = watermark_param
+        self.source_alias = source_alias
+        self.source_ref = persistence_reference(
+            "database_source",
+            f"{source_alias}\x00{profile_ref or 'injected-source'}",
+        )
+        self.max_rows = max_rows
         self._conn = conn
+        self._privacy_guard = PersistencePrivacyGuard()
+        self.external_access = default_external_access()
+
+    @staticmethod
+    def _validate_read_query(query: str, kind: str | None) -> None:
+        """Reject obvious mutating or stacked SQL at the ingestion boundary.
+
+        This is defense in depth; production credentials must still be granted
+        read-only database permissions. Mongo's ``query`` is a collection name,
+        while SQL ingestion deliberately accepts one plain ``SELECT`` only.
+        """
+        value = query.strip()
+        if kind == "mongodb":
+            if not re.fullmatch(r"[A-Za-z0-9_.-]{1,255}", value):
+                raise ValueError("Mongo source query must be a collection name")
+            return
+        if value.endswith(";"):
+            value = value[:-1].rstrip()
+        if (
+            not re.match(r"(?is)^select\b", value)
+            or ";" in value
+            or "--" in value
+            or "/*" in value
+            or re.search(r"(?is)\binto\b", value)
+            or re.search(r"(?is)\bfor\s+(update|share)\b", value)
+        ):
+            raise ValueError("Database ingestion requires one read-only SELECT query")
 
     def _connection(self) -> Any:
         if self._conn is None:
+            from agent_utilities.security.secrets_client import create_secrets_client
+
             from ...universal_connector import UniversalConnector
             from ..registry import logger  # reuse package logger
 
             logger.debug("[ECO-4.25] opening database connection kind=%s", self.kind)
-            self._conn = UniversalConnector(self.dsn, kind=self.kind)
+            secrets = create_secrets_client()
+            raw = secrets.resolve_ref(self.connection_profile_ref)
+            rendered = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
+            if not rendered or len(rendered.encode("utf-8")) > 65_536:
+                raise ValueError("database connection profile is unavailable")
+            profile_kind = None
+            resolved_dsn = rendered
+            try:
+                profile = json.loads(rendered)
+            except (TypeError, ValueError):
+                profile = None
+            if isinstance(profile, dict):
+                if set(profile).difference(
+                    {"dsn", "kind", "tls_service", "tls_profile", "tls_profile_ref"}
+                ):
+                    raise ValueError(
+                        "database connection profile has unsupported fields"
+                    )
+                resolved_dsn = str(profile.get("dsn") or "")
+                profile_kind = str(profile.get("kind") or "").strip().lower() or None
+            if (
+                not resolved_dsn
+                or "\x00" in resolved_dsn
+                or len(resolved_dsn.encode("utf-8")) > 8_192
+            ):
+                raise ValueError("database connection profile is unavailable")
+            if self.kind and profile_kind and self.kind != profile_kind:
+                raise ValueError("database connection profile kind does not match")
+            self._conn = UniversalConnector(
+                resolved_dsn,
+                kind=self.kind or profile_kind,
+                source_alias=self.source_alias,
+                tls_service=(
+                    str(profile.get("tls_service") or "").strip() or None
+                    if isinstance(profile, dict)
+                    else None
+                ),
+                tls_profile=(
+                    str(profile.get("tls_profile") or "").strip() or None
+                    if isinstance(profile, dict)
+                    else None
+                ),
+                tls_profile_ref=(
+                    str(profile.get("tls_profile_ref") or "").strip() or None
+                    if isinstance(profile, dict)
+                    else None
+                ),
+                tls_resolver=secrets.resolve_ref,
+            )
         return self._conn
 
     def health_check(self) -> bool:
@@ -108,21 +235,45 @@ class DatabaseConnector(LoadConnector, PollConnector):
         text = row.get(self.text_field)
         if rid is None or not isinstance(text, str) or not text.strip():
             return None
+        rendered_id = str(rid)
+        if not rendered_id or len(rendered_id.encode("utf-8")) > 4_096:
+            return None
+        document_id = persistence_reference(
+            "source_document",
+            rendered_id,
+            namespace=self.source_ref,
+        )
         title = row.get(self.title_field)
         updated = row.get(self.updated_field) if self.updated_field else None
+        clean_title, _ = self._privacy_guard.sanitize_text(
+            str(title) if title else "database record"
+        )
+        clean_text, _ = self._privacy_guard.sanitize_text(text)
+        clean_updated = None
+        if updated is not None:
+            clean_updated, _ = self._privacy_guard.sanitize_text(str(updated))
         return SourceDocument(
-            id=str(rid),
-            source_uri=f"{self.kind or 'db'}://{self.id_field}={rid}",
-            title=str(title) if title else str(rid),
-            text=text,
+            id=document_id,
+            source_uri=(f"external-source://{self.source_ref}/{document_id}"),
+            title=clean_title,
+            text=clean_text,
             doc_type="record",
-            metadata={"row": {k: str(v) for k, v in row.items()}},
-            external_access=ExternalAccess.public(),
-            updated_at=str(updated) if updated is not None else None,
+            metadata={
+                "source_system": self.kind or "database",
+                "source_ref": self.source_ref,
+            },
+            external_access=self.external_access.model_copy(deep=True),
+            updated_at=clean_updated,
         )
 
     def _run(self, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        rows = self._connection().read(self.query, params or {})
+        rows = self._connection().read(
+            self.query,
+            params or {},
+            max_rows=self.max_rows + 1,
+        )
+        if len(rows) > self.max_rows:
+            raise RuntimeError("database source result exceeds the configured row cap")
         return [r for r in rows if isinstance(r, dict)]
 
     # -- LoadConnector -----------------------------------------------------

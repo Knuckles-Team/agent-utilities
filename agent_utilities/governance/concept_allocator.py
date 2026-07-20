@@ -1,23 +1,22 @@
-"""Atomic concept-ID allocation for parallel Claude sessions (CONCEPT:AU-OS.governance.concept-id-allocation).
+"""Atomic OKF-CIS concept-ID reservation (CONCEPT:AU-OS.governance.concept-id-allocation).
 
-Many sessions work the agent-packages ecosystem at once, each in its own git
-worktree under ``/home/apps/worktrees/``, all merging to a shared ``main``.
-Concept ids (``KG-2.101``, ``AHE-3.49``, the per-package ``KEY-001`` …) are the
-contended resource: two sessions that both read "the current max is .100" both
-pick ``.101`` and collide at merge, forcing a renumber.
+Many sessions work the package ecosystem at once, each in its own configured git
+worktree, all merging to a shared branch.
+Semantic concept IDs are a contended resource: two sessions can independently
+author the same canonical ID and collide at merge.
 
 This module makes a claim **atomic and self-correcting**:
 
-* The set of "taken" ids is the union of three sources — markers already in
+* Callers propose a complete canonical OKF-CIS ID; the allocator never invents
+  semantic names.
+* The set of taken IDs is the union of three sources — markers already in
   code, ids already in the registry (``docs/concepts.yaml``), and *open
   reservations* — so an in-flight claim in another worktree is counted before
   its marker ever lands.
 * Reservations live in a committed, **line-oriented** ledger
   (``docs/concept_reservations.yaml``) so concurrent worktrees reconcile via a
   ``merge=union`` git driver instead of overwriting each other.
-* Within a host, the read-modify-write is serialized by an ``fcntl.flock`` —
-  the same primitive :class:`agent_utilities.mcp.kg_coordinator.KGCoordinator`
-  uses for KG-server spawn election.
+* Within a host, the read-modify-write is serialized by an ``fcntl.flock``.
 
 The ledger is authoritative for *claiming* (it works offline and across
 worktrees). The MCP/REST surface additionally projects reservations into the
@@ -39,31 +38,31 @@ from pathlib import Path
 from typing import Any
 
 # CONCEPT:AU-OS.governance.concept-id-allocation — Multi-session concept-ID allocation & coordination protocol.
-# ---------------------------------------------------------------------------
-# Canonical marker grammar — the ONE definition. ``scripts/build_concepts_yaml.py``
-# and ``scripts/check_concepts.py`` import this so the three scanners can never
-# drift. A concept id is ``<PILLAR>-<n>`` followed by ZERO OR MORE ``.<sub>``
-# segments where each sub-index is numeric or a placeholder letter — so the flat
-# ``EG-321``, the 2-level ``KG-2.312`` / ``KG-2.20g``, AND the 3-level
-# ``EG-3.31.20`` (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5) all match. The trailing ``*`` (was ``?``)
-# is the ONE non-breaking change that teaches every scanner the dotted grammar.
-# ---------------------------------------------------------------------------
-# OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): the ONE canonical marker regex now lives in
-# concept_hierarchy; import it so scanners can never drift from the grammar.
+# The grammar lives in concept_hierarchy; every scanner imports this exact regex.
 from agent_utilities.governance.concept_hierarchy import (
-    OKF_MARKER_RE as MARKER_RE,  # noqa: E402
+    OKF_MARKER_RE,
+    is_valid_domain,
+    parse_okf_id,
 )
 
-# A pillar namespace carries the major number (``KG-2``, ``OS-5``) and mints
-# dotted sub-indices. A package namespace is letters only (``KEY``, ``GL``) and
-# mints zero-padded 3-digit indices. A concept namespace (``KG-2.312``,
-# CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5) carries pillar+concept and mints the 3rd-level segment.
-_PILLAR_NS_RE = re.compile(r"^[A-Z]+-\d+$")
-_PACKAGE_NS_RE = re.compile(r"^[A-Z]+$")
-_CONCEPT_NS_RE = re.compile(r"^[A-Z]+-\d+\.[0-9A-Za-z]+$")
-
+MARKER_RE = OKF_MARKER_RE
 LEDGER_FILENAME = "concept_reservations.yaml"
 DEFAULT_TTL_SECONDS = 86_400  # 24h — a reservation older than this is reclaimable.
+_LEDGER_REFERENCE_RE = re.compile(r"^pref_[a-z0-9_]+_[0-9a-f]{64}$")
+_LEDGER_REQUIRED_KEYS = frozenset(
+    {
+        "id",
+        "slug",
+        "pillar",
+        "domain",
+        "session_ref",
+        "reserved_at",
+        "expires_at",
+        "status",
+    }
+)
+_LEDGER_OPTIONAL_KEYS = frozenset({"design_ref", "landed_at"})
+_LEDGER_STATUSES = frozenset({"reserved", "landed", "expired"})
 
 # Repo root = three parents up from this file (.../agent_utilities/governance/x.py).
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -108,9 +107,17 @@ def registry_ids(concepts_yaml: Path) -> set[str]:
     import yaml
 
     data = yaml.safe_load(concepts_yaml.read_text(encoding="utf-8")) or {}
-    return {
-        c["id"] for c in data.get("concepts", []) if isinstance(c, dict) and c.get("id")
-    }
+    concepts = data.get("concepts", [])
+    if not isinstance(concepts, list):
+        raise ValueError("concept registry must contain a concepts list")
+    ids: set[str] = set()
+    for concept in concepts:
+        if not isinstance(concept, dict) or not concept.get("id"):
+            raise ValueError("concept registry contains an invalid entry")
+        concept_id = str(concept["id"])
+        parse_okf_id(concept_id)
+        ids.add(concept_id)
+    return ids
 
 
 # ---------------------------------------------------------------------------
@@ -134,25 +141,57 @@ def _lock_path(repo_root: Path = REPO_ROOT) -> Path:
 
     lock_dir = Path(platformdirs.user_runtime_dir("agent-utilities"))
     lock_dir.mkdir(parents=True, exist_ok=True)
-    # Not a security hash — just a short, stable filename token for the per-repo
-    # lock path. usedforsecurity=False keeps it FIPS-safe and silences B324.
-    digest = hashlib.sha1(
-        str(repo_root.resolve()).encode("utf-8"), usedforsecurity=False
-    ).hexdigest()[:12]
+    # Collision resistance matters: two roots must never share a ledger lock.
+    digest = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()[:32]
     return lock_dir / f"concept_ledger.{digest}.lock"
 
 
 def read_ledger(repo_root: Path = REPO_ROOT) -> list[dict[str, Any]]:
-    """Return every reservation record in the committed ledger."""
+    """Return current-schema reservation records, rejecting stale/raw fields."""
     path = ledger_path(repo_root)
     if not path.exists():
         return []
     import yaml
 
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or []
-    if not isinstance(data, list):
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if data is None:
         return []
-    return [r for r in data if isinstance(r, dict) and r.get("id")]
+    if not isinstance(data, list):
+        raise ValueError("concept reservation ledger must be a list")
+    records: list[dict[str, Any]] = []
+    for record in data:
+        if not isinstance(record, dict):
+            raise ValueError("concept reservation ledger contains a non-record")
+        keys = set(record)
+        if not _LEDGER_REQUIRED_KEYS <= keys or keys - (
+            _LEDGER_REQUIRED_KEYS | _LEDGER_OPTIONAL_KEYS
+        ):
+            raise ValueError("concept reservation ledger record has invalid fields")
+        concept_id = str(record["id"])
+        parsed = parse_okf_id(concept_id)
+        if (
+            str(record["slug"]) != parsed.slug
+            or str(record["pillar"]) != parsed.pillar
+            or str(record["domain"]) != parsed.domain
+        ):
+            raise ValueError("concept reservation ledger identity fields disagree")
+        if str(record["status"]) not in _LEDGER_STATUSES:
+            raise ValueError("concept reservation ledger status is invalid")
+        for field in ("session_ref", "design_ref"):
+            if field in record and not _LEDGER_REFERENCE_RE.fullmatch(
+                str(record[field])
+            ):
+                raise ValueError("concept reservation ledger contains a raw identity")
+        for field in ("reserved_at", "expires_at", "landed_at"):
+            if field in record:
+                try:
+                    datetime.fromisoformat(str(record[field]))
+                except ValueError:
+                    raise ValueError(
+                        "concept reservation ledger timestamp is invalid"
+                    ) from None
+        records.append(record)
+    return records
 
 
 def _dump_ledger(records: list[dict[str, Any]], repo_root: Path = REPO_ROOT) -> None:
@@ -166,8 +205,7 @@ def _dump_ledger(records: list[dict[str, Any]], repo_root: Path = REPO_ROOT) -> 
 
     path = ledger_path(repo_root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Stable order: by namespace then numeric position then id.
-    records = sorted(records, key=lambda r: _sort_key(str(r.get("id", ""))))
+    records = sorted(records, key=lambda r: str(r.get("id", "")))
     lines = [
         "# Concept-ID reservation ledger — one reservation per line (merge=union safe).",
         "# Managed by agent_utilities.governance.concept_allocator; see",
@@ -181,52 +219,6 @@ def _dump_ledger(records: list[dict[str, Any]], repo_root: Path = REPO_ROOT) -> 
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
     os.replace(tmp, path)
-
-
-# ---------------------------------------------------------------------------
-# Next-id computation
-# ---------------------------------------------------------------------------
-def _sort_key(cid: str):
-    nums = [int(n) for n in re.findall(r"\d+", cid)]
-    prefix = re.match(r"^[A-Z]+", cid)
-    return (prefix.group(0) if prefix else cid, nums, cid)
-
-
-def _max_subindex(namespace: str, taken: set[str]) -> int:
-    """Largest numeric sub-index already used in *namespace* across *taken*."""
-    if _CONCEPT_NS_RE.match(namespace):
-        # 3rd-level segment under a concept, e.g. 'AU-KG.compute.surface-analytics-program' → KG-2.312.<seg>.
-        pat = re.compile(rf"^{re.escape(namespace)}\.(\d+)")
-    elif _PILLAR_NS_RE.match(namespace):
-        pat = re.compile(rf"^{re.escape(namespace)}\.(\d+)")
-    elif _PACKAGE_NS_RE.match(namespace):
-        pat = re.compile(rf"^{re.escape(namespace)}-(\d+)$")
-    else:
-        raise ValueError(
-            f"unrecognized namespace {namespace!r}: expected a pillar like 'EG-KG.compute.backend', "
-            "a concept like 'AU-KG.compute.surface-analytics-program', or a package prefix like 'KEY'"
-        )
-    best = 0
-    for cid in taken:
-        m = pat.match(cid)
-        if m:
-            best = max(best, int(m.group(1)))
-    return best
-
-
-def format_id(namespace: str, index: int) -> str:
-    # Concept- and pillar-scoped namespaces both mint a dotted sub-index; the
-    # concept case (KG-2.312.<seg>) is the 3rd level (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5).
-    if _CONCEPT_NS_RE.match(namespace) or _PILLAR_NS_RE.match(namespace):
-        return f"{namespace}.{index}"
-    if _PACKAGE_NS_RE.match(namespace):
-        return f"{namespace}-{index:03d}"
-    raise ValueError(f"unrecognized namespace {namespace!r}")
-
-
-def next_id(namespace: str, taken: set[str]) -> str:
-    """Compute the next free id in *namespace* given the union of taken ids."""
-    return format_id(namespace, _max_subindex(namespace, taken) + 1)
 
 
 def _open_reservation_ids(records: list[dict[str, Any]], *, now: datetime) -> set[str]:
@@ -274,7 +266,7 @@ def _taken_union(
 
 
 def reserve_concept_id(
-    namespace: str,
+    concept_id: str,
     *,
     session_id: str,
     design_doc: str | None = None,
@@ -282,29 +274,42 @@ def reserve_concept_id(
     repo_root: Path = REPO_ROOT,
     scan_roots: list[Path] | None = None,
 ) -> dict[str, Any]:
-    """Atomically reserve the next free id in *namespace* and append it to the ledger.
+    """Atomically reserve an exact canonical ID and append it to the ledger.
 
     Serialized by an ``fcntl.flock`` so concurrent callers on the same host can
-    never mint the same id; the committed line-oriented ledger plus the
-    union-of-everything ``taken`` set extend that guarantee across worktrees.
+    never claim the same ID; the committed line-oriented ledger plus the
+    union-of-everything taken set extend that guarantee across worktrees.
     """
+    if not str(session_id or "").strip():
+        raise ValueError("session_id is required")
+    parsed = parse_okf_id(concept_id)
+    if not is_valid_domain(parsed.pillar, parsed.domain):
+        raise ValueError(
+            f"domain {parsed.domain!r} is not registered for pillar {parsed.pillar!r}"
+        )
+
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     lock_fd = open(_lock_path(repo_root), "w")  # noqa: SIM115
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
         now = _utcnow()
         records = read_ledger(repo_root)
         taken = _taken_union(repo_root, records, now=now, scan_roots=scan_roots)
-        cid = next_id(namespace, taken)
+        if concept_id in taken:
+            raise ValueError(f"concept id is already registered or reserved: {concept_id}")
         record = {
-            "id": cid,
-            "namespace": namespace,
-            "session": session_id,
+            "id": concept_id,
+            "slug": parsed.slug,
+            "pillar": parsed.pillar,
+            "domain": parsed.domain,
+            "session_ref": persistence_reference("concept_session", session_id),
             "reserved_at": _iso(now),
             "expires_at": _iso(now + timedelta(seconds=ttl_seconds)),
             "status": "reserved",
         }
         if design_doc:
-            record["design_doc"] = design_doc
+            record["design_ref"] = persistence_reference("design_doc", design_doc)
         records.append(record)
         _dump_ledger(records, repo_root)
         return record
@@ -317,6 +322,7 @@ def reserve_concept_id(
 
 def release_concept_id(concept_id: str, *, repo_root: Path = REPO_ROOT) -> bool:
     """Release a reservation (e.g. the work was abandoned). Returns True if found."""
+    parse_okf_id(concept_id)
     lock_fd = open(_lock_path(repo_root), "w")  # noqa: SIM115
     try:
         fcntl.flock(lock_fd, fcntl.LOCK_EX)

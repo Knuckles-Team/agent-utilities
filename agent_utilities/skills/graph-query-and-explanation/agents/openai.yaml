@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Query and Explanation"
+  short_description: "Bounded local or federated Graph-OS explanations"
+  default_prompt: "Use $graph-query-and-explanation to answer this question with bounded retrieval, evidence, and explicit uncertainty."

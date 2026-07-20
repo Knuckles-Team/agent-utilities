@@ -4,8 +4,9 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
 
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.protocols.acp_adapter import (
     _ACP_INSTALLED,
     build_acp_config,
@@ -25,7 +26,7 @@ def mock_graph():
 @pytest.mark.asyncio
 async def test_acp_graph_integration():
     """Test that ACP requests are correctly routed through the graph pipeline."""
-    agent = Agent(model="test")
+    agent = create_context_agent(TestModel())
     config = build_acp_config()
 
     # Mock the graph execution
@@ -49,14 +50,14 @@ async def test_acp_graph_integration():
 
         assert app is not None
 
-        # Verify the graph_agent wrapper has run_graph_flow tool
+        # Verify the graph-agent wrapper binds the execute_graph authority.
         # We need to look inside the app structure (implementation dependent)
         # For now, let's verify the tool logic works
 
-        # If we can't easily call the app endpoints, let's test the run_graph_flow logic directly
+        # If we can't easily call the app endpoints, test the execution binding directly
         # by extracting it from create_graph_acp_app if possible, or mocking the call.
 
-        # Let's try to simulate a tool call to run_graph_flow
+        # A full tool call requires pydantic-acp internals; construction is the seam here.
         # (This is a bit tricky without knowing pydantic-acp internals, but we can verify the adapter logic)
 
         mock_execute.assert_not_called()

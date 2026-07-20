@@ -45,7 +45,7 @@ def sample_registry() -> dict:
         "AU-KG.memory.tiered-memory-caching": {
             "name": "SelfModel",
             "pillar": "EG-KG.compute.backend",
-            "module": "knowledge_graph/self_model.py",
+            "module": "knowledge_graph/retrieval/memory_retriever.py",
         },
         "AU-KG.query.vendor-agnostic-traversal": {
             "name": "Context Compaction",

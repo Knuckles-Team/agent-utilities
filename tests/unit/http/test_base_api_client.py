@@ -312,7 +312,7 @@ def test_paginate_raises_mapped_error_on_failed_page():
 
 
 # --------------------------------------------------------------------------- #
-# per-call timeout + verify default
+# per-call timeout + TLS policy
 # --------------------------------------------------------------------------- #
 
 
@@ -328,11 +328,13 @@ def test_per_call_timeout_reaches_transport():
     assert seen["read"] == 3.5
 
 
-def test_verify_defaults_true():
-    with BaseApiClient(
-        BASE, transport=httpx.MockTransport(lambda r: httpx.Response(200))
-    ) as client:
-        assert client.verify is True
+def test_raw_tls_transport_controls_are_rejected():
+    with pytest.raises(ValueError, match="TLS profile"):
+        BaseApiClient(
+            BASE,
+            transport=httpx.MockTransport(lambda r: httpx.Response(200)),
+            verify=True,
+        )
 
 
 # --------------------------------------------------------------------------- #

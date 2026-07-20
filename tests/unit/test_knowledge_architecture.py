@@ -755,7 +755,7 @@ class TestOntologyPublisher:
         )
 
         assert result["status"] == "success"
-        assert "v1.2.3" in result["path"]
+        assert result["artifact_ref"].startswith("pref_ontology_export_")
 
     def test_push_to_stardog_without_pystardog(self):
         """Push to Stardog gracefully fails when pystardog is missing."""

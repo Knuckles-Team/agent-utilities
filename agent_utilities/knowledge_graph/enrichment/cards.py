@@ -44,6 +44,11 @@ class CapabilityCard(BaseModel):
     summary: str = ""
     responsibilities: list[str] = Field(default_factory=list)
     patterns: list[str] = Field(default_factory=list)
+    # Enrichment outcome (CONCEPT:AU-KG.enrichment.card-attempt-status), so the backfill can tell a
+    # PERMANENT empty (``skip`` — trivial accessor or genuinely un-summarizable, never retry)
+    # apart from a TRANSIENT failure (``failed`` — LLM error/outage, retry + trip the breaker).
+    # ``ok`` = a real summary landed. Auto-derived from the summary unless set explicitly.
+    status: str = "ok"
 
 
 _SYMBOL_PROMPT = """Document this {language} {kind} named `{name}` from `{file_path}`.
@@ -223,7 +228,7 @@ class CardStore:
     (CONCEPT:AU-KG.backend.cache-lives-as): the cache lives as ``:CardCache`` nodes on the **one
     epistemic-graph engine authority** (queryable, no extra local DB) — there is no
     SQLite fallback. When no engine backend is supplied the store acquires the
-    active engine backend (the OS-5.63 resolver auto-starts the pi-tier engine in
+    active engine backend (the OS-5.63 resolver auto-starts the mandatory full engine artifact in
     prod; the KG-2.238 fixture provides a real ephemeral one in tests), raising a
     clear error if the engine is genuinely unreachable. Thread-safe and
     best-effort on read/write: a transient query failure degrades to "no cache" so
@@ -246,8 +251,7 @@ class CardStore:
         if not hashes:
             return out
         # Content-addressed by a deterministic node id, so each hash is an O(1)
-        # keyed engine read (the engine's limited Cypher interpreter doesn't do
-        # ``WHERE x IN $list``; keyed reads are the reliable engine primitive).
+        # typed engine point read without parsing or materializing a query batch.
         for h in hashes:
             try:
                 node = self._backend.get_node_properties(self._node_id(h))
@@ -284,7 +288,12 @@ class CardStore:
             logger.debug("CardStore.put_many failed: %s", e)
 
 
-def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
+def _card_for(
+    c: CodeEntity, summary: str, resp: list[str], status: str | None = None
+) -> CapabilityCard:
+    # Auto-derive the attempt status from the summary unless the caller forces one
+    # (an LLM-transport failure passes status="failed" so it is retried, not marked done).
+    _status = status or ("ok" if str(summary).strip() else "skip")
     return CapabilityCard(
         id=c.id,
         kind="symbol",
@@ -294,6 +303,7 @@ def _card_for(c: CodeEntity, summary: str, resp: list[str]) -> CapabilityCard:
         summary=summary,
         responsibilities=resp,
         patterns=c.patterns,
+        status=_status,
     )
 
 
@@ -372,14 +382,16 @@ def generate_symbol_cards(
                         summary, resp = _parse_card_json(llm_fn(prompt))
                     except Exception as e:  # pragma: no cover - transport failure
                         logger.debug("card gen failed for %s: %s", c.id, e)
-                        summary, resp = "", []
+                        # Transient LLM failure → mark 'failed' so it is retried (not
+                        # permanently marked done) and the backfill breaker can trip.
+                        return [_card_for(c, "", [], status="failed")]
                     return [_card_for(c, summary, resp)]
                 prompt = build_batch_prompt(group, calls_by_id)
                 try:
                     parsed = _parse_batch_cards(llm_fn(prompt), len(group))
                 except Exception as e:  # pragma: no cover - transport failure
                     logger.debug("batch card gen failed (%d syms): %s", len(group), e)
-                    parsed = [("", []) for _ in group]
+                    return [_card_for(c, "", [], status="failed") for c in group]
                 return [
                     _card_for(c, s, r) for c, (s, r) in zip(group, parsed, strict=True)
                 ]
@@ -464,41 +476,36 @@ def make_lite_llm_fn() -> LLMFn:
 
 
 def make_llm_fn(model: str | None = None, base_url: str | None = None) -> LLMFn:
-    """Factory: a completion fn backed by the configured chat model (vllm.arpa).
+    """Factory: a completion fn backed by the configured chat model endpoint.
 
     Kept lazy so importing this module never requires an LLM. Falls back to a
     no-op (empty string) if the client can't be built.
     """
     try:
-        from openai import OpenAI
-
-        from agent_utilities.core.config import config
-
-        cfg = config.default_chat_model
+        from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
+            compiled_chat_completion,
+            resolve_bundle_chat_client,
+        )
         # Bounded timeout + retries: the OpenAI client defaults to a 600s (10min)
-        # timeout, so a single stalled vLLM request would wedge a whole ingest
+        # timeout, so a single stalled model request would wedge a whole ingest
         # run indefinitely. Cap it and let the client retry transient failures;
         # on exhaustion the caller's try/except degrades to empty extraction for
         # that item and ingestion proceeds. Fixed bounded values (config
         # discipline: one correct value, not an env knob). (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
         _timeout = _LLM_CARD_TIMEOUT_S
         _retries = _LLM_CARD_MAX_RETRIES
-        client = OpenAI(
-            base_url=base_url
-            or (cfg.base_url if cfg else None)
-            or "http://vllm.arpa/v1",
-            api_key=(cfg.api_key if cfg else None) or "not-needed",
-            timeout=_timeout,
+        client, model_id = resolve_bundle_chat_client(
+            base_url=base_url,
+            model=model,
+            timeout_s=_timeout,
             max_retries=_retries,
         )
-        model_id = model or (cfg.id if cfg else None) or "default"
 
         from openai import BadRequestError
 
         def _fn(prompt: str) -> str:
             kwargs: dict[str, Any] = dict(
                 model=model_id,
-                messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=512,
             )
@@ -513,12 +520,14 @@ def make_llm_fn(model: str | None = None, base_url: str | None = None) -> LLMFn:
             # extraction so ingestion never blocks. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
             try:
                 try:
-                    resp = client.chat.completions.create(
+                    resp = compiled_chat_completion(
+                        prompt,
+                        client=client,
                         **kwargs,
                         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                     )
                 except BadRequestError:
-                    resp = client.chat.completions.create(**kwargs)
+                    resp = compiled_chat_completion(prompt, client=client, **kwargs)
                 # Capture token usage into the active ingest profile (OS-5.69) —
                 # a no-op when no ingest is being profiled.
                 _u = getattr(resp, "usage", None)

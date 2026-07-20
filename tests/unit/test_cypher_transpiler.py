@@ -15,7 +15,7 @@ class TestRelationshipTraversal:
 
     def test_count_traversal(self):
         cypher = "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) RETURN count(r) as c"
-        tq = transpile(cypher, {}, KNOWN_TABLES)
+        tq = transpile(cypher, {}, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.COUNT
         assert '"Memory" s' in tq.sql and '"Concept" t' in tq.sql
         assert "kg_edges e ON e.source_id = s.id" in tq.sql
@@ -26,7 +26,7 @@ class TestRelationshipTraversal:
         cypher = (
             "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) RETURN count(DISTINCT t) as c"
         )
-        tq = transpile(cypher, {}, KNOWN_TABLES)
+        tq = transpile(cypher, {}, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.COUNT
         assert "count(DISTINCT t.id)" in tq.sql
 
@@ -35,7 +35,7 @@ class TestRelationshipTraversal:
             "MATCH (s:Memory)-[r:MENTIONS]->(t:Concept) "
             "RETURN s.id as m, t.name as concept LIMIT 5"
         )
-        tq = transpile(cypher, {}, KNOWN_TABLES)
+        tq = transpile(cypher, {}, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.SELECT
         assert 's."id" AS m' in tq.sql and 't."name" AS concept' in tq.sql
         assert "LIMIT 5" in tq.sql
@@ -46,7 +46,7 @@ class TestCreateNode:
     def test_basic_create(self):
         cypher = "CREATE (n:Agent {id: $id, name: $name, type: $type})"
         params = {"id": "agent-1", "name": "Test", "type": "agent"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.INSERT
         assert tq.target_table == "Agent"
         assert '"Agent"' in tq.sql
@@ -67,7 +67,7 @@ class TestCreateNode:
             "content": "hello\x00world",
             "record": {"k": "v", "n": 1},
         }
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.params[0] == "doc-1"
         assert tq.params[1] == "helloworld"  # NUL stripped
         assert tq.params[2] == json.dumps({"k": "v", "n": 1})  # dict → JSON string
@@ -77,7 +77,7 @@ class TestMatchById:
     def test_match_with_set(self):
         cypher = "MATCH (n:Tool) WHERE n.id = $id SET n.name = $name RETURN n.id"
         params = {"id": "tool-1", "name": "Updated"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.UPDATE
         assert tq.target_table == "Tool"
         assert "UPDATE" in tq.sql
@@ -87,7 +87,7 @@ class TestMatchById:
     def test_match_return_only(self):
         cypher = "MATCH (n:Memory) WHERE n.id = $id RETURN n"
         params = {"id": "mem-1"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         # Should be a SELECT since there's no SET
         assert tq.query_type == QueryType.SELECT
 
@@ -96,7 +96,7 @@ class TestLabelLookup:
     def test_label_function(self):
         cypher = "MATCH (n) WHERE n.id = $id RETURN label(n) as lbl"
         params = {"id": "some-id"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.LABEL_LOOKUP
         assert "UNION ALL" in tq.sql
         assert "lbl" in tq.sql
@@ -109,7 +109,7 @@ class TestContainsSearch:
             "AND coalesce(n.status, '') <> 'ARCHIVED' RETURN n"
         )
         params = {"k0": "search_term"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.SELECT
         assert "LIKE" in tq.sql
 
@@ -121,7 +121,7 @@ class TestMergeRelationship:
             "MERGE (s)-[r:PROVIDES]->(t)"
         )
         params = {"sid": "agent-1", "tid": "tool-1"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.UPSERT_EDGE
         assert "kg_edges" in tq.sql
         assert "ON CONFLICT" in tq.sql
@@ -140,7 +140,7 @@ class TestMergeNode:
             "props_file_path": "/a/b.py",
             "props_type": "symbol",
         }
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.INSERT
         assert tq.target_table == "Code"
         assert 'INSERT INTO "Code"' in tq.sql
@@ -149,17 +149,22 @@ class TestMergeNode:
         assert tq.params == ["code-1", "/a/b.py", "symbol"]
 
     def test_merge_node_no_set_is_do_nothing(self):
-        tq = transpile("MERGE (n:Task {id: $id})", {"id": "job-1"}, KNOWN_TABLES)
+        tq = transpile(
+            "MERGE (n:Concept {id: $id})",
+            {"id": "node-1"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
+        )
         assert tq.query_type == QueryType.INSERT
         assert "ON CONFLICT (id) DO NOTHING" in tq.sql
-        assert tq.params == ["job-1"]
+        assert tq.params == ["node-1"]
 
 
 class TestCountQuery:
     def test_count_pattern(self):
-        cypher = "MATCH (t:Task {status: 'pending'}) RETURN count(t) as c"
+        cypher = "MATCH (n:Memory {status: 'pending'}) RETURN count(n) as c"
         params: dict[str, Any] = {}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type in (QueryType.COUNT, QueryType.SELECT)
 
 
@@ -167,7 +172,7 @@ class TestDeleteQuery:
     def test_detach_delete(self):
         cypher = "MATCH (n:Memory) WHERE n.id = $id DETACH DELETE n"
         params = {"id": "mem-1"}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.DELETE
         assert "DELETE" in tq.sql
 
@@ -176,7 +181,7 @@ class TestLimitAndOrder:
     def test_limit_with_order(self):
         cypher = "MATCH (n:Agent) RETURN n ORDER BY n.name LIMIT 10"
         params: dict[str, Any] = {}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.SELECT
         assert "ORDER BY" in tq.sql
         assert "LIMIT" in tq.sql
@@ -191,7 +196,10 @@ class TestUnlabeledIdLookupPlaceholderParity:
 
     def test_placeholder_count_equals_param_count(self):
         tq = transpile(
-            "MATCH (n) WHERE n.id = $id RETURN n", {"id": "abc"}, KNOWN_TABLES
+            "MATCH (n) WHERE n.id = $id RETURN n",
+            {"id": "abc"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
         )
         assert tq.query_type == QueryType.SELECT
         assert tq.sql.count("%s") == len(tq.params)
@@ -205,6 +213,7 @@ class TestUnlabeledIdLookupPlaceholderParity:
             "MATCH (n) WHERE n.id = $id RETURN n LIMIT $lim",
             {"id": "abc", "lim": 7},
             KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
         )
         assert tq.sql.count("%s") == len(tq.params)
         # trailing LIMIT param sits after the repeated id binds
@@ -219,7 +228,10 @@ class TestUnlabeledIdLookupPlaceholderParity:
         # columns"), poisoning the connection's transaction. Every branch must
         # now project the SAME fixed base column set.
         tq = transpile(
-            "MATCH (n) WHERE n.id = $id RETURN n", {"id": "abc"}, KNOWN_TABLES
+            "MATCH (n) WHERE n.id = $id RETURN n",
+            {"id": "abc"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
         )
         # the unsafe star projection must be gone
         assert "SELECT *," not in tq.sql
@@ -233,25 +245,25 @@ class TestUnlabeledIdLookupPlaceholderParity:
 class TestUnknownPattern:
     def test_unsupported_cypher(self):
         cypher = "CALL db.schema.visualization()"
-        tq = transpile(cypher, {}, KNOWN_TABLES)
+        tq = transpile(cypher, {}, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.UNKNOWN
 
 
 class TestEdgeCases:
     def test_empty_params(self):
         cypher = "MATCH (n:Agent) RETURN n"
-        tq = transpile(cypher, {}, KNOWN_TABLES)
+        tq = transpile(cypher, {}, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.SELECT
 
     def test_none_params(self):
         cypher = "MATCH (n:Agent) RETURN n"
-        tq = transpile(cypher, None, KNOWN_TABLES)
+        tq = transpile(cypher, None, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert tq.query_type == QueryType.SELECT
 
     def test_internal_params_stripped(self):
         cypher = "MATCH (n:Agent) WHERE n.id = $id RETURN n"
         params = {"id": "a1", "_clearance_level": 999}
-        tq = transpile(cypher, params, KNOWN_TABLES)
+        tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
         assert "_clearance_level" not in str(tq.params)
 
 
@@ -265,7 +277,12 @@ class TestNodePropertyProjection:
             "MATCH (n:Agent) WHERE n.id = $id "
             "RETURN n.name AS name, n.importance_score AS importance"
         )
-        tq = transpile(cypher, {"id": "x"}, KNOWN_TABLES)
+        tq = transpile(
+            cypher,
+            {"id": "x"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
+        )
         assert tq.query_type == QueryType.SELECT
         assert '"name" AS "name"' in tq.sql
         assert '"importance_score" AS "importance"' in tq.sql
@@ -278,6 +295,7 @@ class TestNodePropertyProjection:
             "MATCH (n:Agent) WHERE n.id = $id RETURN n.id AS id",
             {"id": "x"},
             KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
         )
         assert '"id" AS "id"' in tq.sql
         assert tq.node_alias is None
@@ -285,7 +303,10 @@ class TestNodePropertyProjection:
     def test_bare_return_node_still_wraps(self):
         # ``RETURN n`` returns the whole node → backend wraps under the node alias.
         tq = transpile(
-            "MATCH (n:Agent) WHERE n.id = $id RETURN n", {"id": "x"}, KNOWN_TABLES
+            "MATCH (n:Agent) WHERE n.id = $id RETURN n",
+            {"id": "x"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
         )
         assert tq.node_alias == "n"
 
@@ -296,7 +317,12 @@ class TestNodePropertyProjection:
             "MATCH (s:Agent)-[r:PROVIDES]->(t:Tool) "
             "WHERE s.id = $sid AND t.id = $tid RETURN count(r) AS c"
         )
-        tq = transpile(cypher, {"sid": "a", "tid": "b"}, KNOWN_TABLES)
+        tq = transpile(
+            cypher,
+            {"sid": "a", "tid": "b"},
+            KNOWN_TABLES,
+            node_tables=KNOWN_TABLES,
+        )
         assert tq.query_type == QueryType.COUNT
         assert "count(*) AS c" in tq.sql
         assert "properties" not in tq.sql

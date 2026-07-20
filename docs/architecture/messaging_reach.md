@@ -94,8 +94,8 @@ no longer owned by messaging** — it is a first-class output of the universal o
 (`decide_reaction` → an `AgentReaction`) and `MessagingService.render_reaction()` paints it
 via the backend's `send_reaction` (Telegram `setMessageReaction` is implemented; other
 backends expose `send_reaction` and degrade gracefully where unsupported). The cheap tool-free
-decision works even on local models that can't call tools; set `REACTIONS=0` (legacy
-`MESSAGING_REACTIONS=0` still honored) to disable. Full design + the renderer contract for the
+decision works even on local models that can't call tools; set `REACTIONS=0` to
+disable. Full design + the renderer contract for the
 other surfaces: [`reactions.md`](reactions.md).
 
 ## Voice & image input (ECO-4.67/4.68)
@@ -167,7 +167,7 @@ action=send` targets a specific service explicitly.
 | `MESSAGING_REPLY_TIMEOUT` | Seconds to wait for the universal graph run before degrading to the plain-chat fallback (default `45`) |
 | `ANTHROPIC_API_KEY` | Required for the Claude route |
 | `MATTERMOST_URL` / `MATTERMOST_TOKEN` / `MATTERMOST_BOT_USER` | Mattermost (ECO-4.90): server base URL, a Bot Account token, and the bot's username/id (optional — auto-resolved from the token). Inbound runs over the bot WebSocket (`posted` events); outbound posts via the bot REST API |
-| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — loaded into the daemon env so spawned agents authenticate to the jwt-protected fleet. **Source from OpenBao**, never a plaintext file (AU-ECO.messaging.make-fleet-credentials-present) |
+| `MCP_CLIENT_AUTH` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET_REF` / `OIDC_AUDIENCE` / `OIDC_TOKEN_URL` | Fleet OIDC client-credentials — the daemon resolves the referenced secret in memory so spawned agents authenticate to the JWT-protected fleet. Never persist the resolved value (AU-ECO.messaging.make-fleet-credentials-present). |
 
 ### Mattermost as a first-class platform (ECO-4.90)
 

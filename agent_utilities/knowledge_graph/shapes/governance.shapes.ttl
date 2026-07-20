@@ -205,12 +205,3 @@
             sh:maxCount 1 ;
             sh:path :trigger ] ;
     sh:targetClass :Schedule .
-
-:DeadLetterTaskShape a sh:NodeShape ;
-    sh:description "A dead-letter Task records the attempts it exhausted (CONCEPT:KG-2.113)." ;
-    sh:name "Dead-Letter Task Shape" ;
-    sh:property [ sh:datatype xsd:integer ;
-            sh:message "DeadLetterTask must record the attempt count it exhausted." ;
-            sh:minCount 1 ;
-            sh:path :attempts ] ;
-    sh:targetClass :DeadLetterTask .

@@ -8,12 +8,18 @@ all options. Composed by the ``setup-config`` CLI, the ``graph_configure`` MCP
 actions, and the ``agent-utilities-deployment`` skill.
 """
 
+from .codex_registration import (
+    CODEX_GRAPHOS_COMMAND,
+    CODEX_GRAPHOS_SERVER,
+    CodexRegistrationError,
+    graphos_stdio_spec,
+    register_codex_graphos,
+)
 from .config_generator import (
     PROFILES,
     config_doctor,
     config_reference,
     generate_config,
-    generate_mcp_config,
     is_restart_required,
     write_config,
 )
@@ -34,6 +40,9 @@ from .repo_templates import (
 __all__ = [
     "CHECKS",
     "CI_TEMPLATES",
+    "CODEX_GRAPHOS_COMMAND",
+    "CODEX_GRAPHOS_SERVER",
+    "CodexRegistrationError",
     "PROFILES",
     "PROFILE_REPO_SETS",
     "STANDARD_REPOS",
@@ -41,11 +50,12 @@ __all__ = [
     "config_doctor",
     "config_reference",
     "generate_config",
-    "generate_mcp_config",
+    "graphos_stdio_spec",
     "is_restart_required",
     "manifest_summary",
     "provision_plan",
     "render_skeleton",
+    "register_codex_graphos",
     "run_doctor",
     "run_preflight",
     "runner_plan",

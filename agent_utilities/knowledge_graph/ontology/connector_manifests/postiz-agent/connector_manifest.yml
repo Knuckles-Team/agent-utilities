@@ -1,0 +1,366 @@
+connector: postiz-agent
+ontology_source: social
+schema_version: '1'
+resources:
+- name: AggregatedEngagement
+  label: Aggregated Engagement
+  id_prefix: aggregatedengagement
+  relations:
+  - name: aggregatesDaily
+    label: aggregates daily
+    target: DailyEngagement
+    lpg_rel_type: ''
+- name: AudienceMetric
+  label: Audience Metric
+  id_prefix: audiencemetric
+  relations: []
+- name: BroadcastSession
+  label: Broadcast Session
+  id_prefix: broadcastsession
+  relations:
+  - name: broadcastedVia
+    label: broadcasted via
+    target: System
+    lpg_rel_type: ''
+  - name: derivedFromContent
+    label: derived from content
+    target: SocialPost
+    lpg_rel_type: ''
+- name: ContentCalendar
+  label: Content Calendar
+  id_prefix: contentcalendar
+  relations: []
+- name: ContentDraft
+  label: Content Draft
+  id_prefix: contentdraft
+  relations: []
+- name: DailyEngagement
+  label: Daily Engagement
+  id_prefix: dailyengagement
+  relations: []
+- name: EngagementMetric
+  label: Engagement Metric
+  id_prefix: engagementmetric
+  relations:
+  - name: broadcastEngagement
+    label: broadcast engagement
+    target: BroadcastSession
+    lpg_rel_type: ''
+  - name: engagementOf
+    label: engagement of
+    target: SocialPost
+    lpg_rel_type: ''
+- name: SocialChannel
+  label: Social Channel
+  id_prefix: socialchannel
+  relations: []
+- name: SocialPost
+  label: Social Post
+  id_prefix: socialpost
+  relations:
+  - name: createdBy
+    label: created by
+    target: Person
+    lpg_rel_type: ''
+  - name: hasMedia
+    label: has media
+    target: AssetOccurrence
+    lpg_rel_type: ''
+  - name: promotesResearch
+    label: promotes research
+    target: Document
+    lpg_rel_type: ''
+  - name: publishedOn
+    label: published on
+    target: System
+    lpg_rel_type: ''
+  - name: scheduledIn
+    label: scheduled in
+    target: ContentCalendar
+    lpg_rel_type: ''
+- name: StreamHighlight
+  label: Stream Highlight
+  id_prefix: streamhighlight
+  relations:
+  - name: highlightFrom
+    label: highlight from
+    target: BroadcastSession
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: postiz-posts.updated
+  resource: social_post
+  description: "Watermark event for 'postiz-posts' \u2014 advances on publishDate (mcp_source_presets.json)."
+identity:
+  id_field:
+    social_post: id
+  title_field:
+    social_post: content
+  text_field:
+    social_post: content
+  updated_field:
+    social_post: publishDate
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  AggregatedEngagement:
+    ontology_class: EngagementMetric
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  AudienceMetric:
+    ontology_class: Observation
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  BroadcastSession:
+    ontology_class: Event
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  ContentCalendar:
+    ontology_class: Phase
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  ContentDraft:
+    ontology_class: SocialPost
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  DailyEngagement:
+    ontology_class: EngagementMetric
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  EngagementMetric:
+    ontology_class: Observation
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  SocialChannel:
+    ontology_class: System
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  SocialPost:
+    ontology_class: CreativeWork
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+  StreamHighlight:
+    ontology_class: CreativeWork
+    fields:
+      channelDisabled: xsd:boolean
+      comments: xsd:integer
+      concurrentViewers: xsd:integer
+      engagementDate: xsd:date
+      engagementTotal: xsd:integer
+      impressions: xsd:integer
+      likes: xsd:integer
+      metricLabel: xsd:string
+      peakViewers: xsd:integer
+      platform: xsd:string
+      postState: xsd:string
+      providerIdentifier: xsd:string
+      publishDate: xsd:dateTime
+      reach: xsd:integer
+      releaseURL: xsd:anyURI
+      shares: xsd:integer
+sync:
+- preset: postiz-posts
+  server: postiz-agent
+  tool: postiz_posts
+  action: postiz_list_posts
+  records_path: posts
+  id_field: id
+  title_field: content
+  text_field: content
+  updated_field: publishDate
+  pagination: null
+  doc_type: social_post
+  tool_schema_sha256: 048d1e66d493308c9a677baab9359ec0ec4e00da7351d25123e2547039dfbf49
+  raw:
+    server: postiz-agent
+    tool: postiz_posts
+    action: postiz_list_posts
+    records_path: posts
+    id_field: id
+    title_field: content
+    text_field: content
+    updated_field: publishDate
+    doc_type: social_post
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - postiz_agent/connectors/mcp_source_presets.json
+  - postiz_agent/connectors/tool_schema_fingerprints.json
+  - postiz_agent/ontology/social.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 320936b8724320ebc18cf0f5b71b7cd1b14ee7fa53b9c5e974008504ef43a9ea
+    triple_count: 136
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: zr2CyJOY8dnjSA035AS930YZC5I0HnT4pijPtWnTIqj77YM-H8mX-Jn_Yo-UGB6ITy8ULyoBwj6oeu5N-76GDw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.AggregatedEngagement.ontology_class = 'EngagementMetric' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.AudienceMetric.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BroadcastSession.ontology_class = 'Event' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContentCalendar.ontology_class = 'Phase' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ContentDraft.ontology_class = 'SocialPost' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DailyEngagement.ontology_class = 'EngagementMetric' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.EngagementMetric.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SocialChannel.ontology_class = 'System' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SocialPost.ontology_class = 'CreativeWork' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.StreamHighlight.ontology_class = 'CreativeWork' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."

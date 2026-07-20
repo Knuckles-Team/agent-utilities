@@ -196,8 +196,8 @@ graph LR
 
 | Concept | Relationship |
 |:---|:---|
-| [CONCEPT:AU-KG.memory.tiered-memory-caching Self-Model](overview.md) | Provides historical confidence priors |
-| [CONCEPT:AU-ORCH.adapter.hot-cache-invalidation Workspace Attention](overview.md) | Provides runtime scoring and proposals |
-| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Resource Optimization](overview.md) | Budget-aware model selection |
-| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Cognitive Scheduler](overview.md) | Hosts convergence monitor |
-| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Homeostatic Downgrade](overview.md) | Composes with confidence routing |
+| [CONCEPT:AU-KG.memory.tiered-memory-caching Self-Model](../overview.md) | Provides historical confidence priors |
+| [CONCEPT:AU-ORCH.adapter.hot-cache-invalidation Workspace Attention](../overview.md) | Provides runtime scoring and proposals |
+| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Resource Optimization](../overview.md) | Budget-aware model selection |
+| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Cognitive Scheduler](../overview.md) | Hosts convergence monitor |
+| [CONCEPT:AU-OS.state.cognitive-scheduler-preemption Homeostatic Downgrade](../overview.md) | Composes with confidence routing |

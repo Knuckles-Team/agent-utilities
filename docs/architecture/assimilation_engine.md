@@ -1,7 +1,7 @@
 # Graph-Native Assimilation Engine
 
 > **CONCEPT:AU-KG.query.vendor-agnostic-traversal** — Research Assimilation (+ KG-2.5 synergy, AU-KG.enrichment.a2a-capability-extraction orchestration synthesis)
-> **Package:** `agent_utilities/knowledge_graph/assimilation/` · **Driver:** `research/golden_loop.py` · **MCP:** `graph_orchestrate(action="assimilate")`
+> **Package:** `agent_utilities/knowledge_graph/assimilation/` · **Driver:** `research/golden_loop.py` · **MCP:** `graph_evolution(action="assimilate")`
 > **Strategy/plan:** `.specify/specs/ecosystem-evolution/`
 
 ## Why
@@ -62,8 +62,8 @@ run_assimilation_pass(synthesize=True, top_n=10)
 ```
 ```
 # MCP
-graph_orchestrate(action="assimilate")                  # dedup→gap→synergy→rank
-graph_orchestrate(action="assimilate", task="synthesize")   # + propose plans
+graph_evolution(action="assimilate")                         # dedup→gap→synergy→rank
+graph_evolution(action="assimilate", synthesize=true)        # + propose plans
 ```
 ```
 # autonomous daemon (golden-loop tick) — env-gated

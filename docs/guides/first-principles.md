@@ -108,7 +108,7 @@ The cache is invalidated by 4 event sources, ensuring it stays in sync:
 |---------|----------|-----|
 | MCP Sync | `mcp/agent_manager.py` → `sync_mcp_agents()` | New tools may create new specialists |
 | Pipeline Completion | `knowledge_graph/pipeline/runner.py` → `PipelineRunner.run()` | Code graph changes may affect routing |
-| Self-Model Update | `knowledge_graph/self_model.py` | New proficiency data should influence specialist ranking |
+| Self-Model Update | `knowledge_graph/retrieval/memory_retriever.py` | New proficiency data should influence specialist ranking |
 | TeamConfig Promotion | `core/registry/kg_adapter.py` → `promote_coalition_to_template()` | New team templates change routing priorities |
 
 ---
@@ -264,7 +264,7 @@ class PlannerGraphSkill:
     async def execute(self, request):
         """Direct graph-backed planning — no LLM round-trip."""
         state = GraphState(user_query=request.query)
-        result = await run_graph_flow(self.graph_bundle, state)
+        result = await execute_graph(self.graph_bundle, state)
         return result
 ```
 
@@ -284,7 +284,7 @@ if graph_bundle:
 | Priority | Entry Point | When Used |
 |----------|------------|-----------|
 | 1 (highest) | `PlannerGraphSkill` | A2A requests when `graph_bundle` is present |
-| 2 | Direct Graph Execution | AG-UI/ACP when `GRAPH_DIRECT_EXECUTION=true` |
+| 2 | Direct Graph Execution | AG-UI/ACP through the single execution authority |
 | 3 (fallback) | LLM-Mediated | When no graph is available or A2A negotiation needed |
 
 ---
@@ -331,7 +331,7 @@ python -m pytest tests/unit/core/test_config_helpers.py \
 
 ## Related Documentation
 
-- [Registry Cache Deep-Dive](../1_graph_orchestration/registry-cache.md) — Focused cache architecture and performance analysis
-- [Process Lifecycle Management](../5_agent_os_infrastructure/process-lifecycle.md) — Sidecar cleanup and signal handling
-- [Emergent Architecture](../2_epistemic_knowledge_graph/emergent-architecture.md) — CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (OGM, Swarm, Self-Model, Attention)
-- [Architecture](../1_graph_orchestration/architecture.md) — Full system architecture with routing diagrams
+- [Registry Cache Deep-Dive](registry-cache.md) — Focused cache architecture and performance analysis
+- [Process Lifecycle Management](process-lifecycle.md) — Sidecar cleanup and signal handling
+- [Emergent Architecture](emergent-architecture.md) — CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (OGM, Swarm, Self-Model, Attention)
+- [Architecture](architecture.md) — Full system architecture with routing diagrams

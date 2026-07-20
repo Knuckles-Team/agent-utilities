@@ -25,10 +25,6 @@ CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 # id (the one capturing group) for each match.
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
-from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    canonicalize,
-    observed_project_namespaces,
-)
 
 
 def markers_in_code() -> dict[str, list[str]]:
@@ -50,13 +46,7 @@ def markers_in_code() -> dict[str, list[str]]:
 
 
 def registered_ids() -> set[str]:
-    """Every id the registry recognizes — raw ids PLUS their aliases + dotted forms.
-
-    Accepting the alias set (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5) means a marker written in
-    EITHER the flat (``EG-321``) OR the canonical dotted (``EG-0.321``) form
-    validates against the same registered concept, without invalidating the
-    existing flat scheme.
-    """
+    """Every exact canonical id registered in ``concepts.yaml``."""
     if not CONCEPTS_PATH.exists():
         print(
             f"ERROR: {CONCEPTS_PATH.relative_to(ROOT)} does not exist. "
@@ -70,10 +60,6 @@ def registered_ids() -> set[str]:
         if not isinstance(c, dict) or not c.get("id"):
             continue
         ids.add(c["id"])
-        if c.get("dotted"):
-            ids.add(c["dotted"])
-        for alias in c.get("aliases", []) or []:
-            ids.add(alias)
     return ids
 
 
@@ -81,19 +67,7 @@ def main() -> int:
     code = markers_in_code()
     registry = registered_ids()
 
-    # A code marker validates if its raw id OR its canonical dotted form is
-    # registered — so both flat and dotted markers pass (non-breaking).
-    observed = observed_project_namespaces(list(code))
-
-    def _resolved(cid: str) -> str:
-        try:
-            return canonicalize(cid, observed_project_ns=observed)
-        except ValueError:
-            return cid
-
-    missing = sorted(
-        cid for cid in code if cid not in registry and _resolved(cid) not in registry
-    )
+    missing = sorted(cid for cid in code if cid not in registry)
 
     print(
         f"Validating {len(code)} unique concept markers against "

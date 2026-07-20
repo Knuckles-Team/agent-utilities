@@ -12,7 +12,8 @@ protocol.rs``) as a method on one of its sub-clients (``.nodes``, ``.edges``,
 ``.graph``, ``.analytics``, ``.lifecycle``, ``.reasoning``, ``.ledger``,
 ``.channels``, ``.tenants``, ``.resharding``, ``.consensus``, ``.finance``,
 ``.datascience``, ``.query``, ``.txn``, ``.timeseries``, ``.rdf``, ``.streaming``,
-``.blob``). That client is the source of truth for "what the engine can do".
+``.blob``, ``.broker``, ``.rbac``, ``.admin``, ``.graphlearn``). That client is
+the source of truth for "what the engine can do".
 
 Design (anti-sprawl, anti-drift):
 
@@ -30,6 +31,16 @@ Design (anti-sprawl, anti-drift):
   method, opt-in via ``MCP_TOOL_MODE=verbose``/``both``) is generated from
   :data:`ENGINE_DOMAINS` by the graph-os verbose builder + the action manifest
   generator (``scripts/gen_graphos_manifest.py``).
+- Per-action scope/policy (AU-P0-6): every domain is classified ADMIN or
+  normal (see :data:`ADMIN_DOMAINS`); ADMIN actions (tenant lifecycle, cluster
+  resharding, zero-trust consensus/identity, RBAC policy administration,
+  ops backup/restore) are denied to an acting identity that lacks the
+  ``kg:admin`` scope/role, fail-closed. In the served profile, ordinary reads
+  and writes likewise require the session's ``kg:read``/``kg:write`` grant —
+  see :func:`_enforce_action_scope`.
+- One process graph client: the bounded LRU holds only graph-scoped namespace
+  views over :class:`GraphComputeEngine`'s process authority. Views create no
+  socket or event-loop thread and bind the verified GraphSession on every call.
 
 CONCEPT:AU-ECO.mcp.full-api-mcp-surface — Full engine API + MCP surface (REST + MCP in lockstep)
 CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (client-introspection source of truth)
@@ -40,12 +51,14 @@ from __future__ import annotations
 import base64
 import inspect
 import json
+import re
 import threading
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_json
 
 # ── Domain → client sub-client class map ─────────────────────────────────────
 # domain name == the attribute on ``SyncEpistemicGraphClient`` == the REST sub-path.
@@ -71,6 +84,17 @@ _DOMAIN_CLASSES: dict[str, str] = {
     "rdf": "RdfClient",
     "streaming": "StreamingClient",
     "blob": "BlobClient",
+    # AU-P0-6: previously-missing namespaces (audited gap #3). Domain name ==
+    # the attribute on ``SyncEpistemicGraphClient`` (checked against the
+    # installed ``epistemic_graph.client`` module — NOT a guess): the graph-
+    # learning sub-client is exposed as ``.graphlearn`` (no underscore), so
+    # the domain/tool/REST-path name below is ``graphlearn`` to match it.
+    # rbac/admin are ADMIN_DOMAINS (see below) — gated BEFORE being newly
+    # exposed, per the audit's explicit ordering.
+    "broker": "BrokerClient",
+    "rbac": "RbacClient",
+    "admin": "AdminClient",
+    "graphlearn": "GraphLearnClient",
 }
 
 _DOMAIN_BLURB: dict[str, str] = {
@@ -94,6 +118,10 @@ _DOMAIN_BLURB: dict[str, str] = {
     "rdf": "RDF triples + SPARQL + OWL reasoning",
     "streaming": "CDC / continuous queries / watch / triggers",
     "blob": "streamed content-addressed media blobs",
+    "broker": "native message broker: exchange/queue/stream admin + routed publish/consume",
+    "rbac": "RBAC policy administration: roles + resource/action grants (ADMIN)",
+    "admin": "ops/maintenance: online backup + restore (ADMIN)",
+    "graphlearn": "KAN graph-learning: fit/predict a learned per-feature edge-function link predictor",
 }
 
 
@@ -101,7 +129,7 @@ def _discover_domains() -> dict[str, list[str]]:
     """Introspect the engine client sub-client classes → ``{domain: [methods]}``.
 
     The ``epistemic_graph`` client mirrors the wire protocol 1:1, so its public
-    async methods ARE the engine's invokable capability surface. Discovering them
+    async methods ARE the engine's invocable capability surface. Discovering them
     (instead of hand-listing 200+ methods) keeps this surface drift-free: a new
     engine method shows up automatically once the client wraps it.
     """
@@ -130,34 +158,101 @@ def _discover_domains() -> dict[str, list[str]]:
 ENGINE_DOMAINS: dict[str, list[str]] = _discover_domains()
 
 
-# ── Engine client resolution (cached per target graph) ───────────────────────
-_CLIENT_LOCK = threading.Lock()
-_CLIENTS: dict[str, Any] = {}
+# ── Engine client resolution (bounded LRU pool, AU-P0-6) ─────────────────────
+# Was: one synchronous client cached PER GRAPH forever in a plain ``dict`` —
+# connection/thread/socket count grew without bound as graph cardinality grew.
+# Now the LRU holds only graph-scoped wrappers (reusing the same primitive
+# ``TenantEnginePool`` already used for graph-scoped engine views — one
+# tested bounded-pool implementation, not a second one) sized from
+# ``KG_ENGINE_TOOL_POOL_SIZE`` (default 16); the least-recently-used
+# view is discarded at capacity. Every view shares the process authority's
+# socket, event loop, and thread; eviction never closes that transport.
+_DEFAULT_GRAPH_POOL_KEY = "__default__"
+
+
+def _client_factory(pool_key: str) -> Any:
+    """Return a non-owning process-client view for one pool key.
+
+    ``pool_key`` is the opaque cache key used by :func:`_client_for` (never
+    empty — see :data:`_DEFAULT_GRAPH_POOL_KEY`); it is translated back to the
+    real ``graph`` argument (``None`` for the deployment default). The first
+    access acquires the one :class:`GraphComputeEngine` authority; subsequent
+    graph keys are zero-connection views over that same transport.
+    """
+    from agent_utilities.knowledge_graph.core.graph_compute import (
+        GraphComputeEngine,
+    )
+
+    graph = None if pool_key == _DEFAULT_GRAPH_POOL_KEY else pool_key
+    return GraphComputeEngine.get_or_create(graph_name=graph).client
+
+
+def _client_evict(pool_key: str, client: Any) -> None:
+    """Discard a graph view without closing the process transport."""
+    del pool_key, client
+
+
+def _client_pool_capacity() -> int:
+    try:
+        from agent_utilities.core.config import config
+
+        return int(getattr(config, "kg_engine_tool_pool_size", 16) or 0)
+    except Exception:  # noqa: BLE001 — default to a small bounded pool
+        return 16
+
+
+_CLIENT_POOL_LOCK = threading.Lock()
+_CLIENT_POOL: Any = None  # lazily-built ``TenantEnginePool``, module-private
+
+
+def _get_client_pool() -> Any:
+    global _CLIENT_POOL
+    if _CLIENT_POOL is None:
+        with _CLIENT_POOL_LOCK:
+            if _CLIENT_POOL is None:
+                from agent_utilities.knowledge_graph.core.tenant_engine_pool import (
+                    TenantEnginePool,
+                )
+
+                _CLIENT_POOL = TenantEnginePool(
+                    capacity=_client_pool_capacity(),
+                    factory=_client_factory,
+                    on_evict=_client_evict,
+                )
+    return _CLIENT_POOL
+
+
+def reset_client_pool() -> None:
+    """Drop cached graph views without closing the process client (test helper)."""
+    global _CLIENT_POOL
+    with _CLIENT_POOL_LOCK:
+        if _CLIENT_POOL is not None:
+            _CLIENT_POOL.clear()
+        _CLIENT_POOL = None
 
 
 def _client_for(graph: str) -> Any:
-    """Return a cached ``SyncEpistemicGraphClient`` bound to ``graph``.
+    """Return a warm, non-owning process-client view bound to ``graph``."""
+    pool = _get_client_pool()
+    return pool.acquire(graph_name=graph or _DEFAULT_GRAPH_POOL_KEY)
 
-    Connects via the centralized resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision ``client_connect_kwargs``)
-    so a remote/sharded/insecure deployment is honoured. Connect-only — never
-    autostarts an engine; if the engine is down, ``connect`` raises and the caller
-    surfaces a clean error.
-    """
-    key = graph or ""
-    with _CLIENT_LOCK:
-        existing = _CLIENTS.get(key)
-        if existing is not None:
-            return existing
-        from epistemic_graph.client import SyncEpistemicGraphClient
 
-        from agent_utilities.knowledge_graph.core.engine_resolver import (
-            client_connect_kwargs,
-        )
+def _resolve_graph_name(graph: str) -> str:
+    """Resolve the tool's top-level ``graph`` field to a concrete, non-empty
+    graph name (BUG-4) for call arguments a wire method requires explicitly —
+    ``""`` means "deployment default" everywhere else in this module, but a
+    method parameter literally named ``graph`` cannot be handed an empty
+    string. Mirrors the same resolution :func:`_client_factory` already uses
+    for the graph view, so the call argument and the view scope
+    always agree."""
+    from agent_utilities.knowledge_graph.core.session import resolve_session
 
-        kwargs = client_connect_kwargs(None, graph or None)
-        client = SyncEpistemicGraphClient.connect(**kwargs)
-        _CLIENTS[key] = client
-        return client
+    session = resolve_session()
+    if graph and graph != session.graph:
+        raise PermissionError("An engine action cannot retarget its verified GraphSession")
+    if not session.graph:
+        raise PermissionError("Verified GraphSession has no graph authority")
+    return session.graph
 
 
 def _json_default(obj: Any) -> Any:
@@ -166,12 +261,339 @@ def _json_default(obj: Any) -> Any:
     return str(obj)
 
 
+# ── Per-action scope/policy (AU-P0-6) ─────────────────────────────────────────
+# Domains whose ENTIRE action surface is privileged/administrative — mirrors
+# the engine's own separation of tenant/cluster/identity/governance ops from
+# ordinary graph reads+writes, rather than inventing a parallel classification
+# (CONCEPT:AU-KG.compute.engine-surface-manifest). Every method under one of
+# these domains requires :data:`ENGINE_ADMIN_SCOPE`, with NO per-method
+# carve-out: even a read here (``tenants.list``, ``resharding.catalog_list``,
+# ``rbac.list``) discloses cluster/tenant/identity topology a normal actor
+# should not see.
+#
+# No machine-readable per-method capability/role metadata ships from the
+# engine client (checked: ``BrokerClient``/``RbacClient``/``AdminClient``/
+# ``MultiTenantClient``/``ReshardingClient``/``ConsensusClient`` carry doc
+# comments only, no ``requires_role``/``is_admin``/capability descriptor), so
+# this is an explicit, hand-maintained map — called out here as such per
+# AU-P0-6's guidance.
+ADMIN_DOMAINS: frozenset[str] = frozenset(
+    {"tenants", "resharding", "consensus", "rbac", "admin"}
+)
+
+# The remaining known domains are ordinary graph reads+writes. Their calculated
+# kg:read/kg:write scope is enforced through the immutable GraphSession.
+_NORMAL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "nodes",
+        "edges",
+        "graph",
+        "analytics",
+        "lifecycle",
+        "reasoning",
+        "ledger",
+        "channels",
+        "finance",
+        "datascience",
+        "mining",
+        "query",
+        "txn",
+        "timeseries",
+        "rdf",
+        "streaming",
+        "blob",
+        "broker",
+        "graphlearn",
+    }
+)
+
+#: Scope an acting identity must carry (as an ``admin`` role on its
+#: :class:`~agent_utilities.security.brain_context.ActorContext`, or this
+#: literal scope string in an active
+#: :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`) to
+#: invoke an ADMIN-domain action.
+ENGINE_ADMIN_SCOPE = "kg:admin"
+
+# Read-verb prefixes used by :func:`action_policy` to select the enforced
+# ``kg:read`` or ``kg:write`` scope.
+_READ_VERB_PREFIXES: tuple[str, ...] = (
+    "get",
+    "has",
+    "list",
+    "read",
+    "query",
+    "search",
+    "sql",
+    "sparql",
+    "range",
+    "sort",
+    "pagerank",
+    "centrality",
+    "topological",
+    "compute_stats",
+    "var",
+    "metrics",
+    "reason",
+    "estimate",
+    "describe",
+    "export",
+    "fetch",
+    "find",
+    "lookup",
+    "resolve",
+    "peek",
+    "watch",
+    "subscribe",
+    "sample",
+    "validate",
+    "check",
+    "diff",
+    "preview",
+    "count",
+    "stats",
+    "predict",
+)
+
+
+def _is_admin_domain(domain: str) -> bool:
+    """Whether every action under ``domain`` requires :data:`ENGINE_ADMIN_SCOPE`.
+
+    Fail-closed (AU-P0-6 guardrail): a domain this map has not explicitly
+    classified as normal — e.g. a future engine namespace added to
+    ``_DOMAIN_CLASSES`` before this map is updated — is treated as ADMIN by
+    default rather than silently open.
+    """
+    if domain in ADMIN_DOMAINS:
+        return True
+    return domain not in _NORMAL_DOMAINS
+
+
+def _is_read_action(action: str) -> bool:
+    """Best-effort read/mutate label for policy introspection — NOT itself an
+    enforcement gate (see :data:`_READ_VERB_PREFIXES`)."""
+    name = action.lower()
+    return name.startswith(_READ_VERB_PREFIXES)
+
+
+def action_policy(domain: str, action: str) -> dict[str, Any]:
+    """The scope/policy classification for one ``engine_<domain>`` action.
+
+    Returns a dict with ``admin``, the ``mutate`` read/write label, and the
+    ``scope`` string enforced for this action
+    (``kg:admin`` / ``kg:write`` / ``kg:read``).
+    """
+    admin = _is_admin_domain(domain)
+    mutate = not _is_read_action(action)
+    scope = ENGINE_ADMIN_SCOPE if admin else ("kg:write" if mutate else "kg:read")
+    return {
+        "domain": domain,
+        "action": action,
+        "admin": admin,
+        "mutate": mutate,
+        "scope": scope,
+    }
+
+
+def _enforce_action_scope(domain: str, action: str) -> None:
+    """Require the immutable session's read/write/admin scope."""
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope=action_policy(domain, action)["scope"])
+
+
+# ── Unbounded global-analytics OOM guard ──────────────────────────────────
+# ``engine_analytics(action="pagerank", params_json="{}")`` — an unbounded global
+# PageRank over the live ~139k-node graph — OOM-killed the epistemic-graph engine
+# (exitCode 137). ``AnalyticsClient.pagerank``/``betweenness_centrality``/
+# ``degree_centrality_all`` (``epistemic_graph.client``) take NO kwarg that scopes
+# them to anything smaller than the whole graph, so every call to one of them is
+# unbounded by construction; ``personalized_pagerank`` is bounded ONLY when it
+# carries a non-empty ``seed_nodes`` frontier. Rather than let the engine OOM
+# (silent, ungraceful), fail loud client-side before the RPC — mirrors the
+# engine's own ``RESULT_TOO_LARGE`` node-dump guard, just enforced here because
+# these are compute calls the engine has no size-check for.
+_UNBOUNDED_ANALYTICS_ACTIONS = frozenset(
+    {"pagerank", "betweenness_centrality", "degree_centrality_all"}
+)
+
+
+def _reject_unbounded_analytics(
+    domain: str, action: str, params: dict[str, Any]
+) -> str | None:
+    """Non-``None`` ⇒ a clear, typed rejection message; ``None`` ⇒ let it through.
+
+    Only the ``analytics`` domain's whole-graph algorithms are gated. Bounded/
+    legitimate analytics calls (``degree_centrality`` for one node, a
+    ``personalized_pagerank`` with a seeded frontier, anything outside
+    ``analytics``) are never touched.
+    """
+    if domain != "analytics":
+        return None
+    if action in _UNBOUNDED_ANALYTICS_ACTIONS:
+        return (
+            f"engine_analytics.{action} has no way to scope itself below the "
+            "ENTIRE graph (no top_k/limit/nodes/subset parameter exists on it) — "
+            "an unbounded call previously OOM-killed the engine (exitCode 137). "
+            "Rejected fail-loud instead of risking another crash. Use a bounded "
+            "alternative: 'personalized_pagerank' with a non-empty 'seed_nodes' "
+            "frontier ([[node_id, weight], ...]), or scope your read to a node "
+            "subset first (e.g. graph_analyze(action='blast_radius')/'inspect')."
+        )
+    if action == "personalized_pagerank" and not params.get("seed_nodes"):
+        return (
+            "engine_analytics.personalized_pagerank requires a non-empty "
+            "'seed_nodes' ([[node_id, weight], ...]) — without one the call is "
+            "unbounded over the entire graph, which previously OOM-killed the "
+            "engine (exitCode 137). Pass a seeded frontier to scope it."
+        )
+    return None
+
+
+# ── UQL server-side text-embedding pre-pass (F2 — the engine's EG-411 "no embedder bound op" state) ──
+#
+# ``RANK BY ~"some text"`` lowers to `Op::RankEmbed` and is resolved by an embedder
+# bound on the engine's `PlanCtx` — but nothing binds one there, so it always fails
+# with "no server-side text embedder is bound on this query" even though an
+# embedder IS configured and used everywhere else (``graph_search`` embeds the
+# query CLIENT-side via ``create_embedding_model`` then ranks). Rather than wait on
+# an engine-side `PlanCtx::with_embedder` wiring, mirror the `graph_search` pattern
+# here: pre-embed every quoted-text RANK leg in Python, with the SAME embedder (so
+# the vector dimension matches the stored node embeddings), and rewrite it to an
+# inline literal vector before the query reaches the engine. Native by default — no
+# opt-in flag — and fails loud if the embedder is unavailable (never silently drops
+# the RANK leg).
+_UQL_RANK_TEXT_OPEN_RE = re.compile(r'~\s*"')
+
+
+def _uql_rank_text_spans(text: str) -> list[tuple[int, int, str]]:
+    """Find every quoted-text RANK leg ``~"…"`` in a UQL string.
+
+    A leg is ``~`` immediately (whitespace allowed) followed by a double-quoted
+    string — mirrors ``eg-plan``'s parser (`RANK BY ~<vector_ref>` where a `"`
+    lookahead is the `Text` arm, `crates/eg-plan/src/uql/parser.rs::parse_vector_ref`)
+    and its lexer's double-quoted-string escaping (`lexer.rs::lex_string`): a
+    doubled quote (``""``) or a backslash-escaped ``\\"``/``\\\\`` is an escaped
+    character, anything else closes the string. Returns ``(start, end, literal)``
+    triples — ``start``/``end`` span the WHOLE ``~"…"`` run (for replacement),
+    ``literal`` is the unescaped text to embed. An inline vector (``~[…]``) or a
+    bare handle (``~handle``) never matches — neither has a `"` right after the
+    optional whitespace — so both pass through untouched.
+    """
+    spans: list[tuple[int, int, str]] = []
+    n = len(text)
+    for m in _UQL_RANK_TEXT_OPEN_RE.finditer(text):
+        start = m.start()
+        i = m.end()  # just past the opening quote
+        out_chars: list[str] = []
+        closed = False
+        while i < n:
+            c = text[i]
+            if c == '"':
+                if i + 1 < n and text[i + 1] == '"':
+                    out_chars.append('"')
+                    i += 2
+                    continue
+                i += 1
+                closed = True
+                break
+            if c == "\\" and i + 1 < n and text[i + 1] in ('"', "\\"):
+                out_chars.append(text[i + 1])
+                i += 2
+                continue
+            out_chars.append(c)
+            i += 1
+        if closed:
+            spans.append((start, i, "".join(out_chars)))
+    return spans
+
+
+def _collect_unified_rank_text(ops: Any, pending: list[dict[str, Any]]) -> None:
+    """Recurse a structured ``unified`` plan (list of op dicts) collecting every
+    ``{"Rank": {"query": "<text>"}}`` leg's field dict — including inside
+    ``FuseRrf`` branches — so its ``query`` can be overwritten with an embedded
+    vector in place. A ``Rank.query`` that's already a list (the normal inline-
+    vector form) is left untouched.
+    """
+    if not isinstance(ops, list):
+        return
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        rank = op.get("Rank")
+        if isinstance(rank, dict) and isinstance(rank.get("query"), str):
+            pending.append(rank)
+        fuse = op.get("FuseRrf")
+        if isinstance(fuse, dict):
+            for branch in fuse.get("branches") or []:
+                _collect_unified_rank_text(branch, pending)
+
+
+def _embed_texts(texts: list[str]) -> list[list[float]]:
+    """Batch-embed ``texts`` with the SAME embedder :func:`create_embedding_model`
+    resolves everywhere else (``graph_search``, ingestion, enrichment, …) so the
+    vector dimension matches the stored node embeddings. Raises loud — never
+    silently drops a RANK leg — if no embedder can be constructed/reached.
+    """
+    from agent_utilities.core.embedding_utilities import create_embedding_model
+
+    try:
+        model = create_embedding_model()
+        batch = getattr(model, "get_text_embedding_batch", None)
+        vectors = (
+            batch(texts)
+            if callable(batch)
+            else [model.get_text_embedding(t) for t in texts]
+        )
+    except Exception:  # noqa: BLE001 — degrade loud, never silent-drop the RANK leg
+        raise RuntimeError("UQL RANK embedding failed") from None
+    return [list(v) for v in vectors]
+
+
+def _embed_uql_rank_text(
+    domain: str, action: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Pre-embed every quoted-text ``RANK BY ~"…"`` leg before a ``uql``/``unified``
+    query dispatches (F2 fix — see the module comment above). The ONE chokepoint
+    for both UQL surfaces: :func:`_dispatch` calls this unconditionally for
+    ``engine_query`` before invoking the engine client, so neither surface
+    duplicates the embed-and-rewrite logic.
+    """
+    if domain != "query":
+        return params
+    if action == "uql" and isinstance(params.get("text"), str):
+        text = params["text"]
+        spans = _uql_rank_text_spans(text)
+        if spans:
+            vectors = _embed_texts([literal for _, _, literal in spans])
+            rewritten = text
+            for (start, end, _literal), vector in reversed(
+                list(zip(spans, vectors, strict=True))
+            ):
+                rendered = "[" + ",".join(f"{float(c):.8f}" for c in vector) + "]"
+                rewritten = rewritten[:start] + "~" + rendered + rewritten[end:]
+            params["text"] = rewritten
+    elif action == "unified" and isinstance(params.get("plan"), list):
+        pending: list[dict[str, Any]] = []
+        _collect_unified_rank_text(params["plan"], pending)
+        if pending:
+            vectors = _embed_texts([rank_field["query"] for rank_field in pending])
+            for rank_field, vector in zip(pending, vectors, strict=True):
+                rank_field["query"] = [float(c) for c in vector]
+    return params
+
+
 def _dispatch(
     domain: str, methods: set[str], action: str, params_json: str, graph: str
 ) -> str:
     """Generic dispatch into one engine sub-client method. The ONE engine core."""
     if not action:
-        return json.dumps({"domain": domain, "actions": sorted(methods)})
+        return json.dumps(
+            {
+                "domain": domain,
+                "actions": sorted(methods),
+                "admin_domain": _is_admin_domain(domain),
+            }
+        )
     if action not in methods:
         return json.dumps(
             {
@@ -179,27 +601,105 @@ def _dispatch(
                 "actions": sorted(methods),
             }
         )
+    # AU-P0-6: fail-closed ADMIN gate — raises PermissionError (not returned as
+    # JSON error data) so a denial is unambiguous and cannot be masked by a
+    # caller pattern-matching on ``{"error": ...}`` engine-degrade payloads.
+    _enforce_action_scope(domain, action)
     try:
         params = json.loads(params_json) if params_json else {}
     except (TypeError, ValueError) as exc:
-        return json.dumps({"error": f"invalid params_json: {exc}"})
+        return public_error_json(
+            exc,
+            code="invalid_request",
+            context={"domain": domain, "action": action},
+        )
     if not isinstance(params, dict):
         return json.dumps({"error": "params_json must decode to a JSON object"})
+    guard_msg = _reject_unbounded_analytics(domain, action, params)
+    if guard_msg is not None:
+        return json.dumps(
+            {
+                "error": guard_msg,
+                "domain": domain,
+                "action": action,
+                "guard": "RESULT_TOO_LARGE",
+            }
+        )
+    # F2: pre-embed any quoted-text RANK leg (`RANK BY ~"text"`) in a `uql`/
+    # `unified` query — see the helper's module comment above. Fails loud (a
+    # JSON error payload), never silently drops the RANK leg.
+    try:
+        params = _embed_uql_rank_text(domain, action, params)
+    except Exception as exc:  # noqa: BLE001 — surface as engine-style error data, not a 500
+        return public_error_json(
+            exc,
+            code="dependency_unavailable",
+            context={"domain": domain, "action": action},
+        )
     try:
         client = _client_for(graph)
     except Exception as exc:  # noqa: BLE001 — engine unreachable is a normal degrade
-        return json.dumps({"error": f"engine unavailable: {exc}"})
+        return public_error_json(
+            exc,
+            code="dependency_unavailable",
+            context={"domain": domain, "action": action},
+        )
     fn = getattr(getattr(client, domain), action, None)
     if not callable(fn):
         return json.dumps(
             {"error": f"engine_{domain} has no callable action {action!r}"}
         )
+    # BUG-4: the top-level ``graph`` field only selects/pools the *connection*
+    # (via ``_client_for`` → ``client_connect_kwargs``) — it is never threaded
+    # into the call itself. Several wire methods (all of ``StreamingClient``'s
+    # graph-scoped ones — ``list_triggers``/``cdc_read``/``fired_triggers``/
+    # ``watch``/``register_trigger``/``register_continuous_query`` — and
+    # potentially others) declare an explicit ``graph`` parameter regardless of
+    # the connection's own graph scope, so without this a call like
+    # ``engine_streaming(action="list_triggers")`` fails with
+    # "missing 1 required positional argument: 'graph'" even though the tool's
+    # own ``graph`` field was filled in (with the resolved default). Inject the
+    # resolved graph name whenever the target method declares a ``graph``
+    # parameter and the caller didn't already supply one via ``params_json``.
+    if "graph" not in params:
+        try:
+            # BUG-4 follow-up: ``fn`` itself is USELESS for this check.
+            # ``SyncEpistemicGraphClient`` wraps every async namespace method
+            # in a generic ``sync_wrapper(*args, **kwargs)`` closure (see
+            # ``epistemic_graph.client.SyncEpistemicGraphClient._SyncWrapper.
+            # __getattr__``) that erases the real parameter names —
+            # ``inspect.signature(fn)`` on that closure always comes back as
+            # ``(*args, **kwargs)``, so ``"graph" in sig.parameters`` never
+            # fires and the graph-threading fix above was silent dead code
+            # for every ``_SyncWrapper``-mediated domain (streaming, blob,
+            # channels, ledger, …). Unwrap to the wrapper's private
+            # ``_namespace`` (the real async object whose *unbound* coroutine
+            # function still carries its true signature — never called
+            # directly, only introspected) so the check actually sees
+            # ``graph`` when the underlying wire method declares it.
+            introspect_target = fn
+            raw_namespace = getattr(getattr(client, domain, None), "_namespace", None)
+            if raw_namespace is not None:
+                async_fn = getattr(raw_namespace, action, None)
+                if async_fn is not None:
+                    introspect_target = async_fn
+            sig = inspect.signature(introspect_target)
+        except (TypeError, ValueError):
+            sig = None
+        if sig is not None and "graph" in sig.parameters:
+            params = {**params, "graph": _resolve_graph_name(graph)}
     try:
         result = fn(**params)
     except TypeError as exc:
-        return json.dumps({"error": f"bad arguments for {domain}.{action}: {exc}"})
+        return public_error_json(
+            exc,
+            code="invalid_request",
+            context={"domain": domain, "action": action},
+        )
     except Exception as exc:  # noqa: BLE001 — surface engine errors as data, not 500
-        return json.dumps({"error": str(exc), "domain": domain, "action": action})
+        return public_error_json(
+            exc, context={"domain": domain, "action": action}
+        )
     return json.dumps(result, default=_json_default)
 
 
@@ -237,15 +737,24 @@ def register_engine_tools(mcp) -> None:
         fn = _make_domain_tool(domain, methods)
         fn.__name__ = tool_name
         blurb = _DOMAIN_BLURB.get(domain, "")
+        admin_note = (
+            f" ADMIN domain — every action requires the {ENGINE_ADMIN_SCOPE!r} "
+            "scope/role (AU-P0-6); denied otherwise."
+            if _is_admin_domain(domain)
+            else ""
+        )
         description = (
             f"Low-level epistemic-graph engine surface for the '{domain}' domain"
             + (f" ({blurb})" if blurb else "")
             + ". Action-routed 1:1 over the epistemic_graph client: set 'action' to "
             f"the method name and 'params_json' to its JSON kwargs. Actions: "
-            f"{', '.join(sorted(methods))}. (CONCEPT:AU-ECO.mcp.full-api-mcp-surface)"
+            f"{', '.join(sorted(methods))}."
+            + admin_note
+            + " (CONCEPT:AU-ECO.mcp.full-api-mcp-surface)"
         )
-        mcp.tool(
-            name=tool_name, description=description, tags=["graph-os", "engine", domain]
-        )(fn)
+        tags = ["graph-os", "engine", domain]
+        if _is_admin_domain(domain):
+            tags.append("admin")
+        mcp.tool(name=tool_name, description=description, tags=tags)(fn)
         kg_server.REGISTERED_TOOLS[tool_name] = fn
         kg_server.ACTION_TOOL_ROUTES[tool_name] = f"/engine/{domain}"

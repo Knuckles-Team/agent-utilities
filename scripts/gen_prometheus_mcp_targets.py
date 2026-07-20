@@ -56,7 +56,7 @@ def main() -> int:
     ap.add_argument(
         "--out",
         type=Path,
-        default=Path("/home/apps/workspace/services/lgtm/targets/mcp-fleet.json"),
+        required=True,
         help="Prometheus file_sd JSON output path.",
     )
     args = ap.parse_args()

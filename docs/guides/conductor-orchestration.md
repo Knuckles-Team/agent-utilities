@@ -78,7 +78,7 @@ def _resolve_access_context(
 
 ## CONCEPT:AU-AHE.evaluation.interpretability-tests: Model Synergy Tracker
 
-**Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; the old `knowledge_graph/self_model.py` import path remains as a backward-compatible shim)
+**Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`)
 
 ### Motivation
 
@@ -128,9 +128,9 @@ The Conductor paper demonstrates that allowing the orchestrator to specify *itse
 ```mermaid
 graph TD
     ERR["OS-5.2: RecursionDepthExceeded"]
-    Q["ORCH-1.0: User Query"] --> G1["KG-2.0: Graph Execution L0"]
+    Q["ORCH-1.0: User Query"] --> G1["KG-2.0: Parent Graph Execution"]
     G1 -->|Plan fails| RC["ORCH-1.21: recursive_orchestrator"]
-    RC -->|RecursiveContext| G2["KG-2.0: Graph Execution L1"]
+    RC -->|RecursiveContext| G2["KG-2.0: Recursive Graph Execution"]
     G2 -->|Result| G1
     G2 -.->|depth > MAX| ERR
 ```

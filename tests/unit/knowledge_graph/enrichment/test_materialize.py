@@ -1,8 +1,8 @@
 """Source-extractor materialization tests (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
 Asserts materialize_source runs a registered extractor over an injected client
-and persists via write_batch, that a None backend is a clean no-op, and that an
-unknown category raises.
+and persists via the native graph-slice boundary, that a None engine is a clean
+no-op, and that an unknown category raises.
 """
 
 from __future__ import annotations
@@ -27,21 +27,48 @@ class FakeCamundaClient:
         return []
 
 
-def test_materialize_persists_extractor_batch():
-    backend = FakeBackend()
-    n, e = materialize_source(backend, "camunda", FakeCamundaClient())
+def test_materialize_submits_extractor_batch_to_native_boundary(monkeypatch):
+    submitted = {}
+
+    def capture(engine, connector, entities, relationships, **kwargs):
+        submitted.update(
+            engine=engine,
+            connector=connector,
+            entities=entities,
+            relationships=relationships,
+            kwargs=kwargs,
+        )
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        capture,
+    )
+    engine = object()
+    n, e = materialize_source(engine, "camunda", FakeCamundaClient())
     assert n >= 1
-    assert backend.nodes["bpmn_process:invoice:1"]["type"] == "BusinessProcess"
+    assert submitted["engine"] is engine
+    assert submitted["connector"] == "camunda"
+    assert submitted["entities"][0]["type"] == "BusinessProcess"
 
 
 def test_none_backend_is_noop_but_runs():
-    # No backend → (0, 0) but the extractor still ran without error.
+    # No engine → (0, 0) but the extractor still ran without error.
     assert materialize_source(None, "camunda", FakeCamundaClient()) == (0, 0)
 
 
 def test_unknown_category_raises():
     with pytest.raises(ValueError):
         materialize_source(FakeBackend(), "does-not-exist", object())
+
+
+def test_bare_backend_fails_closed():
+    backend = FakeBackend()
+
+    with pytest.raises(RuntimeError, match="native ChangeEnvelope graph slice failed"):
+        materialize_source(backend, "camunda", FakeCamundaClient())
+
+    assert backend.nodes == {}
 
 
 def test_resolve_source_client_missing_returns_none():

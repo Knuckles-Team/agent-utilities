@@ -23,7 +23,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.PRODUCTIVITY
     description = "Project management — issues, sprints, and kanban boards"
     env_prefix = "PLANE"
-    default_url = "https://plane.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -54,8 +53,8 @@ class Widget(BaseWidget):
                 if ws_slug:
                     projects = client.get_projects(workspace_slug=ws_slug) or []
         except Exception as e:
-            logger.debug("Plane fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Plane fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

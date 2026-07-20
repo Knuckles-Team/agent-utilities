@@ -1,26 +1,52 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Ambient actor context for Company Brain enforcement (CONCEPT:AU-KG.research.research-pipeline-runner).
+"""Verified ambient actor context for Company Brain enforcement.
 
 The Company Brain's trust, permission, and audit layers need to know *who* is
 reading or writing. Threading an actor through hundreds of existing call sites
-would be invasive and break compatibility, so identity is carried in a
-``contextvars.ContextVar`` instead: callers that care (the MCP server, agent
-runner) set it with :func:`use_actor`; everything else transparently inherits
-the privileged :data:`SYSTEM_ACTOR`, preserving today's behaviour until a
-deployment turns enforcement on.
+would be invasive, so identity is carried in a ``contextvars.ContextVar``.
+Served boundaries set it with :func:`use_actor`. No identity is synthesized:
+an operation without verified authority fails closed.
 
 This module is deliberately dependency-light (only the shared ``ActorType``
 enum) so it can be imported from any layer without cycles.
 """
 
 import contextvars
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 
 from ..models.company_brain import ActorType
+
+
+class CredentialExpiredError(PermissionError):
+    """Raised when an authenticated actor's validated credential has expired."""
+
+
+class CredentialLease:
+    """Thread-safe in-memory expiry shared by one renewable process identity.
+
+    The lease contains no token or identity material. Long-lived worker threads
+    retain the same verified :class:`ActorContext` and consult this mutable
+    expiry at every graph boundary, so a successful OAuth/token rotation renews
+    all of them atomically while a failed rotation remains fail-closed.
+    """
+
+    def __init__(self, expires_at: int) -> None:
+        self._lock = threading.Lock()
+        self._expires_at = int(expires_at)
+
+    @property
+    def expires_at(self) -> int:
+        with self._lock:
+            return self._expires_at
+
+    def renew(self, expires_at: int) -> None:
+        with self._lock:
+            self._expires_at = int(expires_at)
 
 
 @dataclass(frozen=True)
@@ -28,15 +54,12 @@ class ActorContext:
     """The identity of whoever is currently reading or writing the graph.
 
     ``roles`` drives role-based ACL checks; ``tenant_id`` drives multi-tenant
-    isolation. Both default to permissive values so unscoped callers behave
-    exactly as they do today.
+    isolation.
 
     ``authenticated`` is True only when the identity was minted server-side
     from a validated credential (JWT via the gateway middleware or a validated
-    ``KG_AUTH_TOKEN`` — CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Caller-supplied identities and the
-    ambient :data:`SYSTEM_ACTOR` are unauthenticated; when an authenticated
-    actor is in scope, caller-supplied ``_actor``/``_roles``/``_tenant``
-    kwargs are ignored.
+    configured process credential). Caller-supplied identities remain
+    unauthenticated and therefore cannot authorize graph access.
     """
 
     actor_id: str = "system"
@@ -44,38 +67,69 @@ class ActorContext:
     roles: tuple[str, ...] = field(default_factory=tuple)
     tenant_id: str = ""
     authenticated: bool = False
+    # Raw IdP group memberships (Okta ``groups`` / Keycloak group mapper),
+    # provider-normalized. ``roles`` is the effective *capability* set (roles ∪
+    # scopes ∪ group-derived capabilities) that ACL checks read; ``groups`` is
+    # retained distinctly for identity propagation that needs the group names
+    # themselves — notably k8s ``Impersonate-Group``
+    # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance).
+    groups: tuple[str, ...] = field(default_factory=tuple)
+    # Absolute UNIX expiry from an already-validated bearer credential. It is
+    # runtime-only authority state so a short-lived JWT cannot become an
+    # indefinite process session. Non-token/bootstrap actors leave it unset.
+    credential_expires_at: int | None = None
+    credential_lease: CredentialLease | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
-    def with_tenant(self, tenant_id: str) -> ActorContext:
-        return replace(self, tenant_id=tenant_id)
+    def ensure_credential_current(self) -> None:
+        """Fail closed when this actor's validated credential is no longer live."""
+        import time
+
+        expiry = (
+            self.credential_lease.expires_at
+            if self.credential_lease is not None
+            else self.credential_expires_at
+        )
+        if expiry is None:
+            return
+        try:
+            expired = int(time.time()) >= int(expiry)
+        except (TypeError, ValueError):
+            raise CredentialExpiredError(
+                "Verified actor credential has an invalid expiry"
+            ) from None
+        if expired:
+            raise CredentialExpiredError("Verified actor credential has expired")
 
 
-# Privileged default: full access, used whenever no caller has scoped the
-# context. Enforcement (KG_BRAIN_ENFORCE) is what makes scoping matter; until
-# then every read/write runs as the system actor and nothing is filtered.
-SYSTEM_ACTOR = ActorContext(
-    actor_id="system",
-    actor_type=ActorType.SYSTEM,
-    roles=("admin", "system"),
-    tenant_id="",
-)
+class IdentityRequiredError(PermissionError):
+    """Raised when an operation has no explicitly bound actor identity."""
 
 
-_current: contextvars.ContextVar[ActorContext] = contextvars.ContextVar(
-    "company_brain_actor", default=SYSTEM_ACTOR
+_current: contextvars.ContextVar[ActorContext | None] = contextvars.ContextVar(
+    "company_brain_actor", default=None
 )
 
 
 def current_actor() -> ActorContext:
-    """Return the actor for the current execution context."""
-    return _current.get()
+    """Return the explicitly bound actor or fail closed."""
+    actor = _current.get()
+    if actor is None:
+        raise IdentityRequiredError("A verified actor context is required")
+    actor.ensure_credential_current()
+    return actor
 
 
-def set_actor(ctx: ActorContext) -> contextvars.Token[ActorContext]:
+def set_actor(ctx: ActorContext) -> contextvars.Token[ActorContext | None]:
     """Set the current actor, returning a token for :func:`reset_actor`."""
+    ctx.ensure_credential_current()
     return _current.set(ctx)
 
 
-def reset_actor(token: contextvars.Token[ActorContext]) -> None:
+def reset_actor(token: contextvars.Token[ActorContext | None]) -> None:
     """Restore the actor to its prior value."""
     _current.reset(token)
 

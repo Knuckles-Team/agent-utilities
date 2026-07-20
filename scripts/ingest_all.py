@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 import httpx
@@ -37,7 +38,7 @@ async def get_stats(client: httpx.AsyncClient):
         response = await client.post(
             f"{GATEWAY_URL}/api/graph/query",
             json={
-                "cypher": "MATCH (n) RETURN n.type AS type, count(*) AS count ORDER BY count DESC LIMIT 50"
+                "cypher": "MATCH (n) RETURN n.node_type AS node_type, count(*) AS count ORDER BY count DESC LIMIT 50"
             },
         )
         if response.status_code == 200:
@@ -53,8 +54,10 @@ async def main():
 
     # Read the paths to ingest
     # We will expand discovery here to cover all MCP servers, skills, and tools
-    workspace = Path("/home/apps/workspace")
-    agent_packages = workspace / "agent-packages"
+    configured_root = os.environ.get("AGENT_PACKAGES_ROOT", "").strip()
+    if not configured_root:
+        raise RuntimeError("AGENT_PACKAGES_ROOT is required")
+    agent_packages = Path(configured_root)
 
     # 1. MCP Servers (agents)
     agents_dir = agent_packages / "agents"
@@ -73,7 +76,7 @@ async def main():
     )
 
     # 3. Read from scratch/paths.txt as well
-    paths_txt = workspace / "scratch" / "paths.txt"
+    paths_txt = Path(os.environ.get("INGEST_PATHS_FILE", "paths.txt"))
     txt_paths = []
     if paths_txt.exists():
         with open(paths_txt) as f:

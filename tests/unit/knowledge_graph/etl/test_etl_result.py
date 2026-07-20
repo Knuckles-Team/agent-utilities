@@ -1,15 +1,14 @@
 """Unit tests for the typed ``EtlResult`` output contract (CONCEPT:AU-KG.etl.result-contract).
 
 Covers the koheesio-assimilated pattern (typed/validated step output, see
-``reports/koheesio-etl-analysis.md`` §3.1): construction, the ``count_of`` /
-``coerce`` helpers that replace the old duck-typed ``_count()``, and that
-``run_etl`` / ``sync_source`` / ``ingest_connector_to_table`` all still return a
-plain, backward-compatible ``dict``.
+``reports/koheesio-etl-analysis.md`` §3.1): strict construction, explicit counts,
+namespaced connector diagnostics, and typed nested ETL steps.
 """
 
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.knowledge_graph.etl.result import EtlResult
 
@@ -23,45 +22,29 @@ def test_default_status_and_counts():
     assert result.source is None
 
 
-def test_extra_handler_fields_pass_through():
-    """A raw ``_sync_*`` handler dict's extra fields survive untouched."""
-    result = EtlResult.coerce(
-        {"status": "ok", "nodes_hydrated": 7, "instances": [{"name": "a"}]}
+def test_connector_fields_are_namespaced_under_details():
+    result = EtlResult(
+        status="ok",
+        counts={"nodes": 7},
+        details={"instances": [{"name": "a"}]},
     )
     dumped = result.model_dump()
-    assert dumped["nodes_hydrated"] == 7
-    assert dumped["instances"] == [{"name": "a"}]
-    # counts derived from the legacy duck-typed key when absent
     assert dumped["counts"] == {"nodes": 7}
+    assert dumped["details"] == {"instances": [{"name": "a"}]}
 
 
-def test_count_of_checks_legacy_keys_in_priority_order():
-    assert EtlResult.count_of({"nodes": 3, "created": 9}) == 3
-    assert EtlResult.count_of({"nodes_hydrated": 4}) == 4
-    assert EtlResult.count_of({"created": 2}) == 2
-    assert EtlResult.count_of({"rows_written": 5}) == 5
-    assert EtlResult.count_of({"unrelated": 1}) == 0
-    assert EtlResult.count_of(None) == 0
-    assert EtlResult.count_of("not-a-dict") == 0  # type: ignore[arg-type]
+def test_unknown_top_level_fields_are_rejected():
+    with pytest.raises(ValidationError):
+        EtlResult.model_validate({"status": "ok", "nodes_hydrated": 4})
 
 
-def test_coerce_defaults_only_fill_gaps():
-    """``coerce`` defaults never clobber a value the handler already set."""
-    result = EtlResult.coerce({"status": "materialized", "source": "camunda"}, source="other")
-    assert result.source == "camunda"
-    assert result.status == "materialized"
+def test_nested_steps_use_the_same_contract():
+    inbound = EtlResult(status="materialized", source="camunda", counts={"nodes": 4})
+    result = EtlResult(status="ok", inbound=inbound)
+    assert result.inbound == inbound
+    assert result.model_dump()["inbound"]["counts"] == {"nodes": 4}
 
 
-def test_coerce_explicit_counts_skip_auto_derivation():
-    result = EtlResult.coerce({"nodes": 100}, counts={"nodes": 1, "edges": 2})
+def test_counts_are_explicit():
+    result = EtlResult(counts={"nodes": 1, "edges": 2})
     assert result.counts == {"nodes": 1, "edges": 2}
-
-
-def test_coerce_passes_through_non_dict():
-    result = EtlResult.coerce(None)
-    assert result.status == "ok"
-
-
-def test_to_dict_matches_model_dump():
-    result = EtlResult(status="ok", source="jira")
-    assert result.to_dict() == result.model_dump()

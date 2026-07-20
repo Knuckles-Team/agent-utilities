@@ -175,7 +175,7 @@ class DocumentUpdatePipeline:
         for _, chunk_id, edge_data in self.knowledge_graph.graph.out_edges(
             ontological_identifier, data=True
         ):
-            if edge_data.get("relationship_type") == "HAS_CHUNK":
+            if edge_data.get("relationship") == "HAS_CHUNK":
                 node_data = self.knowledge_graph.graph.nodes.get(chunk_id)
                 if node_data:
                     chunks.append(node_data)

@@ -101,17 +101,16 @@ async def import_agent_card(
         else:
             # Basic fallback ingestion
             card_id = f"agent_card:{agent_url.replace('://', '_').replace('/', '_')}"
-            engine.graph.add_node(card_id, type="AgentCard", url=agent_url, data=card)
-            if engine.backend:
-                engine.backend.execute(
-                    "MERGE (n:AgentCard {id: $id}) SET n.url = $url, n.data = $data",
-                    {"id": card_id, "url": agent_url, "data": json.dumps(card)},
-                )
+            engine.add_node(
+                card_id,
+                "AgentCard",
+                {"url": agent_url, "data": json.dumps(card)},
+            )
 
         return f"Successfully imported agent card for {agent_url}."
-    except Exception as e:
-        logger.error(f"Failed to import agent card: {e}")
-        return f"Failed to import agent card: {e}"
+    except Exception as exc:
+        logger.error("Agent-card import failed (%s)", type(exc).__name__)
+        return f"Agent-card import failed ({type(exc).__name__})."
 
 
 kg_share_tools = [export_subgraph, import_agent_card]

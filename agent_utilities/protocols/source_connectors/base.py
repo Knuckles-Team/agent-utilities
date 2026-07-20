@@ -53,7 +53,19 @@ __all__ = [
     "PermSyncConnector",
     "ConnectorCheckpoint",
     "CheckpointedBatch",
+    "CONNECTOR_UNCONFIGURED_MARKING",
+    "default_external_access",
 ]
+
+# Mandatory-control marking applied to a document whose connector could not
+# report a real ACL (CONCEPT:AU-P0-4 fail-closed connector permissions). No
+# actor holds ``marking:connector-unconfigured-acl`` by default, so
+# ``permission_sync.sync_access`` restricts the document to nobody until an
+# operator explicitly reviews it and grants the marking — the fail-closed
+# counterpart to a verified ``ExternalAccess.public()`` grant. Every supplied
+# descriptor now creates an explicit ACL; the marking remains the mandatory
+# quarantine control and never relies on an absent-policy interpretation.
+CONNECTOR_UNCONFIGURED_MARKING = "connector-unconfigured-acl"
 
 
 class ExternalAccess(BaseModel):
@@ -65,21 +77,47 @@ class ExternalAccess(BaseModel):
     additionally carry mandatory compartment markings.
 
     Attributes:
-        is_public: When true the document is readable by anyone (no ACL applied).
+        is_public: When true the document receives an explicit public ACL.
         user_emails: Individual principals granted read access.
         group_ids: Group principals granted read access.
+        read_roles: Provider-neutral authorization roles granted read access.
+            These are useful for internal machine sources whose governing role
+            is already a stable platform capability rather than an external
+            user or directory group.
         markings: Mandatory-control compartment names (KG-2.46 ``Marking``).
     """
 
     is_public: bool = False
     user_emails: list[str] = Field(default_factory=list)
     group_ids: list[str] = Field(default_factory=list)
+    read_roles: list[str] = Field(default_factory=list)
     markings: list[str] = Field(default_factory=list)
 
     @classmethod
     def public(cls) -> ExternalAccess:
         """A world-readable access descriptor."""
         return cls(is_public=True)
+
+    @classmethod
+    def quarantined(cls) -> ExternalAccess:
+        """The most-restrictive access descriptor (CONCEPT:AU-P0-4).
+
+        Not public, no principals granted, and carries
+        :data:`CONNECTOR_UNCONFIGURED_MARKING` so the document is actually
+        denied by the KG-2.46 read gate (see the constant's docstring) rather
+        than silently defaulting open. This is the fail-closed default for an
+        unproven/unconfigured connector — the opposite of :meth:`public`.
+        """
+        return cls(is_public=False, markings=[CONNECTOR_UNCONFIGURED_MARKING])
+
+
+def default_external_access() -> ExternalAccess:
+    """The connector default when a source reports no ACL at all (CONCEPT:AU-P0-4).
+
+    Fail-closed: "unknown" never means "public". A public grant is accepted only
+    when a certified source deliberately supplies it as record data.
+    """
+    return ExternalAccess.quarantined()
 
 
 class SourceDocument(BaseModel):

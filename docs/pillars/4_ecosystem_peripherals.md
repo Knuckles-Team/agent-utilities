@@ -45,7 +45,7 @@ Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote a
 - **AU-OS.governance.permission-policy**: Governance Workflow Pipeline — Unified change proposal, risk scoring, and approval routing
 - **AU-KG.memory.team-startup-context**: Codebase Map Generator — Deterministic `CODEBASE.md` generation for navigational context
 - **ECO-4.25–4.29**: Document-Source Connector Framework — `load`/`poll`/`slim` connectors (web, filesystem, database, MCP fleet) with checkpoints and permission sync
-- **AU-ECO.mcp.profile-differences-from-client**: Fleet-Scale MCP Multiplexer Hardening — per-child limits, session pools, restart-on-crash, circuit breakers, `multiplexer_status`
+- **AU-ECO.mcp.profile-differences-from-client**: GraphOS Fleet Gateway Hardening — per-child limits, session pools, restart-on-crash, and circuit breakers
 
 ---
 
@@ -53,7 +53,7 @@ Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote a
 
 Enterprise-grade governance for large-scale agent deployments. Inspired by [Anthropic's Claude Code at Scale](https://www.anthropic.com) best practices, these modules bridge autonomous agent actions with human-in-the-loop oversight, ensuring compliance, auditability, and configuration hygiene across multi-team ecosystems.
 
-### 📄 Hierarchical AGENTS.md & Team Context (AU-KG.memory.team-startup-context)
+### 📄 Hierarchical AGENTS.md & Team Context (AU-KG.memory.team-startup-context) { #hierarchical-agent-context }
 
 Implements **root-first additive** AGENTS.md resolution. When an agent operates in a subdirectory, it walks UP from CWD to project root, collecting all `AGENTS.md` files and assembling them root-first (root rules → subdirectory overrides). Team-specific conventions are injected at startup via KG `TeamConfigNode` entries.
 
@@ -67,21 +67,21 @@ A **SessionEnd stop hook** that reflects on session transcripts to propose AGENT
 - **Source Code**: `ecosystem/agents_md_reflector.py`
 - **Behavior**: Proposals above 0.9 confidence auto-apply. Below threshold, proposals are persisted as `agents_md_proposal` KG nodes for human review. Generates markdown diffs for clear change visualization.
 
-### 🔍 Deterministic Lint Enforcement Hook (AU-OS.governance.lint-enforcement-hook)
+### 🔍 Deterministic Lint Enforcement Hook (AU-OS.governance.lint-enforcement-hook) { #lint-enforcement }
 
 A **PRE_TOOL_USE** hook that intercepts file writes and runs linters (`ruff`, `mypy`, `eslint`) in subprocess. Ensures code quality is enforced deterministically without LLM involvement.
 
 - **Source Code**: `ecosystem/lint_enforcement_hook.py`
 - **Behavior**: Configurable per-linter thresholds. Fails the file write if violations exceed limits. Results are cached by content hash to avoid re-running on identical content.
 
-### 📦 Plugin Bundle Distribution System (AU-ECO.toolkit.self-documenting-plugin-bundle)
+### 📦 Plugin Bundle Distribution System (AU-ECO.toolkit.self-documenting-plugin-bundle) { #plugin-bundles }
 
 Manifest-based distribution for unified sets of skills, hooks, and MCP configurations. Bundles are registered in the KG and can be shared globally via GitHub.
 
 - **Source Code**: `ecosystem/plugin_bundle.py`
 - **Behavior**: YAML manifest format with version pinning, compatibility declarations, and install/uninstall lifecycle. The KG registry enables discovery and compliance auditing across teams.
 
-### 🛡️ Permission Policy Engine (AU-OS.governance.permission-policy)
+### 🛡️ Permission Policy Engine (AU-OS.governance.permission-policy) { #permission-policy }
 
 Version-controlled deny/allow rules for file paths and tool names, enforced at the PRE_TOOL_USE lifecycle hook. Policies are YAML files tracked alongside code.
 
@@ -145,55 +145,43 @@ Generates deterministic `CODEBASE.md` files with directory-tree TOCs and docstri
 - **Behavior**: Walks the file tree, extracts module docstrings, and produces a navigational markdown document. Registered as a graph-os MCP tool.
 
 
-### 🛡️ Fleet-Scale MCP Multiplexer Hardening (AU-ECO.mcp.profile-differences-from-client)
+### 🛡️ GraphOS Fleet Gateway Hardening (AU-ECO.mcp.profile-differences-from-client)
 
-The `mcp-multiplexer` aggregates the whole `*-mcp` fleet behind one server, and every aggregated child now runs behind a per-child `ChildRuntime` (`agent_utilities/mcp/child_resilience.py`) instead of one bare shared session:
+GraphOS aggregates the whole `*-mcp` fleet through its embedded gateway, and every child runs behind a per-child `ChildRuntime` (`agent_utilities/mcp/child_resilience.py`) instead of one bare shared session:
 
 - **Per-child concurrency limits + bounded queue** — `MCP_CHILD_MAX_CONCURRENCY` (default 8; per-server `max_concurrency` in `mcp_config.json`) caps in-flight calls; excess calls queue at most `MCP_CHILD_QUEUE_TIMEOUT` (default 30s) then fail with the typed `MCPChildBusyError`, so one slow child cannot cause head-of-line hangs.
 - **Session pools for HTTP children** — remote (streamable-http/SSE) children hold `MCP_CHILD_POOL_SIZE` round-robin connections (default 1 keeps the historical resource profile); stdio stays single-pipe.
 - **Restart-on-crash supervision** — transport failures recycle the child's connection generation with jittered exponential backoff; more than `MCP_CHILD_MAX_RESTARTS` (default 5) inside `MCP_CHILD_RESTART_WINDOW` (default 300s) parks the child as `failed` with the typed `MCPChildUnavailableError` naming the child and its restart state.
 - **Per-child circuit breaker** — consecutive transport failures open a breaker (`MCP_CHILD_BREAKER_THRESHOLD` / `MCP_CHILD_BREAKER_COOLDOWN`) that short-circuits with `MCPChildCircuitOpenError` until a half-open probe succeeds.
-- **Health surface + metrics** — the `multiplexer_status` tool / `MCPMultiplexer.status_snapshot()` reports per-child up/restarting/failed state, restart count, breaker state, pool size, in-flight and queued calls; per-child Prometheus series (`agent_utilities_mcp_child_calls_total{server,outcome}`, `..._breaker_state`, `..._restarts_total`, `..._queue_depth`) land on the AU-OS.observability.no-op-without-metrics gateway registry.
+- **Health surface + metrics** — GraphOS reports per-child up/restarting/failed state, restart count, breaker state, pool size, in-flight and queued calls; per-child Prometheus series (`agent_utilities_mcp_child_calls_total{server,outcome}`, `..._breaker_state`, `..._restarts_total`, `..._queue_depth`) land on the AU-OS.observability.no-op-without-metrics gateway registry.
 
-### graph-os MCP Tools
+### GraphOS model-facing MCP surface
 
-The `graph-os` MCP server exposes **25 tools** (source of truth:
-`ACTION_TOOL_ROUTES` in `agent_utilities/mcp/kg_server.py`; the parity contract
-test keeps this table's REST twins in lockstep).
+The current default (`MCP_TOOL_MODE=intent`) starts with exactly **11 visible
+tools**: **six intent verbs and five control tools**. This is progressive
+disclosure, not a compatibility alias over the former granular startup table.
 
-| Tool Name | Description |
-|-----------|-------------|
-| `graph_query` | Execute a read-only Cypher query against the Knowledge Graph (incl. federated scope and bitemporal `as_of`). |
-| `graph_search` | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, dci). |
-| `graph_write` | Write nodes, relationships, memories, or register external graphs. |
-| `graph_ingest` | Smart ingestion for codebases, documents, directories, conversation logs; job-queue controls; skill-graph distill/import. |
-| `graph_analyze` | Complex analysis across the Knowledge Graph (synthesize, deep_extract, causal, invariant, forecast, security_scan, …). |
-| `graph_orchestrate` | Orchestrate multi-agent workflows, dispatch subagents, compile workflows/processes, approvals, publish proposals. |
-| `graph_configure` | Manage backend configurations, system credentials, schema packs, and tool registration. |
-| `graph_context` | Session-anchored context collections (AU-ORCH.session.session-anchored-collections-native). |
-| `graph_message` | Native invoker↔spawned-agent message channels (AU-ORCH.session.session-anchored-collections-native). |
-| `graph_sessions` | List/get/reply-to/cancel durable sessions. |
-| `graph_goals` | Create/list/iterate/cancel durable background goals. |
-| `graph_feedback` | Record human feedback and corrections. |
-| `graph_hydrate` | Hydrate the KG from external sources. |
-| `document_process` | Extract→chunk→embed→link document processing (KG-2.48). |
-| `source_connector` | Run document-source connectors (web, filesystem, database, MCP fleet — ECO-4.25–4.29). |
-| `ontology_property_types` | Property-type vocabulary (KG-2.47). |
-| `ontology_value_types` | Constrained semantic value types (KG-2.39). |
-| `ontology_interface` | Interfaces + implementer resolution (KG-2.38). |
-| `ontology_function` | Typed, versioned, governed functions (AU-KG.ontology.default-runtime-bound-import). |
-| `ontology_derive` | Read-time derived properties (KG-2.40). |
-| `ontology_link_materialize` | First-class link materialization (KG-2.26). |
-| `object_edits` | Bitemporal object edit ledger with revert (KG-2.43). |
-| `object_index` | Object indexing lifecycle (AU-KG.ontology.batch-incremental-sync-live). |
-| `object_permissioning` | Entailment-aware ACL markings (AU-KG.ontology.redact-object-materialize-restricted). |
-| `object_set` | Composable object sets: filter/search/search-around/pivot/aggregate (KG-2.45). |
+| Surface | Always-visible tools | Purpose |
+|---|---|---|
+| Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent to the exact current capability; mutating verbs preview before execution. |
+| Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `multiplexer_status` | Discover, expose, retract, and inspect exact tools without permanently filling model context. |
+
+The generated Capability Power Descriptor catalog currently contains **111
+public capabilities**. Their granular MCP and REST actions remain current and
+fully governed, but are hidden from the initial model context. `find_tools`
+ranks the catalog, `load_tools` exposes only the selected exact tools for the
+calling session, and `unload_tools` retracts them again. Dynamic loading never
+weakens the loaded tool's verified session, scope, approval, or mutation policy.
+The source contracts are `agent_utilities/mcp/tool_specs.py`,
+`agent_utilities/mcp/tools/intent_tools.py`, and
+`agent_utilities/mcp/multiplexer.py`; the generated inventory is
+[Capability Power](../capabilities-power.md).
 
 ### Server Endpoints
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/health` | GET | Health check and server metadata |
+| `/health` | GET | Status-only, non-fingerprinting liveness probe |
 | `/ag-ui` | POST | AG-UI streaming with sideband graph events |
 | `/stream` | POST | SSE stream for graph execution |
 | `/acp` | MOUNT | ACP protocol (sessions, planning, approvals) |

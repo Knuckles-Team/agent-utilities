@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time
 
@@ -35,6 +34,9 @@ def test_guard_acquires_when_free():
         assert acquired is True
         holder = el.engine_lock_holder(sock)
         assert holder and holder.get("pid") == os.getpid()
+        assert holder.get("transport_digest")
+        assert "host" not in holder
+        assert "socket" not in holder
 
 
 def test_concurrent_holder_blocks_second_spawner():

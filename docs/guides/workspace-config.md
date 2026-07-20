@@ -19,11 +19,11 @@ and a copy-paste annotated template.
 
 There are two locations, in precedence order:
 
-1. **The workspace root** — e.g. `/home/apps/workspace/workspace.yml`. This is the
-   file an operator edits; it is discovered by walking up the directory tree from
+1. **The nearest ancestor manifest** — `workspace.yml` is discovered by walking
+   up the directory tree from
    the package (`find_workspace_manifest`) and is what the KG ingestion-coverage
    and the `workspace_config` doctor checks validate.
-2. **The XDG config dir** — `~/.config/agent-utilities/workspace.yml`
+2. **The XDG config dir** — `$XDG_CONFIG_HOME/agent-utilities/workspace.yml`
    (`get_workspace_yml_path()`), honoring `XDG_CONFIG_HOME` /
    `AGENT_UTILITIES_CONFIG_DIR`. If **no** file exists there, `load_workspace_yml()`
    auto-seeds a built-in default (`DEFAULT_WORKSPACE_YML`) the first time it is
@@ -40,7 +40,7 @@ The loader is intentionally small. The **recursive walk**
 
 | Key | Type | Required | Consumed by | Meaning |
 |-----|------|:---:|-------------|---------|
-| `path` | string (absolute) | no¹ | `clone_missing_projects`, `workspace_project_roots` | Base directory every repo is resolved/cloned under. Each repo lands at `<path>/<…subdirs…>/<repo-name>`. **If omitted, the bootstrap falls back to the current working directory.** |
+| `path` | string (absolute or environment reference) | no¹ | `clone_missing_projects`, `workspace_project_roots` | Base directory every repo is resolved/cloned under. Prefer `${AGENT_UTILITIES_WORKSPACE_ROOT}` so the manifest remains portable and contains no machine-specific path. Each repo lands at `<path>/<…subdirs…>/<repo-name>`. **If omitted, the bootstrap falls back to the current working directory.** |
 | `repositories` | list of `{url, description}` | no | the recursive walk (root + every subdirectory) | The repos at *this* level of the tree. |
 | `repositories[].url` | string | **yes** | `_extract_repositories`, `fleet_relevance` | The git **clone URL**. The on-disk repo name is the URL basename minus `.git` (`…/servicenow-api.git` → `servicenow-api`). An entry with no `url` is **skipped entirely** by the loader — which is why the doctor flags it as an error. |
 | `repositories[].description` | string | no | `fleet_relevance` (keyword profiles for KG relevance) | Human/semantic description; advisory for cloning, used for the fleet relevance index. |
@@ -126,7 +126,7 @@ schema. It:
 $ agent-utilities-doctor --only workspace_config
 agent-utilities doctor — HEALTHY
 
-  ✓ workspace_config workspace.yml valid at /home/apps/workspace/workspace.yml — 234 repositories
+  ✓ workspace_config workspace.yml valid — 234 repositories
 ```
 
 It is wired into the doctor's `CHECKS` registry, so it also runs as part of a full
@@ -141,7 +141,7 @@ workspace root and edit it for your repos:
 
 ```yaml
 name: "My Agent Workspace"
-path: "/home/apps/workspace"           # absolute base dir; repos clone under here
+path: "."                            # resolve from the invocation directory
 description: "Main development environment."
 
 repositories:                          # repos at the workspace root

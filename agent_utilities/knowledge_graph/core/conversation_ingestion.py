@@ -354,7 +354,7 @@ def discover_all_conversations(
 
         paths = _resolve_paths(ide)
         for path in paths:
-            logger.info(f"Scanning {ide} logs at {path}")
+            logger.info("Scanning configured conversation logs source_type=%s", ide)
             conversations = parser(path)
             all_conversations.extend(conversations)
             logger.info(f"  Found {len(conversations)} conversations from {ide}")

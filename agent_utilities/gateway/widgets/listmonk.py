@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.COMMUNICATION
     description = "Newsletter manager — subscribers, lists, and campaigns"
     env_prefix = "LISTMONK"
-    default_url = "https://listmonk.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -46,8 +45,8 @@ class Widget(BaseWidget):
                 subscribers.get("total", 0) if isinstance(subscribers, dict) else 0
             )
         except Exception as e:
-            logger.debug("Listmonk fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Listmonk fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

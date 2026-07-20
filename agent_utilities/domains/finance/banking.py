@@ -46,15 +46,15 @@ class ISO20022MessageFactory:
     ) -> PaymentMessageNode:
         """Generate a pacs.008 Credit Transfer Initiation."""
         return PaymentMessageNode(
-            id=f"msg:{uuid.uuid4().hex[:12]}",
+            id=f"msg:{uuid.uuid4().hex}",
             message_type=ISO20022MessageType.PACS_008,
             sender_bic=sender_bic,
             receiver_bic=receiver_bic,
             amount=amount,
             currency=currency,
             value_date=value_date,
-            end_to_end_id=f"E2E-{uuid.uuid4().hex[:8]}",
-            instruction_id=f"INSTR-{uuid.uuid4().hex[:8]}",
+            end_to_end_id=f"E2E{uuid.uuid4().hex}",
+            instruction_id=f"INS{uuid.uuid4().hex}",
         )
 
     @staticmethod
@@ -65,12 +65,12 @@ class ISO20022MessageFactory:
     ) -> PaymentMessageNode:
         """Generate a pain.001 Payment Initiation."""
         return PaymentMessageNode(
-            id=f"msg:{uuid.uuid4().hex[:12]}",
+            id=f"msg:{uuid.uuid4().hex}",
             message_type=ISO20022MessageType.PAIN_001,
             sender_bic=sender_bic,
             amount=amount,
             currency=currency,
-            end_to_end_id=f"E2E-{uuid.uuid4().hex[:8]}",
+            end_to_end_id=f"E2E{uuid.uuid4().hex}",
         )
 
 
@@ -120,7 +120,7 @@ class KYCAMLEngine:
             and amount < self._structuring_threshold
         ):
             alert = AMLAlertNode(
-                id=f"aml:{uuid.uuid4().hex[:10]}",
+                id=f"aml:{uuid.uuid4().hex}",
                 transaction_id=transaction_id,
                 account_id=account_id,
                 severity=AMLAlertSeverity.WARNING,
@@ -128,12 +128,12 @@ class KYCAMLEngine:
                 amount=amount,
             )
             self._alerts[alert.id] = alert
-            logger.warning("AML alert: potential structuring on %s", transaction_id)
+            logger.warning("AML alert: potential structuring detected")
             return alert
 
         if amount >= self._structuring_threshold:
             alert = AMLAlertNode(
-                id=f"aml:{uuid.uuid4().hex[:10]}",
+                id=f"aml:{uuid.uuid4().hex}",
                 transaction_id=transaction_id,
                 account_id=account_id,
                 severity=AMLAlertSeverity.SAR_REQUIRED,
@@ -190,7 +190,7 @@ class SettlementEngine:
         legs: list[SettlementLegNode] = []
         for i, bank_id in enumerate(correspondent_chain):
             leg = SettlementLegNode(
-                id=f"leg:{uuid.uuid4().hex[:10]}",
+                id=f"leg:{uuid.uuid4().hex}",
                 payment_id=payment_id,
                 leg_sequence=i + 1,
                 correspondent_bank_id=bank_id,
@@ -235,7 +235,7 @@ class RegulatoryCapitalCalculator:
         total = cet1_capital + at1_capital + tier2_capital
 
         return RegulatoryCapitalNode(
-            id=f"regcap:{uuid.uuid4().hex[:10]}",
+            id=f"regcap:{uuid.uuid4().hex}",
             cet1_ratio=cet1_capital / rwa,
             at1_ratio=at1_capital / rwa,
             tier2_ratio=tier2_capital / rwa,

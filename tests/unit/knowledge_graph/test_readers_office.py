@@ -18,7 +18,6 @@ import pytest
 
 from agent_utilities.knowledge_graph.extraction import readers_office as ro
 
-
 # ----------------------------------------------------------------------------
 # Email — .eml (stdlib, always available)
 # ----------------------------------------------------------------------------

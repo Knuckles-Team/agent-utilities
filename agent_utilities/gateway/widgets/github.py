@@ -42,8 +42,8 @@ class Widget(BaseWidget):
             client.get_authenticated_user() or {}
             repos = client.list_repos() or []
         except Exception as e:
-            logger.debug("GitHub fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("GitHub fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

@@ -11,7 +11,7 @@ a single turn:
 1. The FastAPI middleware (``_model_override_middleware``) populates
    ``request.state.requested_model_id`` and the
    ``REQUESTED_MODEL_ID_CTX`` ContextVar from the header.
-2. Protocol wrappers (AG-UI, ``/stream``, ACP's ``run_graph_flow``)
+2. Protocol wrappers (AG-UI, ``/stream``, and ACP graph execution)
    thread the value into ``GraphDeps.requested_model_id``.
 3. ``pick_specialist_model`` prefers the user-requested model over the
    tier/tag routing heuristic, so the user's choice beats

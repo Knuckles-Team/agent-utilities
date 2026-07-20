@@ -19,8 +19,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from ..backends.sparql.source_partition import make_source_id
 
 logger = logging.getLogger(__name__)
 
@@ -160,21 +163,26 @@ def index_instance(
       (delta sync); ``None`` indexes all (full sync).
     """
     summary = IndexSummary(instance=instance)
-    domain = f"gitlab:{instance}"
+    domain = make_source_id("gitlab", instance)
     watermark = since
 
-    # Iterate defensively: project enumeration is paginated, so a transient blip
-    # (after _get's own retries) must end this instance with partial results +
-    # a recorded error, never abort the whole sweep mid-flight. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
+    # Enumerate defensively, then process oldest-first. A newer project's native
+    # cursor must never commit before an older project that can still fail.
+    projects: list[GitLabProject] = []
+    enumeration_complete = True
     project_iter = iter(source.list_projects())
     while True:
         try:
-            project = next(project_iter)
+            projects.append(next(project_iter))
         except StopIteration:
             break
         except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
             summary.errors.append(f"project enumeration stopped early: {exc}")
+            enumeration_complete = False
             break
+    projects.sort(key=lambda item: str(item.last_activity_at or ""))
+
+    for project in projects:
         pid = str(project.id)
         if project_ids is not None and pid not in project_ids:
             continue
@@ -189,7 +197,7 @@ def index_instance(
             summary.errors.append(
                 f"{project.path_with_namespace}: list/fetch failed: {exc}"
             )
-            continue
+            break
         if not files:
             summary.projects_skipped += 1
             continue
@@ -200,18 +208,25 @@ def index_instance(
             summary.errors.append(
                 f"{project.path_with_namespace}: index_repository failed: {exc}"
             )
-            continue
+            break
 
         entities, relationships = map_index_result(
             result, project=project, instance=instance
         )
+        if not enumeration_complete:
+            # The material is useful, but a partial paginated listing is not
+            # authoritative enough to advance the source cursor. A complete
+            # retry writes the same project with its real source version.
+            for entity in entities:
+                if entity.get("type") == "Repository":
+                    entity["updatedAt"] = None
         try:
             ingest(domain, entities, relationships)
         except Exception as exc:  # noqa: BLE001
             summary.errors.append(
                 f"{project.path_with_namespace}: ingest failed: {exc}"
             )
-            continue
+            break
 
         summary.projects_indexed += 1
         summary.files_indexed += len(files)
@@ -223,8 +238,10 @@ def index_instance(
         summary.imports_resolved += int(result.get("imports_resolved", 0) or 0)
         summary.nodes_written += len(entities)
         summary.edges_written += len(relationships)
-        if project.last_activity_at and (
-            watermark is None or project.last_activity_at > watermark
+        if (
+            enumeration_complete
+            and project.last_activity_at
+            and (watermark is None or project.last_activity_at > watermark)
         ):
             watermark = project.last_activity_at
 
@@ -273,6 +290,7 @@ def map_index_result(
             "instance": instance,
             "default_branch": project.default_branch,
             "web_url": project.web_url,
+            "updatedAt": project.last_activity_at,
         }
     ]
     relationships: list[dict[str, Any]] = []
@@ -375,9 +393,8 @@ class GitLabInstanceConfig:
     """Connection facts for one GitLab instance (personal or enterprise)."""
 
     name: str  # short, stable id used in `source_system = gitlab:<name>`
-    url: str  # base URL, e.g. https://gitlab.com or https://gitlab.acme.internal
+    url: str  # runtime base URL, e.g. https://gitlab.com or https://gitlab.example.test
     token: str = ""
-    verify_ssl: bool = True
 
 
 class GitLabRestSource:
@@ -406,14 +423,24 @@ class GitLabRestSource:
     def _base(self) -> str:
         return f"{self.config.url.rstrip('/')}/api/v4"
 
-    def _session(self) -> Any:
-        import requests  # lazy: keep the pure logic importable without requests
+    @contextmanager
+    def _session(self) -> Iterable[Any]:
+        from agent_utilities.core.http_client import create_requests_session
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
 
-        s = requests.Session()
-        if self.config.token:
-            s.headers["PRIVATE-TOKEN"] = self.config.token
-        s.verify = self.config.verify_ssl
-        return s
+        trust = resolve_configured_tls_profile("gitlab")
+        try:
+            headers = (
+                {"PRIVATE-TOKEN": self.config.token} if self.config.token else None
+            )
+            with create_requests_session(
+                transport_security=trust, headers=headers
+            ) as session:
+                yield session
+        finally:
+            trust.cleanup()
 
     def _get(self, session: Any, url: str, params: dict[str, Any]) -> Any:
         """GET with bounded retry on TRANSIENT failures (connection refused,
@@ -454,58 +481,71 @@ class GitLabRestSource:
             page = int(nxt) if nxt.isdigit() else 0
 
     def list_projects(self) -> Iterable[GitLabProject]:
-        session = self._session()
-        for row in self._paginate(
-            session,
-            "/projects",
-            {"membership": "true", "simple": "false", "archived": "false"},
-        ):
-            yield GitLabProject(
-                id=str(row.get("id")),
-                path_with_namespace=row.get("path_with_namespace", str(row.get("id"))),
-                default_branch=row.get("default_branch") or "main",
-                web_url=row.get("web_url", ""),
-                last_activity_at=row.get("last_activity_at"),
-            )
+        with self._session() as session:
+            for row in self._paginate(
+                session,
+                "/projects",
+                {"membership": "true", "simple": "false", "archived": "false"},
+            ):
+                yield GitLabProject(
+                    id=str(row.get("id")),
+                    path_with_namespace=row.get(
+                        "path_with_namespace", str(row.get("id"))
+                    ),
+                    default_branch=row.get("default_branch") or "main",
+                    web_url=row.get("web_url", ""),
+                    last_activity_at=row.get("last_activity_at"),
+                )
 
     def list_files(self, project: GitLabProject) -> Iterable[str]:
-        session = self._session()
-        for row in self._paginate(
-            session,
-            f"/projects/{project.id}/repository/tree",
-            {"recursive": "true", "ref": project.default_branch},
-        ):
-            if row.get("type") == "blob" and row.get("path"):
-                yield row["path"]
+        with self._session() as session:
+            for row in self._paginate(
+                session,
+                f"/projects/{project.id}/repository/tree",
+                {"recursive": "true", "ref": project.default_branch},
+            ):
+                if row.get("type") == "blob" and row.get("path"):
+                    yield row["path"]
 
     def get_file(self, project: GitLabProject, path: str) -> bytes | None:
         from urllib.parse import quote
 
-        session = self._session()
-        encoded = quote(path, safe="")
-        resp = self._get(
-            session,
-            f"{self._base}/projects/{project.id}/repository/files/{encoded}/raw",
-            {"ref": project.default_branch},
-        )
-        if resp.status_code != 200:
-            return None
-        return resp.content
+        with self._session() as session:
+            encoded = quote(path, safe="")
+            resp = self._get(
+                session,
+                f"{self._base}/projects/{project.id}/repository/files/{encoded}/raw",
+                {"ref": project.default_branch},
+            )
+            if resp.status_code != 200:
+                return None
+            return resp.content
 
 
 def instance_config_from_dict(item: dict[str, Any]) -> GitLabInstanceConfig | None:
-    """Map one ``{name,url,token,verify_ssl}`` entry to a config, or ``None`` if
-    it has no url. The single parsing rule shared by the indexer and the
-    ``gitlab-api`` instance registry, so the XDG ``gitlab_instances`` schema means
-    the same thing on both sides."""
+    """Map one current ``{name,url,token_ref}`` entry to a runtime config.
+
+    The reference is resolved only in memory. Raw ``token`` entries are rejected
+    even for programmatic callers so the portable schema has one unambiguous
+    security posture. An omitted reference is valid for a public instance.
+    """
     url = str(item.get("url", "")).strip()
     if not url:
         return None
+    if "token" in item:
+        raise ValueError("GitLab instance credentials require token_ref")
+    token_ref = str(item.get("token_ref", "") or "").strip()
+    token = ""
+    if token_ref:
+        from agent_utilities.security.cli_secrets import (
+            resolve_runtime_secret_reference,
+        )
+
+        token = resolve_runtime_secret_reference(token_ref)
     return GitLabInstanceConfig(
         name=str(item.get("name") or _host_slug(url)),
         url=url,
-        token=str(item.get("token", "")),
-        verify_ssl=bool(item.get("verify_ssl", True)),
+        token=token,
     )
 
 
@@ -513,9 +553,10 @@ def instances_from_config(config: Any = None) -> list[GitLabInstanceConfig]:
     """Resolve the configured GitLab instances from the agent-utilities XDG config.
 
     The structured ``gitlab_instances`` list in
-    ``~/.config/agent-utilities/config.json`` (a typed ``AgentConfig`` field) is
-    the multi-tenant source of truth; it falls back to the single-host
-    ``GITLAB_URL``/``GITLAB_TOKEN`` settings when no instances are configured.
+    the typed ``AgentConfig`` field is the multi-tenant source of truth; its
+    optional ``token_ref`` values resolve at use time. It falls back to the
+    single-host runtime ``GITLAB_URL``/``GITLAB_TOKEN`` settings when no instances
+    are configured.
     ``config`` defaults to the live ``AgentConfig`` singleton (injectable for tests).
     """
     # `setting` is the module-level live env accessor (NOT a method on the

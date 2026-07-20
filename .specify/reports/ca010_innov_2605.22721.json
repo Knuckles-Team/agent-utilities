@@ -7,7 +7,7 @@
   "kg_source_query": null,
   "results": [
     {
-      "source": "/home/apps/workspace/.scholarx/papers/2605.22721_self_evolving_multi_agent_systems_via_decentralized_memory.md",
+      "source": "${WORKSPACE_ROOT}/.scholarx/papers/2605.22721_self_evolving_multi_agent_systems_via_decentralized_memory.md",
       "source_type": "filesystem",
       "concept_id": "",
       "signals": {

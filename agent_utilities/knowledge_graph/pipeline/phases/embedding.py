@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+import httpx
+
 from ..types import (
     PhaseResult,
     PipelineContext,
@@ -13,45 +15,59 @@ logger = logging.getLogger(__name__)
 
 
 def _generate_embedding_batch(texts: list[str]) -> list[list[float]] | None:
-    """Generate embeddings via LM Studio's OpenAI-compatible endpoint.
+    """Generate embeddings via the configured OpenAI-compatible endpoint.
 
     CONCEPT:AU-KG.memory.auto-similarity-memory-graph
 
         Uses the same pattern as vector-mcp's create_embedding_model() and
-        maintenance.py's generate_embedding(), connecting to the local LM Studio
-        server at LLM_BASE_URL/embeddings.
+        maintenance.py's generate_embedding(), connecting to the configured
+        embedding server at its ``/embeddings`` route.
     """
     from agent_utilities.core.config import (
         DEFAULT_EMBEDDING_BASE_URL,
         DEFAULT_EMBEDDING_MODEL_ID,
     )
 
-    url = DEFAULT_EMBEDDING_BASE_URL or "http://vllm-embed.arpa/v1"
-    model = DEFAULT_EMBEDDING_MODEL_ID
+    url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
+    model = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
+    if not url or not model:
+        logger.warning(
+            "embedding generation skipped: configure an embedding endpoint and model"
+        )
+        return None
 
     try:
-        import requests
+        from agent_utilities.core.http_client import create_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
 
         payload = {"model": model, "input": texts}
-        response = requests.post(f"{url}/embeddings", json=payload, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        trust = resolve_configured_tls_profile("embedding")
+        try:
+            with create_http_client(
+                timeout=30,
+                **trust.httpx_kwargs(),
+            ) as client:
+                response = client.post(f"{url}/embeddings", json=payload)
+                response.raise_for_status()
+                data = response.json()
+        finally:
+            trust.cleanup()
         if "data" in data:
             # Sort by index to maintain order
             sorted_data = sorted(data["data"], key=lambda x: x.get("index", 0))
             return [item["embedding"] for item in sorted_data]
-    except ImportError:
-        logger.warning("requests package not available for embedding generation")
-    except requests.exceptions.RequestException as e:
-        logger.warning(f"Embedding generation failed: {e}")
-        raise ConnectionError(f"Embedding server unreachable: {e}") from e
+    except httpx.HTTPError as e:
+        logger.warning("Embedding generation failed: %s", type(e).__name__)
+        raise ConnectionError("Embedding server unreachable") from e
     except Exception as e:
-        logger.warning(f"Embedding generation failed unexpectedly: {e}")
+        logger.warning("Embedding generation failed unexpectedly: %s", type(e).__name__)
     return None
 
 
 def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None:
-    """Generate embeddings via LlamaIndex create_embedding_model (vector-mcp pattern).
+    """Generate embeddings via the shared LlamaIndex model factory.
 
     Falls back to this method if the direct HTTP approach is preferred to use
     the same embedding model factory as vector-mcp.
@@ -80,11 +96,10 @@ def _generate_embedding_llamaindex(texts: list[str]) -> list[list[float]] | None
 async def execute_embedding(
     ctx: PipelineContext, deps: dict[str, PhaseResult]
 ) -> dict[str, Any]:
-    """Generate semantic embeddings for graph nodes using LM Studio.
+    """Generate semantic embeddings for graph nodes.
 
-    Uses the local LM Studio OpenAI-compatible endpoint (same pattern as
-    vector-mcp project). Embeds node descriptions/content for hybrid
-    graph+vector retrieval in LadybugDB.
+    Uses the configured OpenAI-compatible endpoint. Embeds node
+    descriptions/content for hybrid graph+vector retrieval.
     """
     if not ctx.config.enable_embeddings:
         return {"status": "skipped", "reason": "embeddings disabled"}
@@ -127,7 +142,7 @@ async def execute_embedding(
         # label-less form only when the type is unknown. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
         if ctx.backend:
             try:
-                label = data.get("type")
+                label = data.get("node_type")
                 if label and str(label).isidentifier():
                     cache_q = f"MATCH (n:{label}) WHERE n.id = $id RETURN n"
                 else:

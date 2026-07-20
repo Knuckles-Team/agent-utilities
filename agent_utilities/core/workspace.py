@@ -10,18 +10,16 @@ configurations.
 CONCEPT:AU-OS.safety.doom-loop-detection Workspace Management
 """
 
-import contextlib
 import json
 import logging
-import os
 import re
 import shutil
 from datetime import datetime
-from importlib.resources import as_file, files
 from pathlib import Path
 
-from agent_utilities.base_utilities import load_env_vars, retrieve_package_name
-from agent_utilities.core.config import setting
+from agent_utilities.core.config import load_config, setting
+from agent_utilities.core.paths import config_dir, skills_dir
+from agent_utilities.core.providers import resolve_skill_provider_dirs
 
 logger = logging.getLogger(__name__)
 
@@ -117,87 +115,31 @@ TEMPLATES = {
 
 
 def get_skills_path() -> list[str]:
-    """Discover the filesystem paths to agent skills.
-
-    Scans the local package and parent directories for 'skills' folders
-    using importlib.resources and manual path construction.
+    """Return the deduplicated current skill roots from canonical discovery.
 
     Returns:
         A list of absolute paths to discovered skills directories.
 
     """
-    try:
-        package_name = retrieve_package_name()
-        if not package_name:
-            # Fallback to current directory skills if no package found
-            local_skills = Path.cwd() / "skills"
-            if local_skills.exists():
-                return [str(local_skills)]
-            return []
-
-        # Check for skills in standard subdirectories
-        for sub in ["agent_data/skills", "agent/skills", "skills"]:
-            try:
-                from importlib.resources import files
-
-                skills_dir = os.path.join(str(files(package_name)), sub)
-                if os.path.exists(skills_dir):
-                    logger.debug(f"Found skills at {skills_dir}")
-                    return [str(skills_dir)]
-            except (ImportError, ValueError, TypeError) as e:
-                logger.debug(f"Subdirectory lookup fail for {sub}: {e}")
-                continue
-
-        # Fallback to manual path construction if resources.files fails
-        try:
-            import importlib.util
-
-            spec = importlib.util.find_spec(package_name)
-            if spec and spec.origin:
-                pkg_root = Path(spec.origin).parent
-                for sub in ["agent_data/skills", "agent/skills", "skills"]:
-                    skills_path = pkg_root / sub
-                    if skills_path.exists():
-                        return [str(skills_path)]
-        except Exception as e:
-            logger.debug(f"Manual path fallback fail: {e}")
-
-    except Exception as e:
-        logger.debug(f"Error accessing skills path: {e}")
-    return []
+    return [str(root) for _provider, root in resolve_skill_provider_dirs()]
 
 
 def get_mcp_config_path() -> str | None:
-    """Retrieve the absolute path to the local MCP configuration file.
+    """Retrieve the current XDG MCP configuration file.
 
     Returns:
         The path to mcp_config.json if found, otherwise None.
 
     """
-    try:
-        package_name = retrieve_package_name()
-        for sub in ["agent_data", "agent"]:
-            mcp_config_file = os.path.join(
-                str(files(package_name)), sub, "mcp_config.json"
-            )
-            if os.path.isfile(mcp_config_file):
-                with as_file(Path(mcp_config_file)) as path:
-                    return str(path)
-        return None
-    except Exception as e:
-        logger.debug(f"Error accessing mcp_config path: {e}")
-        return None
+    path = config_dir() / CORE_FILES["MCP_CONFIG"]
+    return str(path) if path.is_file() else None
 
 
 def get_agent_workspace() -> Path:
     """Discover the root workspace directory for the agent.
 
-    Uses a tiered discovery strategy:
-    1. Explicit global WORKSPACE_DIR override.
-    2. AGENT_WORKSPACE environment variable.
-    3. Local package subdirectories (agent_data, agent).
-    4. CWD-relative search.
-    5. Fallback to package-native agent_data.
+    Uses only the explicit runtime assignment or the process working directory.
+    Package-internal and parent-directory discovery are not workspace authority.
 
     Returns:
         The absolute Path to the resolved workspace directory.
@@ -206,51 +148,17 @@ def get_agent_workspace() -> Path:
     global WORKSPACE_DIR
     if WORKSPACE_DIR:
         p = Path(WORKSPACE_DIR).resolve()
-        logger.debug(f"get_agent_workspace: Tier 1 SUCCESS (Override): {p}")
+        logger.debug("Resolved agent workspace from explicit runtime override")
         return p
 
     env_workspace = setting("WORKSPACE_PATH")
     if env_workspace:
         p = Path(env_workspace).resolve()
-        logger.debug(f"get_agent_workspace: Tier 2 Checking: {p}")
+        logger.debug("Checking runtime-assigned agent workspace")
         if p.exists():
-            logger.debug(f"get_agent_workspace: Tier 2 SUCCESS: {p}")
+            logger.debug("Resolved runtime-assigned agent workspace")
             WORKSPACE_DIR = str(p)
         return p
-
-    pkg = retrieve_package_name()
-    if pkg:
-        try:
-            # 1. Check local package directory in CWD
-            pkg_local = Path.cwd() / pkg
-            if pkg_local.is_dir():
-                p = pkg_local.resolve()
-                WORKSPACE_DIR = str(p)
-                return p
-
-            # 2. Check for legacy agent_data/agent folders (temporary compatibility)
-            for sub in ["agent_data", "agent"]:
-                candidate = Path.cwd() / pkg / sub
-                if candidate.is_dir():
-                    return candidate.resolve()
-
-            # 3. Use importlib to find package origin
-            import importlib.util
-
-            spec = importlib.util.find_spec(pkg)
-            if spec and spec.origin:
-                origin_path = Path(spec.origin).resolve()
-                # Package root is parent of __init__.py
-                p = origin_path.parent
-                WORKSPACE_DIR = str(p)
-                return p
-        except (OSError, ValueError):
-            pass
-
-    # 4. Fallback to CWD or parent-based discovery
-    local_mcp = Path.cwd() / "mcp_config.json"
-    if local_mcp.exists():
-        return Path.cwd().resolve()
 
     return Path.cwd().resolve()
 
@@ -273,10 +181,8 @@ def validate_workspace_path(path: Path) -> Path:
     try:
         resolved.relative_to(ws.resolve())
     except ValueError:
-        logger.warning(f"Path traversal blocked: {path} (resolves to {resolved})")
-        raise ValueError(
-            f"Access denied: path is outside the workspace: {path}"
-        ) from None
+        logger.warning("Workspace path traversal blocked")
+        raise ValueError("Access denied: path is outside the workspace") from None
     return resolved
 
 
@@ -307,8 +213,8 @@ def get_workspace_path(filename: str) -> Path:
 def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
     """Resolve the absolute path for an MCP configuration identifier.
 
-    Checks absolute paths, workspace-relative paths, local package data,
-    and CWD fallbacks to find a valid mcp_config.json.
+    Resolves one explicit path, or the XDG configuration when omitted. Relative
+    paths are resolved only within the assigned workspace.
 
     Args:
         mcp_config: The filename, relative path, or absolute path for the config.
@@ -317,62 +223,16 @@ def resolve_mcp_config_path(mcp_config: str | None) -> Path | None:
         The absolute Path to the config if found, otherwise None.
 
     """
-    from agent_utilities.base_utilities import retrieve_package_name
-
     if not mcp_config:
-        return get_workspace_path(CORE_FILES["MCP_CONFIG"])
+        path = config_dir() / CORE_FILES["MCP_CONFIG"]
+        return path if path.is_file() else None
 
     path = Path(mcp_config)
-    if path.is_absolute() and path.exists():
+    if path.is_absolute() and path.is_file():
         return path
 
-    # Check Workspace
     ws_config = get_workspace_path(mcp_config)
-    if ws_config.exists():
-        return ws_config
-
-    # Check Local Package
-    pkg = retrieve_package_name()
-    if pkg and pkg != "agent_utilities":
-        # Strategy A: importlib.resources (standard)
-        try:
-            from importlib.resources import files
-
-            for sub in ["", "agent_data", "agent"]:
-                p_bin = Path(str(files(pkg).joinpath(sub).joinpath(mcp_config)))
-                if p_bin.exists():
-                    return p_bin
-        except (ImportError, ValueError, TypeError):
-            pass
-
-        # Strategy B: importlib.util.find_spec (robust fallback for development installs)
-        with contextlib.suppress(Exception):
-            import importlib.util
-
-            spec = importlib.util.find_spec(pkg)
-            if spec and spec.origin:
-                pkg_root = Path(spec.origin).parent
-                for sub in ["", "agent_data", "agent"]:
-                    p_spec = pkg_root / sub / mcp_config
-                    if p_spec.exists():
-                        return p_spec
-
-        # Strategy C: CWD fallback (legacy)
-        candidates = [
-            Path.cwd() / pkg / "agent_data" / mcp_config,
-            Path.cwd() / pkg / mcp_config,
-            Path.cwd() / "agent_data" / mcp_config,
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
-    # Check CWD directly
-    local_config = Path.cwd() / mcp_config
-    if local_config.exists():
-        return local_config
-
-    return None
+    return ws_config if ws_config.is_file() else None
 
 
 def initialize_workspace(overwrite: bool = False):
@@ -384,7 +244,7 @@ def initialize_workspace(overwrite: bool = False):
         overwrite: Whether to overwrite existing files. Defaults to False.
 
     """
-    load_env_vars()
+    load_config()
     for key, fname in CORE_FILES.items():
         path = get_workspace_path(fname)
         if not path.exists() or overwrite:
@@ -394,23 +254,12 @@ def initialize_workspace(overwrite: bool = False):
                 content = content.format(now=now_str)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content.strip() + "\n", encoding="utf-8")
-            logger.debug(f"Initialized {path}")
+            logger.debug("Initialized workspace metadata file")
 
     discovered = get_agent_workspace()
-    internal_dirs = [
-        str(Path(__file__).parent / "agent_data"),
-        str(Path(__file__).parent / "agent"),
-    ]
-    try:
-        with as_file(files("agent_utilities") / "agent_data") as p:
-            internal_dirs.append(str(p.resolve()))
-    except (OSError, ValueError):
-        pass
-
-    if str(discovered.resolve()) not in internal_dirs:
-        global WORKSPACE_DIR
-        WORKSPACE_DIR = str(discovered)
-        logger.debug(f"Workspace cached: {WORKSPACE_DIR}")
+    global WORKSPACE_DIR
+    WORKSPACE_DIR = str(discovered)
+    logger.debug("Cached resolved agent workspace")
 
 
 def load_workspace_file(filename: str, default: str = "") -> str:
@@ -581,8 +430,7 @@ def create_new_skill(
 
     """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
-    skills_dir = get_agent_workspace() / "skills"
-    skill_dir = skills_dir / safe_name
+    skill_dir = skills_dir() / safe_name
     skill_dir.mkdir(parents=True, exist_ok=True)
 
     content = NEW_SKILL_TEMPLATE.format(
@@ -593,7 +441,7 @@ def create_new_skill(
         tags=tags,
     )
     (skill_dir / "SKILL.md").write_text(content.strip() + "\n", encoding="utf-8")
-    return f"✅ Created new skill '{safe_name}' at {skill_dir}"
+    return f"Created skill '{safe_name}'."
 
 
 def delete_skill_from_disk(name: str) -> str:
@@ -607,17 +455,16 @@ def delete_skill_from_disk(name: str) -> str:
 
     """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
-    skills_dir = get_agent_workspace() / "skills"
-    skill_dir = skills_dir / safe_name
+    skill_dir = skills_dir() / safe_name
 
     if not skill_dir.exists():
-        return f"❌ Skill '{safe_name}' not found at {skill_dir}"
+        return f"Skill '{safe_name}' was not found."
 
     try:
         shutil.rmtree(skill_dir)
-        return f"✅ Deleted skill '{safe_name}' and all its contents."
+        return f"Deleted skill '{safe_name}'."
     except Exception as e:
-        return f"❌ Error deleting skill '{safe_name}': {e}"
+        return f"Unable to delete skill; error_type={type(e).__name__}."
 
 
 def read_skill_md(name: str) -> str:
@@ -631,8 +478,7 @@ def read_skill_md(name: str) -> str:
 
     """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
-    skills_dir = get_agent_workspace() / "skills"
-    skill_file = skills_dir / safe_name / "SKILL.md"
+    skill_file = skills_dir() / safe_name / "SKILL.md"
 
     if skill_file.exists():
         return skill_file.read_text(encoding="utf-8")
@@ -651,8 +497,7 @@ def write_skill_md(name: str, content: str) -> str:
 
     """
     safe_name = re.sub(r"[^a-z0-9_-]", "", name.lower().replace(" ", "-"))
-    skills_dir = get_agent_workspace() / "skills"
-    skill_dir = skills_dir / safe_name
+    skill_dir = skills_dir() / safe_name
     skill_file = skill_dir / "SKILL.md"
 
     if not skill_dir.exists():
@@ -660,6 +505,6 @@ def write_skill_md(name: str, content: str) -> str:
 
     try:
         skill_file.write_text(content.strip() + "\n", encoding="utf-8")
-        return f"✅ Updated SKILL.md for skill '{safe_name}'."
+        return f"Updated skill '{safe_name}'."
     except Exception as e:
-        return f"❌ Error writing SKILL.md for skill '{safe_name}': {e}"
+        return f"Unable to update skill; error_type={type(e).__name__}."

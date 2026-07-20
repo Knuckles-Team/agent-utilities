@@ -65,3 +65,24 @@ async def test_jena_fuseki_publishes_delete_event():
         args, _ = event_backend_mock.publish.call_args
         assert args[0] == TOPIC_MUTATIONS
         assert args[1]["event_type"] == "TRIPLE_DELETE"
+
+
+def test_jena_execute_read_uses_query_endpoint_only():
+    backend = JenaFusekiBackend(
+        jena_fuseki_url="http://localhost:3030",
+        dataset="test",
+    )
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "results": {"bindings": [{"item": {"value": "result"}}]}
+    }
+
+    with patch.object(backend._client, "post", return_value=mock_resp) as post:
+        assert backend.execute_read("SELECT ?item WHERE { ?item ?p ?o }") == [
+            {"item": "result"}
+        ]
+
+    assert post.call_args.args[0] == "/test/query"
+    assert "query" in post.call_args.kwargs["data"]
+    backend.close()

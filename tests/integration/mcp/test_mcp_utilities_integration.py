@@ -4,10 +4,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
-from agent_utilities.mcp_utilities import (
-    create_mcp_parser,
-    load_mcp_servers_from_config,
-)
+from agent_utilities.core.config import load_mcp_servers_from_config
+from agent_utilities.mcp.server_factory import create_mcp_parser
 
 
 def test_mcp_parser_defaults():

@@ -5,6 +5,7 @@ from starlette.applications import Starlette
 from starlette.testclient import TestClient
 
 from agent_utilities.mcp.kg_server import (
+    _make_tool_endpoint,
     # Tools/Toggle
     get_tools_endpoint,
     graph_analyze_background_research_endpoint,
@@ -43,24 +44,7 @@ from agent_utilities.mcp.kg_server import (
     # Ingest
     graph_ingest_submit_endpoint,
     graph_ingest_sync_endpoint,
-    graph_orchestrate_compile_workflow_endpoint,
-    graph_orchestrate_consensus_endpoint,
-    # Orchestrate
-    graph_orchestrate_dispatch_endpoint,
-    graph_orchestrate_dispatch_workflow_endpoint,
     graph_orchestrate_endpoint,
-    graph_orchestrate_execute_agent_endpoint,
-    graph_orchestrate_execute_workflow_endpoint,
-    graph_orchestrate_export_workflow_endpoint,
-    graph_orchestrate_grant_approval_endpoint,
-    graph_orchestrate_list_cron_jobs_endpoint,
-    graph_orchestrate_list_workflows_endpoint,
-    graph_orchestrate_request_approval_endpoint,
-    graph_orchestrate_start_debate_endpoint,
-    graph_orchestrate_status_endpoint,
-    graph_orchestrate_submit_risk_veto_endpoint,
-    graph_orchestrate_trigger_cron_job_endpoint,
-    graph_orchestrate_workflow_status_endpoint,
     # Bilateral base endpoints
     graph_query_endpoint,
     # Query
@@ -71,7 +55,6 @@ from agent_utilities.mcp.kg_server import (
     graph_search_discover_endpoint,
     graph_search_endpoint,
     # Search
-    graph_search_hybrid_endpoint,
     graph_search_memory_endpoint,
     graph_write_bulk_endpoint,
     graph_write_chat_endpoint,
@@ -88,6 +71,14 @@ from agent_utilities.mcp.kg_server import (
     graph_write_sdd_endpoint,
     toggle_tool_endpoint,
 )
+
+graph_agents_endpoint = _make_tool_endpoint("graph_agents")
+graph_domain_ops_endpoint = _make_tool_endpoint("graph_domain_ops")
+graph_evolution_endpoint = _make_tool_endpoint("graph_evolution")
+graph_governance_endpoint = _make_tool_endpoint("graph_governance")
+graph_jobs_endpoint = _make_tool_endpoint("graph_jobs")
+graph_rlm_endpoint = _make_tool_endpoint("graph_rlm")
+graph_workflows_endpoint = _make_tool_endpoint("graph_workflows")
 
 
 @pytest.fixture
@@ -112,9 +103,6 @@ def test_app():
     )
 
     # Granular Graph Search endpoints
-    app.add_route(
-        "/graph/search/hybrid", graph_search_hybrid_endpoint, methods=["POST"]
-    )
     app.add_route(
         "/graph/search/concept", graph_search_concept_endpoint, methods=["POST"]
     )
@@ -251,87 +239,14 @@ def test_app():
         methods=["POST"],
     )
 
-    # Granular Graph Orchestrate endpoints
-    app.add_route(
-        "/graph/orchestrate/dispatch",
-        graph_orchestrate_dispatch_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/job/{job_id}",
-        graph_orchestrate_status_endpoint,
-        methods=["GET"],
-    )
-    app.add_route(
-        "/graph/orchestrate/request-approval",
-        graph_orchestrate_request_approval_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/grant-approval",
-        graph_orchestrate_grant_approval_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/execute-agent",
-        graph_orchestrate_execute_agent_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/consensus",
-        graph_orchestrate_consensus_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/start-debate",
-        graph_orchestrate_start_debate_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/submit-risk-veto",
-        graph_orchestrate_submit_risk_veto_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/cron-jobs",
-        graph_orchestrate_list_cron_jobs_endpoint,
-        methods=["GET"],
-    )
-    app.add_route(
-        "/graph/orchestrate/trigger-cron-job",
-        graph_orchestrate_trigger_cron_job_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/compile-workflow",
-        graph_orchestrate_compile_workflow_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/workflows",
-        graph_orchestrate_list_workflows_endpoint,
-        methods=["GET"],
-    )
-    app.add_route(
-        "/graph/orchestrate/execute-workflow",
-        graph_orchestrate_execute_workflow_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/dispatch-workflow",
-        graph_orchestrate_dispatch_workflow_endpoint,
-        methods=["POST"],
-    )
-    app.add_route(
-        "/graph/orchestrate/workflow-status/{job_id}",
-        graph_orchestrate_workflow_status_endpoint,
-        methods=["GET"],
-    )
-    app.add_route(
-        "/graph/orchestrate/export-workflow",
-        graph_orchestrate_export_workflow_endpoint,
-        methods=["POST"],
-    )
+    # Focused current orchestration surfaces
+    app.add_route("/graph/agents", graph_agents_endpoint, methods=["POST"])
+    app.add_route("/graph/domain-ops", graph_domain_ops_endpoint, methods=["POST"])
+    app.add_route("/graph/evolution", graph_evolution_endpoint, methods=["POST"])
+    app.add_route("/graph/governance", graph_governance_endpoint, methods=["POST"])
+    app.add_route("/graph/jobs", graph_jobs_endpoint, methods=["POST"])
+    app.add_route("/graph/rlm", graph_rlm_endpoint, methods=["POST"])
+    app.add_route("/graph/workflows", graph_workflows_endpoint, methods=["POST"])
 
     # Granular Graph Configure endpoints
     app.add_route(
@@ -554,29 +469,31 @@ async def test_granular_analyze_endpoints(mock_execute_tool, client):
 
 @pytest.mark.asyncio
 @patch("agent_utilities.mcp.kg_server._execute_tool", new_callable=AsyncMock)
-async def test_granular_orchestrate_endpoints(mock_execute_tool, client):
+async def test_focused_job_endpoint(mock_execute_tool, client):
     mock_execute_tool.return_value = {"status": "orchestrated"}
 
-    # 1. POST /graph/orchestrate/dispatch
     res = client.post(
-        "/graph/orchestrate/dispatch",
-        json={"task": "Perform workspace audit", "dependencies": ["job-1", "job-2"]},
+        "/graph/jobs",
+        json={
+            "action": "dispatch",
+            "task": "Perform workspace audit",
+            "dependencies": '["job-1", "job-2"]',
+        },
     )
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "orchestrated"}}
     mock_execute_tool.assert_called_with(
-        "graph_orchestrate",
+        "graph_jobs",
         action="dispatch",
         task="Perform workspace audit",
         dependencies='["job-1", "job-2"]',
     )
 
-    # 2. GET /graph/orchestrate/job/dispatch-1
-    res = client.get("/graph/orchestrate/job/dispatch-1")
+    res = client.post("/graph/jobs", json={"action": "status", "job_id": "dispatch-1"})
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "orchestrated"}}
     mock_execute_tool.assert_called_with(
-        "graph_orchestrate", action="status", job_id="dispatch-1"
+        "graph_jobs", action="status", job_id="dispatch-1"
     )
 
 

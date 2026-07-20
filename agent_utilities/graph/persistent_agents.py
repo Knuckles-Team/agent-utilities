@@ -146,12 +146,14 @@ class PersistentAgentManager:
                 }
                 self.engine._upsert_node("PersistentAgent", agent_id, data)
                 logger.info(
-                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Registered persistent agent '%s' (type=%s)",
-                    agent_id,
+                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] "
+                    "Registered persistent agent type=%s",
                     agent_type,
                 )
             except Exception as e:
-                logger.warning("Failed to persist agent registration: %s", e)
+                logger.warning(
+                    "Failed to persist agent registration (%s)", type(e).__name__
+                )
 
         return node
 
@@ -196,12 +198,12 @@ class PersistentAgentManager:
                     {"aid": agent_id, "status": status},
                 )
                 logger.info(
-                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Agent '%s' status → %s",
-                    agent_id,
+                    "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] "
+                    "Agent status changed status=%s",
                     status,
                 )
             except Exception as e:
-                logger.debug("Status update failed: %s", e)
+                logger.debug("Status update failed (%s)", type(e).__name__)
 
     def save_state(self, agent_id: str, state: dict[str, Any]) -> None:
         """Save an agent's state snapshot for session continuity.
@@ -379,8 +381,8 @@ class PersistentAgentManager:
             del self._registered_agents[agent_id]
 
         logger.info(
-            "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] Terminated persistent agent '%s'",
-            agent_id,
+            "[CONCEPT:AU-ORCH.dispatch.persistent-background-agents] "
+            "Terminated persistent agent"
         )
 
     def prune_stale_agents(self, max_age_seconds: int = 3600) -> int:

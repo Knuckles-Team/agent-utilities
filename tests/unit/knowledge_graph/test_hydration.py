@@ -16,6 +16,19 @@ def mock_engine():
     return engine
 
 
+@pytest.fixture(autouse=True)
+def _capture_native_proxy_submission(monkeypatch):
+    """Keep these mapping tests isolated from the native engine contract tests."""
+
+    def capture(proxy, domain, entities, relationships=None):
+        return proxy.authority.ingest_external_batch(domain, entities, relationships)
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.NativeChangeEnvelopeEngineProxy.ingest_external_batch",
+        capture,
+    )
+
+
 @patch.dict(
     os.environ,
     {"GITLAB_TOKEN": "test-gitlab-token", "GITLAB_URL": "https://gitlab.example.com"},

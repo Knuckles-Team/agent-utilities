@@ -11,6 +11,7 @@ as a ``WorkflowDefinition`` DAG, asserting the node/edge shape
 
 from __future__ import annotations
 
+import json
 import textwrap
 
 import pytest
@@ -143,6 +144,8 @@ def test_parse_kebab_dialect(corpus):
     skill_md = corpus / "workflows" / "infra" / "tiny-infra-deploy" / "SKILL.md"
     parsed = parse_workflow_skill(skill_md)
     assert parsed["name"] == "tiny-infra-deploy"
+    assert parsed["source_ref"] == "skill://tiny-infra-deploy"
+    assert "path" not in parsed
     assert parsed["domain"] == "infra"
     assert parsed["specialist_ids"] == ["infra-bot", "dns-bot"]
     assert len(parsed["steps"]) == 3
@@ -184,6 +187,9 @@ def test_ingest_creates_definition_steps_and_dag(corpus):
     assert d["domain"] == "infra"
     assert d["step_count"] == 3
     assert d["name"] == "tiny-infra-deploy"  # lookup key execute_workflow uses
+    assert d["source_ref"] == "skill://tiny-infra-deploy"
+    assert "source_path" not in d
+    assert str(corpus) not in json.dumps(eng.nodes, sort_keys=True)
 
     # HAS_STEP edges from the definition.
     has_step = [
@@ -212,6 +218,10 @@ def test_ingest_links_atomic_skills(corpus):
     # Ids are slug-normalised; the original name is preserved as a property.
     assert "skill:network_topology_sweep" in skills
     assert skills["skill:network_topology_sweep"]["name"] == "network-topology-sweep"
+    assert (
+        skills["skill:network_topology_sweep"]["source_ref"]
+        == "skill://network-topology-sweep"
+    )
     assert "skill:data_fetcher" in skills  # resolved from **Agent**
     assert skills["skill:data_fetcher"]["name"] == "data-fetcher"
     uses = {(e[0], e[1]) for e in eng.edges_of("USES_SKILL")}
@@ -249,6 +259,22 @@ def test_ingest_one_returns_skipped_on_repeat(corpus):
     assert ingest_one(eng, parsed) == "skipped"
 
 
+def test_delegated_ingest_failure_report_does_not_leak_local_path(corpus):
+    """A background/delegated corpus failure retains only a skill URI and error
+    class, even when the underlying exception contains a local path."""
+
+    class ExplodingEngine(FakeEngine):
+        def add_node(self, node_id, node_type, properties=None, **props):
+            raise RuntimeError(str(corpus))
+
+    report = ingest_skill_workflows(ExplodingEngine(), root=str(corpus))
+    rendered = json.dumps(report, sort_keys=True)
+    assert report["errors"] == 2
+    assert str(corpus) not in rendered
+    assert "skill://tiny-infra-deploy" in rendered
+    assert "RuntimeError" in rendered
+
+
 # --------------------------------------------------------------------------- #
 # Live-path / integration: a real in-memory IntelligenceGraphEngine            #
 # --------------------------------------------------------------------------- #
@@ -256,7 +282,7 @@ def test_ingest_one_returns_skipped_on_repeat(corpus):
 
 def test_live_ingest_into_memory_engine_discoverable_by_name(corpus):
     """The ingested workflow is retrievable from a real engine the way
-    ``execute_workflow`` / ``kg-delegate`` look it up: a
+    ``execute_workflow`` / ``graph-orchestration-and-automation`` look it up: a
     ``WorkflowDefinition`` queryable by ``name`` with its ``WorkflowStep`` DAG.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine

@@ -254,7 +254,7 @@ class SchemaMapping(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    ontology_class: str | None = None  # ArchiMate/base crosswalk parent — TODO(review)
+    ontology_class: str | None = None  # ArchiMate/base crosswalk parent (consumed by manifest_compiler + ops_causal_crosswalk)
     fields: dict[str, str] = Field(default_factory=dict)  # field name -> xsd:* curie
 
 
@@ -326,6 +326,13 @@ class SyncSpec(BaseModel):
     updated_field: str | None = None
     pagination: str | None = None
     doc_type: str | None = None
+    tool_schema_sha256: str | None = None
+    """Exact canonical fingerprint of the live MCP input schema.
+
+    Generated from the connector-owned ``tool_schema_fingerprints.json`` and
+    covered by the signed manifest.  Mandatory connectors cannot pull until a
+    live ``list_tools`` response matches this value.
+    """
     raw: dict[str, Any] = Field(default_factory=dict)  # full preset, passthrough
 
 
@@ -349,6 +356,8 @@ class ProvenanceSpec(BaseModel):
     source_artifacts: list[str] = Field(default_factory=list)
     integrity: IntegrityInfo
     signer: str | None = None
+    signature_algorithm: str | None = None
+    signing_public_key: str | None = None
     signature: str | None = None
 
 

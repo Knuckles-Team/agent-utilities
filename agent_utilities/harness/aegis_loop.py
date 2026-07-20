@@ -70,8 +70,8 @@ class AegisLoop:
     passes; the trace store (``shipped``) grows each round so the gate reasons over
     history.
 
-    Variant isolation is OFF by default (``variant_capacity=0`` ⇒ the legacy
-    single-harness loop) and enabled by setting a positive capacity.
+    Variant isolation is always active; ``variant_capacity`` bounds the resident
+    base-plus-fork pool.
     """
 
     def __init__(
@@ -82,7 +82,7 @@ class AegisLoop:
         gate: HarnessGate | None = None,
         smoke_fn: SmokeFn | None = None,
         normalize_fn: NormalizeFn | None = None,
-        variant_capacity: int = 0,
+        variant_capacity: int = 8,
         patience: int = 0,
         hit_rate_floor: float = 0.0,
     ) -> None:
@@ -91,7 +91,7 @@ class AegisLoop:
         self._gate = gate or HarnessGate()
         self._smoke = smoke_fn
         self._normalize = normalize_fn
-        self._variant_capacity = max(0, int(variant_capacity))
+        self._variant_capacity = max(2, int(variant_capacity))
         self._patience = max(0, int(patience))
         self._hit_rate_floor = float(hit_rate_floor)
 
@@ -184,7 +184,7 @@ class AegisLoop:
             "status": "accepted",
         }
         self.variants.append(forked)
-        if self._variant_capacity and len(self.variants) > self._variant_capacity:
+        if len(self.variants) > self._variant_capacity:
             # Retire the smallest-cluster non-base variant.
             retireable = [v for v in self.variants[1:] if v["id"] != vid]
             if retireable:
@@ -256,19 +256,15 @@ class AegisLoop:
                 self._record(dim, False)
                 return AegisDecision(round_idx, False, candidate, ["smoke test failed"])
 
-        # Variant routing (CONCEPT:AU-AHE.harness.variant-pool) — fork on a mixed edit when isolation
-        # is enabled, so the per-variant seesaw is scoped to the improved cluster.
-        forked = False
-        variant: dict[str, Any] | None = None
-        variant_facts: list[dict[str, Any]] | None = None
-        if self._variant_capacity > 0:
-            variant, forked = self._route_and_fork(candidate, fixes, regresses_decl)
-            variant["applies"] = [*variant.get("applies", []), candidate["id"]]
-            # Within-scope regressions only: tasks the edit breaks that ARE in this
-            # variant's cluster. Out-of-scope breaks route to other variants.
-            scoped = sorted(regresses_decl & set(variant["cluster"]))
-            candidate["regresses"] = scoped
-            variant_facts = self._variant_facts()
+        # Variant routing (CONCEPT:AU-AHE.harness.variant-pool) — fork on a mixed
+        # edit so the per-variant seesaw is scoped to the improved cluster.
+        variant, forked = self._route_and_fork(candidate, fixes, regresses_decl)
+        variant["applies"] = [*variant.get("applies", []), candidate["id"]]
+        # Within-scope regressions only: tasks the edit breaks that ARE in this
+        # variant's cluster. Out-of-scope breaks route to other variants.
+        scoped = sorted(regresses_decl & set(variant["cluster"]))
+        candidate["regresses"] = scoped
+        variant_facts = self._variant_facts()
 
         # Critic stage 4 — SHACL gate over accumulated + candidate (+ variants): the
         # formal seesaw + concentration gate; rejects BEFORE the coupling tipping

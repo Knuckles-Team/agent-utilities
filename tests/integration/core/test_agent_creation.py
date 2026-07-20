@@ -30,7 +30,8 @@ def temp_workspace(tmp_path, monkeypatch):
     main_agent = {
         "name": "Test Creation Agent",
         "description": "A test agent",
-        "content": "You are a test agent.",
+        "task": "test_creation_agent",
+        "instructions": {"core_directive": "You are a test agent."},
     }
     (workspace_dir / "main_agent.json").write_text(json.dumps(main_agent))
 

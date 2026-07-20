@@ -1,76 +1,118 @@
-# Deploying multi-tenant graph-os over streamable-HTTP
+# GraphOS deployment assets
 
-One image (`graph-os`), one env contract, two profiles — cloud (k8s) and homelab
-(Swarm) — differing only in replica counts and placement. This is the deployment
-side of the segmentation/sharing/audit stack: **OS-5.14** (served identity),
-**AU-KG.sharding.tenant-partitioned-sharding-hrw** (tenant→named-graph→shard), **AU-KG.compute.data-is-private-its** (org→user sharing + commons),
-**AU-KG.backend.concept-2** (Postgres RLS), and **AU-OS.safety.ontological-guardrail/5.11** (tenant-scoped fleet + audit).
+`k8s/production-cell/` is the production reference topology. It separates a
+stateless global control plane from one cell data plane, keeps authoritative graph
+state in a three-member MultiRaft StatefulSet, and assigns independent resource
+partitions to dispatch, ingestion and analytics workers. The previous single-owner,
+unmounted-volume manifest was removed.
 
-## Topology
+Do not apply the template directory directly. Its image names intentionally point
+to a non-resolving registry. A release is deployable only after the compatibility
+gate verifies every component signature and the renderer substitutes exact OCI
+digests:
 
-```
- OIDC (Keycloak) ── JWT(org_id→tenant_id, sub→actor_id)
-        │
- clients → LB/Ingress → FRONT (stateless streamable-HTTP, autoscaled, role=client)
-                              │  ActorContext{tenant_id, actor_id, roles}
-                              ▼
-                    ENGINE shards (AU-KG.sharding.tenant-partitioned-sharding-hrw HRW: tenant graph → one shard, role=host)
-                              │  write-through
-                              ▼
-            Postgres: pg-age L3 (RLS) + STATE_DB_URI (sessions/checkpoints)
-```
-
-## Files
-- `k8s/graphos.yaml` — Namespace, ConfigMap/Secret, front Deployment+Service+HPA+Ingress, engine StatefulSet (headless).
-- `swarm/graphos.stack.yml` — the same image downscaled: front + one engine + external pg-age.
-- `postgres/tenant_rls.sql` — idempotent DB-level tenant isolation (apply once, as table owner).
-
-## Quick start
-
-**Cloud (k8s):**
 ```sh
-kubectl apply -f deploy/k8s/graphos.yaml          # edit image/host/secrets first
-kubectl exec -n graphos deploy/graphos-front -- \
-  graph-os --help                                  # sanity
-psql "$GRAPH_DB_URI" -f deploy/postgres/tenant_rls.sql
+check-graphos-compatibility \
+  --manifest RELEASE_MANIFEST
+python scripts/release/render_production_cell.py \
+  --manifest RELEASE_MANIFEST \
+  --output RENDERED_DIRECTORY
+python scripts/deployment/check_production_assets.py \
+  --directory RENDERED_DIRECTORY --rendered
+kubectl apply -k RENDERED_DIRECTORY
 ```
 
-**Homelab (Swarm):**
-```sh
-docker node update --label-add graphos_engine=true <engine-node>
+The uppercase operands above are runtime/operator inputs, not committed local
+paths. Generated release and certification evidence must remain outside the source
+tree.
+
+## Production cell contract
+
+- `graphos-control`: three or more `graphos-front` replicas, OIDC-authenticated
+  streamable HTTP, usage accounting backed by PostgreSQL, and OTLP/Langfuse export.
+- `graphos-cell`: three engine members spread across nodes and zones. Every member
+  mounts a retained 512 Gi PVC; all members host the configured 20 Raft placement
+  groups. Correctness-critical projection, indexing, truth maintenance and reasoning
+  stay colocated with graph authority.
+- `epistemic-graph-coordinator`: a stable Service selecting StatefulSet pod index
+  zero. Non-graph coordinator ledgers, including analytics jobs and admin mutation
+  receipts, always use this one durable authority and are never load-balanced across
+  independent stores. Pod loss is recovered by StatefulSet recreation and PVC
+  reattachment; MultiRaft continues to replicate authoritative graph state.
+- Worker Deployments: queue-driven dispatch, broker-lag-driven ingestion, and the
+  authenticated `graph-os-analytics-worker`. The engine has
+  `EG_ANALYTICS_WORKERS=0`, so remote analytics compute cannot silently fall back to
+  a colocated pool.
+- Recovery: minute-level online bundles on a cross-cell replicated RWX/object-CSI
+  archive and daily offline restore validation. Bundle format v3 includes
+  `admin-mutations.redb`, encrypted prepared plans, parent/child receipts, retained
+  cross-shard decisions, and exact portable-file digests. The mounted hot window keeps two bundles; bucket versioning
+  and lifecycle policy provide longer retention without unbounded PVC growth.
+
+## Required platform services
+
+The manifests fail closed unless the platform provides:
+
+- Kubernetes with stable StatefulSet pod-index labels and native sidecars;
+- three schedulable failure zones and a retained RWO class named
+  `graphos-retained-rwo`;
+- an RWX class named `graphos-cross-cell-object-rwx` whose versioned backing object
+  store is replicated outside the cell;
+- Istio CRDs/control plane with namespace injection; `PeerAuthentication` is `STRICT`
+  and `AuthorizationPolicy` binds engine ports to workload service accounts;
+- Prometheus Operator and a Prometheus Adapter configured with the generated external
+  metric rules;
+- an OIDC issuer, event backbone, PostgreSQL state/usage store, OTLP collector,
+  Langfuse service, secret synchronizer, and external evidence signer/verifier;
+- an ingress namespace labeled `graphos.network/role=ingress`, an observability
+  namespace named `graphos-observability` and labeled
+  `graphos.network/role=observability`, and event/state/egress namespaces carrying the labels
+  referenced by the NetworkPolicies. The mesh control-plane namespace must carry
+  `graphos.network/role=service-mesh-control` so injected sidecars can obtain and
+  rotate workload certificates.
+
+## Runtime Secret contract
+
+The deployment contains no Kubernetes `Secret` objects. A secret controller must
+materialize `graphos-runtime-secrets` in both namespaces and `graphos-trust-bundle`
+in each namespace, plus `graphos-engine-tls` in `graphos-cell`. The engine TLS Secret
+contains `tls.crt`/`tls.key` for the coordinator service identity; certificate
+material is never committed. Runtime settings include OIDC/JWKS authority, engine HMAC secret,
+database/broker locations, workload principals/tenants, policy version, Langfuse
+credentials/base location, and `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+TLS verification is mandatory. Trust is configured by the mounted PEM bundle through
+`REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE`; no boolean downgrade control exists.
+All committed native-engine client endpoints use `tls://`, and engine readiness
+validates the trust chain and expected service name rather than probing only for an
+open TCP port.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is deliberately absent from ConfigMaps and must be
+runtime-injected. `PERSISTENCE_IDENTITY_HMAC_KEY_REF` points only to the neutral
+runtime environment reference `env://PERSISTENCE_IDENTITY_HMAC_KEY`; the referenced
+key is supplied by the Secret controller. The production observability guard also
+requires `USAGE_DB_BACKEND=postgres`, `USAGE_TRACKING_ENABLED=true`,
+`USAGE_CONTENT_RETENTION=metadata`, `LANGFUSE_CAPTURE_CONTENT=false`, and
+`ENABLE_OTEL=true`.
+
+See [the production runbook](../docs/operations/production-cell-runbook.md),
+[disaster recovery](../docs/operations/disaster-recovery.md), and
+[release certification](../docs/release/compatibility-and-certification.md).
+
+## Other profiles
+
+`swarm/graphos.stack.yml` is the hardened, downscaled non-cell Swarm profile. It
+requires an immutable `GRAPHOS_IMAGE_DIGEST`, an encrypted non-attachable
+overlay, external Docker secrets, direct GraphOS TLS, and mutually authenticated
+native-engine TLS. The source contract rejects inline endpoints, credentials,
+mutable images, plaintext engine exposure, and weakened container settings:
+
+```bash
+python scripts/deployment/check_swarm_assets.py --self-check \
+  --runtime-image "$GRAPHOS_IMAGE_DIGEST"
 docker stack deploy -c deploy/swarm/graphos.stack.yml graphos
-psql "$GRAPH_DB_URI" -f deploy/postgres/tenant_rls.sql
 ```
 
-## The env contract (both profiles)
-
-| Variable | Tier | Purpose |
-|---|---|---|
-| `TRANSPORT=streamable-http`, `HOST`, `PORT` | front | network MCP surface |
-| `AUTH_JWT_JWKS_URI` / `_ISSUER` / `_AUDIENCE` | front | **required** — served profile refuses to start without JWKS (fail-loud, not fail-open) |
-| `KG_AUTH_REQUIRED` / `KG_BRAIN_ENFORCE` | front | auth + tenant enforcement (auto-on for network transports; pin to override) |
-| `KG_DAEMON_ROLE` | front=`client`, engine=`host` | front pods never own an L1 engine |
-| `KG_DEFAULT_GRAPH` | both | the **commons** graph; tenants route to `tenant__<slug>__<this>` |
-| `GRAPH_SERVICE_ENDPOINTS` | front | engine shard list; HRW routes each tenant graph to one shard |
-| `GRAPH_DB_URI` | both | L3 pg-age (apply RLS here) |
-| `STATE_DB_URI` | both | central sessions/goals/durable_checkpoints (AU-OS.state.unified-durable-state-externalization) — lets any pod resume any tenant's goal |
-
-Dev escape hatch: `KG_SERVED_PROFILE=0` serves a network transport **without**
-enforced identity (local only).
-
-## Scaling
-
-- **Front** is stateless → scale horizontally (HPA on CPU; Swarm `replicas`).
-- **Engine** shards are the partition unit: add an endpoint to `GRAPH_SERVICE_ENDPOINTS`
-  and a StatefulSet/Swarm replica. HRW keeps key movement minimal; a graph whose
-  HRW winner changes must be moved with the snapshot tooling (AU-KG.sharding.tenant-partitioned-sharding-hrw is not
-  auto-rebalancing by design).
-- **State/L3** is the one stateful dependency: use managed/HA Postgres in cloud,
-  the existing `kg-backbone_pg-age` in the homelab.
-
-## What enforces isolation (defense in depth)
-1. **Identity** — `ActorIdentityMiddleware` mints `tenant_id`/`actor_id` from the JWT; the served profile blocks unauthenticated HTTP.
-2. **Physical** — AU-KG.sharding.tenant-partitioned-sharding-hrw routes each org to its own named graph → shard.
-3. **Logical** — AU-KG.compute.data-is-private-its owner/scope predicate (private-by-default) + KG-2.6 tenant scoping in every guarded read.
-4. **Database** — AU-KG.backend.concept-2 Postgres RLS (`app.tenant_id` GUC) under all of it.
-5. **Audit** — every RunTrace/session/correlation carrier is stamped tenant+actor; the fleet plane is tenant-scoped.
+Create the external secrets and `graphos-engine-data` volume before deployment;
+the stack deliberately contains no environment-specific values. The Swarm
+profile and `postgres/tenant_rls.sql` are not substitutes for the signed,
+HA production-cell release gate.

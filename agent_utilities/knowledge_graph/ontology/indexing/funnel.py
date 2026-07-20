@@ -33,7 +33,34 @@ This module is that funnel on top of the existing
       (a real rebuild) once the tombstone ratio crosses a threshold so HNSW does
       not accumulate unreachable labels forever.
     - :meth:`reconcile` — observe the current source, compute drift via the
-      ledger, and apply exactly the needed incremental delta.
+      ledger, and apply exactly the needed incremental delta. This still
+      requires the CALLER to hand it a fresh ``source_nodes`` snapshot each
+      time — the right shape when there is no live engine change-feed.
+    - :meth:`bind_engine` / :meth:`poll` — the CDC-driven alternative
+      (CONCEPT:AU-P1-3 pattern reuse, see below): bootstrap ONCE via a full
+      engine scan, then let the engine's own committed-change feed push
+      exactly what changed, so nothing has to re-collect a full source list on
+      every tick.
+
+CDC adoption (AU-P1-3 parity)
+------------------------------
+The engine subscription pattern bootstraps once via a full engine scan, then
+subscribes to the engine's committed-change feed
+(:mod:`agent_utilities.graph.reactive.engine_subscription`,
+:func:`~agent_utilities.graph.reactive.engine_subscription.subscribe`) and
+upsert/evict only the ids the feed reports as changed — never a periodic
+full rebuild. :meth:`ObjectIndexFunnel.bind_engine` adopts that SAME pattern
+(reusing the identical ``engine_subscription.subscribe`` primitive, the one
+well-tested CDC seam) instead of inventing a second, funnel-specific polling
+loop: :meth:`bind_engine` does the ONE bootstrap scan (via :meth:`batch_sync`,
+so the funnel's own :class:`DataRestriction` / staleness ledger still apply)
+and wires the subscription; :meth:`poll` then delivers pending changes by
+routing each one through :meth:`upsert`/:meth:`delete` — the SAME incremental
+primitives :meth:`incremental_sync` already uses, including tombstone
+overlay + compaction. ``reconcile``/``batch_sync`` remain available unchanged
+for callers with no engine (or with their own externally-collected source
+snapshot); ``bind_engine``/``poll`` are the opt-in upgrade when a live engine
+change-feed is reachable.
 
 Wire-First: the funnel is consumed by the live retrieval plane — it produces and
 maintains the same ``CapabilityIndex`` that ``KnowledgeGraph.designate`` ranks
@@ -259,6 +286,14 @@ class ObjectIndexFunnel:
         # Tombstoned ids — physically still in the underlying ANN structure (for
         # the HNSW backend) until compaction, but excluded from every result.
         self._tombstones: set[str] = set()
+        # CDC lifecycle state (CONCEPT:AU-P1-3 pattern reuse — see module
+        # docstring). ``None``/``False`` until :meth:`bind_engine` runs.
+        self._engine: Any = None
+        self._subscription: Any = None  # an EngineSubscription, once bound
+        self._bootstrapped: bool = False
+        self._last_poll_upserted: int = 0
+        self._last_poll_deleted: int = 0
+        self._last_poll_skipped: int = 0
 
     # ── introspection ────────────────────────────────────────────────────────
     def __len__(self) -> int:
@@ -517,6 +552,183 @@ class ObjectIndexFunnel:
             nid: content_hash(index_payload_of(node)) for nid, node in admitted.items()
         }
         return self.ledger.needs_reindex(source_view)
+
+    # ── CDC-driven lifecycle (CONCEPT:AU-P1-3 pattern reuse) ──────────────────
+    @property
+    def bound_engine(self) -> Any | None:
+        """The engine :meth:`bind_engine` bootstrapped from, or ``None`` if unbound."""
+        return self._engine
+
+    @property
+    def cdc_available(self) -> bool:
+        """Whether an engine committed-change feed is actively driving this funnel.
+
+        ``False`` before :meth:`bind_engine`, or when the bound engine has no
+        streaming surface reachable (dev/non-engine backend) — :meth:`poll` then
+        degrades to a full :meth:`reconcile` pass.
+        """
+        return self._subscription is not None and bool(
+            getattr(self._subscription, "available", False)
+        )
+
+    @staticmethod
+    def _scan_engine_nodes(engine: Any) -> list[dict[str, Any]]:
+        """The ONE full-graph scan reserved for :meth:`bind_engine`'s bootstrap.
+
+        Every subsequent refresh is CDC-incremental via :meth:`poll`, never a
+        repeat of this scan. Best-effort: an engine without ``graph.node_ids``
+        yields an empty list rather than raising, so :meth:`bind_engine`
+        degrades to an empty index instead of crashing.
+        """
+        graph = getattr(engine, "graph", None)
+        if graph is None or not hasattr(graph, "node_ids"):
+            graph = engine if hasattr(engine, "node_ids") else None
+        if graph is None:
+            return []
+        try:
+            node_ids = graph.node_ids()
+        except Exception:  # noqa: BLE001 — no scan surface reachable
+            return []
+        nodes: list[dict[str, Any]] = []
+        for nid in node_ids:
+            try:
+                props = graph._get_node_properties(nid) or {}
+            except Exception:  # nosec B112 — skip malformed/unreadable nodes during best-effort scan
+                continue
+            if not isinstance(props, dict):
+                continue
+            node = dict(props)
+            node.setdefault("id", nid)
+            nodes.append(node)
+        return nodes
+
+    def _build_subscription(
+        self, engine: Any, label: str, catch_up_limit: int
+    ) -> Any | None:
+        """Wire the reusable ``engine_subscription.subscribe`` CDC seam."""
+        try:
+            from ....graph.reactive.engine_subscription import subscribe
+        except Exception as e:  # noqa: BLE001 — subsystem unimportable -> reconcile stays the safety net
+            logger.debug("ObjectIndexFunnel: engine_subscription unavailable: %s", e)
+            return None
+        try:
+            subscription = subscribe(
+                engine, label, self._on_change, catch_up_limit=catch_up_limit
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("ObjectIndexFunnel: subscribe failed: %s", e)
+            return None
+        if getattr(subscription, "available", False):
+            try:
+                subscription.catch_up()
+            except Exception as e:  # noqa: BLE001 — cold-start catch-up is best-effort
+                logger.debug("ObjectIndexFunnel: catch_up failed: %s", e)
+        return subscription
+
+    def _on_change(self, event: dict[str, Any]) -> None:
+        """Translate ONE delivered CDC event into an incremental upsert/delete.
+
+        Reuses :meth:`upsert`/:meth:`delete` exactly as :meth:`incremental_sync`
+        does, so the funnel's own :class:`DataRestriction`, staleness ledger, and
+        tombstone/compaction bookkeeping apply identically on the CDC path —
+        never a rescan of the whole graph.
+        """
+        node_id = event.get("node_id")
+        if not node_id:
+            return
+        node_id = str(node_id)
+        kind = str(event.get("kind", "")).lower()
+        after = event.get("after")
+
+        if "delete" in kind or "remove" in kind or after is None:
+            if self.delete(node_id):
+                self._last_poll_deleted += 1
+            return
+
+        node = dict(after) if isinstance(after, dict) else {}
+        node.setdefault("id", node_id)
+        if self.upsert(node):
+            self._last_poll_upserted += 1
+        else:
+            # No longer admitted by the restriction, or no embedding — ensure
+            # it's absent so a stale entry never lingers past the change that
+            # invalidated it.
+            if self.delete(node_id):
+                self._last_poll_deleted += 1
+            else:
+                self._last_poll_skipped += 1
+
+    def bind_engine(
+        self,
+        engine: Any,
+        *,
+        label: str = "",
+        catch_up_limit: int = 4096,
+    ) -> SyncResult:
+        """Bootstrap ONCE via a full engine scan, then subscribe to the engine's
+        committed-change feed for incremental upsert/evict (CONCEPT:AU-KG.ontology.batch-incremental-sync-live,
+        adopting the shared engine-subscription pattern).
+
+        After this call the funnel maintains itself: drive it with :meth:`poll`
+        on a tick (or a blocking ``poll(block_ms=...)`` in a reactive thread)
+        instead of re-collecting a full ``source_nodes`` snapshot for
+        :meth:`reconcile`. ``label=""`` (the default) delivers every change —
+        appropriate here since the funnel's own :class:`DataRestriction`, not the
+        label, decides eligibility.
+
+        Args:
+            engine: The engine/backend/compute to bootstrap from and subscribe
+                to (anything :func:`~agent_utilities.graph.reactive.
+                engine_subscription.resolve_streaming` can resolve, plus a
+                ``graph.node_ids``/``graph._get_node_properties`` scan surface
+                for the bootstrap).
+            label: Node label to filter the change feed on (``""`` = all).
+            catch_up_limit: Bounded cold-start catch-up tail size (forwarded to
+                :func:`~agent_utilities.graph.reactive.engine_subscription.subscribe`).
+
+        Returns the bootstrap's :class:`SyncResult` (the one full :meth:`batch_sync`).
+        """
+        self._engine = engine
+        result = self.batch_sync(self._scan_engine_nodes(engine))
+        self._bootstrapped = True
+        self._subscription = self._build_subscription(engine, label, catch_up_limit)
+        return result
+
+    def poll(self, *, block_ms: int = 0) -> SyncResult:
+        """Deliver pending CDC changes since the last call (CONCEPT:AU-P1-3 pattern reuse).
+
+        The ONLY ongoing maintenance call once :meth:`bind_engine` has run: each
+        delivered change is routed through :meth:`upsert`/:meth:`delete` by
+        :meth:`_on_change` — never a rescan of the bound engine. Falls back to one
+        :meth:`reconcile` pass over a fresh full scan when no engine change-feed
+        is reachable, so a caller can
+        drive this unconditionally on a tick without checking availability first.
+        """
+        if not self._bootstrapped or self._engine is None:
+            raise RuntimeError(
+                "ObjectIndexFunnel.poll() called before bind_engine() — nothing bound to poll"
+            )
+        if not self.cdc_available:
+            return self.reconcile(self._scan_engine_nodes(self._engine))
+
+        self._last_poll_upserted = 0
+        self._last_poll_deleted = 0
+        self._last_poll_skipped = 0
+        self._subscription.poll(block_ms=block_ms)
+
+        rebuilt = False
+        if self._should_compact():
+            self._compact()
+            rebuilt = True
+
+        return SyncResult(
+            mode="cdc",
+            upserted=self._last_poll_upserted,
+            deleted=self._last_poll_deleted,
+            skipped_restricted=self._last_poll_skipped,
+            rebuilt=rebuilt,
+            live_size=len(self._live_nodes),
+        )
 
     # ── live search (delegates to the router's designate path) ───────────────
     def search(

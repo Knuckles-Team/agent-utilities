@@ -7,6 +7,7 @@ against a fake engine, with the LLM call monkeypatched so no GPU is required.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -18,6 +19,7 @@ from agent_utilities.knowledge_graph.extraction.job_manager import (
     GraphCheckpointStore,
 )
 from agent_utilities.knowledge_graph.ingestion.gpu_slot_scheduler import JobState
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 
 class _FakeEngine:
@@ -122,6 +124,42 @@ async def test_stream_yields_facts_then_job_done(_canned_facts) -> None:
     assert types[-1] == "job_done"
     assert types.count("fact") == 2
     assert "round_start" in types
+    await mgr._scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_jobs_are_owner_scoped_and_checkpoints_are_metadata_only(
+    _canned_facts,
+) -> None:
+    engine = _FakeEngine()
+    mgr = ExtractionJobManager(engine)
+    owner = persistence_reference("owner", "tenant-a", namespace="test")
+    other = persistence_reference("owner", "tenant-b", namespace="test")
+    private_text = "person@example.test reads /private/location with top-secret"
+
+    jid = await mgr.submit(text=private_text, dedup=False, owner_ref=owner)
+    assert mgr.status(jid, owner_ref=owner) is not None
+    assert mgr.status(jid, owner_ref=other) is None
+    with pytest.raises(KeyError):
+        mgr.jsonl(jid, owner_ref=other)
+
+    persisted = json.dumps(engine.nodes, sort_keys=True)
+    for forbidden in (
+        private_text,
+        "person@example.test",
+        "/private/location",
+        "top-secret",
+    ):
+        assert forbidden not in persisted
+    assert owner in persisted
+    await mgr._scheduler.stop()
+
+
+@pytest.mark.asyncio
+async def test_caller_owner_must_already_be_an_opaque_reference() -> None:
+    mgr = ExtractionJobManager(_FakeEngine())
+    with pytest.raises(ValueError, match="opaque persistence reference"):
+        await mgr.submit(text="document", owner_ref="person@example.test")
     await mgr._scheduler.stop()
 
 

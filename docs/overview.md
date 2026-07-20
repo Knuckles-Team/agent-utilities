@@ -61,7 +61,7 @@ graph TD
         KG221["<b>KG-2.21: Working Set Manager</b>"]
         KG260["<b>KG-2.7: Single Company Brain</b>"]
         KG255["<b>KG-2.55-2.57: Kafka Ingest Scale-Out</b>"]
-        KG258["<b>AU-KG.sharding.tenant-partitioned-sharding-hrw: Tenant-Sharded Engines (HRW)</b>"]
+        KG258["<b>AU-KG.sharding.tenant-partitioned-sharding-hrw: Engine-Authoritative Tenant Placement</b>"]
     end
 
     %% Pillar 3: Agentic Harness Engineering
@@ -218,7 +218,7 @@ graph TD
 | KG-2.55 | Fail-Loud Queue Backend Selection | `TASK_QUEUE_BACKEND=sqlite\|postgres\|kafka`; explicit backends fail loud at startup instead of silently degrading |
 | KG-2.56 | Keyed Ingest Partitions | `kg_tasks` partition keys (tenant → repo/corpus → task type) for per-tenant/per-repo ordering |
 | AU-KG.ingest.decoupled-kg-ingest-consumer | Decoupled kg-ingest Consumer Group | `kg-ingest-worker` runs ingest as engine clients on any host; at-least-once, idempotent claims, lag metrics |
-| AU-KG.sharding.tenant-partitioned-sharding-hrw | Tenant-Partitioned Engine Sharding | HRW graph→shard routing over `GRAPH_SERVICE_ENDPOINTS` with tenant→named-graph placement |
+| AU-KG.sharding.tenant-partitioned-sharding-hrw | Engine-Authoritative Tenant Placement | Complete placement routes, epochs, fencing, and MultiRaft groups; clients never infer ownership |
 | KG-2.65 | GPU-Slot-Scheduled Fact Extraction | A single shared GPU slot serializes LLM fact-extraction so long training/ingest runs cooperate (`knowledge_graph/ingestion/gpu_slot_scheduler.py`); data-science-mcp training jobs share the same slot |
 | KG-2.70 | Evidence-Subgraph Task Synthesis | Build a bounded evidence-graph workspace around an answer entity for shortcut-resistant deep-search task synthesis (`knowledge_graph/search_synthesis/evidence_subgraph.py`; distills FORT-Searcher arXiv:2606.12087) |
 | AU-KG.retrieval.formulate-adversarially-refine | Shortcut-Risk Detectors | Four graph-query detectors — single-clue selectivity, evidence co-coverage, exposed constants, prior-knowledge binding — over the evidence graph (`knowledge_graph/search_synthesis/shortcut_risks.py`) |
@@ -259,6 +259,8 @@ graph TD
 |---|---|---|
 | ECO-4.0 | Tool Interface & MCP Factory | MCP server factory, skill loading, tool assignment |
 | ECO-4.1 | A2A Network & Consensus 🔬 | Agent-to-agent discovery, delegation, consensus |
+| ECO-4.6 | Web/Social Content KG Ingestion | Ingest external web/social content (posts, articles) into the KG as documents for assimilation |
+| ECO-4.7 | Infrastructure Telemetry Monitoring | Connector-sourced infrastructure/service telemetry ingestion and monitoring into the KG |
 | AU-ECO.toolkit.journey-map-narrative | Community Telemetry & Ecosystem Map | Ecosystem topology, 40-repo graph, telemetry |
 | AU-ECO.ui.company-infrastructure-orchestration | Market Data KG Node Models | Connector/fetch-record ontology nodes for data-source provenance |
 | AU-ECO.toolkit.journey-map-adoption | KG MCP Server & Execution | KG MCP exposure, durable execution, sandbox |
@@ -280,7 +282,7 @@ graph TD
 | AU-ECO.mcp.usage-cost-observability-surface | Cross-UI Usage & Cost Surface | The usage/cost/observability surface (`/api/observability`, `usage_query`) rendered in all three frontends |
 | AU-ECO.mcp.client-side-chat-session | Remote Usage Ingest | Clients parse local logs and POST normalized usage to the server sink |
 | AU-ECO.connector.git-task-resolver | Document → KG Fact Extraction UI | Interactive document/URL → atomic-triple extraction with live force-graph, edge-fact cards, and JSONL across all three frontends over `/api/enhanced/extract/*` |
-| ECO-4.82 | Verbose 1:1 MCP Tool Surface | `MCP_TOOL_MODE` (`condensed` default / `verbose` / `both`) over a shared `register_tool_surface` that auto-discovers `register_<domain>_tools` and exposes a typed 1:1 verbose tier |
+| ECO-4.82 | MCP Tool Surface Modes | `MCP_TOOL_MODE` (`intent` default / `condensed` / `verbose` / `both`) over a shared `register_tool_surface`; intent keeps granular tools gated for on-demand loading while verbose exposes the typed 1:1 tier |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)
 
@@ -294,7 +296,7 @@ graph TD
 | OS-5.5 | Massive Scale | Pluggable distributed queues, epistemic-graph Rust UDS RPC, and wasmtime sandbox integration |
 | OS-5.14 | Server-Minted JWT Identity | `ActorContext` minted server-side from validated JWTs; fail-closed permissioning; HMAC engine auth (`security/request_identity.py`, `security/auth.py`) |
 | AU-OS.config.fleet-event-ingress | Fleet Event Ingress | `POST /api/fleet/events` webhook persisting monitoring alerts as `FleetEvent` KG nodes + triage seam |
-| AU-OS.state.unified-durable-state-externalization | Unified Durable-State Externalization | One `STATE_DB_URI` flag moves checkpoints, sessions/goals, and the task queue onto shared Postgres |
+| AU-OS.state.unified-durable-state-externalization | Unified Durable-State Externalization | One `STATE_DB_URI` flag moves session/turn/fleet metadata and queue delivery onto shared Postgres; WorkItem checkpoints remain in the engine |
 | AU-OS.state.cross-host-daemon-leadership | Cross-Host Daemon Leadership | Postgres advisory-lock election so singleton background ticks run on exactly one host fleet-wide |
 | AU-OS.state.fleet-supervisory-plane-at | Fleet Supervisory Plane at Scale | SQL aggregation, paginated/filtered session queries, desired-state pause/kill reconciliation across hosts |
 | AU-OS.observability.no-op-without-metrics | Gateway Middle-Tier Hardening | Prometheus `/metrics`, per-tenant token-bucket rate limiting, engine circuit breaker, `GATEWAY_WORKERS` pre-fork |
@@ -341,7 +343,7 @@ The Agent OS is a multi-subsystem architecture where the **Active Knowledge Grap
 
 ## Evolution Pipeline — Super-Assimilation Architecture
 
-The evolution pipeline (`agent-utilities-self-evolution`) provides autonomous, KG-driven
+The evolution pipeline (`agent-utilities-evolution`) provides autonomous, KG-driven
 assimilation of external codebases and research papers into the `agent-utilities` core.
 
 ### Assimilation Heuristic

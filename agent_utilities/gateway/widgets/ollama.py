@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.DATA_SCIENCE
     description = "Local LLM — models, running processes, and GPU usage"
     env_prefix = "OLLAMA"
-    default_url = "http://localhost:11434"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -45,8 +44,8 @@ class Widget(BaseWidget):
             ps = ps_resp.json() if ps_resp.status_code == 200 else {}
             running = ps.get("models", [])
         except Exception as e:
-            logger.debug("Ollama fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Ollama fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

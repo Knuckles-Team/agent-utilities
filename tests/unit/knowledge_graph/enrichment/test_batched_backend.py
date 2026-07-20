@@ -48,6 +48,33 @@ def test_writes_are_flushed_as_bulk_ops_nodes_before_edges():
     assert edge_ops[0]["source"] == "code:0"
 
 
+def test_source_system_stamped_on_every_node_when_configured():
+    """CONCEPT:AU-KG.ingest.code-source-partition — a source_system-configured batched backend stamps
+    source_system + domain on every buffered node, so code lands in its named graph."""
+    be = _BulkBackend()
+    bw = _BatchedBackend(be, batch_size=1000, source_system="code:agent-utilities")
+    bw.add_node("code:x", type="Code", language="python")
+    bw.add_node(
+        "code:y", type="Test"
+    )  # a caller value would win (setdefault) — none here
+    bw.flush()
+    node_ops = be.bulk_calls[0]
+    assert all(
+        o["properties"]["source_system"] == "code:agent-utilities" for o in node_ops
+    )
+    assert all(o["properties"]["domain"] == "code:agent-utilities" for o in node_ops)
+
+
+def test_no_source_system_leaves_nodes_unstamped():
+    """Default (source_system=None) is unchanged — non-code enrichment stays unstamped."""
+    be = _BulkBackend()
+    bw = _BatchedBackend(be, batch_size=1000)
+    bw.add_node("n", type="Doc")
+    bw.flush()
+    props = be.bulk_calls[0][0]["properties"]
+    assert "source_system" not in props and "domain" not in props
+
+
 def test_auto_flush_at_batch_size():
     be = _BulkBackend()
     bw = _BatchedBackend(be, batch_size=2)

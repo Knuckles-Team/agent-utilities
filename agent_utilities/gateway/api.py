@@ -11,19 +11,64 @@ Mountable by agent-webui (and any other FastAPI backend)::
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agent_utilities.gateway.aggregator import Aggregator
 from agent_utilities.gateway.config import ConfigManager
 from agent_utilities.gateway.models import DashboardLayout, WidgetData
 from agent_utilities.gateway.registry import get_registry
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
+_SERVICE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
-dashboard_router = APIRouter(tags=["dashboard"])
+
+def _dashboard_capabilities(request: Request) -> set[str] | None:
+    claims = getattr(request.state, "user_claims", None)
+    if not claims or claims.get("auth_type") == "api_key":
+        return None
+    try:
+        from agent_utilities.core.config import config
+        from agent_utilities.security.identity import (
+            base_capabilities,
+            normalize_identity,
+        )
+
+        return set(
+            base_capabilities(
+                normalize_identity(claims), config.identity_group_capability_map
+            )
+        )
+    except Exception:
+        raise HTTPException(status_code=403, detail="dashboard capability required") from None
+
+
+async def _require_dashboard_read(request: Request) -> None:
+    if request.url.path.endswith("/health"):
+        return
+    capabilities = _dashboard_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(
+        {"gateway:read", "gateway:write", "gateway:admin", "admin"}
+    ):
+        raise HTTPException(status_code=403, detail="dashboard capability required")
+
+
+def _require_dashboard_write(request: Request) -> None:
+    capabilities = _dashboard_capabilities(request)
+    if capabilities is not None and not capabilities.intersection(
+        {"gateway:write", "gateway:admin", "admin"}
+    ):
+        raise HTTPException(status_code=403, detail="dashboard write capability required")
+
+
+dashboard_router = APIRouter(
+    tags=["dashboard"], dependencies=[Depends(_require_dashboard_read)]
+)
 
 # Singletons — initialized lazily on first request, PER PROCESS.
 #
@@ -69,8 +114,9 @@ async def get_layout() -> DashboardLayout:
 
 
 @dashboard_router.put("/layout")
-async def save_layout(layout: DashboardLayout) -> dict[str, str]:
+async def save_layout(layout: DashboardLayout, request: Request) -> dict[str, str]:
     """Save a new dashboard layout configuration."""
+    _require_dashboard_write(request)
     aggregator = _get_aggregator()
     aggregator.save_layout(layout)
     return {"status": "saved"}
@@ -86,10 +132,12 @@ async def get_all_data() -> dict[str, WidgetData]:
 @dashboard_router.get("/data/{service_id}")
 async def get_service_data(service_id: str) -> WidgetData:
     """Fetch data for a single service."""
+    if not _SERVICE_ID_RE.fullmatch(service_id):
+        raise HTTPException(status_code=404, detail="service not found")
     aggregator = _get_aggregator()
     data = await aggregator.fetch_one(service_id)
     if data.status == "error" and "not found" in (data.error or ""):
-        raise HTTPException(status_code=404, detail=data.error)
+        raise HTTPException(status_code=404, detail="service not found")
     return data
 
 
@@ -121,10 +169,12 @@ async def list_available_widgets() -> list[WidgetListItem]:
 
 
 @dashboard_router.get("/health")
-async def health_check() -> dict[str, bool]:
-    """Quick health check across all configured services."""
-    aggregator = _get_aggregator()
-    return await aggregator.health_check()
+async def health_check() -> JSONResponse:
+    """Return non-fingerprinting liveness for unauthenticated probes."""
+    return JSONResponse(
+        {"status": "ok"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @dashboard_router.get("/discover")
@@ -163,8 +213,9 @@ async def daemon_shards() -> dict[str, Any]:
 
 
 @dashboard_router.post("/daemon/start")
-async def daemon_start() -> dict[str, Any]:
+async def daemon_start(request: Request) -> dict[str, Any]:
     """Ensure the single consolidated KG daemon is running in this gateway."""
+    _require_dashboard_write(request)
     from agent_utilities.gateway.daemon import daemon_status as _status
     from agent_utilities.gateway.daemon import start_host_daemon
 
@@ -173,8 +224,13 @@ async def daemon_start() -> dict[str, Any]:
 
 
 @dashboard_router.post("/hydrate/{source}")
-async def trigger_hydration(source: str) -> dict[str, Any]:
+async def trigger_hydration(source: str, request: Request) -> dict[str, Any]:
     """Manually trigger hydration for a specific external source."""
+    import re
+
+    _require_dashboard_write(request)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", source):
+        raise HTTPException(status_code=422, detail="invalid hydration source")
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.hydration import HydrationManager
 
@@ -186,15 +242,21 @@ async def trigger_hydration(source: str) -> dict[str, Any]:
     try:
         res = HydrationManager().hydrate_source(engine, source)
         return res
-    except ValueError as val_err:
-        raise HTTPException(status_code=400, detail=str(val_err)) from val_err
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}") from e
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=public_error_payload(exc, logger=logger, code="invalid_request"),
+        ) from None
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=public_error_payload(exc, logger=logger)
+        ) from None
 
 
 @dashboard_router.post("/hydrate")
-async def trigger_all_hydration() -> dict[str, Any]:
+async def trigger_all_hydration(request: Request) -> dict[str, Any]:
     """Manually trigger hydration for all configured/active sources sequentially."""
+    _require_dashboard_write(request)
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.hydration import HydrationManager
 
@@ -206,8 +268,10 @@ async def trigger_all_hydration() -> dict[str, Any]:
     try:
         res = HydrationManager().hydrate_all(engine)
         return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Hydration failed: {e}") from e
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=public_error_payload(exc, logger=logger)
+        ) from None
 
 
 @dashboard_router.get("/hydration-status")

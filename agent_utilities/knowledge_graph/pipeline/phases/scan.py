@@ -225,7 +225,7 @@ async def execute_scan(ctx: PipelineContext, deps: dict[str, PhaseResult]) -> li
 
                     ctx.graph.add_node(
                         node_id,
-                        type="file",
+                        node_type="file",
                         name=f_name,
                         file_path=abs_path,
                         metadata=metadata,

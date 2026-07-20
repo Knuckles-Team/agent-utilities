@@ -44,7 +44,6 @@ def engine_with_tmp_db(
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     db_path = tmp_path / "kg.db"
-    monkeypatch.setenv("GRAPH_DB_PATH", str(db_path))
     monkeypatch.setenv("WORKSPACE_DIR", str(tmp_path))
 
     backend = create_backend(backend_type="ladybug", db_path=str(db_path))

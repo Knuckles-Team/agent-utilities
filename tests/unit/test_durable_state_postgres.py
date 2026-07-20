@@ -1,9 +1,9 @@
-"""Postgres-backed durable state — semantics without a live server (OS-5.16).
+"""Postgres-backed queue state semantics without a live server (OS-5.16).
 
-Exercises :class:`PostgresCheckpointStore` (durable execution) and
-:class:`PostgresTaskQueue` (cross-host KG queue, CONCEPT:AU-KG.ingest.cross-host-safe-kg) against a
+Exercises :class:`PostgresTaskQueue` (cross-host KG queue,
+CONCEPT:AU-KG.ingest.cross-host-safe-kg) against a
 small in-memory emulation of exactly the SQL each backend issues, so the
-at-least-once / exactly-once / SKIP-LOCKED-claim semantics are verified in CI
+SKIP-LOCKED claim semantics are verified in CI
 with no infrastructure. A live end-to-end pass runs in
 ``tests/integration/test_state_postgres_live.py`` when ``STATE_DB_URI`` is set.
 """
@@ -17,17 +17,6 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.orchestration.durable_execution import (
-    DurableExecutionManager,
-    PostgresCheckpointStore,
-)
-from agent_utilities.orchestration.resilience import ResiliencePolicy
-
-_FAST = ResiliencePolicy(max_attempts=3, backoff_base_s=0.0, jitter=False)
-
-
-# ── In-memory emulation of the durable_checkpoints statements ─────────────
-
 
 class _Cursorish(list):
     def fetchone(self):
@@ -35,147 +24,6 @@ class _Cursorish(list):
 
     def fetchall(self):
         return list(self)
-
-
-class FakeDurableConn:
-    """Emulates the four statements PostgresCheckpointStore issues."""
-
-    def __init__(self, rows: dict):
-        self.rows = rows  # (session_id, node_id) -> dict
-
-    def execute(self, sql: str, params: tuple = ()) -> _Cursorish:
-        s = " ".join(sql.split())
-        if s.startswith("INSERT INTO durable_checkpoints"):
-            sid, nid, state, status, key, ts = params
-            self.rows[(sid, nid)] = {
-                "state": state,
-                "status": status,
-                "idempotency_key": key,
-                "result": self.rows.get((sid, nid), {}).get("result"),
-                "updated_at": ts,
-            }
-            return _Cursorish()
-        if s.startswith("UPDATE durable_checkpoints"):
-            result, ts, sid, nid = params
-            row = self.rows.get((sid, nid))
-            if row is not None:
-                row.update(status="COMPLETED", result=result, updated_at=ts)
-            return _Cursorish()
-        if "SELECT node_id, state" in s:
-            (sid,) = params
-            pending = [
-                (nid, r["state"], r["updated_at"])
-                for (s_, nid), r in self.rows.items()
-                if s_ == sid and r["status"] == "PENDING"
-            ]
-            pending.sort(key=lambda t: t[2], reverse=True)
-            return _Cursorish([(n, st) for n, st, _ in pending[:1]])
-        if "SELECT result" in s:
-            sid, key = params
-            done = [
-                (r["result"], r["updated_at"])
-                for (s_, _), r in self.rows.items()
-                if s_ == sid
-                and r["idempotency_key"] == key
-                and r["status"] == "COMPLETED"
-            ]
-            done.sort(key=lambda t: t[1], reverse=True)
-            return _Cursorish([(d[0],) for d in done[:1]])
-        raise AssertionError(f"unexpected SQL: {s}")
-
-
-class FakeDurablePool:
-    def __init__(self):
-        self.rows: dict = {}
-
-    @contextmanager
-    def connection(self):
-        yield FakeDurableConn(self.rows)
-
-
-@pytest.fixture
-def pg_store(monkeypatch):
-    from agent_utilities.core import state_store
-
-    monkeypatch.setattr(state_store, "ensure_state_schema", lambda *a, **k: None)
-    return PostgresCheckpointStore(pool=FakeDurablePool())
-
-
-def test_pg_checkpoint_flow(pg_store):
-    mgr = DurableExecutionManager("s1", store=pg_store)
-    assert mgr.save_checkpoint("step", {"asset": "BTC"}) == "step"
-    resumed = mgr.resume_session()
-    assert resumed is not None and resumed["node_id"] == "step"
-    assert "BTC" in resumed["state"]
-    mgr.mark_completed("step")
-    assert mgr.resume_session() is None
-
-
-def test_pg_idempotency_exactly_once(pg_store):
-    mgr = DurableExecutionManager("s2", store=pg_store)
-    calls = {"n": 0}
-
-    def critical():
-        calls["n"] += 1
-        return {"order_id": "abc"}
-
-    first = mgr.run_durable_action("place", critical, idempotency_key="ORD-1")
-    second = mgr.run_durable_action("place", critical, idempotency_key="ORD-1")
-    assert calls["n"] == 1
-    assert first == second == {"order_id": "abc"}
-
-
-def test_pg_idempotency_across_manager_instances(pg_store):
-    # "Restart" = new manager over the same shared store (what a second host sees).
-    DurableExecutionManager("s3", store=pg_store).run_durable_action(
-        "step", lambda: "done", idempotency_key="K-1"
-    )
-    reran = {"n": 0}
-
-    def again():
-        reran["n"] += 1
-        return "second"
-
-    out = DurableExecutionManager("s3", store=pg_store).run_durable_action(
-        "step", again, idempotency_key="K-1"
-    )
-    assert reran["n"] == 0
-    assert out == "done"
-
-
-def test_pg_at_least_once_retries(pg_store):
-    mgr = DurableExecutionManager("s4", store=pg_store)
-    attempts = {"n": 0}
-
-    def flaky():
-        attempts["n"] += 1
-        if attempts["n"] < 2:
-            raise ConnectionError("transient")
-        return "ok"
-
-    assert (
-        mgr.run_durable_action("f", flaky, idempotency_key="F-1", policy=_FAST) == "ok"
-    )
-    assert attempts["n"] == 2
-
-
-def test_default_selection_prefers_sqlite_without_uri(tmp_path):
-    from agent_utilities.orchestration.durable_execution import (
-        SQLiteCheckpointStore,
-        _select_store,
-    )
-
-    assert isinstance(_select_store(tmp_path / "x.db"), SQLiteCheckpointStore)
-    assert isinstance(_select_store(None), SQLiteCheckpointStore)
-
-
-def test_sqlite_store_reuses_one_connection(tmp_path):
-    from agent_utilities.orchestration.durable_execution import SQLiteCheckpointStore
-
-    a = SQLiteCheckpointStore(tmp_path / "d.db")
-    b = SQLiteCheckpointStore(tmp_path / "d.db")
-    # connect-per-op fixed: one pooled connection per db file, shared.
-    assert a._conn is b._conn
 
 
 # ── Cross-host task queue (CONCEPT:AU-KG.ingest.cross-host-safe-kg) ───────────────────────────────
@@ -193,8 +41,29 @@ class FakeQueueConn:
     def execute(self, sql: str, params: tuple = ()) -> _Cursorish:
         s = " ".join(sql.split())
         rows = self.db[self._table(s)]
+        if "FROM information_schema.columns" in s:
+            return _Cursorish([(column,) for column in self.db["schema_columns"]])
+        if s.startswith("SELECT pg_advisory_xact_lock"):
+            return _Cursorish([(None,)])
+        if s.startswith("INSERT INTO kg_task_queue_fairness"):
+            tenant_ref, tenant_at, _, group_ref, group_at = params
+            self.db["fairness"][(tenant_ref, "")] = tenant_at
+            self.db["fairness"][(tenant_ref, group_ref)] = group_at
+            return _Cursorish()
         if s.startswith("INSERT INTO kg_task_queue"):
-            rows.append({"id": self.db["seq"](), "data": params[0], "claimed_at": None})
+            data, tenant, fairness_group, priority, deadline, enqueued_at = params
+            rows.append(
+                {
+                    "id": self.db["seq"](),
+                    "data": data,
+                    "tenant_ref": tenant,
+                    "fairness_group_ref": fairness_group,
+                    "prio_bucket": priority,
+                    "deadline_unix": deadline,
+                    "enqueued_at": enqueued_at,
+                    "claimed_at": None,
+                }
+            )
             return _Cursorish()
         if s.startswith("INSERT INTO kg_task_staging"):
             rows.append(
@@ -206,20 +75,105 @@ class FakeQueueConn:
                 }
             )
             return _Cursorish()
-        if s.startswith("UPDATE") and "FOR UPDATE SKIP LOCKED" in s:
-            claimer, now, cutoff = params
-            for row in sorted(rows, key=lambda r: r["id"]):
+        if (
+            (s.startswith("UPDATE") or s.startswith("WITH candidate"))
+            and "FOR UPDATE" in s
+            and "SKIP LOCKED" in s
+        ):
+            if self._table(s) == "kg_task_staging":
+                claimer, now, cutoff = params
+                ordered = sorted(rows, key=lambda row: row["id"])
+            else:
+                cutoff, deadline_now, claimer, now = params
+
+                def schedule_key(row):
+                    tenant_at = self.db["fairness"].get((row["tenant_ref"], ""), 0.0)
+                    group_at = self.db["fairness"].get(
+                        (row["tenant_ref"], row["fairness_group_ref"]), 0.0
+                    )
+                    deadline = row["deadline_unix"]
+                    return (
+                        0 if deadline is not None and deadline <= deadline_now else 1,
+                        row["prio_bucket"],
+                        tenant_at,
+                        group_at,
+                        deadline if deadline is not None else float("inf"),
+                        row["enqueued_at"],
+                        row["id"],
+                    )
+
+                ordered = sorted(rows, key=schedule_key)
+            for row in ordered:
                 if row["claimed_at"] is None or row["claimed_at"] < cutoff:
                     row["claimed_at"] = now
                     row["claimed_by"] = claimer
                     if "graph_data" in row:
                         return _Cursorish(
-                            [(row["id"], row["job_id"], row["graph_data"])]
+                            [
+                                (
+                                    row["id"],
+                                    row["job_id"],
+                                    row["graph_data"],
+                                    row["claimed_by"],
+                                    row["claimed_at"],
+                                )
+                            ]
                         )
-                    return _Cursorish([(row["id"], row["data"])])
+                    return _Cursorish(
+                        [
+                            (
+                                row["id"],
+                                row["data"],
+                                row["tenant_ref"],
+                                row["fairness_group_ref"],
+                                row["claimed_by"],
+                                row["claimed_at"],
+                            )
+                        ]
+                    )
+            return _Cursorish()
+        if s.startswith("DELETE FROM kg_task_queue_fairness"):
+            tenant_ref, group_ref = params
+            if not any(
+                row["tenant_ref"] == tenant_ref
+                and row["fairness_group_ref"] == group_ref
+                for row in self.db["kg_task_queue"]
+            ):
+                self.db["fairness"].pop((tenant_ref, group_ref), None)
+            if not any(
+                row["tenant_ref"] == tenant_ref for row in self.db["kg_task_queue"]
+            ):
+                self.db["fairness"].pop((tenant_ref, ""), None)
             return _Cursorish()
         if s.startswith("DELETE"):
-            rows[:] = [r for r in rows if r["id"] != params[0]]
+            removed = next(
+                (
+                    row
+                    for row in rows
+                    if row["id"] == params[0]
+                    and (
+                        len(params) == 1
+                        or (
+                            row.get("claimed_by") == params[1]
+                            and row.get("claimed_at") == params[2]
+                        )
+                    )
+                ),
+                None,
+            )
+            if removed is not None:
+                rows.remove(removed)
+            if removed and "tenant_ref" in removed:
+                return _Cursorish(
+                    [
+                        (
+                            removed["tenant_ref"],
+                            removed["fairness_group_ref"],
+                        )
+                    ]
+                )
+            if removed is not None:
+                return _Cursorish([(removed["id"],)])
             return _Cursorish()
         if s.startswith("SELECT COUNT(*)"):
             return _Cursorish([(len(rows),)])
@@ -237,6 +191,18 @@ class FakeQueuePool:
         self.db: dict[str, Any] = {
             "kg_task_queue": [],
             "kg_task_staging": [],
+            "fairness": {},
+            "schema_columns": (
+                "id",
+                "data",
+                "tenant_ref",
+                "fairness_group_ref",
+                "prio_bucket",
+                "deadline_unix",
+                "enqueued_at",
+                "claimed_by",
+                "claimed_at",
+            ),
             "seq": seq,
         }
 
@@ -270,6 +236,82 @@ def test_queue_put_get_ack(pg_queue):
     assert pg_queue.get_queue_size() == 1
 
 
+def test_queue_rejects_pre_current_schema(monkeypatch):
+    from agent_utilities.core import state_store
+    from agent_utilities.knowledge_graph.core.postgres_queue_backend import (
+        PostgresTaskQueue,
+    )
+
+    pool = FakeQueuePool()
+    pool.db["schema_columns"] = ("id", "data", "claimed_by", "claimed_at")
+    monkeypatch.setattr(state_store, "state_pool", lambda: pool)
+    monkeypatch.setattr(state_store, "ensure_state_schema", lambda *a, **k: None)
+    with pytest.raises(RuntimeError, match="current scheduling schema"):
+        PostgresTaskQueue()
+
+
+def test_queue_claim_honors_priority_and_deadline(pg_queue):
+    future = time.time() + 600.0
+    pg_queue.put(
+        {
+            "job_id": "background",
+            "tenant": "tenant-a",
+            "session_id": "session-a",
+            "prio_bucket": 3,
+            "deadline_unix": future - 100,
+        }
+    )
+    pg_queue.put(
+        {
+            "job_id": "critical-later-deadline",
+            "tenant": "tenant-a",
+            "session_id": "session-b",
+            "prio_bucket": 0,
+            "deadline_unix": future,
+        }
+    )
+    pg_queue.put(
+        {
+            "job_id": "critical-earlier-deadline",
+            "tenant": "tenant-a",
+            "session_id": "session-c",
+            "prio_bucket": 0,
+            "deadline_unix": future - 10,
+        }
+    )
+    claimed = pg_queue.get()
+    assert claimed is not None
+    assert claimed[1]["job_id"] == "critical-earlier-deadline"
+
+
+def test_queue_claim_rotates_tenants_within_priority(pg_queue):
+    for job_id, tenant, session in (
+        ("a-1", "tenant-a", "session-a-1"),
+        ("a-2", "tenant-a", "session-a-2"),
+        ("b-1", "tenant-b", "session-b-1"),
+    ):
+        pg_queue.put(
+            {
+                "job_id": job_id,
+                "tenant": tenant,
+                "session_id": session,
+                "prio_bucket": 2,
+            }
+        )
+    first = pg_queue.get()
+    assert first is not None and first[1]["job_id"] == "a-1"
+    pg_queue.ack(first[0])
+    second = pg_queue.get()
+    assert second is not None and second[1]["job_id"] == "b-1"
+
+
+def test_queue_admission_bound_is_atomic(pg_queue):
+    assert pg_queue.put_if_below({"job_id": "one"}, 2)
+    assert pg_queue.put_if_below({"job_id": "two"}, 2)
+    assert not pg_queue.put_if_below({"job_id": "three"}, 2)
+    assert pg_queue.get_queue_size() == 2
+
+
 def test_queue_claims_are_exclusive_across_consumers(pg_queue):
     # Two hosts polling the same queue must never receive the same item —
     # the claim (SKIP LOCKED + claimed_at stamp) is atomic.
@@ -294,6 +336,10 @@ def test_queue_visibility_timeout_requeues_dead_claims(pg_queue, monkeypatch):
     retried = pg_queue.get()
     assert retried is not None
     assert retried[1] == {"job_id": "crashy"}
+    with pytest.raises(RuntimeError, match="fenced"):
+        pg_queue.ack(claimed[0])
+    assert pg_queue.get_queue_size() == 1
+    pg_queue.ack(retried[0])
 
 
 def test_staged_graph_roundtrip(pg_queue):

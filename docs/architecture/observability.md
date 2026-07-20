@@ -1,7 +1,6 @@
 # Observability — Metrics, Logs, Traces, Alerts
 
-How every MCP service **and** every Portainer stack's container is monitored,
-built on the existing LGTM stack (`services/lgtm/`).
+How MCP services and deployed workloads expose bounded operational signals.
 
 ## Topology
 
@@ -9,11 +8,11 @@ built on the existing LGTM stack (`services/lgtm/`).
                     ┌──────────── Prometheus (15s) ──────────┐
  node-exporter ─────┤  hosts (global, every node)            │
  cAdvisor ──────────┤  containers (global, every container)  │── rules.yml ─► Alertmanager ─► Mattermost
- MCP /metrics ──────┤  mcp-fleet (file-SD, 52 targets)       │
+ MCP /metrics ──────┤  mcp-fleet (generated file-SD targets) │
  blackbox /health ──┤  blackbox-mcp (synthetic probe)        │
                     └────────────────┬───────────────────────┘
                                      ▼
- promtail (docker SD) ─► Loki        Grafana (grafana.arpa, Keycloak OIDC)
+ promtail (docker SD) ─► Loki        Grafana (grafana.example, Keycloak OIDC)
  app traces ─► Tempo + Langfuse      provisioned datasources + dashboards
 ```
 
@@ -26,10 +25,36 @@ built on the existing LGTM stack (`services/lgtm/`).
 | Logs | promtail (docker SD) | Loki | container stdout/stderr, labelled stack/service |
 | Traces | OTEL | Tempo + Langfuse | Langfuse for LLM traces |
 
+Self-hosted Langfuse uses the same runtime TLS-profile resolver as every other
+outbound integration. Certificate material, proxy details, endpoints, and keys
+remain behind AgentConfig refs; content capture is off. See
+[Failure-Driven Evolution: self-hosted trust](failure_driven_evolution.md#self-hosted-trust-and-the-native-mcp-server)
+for native MCP registration, doctor validation, and the distinction between
+configuration readiness and a live traced-request certification.
+
+When `ENABLE_OTEL=true`, the `graph-os` entry point activates the same
+metadata-only `setup_otel()` pipeline used by served agents before it constructs
+the MCP server. A configured OTLP endpoint wins; otherwise a complete canonical
+Langfuse credential-reference pair derives the deployment's
+`/api/public/otel` endpoint and HTTP Basic authorization in memory. The OTLP TLS
+profile is selected by endpoint origin, so the Langfuse trust profile is reused
+for that origin regardless of whether authorization came from the canonical key
+pair or a purpose-specific OTLP header reference. HTTPS is mandatory except for
+the exact canonical loopback hosts.
+
+Pipeline health is an authenticated contract, not a socket check: for a
+Langfuse-origin exporter, diagnostics perform a bounded metadata-only trace-list
+read and require a successful response with the expected shape. Authentication
+failures and arbitrary `4xx` responses are failures. Generic collectors have no
+portable authenticated read endpoint and are reported as unproven rather than
+being inferred healthy from an HTTP status.
+
 ## Per-MCP metrics (one change, whole fleet)
 
-`create_mcp_server` mounts an unauthenticated `GET /metrics` and a
-`ToolMetricsMiddleware` recording, per server:
+`create_mcp_server` mounts `GET /metrics` locally and a
+`ToolMetricsMiddleware` recording, per server. On a non-loopback listener the
+route is registered only when `MCP_METRICS_TOKEN_REF` resolves; the scraper must
+send that bearer. The route is absent when the reference is unavailable.
 
 - `agent_utilities_mcp_tool_calls_total{tool,outcome}`
 - `agent_utilities_mcp_tool_duration_seconds_bucket{tool}` (histogram)

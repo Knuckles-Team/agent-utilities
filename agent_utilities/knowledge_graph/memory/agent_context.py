@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.security.persistence_privacy import persistence_reference
+
 """Token-Aware Context Compaction (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
 Intelligent context window management that replaces naive truncation
@@ -34,8 +36,6 @@ Key differences from Goose:
   as ``EpisodeNode`` snapshots in the Knowledge Graph, enabling
   cross-session context continuity via ``MemoryRetriever``
   (CONCEPT:AU-KG.memory.tiered-memory-caching).
-* **Backward compatibility** — ``prune_large_messages()`` in
-  ``chat_persistence.py`` is kept as an alias.
 """
 
 
@@ -131,7 +131,7 @@ class CompactedResult(BaseModel):
     summary_text: str = ""
     messages_removed: int = 0
     compaction_id: str = Field(
-        default_factory=lambda: f"compact:{uuid.uuid4().hex[:8]}"
+        default_factory=lambda: f"compact:{uuid.uuid4().hex}"
     )
 
 
@@ -832,7 +832,7 @@ class ContextCheckpoint(BaseModel):
         timestamp: When the checkpoint was created.
     """
 
-    checkpoint_id: str = Field(default_factory=lambda: f"ckpt:{uuid.uuid4().hex[:8]}")
+    checkpoint_id: str = Field(default_factory=lambda: f"ckpt:{uuid.uuid4().hex}")
     messages: list[dict[str, Any]] = Field(default_factory=list)
     token_count: int = 0
     timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -1374,10 +1374,6 @@ class AgentContextManager:
         }
 
 
-# For backward compatibility with Goose and older test files
-ElasticContextManager = AgentContextManager
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -1573,7 +1569,9 @@ def prune_context_by_semantic_distance(
             ),
         )
     except Exception as e:
-        logger.warning(f"Failed to sort context nodes by distance: {e}")
+        logger.warning(
+            "Failed to sort context nodes by distance (%s)", type(e).__name__
+        )
         sorted_nodes = context_nodes
 
     pruned_nodes = []
@@ -1666,6 +1664,12 @@ class SemanticCompactor:
         if not self.engine:
             return 0
 
+        agent_ref = persistence_reference(
+            "trace_agent", agent_id, namespace="semantic-compaction"
+        )
+        if not agent_ref:
+            return 0
+
         # Fast path: compiled Rust compaction (avoids N+2 Cypher round-trips)
         if self._compute_engine is not None:
             rust_graph = getattr(self._compute_engine, "_rust_graph", None)
@@ -1682,7 +1686,7 @@ class SemanticCompactor:
                         return len(removed)
                 except Exception as e:
                     logger.warning(
-                        f"Rust compaction failed, falling back to Cypher: {e}"
+                        "Native compaction failed (%s)", type(e).__name__
                     )
 
         # Try to find all trace nodes for the agent from the database
@@ -1692,7 +1696,7 @@ class SemanticCompactor:
                 "MATCH (a:Agent {id: $agent_id})-[:HAS_PROCESS]->(p:AgentProcess) "
                 "RETURN p.id, p.state, p.tokens_used"
             )
-            res = self.engine.backend.execute(query, {"agent_id": agent_id})
+            res = self.engine.backend.execute(query, {"agent_id": agent_ref})
 
             trace_nodes = []
             if res and hasattr(res, "rows"):
@@ -1722,7 +1726,7 @@ class SemanticCompactor:
                     total_tokens += int(tokens or 0)
                     states_summary[state] = states_summary.get(state, 0) + 1
 
-            summary_node_id = f"summary:agent:{agent_id}:{len(trace_nodes)}_compacted"
+            summary_node_id = f"summary:agent:{agent_ref}:{len(trace_nodes)}_compacted"
 
             # 1. Create consolidated summary node
             query_summary = (
@@ -1736,10 +1740,10 @@ class SemanticCompactor:
                 query_summary,
                 {
                     "summary_id": summary_node_id,
-                    "name": f"Compacted Trace Summary for Agent {agent_id}",
+                    "name": "Compacted Trace Summary",
                     "compacted_count": len(trace_nodes),
                     "total_tokens": total_tokens,
-                    "agent_id": agent_id,
+                    "agent_id": agent_ref,
                 },
             )
 
@@ -1751,7 +1755,7 @@ class SemanticCompactor:
             )
             self.engine.backend.execute(
                 query_link,
-                {"agent_id": agent_id, "summary_id": summary_node_id},
+                {"agent_id": agent_ref, "summary_id": summary_node_id},
             )
 
             # 3. Delete verbose process/trace nodes to prune database
@@ -1768,14 +1772,11 @@ class SemanticCompactor:
                     self.engine.backend.execute(query_delete, {"pid": pid})
                     deleted += 1
 
-            logger.info(
-                f"SemanticCompactor: Compacted {deleted} traces for agent '{agent_id}' "
-                f"into summary node '{summary_node_id}'"
-            )
+            logger.info("SemanticCompactor: compacted %d traces", deleted)
             return deleted
 
         except Exception as e:
-            logger.error(f"SemanticCompactor failed during compaction: {e}")
+            logger.error("SemanticCompactor failed (%s)", type(e).__name__)
             return 0
 
 

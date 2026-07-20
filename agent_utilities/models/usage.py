@@ -9,26 +9,23 @@ class UsageStatistics(BaseModel):
 
 
 class CostModel(BaseModel):
-    """Per-token price pair. Defaults retained for back-compat, but cost is now
-    derived from the unified pricing catalog (CONCEPT:AU-ECO.toolkit.model-pricing-catalog) when a model id
-    is known. Prefer :meth:`for_model` over the hard-coded defaults.
-    """
+    """Validated per-token price pair from the unified pricing catalog."""
 
-    input_token_price: float = 0.00000015
-    output_token_price: float = 0.0000006
+    input_token_price: float = Field(ge=0)
+    output_token_price: float = Field(ge=0)
 
     @classmethod
     def for_model(cls, model: str) -> "CostModel":
         """Build a CostModel from the pricing catalog (per-token from per-Mtok).
 
-        Falls back to the legacy defaults when the model is unknown so callers
-        keep working with zero configuration.
+        Unknown models are rejected because an unpriced run cannot enforce its
+        monetary budget accurately.
         """
         from agent_utilities.pricing import get_pricing_catalog
 
         pricing = get_pricing_catalog().resolve(model)
         if pricing is None:
-            return cls()
+            raise LookupError(f"pricing is not configured for model {model!r}")
         return cls(
             input_token_price=pricing.input_per_mtok / 1_000_000,
             output_token_price=pricing.output_per_mtok / 1_000_000,

@@ -3,7 +3,7 @@
 
 Referenced by AGENTS.md ("Wire-First — reachable != invoked", step 4: "Run
 ``check_wiring.py`` (import-graph, <=3 hops)"). Adapted from the
-agent-utilities-self-evolution skill's ``wiring_sweep.py``, trimmed to its
+agent-utilities-evolution skill's ``wiring_sweep.py``, trimmed to its
 import-graph reachability core.
 
 What it does
@@ -279,9 +279,7 @@ def main() -> int:
         return 0
 
     unreachable = sorted(m for m in modules if m not in dist)
-    far = sorted(
-        (m, d) for m, d in dist.items() if d > args.max_hops
-    )
+    far = sorted((m, d) for m, d in dist.items() if d > args.max_hops)
 
     if args.json:
         print(
@@ -291,9 +289,7 @@ def main() -> int:
                     "total_modules": len(modules),
                     "reachable": len(dist),
                     "unreachable": unreachable,
-                    "beyond_max_hops": [
-                        {"module": m, "hops": d} for m, d in far
-                    ],
+                    "beyond_max_hops": [{"module": m, "hops": d} for m, d in far],
                     "max_hops": args.max_hops,
                 },
                 indent=2,

@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Request
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.error_surface import public_error_text
 
 logger = logging.getLogger(__name__)
 
@@ -125,19 +126,18 @@ async def execute_slash_command(payload: dict, request: Request):
                 response_md = "Graph backend not active — cannot run search."
             else:
                 try:
-                    rows = (
-                        backend.execute(
-                            "MATCH (n) WHERE toLower(n.name) CONTAINS toLower($q) "
-                            "OR toLower(n.id) CONTAINS toLower($q) "
-                            "RETURN n.id AS id, n.name AS name, labels(n)[0] AS type "
-                            "LIMIT 10",
-                            {"q": rest},
-                        )
-                        or []
-                    )
+                    rows = engine.query_cypher(
+                        "MATCH (n) WHERE toLower(n.name) CONTAINS toLower($q) "
+                        "OR toLower(n.id) CONTAINS toLower($q) "
+                        "RETURN n.id AS id, n.name AS name, labels(n)[0] AS type "
+                        "LIMIT 10",
+                        {"q": rest},
+                    ) or []
                 except Exception as e:  # noqa: BLE001
                     rows = []
-                    logger.warning("Graph search failed: %s", e)
+                    logger.warning(
+                        "Graph search failed (exception_type=%s)", type(e).__name__
+                    )
                 if not rows:
                     response_md = f"No graph nodes matched `{rest}`."
                 else:
@@ -159,7 +159,10 @@ async def execute_slash_command(payload: dict, request: Request):
                     radius = engine.get_blast_radius(rest, depth=2) or []
                 except Exception as e:  # noqa: BLE001
                     radius = []
-                    logger.warning("Blast radius query failed: %s", e)
+                    logger.warning(
+                        "Blast radius query failed (exception_type=%s)",
+                        type(e).__name__,
+                    )
                 if not radius:
                     response_md = (
                         f"### Blast Radius Impact Analysis for `{rest}`\n\n"
@@ -185,10 +188,12 @@ async def execute_slash_command(payload: dict, request: Request):
                 )
             else:
                 try:
-                    node_rows = backend.execute("MATCH (n) RETURN count(n) AS c") or []
-                    edge_rows = (
-                        backend.execute("MATCH ()-[r]->() RETURN count(r) AS c") or []
-                    )
+                    node_rows = engine.query_cypher(
+                        "MATCH (n) RETURN count(n) AS c"
+                    ) or []
+                    edge_rows = engine.query_cypher(
+                        "MATCH ()-[r]->() RETURN count(r) AS c"
+                    ) or []
                     nodes = int(node_rows[0]["c"]) if node_rows else 0
                     edges = int(edge_rows[0]["c"]) if edge_rows else 0
                     response_md = (
@@ -197,9 +202,8 @@ async def execute_slash_command(payload: dict, request: Request):
                         f"- **Total Relationships**: {edges}\n"
                         f"- **Backend**: {type(backend).__name__} (active)\n"
                     )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Graph stats query failed: %s", e)
-                    response_md = f"Graph stats query failed: {e}"
+                except Exception as exc:  # noqa: BLE001
+                    response_md = public_error_text(exc, logger=logger)
         return {"response_markdown": response_md, "client_actions": []}
 
     elif cmd_name == "kb":
@@ -222,16 +226,15 @@ async def execute_slash_command(payload: dict, request: Request):
                 )
             else:
                 try:
-                    rows = (
-                        backend.execute(
-                            "MATCH (kb:KnowledgeBase) RETURN kb.id AS id, "
-                            "kb.name AS name, kb.description AS description"
-                        )
-                        or []
-                    )
+                    rows = engine.query_cypher(
+                        "MATCH (kb:KnowledgeBase) RETURN kb.id AS id, "
+                        "kb.name AS name, kb.description AS description"
+                    ) or []
                 except Exception as e:  # noqa: BLE001
                     rows = []
-                    logger.warning("KB list query failed: %s", e)
+                    logger.warning(
+                        "KB list query failed (exception_type=%s)", type(e).__name__
+                    )
                 if not rows:
                     response_md = (
                         "### Connected Knowledge Bases:\n\n"
@@ -254,20 +257,19 @@ async def execute_slash_command(payload: dict, request: Request):
                 response_md = "Knowledge Graph backend not active — cannot search."
             else:
                 try:
-                    rows = (
-                        backend.execute(
-                            "MATCH (a:Article) "
-                            "WHERE toLower(a.name) CONTAINS toLower($q) "
-                            "OR toLower(a.content) CONTAINS toLower($q) "
-                            "RETURN a.id AS id, a.name AS name, "
-                            "a.description AS description LIMIT 5",
-                            {"q": rest},
-                        )
-                        or []
-                    )
+                    rows = engine.query_cypher(
+                        "MATCH (a:Article) "
+                        "WHERE toLower(a.name) CONTAINS toLower($q) "
+                        "OR toLower(a.content) CONTAINS toLower($q) "
+                        "RETURN a.id AS id, a.name AS name, "
+                        "a.description AS description LIMIT 5",
+                        {"q": rest},
+                    ) or []
                 except Exception as e:  # noqa: BLE001
                     rows = []
-                    logger.warning("KB search failed: %s", e)
+                    logger.warning(
+                        "KB search failed (exception_type=%s)", type(e).__name__
+                    )
                 if not rows:
                     response_md = f"No KB articles matched `{rest}`."
                 else:
@@ -300,9 +302,8 @@ async def execute_slash_command(payload: dict, request: Request):
                         f"Enqueued KB ingestion task `{job_id}` for `{rest}`. "
                         "Track progress via the pipeline status."
                     )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("KB ingest enqueue failed: %s", e)
-                    response_md = f"Failed to enqueue ingestion for `{rest}`: {e}"
+                except Exception as exc:  # noqa: BLE001
+                    response_md = public_error_text(exc, logger=logger)
         else:
             response_md = f"Unknown `/kb` subcommand: `{sub}`"
 
@@ -323,7 +324,9 @@ async def execute_slash_command(payload: dict, request: Request):
                 specs = manager.list_specs()
             except Exception as e:  # noqa: BLE001
                 specs = []
-                logger.warning("SDD spec listing failed: %s", e)
+                logger.warning(
+                    "SDD spec listing failed (exception_type=%s)", type(e).__name__
+                )
             if not specs:
                 response_md = (
                     "### Active Spec-Driven Specifications:\n\n"
@@ -342,7 +345,10 @@ async def execute_slash_command(payload: dict, request: Request):
                 constitution = manager.get_constitution()
             except Exception as e:  # noqa: BLE001
                 constitution = None
-                logger.warning("SDD constitution load failed: %s", e)
+                logger.warning(
+                    "SDD constitution load failed (exception_type=%s)",
+                    type(e).__name__,
+                )
             if not constitution:
                 response_md = (
                     "### Spec-Driven Development Governance:\n\n"
@@ -393,9 +399,8 @@ async def execute_slash_command(payload: dict, request: Request):
                         f"`{workspace}/.specify/specs/` into the Knowledge Graph "
                         "as `SDDArtifact` nodes."
                     )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("SDD sync failed: %s", e)
-                    response_md = f"SDD sync failed: {e}"
+                except Exception as exc:  # noqa: BLE001
+                    response_md = public_error_text(exc, logger=logger)
         else:
             response_md = f"Unknown `/sdd` subcommand: `{sub}`"
 
@@ -412,9 +417,9 @@ async def execute_slash_command(payload: dict, request: Request):
             )
 
             entries = calendar(IntelligenceGraphEngine.get_active())
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             return {
-                "response_markdown": f"Scheduler unavailable: {e}",
+                "response_markdown": public_error_text(exc, logger=logger),
                 "client_actions": [],
             }
         if sub in ("calendar", "logs"):
@@ -458,7 +463,10 @@ async def execute_slash_command(payload: dict, request: Request):
                         + (f" - Server: `{s.mcp_server}`" if s.mcp_server else "")
                     )
             except Exception as e:  # noqa: BLE001
-                logger.warning("Specialist discovery failed: %s", e)
+                logger.warning(
+                    "Specialist discovery failed (exception_type=%s)",
+                    type(e).__name__,
+                )
             # Live dispatch workers (heartbeat-fresh).
             try:
                 from agent_utilities.orchestration.agent_dispatch import (
@@ -473,7 +481,10 @@ async def execute_slash_command(payload: dict, request: Request):
                         f"`{w.get('queue_backend')}`"
                     )
             except Exception as e:  # noqa: BLE001
-                logger.debug("Dispatch worker listing unavailable: %s", e)
+                logger.debug(
+                    "Dispatch worker listing unavailable (exception_type=%s)",
+                    type(e).__name__,
+                )
 
             if not lines:
                 response_md = (
@@ -489,38 +500,26 @@ async def execute_slash_command(payload: dict, request: Request):
             if not rest:
                 response_md = "Usage: `/resources spawn <name>`"
             else:
-                from agent_utilities.orchestration.agent_dispatch import (
-                    dispatch_queue_enabled,
-                )
+                try:
+                    import uuid as _uuid
 
-                if not dispatch_queue_enabled():
-                    response_md = (
-                        "Agent dispatch is in `inline` mode (no background queue). "
-                        "Set `AGENT_DISPATCH_BACKEND=queue` to enqueue background "
-                        f"subagent turns; `{rest}` was not spawned."
+                    from agent_utilities.orchestration.agent_dispatch import (
+                        AgentTurnEnvelope,
+                        enqueue_agent_turn,
                     )
-                else:
-                    try:
-                        import uuid as _uuid
 
-                        from agent_utilities.orchestration.agent_dispatch import (
-                            AgentTurnEnvelope,
-                            enqueue_agent_turn,
-                        )
-
-                        envelope = AgentTurnEnvelope(
-                            session_id=f"slash-spawn-{_uuid.uuid4().hex[:8]}",
-                            agent_name=rest,
-                        )
-                        handle = enqueue_agent_turn(envelope)
-                        response_md = (
-                            f"Enqueued background agent turn `{handle['job_id']}` "
-                            f"for **{rest}** (session `{handle['session_id']}`, "
-                            f"status: {handle['status']})."
-                        )
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Agent spawn enqueue failed: %s", e)
-                        response_md = f"Failed to spawn **{rest}**: {e}"
+                    envelope = AgentTurnEnvelope(
+                        session_id=f"slash-spawn-{_uuid.uuid4().hex}",
+                        agent_name=rest,
+                    )
+                    handle = enqueue_agent_turn(envelope)
+                    response_md = (
+                        f"Enqueued background agent turn `{handle['job_id']}` "
+                        f"for **{rest}** (session `{handle['session_id']}`, "
+                        f"status: {handle['status']})."
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    response_md = public_error_text(exc, logger=logger)
         else:
             response_md = f"Unknown `/resources` subcommand: `{sub}`"
 

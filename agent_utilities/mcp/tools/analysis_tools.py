@@ -8,34 +8,610 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
-import uuid
+import re
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.models.evidence_bundle import EvidenceBundle
+from agent_utilities.orchestration.response_format import (
+    ResponseFormat,
+    validate_response_format,
+)
+from agent_utilities.security.error_surface import public_error_json, public_error_text
+
+logger = logging.getLogger(__name__)
+
+
+_MCP_REGISTRATION_MAX_BYTES = 128 * 1024
+_MCP_CONFIG_MAX_BYTES = 1024 * 1024
+_MCP_REGISTRATION_MAX_ITEMS = 2048
+_MCP_REGISTRATION_MAX_DEPTH = 16
+_MCP_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_RUNTIME_REFERENCE_RE = re.compile(
+    r"^(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|(?:vault|env|secret)://[A-Za-z0-9_./#-]+)$"
+)
+_URI_LITERAL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_INLINE_SECRET_RE = re.compile(
+    r"(?i)^(?:bearer\s+\S+|basic\s+\S+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_-]{8,})$"
+)
+_EMAIL_LITERAL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+_SENSITIVE_MCP_KEY_PARTS = frozenset(
+    {
+        "authorization",
+        "credential",
+        "credentials",
+        "email",
+        "identity",
+        "password",
+        "secret",
+        "tenant",
+        "token",
+        "user",
+        "username",
+    }
+)
+_ENDPOINT_MCP_KEY_PARTS = frozenset(
+    {
+        "address",
+        "baseurl",
+        "broker",
+        "brokers",
+        "endpoint",
+        "endpoints",
+        "host",
+        "hostname",
+        "hosts",
+        "server",
+        "servers",
+        "uri",
+        "uris",
+        "url",
+        "urls",
+    }
+)
+_PATH_MCP_KEY_PARTS = frozenset(
+    {
+        "bundle",
+        "ca",
+        "cert",
+        "certificate",
+        "cwd",
+        "directory",
+        "dir",
+        "file",
+        "keyfile",
+        "path",
+        "root",
+        "workspace",
+    }
+)
+_SAFE_INLINE_MCP_ENV_KEYS = frozenset(
+    {
+        "APP_PROFILE",
+        "FASTMCP_LOG_LEVEL",
+        "LOG_LEVEL",
+        "MCP_CLIENT_AUTH",
+        "MCP_TOOL_MODE",
+        "NO_COLOR",
+        "PYTHONUNBUFFERED",
+        "UV_NATIVE_TLS",
+    }
+)
+_SAFE_INLINE_MCP_ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_analysis_core_handler: Any | None = None
+_EXTERNAL_MAPPING_POLICY_FIELDS = frozenset(
+    {
+        "access",
+        "edge_property_allowlist",
+        "edge_type_overrides",
+        "identity_property",
+        "property_allowlist",
+        "type_overrides",
+    }
+)
+_EXTERNAL_MAPPING_POLICY_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _reject_nonfinite_json(_value: str) -> None:
+    raise ValueError("non-finite JSON constants are not supported")
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON keys are not supported")
+        value[key] = item
+    return value
+
+
+def _property_graph_sync_policy(declaration: dict[str, Any]) -> dict[str, Any]:
+    """Return the bounded, non-secret sync policy bound into mapping approval."""
+
+    def bounded(name: str, default: int, lower: int, upper: int) -> int:
+        value = declaration.get(name, default)
+        if isinstance(value, bool):
+            raise ValueError("external graph sync bounds must be integers")
+        parsed = int(value)
+        if not lower <= parsed <= upper:
+            raise ValueError("external graph sync bounds are out of range")
+        return parsed
+
+    mode = str(declaration.get("sync_mode") or "auto")
+    if mode not in {"auto", "cdc", "snapshot"}:
+        raise ValueError("external graph sync mode is invalid")
+    reconcile = declaration.get("reconcile_deletions", True)
+    allow_empty = declaration.get("allow_empty_snapshot", False)
+    if not isinstance(reconcile, bool) or not isinstance(allow_empty, bool):
+        raise ValueError("external graph reconciliation policy must be boolean")
+    row_bytes = bounded("ingest_max_row_bytes", 1_048_576, 256, 8_388_608)
+    total_bytes = bounded("ingest_max_total_bytes", 16_777_216, 256, 67_108_864)
+    if total_bytes < row_bytes:
+        raise ValueError("external graph total byte bound must cover one row")
+    return {
+        "allow_empty_snapshot": allow_empty,
+        "max_collection_items": bounded(
+            "ingest_max_collection_items", 10_000, 1, 100_000
+        ),
+        "max_nesting_depth": bounded("ingest_max_nesting_depth", 16, 1, 64),
+        "max_pages": bounded("ingest_max_pages", 100, 1, 1_000),
+        "max_row_bytes": row_bytes,
+        "max_total_bytes": total_bytes,
+        "page_size": bounded("ingest_page_size", 500, 1, 1_000),
+        "reconcile_deletions": reconcile,
+        "sync_mode": mode,
+    }
+
+
+def _configured_external_graph_declaration(name: str) -> dict[str, Any]:
+    """Resolve one reference-only declaration without returning it publicly."""
+
+    from agent_utilities.core.config import config as runtime_config
+
+    selected: dict[str, Any] = {}
+    collections = (
+        getattr(runtime_config, "external_graph_connectors", []) or [],
+        getattr(runtime_config, "kg_connections", []) or [],
+    )
+    for declarations in collections:
+        for configured in declarations:
+            candidate = (
+                configured.model_dump(exclude_defaults=True)
+                if hasattr(configured, "model_dump")
+                else dict(configured)
+                if isinstance(configured, dict)
+                else {}
+            )
+            if str(candidate.get("name") or "") == name:
+                selected = candidate
+    return selected
+
+
+def _resolved_external_mapping_policy(
+    store: Any, declaration: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    """Resolve, validate, and hash a property-graph policy behind its ref."""
+
+    policy_ref = str(declaration.get("mapping_policy_ref") or "")
+    policy: dict[str, Any] = {}
+    if policy_ref:
+        raw = store.resolve_ref(policy_ref)
+        if (
+            not isinstance(raw, str)
+            or not raw
+            or len(raw.encode("utf-8")) > _EXTERNAL_MAPPING_POLICY_MAX_BYTES
+        ):
+            raise ValueError("external mapping policy is missing or exceeds its bound")
+
+        parsed = json.loads(
+            raw,
+            parse_constant=_reject_nonfinite_json,
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+        if not isinstance(parsed, dict):
+            raise ValueError("external mapping policy must be an object")
+        policy = parsed
+    if set(policy).difference(_EXTERNAL_MAPPING_POLICY_FIELDS):
+        raise ValueError("external mapping policy contains unsupported inline material")
+    for field in ("access", "type_overrides", "edge_type_overrides"):
+        if field in policy and not isinstance(policy[field], dict):
+            raise ValueError("external mapping policy has an invalid mapping field")
+    access = policy.get("access")
+    if isinstance(access, dict):
+        if set(access).difference({"group_ids", "is_public", "markings"}):
+            raise ValueError(
+                "external mapping policy access cannot contain inline identities"
+            )
+        if "is_public" in access and not isinstance(access["is_public"], bool):
+            raise ValueError("external mapping policy access is invalid")
+        for field in ("group_ids", "markings"):
+            value = access.get(field)
+            if value is not None and (
+                not isinstance(value, list)
+                or any(not isinstance(item, str) for item in value)
+            ):
+                raise ValueError("external mapping policy access is invalid")
+    for field in ("type_overrides", "edge_type_overrides"):
+        value = policy.get(field)
+        if isinstance(value, dict) and any(
+            not isinstance(key, str) or not isinstance(item, str)
+            for key, item in value.items()
+        ):
+            raise ValueError("external mapping policy has an invalid type mapping")
+    for field in ("property_allowlist", "edge_property_allowlist"):
+        value = policy.get(field)
+        if value is not None and (
+            not isinstance(value, list)
+            or any(not isinstance(item, str) for item in value)
+        ):
+            raise ValueError("external mapping policy has an invalid allowlist")
+    if "identity_property" in policy and not isinstance(
+        policy["identity_property"], str
+    ):
+        raise ValueError("external mapping policy has an invalid identity property")
+
+    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+        external_mapping_policy_digest,
+    )
+
+    approval_policy = {
+        **policy,
+        "sync": _property_graph_sync_policy(declaration),
+    }
+    return policy, external_mapping_policy_digest(approval_policy)
+
+
+async def execute_focused_analysis(
+    action: str,
+    query: str = "",
+    top_k: int = 10,
+    node_id: str = "",
+    depth: int = 2,
+    target: str = "",
+) -> EvidenceBundle:
+    """Execute one canonical focused action through the shared analysis kernel."""
+
+    if _analysis_core_handler is None:
+        raise RuntimeError("analysis tools are not registered")
+    raw = await _analysis_core_handler(
+        action=action,
+        query=query,
+        top_k=top_k,
+        node_id=node_id,
+        depth=depth,
+        target=target,
+    )
+    return EvidenceBundle.from_payload(raw, operation=action)
+
+
+def _configuration_key_is_sensitive(
+    env_key: str, metadata: dict[str, Any] | None = None
+) -> bool:
+    """Classify durable settings whose values must not cross the MCP surface."""
+
+    parts = _normalised_key_parts(env_key)
+    if bool((metadata or {}).get("secret")):
+        return True
+    if parts & (
+        _SENSITIVE_MCP_KEY_PARTS | _ENDPOINT_MCP_KEY_PARTS | _PATH_MCP_KEY_PARTS
+    ):
+        return True
+    if env_key.upper() == "MCP_CONFIG":
+        return True
+    if "id" in parts and parts & {
+        "actor",
+        "agent",
+        "client",
+        "identity",
+        "tenant",
+        "user",
+    }:
+        return True
+    return "key" in parts and bool(
+        parts
+        & {"api", "auth", "client", "encryption", "hmac", "private", "signing", "tls"}
+    )
+
+
+def _runtime_reference(value: Any) -> bool:
+    """Return whether ``value`` is a non-literal runtime reference.
+
+    MCP clients already expand ``${VAR}`` placeholders.  Secret-store URI refs
+    are also accepted for child servers which resolve them themselves.  Defaults
+    inside placeholders are intentionally rejected: they put the supposedly
+    external value back into the durable JSON document.
+    """
+
+    return isinstance(value, str) and bool(_RUNTIME_REFERENCE_RE.fullmatch(value))
+
+
+def _normalised_key_parts(key: str) -> set[str]:
+    normalised = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower()
+    parts = {part for part in re.split(r"[^a-z0-9]+", normalised) if part}
+    if "base" in parts and "url" in parts:
+        parts.add("baseurl")
+    if "key" in parts and "file" in parts:
+        parts.add("keyfile")
+    return parts
+
+
+def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:
+    """Validate one durable MCP server declaration without retaining literals.
+
+    Commands and neutral feature flags remain inline.  Endpoint, credential,
+    identity, TLS/path material, and values which visibly look like credentials
+    or PII must be runtime references.  The recursive bounds also prevent a
+    small administrative request from causing excessive parsing/walk work.
+    """
+
+    if not isinstance(definition, dict):
+        raise ValueError("MCP server definition must be an object")
+
+    args = definition.get("args")
+    if args is not None and not isinstance(args, list):
+        raise ValueError("MCP server args must be a list")
+    expects_reference = False
+    for argument in args or []:
+        if not isinstance(argument, str):
+            raise ValueError("MCP server arguments must be strings")
+        if expects_reference:
+            if not _runtime_reference(argument):
+                raise ValueError(
+                    "sensitive MCP command arguments must be runtime references"
+                )
+            expects_reference = False
+            continue
+        if not argument.startswith("-"):
+            continue
+        option, separator, inline_value = argument.partition("=")
+        option_name = option.lstrip("-")
+        option_sensitive = _configuration_key_is_sensitive(option_name) or (
+            option_name.lower()
+            in {
+                "config",
+                "connection-string",
+                "dsn",
+                "env",
+                "h",
+                "header",
+                "proxy",
+            }
+        )
+        if option_sensitive and separator:
+            if not _runtime_reference(inline_value):
+                raise ValueError(
+                    "sensitive MCP command arguments must be runtime references"
+                )
+        elif option_sensitive:
+            expects_reference = True
+    if expects_reference:
+        raise ValueError("sensitive MCP command argument is missing its value")
+
+    seen = 0
+
+    def _walk(
+        value: Any, *, key: str = "", depth: int = 0, in_env: bool = False
+    ) -> None:
+        nonlocal seen
+        seen += 1
+        if seen > _MCP_REGISTRATION_MAX_ITEMS:
+            raise ValueError("MCP server definition is too large")
+        if depth > _MCP_REGISTRATION_MAX_DEPTH:
+            raise ValueError("MCP server definition is too deeply nested")
+
+        parts = _normalised_key_parts(key)
+        requires_reference = bool(
+            parts
+            & (_SENSITIVE_MCP_KEY_PARTS | _ENDPOINT_MCP_KEY_PARTS | _PATH_MCP_KEY_PARTS)
+        )
+        requires_reference = requires_reference or (
+            "id" in parts
+            and bool(parts & {"actor", "agent", "client", "identity", "tenant", "user"})
+        )
+        requires_reference = requires_reference or (
+            "key" in parts
+            and bool(
+                parts
+                & {
+                    "api",
+                    "auth",
+                    "client",
+                    "encryption",
+                    "hmac",
+                    "private",
+                    "signing",
+                    "tls",
+                }
+            )
+        )
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                if not isinstance(child_key, str) or len(child_key) > 128:
+                    raise ValueError("MCP server definition contains an invalid key")
+                _walk(
+                    child_value,
+                    key=child_key,
+                    depth=depth + 1,
+                    in_env=in_env or key.lower() == "env",
+                )
+            return
+        if isinstance(value, list):
+            for child in value:
+                _walk(child, key=key, depth=depth + 1, in_env=in_env)
+            return
+        if not isinstance(value, str) or not value:
+            if requires_reference and value not in (None, ""):
+                raise ValueError("sensitive MCP values must be runtime references")
+            return
+        if _runtime_reference(value):
+            return
+        if in_env and not (
+            key.upper() in _SAFE_INLINE_MCP_ENV_KEYS
+            and _SAFE_INLINE_MCP_ENV_VALUE_RE.fullmatch(value)
+        ):
+            raise ValueError(
+                "MCP environment values must be runtime references unless the "
+                "setting is a bounded non-sensitive mode"
+            )
+        if requires_reference:
+            raise ValueError("sensitive MCP values must be runtime references")
+        if (
+            _URI_LITERAL_RE.match(value)
+            or value.startswith(("/", "~/", "~\\"))
+            or _WINDOWS_ABSOLUTE_PATH_RE.match(value)
+            or _INLINE_SECRET_RE.match(value)
+            or _EMAIL_LITERAL_RE.match(value)
+        ):
+            raise ValueError(
+                "endpoint, credential, identity, and path literals are not "
+                "durable MCP configuration"
+            )
+
+    _walk(definition)
+    return definition
+
+
+def _workspace_mcp_config_path() -> Path:
+    """Resolve the active MCP config strictly beneath the declared workspace.
+
+    Registration is a workspace-scoped write operation. It uses only ``MCP_CONFIG``
+    (when set) or ``<workspace>/mcp_config.json`` and rejects traversal and every
+    existing symlink component.
+    """
+
+    from agent_utilities.core.config import setting
+    from agent_utilities.core.workspace import get_agent_workspace
+
+    root = get_agent_workspace().resolve(strict=True)
+    configured = str(setting("MCP_CONFIG", "") or "").strip()
+    if configured and ("\x00" in configured or "$" in configured):
+        raise ValueError("MCP_CONFIG must resolve before registration")
+    if _WINDOWS_ABSOLUTE_PATH_RE.match(configured):
+        raise PermissionError("MCP config must use the active workspace namespace")
+    requested = Path(configured).expanduser() if configured else Path("mcp_config.json")
+    if ".." in requested.parts:
+        raise PermissionError("MCP config traversal is not permitted")
+    candidate = requested if requested.is_absolute() else root / requested
+    candidate = candidate.absolute()
+    try:
+        relative = candidate.relative_to(root)
+    except ValueError:
+        raise PermissionError(
+            "MCP config must be inside the active workspace"
+        ) from None
+    if candidate.suffix.lower() != ".json":
+        raise ValueError("MCP config must be a JSON file")
+
+    current = root
+    for component in relative.parts:
+        current = current / component
+        if current.is_symlink():
+            raise PermissionError("symlinked MCP config paths are not writable")
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        raise PermissionError(
+            "MCP config must resolve inside the active workspace"
+        ) from None
+    return candidate
+
+
+def _read_mcp_config_document(path: Path) -> dict[str, Any]:
+    """Read a bounded regular JSON file without following the final symlink."""
+
+    import stat
+
+    if path.is_symlink():
+        raise PermissionError("symlinked MCP config files are not readable")
+    if not path.exists():
+        return {}
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("MCP config must be a regular file")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+            descriptor = -1
+            raw = stream.read(_MCP_CONFIG_MAX_BYTES + 1)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(raw.encode("utf-8")) > _MCP_CONFIG_MAX_BYTES:
+        raise ValueError("MCP config exceeds the size limit")
+    document = json.loads(raw) if raw.strip() else {}
+    if not isinstance(document, dict):
+        raise ValueError("MCP config must be a JSON object")
+    servers = document.get("mcpServers", {})
+    if not isinstance(servers, dict):
+        raise ValueError("mcpServers must be a JSON object")
+    return document
+
+
+def _atomic_private_json_write(path: Path, document: dict[str, Any]) -> None:
+    """Atomically replace ``path`` with a private regular JSON file."""
+
+    import tempfile
+
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.parent.is_symlink() or path.is_symlink():
+        raise PermissionError("symlinked MCP config paths are not writable")
+    descriptor, raw_tmp = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    tmp_path = Path(raw_tmp)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            json.dump(document, stream, indent=2, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        if path.parent.is_symlink() or path.is_symlink():
+            raise PermissionError("symlinked MCP config paths are not writable")
+        os.replace(tmp_path, path)
+        try:
+            path.chmod(0o600)
+        except OSError:
+            # The atomic temp file is already created private on POSIX.  Some
+            # Windows filesystems do not implement POSIX mode changes.
+            pass
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _register_mcp_server(name: str, raw_definition: str) -> None:
+    """Validate and atomically persist one named MCP server declaration."""
+
+    if not _MCP_SERVER_NAME_RE.fullmatch((name or "").strip()):
+        raise ValueError("invalid MCP server name")
+    encoded = (raw_definition or "").encode("utf-8")
+    if not encoded or len(encoded) > _MCP_REGISTRATION_MAX_BYTES:
+        raise ValueError("MCP server definition has an invalid size")
+    definition = _validate_mcp_server_definition(json.loads(raw_definition))
+    path = _workspace_mcp_config_path()
+    document = _read_mcp_config_document(path)
+    servers = document.setdefault("mcpServers", {})
+    for existing_name, existing_definition in servers.items():
+        if not _MCP_SERVER_NAME_RE.fullmatch(str(existing_name)):
+            raise ValueError("existing MCP configuration has an invalid server name")
+        _validate_mcp_server_definition(existing_definition)
+    servers[name.strip()] = definition
+    _atomic_private_json_write(path, document)
 
 
 def register_analysis_tools(mcp):
     """Register the analysis_tools group on the given FastMCP server."""
 
-    @mcp.tool(
-        name="graph_analyze",
-        description=(
-            "Ops / structural analysis over the KG. For most work prefer the FOCUSED tools "
-            "(smaller, intent-scoped): graph_code (codebase intelligence + code_context), "
-            "graph_research (assimilation), graph_evaluate (eval/harness/world-model), "
-            "graph_explain (universal cited Q&A), graph_observe (trace/eval analytics). "
-            "graph_analyze handles the residual ops/structural actions: 'inspect', "
-            "'enrichment_coverage', 'process_writeback' (push KG intelligence into Camunda/"
-            "ARIS; target=camunda|aris|both), 'placement_plan' (workload placement — KG-2.9), "
-            "'infra_sweep', 'security_scan'. (It still accepts the focused tools' actions for "
-            "back-compat, but those tools document them.)"
-        ),
-        tags=["graph-os", "analyze"],
-    )
-    async def graph_analyze(
+    async def _run_analysis_action(
         action: str = Field(
             default="inspect",
             description="Ops/structural action: inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan. (Codebase→graph_code, research→graph_research, eval→graph_evaluate, Q&A→graph_explain, traces→graph_observe.)",
@@ -53,12 +629,6 @@ def register_analysis_tools(mcp):
         ),
         target: str = Field(
             default="", description="Target for the analysis or inspection."
-        ),
-        envelope: str = Field(
-            default="raw",
-            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
-            "(additionally wrap the result as an EvidenceBundle — code_context, "
-            "executable_rag). Additive/opt-in; every other action ignores it.",
         ),
     ) -> str:
         """Execute complex analysis across the Knowledge Graph. Enables advanced semantic synthesis, causal dependency mapping, and structural inspection."""
@@ -92,10 +662,78 @@ def register_analysis_tools(mcp):
                 if not radius:
                     return f"No dependencies found for {node_id} within depth {depth}."
                 return "\n".join(
-                    [f"[{n['type']}] {n['id']} (Depth: {n['depth']})" for n in radius]
+                    [
+                        f"[{n['node_type']}] {n['id']} (Depth: {n['depth']})"
+                        for n in radius
+                    ]
                 )
             elif action == "inspect":
-                return engine.inspect(target)
+                # Structural/subgraph inspection (KG-2.134 docs): a node's own
+                # properties + its immediate neighbors + degree. No such method
+                # exists on IntelligenceGraphEngine — build the snapshot from
+                # REAL, already-wired read primitives instead of inventing one:
+                # ``query_cypher`` (parameterized — never f-string the target
+                # into Cypher) for properties, falling back to the bounded
+                # single-node reader, plus ``graph_compute`` for O(1) neighbor/
+                # degree lookups (never a whole-graph scan).
+                import json as _json
+
+                ident = (target or query or node_id or "").strip()
+                if not ident:
+                    return "Error: target (or query/node_id) required for inspect"
+
+                props: dict[str, Any] = {}
+                try:
+                    rows = engine.query_cypher(
+                        "MATCH (n {id: $ident}) RETURN n AS node, labels(n) AS labels LIMIT 1",
+                        {"ident": ident},
+                    )
+                except Exception as e:  # noqa: BLE001 — fall back below
+                    logger.warning(
+                        "inspect: query_cypher lookup failed (exception_type=%s)",
+                        type(e).__name__,
+                    )
+                    rows = None
+                if rows:
+                    node = rows[0].get("node")
+                    if isinstance(node, dict):
+                        props = dict(node)
+                    labels = rows[0].get("labels") or []
+                    if labels and "node_type" not in props:
+                        props["node_type"] = labels[0]
+                if not props:
+                    from agent_utilities.knowledge_graph.core.bounded_read import (
+                        get_node_data,
+                    )
+
+                    props = get_node_data(engine.graph_compute, ident) or {}
+
+                neighbors: list[str] = []
+                degree = 0
+                try:
+                    neighbors = list(engine.graph_compute.neighbors(ident))
+                    degree = engine.graph_compute.degree(ident)
+                except Exception as e:  # noqa: BLE001 — best-effort structural read
+                    logger.warning(
+                        "inspect: neighbor/degree lookup failed (exception_type=%s)",
+                        type(e).__name__,
+                    )
+
+                if not props and not neighbors:
+                    return f"No node found for {ident!r}."
+
+                limit = top_k if isinstance(top_k, int) and top_k > 0 else 10
+                return _json.dumps(
+                    {
+                        "id": ident,
+                        "properties": props,
+                        "degree": degree,
+                        "neighbor_count": len(neighbors),
+                        "neighbors": neighbors[:limit],
+                    },
+                    indent=2,
+                    default=str,
+                )
             # ── KG-2.8: Per-category enrichment coverage gauge ──
             elif action == "enrichment_coverage":
                 import json as _json
@@ -156,7 +794,7 @@ def register_analysis_tools(mcp):
                     )
                     return payload.text
                 except Exception as e:
-                    return f"Context generation error: {e}"
+                    return public_error_text(e)
             elif action == "evaluate_alpha":
                 from agent_utilities.knowledge_graph.core.quant_tasks import (
                     execute_quant_task,
@@ -173,9 +811,61 @@ def register_analysis_tools(mcp):
                 "causal",
                 "invariant",
             ):
-                return f"Action '{action}' executed successfully."
+                # BUG-5: these used to be hardcoded canned-success strings that did
+                # nothing regardless of input — a silent no-op masquerading as a
+                # real result. No real implementation of any of these exists on
+                # THIS surface (confirmed by source search), so fail honestly with
+                # a pointer to the real tool/service instead of faking success.
+                # forecast/evolve_model stay out of agent-utilities on purpose
+                # (heavy ML training belongs in data-science-mcp — anti-sprawl).
+                _NOT_IMPLEMENTED_HINT = {
+                    "evaluate": (
+                        "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
+                        "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
+                    ),
+                    "evolve_model": (
+                        "the data-science-mcp model-training/evolution surface "
+                        "(heavy ML training does not belong in agent-utilities)"
+                    ),
+                    "forecast": (
+                        "engine_timeseries (native TSDB) or "
+                        "graph_mine_deep(action='deep_forecast'), which delegates to data-science-mcp"
+                    ),
+                    "causal": (
+                        "graph_ops_causal (agent_utilities/mcp/tools/ops_causal_tools.py) — "
+                        "a real root-cause/causal-graph implementation already exists there"
+                    ),
+                    "invariant": (
+                        "agent_utilities.knowledge_graph.core.formal_reasoning_core."
+                        "FiniteStateMachine (add_invariant/validate_invariants) directly, "
+                        "or 'check_constraints' on this surface for a different kind of check"
+                    ),
+                }
+                return json.dumps(
+                    {
+                        "status": "not_implemented",
+                        "error": (
+                            f"Action '{action}' is not implemented on this surface — "
+                            f"use {_NOT_IMPLEMENTED_HINT[action]}."
+                        ),
+                        "action": action,
+                    }
+                )
             elif action == "security_scan":
-                return f"Security scan executed on {target}."
+                # BUG-5: was a hardcoded canned-success string; no real scan ever ran.
+                return json.dumps(
+                    {
+                        "status": "not_implemented",
+                        "error": (
+                            "Action 'security_scan' is not implemented on this surface — "
+                            "use the security-vulnerability-scan / security-patch-sweep "
+                            "skill, or engine_rbac / graph_audit for KG-native access and "
+                            "integrity checks."
+                        ),
+                        "action": action,
+                        "target": target,
+                    }
+                )
             elif action == "placement_plan":
                 # Multi-objective workload placement over the infra subgraph
                 # (efficiency/security/cost/resilience), propose-only (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
@@ -413,7 +1103,7 @@ def register_analysis_tools(mcp):
                     manifest = await evolve.evolve(evidence)
                     return json.dumps(manifest.model_dump(), default=str)
                 except Exception as e:
-                    return f"Error: evolve_agent failed: {e}"
+                    return public_error_text(e)
             elif action == "recursive_distill":
                 from agent_utilities.harness.recursive_distill import RecursiveDistiller
 
@@ -875,7 +1565,7 @@ def register_analysis_tools(mcp):
                         market_b = float(parts[2].strip()) if len(parts) > 2 else 0.5
                         exec_costs = float(parts[3].strip()) if len(parts) > 3 else 0.08
                 except (ValueError, IndexError, json.JSONDecodeError) as e:
-                    return f"Error: Failed to parse market parameters: {e}"
+                    return public_error_text(e, code="invalid_request")
                 result = EventArbitrageEngine.evaluate_dual_markets(
                     model_probability=model_prob,
                     market_a_price=market_a,
@@ -982,7 +1672,7 @@ def register_analysis_tools(mcp):
                     }
                     return _json.dumps(result, default=str)
                 except Exception as e:
-                    return f"Error: quant_microstructure calculation failed: {e}"
+                    return public_error_text(e)
             elif action == "quant_strategy":
                 from agent_utilities.domains.finance.strategy_engine import (
                     StrategyEngine,
@@ -1126,14 +1816,14 @@ def register_analysis_tools(mcp):
                     query = (
                         "MATCH (t)-[r]->(s {id: $id}) "
                         "WHERE type(r) IN ['calls', 'CALLS'] "
-                        "RETURN t.id AS node, type(r) AS rel, "
+                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
                         "r.strategy AS strategy, r.confidence AS confidence"
                     )
                 elif direction == "inherits":
                     query = (
                         "MATCH (s {id: $id})-[r]->(t) "
                         "WHERE type(r) IN ['inherits', 'INHERITS', 'realizes', 'REALIZES'] "
-                        "RETURN t.id AS node, type(r) AS rel, "
+                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
                         "r.strategy AS strategy, r.confidence AS confidence"
                     )
                 else:  # callees (default)
@@ -1141,13 +1831,13 @@ def register_analysis_tools(mcp):
                     query = (
                         "MATCH (s {id: $id})-[r]->(t) "
                         "WHERE type(r) IN ['calls', 'CALLS'] "
-                        "RETURN t.id AS node, type(r) AS rel, "
+                        "RETURN t.id AS id, t.id AS node, type(r) AS rel, "
                         "r.strategy AS strategy, r.confidence AS confidence"
                     )
                 try:
-                    rows = backend.execute(query, {"id": node_id})
+                    rows = engine.query_cypher(query, {"id": node_id})
                 except Exception as e:
-                    return _json.dumps({"status": "error", "message": str(e)})
+                    return public_error_json(e)
                 return _json.dumps(
                     {
                         "status": "ok",
@@ -1168,25 +1858,24 @@ def register_analysis_tools(mcp):
             elif action == "similar_code":
                 # CONCEPT:EG-KG.compute.model-free-similar-code — model-free similar-code lookup. Returns the
                 # symbol's `similar_to` neighbours (MinHash/LSH near-clones) with
-                # their score — works with the embedder OFFLINE (no GB10 needed).
+                # their score — works with the embedder offline (no accelerator needed).
                 # `node_id` = the symbol id.
                 import json as _json
 
                 if not node_id:
                     return "Error: similar_code needs a symbol id in `node_id`."
-                backend = getattr(engine, "backend", None)
-                if backend is None:
+                if getattr(engine, "backend", None) is None:
                     return "Error: no graph backend available."
                 # similar_to is symmetric, so match it in either direction.
                 query = (
                     "MATCH (s {id: $id})-[r]-(t) "
                     "WHERE type(r) IN ['similar_to', 'SIMILAR_TO'] "
-                    "RETURN t.id AS node, r.score AS score"
+                    "RETURN t.id AS id, t.id AS node, r.score AS score"
                 )
                 try:
-                    rows = backend.execute(query, {"id": node_id})
+                    rows = engine.query_cypher(query, {"id": node_id})
                 except Exception as e:
-                    return _json.dumps({"status": "error", "message": str(e)})
+                    return public_error_json(e)
                 neighbours = [
                     {"node": r.get("node"), "score": r.get("score")}
                     for r in (rows or [])
@@ -1207,21 +1896,21 @@ def register_analysis_tools(mcp):
                 # (Code –serves→ Route –servedBy→ Service). Reads run in the engine.
                 import json as _json
 
-                backend = getattr(engine, "backend", None)
-                if backend is None:
+                if getattr(engine, "backend", None) is None:
                     return "Error: no graph backend available."
                 query = (
                     "MATCH (h)-[r2]->(rt:Route) "
                     "WHERE type(r2) IN ['SERVES', 'serves'] "
                     "OPTIONAL MATCH (rt)-[r3]->(svc) "
                     "WHERE type(r3) IN ['SERVED_BY', 'served_by'] "
-                    "RETURN rt.id AS route, rt.method AS method, rt.path AS path, "
+                    "RETURN rt.id AS id, rt.id AS route, rt.method AS method, "
+                    "rt.path AS path, "
                     "h.id AS handler, svc.id AS service"
                 )
                 try:
-                    rows = backend.execute(query, {})
+                    rows = engine.query_cypher(query, {})
                 except Exception as e:
-                    return _json.dumps({"status": "error", "message": str(e)})
+                    return public_error_json(e)
                 return _json.dumps(
                     {
                         "status": "ok",
@@ -1254,17 +1943,15 @@ def register_analysis_tools(mcp):
                 edges = change_coupling_for_repo(
                     repo, min_support=depth if depth > 1 else 3
                 )
-                add_edge = getattr(getattr(engine, "backend", None), "add_edge", None)
                 written = 0
-                if callable(add_edge):
-                    for edge in edges:
-                        add_edge(
-                            edge.source,
-                            edge.target,
-                            rel_type=edge.rel_type,
-                            **edge.props,
-                        )
-                        written += 1
+                for edge in edges:
+                    engine.link_nodes(
+                        edge.source,
+                        edge.target,
+                        edge.rel_type,
+                        properties=edge.props,
+                    )
+                    written += 1
                 return _json.dumps(
                     {"status": "ok", "repo": repo, "coupled_pairs": written}
                 )
@@ -1280,12 +1967,11 @@ def register_analysis_tools(mcp):
                     query_evolution,
                 )
 
-                backend = getattr(engine, "backend", None)
-                if backend is None:
+                if getattr(engine, "backend", None) is None:
                     return "Error: no graph backend available."
                 mode = (target or "file").strip() or "file"
                 return _json.dumps(
-                    query_evolution(backend, mode, query.strip(), top_k or 20),
+                    query_evolution(engine, mode, query.strip(), top_k or 20),
                     default=str,
                 )
             elif action == "adr":
@@ -1295,31 +1981,29 @@ def register_analysis_tools(mcp):
                 import json as _json
                 import re as _re
 
-                backend = getattr(engine, "backend", None)
-                if backend is None:
+                if getattr(engine, "backend", None) is None:
                     return "Error: no graph backend available."
                 if query:
                     slug = _re.sub(r"[^a-z0-9]+", "-", query.lower()).strip("-")
                     adr_id = f"adr:{slug}"
-                    add_node = getattr(backend, "add_node", None)
-                    if not callable(add_node):
-                        return "Error: backend has no add_node."
-                    add_node(
+                    engine.add_node(
                         adr_id,
-                        type="ArchitectureDecisionRecord",
-                        title=query,
-                        status=target or "proposed",
-                        decision=node_id or "",
+                        "ArchitectureDecisionRecord",
+                        {
+                            "title": query,
+                            "status": target or "proposed",
+                            "decision": node_id or "",
+                        },
                     )
                     return _json.dumps({"status": "ok", "adr_id": adr_id})
                 try:
-                    rows = backend.execute(
+                    rows = engine.query_cypher(
                         "MATCH (a:ArchitectureDecisionRecord) "
                         "RETURN a.id AS id, a.title AS title, a.status AS status",
                         {},
                     )
                 except Exception as e:
-                    return _json.dumps({"status": "error", "message": str(e)})
+                    return public_error_json(e)
                 return _json.dumps(
                     {
                         "status": "ok",
@@ -1478,20 +2162,7 @@ def register_analysis_tools(mcp):
                     depth=depth,
                     cross_repo=cross or intent == "usage",
                 )
-                # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
-                # that omits `envelope` binds it to the Field(...) descriptor itself, not
-                # the string default — normalize defensively so that degrades to "raw".
-                envelope_mode = envelope if isinstance(envelope, str) else "raw"
-                if envelope_mode.strip().lower() == "bundle":
-                    from agent_utilities.models.evidence_bundle import EvidenceBundle
-
-                    result = {
-                        **result,
-                        "evidence_bundle": EvidenceBundle.from_code_context_answer(
-                            result
-                        ).model_dump(),
-                    }
-                return _json.dumps(result, default=str)
+                return EvidenceBundle.from_code_context_answer(result).model_dump_json()
             elif action == "executable_rag":
                 # CONCEPT:AU-KG.retrieval.memory-first-retrieval — the executable multi-hop RAG
                 # interpreter, exposed over MCP for the first time (previously library-only).
@@ -1504,7 +2175,6 @@ def register_analysis_tools(mcp):
                 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
                     HybridRetriever,
                 )
-                from agent_utilities.models.evidence_bundle import EvidenceBundle
 
                 if not query.strip():
                     return "Error: executable_rag needs a question in `query`."
@@ -1588,7 +2258,7 @@ def register_analysis_tools(mcp):
                         )
                         arch_report["report_node_id"] = rid
                     except Exception as _e:  # noqa: BLE001
-                        arch_report["persist_warning"] = str(_e)
+                        arch_report["persist_warning"] = public_error_text(_e)
                 return _json.dumps(arch_report, default=str)
             elif action == "explain":
                 # CONCEPT:AU-KG.retrieval.route-question-its-domain — the universal context plane: route a question
@@ -1628,7 +2298,7 @@ def register_analysis_tools(mcp):
                     default=str,
                 )
             # ── KG-2.316/2.318: memory→weights distillation EXPORT + LIVE DS-MCP
-            # dispatch (train_model over graph_orchestrate) + status poll ──
+            # dispatch (train_model over graph_workflows) + graph_jobs status poll ──
             elif action == "distill_memory":
                 import json as _json
 
@@ -1664,946 +2334,154 @@ def register_analysis_tools(mcp):
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
-            return f"Analysis error: {str(e)}"
+            return public_error_text(e)
+
+    global _analysis_core_handler
+    _analysis_core_handler = _run_analysis_action
+
+    @mcp.tool(
+        name="graph_analyze",
+        description=(
+            "Structural and operational KG analysis. Actions: inspect | "
+            "enrichment_coverage | process_writeback | placement_plan | "
+            "infra_sweep | security_scan. Use graph_code, graph_research, "
+            "graph_evaluate, graph_explain, or graph_observe for their focused domains. "
+            "Returns the sole typed EvidenceBundle response."
+        ),
+        tags=["graph-os", "analyze"],
+    )
+    async def graph_analyze(
+        action: str = Field(
+            default="inspect",
+            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan",
+        ),
+        query: str = Field(default="", description="Query or path for the analysis."),
+        top_k: int = Field(default=10, description="Result or complexity bound."),
+        node_id: str = Field(default="", description="Optional anchor node id."),
+        depth: int = Field(default=2, description="Traversal depth."),
+        target: str = Field(default="", description="Analysis target."),
+    ) -> EvidenceBundle:
+        allowed = {
+            "inspect",
+            "enrichment_coverage",
+            "process_writeback",
+            "placement_plan",
+            "infra_sweep",
+            "security_scan",
+        }
+        if action not in allowed:
+            return EvidenceBundle.from_payload(
+                {
+                    "error": "action belongs to a focused graph tool",
+                    "action": action,
+                },
+                operation="graph_analyze",
+            )
+        return await execute_focused_analysis(
+            action=action,
+            query=query,
+            top_k=top_k,
+            node_id=node_id,
+            depth=depth,
+            target=target,
+        )
 
     kg_server.REGISTERED_TOOLS["graph_analyze"] = graph_analyze
 
     @mcp.tool(
         name="graph_orchestrate",
-        description="Orchestrate multi-agent workflows, dispatch subagents, and manage execution loops.",
-        tags=["graph-os", "orchestrate"],
+        description=(
+            "Execute one named agent against a task through the governed graph-os delegation "
+            "runtime. Returns the output, run/session handles, tool-call provenance linkage, "
+            "and execution-flow Mermaid diagram when available."
+        ),
+        tags=["graph-os", "orchestrate", "agent"],
     )
     async def graph_orchestrate(
-        action: str = Field(
-            default="dispatch",
-            description="Action to perform (dispatch, swarm, status, request_approval, grant_approval, execute_agent, computer_use, consensus, start_debate, submit_risk_veto, list_cron_jobs, trigger_cron_job, compile_workflow, compile_process, list_workflows, execute_workflow, export_workflow, synthesize_org, run_org, loop_cycle, assimilate, distill_skills, standardize, failure_ingest, publish_proposal, optimize_component, verify_action). 'verify_action' = pre-execution assurance check (CONCEPT:AU-OS.governance.assurance-state-machine-verifier) of a proposed ActionPolicy routing payload — task=<action kind>, dependencies=JSON {target,params,source,reason,actor_id} — returns the deterministic verdict (allowed/tier/reason/invariant/verify_ms) from ActionPolicy.evaluate() WITHOUT writing an audit/approval node, so a caller can self-check a payload before proposing it for real; the same invariants (role allowed-set, argument schema, state-machine precondition, reference existence) are enforced for real inside ActionPolicy.decide(). 'synthesize_org' = from a goal (in 'task'), the recruiter drafts an org chart (departments → roles) and staffs each role — reusing experienced :Employee staff grown by prior runs, else hiring a fresh template (CONCEPT:AU-ORCH.org.recruiter); optional dependencies JSON {domains:[...]}. 'run_org' = synthesize (or accept) an org, derive a :WorkItem dependency DAG, and run it over the existing orchestrator — independent items parallel, dependents wait, manager review/rework, human escalation on beyond-team blockers, and per-role experience accrual (CONCEPT:AU-ORCH.org.work-item-dag). 'computer_use' = run a GUI computer-use agent (Observe→Ground→Decide→Act) on a gui-sandbox desktop: provisions a sandbox on host=<inventory alias> (or drives an existing container_id=...), governed by ActionPolicy (workspace.computer_use), frames grounded in the KG via observe_screen (CONCEPT:AU-ORCH.execution.computer-use-agent). 'optimize_component' = run a DSPy optimization pass for an evolvable target (task=<system_prompt|tool_description|skill|extraction|concept_match|routing>, dependencies=optional JSON data: documents/labeled_pairs/traces) over the unified target registry + self-supervised optimizers; task='all'/'sweep' runs the propose-only sweep over all self-supervised targets — the on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation/3.40/3.44/3.45/3.46); 'loop_cycle' = advance the Loop engine one cycle (CONCEPT:AU-KG.research.these-properties-carry); 'distill_skills' = turn the mapped processes of ALL connected systems (egeria/leanix/aris/camunda) into propose-only atomic-skill + skill-workflow PROPOSALS, connector-agnostic over the ontology (add 'draft' to the task to also render reviewable SKILL.md staging artifacts) (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83); 'swarm' = one-shot goal→decompose→parallel-waves→verify→synthesize (CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm); 'standardize' = enterprise standardization + consolidation recommendations (CONCEPT:AU-KG.ontology.populated-at-import-real-3); 'failure_ingest' = pull Langfuse failures → failure_gap topics → regression-gated remediation (CONCEPT:AU-AHE.harness.failure-evolution); 'compile_process' = compile a harvested BusinessProcess node (task=process node id, agent_name=optional workflow name) into an executable WorkflowDefinition with a REALIZES bridge edge (CONCEPT:AU-ORCH.planning.business-process-to-executable); 'publish_proposal' = one-shot evolution→branch bridge — publish a promoted proposal (task=proposal node id) as a reviewable local git branch through the ActionPolicy merge_promotion gate (CONCEPT:AU-AHE.harness.evolution-branch-bridge); 'rlm_benchmark' = run the long-context RLM benchmark (RLM vs vanilla vs compaction) for task=<s_niah|oolong|oolong_pairs|browsecomp_plus|longbench_codeqa>, dependencies=JSON {scales,cases_per_scale}, returning a paper-comparison scoreboard (CONCEPT:AU-AHE.rlm.long-context-benchmark).",
-        ),
-        task: str = Field(
-            default="", description="Task description or payload to dispatch."
-        ),
-        job_id: str = Field(
-            default="", description="Job ID for checking status or granting approval."
-        ),
-        approval_status: str = Field(
-            default="", description="Approval status (e.g., 'approved', 'rejected')."
-        ),
-        agent_name: str = Field(
-            default="", description="Name of the agent to execute."
-        ),
+        task: str = Field(default="", description="Task for the delegated agent."),
+        agent_name: str = Field(default="", description="Registered agent name."),
         max_steps: int = Field(
-            default=30, description="Maximum steps for agent execution."
-        ),
-        dependencies: str = Field(
-            default="[]", description="JSON-encoded list of dependency job IDs."
-        ),
-        completion_state: str = Field(
-            default="",
-            description="Strict mathematical or semantic definition of when this workflow is considered done.",
-        ),
-        max_fan_out: int = Field(
-            default=5,
-            description="Maximum number of parallel subagents to spawn during adversarial loop.",
+            default=30, description="Maximum delegated tool-loop steps."
         ),
         context: str = Field(
             default="",
-            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — curated context the invoking agent passes to the "
-            "spawned agent (action='execute_agent'); injected into the spawned agent's prompt, "
-            "budgeted to the model's context window.",
+            description="Curated inline context injected into the delegated agent.",
         ),
         budget_tokens: int = Field(
             default=0,
-            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — optional token budget the invoker grants the "
-            "spawned agent (action='execute_agent'); enforced as a hard total-tokens limit. "
-            "0 = unbounded.",
+            description="Hard total-token budget; zero uses the runtime default.",
         ),
         context_ref: str = Field(
             default="",
-            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — id of a persisted ContextBlob (from "
-            "graph_context put) to hand to the spawned agent (action='execute_agent'); its "
-            "content is resolved from the graph and injected. Use instead of inline 'context' "
-            "for large/shared context.",
+            description="Persisted ContextBlob id to resolve and inject.",
         ),
         allowed_tools: str = Field(
             default="",
-            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — comma-separated least-privilege tool allow-list "
-            "for the spawned agent (action='execute_agent'); its tools/toolsets are filtered "
-            "to ONLY these names. Empty = no restriction.",
+            description="Comma-separated least-privilege tool allow-list.",
         ),
         cred_ref: str = Field(
             default="",
-            description="CONCEPT:AU-ORCH.session.invoker-agent-handoff — REFERENCE (secret key, e.g. 'cred:{session}') to "
-            "an ephemeral credential the invoker stored in the secrets backend; resolved to the "
-            "spawned agent's auth_token at spawn (never logged). Use instead of passing raw "
-            "secrets. Empty = none.",
+            description="Reference to an ephemeral credential in the secrets backend.",
         ),
         open_channel: bool = Field(
             default=False,
-            description="CONCEPT:AU-ORCH.session.session-anchored-collections-native — when True (action='execute_agent'), open a native "
-            "bidirectional message channel for this run; the response JSON includes a "
-            "'channel_id' to talk to the spawned agent via graph_message(send/receive).",
+            description="Open a native bidirectional message channel for this run.",
         ),
-        host: str = Field(
+        reasoning_effort: str = Field(
             default="",
-            description="CONCEPT:AU-ORCH.execution.computer-use-agent — for action='computer_use': inventory host alias "
-            "to run the gui-sandbox on (over ssh:// docker/podman). Empty = local docker.",
+            description="Optional low|medium|high reasoning effort for this delegation.",
         ),
-        container_id: str = Field(
-            default="",
-            description="CONCEPT:AU-ORCH.execution.computer-use-agent — for action='computer_use': drive an EXISTING "
-            "gui-sandbox container by id instead of provisioning a fresh one.",
+        model_class: str = Field(
+            default="standard",
+            description="Required configured model class: economy | standard.",
+        ),
+        response_format: ResponseFormat = Field(
+            default="text",
+            description=(
+                "Response contract: text for ordinary prose or json for one "
+                "Pydantic-validated JSON object."
+            ),
         ),
     ) -> str:
-        """Orchestrate multi-agent workflows. Dispatches agents, manages subagent lifecycles, and evaluates approval conditions for complex asynchronous execution.
-
-        CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — the execution-flow Mermaid diagram (generated by the ORCH-1.8
-        WorkflowVisualizer) is surfaced in the response: ``swarm``, ``compile_workflow`` and
-        ``execute_workflow`` add an additive ``mermaid`` JSON key (null when unavailable), and
-        ``execute_agent`` returns a JSON object ``{"output", "mermaid"}`` when a diagram was
-        produced (otherwise the bare output string, for backward compatibility).
-        """
+        """Execute a single governed agent delegation."""
+        response_format = validate_response_format(response_format)
         engine = kg_server._get_engine()
-        if not engine:
+        if engine is None:
             return "Error: IntelligenceGraphEngine not active."
         try:
             from agent_utilities.orchestration.manager import Orchestrator
 
-            orch = Orchestrator(engine)
-
-            if action == "dispatch":
-                deps = json.loads(dependencies) if dependencies else []
-                job_id = await orch.dispatch_task(task, deps)
-                # CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — queue-driven dispatch: with
-                # AGENT_DISPATCH_BACKEND=queue the durable :Task node stays the
-                # payload of record, a session-keyed envelope goes onto the
-                # agent_turns queue, and the caller gets a job handle (poll
-                # action=status / /api/graph/orchestrate/job/{job_id}) instead
-                # of an in-process execution promise. A bare dispatch has no
-                # session, so the job id is its own session scope — serial
-                # with itself, parallel with everything else.
-                from agent_utilities.orchestration.agent_dispatch import (
-                    KIND_ORCHESTRATOR_TASK,
-                    AgentTurnEnvelope,
-                    dispatch_queue_enabled,
-                    enqueue_agent_turn,
-                )
-
-                if dispatch_queue_enabled():
-                    handle = enqueue_agent_turn(
-                        AgentTurnEnvelope(
-                            job_id=job_id,
-                            session_id=job_id,
-                            kind=KIND_ORCHESTRATOR_TASK,
-                            payload_ref=job_id,
-                            agent_name=agent_name or "",
-                        )
-                    )
-                    handle["status_url"] = f"/api/graph/orchestrate/job/{job_id}"
-                    return json.dumps(handle)
-                return f"Task dispatched. Job ID: {job_id}"
-            elif action == "rlm_run":
-                # CONCEPT:AU-ORCH.execution.predict-rlm-runtime — run the Predict-RLM runtime on an ad-hoc task.
-                from agent_utilities.rlm.runner import run_rlm
-
-                result = await run_rlm(task, input_text=completion_state)
-                return json.dumps(result, default=str)
-            elif action == "rlm_optimize":
-                # CONCEPT:AU-ORCH.optimization.optimize-skill-prompt-gepa — optimize a skill prompt via the GEPA loop.
-                from agent_utilities.rlm.runner import optimize_rlm_skill
-
-                rows = json.loads(dependencies) if dependencies else []
-                dataset = rows if isinstance(rows, list) else []
-                result = await optimize_rlm_skill(task, dataset)
-                return json.dumps(result, default=str)
-            elif action == "rlm_benchmark":
-                # CONCEPT:AU-AHE.rlm.long-context-benchmark — run the long-context RLM benchmark (RLM vs vanilla vs
-                # compaction) over a task and return the paper-comparison scoreboard. `task` is the
-                # benchmark name (s_niah, oolong, oolong_pairs, browsecomp_plus, longbench_codeqa);
-                # `dependencies` is optional JSON {"scales": [int], "cases_per_scale": int}.
-                from agent_utilities.rlm.benchmarks import (
-                    list_tasks,
-                    render_scoreboard,
-                    run_benchmark,
-                )
-
-                opts = json.loads(dependencies) if dependencies else {}
-                if not isinstance(opts, dict):
-                    opts = {}
-                bench = task or "s_niah"
-                if bench not in list_tasks():
-                    return json.dumps(
-                        {
-                            "ok": False,
-                            "error": f"unknown task {bench!r}",
-                            "tasks": list_tasks(),
-                        }
-                    )
-                scales = opts.get("scales") or [50_000]
-                results = await run_benchmark(
-                    bench,
-                    scales=[int(s) for s in scales],
-                    cases_per_scale=int(opts.get("cases_per_scale", 3)),
-                )
-                return json.dumps(
-                    {
-                        "ok": True,
-                        "results": [r.model_dump() for r in results],
-                        "scoreboard": render_scoreboard(results),
-                    },
-                    default=str,
-                )
-            elif action == "swarm":
-                # CONCEPT:AU-ORCH.dispatch.kg-governed-agent-swarm — KG-Governed Agent Swarm
-                # One-shot swarm action: a one-line goal is
-                # decomposed into a dependency-ordered task graph, executed in parallel waves by the
-                # ParallelEngine, each leaf verified against its subtask (planner→execute→verify),
-                # then synthesized into a single deliverable. The KG/OWL grounding + verification is
-                # what distinguishes this from a black-box trained swarm.
-                from agent_utilities.core.config import (
-                    DEFAULT_KG_MODEL_ID,
-                    DEFAULT_LLM_PROVIDER,
-                )
-                from agent_utilities.core.model_factory import create_model
-                from agent_utilities.graph.parallel_engine import ParallelEngine
-                from agent_utilities.graph.planning import Planner
-                from agent_utilities.models.execution_manifest import ExecutionManifest
-
-                try:
-                    _model = create_model(
-                        provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
-                    )
-                except Exception:
-                    _model = None
-                plan = await Planner(model=_model).decompose(task)
-                manifest = ExecutionManifest.from_graph_plan(
-                    plan, name="swarm", query=task
-                )
-                # CONCEPT:AU-ORCH.session.invoker-agent-handoff (Phase 3) — curated invoker context for the swarm.
-                # ParallelEngine injects manifest.context into EVERY wave agent's task, so the
-                # invoker's context reaches all swarm agents. Resolve context_ref if given.
-                _swarm_ctx = context or ""
-                if not _swarm_ctx and context_ref:
-                    try:
-                        _crows = engine.query_cypher(
-                            "MATCH (c:ContextBlob) WHERE c.id = $id RETURN c.content AS content",
-                            {"id": context_ref},
-                        )
-                        if _crows and _crows[0].get("content"):
-                            _swarm_ctx = str(_crows[0]["content"])
-                    except Exception:  # noqa: BLE001
-                        _swarm_ctx = ""
-                if _swarm_ctx:
-                    manifest.context = (
-                        f"{manifest.context}\n\n{_swarm_ctx}"
-                        if manifest.context
-                        else _swarm_ctx
-                    )
-                # CONCEPT:AU-ECO.bus.shared-swarm-topic — give the swarm a shared AgentBus topic so peers can
-                # coordinate (announce what they're taking, share findings, ask before
-                # duplicating) instead of only fanning in at synthesis. Injected into every
-                # wave agent via manifest.context; the bus_* tools are universal.
-                import hashlib as _hl
-
-                from agent_utilities.messaging.bus import swarm_topic as _swarm_topic
-
-                _btopic = _swarm_topic(
-                    # topic-name hash, not security — usedforsecurity=False
-                    _hl.sha1(  # noqa: S324
-                        (task or "swarm").encode(), usedforsecurity=False
-                    ).hexdigest()[:8]
-                )
-                _coord = (
-                    f"You are one agent in a swarm on the same overall task. Coordinate with "
-                    f"your peers over the AgentBus topic '{_btopic}': use "
-                    f"bus_send(topic='{_btopic}', message='...') to announce what you are taking "
-                    f"and to share findings, and bus_check() to read peers — ask before "
-                    f"duplicating another agent's work."
-                )
-                manifest.context = (
-                    f"{manifest.context}\n\n{_coord}" if manifest.context else _coord
-                )
-                # default governance ON: verify each leaf + retry transient failures.
-                manifest.metadata["verify"] = True
-                manifest.metadata["max_retries"] = 2
-                if max_fan_out:
-                    manifest.max_concurrency = int(max_fan_out)
-                # give the verify loop something to check: each leaf must address its own subtask.
-                for _a in manifest.agents:
-                    if not _a.success_criteria:
-                        _a.success_criteria = (
-                            f"Output must substantively address: "
-                            f"{(_a.task_template or task)[:240]}"
-                        )
-                pe_result = await ParallelEngine(engine=engine).execute(manifest)
-                return json.dumps(
-                    {
-                        "deliverable": pe_result.synthesis_output,
-                        "agent_count": pe_result.agent_count,
-                        "wave_count": pe_result.wave_count,
-                        "critical_path_length": pe_result.critical_path_length,
-                        "parallelism_ratio": pe_result.parallelism_ratio,
-                        "verification": pe_result.verification,
-                        "telemetry": pe_result.telemetry,
-                        "execution_id": pe_result.execution_id,
-                        "success": pe_result.success,
-                        # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the existing execution-flow diagram
-                        # (generated by ORCH-1.8 WorkflowVisualizer) to the MCP caller.
-                        "mermaid": pe_result.mermaid,
-                    },
-                    default=str,
-                )
-            elif action == "status":
-                if not job_id:
-                    return "Error: job_id required"
-                return str(orch.get_task_status(job_id))
-            elif action == "request_approval":
-                return f"Approval requested for job {job_id}"
-            elif action == "grant_approval":
-                return orch.grant_approval(job_id, approval_status)
-            elif action == "execute_agent":
-                try:
-                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — opt into the mermaid wrapper so the routed
-                    # graph diagram (GraphResponse.mermaid) reaches the MCP caller.
-                    agent_result = await orch.execute_agent(
-                        agent_name=agent_name,
-                        task=task,
-                        max_steps=max_steps,
-                        return_mermaid=True,
-                        context=context or None,
-                        budget_tokens=budget_tokens or None,
-                        context_ref=context_ref or None,
-                        allowed_tools=(
-                            [t.strip() for t in allowed_tools.split(",") if t.strip()]
-                            or None
-                        ),
-                        cred_ref=cred_ref or None,
-                        open_channel=bool(
-                            open_channel
-                        ),  # CONCEPT:AU-ORCH.session.session-anchored-collections-native
-                    )
-                    return agent_result
-                except Exception as exc:
-                    return f"Error: agent execution failed: {exc}"
-            elif action == "computer_use":
-                # CONCEPT:AU-ORCH.execution.computer-use-agent — run a GUI computer-use agent (Observe→Ground→
-                # Decide→Act) on a gui-sandbox desktop. Provisions a sandbox on `host`
-                # (or drives an existing `container_id`), governed by ActionPolicy
-                # (workspace.computer_use) with frames grounded in the KG (observe_screen).
-                try:
-                    from agent_utilities.orchestration.computer_use_agent import (
-                        provision_and_run_computer_use,
-                        run_computer_use_task,
-                    )
-
-                    if container_id:
-                        return await run_computer_use_task(
-                            task, container_id, host=host or None, engine=engine
-                        )
-                    return await provision_and_run_computer_use(
-                        task, host=host or None, engine=engine
-                    )
-                except Exception as exc:
-                    return f"Error: computer-use task failed: {exc}"
-            elif action == "compile_workflow":
-                try:
-                    from agent_utilities.knowledge_graph.workflow_store import (
-                        WorkflowStore,
-                    )
-
-                    name = agent_name or f"compiled_{uuid.uuid4().hex[:6]}"
-                    workflow_id = await orch.compile_workflow(name=name, task=task)
-                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — return the diagram persisted on the
-                    # WorkflowDefinition node so the caller can review the topology.
-                    mermaid = None
-                    try:
-                        mermaid = WorkflowStore(engine).get_mermaid(name)
-                    except Exception:
-                        mermaid = None
-                    return json.dumps(
-                        {
-                            "status": "compiled",
-                            "workflow_id": workflow_id,
-                            "name": name,
-                            "mermaid": mermaid,
-                        }
-                    )
-                except Exception as exc:
-                    return f"Error compiling workflow: {exc}"
-            elif action == "compile_process":
-                # CONCEPT:AU-ORCH.planning.business-process-to-executable — descriptive BusinessProcess → executable
-                # WorkflowDefinition (+ REALIZES bridge edge). 'task' carries
-                # the BusinessProcess node id; 'agent_name' an optional name.
-                try:
-                    from agent_utilities.knowledge_graph.process_plan_compiler import (
-                        ProcessPlanCompiler,
-                    )
-                    from agent_utilities.knowledge_graph.workflow_store import (
-                        WorkflowStore,
-                    )
-
-                    process_id = task.strip()
-                    if not process_id:
-                        return (
-                            "Error: Must specify the BusinessProcess node id in "
-                            "the 'task' parameter."
-                        )
-                    compiler = ProcessPlanCompiler(engine)
-                    report = await compiler.compile_and_store(
-                        process_id, name=agent_name or None
-                    )
-                    report["status"] = "compiled"
-                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the stored topology diagram.
-                    try:
-                        report["mermaid"] = WorkflowStore(engine).get_mermaid(
-                            report["name"]
-                        )
-                    except Exception:
-                        report["mermaid"] = None
-                    return json.dumps(report, default=str)
-                except Exception as exc:
-                    return f"Error compiling process: {exc}"
-            elif action == "list_workflows":
-                try:
-                    from agent_utilities.knowledge_graph.workflow_store import (
-                        WorkflowStore,
-                    )
-
-                    store = WorkflowStore(engine)
-                    workflows = store.list_workflows(limit=50)
-                    if not workflows:
-                        return json.dumps({"error": "No workflows found in database."})
-                    return json.dumps(
-                        {"source": "kg", "workflows": workflows}, default=str
-                    )
-                except Exception as exc:
-                    return f"Error listing workflows: {exc}"
-            elif action == "execute_workflow":
-                # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path — execution-time ontology gate, BEFORE any
-                # dispatch: (a) SHACL-validate the stored definition (refuse
-                # malformed workflows, KG_WORKFLOW_SHAPE_GATE default ON);
-                # (b) with KG_BRAIN_ENFORCE on, apply the ontology permissioning
-                # row gate to the workflow node for the current actor —
-                # a denial raises PermissionError (fail-closed, OS-5.14).
-                from agent_utilities.knowledge_graph.core.workflow_gate import (
-                    gate_workflow_execution,
-                )
-
-                gate_name = agent_name or task
-                gate = gate_workflow_execution(engine, gate_name)
-                if not gate.get("allowed", True):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "workflow definition failed ontology validation "
-                                "— execution refused"
-                            ),
-                            "workflow": gate_name,
-                            "workflow_id": gate.get("workflow_id"),
-                            "violations": gate.get("violations", []),
-                        },
-                        default=str,
-                    )
-                try:
-                    from agent_utilities.knowledge_graph.workflow_store import (
-                        WorkflowStore,
-                    )
-
-                    name = agent_name or task
-                    input_task = task if (agent_name and task != agent_name) else None
-                    wf_result = await orch.execute_workflow(
-                        workflow_id=name,
-                        task=input_task or "",
-                        max_steps=max_steps,
-                    )
-                    # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid — surface the workflow's stored execution-flow
-                    # diagram alongside the result.
-                    mermaid = None
-                    try:
-                        mermaid = WorkflowStore(engine).get_mermaid(name)
-                    except Exception:
-                        mermaid = None
-                    return json.dumps(
-                        {"result": wf_result, "mermaid": mermaid}, default=str
-                    )
-                except Exception as exc:
-                    return f"Error executing workflow: {exc}"
-            elif action == "synthesize_org":
-                # CONCEPT:AU-ORCH.org.recruiter — from a goal, the recruiter drafts
-                # an org chart (departments → roles) and staffs each role, reusing
-                # experienced :Employee staff (grown by prior runs) or hiring fresh.
-                from agent_utilities.orchestration.org_runtime import Recruiter
-
-                goal = task.strip()
-                if not goal:
-                    return "Error: action=synthesize_org requires a goal in 'task'."
-                opts = (
-                    json.loads(dependencies)
-                    if dependencies and dependencies != "[]"
-                    else {}
-                )
-                domains = opts.get("domains") if isinstance(opts, dict) else None
-                chart = Recruiter(engine).synthesize_org(goal, domains=domains)
-                return json.dumps(chart.to_dict(), default=str)
-            elif action == "run_org":
-                # CONCEPT:AU-ORCH.org.work-item-dag — synthesize (or accept) an org,
-                # derive a work-item DAG, and run it over the existing orchestrator:
-                # independent items parallel, dependents wait, manager review +
-                # human escalation, and per-role experience accrual (Self-Grown).
-                from agent_utilities.orchestration.org_runtime import OrgRuntime
-
-                goal = task.strip()
-                if not goal:
-                    return "Error: action=run_org requires a goal in 'task'."
-                opts = (
-                    json.loads(dependencies)
-                    if dependencies and dependencies != "[]"
-                    else {}
-                )
-                domains = opts.get("domains") if isinstance(opts, dict) else None
-                runtime = OrgRuntime(engine, max_steps=max_steps)
-                result = await runtime.run(goal, domains=domains)
-                return json.dumps(result, default=str)
-            elif action == "consensus":
-                return f"Consensus reached for {task}."
-            elif action == "start_debate":
-                engine.add_node(
-                    f"debate_{job_id}", "TradingDebate", topic=task, status="ongoing"
-                )
-                return f"Started Trading Debate for {task}."
-            elif action == "submit_risk_veto":
-                engine.add_node(
-                    f"veto_{job_id}", "RiskVeto", reason=task, target=job_id
-                )
-                engine.add_edge(
-                    f"veto_{job_id}", f"debate_{job_id}", "CONTRADICTS_BELIEF_PROP"
-                )
-                return f"Submitted Risk Veto for debate {job_id}."
-            elif action == "list_cron_jobs":
-                # Unified scheduler registry (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): the durable
-                # :Schedule nodes the one scheduler tick enqueues from.
-                from agent_utilities.core.schedule_engine import calendar
-
-                lines = []
-                for entry in calendar(engine):
-                    state = "ON" if entry.get("enabled", True) else "OFF"
-                    trig = entry.get("cron") or (f"every {entry.get('interval_s')}s")
-                    lines.append(
-                        f"[{state}] {entry['name']} ({entry.get('trigger')}: {trig}) "
-                        f"— last run: {entry.get('last_run')}"
-                    )
-                return "\n".join(lines) or "No schedules registered."
-            elif action == "trigger_cron_job":
-                # Force a schedule to fire on the next scheduler tick (OS-5.44).
-                from agent_utilities.core.schedule_engine import run_now
-
-                target_id = task.strip()
-                if not target_id:
-                    return (
-                        "Error: Must specify the schedule name in the 'task' parameter."
-                    )
-                res = run_now(engine, target_id)
-                if res.get("status") != "success":
-                    return f"Error: {res.get('error')}"
-                return f"Scheduled '{target_id}' to fire on the next tick."
-            elif action == "dispatch_workflow":
-                # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path — the SAME execution-time ontology gate as
-                # execute_workflow, BEFORE background dispatch: (a) SHACL-validate
-                # the stored definition (refuse malformed workflows,
-                # KG_WORKFLOW_SHAPE_GATE default ON); (b) with KG_BRAIN_ENFORCE
-                # on, apply the ontology permissioning row gate to the workflow
-                # node for the current actor — a denial raises PermissionError
-                # (fail-closed, OS-5.14). Enforcement off skips the ACL check.
-                from agent_utilities.knowledge_graph.core.workflow_gate import (
-                    gate_workflow_execution,
-                )
-
-                gate_name = agent_name or task
-                gate = gate_workflow_execution(engine, gate_name)
-                if not gate.get("allowed", True):
-                    return json.dumps(
-                        {
-                            "error": (
-                                "workflow definition failed ontology validation "
-                                "— background dispatch refused"
-                            ),
-                            "workflow": gate_name,
-                            "workflow_id": gate.get("workflow_id"),
-                            "violations": gate.get("violations", []),
-                        },
-                        default=str,
-                    )
-                try:
-                    from agent_utilities.orchestration import AgentOrchestrationEngine
-
-                    runner = AgentOrchestrationEngine()
-                    name = agent_name or task
-                    input_task = task if (agent_name and task != agent_name) else None
-                    session_id = f"wf-{uuid.uuid4().hex[:8]}"
-
-                    # Start execution as background task
-                    asyncio.create_task(
-                        runner.execute_workflow(
-                            workflow_id=name,
-                            task=input_task,
-                            completion_state=completion_state,
-                            max_fan_out=max_fan_out,
-                        )
-                    )
-                    return (
-                        f"Workflow dispatched in background. Session ID: {session_id}"
-                    )
-                except ValueError as exc:
-                    return f"Workflow not found: {exc}"
-                except Exception as exc:
-                    return f"Error dispatching workflow: {exc}"
-
-            elif action == "workflow_status":
-                try:
-                    from agent_utilities.workflows.runner import _active_workflows
-
-                    sid = job_id or task
-                    if not sid:
-                        return "Error: Must specify session ID in 'job_id' or 'task' parameter."
-
-                    wf_status = _active_workflows.get(sid)
-                    if not wf_status:
-                        return f"Workflow session '{sid}' not found or has not been run in this process."
-
-                    return json.dumps(wf_status.to_dict(), default=str)
-                except Exception as exc:
-                    return f"Error retrieving workflow status: {exc}"
-
-            elif action == "export_workflow":
-                try:
-                    return json.dumps(
-                        {
-                            "error": "Workflow export requires resolving workflows from the database. Legacy catalog export is deprecated."
-                        },
-                        indent=2,
-                        default=str,
-                    )
-                except Exception as exc:
-                    return f"Error exporting workflow: {exc}"
-
-            elif action == "loop_cycle":
-                # Advance the Loop engine one cycle (CONCEPT:AU-KG.query.stardog-instance-data/2.78): intake
-                # active Loops → acquire → ADDRESSES-resolve → optional
-                # distil/synthesize as DRAFTS/proposals. Never auto-merges.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.loop_controller import (
-                    LoopController,
-                )
-
-                engine = kg_server._get_engine()
-                _mt = max_fan_out if isinstance(max_fan_out, int) else 5
-                rep = LoopController(engine).run_one_cycle(
-                    max_topics=_mt if _mt > 0 else 5,
-                )
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "failure_ingest":
-                # Failure-driven evolution (CONCEPT:AU-AHE.harness.failure-evolution): pull Langfuse
-                # failures → materialize failure_gap topics → regression-gated
-                # remediation that addresses those gaps directly. The on-demand
-                # twin of the daemon's failure_ingest tick (gated by
-                # KG_FAILURE_EVOLUTION for the daemon; the action runs on request).
-                import json as _json
-
-                from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
-                    run_failure_ingest,
-                )
-
-                rep = run_failure_ingest(kg_server._get_engine())
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "optimize_component":
-                # DSPy optimization pass for any evolvable target (CONCEPT:AU-AHE.optimization.optimizable-target-registry):
-                # task=<system_prompt|tool_description|skill|extraction|concept_match|
-                # routing>; dependencies=optional JSON data (documents / labeled_pairs /
-                # traces) for the self-supervised targets. The single entry point over the
-                # unified target registry + self-supervised optimizers.
-                import json as _json
-
-                from agent_utilities.harness.dspy_optimization import (
-                    run_component_optimization,
-                    run_optimization_sweep,
-                )
-
-                data = {}
-                if dependencies:
-                    try:
-                        data = (
-                            _json.loads(dependencies)
-                            if isinstance(dependencies, str)
-                            else dict(dependencies)
-                        )
-                    except Exception:  # noqa: BLE001
-                        data = {}
-                tgt = (task or "").strip()
-                # task='all'/'sweep' (or empty) runs the full propose-only sweep — the
-                # on-demand twin of the KG_DSPY_OPTIMIZATION daemon tick (CONCEPT:AU-AHE.optimization.candidate-replaces-incumbent-only);
-                # a specific target name runs just that one (CONCEPT:AU-AHE.optimization.optimizable-target-registry).
-                if tgt in ("", "all", "sweep"):
-                    rep = run_optimization_sweep(kg_server._get_engine())
-                else:
-                    rep = run_component_optimization(tgt, data)
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "publish_proposal":
-                # Evolution→branch bridge (CONCEPT:AU-AHE.harness.evolution-branch-bridge): publish a promoted
-                # golden-loop proposal (task=proposal node id) as a reviewable
-                # LOCAL git branch — change synthesis + RLM-sandbox validation +
-                # LocalBranchPublisher — gated by the OS-5.24 ActionPolicy's
-                # merge_promotion kind (default approval_required: a pending
-                # grant queues, a granted approval lets this proceed). Never
-                # pushes; a human merges through the normal release flow.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.change_publisher import (
-                    publish_proposal,
-                )
-
-                pid = (task or "").strip()
-                if not pid:
-                    return (
-                        "Error: publish_proposal requires the proposal node id "
-                        "in 'task'"
-                    )
-                rep = publish_proposal(kg_server._get_engine(), pid)
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "assimilate":
-                # Graph-native assimilation pass (CONCEPT:AU-KG.query.stardog-instance-data): dedup → gap →
-                # synergy → rank (idempotent via watermark). With "synthesize" in the
-                # task, also propose grounded SDD plans for the top open gaps.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.research.loop_controller import (
-                    run_assimilation_pass,
-                )
-
-                _mt = (
-                    max_fan_out
-                    if isinstance(max_fan_out, int) and max_fan_out > 0
-                    else 5
-                )
-                rep = run_assimilation_pass(
-                    kg_server._get_engine(),
-                    synthesize="synthesize" in (task or "").lower(),
-                    top_n=_mt,
-                    force="force" in (task or "").lower(),
-                )
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "distill_skills":
-                # Connector → skill synthesis (CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83): turn the
-                # mapped processes of ALL connected systems (egeria/leanix/aris/
-                # camunda) into propose-only atomic-skill + skill-workflow
-                # PROPOSALS — connector-agnostic over the ontology. With "draft"
-                # in the task, also render reviewable SKILL.md artifacts into a
-                # STAGING dir (never a repo). Propose-only; nothing auto-merges.
-                import json as _json
-
-                from agent_utilities.knowledge_graph.distillation.skill_synthesizer import (  # noqa: E501
-                    ConnectorSkillDistiller,
-                )
-
-                distiller = ConnectorSkillDistiller(kg_server._get_engine())
-                _task = (task or "").strip()
-                if _task.startswith("materialize:"):
-                    # human-approved close-out: materialize the named proposal to a
-                    # physical SKILL.md (staging dir) via PhysicalDistillationEngine.
-                    pid = _task.split(":", 1)[1].strip()
-                    return _json.dumps(
-                        distiller.materialize(pid), indent=2, default=str
-                    )
-                distill_rep = distiller.run(draft="draft" in _task.lower())
-                return _json.dumps(distill_rep.to_dict(), indent=2, default=str)
-
-            elif action == "standardize":
-                # Enterprise standardization + consolidation pass (CONCEPT:AU-KG.ontology.populated-at-import-real-3):
-                # materialize enterprise-standard interfaces → score per-asset/org/
-                # domain conformance drift → rank propose-only consolidation
-                # recommendations (collapse projects / retire tools / merge code).
-                import json as _json
-
-                from agent_utilities.knowledge_graph.standardization import (
-                    run_standardization_pass,
-                )
-
-                _tn = (
-                    max_fan_out
-                    if isinstance(max_fan_out, int) and max_fan_out > 0
-                    else 20
-                )
-                rep = run_standardization_pass(kg_server._get_engine(), top_n=_tn)
-                return _json.dumps(rep, indent=2, default=str)
-
-            elif action == "enterprise_op":
-                from agent_utilities.knowledge_graph.orchestration.engine_enterprise import (  # noqa: E501
-                    EnterpriseEngineMixin,
-                )
-
-                engine = kg_server._get_engine()
-                if not task:
-                    return "Error: enterprise_op needs a business_unit_id in `task`."
-                try:
-                    budget_amount = float(agent_name) if agent_name else 10000.0
-                except (ValueError, TypeError):
-                    budget_amount = 10000.0
-                # The mixin is composed onto the live engine; fall back to its
-                # unbound method if the running engine predates the composition.
-                allocate = getattr(
-                    engine, "allocate_budget", None
-                ) or EnterpriseEngineMixin.allocate_budget.__get__(engine)
-                if allocate is None:
-                    return "Error: engine does not support enterprise operations."
-                budget_id = allocate(task, budget_amount, "USD")
-                return json.dumps(
-                    {
-                        "budget_id": budget_id,
-                        "business_unit_id": task,
-                        "amount": budget_amount,
-                        "currency": "USD",
-                    },
-                    default=str,
-                )
-            elif action == "finance_op":
-                import json as _json
-
-                engine = kg_server._get_engine()
-                if not engine:
-                    return (
-                        "Error: finance_op requires an active epistemic-graph engine."
-                    )
-                if not task:
-                    return "Error: finance_op needs a JSON task with {returns: [float], strategy_id: str, asset_class?: str}."
-
-                try:
-                    params = _json.loads(task)
-                except Exception:
-                    return f"Error: task must be valid JSON. Got: {task}"
-
-                returns = params.get("returns", [])
-                strategy_id = params.get("strategy_id")
-                asset_class = params.get("asset_class", "equities")
-                bull_threshold = params.get("bull_threshold")
-                bear_threshold = params.get("bear_threshold")
-                window = params.get("window")
-                method = params.get("method", "rolling_sum")
-
-                if not isinstance(returns, list) or len(returns) == 0:
-                    return (
-                        "Error: task must include returns (non-empty list of floats)."
-                    )
-                if not strategy_id:
-                    return "Error: task must include strategy_id."
-
-                try:
-                    # FinanceEngineMixin is composed onto IntelligenceGraphEngine (KG-2.6),
-                    # so call the method directly on the live engine.
-                    matrix_id = engine.fit_markov_regime(
-                        returns=returns,
-                        strategy_id=strategy_id,
-                        asset_class=asset_class,
-                        bull_threshold=bull_threshold,
-                        bear_threshold=bear_threshold,
-                        window=window,
-                        method=method,
-                    )
-                    return _json.dumps(
-                        {"matrix_id": matrix_id, "status": "fitted"}, default=str
-                    )
-                except Exception as e:
-                    return f"Error: {str(e)}"
-            elif action == "ml_rlm_op":
-                # CONCEPT:AU-KG.research.research-pipeline-runner — Machine Learning & RLM capabilities for the KG engine.
-                # Register a new RLM actor for reinforcement learning tasks.
-                # task = JSON string {"name": "actor_name", "learning_rate": 0.01, "discount_factor": 0.99}
-                # or plain text actor name (uses sensible defaults: learning_rate=0.01, discount_factor=0.99).
-                import json as _json
-
-                if not task:
-                    return "Error: ml_rlm_op needs a task (actor name or JSON config)."
-                if not engine:
-                    return "Error: ml_rlm_op needs an active engine."
-
-                # Parse task as JSON or plain text.
-                config: dict[str, Any] = {
-                    "name": task,
-                    "learning_rate": 0.01,
-                    "discount_factor": 0.99,
-                }
-                if task.startswith("{"):
-                    try:
-                        config.update(_json.loads(task))
-                    except Exception:
-                        pass
-
-                # MachineLearningEngineMixin is composed onto IntelligenceGraphEngine
-                # (KG-2.6), so register the actor directly on the live engine.
-                actor_id = engine.register_rlm_actor(
-                    name=config.get("name", "rlm_actor"),
-                    learning_rate=float(config.get("learning_rate", 0.01)),
-                    discount_factor=float(config.get("discount_factor", 0.99)),
-                )
-                return _json.dumps(
-                    {"actor_id": actor_id, "status": "registered"}, default=str
-                )
-
-            elif action == "verify_action":
-                # CONCEPT:AU-OS.governance.assurance-state-machine-verifier — pre-execution,
-                # side-effect-free assurance check of a proposed ActionPolicy routing
-                # payload: 'task' = the action kind, 'dependencies' = JSON
-                # {target, params, source, reason, actor_id} — mirrors the shape
-                # ActionRequest already takes. Read-only (evaluate(), not decide()):
-                # writes no ActionDecision/ActionApproval node, so a caller (or the
-                # REST twin) can self-check a payload before proposing it for real.
-                import json as _json
-
-                from agent_utilities.orchestration.action_policy import (
-                    ActionPolicy,
-                    ActionRequest,
-                )
-
-                kind = (task or "").strip()
-                if not kind:
-                    return "Error: verify_action requires the action kind in 'task'"
-                try:
-                    payload = _json.loads(dependencies) if dependencies else {}
-                except Exception:
-                    payload = {}
-                if not isinstance(payload, dict):
-                    payload = {}
-                params_val = payload.get("params")
-                verify_request = ActionRequest(
-                    kind=kind,
-                    target=str(payload.get("target") or "*"),
-                    params=params_val if isinstance(params_val, dict) else {},
-                    source=str(payload.get("source") or "manual"),
-                    reason=str(payload.get("reason") or ""),
-                    actor_id=str(payload.get("actor_id") or ""),
-                )
-                verdict = ActionPolicy(engine=engine).evaluate(verify_request)
-                return _json.dumps(
-                    {
-                        "decision": verdict.decision,
-                        "allowed": verdict.allowed,
-                        "tier": verdict.tier,
-                        "reason": verdict.reason,
-                        "invariant": verdict.invariant,
-                        "verify_ms": verdict.verify_ms,
-                    },
-                    default=str,
-                )
-            else:
-                return f"Error: Unknown orchestration action '{action}'"
+            result = await Orchestrator(engine).execute_agent(
+                agent_name=agent_name,
+                task=task,
+                max_steps=max_steps,
+                return_mermaid=True,
+                context=context or None,
+                budget_tokens=budget_tokens or None,
+                context_ref=context_ref or None,
+                allowed_tools=(
+                    [name.strip() for name in allowed_tools.split(",") if name.strip()]
+                    or None
+                ),
+                cred_ref=cred_ref or None,
+                open_channel=open_channel,
+                reasoning_effort=reasoning_effort or None,
+                model_class=model_class,
+                response_format=response_format,
+            )
+            try:
+                payload = json.loads(result)
+            except (TypeError, ValueError):
+                payload = {"output": str(result), "mermaid": None}
+            if not isinstance(payload, dict):
+                payload = {"output": str(result), "mermaid": None}
+            payload.setdefault("output", "")
+            payload.setdefault("mermaid", None)
+            return json.dumps(payload, default=str)
         except PermissionError:
-            # CONCEPT:AU-ORCH.execution.ontology-validation-execution-path / OS-5.14 — ACL denial is fail-closed: surface
-            # it as a real error to the MCP layer, never a stringified result.
             raise
-        except Exception as e:
-            return f"Orchestration error: {str(e)}"
+        except Exception as exc:
+            return public_error_text(exc)
 
     kg_server.REGISTERED_TOOLS["graph_orchestrate"] = graph_orchestrate
 
@@ -2615,7 +2493,24 @@ def register_analysis_tools(mcp):
     def graph_configure(
         action: str = Field(
             default="register_mcp",
-            description="Operation ('set_secret', 'vault_sync', 'register_mcp', 'install_hooks', 'uninstall_hooks', 'harness_fence', 'doctor', 'set_role_routing', 'schema_pack', 'schema_candidates', 'add_connection', 'remove_connection', 'list_connections', 'set_default_connection'). CONCEPT:AU-OS.deployment.vault-seed-service — 'vault_sync' reconciles a service's secrets with the store (read-existing to skip re-prompting + seed new): config_key=service, config_value=JSON {\"env_keys\":[...],\"values\":{KEY:VAL},\"overwrite\":false}; returns {refs:{KEY:\"vault://<service>/<KEY>\"},present,written,missing} so resolvable vault:// refs drop straight into config.json. CONCEPT:AU-OS.deployment.governance-derived-claude-code — 'harness_fence' writes a governance-derived Claude Code permission fence (settings.json allow/ask/deny + defaultMode=acceptEdits, plus .claudeignore) so the CLI can run unattended safely; config_key=target Claude config dir (default ~/.claude), config_value optional {\"policy\":<ActionPolicy yaml>,\"dry_run\":true}; the deny list is regenerated from the live ActionPolicy each run. 'schema_pack' with config_key=<name> sets the active domain Schema Pack, or with empty config_key returns the active pack plus available packs; 'schema_candidates' reviews out-of-pack types seen on write (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit). CONCEPT:AU-KG.backend.multi-connection-registry — 'add_connection' registers a named graph backend (config_key=name, config_value=JSON spec e.g. {\"backend\":\"neo4j\",\"uri\":\"bolt://...\",\"user\":\"...\",\"password\":\"...\"}; use backend 'age' for Postgres native openCypher; CONCEPT:AU-KG.backend.connection-registry — spec may set role 'read'(default, query-only data source)|'read_write'|'mirror', and password/user/uri may be a vault://path or env://VAR ref; the connection is persisted to config.json so it survives restart); 'remove_connection' (config_key=name); 'list_connections' returns per-connection health + role; 'set_default_connection' (config_key=name) repoints the default target. 'profile_connection' (config_key=name) read-only-introspects a registered external graph's schema (labels, relationship types, property keys, per-label counts + sample property shapes); 'imprint_connection' profiles it, maps each external label onto our ontology (interfaces + our node types; unmatched flagged 'novel'), and writes a self-describing ExternalGraphReference catalog node (no credentials) into the authority KG so the foreign graph becomes discoverable+usable. CONCEPT:AU-KG.backend.mirror-health-repair — 'mirror_status' returns per-mirror replication health (lag/failures/stalled) for a GRAPH_BACKEND=fanout deployment; 'reconcile' (optional config_key=<mirror name>, empty=all) runs a full authority→mirror drift-repair pass. 'setup_databases' provisions the Stardog + pg-age environment end-to-end (config_key=profile 'dev'|'prod', config_value=JSON options e.g. {\"postgres_mode\":\"managed_image\",\"dsn\":\"postgresql://...\",\"sparql_target\":\"builtin\"}); 'verify_databases' probes a Postgres for the age/vector/pg_search extensions (config_key or config_value.dsn = DSN). CONCEPT:AU-KG.query.stardog-instance-data — Stardog instance-data sync (push/pull/query of real KG data, distinct from the ontology/TBox): 'push_to_stardog' writes KG nodes+edges into Stardog, partitioned into urn:source:<system> named graphs (config_value optional {\"sources\":[\"leanix\",\"servicenow\"],\"connection\":<registered name>} — omit sources to push everything; resolves a Stardog backend from config_key/connection name or inline {\"endpoint\",\"database\",\"username\",\"password\"} or STARDOG_* env); 'pull_from_stardog' re-ingests Stardog data back into the KG (config_value optional {\"source\":\"leanix\"} or {\"graph_uri\":\"urn:source:...\"} to scope to one named graph, {\"limit\":N}); 'stardog_sparql' runs a SPARQL SELECT/ASK/CONSTRUCT/UPDATE against Stardog (config_value={\"query\":\"SELECT ...\"} or a bare query string). For continuous live replication instead, register Stardog as a role='mirror' connection (add_connection {\"backend\":\"stardog\",...}) under GRAPH_BACKEND=tiered/fanout and use 'reconcile' to backfill. 'generate_config' writes a COMPLETE profile-seeded config.json covering every option (config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"out\":path,\"redact_secrets\":true}); 'config_doctor' validates a deployment's config completeness/health (config_key=profile, config_value optional {\"config\":path}); 'config_reference' returns every option grouped by subsystem. CONCEPT:AU-KG.backend.connection-registry — 'get_config' (config_key=env name) returns a live value; 'set_config' (config_key=env name, config_value=scalar or JSON) validates against config_reference, persists to config.json + applies live, and flags 'restart_required' for engine-rebuild settings; 'list_config' returns every current value (secrets redacted). 'system_doctor' runs a holistic deployment health sweep (brew/flutter-doctor style) across config/engine/backend/secrets/auth/mcp-fleet/hooks/observability, each with a remediation + skill (config_value optional {\"only\":[...],\"fix\":true,\"live\":true}). 'preflight' checks whether THIS HOST has the runtimes/tools to deploy a profile BEFORE installing (Python 3.11-<3.15, uv/pip, the epistemic-graph engine binary — Rust only as a fallback, Docker when not the tiny profile, and per-component deps): config_key=profile 'tiny'|'single-node-prod'|'enterprise', config_value optional {\"components\":[\"agent-webui\",\"geniusbot\",\"agent-terminal-ui\"]}.",
+            description=(
+                "Configuration operation. Core actions: set_secret, vault_sync, "
+                "register_mcp, install_hooks, uninstall_hooks, harness_fence, "
+                "schema_pack, schema_candidates, add_connection, remove_connection, "
+                "list_connections, mirror_status, reconcile, "
+                "generate_config, config_doctor, config_reference, get_config, "
+                "set_config, list_config, system_doctor, and preflight. Universal "
+                "external-source lifecycle actions are discover_connection_schema, "
+                "propose_connection_mapping, approve_connection_mapping, "
+                "connection_mapping_status, external_graph_doctor, and "
+                "ingest_connection. Durable connection declarations accept neutral "
+                "aliases and runtime secret references only; endpoint, credential, "
+                "identity, query, TLS material, and local-path literals are rejected. "
+                "GraphQL sources use a read-only runtime adapter; "
+                "their connection, mapping, auth, TLS, and variables documents remain "
+                "separate refs, and every ingest rechecks the approved schema and "
+                "mapping-policy digests."
+            ),
         ),
         config_key: str = Field(
             default="",
@@ -2640,7 +2535,7 @@ def register_analysis_tools(mcp):
                     client = create_secrets_client()
                 client.set(config_key, config_value)
                 return json.dumps(
-                    {"status": "success", "action": "set_secret", "key": config_key}
+                    {"status": "success", "action": "set_secret", "stored": True}
                 )
             if action == "vault_sync":
                 # CONCEPT:AU-OS.deployment.vault-seed-service — read-existing + seed a service's secrets.
@@ -2662,39 +2557,29 @@ def register_analysis_tools(mcp):
                 result.update({"status": "success", "action": "vault_sync"})
                 return json.dumps(result)
             if action == "register_mcp":
-                from pathlib import Path
-
-                from agent_utilities.core.workspace import get_mcp_config_path
-
-                mcp_path_str = get_mcp_config_path()
-                if mcp_path_str:
-                    mcp_path = Path(mcp_path_str)
-                    if not mcp_path.exists():
-                        cfg = {}
-                    else:
-                        with open(mcp_path) as f:
-                            cfg = json.load(f)
-                    try:
-                        parsed_val = json.loads(config_value)
-                        cfg.setdefault("mcpServers", {})[config_key] = parsed_val
-                        with open(mcp_path, "w") as f:
-                            json.dump(cfg, f, indent=2)
-                        return json.dumps(
-                            {
-                                "status": "success",
-                                "action": "register_mcp",
-                                "server": config_key,
-                            }
-                        )
-                    except Exception as e:
-                        return json.dumps({"error": f"Invalid config_value JSON: {e}"})
-                return json.dumps({"error": "MCP config not found in workspace."})
+                try:
+                    _register_mcp_server(config_key, config_value)
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "MCP registration rejected",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "action": "register_mcp",
+                        "server": config_key,
+                    }
+                )
             # ── CONCEPT:AU-KG.backend.multi-connection-registry: Named multi-connection graph registry ──
             if action in (
                 "add_connection",
                 "remove_connection",
                 "list_connections",
-                "set_default_connection",
             ):
                 registry = kg_server.get_connection_registry()
                 if action == "list_connections":
@@ -2706,18 +2591,77 @@ def register_analysis_tools(mcp):
                 if action == "add_connection":
                     try:
                         spec = json.loads(config_value) if config_value else {}
-                    except Exception as e:
-                        return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                    except Exception:
+                        return json.dumps(
+                            {"error": "config_value must contain valid JSON"}
+                        )
                     if not isinstance(spec, dict):
                         return json.dumps(
                             {
                                 "error": "config_value must be a JSON object (backend spec)"
                             }
                         )
+                    declared_name = spec.pop("name", None)
+                    if declared_name not in (None, config_key):
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "connection name is authoritative in config_key; "
+                                    "a payload name cannot select another alias"
+                                )
+                            }
+                        )
+                    if not spec:
+                        # AgentConfig is the reference-only declarative plane.
+                        # An operator may activate one of those declarations by
+                        # alias without copying any profile reference into MCP
+                        # arguments or traces.
+                        try:
+                            candidate = _configured_external_graph_declaration(
+                                config_key
+                            )
+                            if candidate:
+                                candidate.pop("name", None)
+                                candidate["role"] = str(candidate.get("role") or "read")
+                                spec = candidate
+                        except Exception as exc:
+                            return json.dumps(
+                                {
+                                    "error": "configured connection lookup failed",
+                                    "error_type": type(exc).__name__,
+                                }
+                            )
+                    if not spec:
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "add_connection requires a reference-only JSON "
+                                    "declaration or a matching AgentConfig alias"
+                                )
+                            }
+                        )
+                    try:
+                        from agent_utilities.knowledge_graph.core.connection_registry import (
+                            validate_persistable_connection_spec,
+                        )
+
+                        validate_persistable_connection_spec(spec)
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "connection registration is not persistence-safe",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
                     try:
                         name = registry.register(config_key, spec)
-                    except Exception as e:
-                        return json.dumps({"error": str(e)})
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "connection registration failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
                     # CONCEPT:AU-KG.backend.connection-registry — persist the connection list to config.json so
                     # it survives restart (re-seeded from config.kg_connections).
                     from agent_utilities.core.config import save_config_item
@@ -2746,45 +2690,664 @@ def register_analysis_tools(mcp):
                             "persisted": bool(removed),
                         }
                     )
-                # set_default_connection
-                try:
-                    name = registry.set_default(config_key)
-                except Exception as e:
-                    return json.dumps({"error": str(e)})
-                return json.dumps(
-                    {"status": "success", "action": action, "default_target": name}
-                )
-            # ── CONCEPT:AU-KG.backend.multi-connection-registry: profile / imprint an external graph + map ──
-            if action in ("profile_connection", "imprint_connection"):
+            # ── CONCEPT:AU-KG.backend.multi-connection-registry: discover/profile an external graph + map ──
+            if action in (
+                "approve_connection_mapping",
+                "connection_mapping_status",
+                "discover_connection_schema",
+                "external_graph_doctor",
+                "profile_connection",
+                "ingest_connection",
+                "propose_connection_mapping",
+            ):
                 if not config_key:
                     return json.dumps(
                         {"error": f"config_key (connection name) required for {action}"}
                     )
                 registry = kg_server.get_connection_registry()
-                from agent_utilities.knowledge_graph.core.connection_profiler import (
-                    profile_and_imprint,
-                    profile_connection,
-                )
+                if action in {
+                    "approve_connection_mapping",
+                    "connection_mapping_status",
+                }:
+                    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+                        approve_mapping_profile,
+                        mapping_profile_status,
+                    )
+                    from agent_utilities.security.secrets_client import (
+                        create_secrets_client,
+                    )
 
+                    store = create_secrets_client()
+                    if action == "connection_mapping_status":
+                        if config_value:
+                            return json.dumps(
+                                {"error": "connection_mapping_status takes no payload"}
+                            )
+                        try:
+                            from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+                                normalize_backend_kind,
+                            )
+
+                            backend_kind = normalize_backend_kind(
+                                registry.backend_kind(config_key)
+                            )
+                            if backend_kind == "graphql":
+                                from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+                                    GraphQLSourceAdapter,
+                                    graphql_mapping_profile_status,
+                                )
+
+                                source = registry.get_engine(config_key)
+                                if not isinstance(source, GraphQLSourceAdapter):
+                                    raise TypeError("registered source is not GraphQL")
+                                status = graphql_mapping_profile_status(
+                                    source,
+                                    connection=config_key,
+                                    secret_store=store,
+                                )
+                            else:
+                                declaration = _configured_external_graph_declaration(
+                                    config_key
+                                )
+                                _policy, current_policy_digest = (
+                                    _resolved_external_mapping_policy(
+                                        store, declaration
+                                    )
+                                )
+                                status = mapping_profile_status(
+                                    config_key,
+                                    secret_store=store,
+                                    runtime_policy_digest=current_policy_digest,
+                                )
+                            return json.dumps(
+                                status,
+                                default=str,
+                            )
+                        except Exception as exc:
+                            return json.dumps(
+                                {
+                                    "error": "mapping status lookup failed",
+                                    "error_type": type(exc).__name__,
+                                }
+                            )
+                    try:
+                        options = json.loads(config_value) if config_value else {}
+                        if not isinstance(options, dict):
+                            raise ValueError("approval payload must be an object")
+                        if "approver_ref" in options:
+                            return json.dumps(
+                                {
+                                    "error": "approver identity is derived from authenticated context"
+                                }
+                            )
+                        if set(options).difference(
+                            {
+                                "mapping_digest",
+                                "proposal_id",
+                                "proposal_version",
+                                "schema_digest",
+                            }
+                        ):
+                            return json.dumps(
+                                {
+                                    "error": (
+                                        "mapping approval accepts only the exact "
+                                        "proposal version and digest tuple"
+                                    )
+                                }
+                            )
+                        from agent_utilities.knowledge_graph.core.session import (
+                            resolve_session,
+                        )
+
+                        approval_session = resolve_session(required_scope="kg:admin")
+                        approval_actor = (
+                            approval_session.actor.actor_id
+                            if approval_session.actor is not None
+                            else "authenticated-operator"
+                        )
+                        result = approve_mapping_profile(
+                            connection=config_key,
+                            proposal_id=str(options.get("proposal_id") or ""),
+                            proposal_version=int(options.get("proposal_version") or 0),
+                            schema_digest=str(options.get("schema_digest") or ""),
+                            mapping_digest=str(options.get("mapping_digest") or ""),
+                            secret_store=store,
+                            approver_ref=approval_actor,
+                        )
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "mapping approval failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    return json.dumps(result, default=str)
+                if action == "ingest_connection":
+                    try:
+                        options = json.loads(config_value) if config_value else {}
+                    except Exception:
+                        return json.dumps(
+                            {"error": "config_value must be a JSON object"}
+                        )
+                    if not isinstance(options, dict):
+                        return json.dumps(
+                            {"error": "config_value must be a JSON object"}
+                        )
+                    try:
+                        declared = _configured_external_graph_declaration(config_key)
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "configured source lookup failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    try:
+                        from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+                            normalize_backend_kind,
+                        )
+
+                        backend_kind = normalize_backend_kind(
+                            registry.backend_kind(config_key)
+                        )
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "external source declaration is invalid",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    if backend_kind == "graphql":
+                        allowed = {
+                            "contextual",
+                            "dry_run",
+                            "max_depth",
+                            "max_records",
+                            "max_types",
+                            "operation",
+                            "variables_ref",
+                        }
+                        if set(options).difference(allowed) or "variables" in options:
+                            return json.dumps(
+                                {
+                                    "error": (
+                                        "GraphQL ingestion accepts bounded policy choices "
+                                        "and a variables_ref only"
+                                    )
+                                }
+                            )
+                        try:
+                            source = registry.get_engine(config_key)
+                            from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+                                GraphQLSourceAdapter,
+                                ingest_registered_graphql,
+                            )
+                            from agent_utilities.security.secrets_client import (
+                                create_secrets_client,
+                            )
+
+                            if not isinstance(source, GraphQLSourceAdapter):
+                                raise TypeError("registered source is not GraphQL")
+                            result = ingest_registered_graphql(
+                                registry.get_engine(None),
+                                source,
+                                connection=config_key,
+                                secret_store=create_secrets_client(),
+                                operation=str(
+                                    options.get("operation")
+                                    or declared.get("ingest_operation")
+                                    or source.ingest_operation
+                                    or ""
+                                ),
+                                variables_ref=str(
+                                    options.get("variables_ref")
+                                    or declared.get("variables_ref")
+                                    or ""
+                                ),
+                                max_records=int(
+                                    options.get("max_records")
+                                    or declared.get("ingest_max_records")
+                                    or source.ingest_max_records
+                                    or 1_000
+                                ),
+                                max_types=int(
+                                    options.get("max_types")
+                                    or declared.get("discovery_max_types")
+                                    or source.discovery_max_types
+                                    or 200
+                                ),
+                                max_depth=int(
+                                    options.get("max_depth")
+                                    or declared.get("discovery_max_depth")
+                                    or source.discovery_max_depth
+                                    or 6
+                                ),
+                                contextual=bool(
+                                    options.get(
+                                        "contextual",
+                                        declared.get("contextual", source.contextual),
+                                    )
+                                ),
+                                dry_run=bool(options.get("dry_run", False)),
+                            )
+                        except Exception as exc:  # noqa: BLE001 — safe type only
+                            return json.dumps(
+                                {
+                                    "error": "GraphQL document ingestion failed",
+                                    "error_type": type(exc).__name__,
+                                }
+                            )
+                        return json.dumps(result, default=str)
+                    allowed = {
+                        "classification",
+                        "dry_run",
+                        "legal_hold",
+                        "max_records",
+                        "retention",
+                        "source_alias",
+                        "tenant",
+                    }
+                    if set(options).difference(allowed):
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "external graph ingestion accepts only aliases and "
+                                    "bounded governance choices; profiles, queries, "
+                                    "variables, ontology, endpoints, paths, and "
+                                    "credentials stay behind configured runtime refs"
+                                )
+                            }
+                        )
+                    from agent_utilities.knowledge_graph.ingestion.external_graph import (
+                        ExternalGraphIngestionRequest,
+                        ingest_registered_graph,
+                    )
+                    from agent_utilities.security.secrets_client import (
+                        create_secrets_client,
+                    )
+
+                    try:
+                        _runtime_policy, runtime_policy_digest = (
+                            _resolved_external_mapping_policy(
+                                create_secrets_client(), declared
+                            )
+                        )
+                        request = ExternalGraphIngestionRequest(
+                            connection=config_key,
+                            source_alias=str(
+                                options.get("source_alias")
+                                or declared.get("source_alias")
+                                or config_key
+                            ),
+                            profile_ref="",
+                            variables={},
+                            runtime_policy_digest=runtime_policy_digest,
+                            max_records=int(
+                                options.get("max_records")
+                                or declared.get("ingest_max_records")
+                                or 1_000
+                            ),
+                            page_size=int(declared.get("ingest_page_size") or 500),
+                            max_pages=int(declared.get("ingest_max_pages") or 100),
+                            max_row_bytes=int(
+                                declared.get("ingest_max_row_bytes") or 1_048_576
+                            ),
+                            max_total_bytes=int(
+                                declared.get("ingest_max_total_bytes") or 16_777_216
+                            ),
+                            max_nesting_depth=int(
+                                declared.get("ingest_max_nesting_depth") or 16
+                            ),
+                            max_collection_items=int(
+                                declared.get("ingest_max_collection_items") or 10_000
+                            ),
+                            sync_mode=str(declared.get("sync_mode") or "auto"),
+                            reconcile_deletions=bool(
+                                declared.get("reconcile_deletions", True)
+                            ),
+                            allow_empty_snapshot=bool(
+                                declared.get("allow_empty_snapshot", False)
+                            ),
+                            classification=options.get(
+                                "classification", "confidential"
+                            ),
+                            retention=str(options.get("retention") or "P30D"),
+                            legal_hold=bool(options.get("legal_hold", False)),
+                            tenant=str(options.get("tenant") or ""),
+                            dry_run=bool(options.get("dry_run", False)),
+                        )
+                        result = ingest_registered_graph(
+                            registry.get_engine(None), registry, request
+                        )
+                    except Exception as exc:  # noqa: BLE001 — safe type only
+                        return json.dumps(
+                            {
+                                "error": "external graph ingestion failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    return json.dumps(result, default=str)
                 try:
                     ext_engine = registry.get_engine(config_key)
                 except Exception as e:
-                    return json.dumps({"error": f"connection '{config_key}': {e}"})
-                if action == "profile_connection":
                     return json.dumps(
-                        profile_connection(ext_engine, name=config_key), default=str
+                        {
+                            "error": "external graph connection unavailable",
+                            "error_type": type(e).__name__,
+                        }
                     )
-                # imprint_connection — profile + ontology-map + write the catalog
-                # node into the authority (default) KG.
-                return json.dumps(
-                    profile_and_imprint(
-                        ext_engine,
-                        name=config_key,
-                        spec_summary=registry.spec_summary(config_key),
-                        authority_engine=registry.get_engine(None),
-                    ),
-                    default=str,
+                try:
+                    options = json.loads(config_value) if config_value else {}
+                except Exception:
+                    return json.dumps({"error": "config_value must be a JSON object"})
+                if not isinstance(options, dict):
+                    return json.dumps({"error": "config_value must be a JSON object"})
+                from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+                    discover_external_schema,
+                    external_graph_readiness,
+                    governed_semantic_mapping_enricher,
+                    propose_mapping_profile,
                 )
+                from agent_utilities.security.secrets_client import (
+                    create_secrets_client,
+                )
+
+                backend = registry.backend_kind(config_key)
+                try:
+                    from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
+                        normalize_backend_kind,
+                    )
+
+                    backend_kind = normalize_backend_kind(backend)
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "external source declaration is invalid",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+                connector_config: dict[str, Any] = {}
+                try:
+                    connector_config = _configured_external_graph_declaration(
+                        config_key
+                    )
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "configured source lookup failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+                max_types = max(
+                    1,
+                    min(
+                        int(
+                            options.get("max_types")
+                            or connector_config.get("discovery_max_types")
+                            or getattr(ext_engine, "discovery_max_types", None)
+                            or 200
+                        ),
+                        500,
+                    ),
+                )
+                max_depth = max(
+                    1,
+                    min(
+                        int(
+                            options.get("max_depth")
+                            or connector_config.get("discovery_max_depth")
+                            or getattr(ext_engine, "discovery_max_depth", None)
+                            or 6
+                        ),
+                        12,
+                    ),
+                )
+                if (
+                    backend_kind == "graphql"
+                    and action
+                    in {
+                        "discover_connection_schema",
+                        "external_graph_doctor",
+                        "profile_connection",
+                    }
+                    and set(options).difference({"max_depth", "max_types"})
+                ):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "GraphQL discovery actions accept bounded discovery "
+                                "limits only; source material comes from runtime refs"
+                            )
+                        }
+                    )
+                if (
+                    backend_kind != "graphql"
+                    and action
+                    in {
+                        "discover_connection_schema",
+                        "external_graph_doctor",
+                        "profile_connection",
+                    }
+                    and set(options).difference({"max_types"})
+                ):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "external graph discovery actions accept a bounded "
+                                "max_types value only; source material stays behind "
+                                "configured runtime refs"
+                            )
+                        }
+                    )
+                if action in {"discover_connection_schema", "profile_connection"}:
+                    try:
+                        if backend_kind == "graphql":
+                            schema, capabilities, _accepted = ext_engine.discover(
+                                max_types=max_types, max_depth=max_depth
+                            )
+                        else:
+                            schema, capabilities = discover_external_schema(
+                                ext_engine, backend=backend, max_types=max_types
+                            )
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "external schema discovery failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    return json.dumps(
+                        {
+                            "status": "success",
+                            "connection": config_key,
+                            "schema": schema.public_dict(),
+                            "capabilities": capabilities.public_dict(),
+                        },
+                        default=str,
+                    )
+                store = create_secrets_client()
+                runtime_policy: dict[str, Any] = {}
+                runtime_policy_digest = ""
+                if backend_kind != "graphql":
+                    try:
+                        runtime_policy, runtime_policy_digest = (
+                            _resolved_external_mapping_policy(store, connector_config)
+                        )
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "secret-backed mapping policy resolution failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                if action == "external_graph_doctor":
+                    if backend_kind == "graphql":
+                        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+                            graphql_source_readiness,
+                        )
+
+                        return json.dumps(
+                            graphql_source_readiness(
+                                ext_engine,
+                                connection=config_key,
+                                secret_store=store,
+                                max_types=max_types,
+                                max_depth=max_depth,
+                            ),
+                            default=str,
+                        )
+                    return json.dumps(
+                        external_graph_readiness(
+                            ext_engine,
+                            backend=backend,
+                            connection=config_key,
+                            secret_store=store,
+                            runtime_policy_digest=runtime_policy_digest,
+                            max_types=max_types,
+                        ),
+                        default=str,
+                    )
+                if backend_kind == "graphql":
+                    if set(options).difference({"max_depth", "max_types"}):
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "GraphQL mapping proposals resolve query, mapping, "
+                                    "governance, auth, and TLS policy from runtime refs"
+                                )
+                            }
+                        )
+                    try:
+                        from agent_utilities.knowledge_graph.ingestion.graphql_connection import (
+                            GraphQLSourceAdapter,
+                            propose_graphql_mapping_profile,
+                        )
+
+                        if not isinstance(ext_engine, GraphQLSourceAdapter):
+                            raise TypeError("registered source is not GraphQL")
+                        result = propose_graphql_mapping_profile(
+                            ext_engine,
+                            connection=config_key,
+                            source_alias=ext_engine.source_alias,
+                            secret_store=store,
+                            max_types=max_types,
+                            max_depth=max_depth,
+                        )
+                    except Exception as exc:
+                        return json.dumps(
+                            {
+                                "error": "GraphQL mapping proposal failed",
+                                "error_type": type(exc).__name__,
+                            }
+                        )
+                    return json.dumps(result, default=str)
+                if set(options).difference({"max_types", "source_alias"}):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "external graph mapping proposals accept aliases and "
+                                "bounded discovery choices only; mapping, ontology, "
+                                "endpoint, path, identity, and credential material "
+                                "must come from configured runtime refs"
+                            )
+                        }
+                    )
+                max_types = int(
+                    connector_config.get("discovery_max_types") or max_types
+                )
+                from agent_utilities.knowledge_graph.core.connection_profiler import (
+                    _our_ontology_vocabulary,
+                )
+
+                authority = registry.get_engine(None)
+                vocabulary = _our_ontology_vocabulary(authority, None)
+                try:
+                    semantic_enricher = None
+                    semantic_context_session = None
+                    if bool(connector_config.get("semantic_mapping", False)):
+                        from agent_utilities.knowledge_graph.core.session import (
+                            resolve_session,
+                        )
+
+                        semantic_context_session = resolve_session(
+                            required_scope="kg:read"
+                        )
+                        semantic_enricher = governed_semantic_mapping_enricher
+                    result = propose_mapping_profile(
+                        ext_engine,
+                        backend=backend,
+                        connection=config_key,
+                        source_alias=str(
+                            connector_config.get("source_alias")
+                            or options.get("source_alias")
+                            or config_key
+                        ),
+                        ontology_classes=vocabulary,
+                        secret_store=store,
+                        access=(
+                            runtime_policy.get("access")
+                            if isinstance(runtime_policy.get("access"), dict)
+                            else None
+                        ),
+                        property_allowlist=(
+                            list(runtime_policy.get("property_allowlist") or []) or None
+                        ),
+                        edge_property_allowlist=(
+                            list(runtime_policy.get("edge_property_allowlist") or [])
+                            or None
+                        ),
+                        type_overrides=(
+                            runtime_policy.get("type_overrides")
+                            if isinstance(runtime_policy.get("type_overrides"), dict)
+                            else None
+                        ),
+                        edge_type_overrides=(
+                            runtime_policy.get("edge_type_overrides")
+                            if isinstance(
+                                runtime_policy.get("edge_type_overrides"), dict
+                            )
+                            else None
+                        ),
+                        identity_property=str(
+                            runtime_policy.get("identity_property") or ""
+                        )
+                        or None,
+                        runtime_policy_digest=runtime_policy_digest,
+                        page_size=int(connector_config.get("ingest_page_size") or 500),
+                        max_pages=int(connector_config.get("ingest_max_pages") or 100),
+                        max_row_bytes=int(
+                            connector_config.get("ingest_max_row_bytes") or 1_048_576
+                        ),
+                        max_total_bytes=int(
+                            connector_config.get("ingest_max_total_bytes") or 16_777_216
+                        ),
+                        max_nesting_depth=int(
+                            connector_config.get("ingest_max_nesting_depth") or 16
+                        ),
+                        max_collection_items=int(
+                            connector_config.get("ingest_max_collection_items")
+                            or 10_000
+                        ),
+                        sync_mode=str(connector_config.get("sync_mode") or "auto"),
+                        reconcile_deletions=bool(
+                            connector_config.get("reconcile_deletions", True)
+                        ),
+                        allow_empty_snapshot=bool(
+                            connector_config.get("allow_empty_snapshot", False)
+                        ),
+                        max_types=max_types,
+                        semantic_enricher=semantic_enricher,
+                        context_session=semantic_context_session,
+                    )
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "mapping proposal failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+                return json.dumps(result, default=str)
             # ── CONCEPT:AU-KG.backend.mirror-health-repair: Concurrent N-way mirroring health/repair ──
             if action in ("mirror_status", "reconcile"):
                 from agent_utilities.knowledge_graph.backends import (
@@ -2795,17 +3358,15 @@ def register_analysis_tools(mcp):
                 )
 
                 backend = get_active_backend()
-                # Locate the FanOutBackend (the active backend when
-                # GRAPH_BACKEND=fanout: the engine authority teeing writes to its
-                # mirrors). Also unwrap a BrainGuarded proxy (inner backend is the
-                # ``inner`` property).
+                # Locate the FanOutBackend created automatically when one or more
+                # projections are configured. Also unwrap a BrainGuarded proxy.
                 cand = getattr(backend, "inner", backend)
                 fan = cand if isinstance(cand, FanOutBackend) else None
                 if fan is None:
                     return json.dumps(
                         {
-                            "error": "No fanout mirror active (set GRAPH_MIRROR_TARGETS "
-                            "with GRAPH_BACKEND=fanout).",
+                            "error": "No fanout projection active (configure "
+                            "GRAPH_MIRROR_TARGETS or a role=mirror connection).",
                             "backend": type(backend).__name__,
                         }
                     )
@@ -2819,8 +3380,8 @@ def register_analysis_tools(mcp):
             if action in ("push_to_stardog", "pull_from_stardog", "stardog_sparql"):
                 try:
                     opts = json.loads(config_value) if config_value else {}
-                except Exception as e:
-                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                except Exception:
+                    return json.dumps({"error": "config_value must contain valid JSON"})
                 if not isinstance(opts, dict):
                     # stardog_sparql also accepts a bare query string in config_value.
                     if action == "stardog_sparql" and isinstance(config_value, str):
@@ -2830,29 +3391,40 @@ def register_analysis_tools(mcp):
                             {"error": "config_value must be a JSON object"}
                         )
 
-                def _resolve_stardog_backend():
-                    """A StardogSparqlBackend from a named connection (config_key /
-                    opts.connection) or built from opts/env STARDOG_* defaults."""
-                    name = config_key or opts.get("connection")
-                    if name:
-                        eng = kg_server.get_connection_registry().get_engine(name)
-                        be = getattr(eng, "backend", eng)
-                        return getattr(be, "_authority", be)
-                    from agent_utilities.knowledge_graph.backends.sparql.stardog_backend import (  # noqa: E501
-                        StardogSparqlBackend,
+                inline_connection_fields = {
+                    "database",
+                    "endpoint",
+                    "password",
+                    "username",
+                }
+                if inline_connection_fields.intersection(opts):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "inline Stardog connection material is not accepted; "
+                                "use a registered connection alias backed by secret references"
+                            )
+                        }
                     )
 
-                    return StardogSparqlBackend(
-                        endpoint=opts.get("endpoint"),
-                        database=opts.get("database"),
-                        username=opts.get("username"),
-                        password=opts.get("password"),
-                    )
+                def _resolve_stardog_backend():
+                    """Resolve Stardog exclusively through a registered alias."""
+                    name = config_key or opts.get("connection")
+                    if not isinstance(name, str) or not name.strip():
+                        raise ValueError("registered Stardog connection is required")
+                    eng = kg_server.get_connection_registry().get_engine(name.strip())
+                    be = getattr(eng, "backend", eng)
+                    return getattr(be, "_authority", be)
 
                 try:
                     sd_backend = _resolve_stardog_backend()
-                except Exception as e:
-                    return json.dumps({"error": f"Stardog backend: {e}"})
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "registered Stardog connection unavailable",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
 
                 if action == "stardog_sparql":
                     query = opts.get("query")
@@ -2900,15 +3472,45 @@ def register_analysis_tools(mcp):
 
                 try:
                     opts = json.loads(config_value) if config_value else {}
-                except Exception as e:
-                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                except Exception:
+                    return json.dumps({"error": "config_value must contain valid JSON"})
                 if not isinstance(opts, dict):
                     return json.dumps(
                         {"error": "config_value must be a JSON object of options"}
                     )
+                if "dsn" in opts or "://" in (config_key or ""):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "inline database endpoints are not accepted; configure "
+                                "the runtime connection through a secret-backed profile"
+                            )
+                        }
+                    )
+                connection_profile_ref = opts.get("connection_profile_ref")
+                if connection_profile_ref and not _runtime_reference(
+                    connection_profile_ref
+                ):
+                    return json.dumps(
+                        {
+                            "error": (
+                                "connection_profile_ref must be a runtime secret "
+                                "reference"
+                            )
+                        }
+                    )
+                if config_key and config_key not in {"dev", "prod"}:
+                    return json.dumps(
+                        {
+                            "error": (
+                                "config_key must be a deployment profile alias; "
+                                "database endpoints belong in the secret-backed runtime profile"
+                            )
+                        }
+                    )
                 if action == "verify_databases":
                     return json.dumps(
-                        verify_postgres(opts.get("dsn") or config_key or None),
+                        verify_postgres(connection_profile_ref),
                         default=str,
                     )
                 # setup_databases — config_key is a profile shortcut ('dev'/'prod').
@@ -2917,7 +3519,7 @@ def register_analysis_tools(mcp):
                     setup_environment(
                         profile=profile,
                         postgres_mode=opts.get("postgres_mode", "managed_image"),
-                        dsn=opts.get("dsn"),
+                        connection_profile_ref=connection_profile_ref,
                         sparql_target=opts.get("sparql_target"),
                         mirror_targets=opts.get("mirror_targets"),
                         do_backfill=opts.get("do_backfill", True),
@@ -2934,8 +3536,8 @@ def register_analysis_tools(mcp):
 
                 try:
                     opts = json.loads(config_value) if config_value else {}
-                except Exception as e:
-                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                except Exception:
+                    return json.dumps({"error": "config_value must contain valid JSON"})
                 if not isinstance(opts, dict):
                     return json.dumps({"error": "config_value must be a JSON object"})
                 if action == "config_reference":
@@ -2943,18 +3545,18 @@ def register_analysis_tools(mcp):
                 # profile shortcut via config_key ('tiny'/'single-node-prod'/'enterprise')
                 profile = opts.get("profile") or config_key or None
                 if action == "generate_config":
+                    if opts.get("out"):
+                        return json.dumps({"error": "remote_path_not_allowed"})
                     return json.dumps(
                         write_config(
                             profile or "tiny",
-                            opts.get("out"),
-                            redact_secrets=opts.get("redact_secrets", True),
                         ),
                         default=str,
                     )
                 # config_doctor
-                return json.dumps(
-                    config_doctor(profile, opts.get("config")), default=str
-                )
+                if opts.get("config"):
+                    return json.dumps({"error": "remote_path_not_allowed"})
+                return json.dumps(config_doctor(profile), default=str)
             # ── CONCEPT:AU-KG.backend.connection-registry: generic live config get / set / list ──
             if action in ("get_config", "set_config", "list_config"):
                 from agent_utilities.deployment import (
@@ -2971,7 +3573,11 @@ def register_analysis_tools(mcp):
                     out = {}
                     for env_key, meta in known.items():
                         val = os.environ.get(env_key)
-                        out[env_key] = "***" if (meta.get("secret") and val) else val
+                        out[env_key] = (
+                            "***"
+                            if (_configuration_key_is_sensitive(env_key, meta) and val)
+                            else val
+                        )
                     return json.dumps({"config": out, "count": len(out)}, default=str)
 
                 if not config_key:
@@ -2981,13 +3587,11 @@ def register_analysis_tools(mcp):
                 env_key = config_key.upper()
                 if env_key not in known:
                     return json.dumps(
-                        {
-                            "error": f"Unknown config key {config_key!r} (see config_reference)"
-                        }
+                        {"error": "Unknown config key (see config_reference)"}
                     )
                 if action == "get_config":
                     val = os.environ.get(env_key)
-                    if known[env_key].get("secret") and val:
+                    if _configuration_key_is_sensitive(env_key, known[env_key]) and val:
                         val = "***"
                     return json.dumps(
                         {
@@ -2998,6 +3602,18 @@ def register_analysis_tools(mcp):
                         default=str,
                     )
                 # set_config — persist to config.json + apply live (or flag restart).
+                if _configuration_key_is_sensitive(env_key, known[env_key]):
+                    if not env_key.endswith("_REF") or not _runtime_reference(
+                        config_value
+                    ):
+                        return json.dumps(
+                            {
+                                "error": (
+                                    "sensitive settings cannot be persisted inline; "
+                                    "use the secret store and a reference-capable setting"
+                                )
+                            }
+                        )
                 parsed = config_value
                 if config_value and config_value.strip()[:1] in '[{"':
                     try:
@@ -3023,8 +3639,8 @@ def register_analysis_tools(mcp):
 
                 try:
                     opts = json.loads(config_value) if config_value else {}
-                except Exception as e:
-                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                except Exception:
+                    return json.dumps({"error": "config_value must contain valid JSON"})
                 if not isinstance(opts, dict):
                     return json.dumps({"error": "config_value must be a JSON object"})
                 return json.dumps(
@@ -3041,8 +3657,8 @@ def register_analysis_tools(mcp):
                 profile = config_key or "tiny"
                 try:
                     opts = json.loads(config_value) if config_value else {}
-                except Exception as e:
-                    return json.dumps({"error": f"Invalid config_value JSON: {e}"})
+                except Exception:
+                    return json.dumps({"error": "config_value must contain valid JSON"})
                 if not isinstance(opts, dict):
                     return json.dumps({"error": "config_value must be a JSON object"})
                 return json.dumps(
@@ -3053,7 +3669,7 @@ def register_analysis_tools(mcp):
             if action == "harness_fence":
                 # CONCEPT:AU-OS.deployment.governance-derived-claude-code — write a governance-derived Claude Code
                 # permission fence (settings.json + .claudeignore). config_key =
-                # target Claude config dir (default ~/.claude); config_value =
+                # target Claude config dir (default $XDG_CONFIG_HOME/claude); config_value =
                 # optional {"policy": path, "dry_run": bool}.
                 try:
                     from pathlib import Path as _Path
@@ -3075,8 +3691,15 @@ def register_analysis_tools(mcp):
                         write_fence(target, policy, dry_run=bool(opts.get("dry_run"))),
                         default=str,
                     )
-                except Exception as e:
-                    return json.dumps({"error": f"harness_fence failed: {e}"})
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "harness fence update failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
             if action == "install_hooks":
                 try:
                     from agent_utilities.ecosystem.hook_installer import HookInstaller
@@ -3092,8 +3715,15 @@ def register_analysis_tools(mcp):
                             "errors": installer.errors,
                         }
                     )
-                except Exception as e:
-                    return json.dumps({"error": f"Hook install failed: {e}"})
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "hook installation failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
             if action == "uninstall_hooks":
                 try:
                     from agent_utilities.ecosystem.hook_installer import HookInstaller
@@ -3101,15 +3731,29 @@ def register_analysis_tools(mcp):
                     agents = config_value.split(",") if config_value else None
                     results = HookInstaller().uninstall(agents)
                     return json.dumps({"status": "success", "results": results})
-                except Exception as e:
-                    return json.dumps({"error": f"Hook uninstall failed: {e}"})
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "hook removal failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
             if action == "doctor":
                 try:
                     from agent_utilities.ecosystem.hook_installer import HookInstaller
 
                     return json.dumps(HookInstaller().doctor(), default=str)
-                except Exception as e:
-                    return json.dumps({"error": f"Doctor failed: {e}"})
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "configuration doctor failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
             # ── CONCEPT:AU-ORCH.routing.role-specialized-model-routing: Role-Specialized Model Routing ──
             if action == "set_role_routing":
                 try:
@@ -3145,8 +3789,15 @@ def register_analysis_tools(mcp):
                             "roles": list(payload.keys()),
                         }
                     )
-                except Exception as e:
-                    return json.dumps({"error": f"set_role_routing failed: {e}"})
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    return json.dumps(
+                        {
+                            "error": "role routing update failed",
+                            "error_type": type(exc).__name__,
+                        }
+                    )
             # ── KG-2.35: Schema-Pack lifecycle (get/set the active domain pack) ──
             if action == "schema_pack":
                 from agent_utilities.models.schema_pack_loader import (
@@ -3192,8 +3843,18 @@ def register_analysis_tools(mcp):
                         "candidates": SchemaCandidateAuditor.instance().review(limit),
                     }
                 )
-            return json.dumps({"error": f"Unknown action: {action}"})
-        except Exception as e:
-            return json.dumps({"error": str(e)})
+            return json.dumps({"error": "unknown configuration action"})
+        except PermissionError:
+            # Authorization and filesystem-boundary denials are policy results,
+            # not successful MCP payloads.  Preserve fail-closed dispatch.
+            raise PermissionError("configuration operation denied") from None
+        except Exception as exc:
+            logger.warning("graph_configure operation failed (%s)", type(exc).__name__)
+            return json.dumps(
+                {
+                    "error": "configuration operation failed",
+                    "error_type": type(exc).__name__,
+                }
+            )
 
     kg_server.REGISTERED_TOOLS["graph_configure"] = graph_configure

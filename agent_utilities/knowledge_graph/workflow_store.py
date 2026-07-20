@@ -62,16 +62,24 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import time
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.models.graph import ExecutionStep, GraphPlan, GraphResponse
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _automatic_workflow_name(run_id: str) -> str:
+    """Derive a collision-resistant privacy-safe name from the full run handle."""
+
+    run_ref = persistence_reference("run", run_id, namespace="workflow-capture")
+    return f"auto:{run_ref}"
 
 
 class WorkflowStore:
@@ -119,7 +127,7 @@ class WorkflowStore:
             The workflow definition node ID.
         """
         workflow_id = (
-            f"workflow:{name.lower().replace(' ', '_')}:{uuid.uuid4().hex[:8]}"
+            f"workflow:{name.lower().replace(' ', '_')}:{secrets.token_hex(16)}"
         )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -159,7 +167,13 @@ class WorkflowStore:
                 "is_parallel": step.parallel,
                 "timeout": step.timeout,
                 "status": "pending",
+                # CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — gate/approval step kind
+                # (autonomous-sdlc-loop-design.md §7.1 delta 2), round-tripped through the store.
+                "kind": getattr(step, "kind", "task") or "task",
+                "condition": getattr(step, "condition", "on_success") or "on_success",
             }
+            if getattr(step, "on_reject", None):
+                step_props["on_reject"] = step.on_reject
             if step.refined_subtask:
                 step_props["refined_subtask"] = step.refined_subtask
             if step.description:
@@ -181,13 +195,19 @@ class WorkflowStore:
                 properties={"step_order": i},
             )
 
-            # Link step → previous step (sequential dependency)
+            # Link step → previous step (sequential dependency). The edge carries
+            # THIS step's own exit condition (default "on_success", unchanged for
+            # ordinary steps; a gate step's configured condition for gate steps).
             if prev_step_id and not step.parallel:
                 self.engine.link_nodes(
                     prev_step_id,
                     step_id,
                     "TRANSITION_TO",
-                    properties={"condition": "on_success", "priority": 1},
+                    properties={
+                        "condition": getattr(step, "condition", "on_success")
+                        or "on_success",
+                        "priority": 1,
+                    },
                 )
 
             # Link step → required tools (best-effort)
@@ -209,9 +229,12 @@ class WorkflowStore:
 
         # Link to source RunTrace if available (best-effort)
         if derived_from_run_id:
-            trace_id = f"trace:{derived_from_run_id}"
+            from agent_utilities.observability.trace_ontology import trace_id
+
             try:
-                self.engine.link_nodes(workflow_id, trace_id, "DERIVED_FROM")
+                self.engine.link_nodes(
+                    workflow_id, trace_id(derived_from_run_id), "DERIVED_FROM"
+                )
             except Exception:
                 pass  # nosec — provenance linking is best-effort
 
@@ -258,7 +281,7 @@ class WorkflowStore:
         # Find connected WorkflowStep nodes via HAS_STEP edges
         step_nodes: list[tuple[int, str, dict[str, Any]]] = []
         for _, target, edge_data in graph.out_edges(wid, data=True):
-            if edge_data.get("type") == "HAS_STEP":
+            if edge_data.get("relationship") == "HAS_STEP":
                 target_data = graph.nodes[target]
                 step_order = edge_data.get("step_order", 0)
                 step_nodes.append((step_order, target, target_data))
@@ -296,6 +319,9 @@ class WorkflowStore:
                 timeout=float(data.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,
+                kind=str(data.get("kind") or "task"),
+                condition=str(data.get("condition") or "on_success"),
+                on_reject=data.get("on_reject"),
             )
             steps.append(step)
 
@@ -339,7 +365,8 @@ class WorkflowStore:
             "RETURN s.node_id AS node_id, s.refined_subtask AS refined_subtask, "
             "s.input_data_json AS input_data, s.is_parallel AS is_parallel, "
             "s.timeout AS timeout, s.depends_on_json AS depends_on, "
-            "s.access_list_json AS access_list, s.step_order AS step_order "
+            "s.access_list_json AS access_list, s.step_order AS step_order, "
+            "s.kind AS kind, s.condition AS condition, s.on_reject AS on_reject "
             "ORDER BY s.step_order",
             {"wid": wid},
         )
@@ -375,6 +402,9 @@ class WorkflowStore:
                 timeout=float(row.get("timeout", 120.0)),
                 depends_on=depends_on,
                 access_list=access_list,
+                kind=str(row.get("kind") or "task"),
+                condition=str(row.get("condition") or "on_success"),
+                on_reject=row.get("on_reject"),
             )
             steps.append(step)
 
@@ -466,7 +496,7 @@ class WorkflowStore:
         name = (
             f"{agent_name}:{task[:50].replace(' ', '_').lower()}"
             if task
-            else f"auto:{run_id[:8]}"
+            else _automatic_workflow_name(run_id)
         )
 
         return self.save_workflow(

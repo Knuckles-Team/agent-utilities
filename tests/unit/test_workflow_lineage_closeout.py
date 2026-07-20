@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.observability.trace_ontology import trace_id
 from agent_utilities.workflows.runner import StepResult, WorkflowResult, WorkflowRunner
 
 pytestmark = pytest.mark.concept("AU-ORCH.execution.best-effort-provenance")
@@ -100,7 +101,8 @@ class TestCloseOut:
         runner = WorkflowRunner()
         runner._close_out_process_lineage(engine, "invoice_flow", _result())
 
-        trace = engine.graph._nodes.get("trace:run-42")
+        tid = trace_id("run-42")
+        trace = engine.graph._nodes.get(tid)
         assert trace is not None
         assert trace["type"] == "RunTrace"
         assert trace["status"] == "completed"
@@ -112,7 +114,7 @@ class TestCloseOut:
         ]
         assert len(executed) == 1
         src, tgt, props = executed[0]
-        assert (src, tgt) == ("trace:run-42", PROC)
+        assert (src, tgt) == (tid, PROC)
         assert props["status"] == "completed"
 
     def test_sink_called_with_normalized_record(self):
@@ -142,7 +144,7 @@ class TestCloseOut:
         runner = WorkflowRunner(lineage_sink=records.append)
         runner._close_out_process_lineage(engine, "invoice_flow", _result())
         assert records == []
-        assert "trace:run-42" not in engine.graph._nodes
+        assert trace_id("run-42") not in engine.graph._nodes
 
     def test_sink_failure_never_raises(self):
         engine = _engine_with_realizes()
@@ -165,7 +167,7 @@ class TestCloseOut:
             engine, "invoice_flow", _result(status="failed", session_id="run-43")
         )
         assert records[0]["status"] == "failed"
-        assert engine.graph._nodes["trace:run-43"]["status"] == "failed"
+        assert engine.graph._nodes[trace_id("run-43")]["status"] == "failed"
 
     def test_no_engine_is_noop(self):
         runner = WorkflowRunner(lineage_sink=lambda rec: pytest.fail("called"))

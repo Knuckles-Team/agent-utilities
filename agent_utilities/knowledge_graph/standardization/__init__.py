@@ -19,7 +19,7 @@ The decision brain that turns a fully-harvested enterprise knowledge graph into
 
 Reached from the execution plane through ``kg.ontology`` (the OntologySystem binds
 :data:`ENTERPRISE_STANDARD_REGISTRY` as ``ontology.standards``) and exposed over
-the ``graph_orchestrate(action="standardize")`` MCP action. Mirrors
+the ``graph_evolution(action="standardize")`` MCP action. Mirrors
 ``research/loop_controller.run_assimilation_pass`` — a single propose-only pass the
 daemon can schedule.
 """
@@ -66,7 +66,7 @@ def run_standardization_pass(
     materialize standards → score conformance drift → rank consolidation
     candidates. Idempotent (CONFORMS_TO / ABSORBED_INTO edges are cleared before
     re-write; recommendation nodes are keyed by member-set hash). Returns a
-    JSON-able report consumed by ``graph_orchestrate(action="standardize")`` and
+    JSON-able report consumed by ``graph_evolution(action="standardize")`` and
     the golden-loop ``standardize`` stage.
 
     Args:
@@ -79,7 +79,7 @@ def run_standardization_pass(
     if engine is None:
         from ..core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
+        engine = IntelligenceGraphEngine.get_or_create()
 
     standards_written = materialize_standards(engine) if write else 0
     assets = read_assets(engine)

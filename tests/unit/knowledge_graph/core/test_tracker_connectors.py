@@ -15,6 +15,41 @@ import pytest
 from agent_utilities.knowledge_graph.core import source_sync as ss
 
 
+@pytest.fixture(autouse=True)
+def _capture_native_envelope_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    def cursor_key(connector, source_instance):
+        return f"sync:{connector}:{source_instance or connector}"
+
+    def read_cursor(engine, connector, *, source_instance=""):
+        return engine.backend.watermarks.get(cursor_key(connector, source_instance))
+
+    def capture(engine, envelope):
+        row = envelope.to_entity_dict()
+        relationships = row.pop("_links", [])
+        auxiliary = row.pop("_nodes", [])
+        engine.ingest_external_batch(
+            envelope.connector, [row, *auxiliary], relationships
+        )
+        if envelope.checkpoint:
+            engine.backend.watermarks[
+                cursor_key(envelope.connector, envelope.source_instance)
+            ] = str(envelope.checkpoint)
+        return {"status": "success", "watermark_advanced": bool(envelope.checkpoint)}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.read_change_cursor",
+        read_cursor,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        capture,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
+
+
 class _Doc(SimpleNamespace):
     """A minimal SourceDocument-shaped object."""
 
@@ -76,6 +111,12 @@ def _patch_conn(monkeypatch, docs):
 
 
 def test_jira_sync_maps_typed_entities_and_advances_watermark(monkeypatch):
+    """AU-P1-5: ``_sync_jira`` is envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction)
+    — one ``ingest_envelope``/``ingest_external_batch`` call per entity (issue/person/
+    epic), so ``engine.batches`` now holds one entry per entity instead of a single
+    per-run batch. Aggregate across every call; the underlying intent (typed
+    entities + has_role/part_of links + watermark advance) is unchanged.
+    """
     issue = {
         "fields": {
             "summary": "Fix payment flow",
@@ -91,8 +132,9 @@ def test_jira_sync_maps_typed_entities_and_advances_watermark(monkeypatch):
 
     out = ss.sync_source(engine, "jira", mode="delta")
     assert out["status"] == "ok"
-    domain, entities, rels = engine.batches[0]
-    assert domain == "jira"
+    assert engine.batches and all(domain == "jira" for domain, _, _ in engine.batches)
+    entities = [e for _domain, es, _rels in engine.batches for e in es]
+    rels = [r for _domain, _es, rs in engine.batches for r in rs]
     types = {e["type"] for e in entities}
     assert {"issue", "person", "goal"} <= types
     assert any(r["type"] == "has_role" for r in rels)
@@ -107,6 +149,10 @@ def test_jira_sync_maps_typed_entities_and_advances_watermark(monkeypatch):
 
 
 def test_plane_multi_instance_loops_both_servers(monkeypatch):
+    """AU-P1-5: ``_sync_plane`` is envelope-native — one ``ingest_envelope`` call per
+    entity (issue/project), so ``engine.batches`` holds one entry per entity per
+    instance instead of a single per-instance batch. Aggregate across every call.
+    """
     # Two Plane instances → the same logic ingests both.
     monkeypatch.setattr(
         ss,
@@ -125,9 +171,12 @@ def test_plane_multi_instance_loops_both_servers(monkeypatch):
     engine = _FakeEngine()
 
     out = ss.sync_source(engine, "plane", mode="delta")
-    assert {r["instance"] for r in out["instances"]} == {"primary", "secondary"}
-    # one ingest batch per instance, each with a namespaced issue + project node
-    assert len(engine.batches) == 2
+    assert {r["instance"] for r in out["details"]["instances"]} == {
+        "primary",
+        "secondary",
+    }
+    # one ingest_external_batch call per entity (issue + project) per instance
+    assert len(engine.batches) == 4
     ids = {e["id"] for _, ents, _ in engine.batches for e in ents}
     assert "plane:primary:issue:wi-1" in ids
     assert "plane:secondary:issue:wi-1" in ids

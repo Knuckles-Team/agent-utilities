@@ -1,0 +1,161 @@
+connector: microsoft-agent
+ontology_source: microsoft
+schema_version: '1'
+resources:
+- name: Event
+  label: Opaque Microsoft event reference
+  id_prefix: event
+  relations:
+  - name: hasAttendee
+    label: has attendee
+    target: Person
+    lpg_rel_type: ''
+  - name: organizedBy
+    label: organized by
+    target: Person
+    lpg_rel_type: ''
+- name: File
+  label: Opaque Microsoft file reference
+  id_prefix: file
+  relations:
+  - name: ownedByPerson
+    label: owned by person
+    target: Person
+    lpg_rel_type: ''
+- name: Message
+  label: Opaque Microsoft message reference
+  id_prefix: message
+  relations:
+  - name: sentBy
+    label: sent by
+    target: Person
+    lpg_rel_type: ''
+  - name: sentTo
+    label: sent to
+    target: Person
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    microsoft-event-reference: id
+    microsoft-message-reference: id
+    microsoft-person-reference: id
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Event:
+    ontology_class: Event
+    fields: {}
+  File:
+    ontology_class: File
+    fields: {}
+  Message:
+    ontology_class: null
+    fields: {}
+sync:
+- preset: microsoft-event-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-event-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: events
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-event-reference
+- preset: microsoft-message-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-message-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: messages
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-message-reference
+- preset: microsoft-user-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-person-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: users
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-person-reference
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - microsoft_agent/connectors/mcp_source_presets.json
+  - microsoft_agent/connectors/tool_schema_fingerprints.json
+  - microsoft_agent/ontology/microsoft.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 4d5545b2fcef1af23af5da87943daaad04295833886a037217fd6cec9b357158
+    triple_count: 35
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: mkx6xBKUAZLog5ZI_P7AiKxFAj8X1CStKNN8CMPF9-_XmapLMMrsPM_I5iO1cbcS9AR95SSDb3e4p9DRH3ePDg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.Event.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.File.ontology_class = 'File' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Message.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

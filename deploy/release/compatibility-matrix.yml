@@ -1,0 +1,122 @@
+apiVersion: graphos.io/v1
+kind: CompatibilityMatrix
+matrixVersion: 2
+runtime:
+  pythonVersion: "3.12"
+  baseImage: "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+  pythonDependencyMode: offline-hash-locked-wheelhouse
+  offlineTargets:
+    epistemic-graph: release-local
+    agent-utilities: agent-local
+    langfuse-agent: mcp-local
+protocol:
+  name: epistemic-operations
+  version: "1"
+  schemas:
+    requestContext: "2"
+    mutationBatch: "1"
+    changeEnvelope: "1"
+    workItem: "1"
+    artifact: "1"
+    knowledgeBatch: "1"
+    analyticsJob: "1"
+    traceOutcome: "1"
+    placementRoute: "1"
+    claimWorkItem: "1"
+    evidenceBundle: "1"
+    operationResult: "1"
+components:
+  epistemic-graph:
+    version: "==2.23.1"
+    artifactKind: oci
+    requiredCapabilities:
+      - verified-request-context
+      - mutation-batch
+      - change-envelope
+      - work-item
+      - multi-raft
+      - primitive-rls
+      - analytics-job-worker-rpc
+      - analytics-job-queue-metrics
+      - knowledge-batch
+      - online-reshard
+      - backup-v3-coordinator-recovery
+      - retained-cross-shard-decisions
+  agent-utilities:
+    version: "==1.27.1"
+    artifactKind: oci
+    dependsOn:
+      epistemic-graph: "==2.23.1"
+    requiredCapabilities:
+      - graph-session
+      - context-compiler
+      - graph-os-intent-surface
+      - governed-connectors
+      - standalone-analytics-worker
+      - native-langfuse-mcp
+      - privacy-safe-trace-export
+      - graph-os-delegation
+      - native-program-evolution
+      - langfuse-evolution
+  langfuse-agent:
+    version: "==1.0.3"
+    artifactKind: oci
+    dependsOn:
+      agent-utilities: "==1.27.1"
+    requiredCapabilities:
+      - provider-profile-runtime
+      - verified-private-ca-tls
+      - metadata-only-trace-query
+      - parent-authority-kg-ingestion
+  epistemic-operations-protocol:
+    version: "==1"
+    artifactKind: catalog
+  connector-bundles:
+    version: "==1"
+    artifactKind: catalog
+    dependsOn:
+      agent-utilities: "==1.27.1"
+      epistemic-graph: "==2.23.1"
+    exactEntries: 65
+    requiredCapabilities:
+      - connector-live-certification
+      - governed-graphql-document-ingestion
+      - native-neo4j-ingestion
+      - native-apache-age-ingestion
+      - native-ladybugdb-ingestion
+  prebundled-skills:
+    version: "==1"
+    artifactKind: catalog
+    dependsOn:
+      agent-utilities: "==1.27.1"
+    exactEntries: 10
+    requiredCapabilities:
+      - graph-os-delegation-validated
+      - epistemic-engine-validated
+  ontology-lock:
+    version: "==1"
+    artifactKind: catalog
+    canonicalization: urdna2015-sha256
+  index-migrations:
+    version: "==1"
+    artifactKind: catalog
+    exactEntries: 1
+    migrationMode: one-time-persisted-state
+releaseTrain:
+  assemblyOrder:
+    - epistemic-operations-protocol
+    - epistemic-graph
+    - agent-utilities
+    - langfuse-agent
+    - connector-bundles
+    - prebundled-skills
+    - ontology-lock
+    - index-migrations
+  activationMode: atomic-exact-release
+  stateMigrationMode: one-time-persisted-state
+  rollbackRequires:
+    - signed-pre-cutover-snapshot
+    - verified-state-migration
+    - prior-exact-release-manifest
+    - prior-ontology-lock
+    - prior-connector-catalog

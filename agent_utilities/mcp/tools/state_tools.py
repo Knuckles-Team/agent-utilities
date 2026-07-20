@@ -12,6 +12,10 @@ from pydantic import Field
 from starlette.responses import JSONResponse
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import (
+    public_error_json,
+    public_error_payload,
+)
 
 
 def register_state_tools(mcp):
@@ -74,7 +78,7 @@ def register_state_tools(mcp):
                 return json.dumps(json.loads(body_bytes.decode("utf-8")))
             return str(resp)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_sessions"] = graph_sessions
 
@@ -141,7 +145,7 @@ def register_state_tools(mcp):
                 return json.dumps(json.loads(body_bytes.decode("utf-8")))
             return str(resp)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_goals"] = graph_goals
 
@@ -164,14 +168,21 @@ def register_state_tools(mcp):
             "``mine_discovery`` (CONCEPT:AU-KG.evolution.mining-flywheel, default ON via "
             "KG_LOOP_MINE_DISCOVERY): the discovery-flywheel mining pass — association-"
             "rule + anomaly + graph_learn link-prediction over the KG's Capability/"
-            "Concept nodes, write-back only (propose-only, never auto-merges)."
+            "Concept nodes, write-back only (propose-only, never auto-merges). "
+            "'placement_control' (CONCEPT:AU-KG.evolution.placement-mining-canary-loop, "
+            "Seam 4): manually trigger ONE governed pass of the workload-aware "
+            "placement loop — mine -> propose -> ActionPolicy review "
+            "(``apply_placement_change``, fail-closed approval_required by default) -> "
+            "engine reshard (the real online-move RPC) -> measured canary -> outcome "
+            "recorded back to mining. Opt-in/manual-trigger ONLY — calling this action "
+            "IS the manual trigger; it never runs on import or on any periodic loop."
         ),
         tags=["graph-os", "loops"],
     )
     async def graph_loops(
         action: str = Field(
             default="list",
-            description="submit|list|run|drive|cancel|prioritize|state|specs|review",
+            description="submit|list|run|drive|cancel|prioritize|state|specs|review|placement_control",
         ),
         objective: str = Field(default="", description="Objective text (submit)."),
         kind: str = Field(
@@ -188,10 +199,11 @@ def register_state_tools(mcp):
         ),
         max_topics: int = Field(default=5, description="Loops to advance per run."),
         limit: int = Field(default=10, description="Max rows (list)."),
-        priority: str = Field(
-            default="normal",
-            description="Priority bucket 0-3 or critical|high|normal|background "
-            "(submit/prioritize).",
+        priority_bucket: int = Field(
+            default=2,
+            ge=0,
+            le=3,
+            description="Integer WorkItem claim bucket 0-3 (submit/prioritize).",
         ),
         spec_id: str = Field(
             default="", description="SpecProposal id (review action)."
@@ -211,9 +223,20 @@ def register_state_tools(mcp):
             "(CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to "
             "config.kg_loop_mine_discovery (default True); explicit true/false overrides.",
         ),
+        placement_scan_limit: int = Field(
+            default=200,
+            description="'placement_control' only: provenance row-scan cap for the "
+            "placement mining pass.",
+        ),
+        placement_canary_tolerance: float = Field(
+            default=0.10,
+            description="'placement_control' only: fraction the canary metric may "
+            "regress by and still be promoted (SLO noise tolerance).",
+        ),
     ) -> str:
         """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
-        the self-evolution flywheel (state / specs / review) — the one entrypoint."""
+        the self-evolution flywheel (state / specs / review / placement_control) —
+        the one entrypoint."""
         import json as _json
 
         from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -242,7 +265,7 @@ def register_state_tools(mcp):
                     end_state=end_state,
                     skill_ref=skill_ref,
                     loop_id=loop_id,
-                    prio_bucket=_coerce_prio_bucket(priority),
+                    prio_bucket=_coerce_prio_bucket(priority_bucket),
                 )
                 return _json.dumps({"action": "submit", "loop": loop}, default=str)
             if action == "list":
@@ -280,7 +303,7 @@ def register_state_tools(mcp):
             if action == "prioritize":
                 if not loop_id:
                     return _json.dumps({"error": "prioritize needs a loop_id"})
-                bucket = _coerce_prio_bucket(priority)
+                bucket = _coerce_prio_bucket(priority_bucket)
                 ok = prioritize_loop(engine, loop_id, bucket)
                 return _json.dumps(
                     {
@@ -337,9 +360,32 @@ def register_state_tools(mcp):
                     },
                     default=str,
                 )
+            if action == "placement_control":
+                # Seam 4 (CONCEPT:AU-KG.evolution.placement-mining-canary-loop):
+                # manual-trigger ONE governed placement-loop pass. Calling this
+                # action over MCP/REST IS the explicit manual trigger, so
+                # ``enabled=True`` is passed unconditionally here — the module
+                # itself stays opt-in/OFF for every other (e.g. periodic/
+                # automatic) caller that does not pass this flag explicitly.
+                from agent_utilities.knowledge_graph.research.placement_mining import (
+                    placement_control_loop,
+                )
+
+                return _json.dumps(
+                    {
+                        "action": "placement_control",
+                        "result": placement_control_loop(
+                            engine,
+                            tolerance=placement_canary_tolerance,
+                            limit=placement_scan_limit,
+                            enabled=True,
+                        ),
+                    },
+                    default=str,
+                )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_loops"] = graph_loops
 
@@ -363,9 +409,11 @@ def register_state_tools(mcp):
             description="list|enable|disable|prioritize|set_interval|run_now",
         ),
         name: str = Field(default="", description="Schedule name (all but list)."),
-        priority: str = Field(
-            default="normal",
-            description="Bucket 0-3 or critical|high|normal|background (prioritize).",
+        priority: int = Field(
+            default=2,
+            ge=0,
+            le=3,
+            description="Integer claim bucket 0-3 (prioritize).",
         ),
         interval_s: float = Field(
             default=0.0, description="New interval seconds (set_interval)."
@@ -397,7 +445,7 @@ def register_state_tools(mcp):
                 return _json.dumps(_se.run_now(engine, name))
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_schedules"] = graph_schedules
 
@@ -406,8 +454,9 @@ def register_state_tools(mcp):
         description=(
             "Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface). "
             "The RLM code-execution tier boots a runtime warm once and forks children from "
-            "copy-on-write state (forkserver/os.fork, Wizer-warmed wasm, warm container pool, "
-            "firecracker microVM) instead of cold-booting per snippet. action in 'status' "
+            "copy-on-write state only where the boundary also confines filesystem, "
+            "credentials, processes, and network (for example a firecracker microVM). "
+            "action in 'status' "
             "(per-rung availability + pooled warm-parent count + per-rung reward EMA), 'reap' "
             "(close idle warm parents now + idle dev-workspaces), 'warm' (pre-pay a rung's "
             "start-up so the next fan-out forks cheaply — name it with rung). Code execution "
@@ -418,7 +467,7 @@ def register_state_tools(mcp):
     async def graph_sandbox(
         action: str = Field(default="status", description="status|reap|warm"),
         rung: str = Field(
-            default="", description="Rung to warm (warm): forkserver|container_fork|..."
+            default="", description="Approved confined warm-fork rung to warm."
         ),
     ) -> str:
         """Status / reap / warm the warm-fork sandbox rungs (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface, CONCEPT:AU-OS.host.so-they-are-idle)."""
@@ -458,22 +507,24 @@ def register_state_tools(mcp):
                 return _json.dumps(
                     {
                         "action": "reap",
-                        "reaped_parents": reaped,
-                        "reaped_workspaces": workspaces,
+                        "reaped_parent_count": len(reaped),
+                        "reaped_workspace_count": len(workspaces),
                         "pool": WarmParentRegistry.get().stats(),
                     }
                 )
 
             if action == "warm":
                 if not rung:
-                    return _json.dumps({"error": "warm needs a rung name"})
+                    return _json.dumps({"error": "warm requires an approved rung"})
                 from agent_utilities.rlm.sandboxes.base import ForkableSandbox
                 from agent_utilities.rlm.sandboxes.registry import default_sandboxes
 
                 backend = next((b for b in default_sandboxes() if b.name == rung), None)
                 if backend is None or not isinstance(backend, ForkableSandbox):
                     return _json.dumps(
-                        {"error": f"{rung!r} is not a warm-fork rung on this host"}
+                        {
+                            "error": "requested rung is not an available confined warm-fork"
+                        }
                     )
                 registry = WarmParentRegistry.get()
                 spec = backend.warm_spec()
@@ -492,9 +543,9 @@ def register_state_tools(mcp):
                     }
                 )
 
-            return _json.dumps({"error": f"unknown action {action!r}"})
+            return _json.dumps({"error": "unknown sandbox action"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_sandbox"] = graph_sandbox
 
@@ -509,24 +560,94 @@ def register_state_tools(mcp):
             "label), 'revert' (restore a run's files+process+messages to a commit — pass "
             "commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent "
             "untouched — pass commit_id), 'discard' (drop the uncommitted event delta), "
-            "'replay' (deterministically replay the run's event log — a recorded exchange "
-            "stands in for the model — and verify reproduction). Retained-output accept/discard "
-            "of a finished run is governed by the run.select action-policy gate."
+            "'replay' (deterministically replay the CURRENT live run's event log — a recorded "
+            "exchange stands in for the model — and verify reproduction). Retained-output "
+            "accept/discard of a finished run is governed by the run.select action-policy gate. "
+            "Agent Digital Twin actions (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8) — a "
+            "durable, replayable projection of a PAST run kept independently of any live "
+            "session: 'twin_capture' (best-effort hydrate a twin for run_id from the KG's "
+            "already-recorded :ToolCall/:WorkItem rows, optionally persist it as a "
+            ":AgentDigitalTwin node, and return the full serialized twin JSON — pass that JSON "
+            "back in as `twin` to the actions below), 'twin_replay' (regression-replay a "
+            "captured twin — pass `twin`), 'twin_counterfactual' (re-drive a captured twin "
+            "under a swapped policy/model version — pass `twin` plus `policy_overrides` and/or "
+            "`model_responses`, and optionally `versions` for reporting), 'twin_incident' "
+            "(ordered, human-inspectable step-through of a captured twin's recorded run — pass "
+            "`twin`)."
         ),
-        tags=["graph-os", "runvcs", "fork", "revert"],
+        tags=["graph-os", "runvcs", "fork", "revert", "twin"],
     )
     async def graph_runvcs(
         action: str = Field(
             default="list",
-            description="list|status|commit|revert|fork|discard|replay",
+            description=(
+                "list|status|commit|revert|fork|discard|replay|twin_capture|twin_replay|"
+                "twin_counterfactual|twin_incident"
+            ),
         ),
-        run_id: str = Field(default="", description="Target run session id."),
+        run_id: str = Field(
+            default="",
+            description="Target run session id (live-run actions) or run id to hydrate a twin from (twin_capture).",
+        ),
         commit_id: str = Field(
             default="", description="Target commit id (revert|fork)."
         ),
         label: str = Field(default="", description="Commit label (commit)."),
+        twin: str = Field(
+            default="",
+            description=(
+                "JSON-serialized AgentDigitalTwin (CONCEPT:AU-ORCH.twin.agent-digital-twin) — "
+                "the output of action='twin_capture'. Required by twin_replay/"
+                "twin_counterfactual/twin_incident."
+            ),
+        ),
+        agent_name: str = Field(
+            default="", description="Agent name to stamp on the twin (twin_capture)."
+        ),
+        task: str = Field(
+            default="",
+            description="Task description to stamp on the twin (twin_capture).",
+        ),
+        versions: str = Field(
+            default="{}",
+            description=(
+                "JSON VersionPins fields (model_id, model_provider, prompt_version_id, "
+                "tool_versions, skill_versions, policy_version, policy_digest, catalog_epoch). "
+                "For twin_capture: the pins this run executed under. For twin_counterfactual: "
+                "the swapped pins to diff against the twin's recorded pins (reporting only — "
+                "pass policy_overrides/model_responses to actually change the replay outcome)."
+            ),
+        ),
+        outcome: str = Field(
+            default="",
+            description="Outcome status to stamp on the twin (twin_capture; default 'succeeded').",
+        ),
+        persist: bool = Field(
+            default=True,
+            description=(
+                "twin_capture: best-effort persist the twin as a durable :AgentDigitalTwin "
+                "KG node (no-op without a live engine)."
+            ),
+        ),
+        policy_overrides: str = Field(
+            default="",
+            description=(
+                "JSON policy ruleset {version, defaults, rules} for twin_counterfactual — "
+                "recompute every recorded decision under this swapped policy version and "
+                "diff against what was originally decided."
+            ),
+        ),
+        model_responses: str = Field(
+            default="",
+            description=(
+                "JSON {request: alternate_response} for twin_counterfactual — substitute an "
+                "alternate model/prompt response for a recorded model exchange and surface the "
+                "resulting stream divergence."
+            ),
+        ),
     ) -> str:
-        """List / inspect / commit / revert / fork / discard / replay a live run (run-VCS)."""
+        """List / inspect / commit / revert / fork / discard / replay a live run (run-VCS);
+        capture / replay / counterfactual-replay / step through an Agent Digital Twin (X-8)."""
         import json as _json
 
         from agent_utilities.runtime.run_vcs.replay import replay_run
@@ -536,6 +657,108 @@ def register_state_tools(mcp):
         try:
             if action == "list":
                 return _json.dumps({"action": "list", "runs": registry.list_ids()})
+
+            # ── Agent Digital Twin actions (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8) ──
+            # Twins project a PAST run independently of any live RunSessionRegistry entry,
+            # so these branch out before the live-session guard below.
+            if action == "twin_capture":
+                from agent_utilities.orchestration.agent_digital_twin import (
+                    VersionPins,
+                    capture_twin_from_kg,
+                    persist_twin,
+                )
+
+                if not run_id:
+                    return _json.dumps({"error": "twin_capture requires run_id"})
+                engine = kg_server._get_engine()
+                pins = VersionPins.from_dict(_json.loads(versions) if versions else {})
+                twin_obj = capture_twin_from_kg(
+                    engine,
+                    run_id,
+                    agent_name=agent_name,
+                    task=task,
+                    versions=pins,
+                    outcome=outcome,
+                )
+                node_id = persist_twin(engine, twin_obj) if persist else None
+                return _json.dumps(
+                    {
+                        "action": "twin_capture",
+                        "twin_id": twin_obj.twin_id,
+                        "node_id": node_id,
+                        "twin": twin_obj.to_dict(),
+                    },
+                    default=str,
+                )
+            if action in ("twin_replay", "twin_counterfactual", "twin_incident"):
+                from agent_utilities.orchestration.agent_digital_twin import (
+                    AgentDigitalTwin,
+                    VersionPins,
+                    counterfactual_replay,
+                    replay_twin,
+                    twin_incident_steps,
+                )
+
+                if not twin:
+                    return _json.dumps(
+                        {
+                            "error": f"{action} requires `twin` (JSON from action='twin_capture')"
+                        }
+                    )
+                twin_obj = AgentDigitalTwin.from_dict(_json.loads(twin))
+
+                if action == "twin_replay":
+                    report = replay_twin(twin_obj)
+                    return _json.dumps(
+                        {
+                            "action": "twin_replay",
+                            "run_id": report.run_id,
+                            "twin_id": report.twin_id,
+                            "deterministic": report.deterministic,
+                            "steps": report.regression.steps,
+                            "model_calls": report.regression.model_calls,
+                        }
+                    )
+                if action == "twin_counterfactual":
+                    versions_override = (
+                        VersionPins.from_dict(_json.loads(versions))
+                        if versions and versions != "{}"
+                        else None
+                    )
+                    overrides = (
+                        _json.loads(policy_overrides) if policy_overrides else None
+                    )
+                    responses = (
+                        _json.loads(model_responses) if model_responses else None
+                    )
+                    report = counterfactual_replay(
+                        twin_obj,
+                        versions=versions_override,
+                        policy_overrides=overrides,
+                        model_responses=responses,
+                    )
+                    return _json.dumps(
+                        {
+                            "action": "twin_counterfactual",
+                            "run_id": report.run_id,
+                            "twin_id": report.twin_id,
+                            "diverged": report.diverged,
+                            "deterministic": report.deterministic,
+                            "version_delta": report.version_delta,
+                            "decision_delta": report.decision_delta,
+                        },
+                        default=str,
+                    )
+                # action == "twin_incident"
+                steps = twin_incident_steps(twin_obj)
+                return _json.dumps(
+                    {
+                        "action": "twin_incident",
+                        "run_id": twin_obj.run_id,
+                        "steps": steps,
+                    },
+                    default=str,
+                )
 
             session = registry.acquire(run_id) if run_id else None
             if action != "list" and session is None:
@@ -587,7 +810,7 @@ def register_state_tools(mcp):
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_runvcs"] = graph_runvcs
 
@@ -677,7 +900,7 @@ def register_state_tools(mcp):
                         )
                         results.append({"url": u, "id": nid})
                     except Exception as e:  # noqa: BLE001 — one bad feed never aborts the batch
-                        results.append({"url": u, "error": str(e)})
+                        results.append(public_error_payload(e))
                 added = [r for r in results if "id" in r]
                 return _json.dumps(
                     {
@@ -699,7 +922,7 @@ def register_state_tools(mcp):
                         ok = remove_feed_source(engine, key=u, source_system="rss")
                         results.append({"url": u, "ok": bool(ok)})
                     except Exception as e:  # noqa: BLE001
-                        results.append({"url": u, "error": str(e)})
+                        results.append(public_error_payload(e))
                 return _json.dumps(
                     {
                         "action": "remove",
@@ -745,7 +968,7 @@ def register_state_tools(mcp):
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_feeds"] = graph_feeds
 
@@ -813,35 +1036,9 @@ def register_state_tools(mcp):
             )
             return json.dumps(result, default=str)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["research_artifact"] = research_artifact
-
-    @mcp.tool(
-        name="graph_hydrate",
-        description="Hydrate the Knowledge Graph from configured external sources. ALIAS of `source_sync` (mode='full') kept for back-compat — `source_sync` is the canonical tool (it adds delta/reconcile modes and the same source='all' fleet sweep). source=<connector> hydrates one; source='all' sweeps every configured connector.",
-        tags=["graph-os", "hydration"],
-    )
-    async def graph_hydrate(
-        source: str = Field(
-            default="all",
-            description="The source connector to hydrate (any registered source), or 'all' to sweep every configured source.",
-        ),
-    ) -> str:
-        """Hydrate the KG from external sources (thin alias of source_sync, mode=full)."""
-
-        from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-        try:
-            engine = kg_server._get_engine()
-            # Delegate to the one unified core so there is no divergent hydration
-            # logic; 'all' fans out to the fleet sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
-            res = sync_source(engine, source, mode="full")
-            return json.dumps(res, default=str)
-        except Exception as e:
-            return json.dumps({"status": "error", "error": str(e)})
-
-    kg_server.REGISTERED_TOOLS["graph_hydrate"] = graph_hydrate
 
     # ══════════════════════════════════════════════════════════════════
     # Ontology System — Palantir Foundry parity (type/link/function layer)

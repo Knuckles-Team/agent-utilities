@@ -22,6 +22,8 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from agent_utilities.security.error_surface import public_error_payload
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Benchmark"], prefix="/benchmark")
@@ -128,12 +130,11 @@ def _engine():
 def _judge_answer(predicted: str, gold: str) -> bool:
     """Score an answer via the ORCH-1.27 ``judge`` role, falling back to :func:`judge_binary`."""
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role="judge")
-        agent = Agent(
+        agent = create_context_agent(
             model=model,
             system_prompt=(
                 "You are a strict binary evaluator. Reply ONLY 'CORRECT' or 'INCORRECT'. "
@@ -145,9 +146,11 @@ def _judge_answer(predicted: str, gold: str) -> bool:
         )
         if "CORRECT" in out.upper():
             return "INCORRECT" not in out.upper()
-    except Exception as e:  # pragma: no cover - judge is best-effort
+    except Exception as exc:  # pragma: no cover - judge is best-effort
         logger.debug(
-            "[AHE-3.12] LLM judge unavailable, using deterministic fallback: %s", e
+            "[AHE-3.12] LLM judge unavailable; using deterministic fallback "
+            "(exception_type=%s)",
+            type(exc).__name__,
         )
     return judge_binary(predicted, gold)
 
@@ -168,7 +171,7 @@ async def benchmark_health() -> dict[str, Any]:
 @router.post("/session")
 async def create_session(payload: BenchmarkSession) -> JSONResponse:
     """Ingest haystack messages as episodic memory and freeze a reproducible corpus."""
-    session_id = payload.session_id or f"sess-{uuid.uuid4().hex[:10]}"
+    session_id = payload.session_id or f"sess-{uuid.uuid4().hex}"
     try:
         engine = _engine()
         if engine is None:
@@ -204,9 +207,8 @@ async def create_session(payload: BenchmarkSession) -> JSONResponse:
         return JSONResponse(
             {"session_id": session_id, "corpus_id": corpus_id, "ingested": len(doc_ids)}
         )
-    except Exception as e:
-        logger.exception("[AHE-3.12] session ingest failed")
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 @router.post("/query")
@@ -241,20 +243,18 @@ async def run_query(payload: BenchmarkQuery) -> JSONResponse:
         }
         _RUNS.setdefault(payload.run_id, []).append(result)
         return JSONResponse(result)
-    except Exception as e:
-        logger.exception("[AHE-3.12] query failed")
-        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as exc:
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 def _generate_answer(question: str, context: str) -> str:
     """Synthesize an answer via the ORCH-1.27 ``generator`` role (extractive fallback)."""
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role="generator")
-        agent = Agent(
+        agent = create_context_agent(
             model=model,
             system_prompt=(
                 "Answer the question using ONLY the provided memories. Be concise and exact. "
@@ -267,8 +267,12 @@ def _generate_answer(question: str, context: str) -> str:
             "",
         )
         return str(out)
-    except Exception as e:  # pragma: no cover - generator is best-effort
-        logger.debug("[AHE-3.12] generator unavailable, extractive fallback: %s", e)
+    except Exception as exc:  # pragma: no cover - generator is best-effort
+        logger.debug(
+            "[AHE-3.12] generator unavailable; using extractive fallback "
+            "(exception_type=%s)",
+            type(exc).__name__,
+        )
         return context[:500]
 
 

@@ -3,8 +3,8 @@
 
 """Production-grade Kafka ingest task queue.
 
-CONCEPT:AU-KG.backend.selectable-queue-backend — Fail-loud selectable ingest task-queue backend: when Kafka is
-EXPLICITLY selected (``TASK_QUEUE_BACKEND=kafka``) an unreachable broker raises
+CONCEPT:AU-KG.backend.selectable-queue-backend — Fail-closed selectable ingest task-queue backend: when Kafka is
+selected (``TASK_QUEUE_BACKEND=kafka``) an unreachable broker raises
 :class:`~.queue_backend.TaskQueueUnavailable` at startup instead of silently
 degrading to the per-host SQLite file (which would split the fleet's queue into
 invisible islands).
@@ -14,12 +14,12 @@ without global serialization: every task is produced to the
 ``kg_tasks`` topic with a partition key so Kafka guarantees per-key ordering
 without global serialization. Key hierarchy (first match wins):
 
-1. ``tenant:<id>`` — the ambient :class:`ActorContext` tenant (multi-tenant
+1. ``tenant:<opaque-ref>`` — the ambient :class:`ActorContext` tenant (multi-tenant
    isolation ⇒ per-tenant ordering);
-2. ``corpus:<repo>`` — the repo/corpus identifier of the ingest target
+2. ``corpus:<opaque-ref>`` — the repo/corpus identifier of the ingest target
    (provenance ``full_path`` from the batch ingestor, else the path-derived
    repo root) ⇒ per-repo ordering for codebase ingest;
-3. ``type:<task_type>`` — the task type, the coarsest bucket.
+3. ``type:<opaque-ref>`` — the task type, the coarsest bucket.
 
 Topic provisioning is idempotent at startup: ``kg_tasks`` is created with
 ``KG_TASKS_PARTITIONS`` partitions (grow-only — an existing topic with more
@@ -28,8 +28,8 @@ partitions is never shrunk; with fewer, partitions are added).
 The decoupled ``kg-ingest`` consumer group lives in
 :mod:`agent_utilities.knowledge_graph.ingest_worker` (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer); this
 module owns the producer/topic/lag side. Uses ``confluent_kafka`` (a core
-dependency), imported lazily so environments without it degrade per the
-fail-loud/graceful contract above.
+dependency), imported lazily. A selected Kafka authority is mandatory and
+never switches to another queue after startup.
 """
 
 from __future__ import annotations
@@ -37,6 +37,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from .queue_backend import QueueBackend, TaskQueueUnavailable
@@ -52,6 +54,25 @@ STAGING_GROUP = "kg_staging_group"
 
 _DEFAULT_BOOTSTRAP = "localhost:9092"
 _PROBE_TIMEOUT_S = 5.0
+_DELIVERY_TIMEOUT_S = 10.0
+_PRODUCER_BATCH_LINGER_S = 0.010
+_PRODUCER_BATCH_MAX = 256
+
+
+@dataclass
+class _PendingDelivery:
+    """One produced record awaiting the batch delivery barrier."""
+
+    event: threading.Event = field(default_factory=threading.Event)
+    error: BaseException | None = None
+
+
+@dataclass(frozen=True)
+class _KafkaReceipt:
+    """Opaque acknowledgement receipt bound to its owning consumer."""
+
+    consumer: Any
+    message: Any
 
 
 def _corpus_root(target: str) -> str:
@@ -87,16 +108,24 @@ def partition_key_for(item: dict[str, Any]) -> str:
     isolation — a session never spans tenants — so session beats tenant
     without weakening any KG-2.56 guarantee.
     """
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    def opaque(kind: str, value: Any) -> str:
+        return persistence_reference(kind, value, namespace="kafka-work-partition")
+
     session = item.get("session_id") or (item.get("props") or {}).get("session_id")
     if session:
-        return f"session:{session}"
+        return f"session:{opaque('session', session)}"
+    partition_ref = item.get("partition_ref")
+    if partition_ref:
+        return f"work:{opaque('work', partition_ref)}"
 
     try:
         from agent_utilities.security.brain_context import current_actor
 
         tenant = current_actor().tenant_id
         if tenant:
-            return f"tenant:{tenant}"
+            return f"tenant:{opaque('tenant', tenant)}"
     except Exception:  # noqa: BLE001 — ambient identity is best-effort
         pass
 
@@ -104,7 +133,7 @@ def partition_key_for(item: dict[str, Any]) -> str:
     # Batch-ingest provenance stamps the stable repo key directly (KG-2.49).
     full_path = props.get("full_path")
     if full_path:
-        return f"corpus:{full_path}"
+        return f"corpus:{opaque('corpus', full_path)}"
 
     meta: dict[str, Any] = {}
     raw_meta = props.get("metadata")
@@ -114,20 +143,17 @@ def partition_key_for(item: dict[str, Any]) -> str:
         meta = _decode_metadata(raw_meta)
     target = meta.get("target")
     if target:
-        return f"corpus:{_corpus_root(target)}"
+        return f"corpus:{opaque('corpus', _corpus_root(target))}"
 
     task_type = meta.get("type") or item.get("type") or "task"
-    return f"type:{task_type}"
+    return f"type:{opaque('task_type', task_type)}"
 
 
 class KafkaQueueBackend(QueueBackend):
-    """Kafka-backed durable task queue with keyed partitions.
+    """Kafka-backed durable task queue with keyed opaque partitions.
 
-    ``fail_loud=True`` (explicit ``TASK_QUEUE_BACKEND=kafka``) raises
-    :class:`TaskQueueUnavailable` when the broker is unreachable at startup
-    and on produce failure — never a silent SQLite degrade. With
-    ``fail_loud=False`` and a ``fallback_db_path`` (auto-selected mode) the
-    graceful per-host SQLite fallback is preserved.
+    An unavailable broker raises :class:`TaskQueueUnavailable` at startup and
+    on produce failure. Queue authority never changes during a process lifetime.
 
     Test seams: ``producer``/``admin_client``/``consumer_factory`` accept
     pre-built (fake) confluent-kafka-shaped clients so unit tests never need a
@@ -136,10 +162,8 @@ class KafkaQueueBackend(QueueBackend):
 
     def __init__(
         self,
-        fallback_db_path: str | None = None,
         bootstrap_servers: str | list[str] | None = None,
         *,
-        fail_loud: bool = False,
         partitions: int = 6,
         producer: Any = None,
         admin_client: Any = None,
@@ -163,17 +187,17 @@ class KafkaQueueBackend(QueueBackend):
                 getattr(_cfg, "kafka_bootstrap_servers", None) or _DEFAULT_BOOTSTRAP
             )
         self.bootstrap_servers: str = bootstrap_servers
-        self.fail_loud = fail_loud
         self.partitions = max(1, int(partitions))
-        self.fallback_db_path = fallback_db_path
-        self._fallback_queue: Any = None
         self._producer: Any = producer
         self._admin: Any = admin_client
         self._consumer_factory = consumer_factory
-        self._task_consumer: Any = None
-        self._staging_consumer: Any = None
+        self._consumer_local = threading.local()
         self._lag_probe: Any = None
-        self._lock = threading.Lock()
+        self._lag_lock = threading.Lock()
+        self._admission_lock = threading.Lock()
+        self._produce_condition = threading.Condition()
+        self._pending_deliveries: list[_PendingDelivery] = []
+        self._flush_leader = False
 
         try:
             if self._producer is None:
@@ -184,16 +208,27 @@ class KafkaQueueBackend(QueueBackend):
                         "bootstrap.servers": self.bootstrap_servers,
                         "socket.timeout.ms": 5000,
                         "message.timeout.ms": 10000,
+                        "enable.idempotence": True,
+                        "acks": "all",
+                        "linger.ms": int(_PRODUCER_BATCH_LINGER_S * 1000),
                     }
                 )
             self.ensure_topics()
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
             logger.info(
-                "Kafka task queue ready (brokers=%s, topic=%s, partitions>=%d, "
-                "group=%s)",
-                self.bootstrap_servers,
+                "Kafka task queue ready (broker_ref=%s, topic=%s, partitions>=%d, "
+                "group_ref=%s)",
+                persistence_reference(
+                    "broker", self.bootstrap_servers, namespace="kafka-queue"
+                ),
                 self.tasks_topic,
                 self.partitions,
-                self.consumer_group,
+                persistence_reference(
+                    "consumer_group", self.consumer_group, namespace="kafka-queue"
+                ),
             )
         except TaskQueueUnavailable:
             raise
@@ -203,46 +238,11 @@ class KafkaQueueBackend(QueueBackend):
     # ── availability handling ──────────────────────────────────────────
 
     def _handle_unavailable(self, op: str, e: Exception) -> None:
-        """Fail loud (explicit selection) or degrade to SQLite (legacy alias)."""
-        if self.fail_loud:
-            if isinstance(e, ImportError):
-                remedy = "Install the client: `pip install confluent-kafka`"
-            else:
-                remedy = (
-                    "Start the kg-backbone Kafka stack (e.g. `docker compose -f "
-                    "docker/kafka-kraft.compose.yml up -d`) and check "
-                    "KAFKA_BOOTSTRAP_SERVERS"
-                )
-            raise TaskQueueUnavailable(
-                "TASK_QUEUE_BACKEND=kafka is explicitly selected but the broker "
-                f"at {self.bootstrap_servers!r} is unavailable ({op}: {e}). "
-                f"{remedy}, or fall back by unsetting TASK_QUEUE_BACKEND (auto) "
-                "/ setting it to 'sqlite' or 'postgres'."
-            ) from e
-        logger.warning(
-            "Kafka unavailable (%s: %s) — falling back to local SQLite "
-            "(auto-selected mode).",
-            op,
-            e,
-        )
-        self._use_fallback()
-
-    def _use_fallback(self) -> Any:
-        """Install (idempotently) and return the SQLite fallback queue."""
-        if self._fallback_queue is not None:
-            return self._fallback_queue
-        if not self.fallback_db_path:
-            raise TaskQueueUnavailable(
-                f"Kafka at {self.bootstrap_servers!r} is unavailable and no "
-                "SQLite fallback path is configured."
-            )
-        from .engine_tasks import SQLiteTaskQueue
-
-        self._fallback_queue = SQLiteTaskQueue(self.fallback_db_path)
-        logger.info(
-            "Kafka queue fell back to SQLiteTaskQueue at %s", self.fallback_db_path
-        )
-        return self._fallback_queue
+        """Fail closed without exposing broker identity or exception payloads."""
+        raise TaskQueueUnavailable(
+            "configured Kafka task authority is unavailable "
+            f"(operation={op}, error_type={type(e).__name__})"
+        ) from None
 
     # ── topic provisioning ── CONCEPT:AU-KG.backend.keyed-ingest-partitions
 
@@ -302,26 +302,149 @@ class KafkaQueueBackend(QueueBackend):
                         dict(to_grow)[topic],
                     )
                 except Exception as e:  # noqa: BLE001
-                    logger.warning("create_partitions(%s) failed: %s", topic, e)
+                    logger.warning(
+                        "create_partitions(%s) failed (error_type=%s)",
+                        topic,
+                        type(e).__name__,
+                    )
 
     # ── QueueBackend: task submission ───────────────────────────────────
 
     def put(self, item: dict[str, Any]) -> None:
-        if self._fallback_queue is not None:
-            self._fallback_queue.put(item)
-            return
-        try:
-            key = partition_key_for(item)
-            self._producer.produce(
+        self.put_many([item])
+
+    def put_many(self, items: list[dict[str, Any]]) -> None:
+        """Publish records through one coalescing delivery-confirmed batch.
+
+        Concurrent producers share the short linger window and one ``flush``
+        barrier. Every caller still waits for delivery confirmation for its own
+        records, so batching never weakens the durable-enqueue contract.
+        """
+        records = [
+            (
                 self.tasks_topic,
-                value=json.dumps(item).encode("utf-8"),
-                key=key.encode("utf-8"),
+                json.dumps(item).encode("utf-8"),
+                partition_key_for(item).encode("utf-8"),
             )
-            self._producer.flush(5.0)
+            for item in items
+        ]
+        self._publish_confirmed(records, operation="produce")
+
+    def put_if_below(self, item: dict[str, Any], max_depth: int) -> bool:
+        """Fail-closed admission against authoritative consumer-group lag.
+
+        Kafka does not expose a cross-producer compare-and-append primitive;
+        the broker's topic quota/retention is the hard storage bound. This gate
+        is serialized per producer and rejects when the lag authority cannot be
+        read. A small cross-producer race can admit at most concurrent writers,
+        never turn a failed probe into apparent capacity.
+        """
+        if max_depth < 1:
+            raise ValueError("max_depth must be positive")
+        with self._admission_lock:
+            if self.consumer_lag() >= max_depth:
+                return False
+            self.put(item)
+            return True
+
+    def _publish_confirmed(
+        self,
+        records: list[tuple[str, bytes, bytes]],
+        *,
+        operation: str,
+    ) -> None:
+        if not records:
+            return
+        mine: list[_PendingDelivery] = []
+        batch: list[_PendingDelivery] = []
+        leader = False
+        try:
+            with self._produce_condition:
+                for topic, value, key in records:
+                    pending = _PendingDelivery()
+
+                    def delivered(
+                        error: Any,
+                        _message: Any,
+                        *,
+                        delivery: _PendingDelivery = pending,
+                    ) -> None:
+                        if error is not None:
+                            delivery.error = RuntimeError(
+                                "Kafka broker rejected a queued record"
+                            )
+                        delivery.event.set()
+
+                    self._producer.produce(
+                        topic,
+                        value=value,
+                        key=key,
+                        on_delivery=delivered,
+                    )
+                    mine.append(pending)
+                    self._pending_deliveries.append(pending)
+
+                if not self._flush_leader:
+                    self._flush_leader = True
+                    leader = True
+                if len(self._pending_deliveries) >= _PRODUCER_BATCH_MAX:
+                    self._produce_condition.notify_all()
+
+            if leader:
+                deadline = time.monotonic() + _PRODUCER_BATCH_LINGER_S
+                with self._produce_condition:
+                    while (
+                        len(self._pending_deliveries) < _PRODUCER_BATCH_MAX
+                        and time.monotonic() < deadline
+                    ):
+                        self._produce_condition.wait(
+                            timeout=max(0.0, deadline - time.monotonic())
+                        )
+                    batch = self._pending_deliveries
+                    self._pending_deliveries = []
+                    remaining = int(self._producer.flush(_DELIVERY_TIMEOUT_S) or 0)
+                    if remaining:
+                        failure = TimeoutError(
+                            "Kafka delivery barrier expired with records pending"
+                        )
+                        for pending in batch:
+                            if not pending.event.is_set():
+                                pending.error = failure
+                                pending.event.set()
+                    else:
+                        # Test doubles and alternate clients may report a fully
+                        # drained producer without invoking callbacks.
+                        for pending in batch:
+                            pending.event.set()
+                    self._flush_leader = False
+                    self._produce_condition.notify_all()
+
+            deadline = time.monotonic() + _DELIVERY_TIMEOUT_S
+            for pending in mine:
+                if not pending.event.wait(max(0.0, deadline - time.monotonic())):
+                    raise TimeoutError("Kafka delivery confirmation timed out")
+                if pending.error is not None:
+                    raise pending.error
         except Exception as e:
-            self._handle_unavailable("produce", e)
-            # graceful path only: _handle_unavailable installed the fallback
-            self._use_fallback().put(item)
+            with self._produce_condition:
+                failed = list(batch or mine)
+                if leader:
+                    failed.extend(self._pending_deliveries)
+                    self._pending_deliveries = []
+                    self._flush_leader = False
+                else:
+                    self._pending_deliveries = [
+                        pending
+                        for pending in self._pending_deliveries
+                        if pending not in mine
+                    ]
+                failure = RuntimeError("Kafka confirmed batch publication failed")
+                for pending in failed:
+                    if not pending.event.is_set():
+                        pending.error = failure
+                        pending.event.set()
+                self._produce_condition.notify_all()
+            self._handle_unavailable(operation, e)
 
     def _consumer(self, topic: str, group: str) -> Any:
         if self._consumer_factory is not None:
@@ -339,33 +462,33 @@ class KafkaQueueBackend(QueueBackend):
         consumer.subscribe([topic])
         return consumer
 
+    def _thread_consumer(self, attribute: str, topic: str, group: str) -> Any:
+        consumer = getattr(self._consumer_local, attribute, None)
+        if consumer is None:
+            consumer = self._consumer(topic, group)
+            setattr(self._consumer_local, attribute, consumer)
+        return consumer
+
     def get(self) -> tuple[Any, dict[str, Any]] | None:
-        if self._fallback_queue is not None:
-            return self._fallback_queue.get()
         try:
-            with self._lock:
-                if self._task_consumer is None:
-                    self._task_consumer = self._consumer(
-                        self.tasks_topic, self.consumer_group
-                    )
-                msg = self._task_consumer.poll(0.5)
+            consumer = self._thread_consumer(
+                "task_consumer", self.tasks_topic, self.consumer_group
+            )
+            msg = consumer.poll(0.5)
             if msg is None or msg.error():
                 return None
-            return msg, json.loads(msg.value().decode("utf-8"))
+            return _KafkaReceipt(consumer, msg), json.loads(msg.value().decode("utf-8"))
         except Exception as e:  # noqa: BLE001 — poll is best-effort
-            logger.debug("Kafka get failed or timed out: %s", e)
+            logger.debug("Kafka get failed or timed out (%s)", type(e).__name__)
             return None
 
     def ack(self, item_id: Any) -> None:
-        if self._fallback_queue is not None:
-            self._fallback_queue.ack(item_id)
-            return
         try:
-            with self._lock:
-                if self._task_consumer is not None:
-                    self._task_consumer.commit(message=item_id, asynchronous=False)
+            if not isinstance(item_id, _KafkaReceipt):
+                raise TypeError("Kafka acknowledgement requires an owning receipt")
+            item_id.consumer.commit(message=item_id.message, asynchronous=False)
         except Exception as e:  # noqa: BLE001
-            logger.error("Kafka commit/ack failed: %s", e)
+            self._handle_unavailable("ack", e)
 
     # ── depth / lag backpressure visibility ── CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer
 
@@ -374,97 +497,82 @@ class KafkaQueueBackend(QueueBackend):
         all partitions; defaults to this queue's topic/group). Uses a
         non-subscribing probe consumer so it never joins (and never steals
         partitions from) the group."""
-        if self._fallback_queue is not None:
-            return self._fallback_queue.get_queue_size()
         topic = topic or self.tasks_topic
         group = group or self.consumer_group
         from confluent_kafka import TopicPartition
 
-        if self._lag_probe is None:
-            if self._consumer_factory is not None:
-                self._lag_probe = self._consumer_factory(
-                    topic=topic, group=group, probe=True
-                )
-            else:
-                from confluent_kafka import Consumer
+        with self._lag_lock:
+            if self._lag_probe is None:
+                if self._consumer_factory is not None:
+                    self._lag_probe = self._consumer_factory(
+                        topic=topic, group=group, probe=True
+                    )
+                else:
+                    from confluent_kafka import Consumer
 
-                self._lag_probe = Consumer(
-                    {
-                        "bootstrap.servers": self.bootstrap_servers,
-                        "group.id": group,
-                        "enable.auto.commit": False,
-                    }
+                    self._lag_probe = Consumer(
+                        {
+                            "bootstrap.servers": self.bootstrap_servers,
+                            "group.id": group,
+                            "enable.auto.commit": False,
+                        }
+                    )
+            md = self._admin_client().list_topics(topic=topic, timeout=_PROBE_TIMEOUT_S)
+            topic_md = getattr(md, "topics", {}).get(topic)
+            if topic_md is None:
+                return 0
+            tps = [TopicPartition(topic, p) for p in topic_md.partitions]
+            committed = self._lag_probe.committed(tps, timeout=_PROBE_TIMEOUT_S)
+            lag = 0
+            for tp in committed:
+                lo, hi = self._lag_probe.get_watermark_offsets(
+                    tp, timeout=_PROBE_TIMEOUT_S
                 )
-        md = self._admin_client().list_topics(topic=topic, timeout=_PROBE_TIMEOUT_S)
-        topic_md = getattr(md, "topics", {}).get(topic)
-        if topic_md is None:
-            return 0
-        tps = [TopicPartition(topic, p) for p in topic_md.partitions]
-        committed = self._lag_probe.committed(tps, timeout=_PROBE_TIMEOUT_S)
-        lag = 0
-        for tp in committed:
-            lo, hi = self._lag_probe.get_watermark_offsets(tp, timeout=_PROBE_TIMEOUT_S)
-            consumed = tp.offset if tp.offset >= 0 else lo
-            lag += max(0, hi - consumed)
-        return lag
+                consumed = tp.offset if tp.offset >= 0 else lo
+                lag += max(0, hi - consumed)
+            return lag
 
     def get_queue_size(self) -> int:
         """Queue depth = unconsumed task-topic messages (consumer-group lag)."""
-        if self._fallback_queue is not None:
-            return self._fallback_queue.get_queue_size()
-        try:
-            return self.consumer_lag()
-        except Exception as e:  # noqa: BLE001 — depth probe is best-effort
-            logger.debug("Kafka lag probe failed: %s", e)
-            return 0
+        return self.consumer_lag()
 
     # ── QueueBackend: staged-graph queue ───────────────────────────────
 
     def put_staged_graph(self, job_id: str, nodes: list, edges: list) -> None:
-        if self._fallback_queue is not None:
-            self._fallback_queue.put_staged_graph(job_id, nodes, edges)
-            return
-        try:
-            payload = {"job_id": job_id, "nodes": nodes, "edges": edges}
-            self._producer.produce(
-                STAGING_TOPIC,
-                value=json.dumps(payload).encode("utf-8"),
-                key=str(job_id).encode("utf-8"),
-            )
-            self._producer.flush(5.0)
-        except Exception as e:
-            self._handle_unavailable("produce(staging)", e)
-            self._use_fallback().put_staged_graph(job_id, nodes, edges)
+        payload = {"job_id": job_id, "nodes": nodes, "edges": edges}
+        self._publish_confirmed(
+            [
+                (
+                    STAGING_TOPIC,
+                    json.dumps(payload).encode("utf-8"),
+                    str(job_id).encode("utf-8"),
+                )
+            ],
+            operation="produce(staging)",
+        )
 
     def get_staged_graph(self) -> tuple[Any, str, dict[str, Any]] | None:
-        if self._fallback_queue is not None:
-            return self._fallback_queue.get_staged_graph()
         try:
-            with self._lock:
-                if self._staging_consumer is None:
-                    self._staging_consumer = self._consumer(
-                        STAGING_TOPIC, STAGING_GROUP
-                    )
-                msg = self._staging_consumer.poll(0.5)
+            consumer = self._thread_consumer(
+                "staging_consumer", STAGING_TOPIC, STAGING_GROUP
+            )
+            msg = consumer.poll(0.5)
             if msg is None or msg.error():
                 return None
             payload = json.loads(msg.value().decode("utf-8"))
             return (
-                msg,
+                _KafkaReceipt(consumer, msg),
                 payload.get("job_id", ""),
                 {"nodes": payload.get("nodes", []), "edges": payload.get("edges", [])},
             )
         except Exception as e:  # noqa: BLE001
-            logger.debug("Kafka get_staged_graph failed: %s", e)
+            logger.debug("Kafka get_staged_graph failed (%s)", type(e).__name__)
             return None
 
     def ack_staged_graph(self, item_id: Any) -> None:
-        if self._fallback_queue is not None:
-            self._fallback_queue.ack_staged_graph(item_id)
-            return
         try:
-            with self._lock:
-                if self._staging_consumer is not None:
-                    self._staging_consumer.commit(message=item_id, asynchronous=False)
+            if not isinstance(item_id, _KafkaReceipt):
+                raise TypeError("Kafka acknowledgement requires an owning receipt")
+            item_id.consumer.commit(message=item_id.message, asynchronous=False)
         except Exception as e:  # noqa: BLE001
-            logger.error("Kafka staged-graph commit failed: %s", e)
+            self._handle_unavailable("ack(staging)", e)

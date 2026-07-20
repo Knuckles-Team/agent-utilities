@@ -37,8 +37,8 @@ class Widget(BaseWidget):
         try:
             status = client.get_status() or {}
         except Exception as e:
-            logger.debug("Media Downloader fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Media Downloader fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

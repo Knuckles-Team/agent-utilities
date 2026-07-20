@@ -693,7 +693,7 @@ class BacktestHarness:
         Returns:
             The generated run ID.
         """
-        run_id = f"bt:{uuid.uuid4().hex[:8]}"
+        run_id = f"bt:{uuid.uuid4().hex}"
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         record = BacktestRunRecord(
@@ -1602,11 +1602,10 @@ class EvalRunner:
         text output, or ``None`` when no model is reachable (callers fall back).
         """
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
-            result = Agent(create_model()).run_sync(prompt)
+            result = create_context_agent(create_model()).run_sync(prompt)
             return result.output if hasattr(result, "output") else str(result)
         except Exception as exc:  # pragma: no cover - model optional offline
             logger.debug("LLM unavailable for judge: %s", exc)
@@ -2201,7 +2200,7 @@ class InterpretabilityTestSuite:
             ogm = KGMapper(self._engine)
 
             for r in pool:
-                node_id = f"itest:{uuid.uuid4().hex[:8]}"
+                node_id = f"itest:{uuid.uuid4().hex}"
                 cat_str = r.get("category", "point_simulation")
                 try:
                     cat = InterpretabilityTestCategory(cat_str)

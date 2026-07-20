@@ -1,97 +1,83 @@
-# Recipe — Enterprise (swarm)
+# Recipe — Enterprise multi-host
 
 > Ladder position: this recipe combines **rung (d) — Scaled multi-host** and
 > **rung (e) — Autonomous operations** of the
 > [supported deployment configurations](../guides/deployment-configurations.md#rung-d-scaled-multi-host)
-> guide, which carries the complete flag-by-flag `.env`/`config.json` for both
+> guide, which carries the complete AgentConfig surface for both
 > rungs and their verification steps. Note both rungs are marked
 > **not exercised in CI** there — validate in staging.
 
-Multi-node Docker Swarm with the full integration set and the complete `*-mcp`
-connector fleet. This is the "run the enterprise" tier. It is driven by the
-**`agent-os-genesis` (alias `day0`)** skill-workflow rather than by hand.
+This recipe describes an orchestrator-neutral multi-host deployment with a selected
+connector fleet. The **`agent-utilities-deployment`** skill-workflow drives it from
+an operator-owned runtime profile. The repository contains no site inventory,
+endpoint, credential, certificate, or environment-specific placement profile.
 
 ## What runs
 
 | Layer | Components |
 |---|---|
-| Edge | Caddy (HTTPS ingress) · Technitium DNS (authoritative `.arpa`) |
-| Core | Keycloak (SSO) · OpenBao (secrets) · Portainer (stack GitOps) · LGTM (Prometheus/Loki/Grafana/Tempo) |
+| Edge | Operator-managed TLS ingress and service discovery |
+| Core | OIDC identity provider · runtime secret provider · deployment controller · OpenTelemetry-compatible observability |
 | Engine | **shared/remote epistemic-graph engine** (the one authority/SoR), reached by every client via `GRAPH_SERVICE_ENDPOINTS`; shard it when one host saturates |
 | Data (mirrors) | **optional** Postgres/pg-age **mirror** (write-only fan-out for SQL-side querying/BI) · Kafka (event backbone) |
 | agent-utilities | REST gateway + KG host daemon, replicated; graph-os over streamable-http |
-| Connectors | the **entire** `*-mcp` fleet (`enterprise` profile) via Portainer GitOps |
+| Connectors | the approved `*-mcp` fleet selected by the external runtime profile |
 | UIs | agent-webui (Fleet Supervisor), agent-terminal-ui, geniusbot |
 
 ## Deploy (skill-workflow)
 
-The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
-
-1. `ssh-bootstrap` → full-mesh SSH across inventory hosts.
-2. `network-topology-sweep` + `hardware-profile-sweep` → discovery.
-3. `deployment-planner` → tiered placement manifest.
-4. `swarm-mesh-provisioner` → swarm + overlay networks.
-5. core-edge deploy → registry → DNS → Caddy → Portainer.
-6. `secret-vault-manager` → OpenBao + Keycloak.
-7. `gitlab-repository-seeder` + `portainer-gitops-bind` → stacks bound to Git.
-8. **agent-utilities** → install deps, start the shared engine + graph-os +
-   multiplexer, deploy the `*-mcp` fleet from `deploy/mcp-fleet.registry.yml`,
-   point clients at the engine (`GRAPH_SERVICE_ENDPOINTS`), and wire the optional
-   pg-age mirror + Kafka + OpenBao + Langfuse + Keycloak.
-9. `graph-os` → materialize the full topology in the KG.
+The `agent-utilities-deployment` workflow runs an ordered bootstrap: discover and
+validate the operator-supplied inventory, generate placement, prepare the selected
+orchestrator and workload identity, configure secret and TLS references, deploy the engine and GraphOS,
+attach optional mirrors and the connector fleet, then certify the live topology.
+Every phase consumes an external runtime profile; no generated site profile is added
+to this repository.
 
 Select the **enterprise** profile when the workflow's Step-0 questionnaire asks,
 and toggle the integrations you want.
 
-## `config.json` (generalized, enterprise switches)
+## AgentConfig (neutral enterprise shape)
 
-```jsonc
+Persist this shape under `$XDG_CONFIG_HOME/agent-utilities/config.json`. Keep the
+resolved inventory and secret material outside AgentConfig.
+
+```json
 {
-  "graph_backend": "fanout",
-
-  // The shared/remote engine authority — every gateway/connector/worker points
-  // at the SAME engine (one endpoint, or N shards). This is the system of record.
-  "graph_service_endpoints": ["tcp://kg-engine.example.arpa:9101"],
-
-  // OPTIONAL — write-only Postgres/pg-age MIRROR of the engine (SQL-side
-  // querying/BI). Omit it for an engine-only enterprise.
-  "graph_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_kg",
-  "kg_daemon_role": "host",
-
-  // Durable platform state (sessions/goals/checkpoints/queues) on shared
-  // Postgres — enables fleet-wide leader election for daemon ticks
-  "state_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_state",
-
-  "task_queue_backend": "kafka",
-  "kafka_bootstrap_servers": "kafka.example.arpa:9092",
-
-  // Agent turns via the session-keyed queue, executed by the
-  // agent-dispatch-worker fleet (default "inline" = in-process)
-  "agent_dispatch_backend": "queue",
-
-  "secrets_vault_url": "https://openbao.example.arpa",
-  "vault_auth_method": "approle",
-
-  "kg_auth_required": true,
-  "auth_jwt_jwks_uri": "https://keycloak.example.arpa/realms/agents/protocol/openid-connect/certs",
-  "auth_jwt_issuer": "https://keycloak.example.arpa/realms/agents",
-
-  "enable_otel": true,
-  "otel_exporter_otlp_endpoint": "https://langfuse.example.arpa/api/public/otel",
-  "langfuse_host": "https://langfuse.example.arpa"
+  "GRAPH_SERVICE_ENDPOINTS": ["tls://engine.example.invalid:9100"],
+  "ENGINE_TLS_PROFILE_REF": "secret://tls/engine-profile",
+  "GRAPH_DB_CONNECTION_PROFILE_REF": "secret://graph/mirror-profile",
+  "KG_DAEMON_ROLE": "host",
+  "TASK_QUEUE_BACKEND": "kafka",
+  "KG_IDENTITY_OAUTH2": {
+    "token_url": "https://identity.example.invalid/oauth2/token",
+    "client_id": "graph-client",
+    "client_secret": "secret://identity/graph-os-client-secret",
+    "audience": "graph-services"
+  },
+  "AUTH_JWT_JWKS_URI": "https://identity.example.invalid/.well-known/jwks.json",
+  "AUTH_JWT_AUDIENCE": "graph-services",
+  "KG_POLICY_VERSION": "current",
+  "LANGFUSE_HOST": "https://observability.example.invalid",
+  "LANGFUSE_PUBLIC_KEY_REF": "secret://observability/langfuse-public-key",
+  "LANGFUSE_SECRET_KEY_REF": "secret://observability/langfuse-secret-key",
+  "LANGFUSE_TLS_PROFILE_REF": "secret://tls/langfuse-profile",
+  "LANGFUSE_CAPTURE_CONTENT": false,
+  "LANGFUSE_KG_AUTO_INGEST": false
 }
 ```
 
-(Keys in `~/.config/agent-utilities/config.json` are upper-cased to their env
-aliases and applied only where the env var is unset — environment always wins.)
+Endpoints above are reserved documentation values. Operators inject their own
+topology and resolve every secret/TLS reference at runtime. Langfuse MCP and
+propose-only failure evolution auto-enable when both credential references resolve;
+trace export, content capture, and KG auto-ingestion remain explicit opt-ins.
 
 ## Scale note
 
-The connector fleet is stateless and scales horizontally on the swarm. The KG
-host daemon is a singleton per host per the `KG_DAEMON_ROLE=host` flock; running
-the agent swarm at very large scale (the 100k+ target) additionally needs
+The connector fleet is stateless and scales horizontally through the selected
+orchestrator. The KG host daemon is a singleton per host per the
+`KG_DAEMON_ROLE=host` lock; running a large agent fleet additionally needs
 multiple gateway workers (`GATEWAY_WORKERS`) + a durable queue (Kafka, above) +
-shared pg-age/state-store Postgres — see the
+shared state storage and, when selected, a graph mirror — see the
 [capacity model](../scaling/capacity_model.md). Durable execution (idempotency
 + at-least-once) is already in place to make that safe. The work itself scales
 through the two consumer fleets — `kg-ingest-worker` (ingest, `kg_tasks`
@@ -105,23 +91,20 @@ engine; invocations are in
 When one engine host saturates, run N engine shards (each a slice of the one
 authority) and add to `config.json`:
 
-```jsonc
+```json
 {
-  "graph_service_endpoints": [
-    "tcp://kg-shard-1.example.arpa:9101",
-    "tcp://kg-shard-2.example.arpa:9102",
-    "tcp://kg-shard-3.example.arpa:9103"
+  "GRAPH_SERVICE_ENDPOINTS": [
+    "tls://engine.example.invalid:9100"
   ],
-  "graph_service_auth_secret": "ONE shared secret across shards + clients"
+  "ENGINE_TLS_PROFILE_REF": "secret://tls/engine-profile"
 }
 ```
 
-Graphs (and therefore tenants — `tenant → named graph → HRW → shard`) are
-routed client-side by rendezvous hashing; an unreachable shard fails loud, and
-per-shard health is on the gateway's `GET /api/dashboard/daemon/shards` +
-`agent_utilities_engine_shard_up{endpoint}`. Worked single-host 3-shard compose:
-`docker/engine-shards.compose.yml`; full semantics (including the manual
-snapshot migration caveat when re-sharding):
+The stable coordinator returns each tenant graph's authoritative MultiRaft group,
+epoch, and fence. The client never hashes endpoint names. An unreachable authority
+or ambiguous group topology fails closed; governed movement advances the epoch.
+Coordinator-contact health is available from the doctor and
+`agent_utilities_engine_shard_up{endpoint}`. Full semantics:
 [engine sharding](../architecture/engine_sharding.md).
 
 ## Operate
@@ -134,7 +117,7 @@ To let the platform operate on itself — golden loop, failure-driven evolution,
 the desired-state fleet reconciler (`FLEET_RECONCILER` + a real
 `FLEET_ACTUATOR`), the replica autoscaler (`FLEET_AUTOSCALER`), ActionPolicy
 postures, and the `POST /api/fleet/events` monitoring webhook
-(`FLEET_EVENTS_TOKEN`) — follow
+(`FLEET_EVENTS_TOKEN_REF`) — follow
 [rung (e) of the ladder](../guides/deployment-configurations.md#rung-e-autonomous-operations).
 The shipped defaults are deliberately inert: `FLEET_ACTUATOR=dryrun` and an
 ActionPolicy that queues every mutating action for human approval.

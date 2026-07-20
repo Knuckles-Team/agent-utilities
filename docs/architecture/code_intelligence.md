@@ -78,7 +78,7 @@ flowchart LR
 ## Model-free similarity (CONCEPT:EG-KG.compute.model-free-similar-code)
 
 Code search and clone detection must keep working when the embedder is offline (the
-recurring GB10 502s). So similarity is **model-free**, computed in the same Rust
+recurring embedding-endpoint 502s). So similarity is **model-free**, computed in the same Rust
 round-trip:
 
 - Each symbol gets a **MinHash signature** over its normalized AST-leaf trigrams —

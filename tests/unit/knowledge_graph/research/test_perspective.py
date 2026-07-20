@@ -59,6 +59,14 @@ def test_engine_builds_map_and_peer_review():
 def test_acquire_for_topic_perspectival_is_native_and_materializes(monkeypatch):
     eng = _FakeEngine()
 
+    def capture(engine, connector, entities, relationships, **_kwargs):
+        return engine.ingest_external_batch(connector, entities, relationships)
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        capture,
+    )
+
     # Each per-question probe returns a deterministic source.
     monkeypatch.setattr(
         search,

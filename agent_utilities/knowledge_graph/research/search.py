@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 _SOURCE_TYPES = {"Document", "Code", "Feature", "Article", "Thread", "Skill"}
 
 # Wall-clock bound for a single embed during acquisition. The embedding model
-# talks to a remote endpoint (default ``vllm-embed.arpa``); when that endpoint
+# talks to the configured remote endpoint; when that endpoint
 # is slow or down the OpenAI client retries with backoff against a 300s timeout,
 # which would stall the golden loop for minutes per topic. Bounding each embed
 # means a dead endpoint degrades the acquire stage in seconds, not minutes.

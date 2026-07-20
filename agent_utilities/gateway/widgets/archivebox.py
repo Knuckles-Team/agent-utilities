@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.PRODUCTIVITY
     description = "Web archiver — saved snapshots and archive statistics"
     env_prefix = "ARCHIVEBOX"
-    default_url = "https://archivebox.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -31,16 +30,15 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        import httpx
-
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/api/v1/core/snapshot", timeout=5.0, verify=False)  # nosec B501
+            with self._http_client(config, timeout=5.0) as client:
+                resp = client.get(f"{url}/api/v1/core/snapshot")
             data = resp.json() if resp.status_code == 200 else {}
             total = data.get("count", 0) if isinstance(data, dict) else 0
         except Exception as e:
-            logger.debug("ArchiveBox fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("ArchiveBox fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={"total": total, "status": "Online"},

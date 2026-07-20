@@ -21,6 +21,8 @@ DEMO_TOKEN=your_token_here
 
 # --- MCP Server Settings ---
 TRANSPORT=stdio
+# A description that wraps
+# across multiple comment lines.
 # DEMO_OPTIONAL=off
 """
 
@@ -32,6 +34,9 @@ def test_parse_extracts_name_example_description():
     assert rows["DEMO_TOKEN"][0] == "your_token_here"
     # commented-out assignment kept as an optional var
     assert "DEMO_OPTIONAL" in rows
+    assert rows["DEMO_OPTIONAL"][1] == (
+        "A description that wraps across multiple comment lines."
+    )
     # section banners are not parsed as variables
     assert not any(n.startswith("-") for n in rows)
 
@@ -46,6 +51,16 @@ def test_render_has_package_and_inherited_sections():
     assert table.count("`TRANSPORT`") == 1
     # an inherited-only var shows up
     assert "`EUNOMIA_TYPE`" in table
+    # Direct credential examples never get copied into generated documentation.
+    assert "| `DEMO_TOKEN` | secret-injected |" in table
+    assert "your_token_here" not in table
+    # Runtime secret references remain visible as the supported configuration seam.
+    assert "| `OIDC_CLIENT_SECRET_REF` |" in table
+    assert "`secret://identity/oidc-client-secret`" in table
+    assert "| `OIDC_CLIENT_SECRET` |" not in table
+    assert "| `MCP_BASIC_AUTH_PASSWORD_REF` |" in table
+    assert "| `MCP_BASIC_AUTH_PASSWORD` |" not in table
+    assert r"`oidc-client-credentials` \| `basic` \| `none`" in table
 
 
 def test_sync_inserts_and_is_idempotent(tmp_path):

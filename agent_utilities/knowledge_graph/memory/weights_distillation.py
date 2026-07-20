@@ -41,12 +41,12 @@ Pipeline (one ``export`` cycle):
     JSONL + a job manifest and, best-effort, registers a job node the fleet can
     pick up) **and now dispatches the train LIVE** (CONCEPT:AU-KG.memory.live-data-science-mcp): it runs the
     ``train_model`` workflow on ``data-science-mcp`` through the
-    ``graph_orchestrate execute_workflow`` seam (:data:`DATA_SCIENCE_MCP_CONTRACT`),
+    ``graph_workflows execute`` seam (:data:`DATA_SCIENCE_MCP_CONTRACT`),
     marking the job ``running`` with the remote run handle. The dispatch is bounded
     + robust: when the orchestration engine / data-science-mcp is unreachable it
     degrades to a durable ``enqueued`` job (materialized + a job node the fleet
     picks up) and never raises. The heavy LoRA/SFT train still executes **in
-    data-science-mcp** (GPU-gated, GB10) — core only orchestrates it over MCP and
+    data-science-mcp** (accelerator-gated) — core only orchestrates it over MCP and
     polls the ``TrainingJob`` / checkpoint state back.
 
 Design notes (mirror KG-2.307 / KG-2.309):
@@ -55,7 +55,7 @@ Design notes (mirror KG-2.307 / KG-2.309):
     memory ⇒ byte-identical JSONL + checksum). ``submit`` never runs training.
   * **Reuses existing seams.** The bounded reader is the KG-2.307 lifecycle's; the
     corpus keys are ``data-science-mcp``'s; the hand-off is the established
-    ``train_model`` workflow reached via ``graph_orchestrate``.
+    ``train_model`` workflow reached via ``graph_workflows``.
   * **Injectable submitter; clean degrade.** Tests inject a stub submitter; with
     no writable memory dir / no engine job surface the default submit degrades to
     a plain ``exported`` job (files written, nothing enqueued) and never raises.
@@ -114,9 +114,9 @@ DATA_SCIENCE_MCP_CONTRACT: dict[str, Any] = {
     },
     # Preferred: drive the whole DAG (curate → train → eval → register) as one call.
     "workflow": {
-        "tool": "graph_orchestrate",
-        "action": "execute_workflow",
-        "name": "train_model",
+        "tool": "graph_workflows",
+        "action": "execute",
+        "workflow": "train_model",
     },
     # Or call the data-science-mcp tools directly (plan-by-default, execute=true):
     "mcp_tools": {
@@ -189,10 +189,10 @@ def _run_coro_sync(make_coro: Callable[[], Any], timeout: float) -> Any:
 def _dispatch_train_workflow(
     engine: Any, name: str, task: dict[str, Any], timeout: float = _DISPATCH_TIMEOUT
 ) -> dict[str, Any]:
-    """Run the data-science-mcp ``train_model`` workflow via graph_orchestrate (KG-2.318).
+    """Run the data-science-mcp ``train_model`` workflow via graph_workflows (KG-2.318).
 
     This is the concrete LIVE hand-off: it drives the same
-    ``graph_orchestrate action=execute_workflow`` seam an operator would call —
+    ``graph_workflows action=execute`` seam an operator would call —
     :class:`~agent_utilities.orchestration.manager.Orchestrator` ``execute_workflow`` —
     so the exported corpus + :class:`DistillationTargetSpec` (carried in ``task``)
     reach ``data-science-mcp`` for the GPU LoRA/SFT train. Returns the workflow
@@ -387,7 +387,7 @@ class MemoryWeightsDistiller:
     * ``dispatcher`` — ``(handoff, corpus, spec) -> dict``, the LIVE data-science-mcp
       hand-off within the default submit (CONCEPT:AU-KG.memory.live-data-science-mcp). Defaults to
       :meth:`_default_dispatch`, which runs the ``train_model`` workflow over
-      ``graph_orchestrate execute_workflow``; tests inject a mock MCP client here.
+      ``graph_workflows execute``; tests inject a mock MCP client here.
     """
 
     def __init__(
@@ -708,7 +708,7 @@ class MemoryWeightsDistiller:
                 },
             ],
             "integration_point": (
-                "live LoRA train runs in data-science-mcp (GPU-gated, GB10); "
+                "live LoRA training runs in data-science-mcp (accelerator-gated); "
                 "dispatch the workflow above to execute it"
             ),
         }
@@ -719,8 +719,8 @@ class MemoryWeightsDistiller:
     ) -> dict[str, Any]:
         """LIVE data-science-mcp hand-off — run ``train_model`` (CONCEPT:AU-KG.memory.live-data-science-mcp).
 
-        Drives the contract's ``workflow`` entry (``graph_orchestrate
-        execute_workflow name=train_model``) so the exported corpus + spec reach
+        Drives the contract's ``workflow`` entry (``graph_workflows
+        action=execute workflow=train_model``) so the exported corpus + spec reach
         ``data-science-mcp`` for the GPU LoRA/SFT train. Bounded + robust: only
         attempted when the engine is an orchestration-capable
         :class:`IntelligenceGraphEngine`; any unreachable/failed dispatch returns
@@ -728,7 +728,7 @@ class MemoryWeightsDistiller:
         fleet can still pick up. Never raises.
         """
         workflow = (handoff or {}).get("workflow") or {}
-        name = str(workflow.get("name") or "train_model")
+        name = str(workflow.get("workflow") or "train_model")
         task = dict(workflow.get("task") or {})
         try:
             from agent_utilities.knowledge_graph.core.engine import (
@@ -750,7 +750,7 @@ class MemoryWeightsDistiller:
                 "dispatched": True,
                 "status": "running",
                 "run_id": run_id,
-                "via": "execute_workflow",
+                "via": "graph_workflows",
                 "workflow": name,
                 "detail": f"dispatched {name} to data-science-mcp (run {run_id})",
             }
@@ -783,13 +783,13 @@ class MemoryWeightsDistiller:
         Writes the JSONL + a job manifest under the memory dir, builds the
         data-science-mcp hand-off payload, **dispatches the train live** through the
         dispatcher seam (CONCEPT:AU-KG.memory.live-data-science-mcp — the ``train_model`` workflow over
-        ``graph_orchestrate``), and registers a durable ``TrainingJob`` node the
+        ``graph_workflows``), and registers a durable ``TrainingJob`` node the
         fleet + poll can read back. A live dispatch marks the job ``running`` with
         the remote run handle; an unreachable data-science-mcp degrades to a durable
         ``enqueued`` job; with no writable dir or engine job surface it degrades to
         an in-memory ``exported`` job. Never raises.
         """
-        job_id = f"distill-lora-{uuid.uuid4().hex[:10]}"
+        job_id = f"distill-lora-{uuid.uuid4().hex}"
         submitted_at = datetime.now(UTC).isoformat()
         corpus_ref = f"inline:{job_id}"
         detail = ""

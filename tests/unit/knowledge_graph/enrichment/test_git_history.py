@@ -37,6 +37,21 @@ class _FakeBackend:
             if p.get("type") == label or p.get("label") == label
         ]
 
+    def query_cypher(self, query: str, params: dict | None = None):
+        del params
+        if "MATCH (f:File)" not in query:
+            return []
+        return [
+            {
+                "id": nid,
+                "path": props.get("path"),
+                "churn": props.get("churn"),
+                "commit_count": props.get("commit_count"),
+                "author_count": props.get("author_count"),
+            }
+            for nid, props in self.nodes_by_label("File")
+        ]
+
 
 def _git(repo: Path, *args: str) -> None:
     subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)

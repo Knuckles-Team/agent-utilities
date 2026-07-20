@@ -1,11 +1,16 @@
 # CONCEPT:AU-KG.compute.graph-compute-engine - High-Performance Graph Compute Engine
 # CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel - Compiled Orchestration Kernel
 # CONCEPT:AU-KG.compute.tokio-service-layer - Tokio Service Layer (Tokio-first)
-# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Tenant-Partitioned Engine Sharding (HRW over GRAPH_SERVICE_ENDPOINTS)
+# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Engine-authoritative tenant partition placement
 
+import contextlib
+import hashlib
 import json
 import logging
 import os
+import re
+import threading
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -13,14 +18,16 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
-# Engine snapshot checkpoint cadence in seconds (config discipline): one correct
-# default, passed to the spawned engine — a named constant, not an env knob
-# (replaces GRAPH_SERVICE_CHECKPOINT_INTERVAL).
-_CHECKPOINT_INTERVAL_S = 60
-
 # Linux prctl(2) option to deliver a signal to the calling thread when its
 # parent dies — used to lifecycle-couple an embedded engine to its spawner.
 _PR_SET_PDEATHSIG = 1
+
+# A full-feature engine may need more than one second to open its durable store
+# and bind its listener on a constrained host. Keep the spawn guard held while
+# polling so another process cannot mistake a healthy cold start for a dead
+# daemon and launch a competing writer.
+_ENGINE_STARTUP_TIMEOUT_SECS = 30.0
+_ENGINE_STARTUP_POLL_SECS = 0.1
 
 # Children spawned in *coupled* mode (the embedded/tiny path) so the embedded
 # engine dies with this process. The parent-death signal (Linux) is the primary
@@ -31,49 +38,606 @@ _coupled_children: list[Any] = []
 _coupled_handlers_installed = False
 
 
-# Cache the engine binary's --idle-shutdown-secs support per binary path so the
-# graceful-degradation probe (a single `--help` exec) runs at most once.
-_idle_shutdown_support: dict[str, bool] = {}
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_MAX_LEDGER_ENTRY_BYTES = 8 * 1024 * 1024
+_OPAQUE_PROGRAM_REF = re.compile(
+    r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
+)
+_PROGRAM_RESULT_FIELDS = frozenset(
+    {
+        "id",
+        "kind",
+        "confidence",
+        "evidence_refs",
+        "source_refs",
+        "proof_ids",
+        "contradiction_ids",
+        "program_ref",
+        "optimizer",
+        "execution",
+        "candidate_role",
+        "demonstration_refs",
+        "artifact_refs",
+        "composition_refs",
+        "instruction_ref",
+        "tool_policy_ref",
+        "model_profile_ref",
+        "modalities",
+        "plan_ref",
+        "plan_step_kinds",
+        "plan_executors",
+        "plan_input_refs",
+        "plan_output_refs",
+        "plan_depends_on",
+        "max_operations",
+        "selected",
+    }
+)
+_PROGRAM_RESULT_SCHEMA = (
+    ("id", "string", False),
+    ("kind", "string", False),
+    ("confidence", "float64", False),
+    ("evidence_refs", "list<string>", False),
+    ("source_refs", "list<string>", False),
+    ("proof_ids", "list<string>", False),
+    ("contradiction_ids", "list<string>", False),
+    ("program_ref", "string", False),
+    ("optimizer", "string", False),
+    ("execution", "string", False),
+    ("candidate_role", "string", True),
+    ("demonstration_refs", "list<string>", False),
+    ("artifact_refs", "list<string>", False),
+    ("composition_refs", "list<string>", False),
+    ("instruction_ref", "string", True),
+    ("tool_policy_ref", "string", True),
+    ("model_profile_ref", "string", True),
+    ("modalities", "list<string>", False),
+    ("plan_ref", "string", True),
+    ("plan_step_kinds", "list<string>", False),
+    ("plan_executors", "list<string>", False),
+    ("plan_input_refs", "list<string>", False),
+    ("plan_output_refs", "list<string>", False),
+    ("plan_depends_on", "list<string>", False),
+    ("max_operations", "uint64", True),
+    ("selected", "bool", False),
+)
+_PROGRAM_MODALITIES = frozenset(
+    {
+        "text",
+        "document",
+        "image",
+        "audio",
+        "video",
+        "graph",
+        "table",
+        "time_series",
+        "vector",
+        "spatial",
+        "tensor",
+        "code",
+        "trace",
+        "binary",
+    }
+)
+_PROGRAM_OPTIMIZER_EXECUTIONS = {
+    "labeled_few_shot": "native_kernel",
+    "bootstrap_few_shot": "native_kernel",
+    "bootstrap_few_shot_with_random_search": "native_kernel",
+    "avatar": "model_transport_plan",
+    "copro": "model_transport_plan",
+    "mipro_v2": "model_transport_plan",
+    "simba": "model_transport_plan",
+    "gepa": "model_transport_plan",
+    "better_together": "composite_plan",
+    "bootstrap_finetune": "trainer_plan",
+    "knn_few_shot": "graph_kernel_plan",
+    "ensemble": "native_kernel",
+    "infer_rules": "model_transport_plan",
+}
+_PROGRAM_CANDIDATE_ROLES = frozenset({"proposal", "ensemble_member", "ensemble"})
+_PROGRAM_PLAN_STEP_KINDS = frozenset(
+    {
+        "query_similarity",
+        "propose_instruction",
+        "compare_tool_use",
+        "propose_rules",
+        "reflect_on_trace",
+        "pareto_reflect",
+        "compose_programs",
+        "train_weights",
+        "evaluate_candidates",
+    }
+)
+_PROGRAM_PLAN_EXECUTORS = frozenset(
+    {"native_kernel", "graph_similarity", "model_transport", "evaluator", "trainer"}
+)
 
-# Sentinel for "the connection pool has not been built yet" — distinct from a
-# built-but-unavailable pool (which caches as ``None``). (CONCEPT:AU-KG.compute.when-exposes)
-_POOL_UNSET: Any = object()
+# A native client validates authority at construction even though opening the
+# socket sends no request.  The process transport therefore starts with one
+# deliberately powerless, non-personal context.  Routed operations MUST replace
+# it with the current GraphSession before dispatch (enforced in
+# ``_SessionRoutedAsyncClient._send``); no role, scope, workstation name, path,
+# or deployment identity is encoded here.
+_TRANSPORT_PRINCIPAL = (
+    "service:sha256:"
+    + hashlib.sha256(b"agent-utilities:epistemic-graph:transport-only:v1").hexdigest()
+)
 
 
-def _engine_supports_idle_shutdown(server_path: str) -> bool:
-    """Whether the installed engine binary advertises ``--idle-shutdown-secs``.
+def _transport_only_verified_context() -> dict[str, Any]:
+    """Return a fresh, zero-authority context used only to open the socket."""
 
-    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — engine-flag graceful degradation. A sibling agent is adding
-    this flag to the engine; against an OLDER engine binary that doesn't know it,
-    passing the flag would make the spawn fail. So we probe ``--help``
-    once per binary path and only pass the flag when it appears. The probe is
-    best-effort: a failure to introspect is treated as "supported" only when the
-    binary is missing entirely (the spawn will fail for another reason and be
-    reported); a successful --help that lacks the flag means "not supported".
+    return {
+        "principal": _TRANSPORT_PRINCIPAL,
+        "tenant": "tenant:transport-only",
+        "audience": "epistemic-graph",
+        "agent_id": _TRANSPORT_PRINCIPAL,
+        "roles": [],
+        "scopes": [],
+        "policy_version": "policy:transport-only",
+        "delegation": [],
+    }
+
+
+def _engine_child_environment() -> dict[str, str]:
+    """Return the minimal inherited environment for the trusted Rust engine.
+
+    Autostart previously copied the agent's complete environment, needlessly
+    disclosing unrelated provider/API credentials to the child. The engine now
+    receives only operating-system essentials, transport trust settings, proxy
+    settings, diagnostics, and its own documented namespaces.
     """
-    cached = _idle_shutdown_support.get(server_path)
-    if cached is not None:
-        return cached
-    import subprocess  # nosec B404 — introspect our own engine binary
 
-    supported = False
+    exact = {
+        "ALL_PROXY",
+        "DYLD_LIBRARY_PATH",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "LD_LIBRARY_PATH",
+        "NO_PROXY",
+        "OPENSSL_CONF",
+        "PATH",
+        "PATHEXT",
+        "RUST_BACKTRACE",
+        "RUST_LOG",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "TZ",
+        "USERPROFILE",
+        "WINDIR",
+        "all_proxy",
+        "https_proxy",
+        "http_proxy",
+        "no_proxy",
+    }
+    prefixes = ("EG_", "EPISTEMIC_GRAPH_", "GRAPH_SERVICE_", "LC_")
+    inherited = {
+        name: value
+        for name, value in os.environ.items()
+        if name in exact or name.startswith(prefixes)
+    }
+    # These capabilities accept paths only after runtime secret resolution;
+    # direct inherited paths and the references themselves never cross over.
+    for name in (
+        "EPISTEMIC_GRAPH_BACKUP_ROOT",
+        "EPISTEMIC_GRAPH_BACKUP_ROOT_REF",
+        "EPISTEMIC_GRAPH_ENCRYPTION_KEY",
+        "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF",
+        "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
+        "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT_REF",
+        "GRAPH_SERVICE_AUTH_SECRET",
+    ):
+        inherited.pop(name, None)
+    return inherited
+
+
+def _resolve_engine_path_ref(reference: str) -> str:
+    """Resolve one runtime-only directory reference without logging its value."""
+
     try:
-        out = subprocess.run(  # nosec B603 — fixed argv, our own binary
-            [server_path, "--help"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        value = create_secrets_client().resolve_ref(reference)
+        if isinstance(value, bytes):
+            rendered = value.decode("utf-8")
+        else:
+            rendered = str(value or "")
+    except Exception as exc:
+        raise RuntimeError("engine runtime directory reference is unavailable") from exc
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > 4_096
+        or any(ord(character) < 32 for character in rendered)
+    ):
+        raise RuntimeError("engine runtime directory reference is invalid")
+    return rendered
+
+
+# Every graph-scoped facade below reuses this one namespace list from the
+# generated epistemic-graph client.  Re-instantiating a namespace is cheap: it
+# stores only a reference to the routed async view and opens no connection.
+_CLIENT_NAMESPACES: tuple[str, ...] = (
+    "nodes",
+    "work_items",
+    "changes",
+    "edges",
+    "graph",
+    "analytics",
+    "lifecycle",
+    "reasoning",
+    "ledger",
+    "channels",
+    "tenants",
+    "resharding",
+    "placement",
+    "consensus",
+    "finance",
+    "datascience",
+    "mining",
+    "graphlearn",
+    "query",
+    "txn",
+    "timeseries",
+    "rdf",
+    "streaming",
+    "blob",
+    "broker",
+    "rbac",
+    "admin",
+    "jobs",
+)
+
+
+class _SessionRoutedAsyncClient:
+    """A zero-connection view over one async engine transport.
+
+    Every namespace call lands on :meth:`_send`, where the current immutable
+    :class:`GraphSession` is both (a) bound into the engine's v2 signed request
+    context and (b) used as the default named graph.  A fixed graph creates a
+    scoped view for ingestion fan-out without mutating the shared transport.
+    """
+
+    def __init__(
+        self,
+        base: Any,
+        *,
+        fixed_graph: str | None = None,
+        route_config: Any = None,
+        route_endpoints: tuple[str, ...] = (),
+        transport_endpoint: str | None = None,
+    ) -> None:
+        self._base = base
+        self._graph_name = fixed_graph or str(getattr(base, "_graph_name", ""))
+        self._fixed_graph = fixed_graph
+        self._route_config = route_config
+        self._route_endpoints = route_endpoints
+        self._transport_endpoint = transport_endpoint
+        self._server_ops: set[str] | None = None
+        for name in _CLIENT_NAMESPACES:
+            namespace = getattr(base, name)
+            setattr(self, name, type(namespace)(self))
+
+    @staticmethod
+    def _route_bound_params(
+        method: str, params: dict[str, Any] | None, route: Any
+    ) -> dict[str, Any] | None:
+        """Bind the current catalog fence into an engine-native mutation."""
+        if method != "ApplyChangeEnvelope" or params is None:
+            return params
+        import copy
+
+        bound = copy.deepcopy(params)
+        mutation = bound.get("envelope", {}).get("mutation")
+        if isinstance(mutation, dict):
+            epoch = int(route.epoch)
+            fencing_token = int(route.fencing_token or 0)
+            mutation["placement_epoch"] = epoch
+            if epoch == 0:
+                # The placement catalog uses (epoch=0, group=0) for the
+                # authoritative local/unplaced route. ``fencing_token`` is an
+                # optional current-wire field, so a zero/null sentinel must be
+                # absent rather than injected after generated-client
+                # canonicalization; otherwise the signed Python and Rust
+                # method bodies differ and authentication fails closed.
+                mutation.pop("fencing_token", None)
+            elif fencing_token > 0:
+                mutation["fencing_token"] = fencing_token
+            else:
+                raise RuntimeError("placed route is missing a fencing token")
+        return bound
+
+    async def _invoke_at(
+        self,
+        endpoint: str,
+        method: str,
+        params: dict[str, Any] | None,
+        target: str,
+        idempotency_key: str | None,
+        session: Any,
+    ) -> Any:
+        """Invoke on the process transport or a bounded redirect connection."""
+        if not endpoint or endpoint == self._transport_endpoint:
+            with self._base.use_verified_context(session.engine_verified_context()):
+                return await self._base._send(
+                    method, params, graph=target, idempotency_key=idempotency_key
+                )
+
+        from epistemic_graph.client import EpistemicGraphClient
+
+        kwargs: dict[str, Any] = {
+            "auth_secret": str(getattr(self._base, "_auth_secret", "") or ""),
+            "graph_name": target,
+            "verified_context": session.engine_verified_context(),
+        }
+        if endpoint.startswith(("tcp://", "tls://")):
+            from .engine_transport import (
+                engine_client_transport_kwargs,
+                native_endpoint_address,
+            )
+
+            kwargs["tcp_addr"] = native_endpoint_address(endpoint)[0]
+            kwargs.update(
+                engine_client_transport_kwargs(endpoint, config=self._route_config)
+            )
+        elif endpoint.startswith("unix://"):
+            kwargs["socket_path"] = endpoint[7:]
+        else:
+            kwargs["socket_path"] = endpoint
+        redirected = await EpistemicGraphClient.connect(**kwargs)
+        try:
+            with redirected.use_verified_context(session.engine_verified_context()):
+                return await redirected._send(
+                    method, params, graph=target, idempotency_key=idempotency_key
+                )
+        finally:
+            await redirected.close()
+
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        from .session import SessionRequiredError, current_session, resolve_session
+
+        session = current_session()
+        # The socket was opened with a fixed, zero-authority transport context.
+        # It is never a request identity. Every operation must inherit the
+        # authentication boundary's task-local GraphSession and replace that
+        # context before the native client signs or writes a frame.
+        if session is None or not getattr(session.actor, "authenticated", False):
+            raise SessionRequiredError(
+                "A task-local verified GraphSession is required for every engine operation"
+            )
+        session = resolve_session(session)
+
+        target = graph or self._fixed_graph
+        if self._fixed_graph and session.graph != self._fixed_graph:
+            raise PermissionError(
+                "A graph-scoped view cannot retarget the verified GraphSession"
+            )
+        if graph and session.graph and graph != session.graph:
+            raise PermissionError(
+                "An explicit graph cannot retarget the verified GraphSession"
+            )
+        target = target or session.graph
+
+        target = target or self._graph_name
+
+        # Service-level operations are connection-scoped, not graph-routed.
+        unrouted = {
+            "Ping",
+            "Health",
+            "PlacementRoute",
+            "Shutdown",
+            "Checkpoint",
+            "ResourceStats",
+            "CancelRequest",
+        }
+        if (
+            method in unrouted
+            or self._route_config is None
+            or not self._route_endpoints
+        ):
+            return await self._invoke_at(
+                self._transport_endpoint or "",
+                method,
+                params,
+                target,
+                idempotency_key,
+                session,
+            )
+
+        import asyncio
+
+        from epistemic_graph.client import StaleRouteError
+
+        from .placement_catalog import resolve_placement
+
+        route = await asyncio.to_thread(
+            resolve_placement,
+            target,
+            self._route_endpoints,
+            self._route_config,
         )
-        haystack = f"{out.stdout}\n{out.stderr}"
-        supported = "--idle-shutdown-secs" in haystack
-    except FileNotFoundError:
-        # No binary yet — let the spawn proceed and fail loudly for the real
-        # reason; don't suppress the flag based on a missing binary.
-        supported = False
-    except Exception:  # noqa: BLE001 — introspection is best-effort
-        supported = False
-    _idle_shutdown_support[server_path] = supported
-    return supported
+        routed_session = session.with_route(
+            endpoint=route.endpoint,
+            placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
+            catalog_epoch=int(route.epoch),
+        )
+        routed_params = self._route_bound_params(method, params, route)
+        try:
+            return await self._invoke_at(
+                route.endpoint,
+                method,
+                routed_params,
+                target,
+                idempotency_key,
+                routed_session,
+            )
+        except StaleRouteError:
+            # A stale response is guaranteed to be pre-commit. Refresh the
+            # authoritative catalog and retry exactly once with the same
+            # idempotency key and the new placement fence.
+            fresh = await asyncio.to_thread(
+                resolve_placement,
+                target,
+                self._route_endpoints,
+                self._route_config,
+                force_refresh=True,
+            )
+            fresh_session = session.with_route(
+                endpoint=fresh.endpoint,
+                placement_group=(
+                    int(fresh.group) if int(fresh.group or 0) > 0 else None
+                ),
+                catalog_epoch=int(fresh.epoch),
+            )
+            return await self._invoke_at(
+                fresh.endpoint,
+                method,
+                self._route_bound_params(method, params, fresh),
+                target,
+                idempotency_key,
+                fresh_session,
+            )
+
+    def _verified_tenant(self) -> str:
+        """Return the tenant from the current verified graph authority.
+
+        Generated ChangeEnvelope read helpers bind their tenant parameter
+        before calling :meth:`_send`. Resolve that value from the task-local
+        ``GraphSession`` instead of delegating to the process transport's
+        deliberately powerless bootstrap context.
+        """
+        from .session import SessionRequiredError, current_session, resolve_session
+
+        session = current_session()
+        if session is None or not getattr(session.actor, "authenticated", False):
+            raise SessionRequiredError(
+                "A task-local verified GraphSession is required for every engine operation"
+            )
+        return str(resolve_session(session).tenant)
+
+    # Service-level methods live on the root client rather than a namespace;
+    # spell them out so they also pass through the routed _send above.
+    async def ping(self) -> str:
+        return await self._send("Ping")
+
+    async def health(self) -> dict[str, Any]:
+        return await self._send("Health")
+
+    async def cancel_request(self, target_req_id: int) -> bool:
+        return await self._send("CancelRequest", {"target_req_id": target_req_id})
+
+    async def resource_stats(self) -> dict[str, Any]:
+        return await self._send("ResourceStats")
+
+    async def supports(self, op: str) -> bool:
+        if self._server_ops is None:
+            try:
+                health = await self.health()
+                self._server_ops = (
+                    set(health.get("ops", []) or [])
+                    if isinstance(health, dict)
+                    else set()
+                )
+            except Exception:
+                self._server_ops = set()
+        return op in self._server_ops
+
+    async def checkpoint(self) -> str:
+        return await self._send("Checkpoint")
+
+    async def reconcile(self, graph_name: str, json_str: str) -> str:
+        return await self._send(
+            "Reconcile", {"graph_name": graph_name, "json_str": json_str}
+        )
+
+    async def shutdown(self) -> str:
+        return await self._send("Shutdown")
+
+    async def apply_mutation(self, event_type: str, query: str) -> str:
+        return await self._send(
+            "ApplyMutation", {"event_type": event_type, "query": query}
+        )
+
+    async def close(self) -> None:
+        """A view never owns or closes the shared process transport."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._base, name)
+
+
+class _AsyncFromSyncView:
+    """Awaitable facade over a non-owning sync client/namespace view."""
+
+    def __init__(self, sync_target: Any) -> None:
+        self._sync_target = sync_target
+
+    def __getattr__(self, name: str) -> Any:
+        import asyncio
+
+        attr = getattr(self._sync_target, name)
+        if not callable(attr):
+            return attr
+
+        async def call(*args: Any, **kwargs: Any) -> Any:
+            # to_thread propagates ContextVars, including GraphSession, into
+            # the sync scheduling call. The generated client's own event-loop
+            # thread and socket remain the single process authority.
+            return await asyncio.to_thread(attr, *args, **kwargs)
+
+        return call
+
+
+class _AsyncProcessClientView(_AsyncFromSyncView):
+    """Async-compatible namespace facade without another engine connection."""
+
+    def __init__(self, sync_client: Any) -> None:
+        super().__init__(sync_client)
+        for name in _CLIENT_NAMESPACES:
+            setattr(self, name, _AsyncFromSyncView(getattr(sync_client, name)))
+
+    async def close(self) -> None:
+        """A process client view never owns the shared transport."""
+
+
+def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
+    """Create a sync graph/session view while reusing transport, loop and thread."""
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    async_client = sync_client._client
+    if isinstance(async_client, _SessionRoutedAsyncClient):
+        async_client = async_client._base
+    route_config = getattr(sync_client, "_au_route_config", None)
+    route_endpoints = tuple(getattr(sync_client, "_au_route_endpoints", ()) or ())
+    transport_endpoint = getattr(sync_client, "_au_route_endpoint", None)
+    async_view = _SessionRoutedAsyncClient(
+        async_client,
+        fixed_graph=graph,
+        route_config=route_config,
+        route_endpoints=route_endpoints,
+        transport_endpoint=transport_endpoint,
+    )
+    view = SyncEpistemicGraphClient(async_view, sync_client._loop, sync_client._thread)
+    view._au_route_config = route_config
+    view._au_route_endpoints = route_endpoints
+    view._au_route_endpoint = transport_endpoint
+    # A scoped view never owns the shared loop/thread. SyncEpistemicGraphClient
+    # normally stops both from close()/context-manager exit, so shadow close on
+    # this instance with an explicit no-op.
+    view.close = lambda: None
+    return view
 
 
 def _set_pdeathsig() -> None:
@@ -171,35 +735,258 @@ def _load_or_create_engine_secret() -> str:
         return secret
     except OSError as exc:
         logger.warning(
-            "Could not persist engine secret at %s (%s); using a process-local "
-            "secret — sibling processes will not share it.",
-            path,
-            exc,
+            "Could not persist engine secret (%s); using a process-local secret — "
+            "sibling processes will not share it.",
+            type(exc).__name__,
         )
         return _secrets.token_hex(32)
 
 
-def resolve_engine_auth(config: Any) -> tuple[str | None, bool]:
-    """Resolve the engine HMAC auth material as ``(secret, insecure)``.
+def _load_or_create_engine_bootstrap_signer_key() -> str:
+    """Return the private per-install key for one local identity bootstrap.
 
-    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — secure by default:
+    A packaged engine starts with an empty, fail-closed identity store.  The
+    first externally verified process identity therefore needs one signer-backed
+    ``RegisterIdentity(System)`` operation before administrative placement can
+    be queried.  This key is generated outside source/configuration, persisted
+    privately beside the engine secret, and used only for that one local
+    initialization path.  Remote engines remain operator-provisioned.
+    """
+    import secrets as _secrets
 
-    * ``KG_ENGINE_INSECURE=1`` → ``(None, True)``: no client auth token, and a
-      spawned engine gets ``EPISTEMIC_GRAPH_ALLOW_INSECURE=1`` so binaries that
-      refuse to start without a secret still come up for dev.
+    from agent_utilities.core.paths import data_dir
+
+    path = data_dir() / "engine_bootstrap_signer_key"
+    try:
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").strip()
+            if len(existing.encode("utf-8")) >= 32:
+                return existing
+        path.parent.mkdir(parents=True, exist_ok=True)
+        key = _secrets.token_urlsafe(48)
+        try:
+            descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            existing = path.read_text(encoding="utf-8").strip()
+            if len(existing.encode("utf-8")) < 32:
+                raise RuntimeError("local engine bootstrap signer is invalid") from None
+            return existing
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(key)
+        return key
+    except OSError as exc:
+        raise RuntimeError("local engine bootstrap signer is unavailable") from exc
+
+
+_ENGINE_ENCRYPTION_KEY_MIN_BYTES = 32
+_ENGINE_ENCRYPTION_KEY_MAX_BYTES = 4_096
+
+
+def _validate_engine_encryption_material(value: Any) -> str:
+    """Return bounded, environment-safe engine data-key material.
+
+    Diagnostics deliberately describe only the policy class. The material,
+    reference, and filesystem location never enter an exception or log record.
+    """
+
+    import unicodedata
+
+    try:
+        rendered = value.decode("utf-8") if isinstance(value, bytes) else str(value)
+        encoded = rendered.encode("utf-8")
+    except (UnicodeError, ValueError, TypeError) as exc:
+        raise RuntimeError("engine encryption key material is invalid") from exc
+    if not (
+        _ENGINE_ENCRYPTION_KEY_MIN_BYTES
+        <= len(encoded)
+        <= _ENGINE_ENCRYPTION_KEY_MAX_BYTES
+    ) or any(unicodedata.category(character).startswith("C") for character in rendered):
+        raise RuntimeError("engine encryption key material is invalid")
+    return rendered
+
+
+def _read_private_engine_encryption_key(path: Any) -> str:
+    """Read one stable local data key through a no-follow private descriptor."""
+
+    import stat
+
+    descriptor = -1
+    try:
+        before_open = path.lstat()
+        if stat.S_ISLNK(before_open.st_mode) or not stat.S_ISREG(before_open.st_mode):
+            raise PermissionError("unsafe local key source")
+        if os.name == "posix":
+            if before_open.st_uid not in {0, os.geteuid()}:
+                raise PermissionError("untrusted local key owner")
+            if stat.S_IMODE(before_open.st_mode) != 0o600:
+                raise PermissionError("local key permissions are not private")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        descriptor = os.open(str(path), flags)
+        opened = os.fstat(descriptor)
+        if (
+            before_open.st_dev,
+            before_open.st_ino,
+        ) != (
+            opened.st_dev,
+            opened.st_ino,
+        ):
+            raise PermissionError("local key source changed during open")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            payload = handle.read(_ENGINE_ENCRYPTION_KEY_MAX_BYTES + 1)
+            after_read = os.fstat(handle.fileno())
+        if (
+            opened.st_dev,
+            opened.st_ino,
+            opened.st_size,
+            opened.st_mtime_ns,
+        ) != (
+            after_read.st_dev,
+            after_read.st_ino,
+            after_read.st_size,
+            after_read.st_mtime_ns,
+        ) or len(payload) != opened.st_size:
+            raise PermissionError("local key source changed during read")
+        return _validate_engine_encryption_material(payload)
+    except FileNotFoundError:
+        raise
+    except Exception as exc:
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _load_or_create_engine_encryption_key() -> str:
+    """Load or atomically create the stable private key for local tiny mode.
+
+    Unlike an authentication-only process-local fallback, encryption-at-rest
+    must remain decryptable after restart. Failure to persist or privately read
+    this key therefore fails closed.
+    """
+
+    import secrets as _secrets
+    import stat
+
+    from agent_utilities.core.paths import data_dir
+
+    private_directory = data_dir() / "engine-private"
+    try:
+        private_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        metadata = private_directory.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise PermissionError("unsafe local key directory")
+        if os.name == "posix":
+            if metadata.st_uid not in {0, os.geteuid()}:
+                raise PermissionError("untrusted local key directory owner")
+            if stat.S_IMODE(metadata.st_mode) != 0o700:
+                raise PermissionError("local key directory is not private")
+    except Exception as exc:
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+
+    path = private_directory / "encryption_key"
+    try:
+        return _read_private_engine_encryption_key(path)
+    except FileNotFoundError:
+        pass
+
+    material = _secrets.token_urlsafe(48)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        descriptor = os.open(str(path), flags, 0o600)
+    except FileExistsError:
+        return _read_private_engine_encryption_key(path)
+    except OSError as exc:
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(material.encode("ascii"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.name == "posix":
+            os.chmod(path, 0o600)
+    except Exception as exc:
+        with contextlib.suppress(OSError):
+            path.unlink()
+        raise RuntimeError("local engine encryption key is unavailable") from exc
+    return _read_private_engine_encryption_key(path)
+
+
+def _resolve_engine_encryption_key(config: Any) -> str:
+    """Resolve one key for a locally spawned Rust engine without exposing it."""
+
+    reference = str(
+        getattr(config, "epistemic_graph_encryption_key_ref", "") or ""
+    ).strip()
+    if reference:
+        if not reference.startswith(("env://", "vault://")):
+            raise RuntimeError("engine encryption key reference is invalid")
+        try:
+            from agent_utilities.security.cli_secrets import (
+                resolve_runtime_secret_reference,
+            )
+
+            material = resolve_runtime_secret_reference(reference)
+        except Exception as exc:
+            raise RuntimeError(
+                "engine encryption key reference is unavailable"
+            ) from exc
+        return _validate_engine_encryption_material(material)
+
+    from agent_utilities.core.profile_guard import is_production_profile
+
+    profile = str(getattr(config, "app_profile", "dev") or "dev")
+    deployment = str(getattr(config, "deployment_profile", "tiny") or "tiny")
+    if is_production_profile(profile) or deployment != "tiny":
+        raise RuntimeError("local engine encryption key reference is required")
+    return _validate_engine_encryption_material(_load_or_create_engine_encryption_key())
+
+
+def engine_encryption_readiness(config: Any, *, remote: bool = False) -> dict[str, Any]:
+    """Return privacy-safe durable-encryption readiness for doctor output."""
+
+    if remote:
+        return {
+            "ready": True,
+            "source": "remote_managed",
+            "material_exposed": False,
+        }
+    source = (
+        "explicit_reference"
+        if getattr(config, "epistemic_graph_encryption_key_ref", None)
+        else "local_private_key"
+    )
+    try:
+        material = _resolve_engine_encryption_key(config)
+        ready = bool(material)
+    except Exception:  # noqa: BLE001 - status is intentionally category-only
+        ready = False
+    finally:
+        material = ""
+    return {
+        "ready": ready,
+        "source": source,
+        "material_exposed": False,
+    }
+
+
+def resolve_engine_auth(config: Any) -> str:
+    """Resolve the mandatory engine HMAC authentication secret.
+
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — current-only:
+
     * ``GRAPH_SERVICE_AUTH_SECRET`` set → use it verbatim.
     * Otherwise → the persisted per-install secret
       (:func:`_load_or_create_engine_secret`).
 
-    Always sending a secret is backward-compatible: an engine running without
-    one ignores auth tokens entirely, so this works with both old (empty-secret
-    tolerant) and new (refuse-insecure) engine binaries.
+    There is no unauthenticated or legacy-envelope branch. Development uses the
+    same authenticated current protocol as every served deployment.
     """
-    if getattr(config, "kg_engine_insecure", False):
-        return None, True
-    if config.graph_service_auth_secret:
-        return config.graph_service_auth_secret, False
-    return _load_or_create_engine_secret(), False
+    configured = str(getattr(config, "graph_service_auth_secret", "") or "").strip()
+    return configured or _load_or_create_engine_secret()
 
 
 def ensure_local_engine() -> Any | None:
@@ -217,8 +1004,8 @@ def ensure_local_engine() -> Any | None:
     other entrypoints share). Host-reuse via ``host_lock``/``engine_lock`` means
     co-located servers share the ONE engine; this adds no new locking.
 
-    Off unless the embedded path is enabled (``EPISTEMIC_GRAPH_AUTOSTART=1``) and
-    no-op when ``GRAPH_SERVICE_ENDPOINTS`` points at a remote (``tcp://``) shard.
+    Active only for the packaged-local path (``GRAPH_SERVICE_ENDPOINTS`` unset)
+    and a no-op for every explicit connect-only topology.
     Returns the engine handle (also used to key teardown) or ``None`` when it
     did not provision anything. Best-effort: never raises.
     """
@@ -226,22 +1013,26 @@ def ensure_local_engine() -> Any | None:
 
     from .shard_topology import is_local_endpoint, resolve_endpoints
 
-    if setting("EPISTEMIC_GRAPH_AUTOSTART", "") != "1":
-        return None
     try:
         config = AgentConfig()
+        if config.graph_service_endpoints:
+            return None
+        from .engine_resolver import setting_autostart
+
+        if not setting_autostart(config):
+            return None
         endpoints = resolve_endpoints(config)
-        # Embedded only: a single, local-by-construction endpoint. A remote shard
-        # (or multi-shard topology) is enterprise — never auto-provision a local
-        # stand-in for it (same fail-loud contract as the autostart guard).
+        # Packaged-local only: a single local endpoint. Explicit coordinator
+        # topology returned above before this path can provision anything.
         if len(endpoints) != 1 or not is_local_endpoint(endpoints[0]):
             return None
         # Triggers the resolver's scan-or-spawn; coupled=True selects the
-        # embedded lifetime-bound child (vs the default detached engine).
-        return GraphComputeEngine(coupled=True)
+        # lifetime-bound child (vs the default detached engine).
+        return GraphComputeEngine.get_or_create(coupled=True)
     except Exception as exc:  # noqa: BLE001 — provisioning is best-effort
         logger.warning(
-            "ensure_local_engine: could not provision embedded engine: %s", exc
+            "ensure_local_engine could not provision embedded engine (%s)",
+            type(exc).__name__,
         )
         return None
 
@@ -256,14 +1047,141 @@ def teardown_local_engine(_engine: Any | None = None) -> None:
     _terminate_coupled_children()
 
 
+def connect_external_read_transport(
+    *,
+    endpoint: str,
+    graph_name: str,
+    auth_secret: str,
+    verified_context: Mapping[str, Any],
+    tls_profile: str | None = None,
+    tls_profile_ref: str | None = None,
+    tls_server_name: str | None = None,
+) -> Any:
+    """Open a bounded, non-authoritative transport to a registered foreign engine.
+
+    Operational graph access uses the one process-owned :class:`GraphComputeEngine`
+    transport. External epistemic-graph instances are read-only connector sources,
+    but their sockets still belong at this transport bootstrap boundary so feature
+    modules cannot create unmanaged engine clients or bypass the shared TLS policy.
+    The caller owns and must close the returned transport.
+    """
+
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    target = str(endpoint or "").strip()
+    if not target:
+        raise ValueError("external engine endpoint is missing")
+    connect: dict[str, Any] = {
+        "auth_secret": auth_secret,
+        "graph_name": str(graph_name or "default"),
+        "verified_context": dict(verified_context),
+    }
+    if target.startswith(("tcp://", "tls://")):
+        from .engine_transport import (
+            engine_client_transport_kwargs,
+            native_endpoint_address,
+        )
+
+        connect["tcp_addr"] = native_endpoint_address(target)[0]
+        connect.update(
+            engine_client_transport_kwargs(
+                target,
+                profile_name=tls_profile,
+                profile_ref=tls_profile_ref,
+                server_hostname=tls_server_name,
+            )
+        )
+    elif target.startswith("unix://"):
+        connect["socket_path"] = target[7:]
+    else:
+        raise ValueError("external engine endpoint must use tls://, tcp://, or unix://")
+    return SyncEpistemicGraphClient.connect(**connect)
+
+
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
     All graph operations route through the Tokio service layer via UDS/TCP
     (length-prefixed MessagePack, HMAC-authenticated). There is **no PyO3 /
-    in-process mode** — the service is a separate process and must be running
-    before this engine is instantiated.
+    in-process mode**. With no explicit coordinator topology the resolver
+    shares or starts the packaged local service; configured
+    ``GRAPH_SERVICE_ENDPOINTS`` is connect-only and must already be serving.
     """
+
+    # The native client accepts the complete MessagePack property domain through
+    # ``add_node``/``add_edge``.  Declare that contract explicitly so governance
+    # proxies and ``IntelligenceGraphEngine`` retain the typed write path instead
+    # of compiling mutations into the deliberately bounded Cypher surface.
+    typed_mutation_support = "native"
+    cypher_support = "native"
+
+    _PROCESS_ENGINE: "GraphComputeEngine | None" = None
+    _PROCESS_ENGINE_LOCK = threading.RLock()
+
+    @classmethod
+    def get_or_create(
+        cls, graph_name: str | None = None, **kwargs: Any
+    ) -> "GraphComputeEngine":
+        """Acquire the one process transport, optionally as a graph-scoped view."""
+        root = cls._PROCESS_ENGINE
+        if root is None:
+            with cls._PROCESS_ENGINE_LOCK:
+                root = cls._PROCESS_ENGINE
+                if root is None:
+                    root = cls(graph_name=graph_name, **kwargs)
+                    cls._PROCESS_ENGINE = root
+        if graph_name and graph_name != root.graph_name:
+            return root.for_graph(graph_name)
+        return root
+
+    @classmethod
+    def get_active(cls) -> "GraphComputeEngine | None":
+        return cls._PROCESS_ENGINE
+
+    @property
+    def client(self) -> Any:
+        """Non-owning generated-client view over the process graph transport.
+
+        The view is GraphSession-routed and its ``close`` is a no-op, allowing
+        existing namespace consumers to use a context manager without stopping
+        the process authority's event loop.
+        """
+        return self._client
+
+    @property
+    def async_client(self) -> Any:
+        """Awaitable, non-owning facade over :attr:`client`.
+
+        This is for async consumers that historically opened a second native
+        client. Calls are scheduled through the process sync client while
+        preserving the current GraphSession ContextVar.
+        """
+        return _AsyncProcessClientView(self._client)
+
+    def for_graph(self, graph_name: str) -> "GraphComputeEngine":
+        """Return a no-connection named-graph view over this process transport."""
+        target = str(graph_name or self.graph_name)
+        if target == self.graph_name:
+            return self
+        from .engine_breaker import unwrap_client, wrap_client_with_breaker
+
+        raw = unwrap_client(self._client)
+        # A view is routing metadata only. In particular, constructing one for
+        # a request-supplied graph must not perform an implicit privileged
+        # TenantsCreate before GraphSession scope/tenant checks run. Graph
+        # provisioning is an explicit kg:admin operation and is never performed
+        # by transport construction.
+        view = object.__new__(type(self))
+        view.__dict__ = self.__dict__.copy()
+        view.graph_name = target
+        view.graph = {}
+        view._process_root = getattr(self, "_process_root", self)
+        scoped = _sync_client_view(raw, graph=target)
+        breaker = getattr(self._client, "_breaker", None)
+        view._client = (
+            wrap_client_with_breaker(scoped, breaker) if breaker is not None else scoped
+        )
+        return view
 
     def __init__(self, graph_name: str | None = None, **kwargs: Any) -> None:
         from epistemic_graph.client import SyncEpistemicGraphClient
@@ -271,34 +1189,45 @@ class GraphComputeEngine:
         from agent_utilities.core.config import AgentConfig
 
         from .engine_resolver import resolve_engine
+        from .session import graph_session_required
         from .shard_topology import (
             record_shard_connect,
             resolve_endpoints,
             resolve_routing_graph,
         )
 
+        if graph_session_required() and self._PROCESS_ENGINE is not None:
+            raise RuntimeError(
+                "A process graph transport already exists; use "
+                "GraphComputeEngine.get_or_create()/for_graph()"
+            )
+
         self.graph: dict[str, Any] = {}
+        self._process_root = self
         # SyncEpistemicGraphClient wrapped in a BreakerClientProxy
         # — attribute-transparent; raw client at
         # ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         self._client: Any
         self._mode: str = "service"
 
+        if "endpoint" in kwargs:
+            raise TypeError(
+                "per-instance engine endpoints are not supported; configure "
+                "GRAPH_SERVICE_ENDPOINTS"
+            )
+
         config = AgentConfig()
         endpoints = resolve_endpoints(config)
         sharded = len(endpoints) > 1
         if sharded:
-            # Tenant-partitioned sharding (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw): tenant → named
-            # graph → HRW → shard. An explicit non-default graph routes by its
-            # own name; the default graph maps to the ambient ActorContext
-            # tenant's graph (tenant__<t>__<base>) when one is in scope.
+            # Select the tenant-scoped named graph submitted to the authenticated
+            # placement authority. Endpoint selection happens per request.
             graph_name = resolve_routing_graph(graph_name, config)
         elif graph_name is None:
             # Per-tenant named-graph isolation must NOT require multiple shards
             # (CONCEPT:AU-KG.compute.data-is-private-its): with enforcement on, route the ambient tenant to
-            # its own named graph even on a single endpoint (HRW over one
-            # endpoint is the identity). With enforcement off this is byte-for-byte
-            # the legacy default-graph behaviour.
+            # its own named graph even on a single endpoint. With enforcement off this retains the
+            # configured default-graph behavior.
             from .company_brain_runtime import brain_enforcement_enabled
 
             if brain_enforcement_enabled():
@@ -309,38 +1238,35 @@ class GraphComputeEngine:
         # can key state by tenant graph. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
         self.graph_name = graph_name
 
-        # Note: Since GraphComputeEngine is synchronous and often used as a long-lived
-        # wrapper, we still use the standard SyncEpistemicGraphClient but point it at
-        # the graph's HRW-owning shard (identity with one endpoint). True async
-        # connection pooling callers should use epistemic_graph.pool.ShardRouter,
-        # which shares this exact placement function. (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw)
+        # Since GraphComputeEngine is synchronous and often long-lived, its
+        # process transport connects to one configured coordinator. Its one
+        # process-owned transport natively pipelines request ids; it must not be
+        # replaced by authority-caching connection pools.
         # ONE engine resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): remote → share-running-local →
-        # autostart-shared-supervised. The resolver owns endpoint placement (HRW),
+        # autostart-shared-supervised. The resolver owns coordinator selection,
         # the local-vs-remote classification, the share-probe, the auth secret,
         # and whether autostart is permitted — so this chokepoint carries no
-        # inline autostart sequence. ``endpoint`` here is the dedicated-engine
-        # override for the ingest path (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw / Phase D): it pins parse +
-        # community-scratch work to a SEPARATE engine, bypassing HRW (the caller
-        # health-gates it and falls back to the query engine).
-        endpoint_override = kwargs.get("endpoint")
-        resolved = resolve_engine(
-            config, graph_name, endpoint_override=endpoint_override
-        )
+        # inline autostart sequence or per-instance topology override.
+        resolved = resolve_engine(config, graph_name)
         endpoint = resolved.endpoint
+        self.endpoint = endpoint
         auth_secret = resolved.auth_secret
-        engine_insecure = resolved.insecure
         idle_shutdown_secs = resolved.idle_shutdown_secs
-        # Export the shared secret so sibling clients (the epistemic_graph pool and
-        # any direct SyncEpistemicGraphClient user falling back to this env var) and
-        # spawned engines agree on it (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
-        if auth_secret:
-            os.environ.setdefault("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         connect_kwargs = {
             "auth_secret": auth_secret,
             "graph_name": graph_name,
+            "verified_context": _transport_only_verified_context(),
         }
-        if endpoint.startswith("tcp://"):
-            connect_kwargs["tcp_addr"] = endpoint[6:]
+        if endpoint.startswith(("tcp://", "tls://")):
+            from .engine_transport import (
+                engine_client_transport_kwargs,
+                native_endpoint_address,
+            )
+
+            connect_kwargs["tcp_addr"] = native_endpoint_address(endpoint)[0]
+            connect_kwargs.update(
+                engine_client_transport_kwargs(endpoint, config=config)
+            )
         elif endpoint.startswith("unix://"):
             connect_kwargs["socket_path"] = endpoint[7:]
         else:
@@ -377,6 +1303,10 @@ class GraphComputeEngine:
                 from .engine_lock import engine_spawn_guard
 
                 sock = connect_kwargs.get("socket_path")
+                # The single-instance guard is transport-keyed. Windows uses
+                # loopback TCP instead of AF_UNIX, so retain the endpoint as
+                # the guard key when there is no socket path.
+                spawn_key = sock or endpoint
                 try:
                     # Single-instance spawn (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): serialize all
                     # autostart spawners for this socket behind a flock and
@@ -386,7 +1316,7 @@ class GraphComputeEngine:
                     # one socket, clobbering the same --persist-dir). The guard is
                     # held across spawn+wait so a concurrent spawner finds the engine
                     # already up on re-check instead of spawning a second one.
-                    with engine_spawn_guard(sock):
+                    with engine_spawn_guard(spawn_key) as owns_spawn_guard:
                         try:
                             # Double check: a peer may have brought it up while we
                             # waited for the guard.
@@ -394,6 +1324,13 @@ class GraphComputeEngine:
                                 **connect_kwargs
                             )
                         except Exception:  # noqa: BLE001 - still down; we spawn
+                            if not owns_spawn_guard:
+                                # A peer still owns the spawn right. Never start a
+                                # competing writer after the bounded guard wait.
+                                raise ConnectionError(
+                                    "Timed out waiting for the local epistemic-graph "
+                                    "startup owner; no competing engine was spawned."
+                                ) from initial_e
                             # Detached + supervised (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): the engine
                             # survives this spawner so OTHER entrypoints on the
                             # host share it (NOT coupled=pdeathsig), and it
@@ -402,8 +1339,8 @@ class GraphComputeEngine:
                             self._client = self._autostart_engine(
                                 connect_kwargs,
                                 sock,
-                                engine_insecure,
                                 auth_secret,
+                                config,
                                 subprocess,
                                 sys,
                                 time,
@@ -419,55 +1356,72 @@ class GraphComputeEngine:
                         breaker.record_failure()
                     record_shard_connect(endpoint, False)
                     raise ConnectionError(
-                        f"Cannot connect to epistemic-graph Tokio service after auto-start: {retry_e}. "
-                        "Ensure the epistemic-graph-server daemon is running."
+                        "Cannot connect to epistemic-graph service after auto-start "
+                        f"({type(retry_e).__name__}); ensure the engine daemon is running."
                     ) from retry_e
             elif sharded:
-                # Fail-loud per-shard contract (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, CONCEPT:AU-KG.backend.selectable-queue-backend-style):
-                # name the shard so the operator fixes the topology instead of
-                # half the keyspace quietly degrading.
+                # Multiple configured contacts are remote and never auto-started.
+                # Placement cannot be guessed when the authority is unreachable.
                 record_shard_connect(endpoint, False)
                 raise ConnectionError(
-                    f"Configured engine shard {endpoint!r} (owner of graph "
-                    f"{graph_name!r} by HRW over GRAPH_SERVICE_ENDPOINTS) is "
-                    f"unreachable: {initial_e}. Start that shard's "
-                    "epistemic-graph-server (or remove it from "
-                    "GRAPH_SERVICE_ENDPOINTS — moving a graph between shards "
-                    "requires a manual snapshot export/import). Autostart "
-                    "applies only to the local unix:// endpoint, never to "
-                    "remote shards."
+                    "The configured engine coordinator is unreachable "
+                    f"({type(initial_e).__name__}). Repair the coordinator topology; "
+                    "remote contacts are never auto-started."
                 ) from initial_e
             else:
                 record_shard_connect(endpoint, False)
                 raise ConnectionError(
-                    f"Cannot connect to epistemic-graph Tokio service: {initial_e}. "
-                    "Ensure the epistemic-graph-server daemon is running, or set EPISTEMIC_GRAPH_AUTOSTART=1."
+                    "Cannot connect to epistemic-graph service "
+                    f"({type(initial_e).__name__}); ensure the engine daemon is "
+                    "running or enable local autostart in AgentConfig."
                 ) from initial_e
+
+        # A packaged local engine can authoritatively route a tenant partition
+        # before that partition's graph has been materialized.  Establish the
+        # process session's one configured graph while the raw client is still
+        # available, regardless of whether this process connected to an already
+        # running local engine or started a fresh one.  Remote/sharded engines
+        # retain lifecycle authority and are never provisioned here.
+        local_graph_name = str(graph_name or "__commons__")
+        if autostart_allowed and local_graph_name != "__commons__":
+            from .session import current_session
+
+            session = current_session()
+            if session is None:
+                raise RuntimeError(
+                    "local engine graph readiness requires verified process authority"
+                )
+            try:
+                self._ensure_local_session_graph(
+                    self._client,
+                    local_graph_name,
+                    session,
+                )
+            except Exception:
+                with contextlib.suppress(Exception):
+                    self._client.close()
+                raise
 
         # Connected: close/reset the breaker and guard every subsequent call
         # with it. The proxy is attribute-transparent, and the raw client
         # stays reachable via ``self._client.__wrapped__``. (CONCEPT:AU-OS.observability.no-op-without-metrics)
         breaker.record_success()
         record_shard_connect(endpoint, True)
-        self._client = wrap_client_with_breaker(self._client, breaker)
 
-        logger.info(
-            "Connected to epistemic-graph Tokio service (graph: %s, endpoint: %s).",
-            graph_name,
-            endpoint,
+        # Keep the connected transport private and expose only a routed view.
+        # This adds no socket/thread: it reconstructs namespace wrappers around
+        # the same async client and event loop so concurrent GraphSessions can
+        # safely target different tenant graphs.
+        transport_client = self._client
+        transport_client._au_route_config = config
+        transport_client._au_route_endpoints = tuple(endpoints)
+        transport_client._au_route_endpoint = endpoint
+
+        self._client = wrap_client_with_breaker(
+            _sync_client_view(transport_client), breaker
         )
 
-        try:
-            if self._client:
-                # Try to create the graph so tests and dynamic instances don't fail
-                # if the graph doesn't exist in the Rust backend yet.
-                self._client.tenants.create(graph_name)
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.debug(f"Tenant graph {graph_name} already exists.")
-            else:
-                logger.warning(f"Failed to create tenant graph {graph_name}: {repr(e)}")
-            pass
+        logger.info("Connected to configured epistemic-graph service")
 
         # Bridging local events to the rust service when kafka isn't running
         if (
@@ -476,12 +1430,19 @@ class GraphComputeEngine:
         ):
             self._start_event_bridge()
 
+        with self._PROCESS_ENGINE_LOCK:
+            active = self._PROCESS_ENGINE
+            if active is None:
+                type(self)._PROCESS_ENGINE = self
+            elif active is not self and graph_session_required():
+                raise RuntimeError("Concurrent duplicate graph transport rejected")
+
     def _autostart_engine(
         self,
         connect_kwargs: dict[str, Any],
         sock: str | None,
-        engine_insecure: bool,
-        auth_secret: str | None,
+        auth_secret: str,
+        config: Any,
         subprocess: Any,
         sys: Any,
         time: Any,
@@ -495,7 +1456,7 @@ class GraphComputeEngine:
         :func:`engine_lock.engine_spawn_guard`) and only after a double-checked
         connect confirmed the engine is still down — so this is the sole spawner
         for ``sock``. Mirrors the prior inline autostart: durable ``--persist-dir``
-        + checkpoint, the same auth secret the client uses (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
+        and the same auth secret the client uses (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 
         ``coupled`` (CONCEPT:AU-OS.deployment.embedded-auto-provision — embedded auto-provision) selects the child
         lifecycle. ``coupled=True`` (the ``ensure_local_engine`` / true
@@ -512,8 +1473,8 @@ class GraphComputeEngine:
         self-terminates that many seconds after its LAST client disconnects
         (robust to client crashes). ``0`` = persistent: NO flag passed, the engine
         runs forever like a local service. A coupled engine ignores this (its
-        spawner already bounds its lifetime). The flag is omitted gracefully if
-        the installed engine binary does not advertise it (older engine).
+        spawner already bounds its lifetime). The packaged current engine binary
+        is the sole supported launch contract.
         """
         if setting("KG_ENGINE_DETACHED", "") == "1":
             coupled = False
@@ -522,6 +1483,7 @@ class GraphComputeEngine:
         logger.info(
             "epistemic-graph Tokio service not running. Auto-starting daemon (single-instance guard held)..."
         )
+        self._local_bootstrap_identity = None
         # The maturin wheel installs the binary next to the interpreter; on Windows
         # it carries a `.exe` suffix (Scripts/epistemic-graph-server.exe).
         _server_exe = (
@@ -533,6 +1495,11 @@ class GraphComputeEngine:
         cmd = [server_path]
         if sock:
             cmd += ["--socket-path", str(sock)]
+        elif connect_kwargs.get("tcp_addr"):
+            # Windows' zero-config transport is loopback TCP. Passing the
+            # address explicitly also makes an operator-selected local
+            # loopback port deterministic on every platform.
+            cmd += ["--tcp-addr", str(connect_kwargs["tcp_addr"])]
         # Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): snapshot the graphs to disk
         # so an auto-spawned engine warm-restarts from the last checkpoint instead
         # of starting empty. pggraph stays the durable system-of-record; this is
@@ -546,33 +1513,159 @@ class GraphComputeEngine:
             except Exception:
                 persist_dir = None
         if persist_dir:
-            cmd += [
-                "--persist-dir",
-                persist_dir,
-                "--checkpoint-interval",
-                str(_CHECKPOINT_INTERVAL_S),
-            ]
+            cmd += ["--persist-dir", persist_dir]
         # Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): a DETACHED engine that
         # outlives its spawner needs a self-shutdown so a crashed/exited fleet of
         # clients doesn't leave it running forever. >0 → arm idle shutdown;
         # 0 → persistent (omit the flag, engine runs forever like a service). A
         # coupled engine is already lifetime-bound to its spawner, so skip it.
-        if (
-            not coupled
-            and idle_shutdown_secs > 0
-            and _engine_supports_idle_shutdown(server_path)
-        ):
+        if not coupled and idle_shutdown_secs > 0:
             cmd += ["--idle-shutdown-secs", str(idle_shutdown_secs)]
-        # Engine auth (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): the spawned engine gets the SAME secret
-        # this client authenticates with (the engine reads GRAPH_SERVICE_AUTH_SECRET).
-        # With KG_ENGINE_INSECURE the explicit allow flag keeps refuse-insecure
-        # binaries bootable for dev.
-        child_env = dict(os.environ)
-        if engine_insecure:
-            child_env["EPISTEMIC_GRAPH_ALLOW_INSECURE"] = "1"
-            child_env.pop("GRAPH_SERVICE_AUTH_SECRET", None)
-        else:
-            child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret or ""
+        # Engine auth (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
+        # the spawned engine gets the SAME mandatory secret this client uses.
+        child_env = _engine_child_environment()
+        # A packaged-local engine is a private child of this verified process.
+        # Project the externally verified session's tenant/audience/policy into
+        # the engine before it accepts a request, and provide a private signer
+        # only for the empty-store System identity bootstrap.  An explicit
+        # signer registry is fail-closed: it must already contain this subject.
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        bootstrap_session = current_session()
+        if bootstrap_session is not None:
+            bootstrap_context = bootstrap_session.engine_verified_context()
+            authority_projection = {
+                "EPISTEMIC_GRAPH_AUDIENCE": str(bootstrap_context["audience"]),
+                "EPISTEMIC_GRAPH_TENANT": str(bootstrap_context["tenant"]),
+                "EPISTEMIC_GRAPH_POLICY_VERSION": str(
+                    bootstrap_context["policy_version"]
+                ),
+            }
+            for environment_name, expected in authority_projection.items():
+                configured = str(child_env.get(environment_name, "") or "").strip()
+                if configured and configured != expected:
+                    raise RuntimeError(
+                        "local engine authority policy does not match the verified process"
+                    )
+                child_env[environment_name] = expected
+
+            actor_id = str(bootstrap_context["agent_id"])
+            raw_registry = str(
+                child_env.get("EPISTEMIC_GRAPH_SIGNER_KEYS_JSON", "") or ""
+            ).strip()
+            if raw_registry:
+                try:
+                    registry = json.loads(raw_registry)
+                except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        "local engine signer registry is invalid"
+                    ) from exc
+                if not isinstance(registry, dict):
+                    raise RuntimeError("local engine signer registry is invalid")
+                signer_key = str(registry.get(actor_id, "") or "")
+                if len(signer_key.encode("utf-8")) < 32:
+                    raise RuntimeError(
+                        "verified process identity is absent from the engine signer registry"
+                    )
+            else:
+                signer_key = _load_or_create_engine_bootstrap_signer_key()
+                child_env["EPISTEMIC_GRAPH_SIGNER_KEYS_JSON"] = json.dumps(
+                    {actor_id: signer_key}, separators=(",", ":")
+                )
+            self._local_bootstrap_identity = (
+                actor_id,
+                signer_key,
+                bootstrap_context,
+            )
+        child_env.update(
+            {
+                "EPISTEMIC_GRAPH_LAZY_STARTUP": "1",
+                "EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS": str(
+                    config.epistemic_graph_max_resident_graphs
+                ),
+                "EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE": str(
+                    config.epistemic_graph_lazy_open_page_size
+                ),
+                "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH": str(
+                    config.epistemic_graph_max_nodes_per_graph
+                ),
+                "EPISTEMIC_GRAPH_MAX_REQUEST_BYTES": str(
+                    getattr(
+                        config, "epistemic_graph_max_request_bytes", 64 * 1024 * 1024
+                    )
+                ),
+                "EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES": str(
+                    getattr(
+                        config, "epistemic_graph_max_response_bytes", 64 * 1024 * 1024
+                    )
+                ),
+                "EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS": str(
+                    getattr(config, "epistemic_graph_max_msgpack_items", 1_000_000)
+                ),
+                "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS": str(
+                    getattr(config, "epistemic_graph_connection_io_timeout_secs", 120)
+                ),
+                "EPISTEMIC_GRAPH_TLS_HANDSHAKE_TIMEOUT_SECS": str(
+                    getattr(config, "epistemic_graph_tls_handshake_timeout_secs", 10)
+                ),
+                "EPISTEMIC_GRAPH_AST_MAX_FILES": str(
+                    getattr(config, "epistemic_graph_ast_max_files", 4_096)
+                ),
+                "EPISTEMIC_GRAPH_AST_MAX_SOURCE_BYTES": str(
+                    getattr(
+                        config, "epistemic_graph_ast_max_source_bytes", 4 * 1024 * 1024
+                    )
+                ),
+                "EPISTEMIC_GRAPH_AST_MAX_TOTAL_BYTES": str(
+                    getattr(
+                        config, "epistemic_graph_ast_max_total_bytes", 32 * 1024 * 1024
+                    )
+                ),
+                "EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES": str(
+                    getattr(
+                        config,
+                        "epistemic_graph_modality_max_bundle_bytes",
+                        4 * 1024 * 1024,
+                    )
+                ),
+                "EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES": str(
+                    getattr(
+                        config,
+                        "epistemic_graph_modality_max_source_bytes",
+                        16 * 1024 * 1024,
+                    )
+                ),
+                "EPISTEMIC_GRAPH_SQLITE_MAX_BYTES": str(
+                    getattr(
+                        config, "epistemic_graph_sqlite_max_bytes", 256 * 1024 * 1024
+                    )
+                ),
+                "EPISTEMIC_GRAPH_SQLITE_MAX_ROWS": str(
+                    getattr(config, "epistemic_graph_sqlite_max_rows", 1_000_000)
+                ),
+            }
+        )
+        runtime_roots = (
+            (
+                "EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT",
+                getattr(config, "epistemic_graph_sqlite_transfer_root_ref", None),
+            ),
+            (
+                "EPISTEMIC_GRAPH_BACKUP_ROOT",
+                getattr(config, "epistemic_graph_backup_root_ref", None),
+            ),
+        )
+        for environment_name, reference in runtime_roots:
+            if reference:
+                child_env[environment_name] = _resolve_engine_path_ref(str(reference))
+        # Encryption material exists only in this private child environment.
+        # Ambient raw/ref variables were removed by ``_engine_child_environment``;
+        # AgentConfig persists only the reference, and the Rust process receives
+        # the validated value immediately before spawn.
+        child_env["EPISTEMIC_GRAPH_ENCRYPTION_KEY"] = _resolve_engine_encryption_key(
+            config
+        )
+        child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
         if coupled:
             # Embedded/tiny path: the engine's lifetime is tied to ours. Do NOT
             # start a new session (that would detach it); instead arm the
@@ -592,7 +1685,11 @@ class GraphComputeEngine:
             if os.name == "posix":
                 coupled_kwargs["start_new_session"] = False
                 coupled_kwargs["preexec_fn"] = _set_pdeathsig
-            child = subprocess.Popen(cmd, **coupled_kwargs)  # nosec B603
+            try:
+                child = subprocess.Popen(cmd, **coupled_kwargs)  # nosec B603
+            finally:
+                child_env.pop("EPISTEMIC_GRAPH_ENCRYPTION_KEY", None)
+                coupled_kwargs.pop("env", None)
             _coupled_children.append(child)
             _install_coupled_handlers()
         else:
@@ -612,9 +1709,159 @@ class GraphComputeEngine:
                     subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
                     | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
                 )
-            subprocess.Popen(cmd, **detach_kwargs)  # nosec B603
-        time.sleep(1.0)
-        return SyncEpistemicGraphClient.connect(**connect_kwargs)
+            try:
+                child = subprocess.Popen(cmd, **detach_kwargs)  # nosec B603
+            finally:
+                child_env.pop("EPISTEMIC_GRAPH_ENCRYPTION_KEY", None)
+                detach_kwargs.pop("env", None)
+
+        # Cold startup is readiness-driven, not a fixed one-second guess. The
+        # full engine can legitimately spend several seconds opening a durable
+        # store on a resource-constrained host. Retain the child handle so an
+        # early exit is distinguishable from a listener that is merely not ready,
+        # and tear down only the child we just spawned on timeout so it cannot
+        # become an unreachable orphan holding the persistence lock.
+        deadline = time.monotonic() + _ENGINE_STARTUP_TIMEOUT_SECS
+        last_error: Exception | None = None
+        while True:
+            status = child.poll()
+            if status is not None:
+                if coupled:
+                    with contextlib.suppress(ValueError):
+                        _coupled_children.remove(child)
+                raise ConnectionError(
+                    "The local epistemic-graph process exited during startup "
+                    f"(status {status})."
+                )
+            try:
+                connected = SyncEpistemicGraphClient.connect(**connect_kwargs)
+                self._bootstrap_autostarted_engine_identity(
+                    connected,
+                    connect_kwargs,
+                )
+                return connected
+            except Exception as exc:  # noqa: BLE001 - bounded readiness probe
+                last_error = exc
+            if time.monotonic() >= deadline:
+                with contextlib.suppress(Exception):
+                    child.terminate()
+                with contextlib.suppress(Exception):
+                    child.wait(timeout=3.0)
+                if child.poll() is None:
+                    with contextlib.suppress(Exception):
+                        child.kill()
+                if coupled:
+                    with contextlib.suppress(ValueError):
+                        _coupled_children.remove(child)
+                raise ConnectionError(
+                    "The local epistemic-graph process did not become ready "
+                    f"within {_ENGINE_STARTUP_TIMEOUT_SECS:g} seconds."
+                ) from last_error
+            time.sleep(_ENGINE_STARTUP_POLL_SECS)
+
+    @staticmethod
+    def _ensure_local_session_graph(
+        client: Any,
+        graph_name: str,
+        session: Any,
+    ) -> None:
+        """Materialize the verified process graph on one packaged local engine.
+
+        Placement routing proves authority but intentionally does not create a
+        graph.  This local-only bootstrap seam closes that lifecycle gap without
+        allowing request-scoped graph views or configured remote coordinators to
+        provision graphs implicitly.
+        """
+        if graph_name == "__commons__":
+            return
+        session.require_scope("kg:admin")
+        verified_context = session.engine_verified_context()
+        from agent_utilities.knowledge_graph.core.placement_catalog import (
+            split_tenant_key,
+        )
+
+        tenant, sub_key = split_tenant_key(graph_name)
+
+        def _listed_names() -> set[str]:
+            entries = client.tenants.list() or []
+            return {
+                str(entry.get("name") if isinstance(entry, Mapping) else entry)
+                for entry in entries
+            }
+
+        with client.use_verified_context(verified_context):
+            client.placement.route(tenant, sub_key, client_epoch=0)
+            if graph_name in _listed_names():
+                return
+            try:
+                client.tenants.create(graph_name, "Agent")
+            except Exception:
+                # Another authorized local process may win the create race.  A
+                # fresh authoritative list is the only accepted reconciliation;
+                # otherwise preserve the original fail-closed exception.
+                if graph_name in _listed_names():
+                    return
+                raise
+
+    def _bootstrap_autostarted_engine_identity(
+        self,
+        client: Any,
+        connect_kwargs: Mapping[str, Any],
+    ) -> None:
+        """Initialize one fresh packaged engine from verified process authority.
+
+        Existing engines are probed first.  If the process identity already has
+        administrative placement access, no bootstrap request is sent.  On an
+        empty identity store, the engine accepts exactly one signer-backed
+        ``security:bootstrap`` System registration on ``__commons__``; any other
+        initialized/unauthorized state remains fail-closed.
+        """
+        prepared = getattr(self, "_local_bootstrap_identity", None)
+        if prepared is None or not hasattr(client, "placement"):
+            return
+        actor_id, signer_key, verified_context = prepared
+        from agent_utilities.knowledge_graph.core.placement_catalog import (
+            split_tenant_key,
+        )
+
+        graph_name = str(connect_kwargs.get("graph_name") or "__commons__")
+        tenant, sub_key = split_tenant_key(graph_name)
+        try:
+            with client.use_verified_context(verified_context):
+                client.placement.route(tenant, sub_key, client_epoch=0)
+            return
+        except Exception:  # noqa: BLE001 - empty store is established below
+            pass
+
+        bootstrap_context = dict(verified_context)
+        bootstrap_context.update(
+            {
+                "principal": actor_id,
+                "agent_id": actor_id,
+                "roles": [],
+                "scopes": ["security:bootstrap"],
+                "delegation": [],
+            }
+        )
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        bootstrap_connect = dict(connect_kwargs)
+        bootstrap_connect["graph_name"] = "__commons__"
+        bootstrap_connect["verified_context"] = bootstrap_context
+        bootstrap_client = SyncEpistemicGraphClient.connect(**bootstrap_connect)
+        try:
+            bootstrap_client.consensus.bootstrap_system_identity(
+                agent_id=actor_id,
+                signer_id=actor_id,
+                signer_key=signer_key,
+            )
+        finally:
+            bootstrap_client.close()
+
+        # Do not declare the engine ready until the actual process authority can
+        # read its authoritative route under the newly durable policy state.
+        with client.use_verified_context(verified_context):
+            client.placement.route(tenant, sub_key, client_epoch=0)
 
     def _start_event_bridge(self) -> None:
         """Starts a background bridge to forward local EventBus events to the Rust service."""
@@ -637,7 +1884,8 @@ class GraphComputeEngine:
                             )
                     except Exception as exc:
                         logger.error(
-                            "Failed to forward mutation to epistemic-graph: %s", exc
+                            "Failed to forward mutation to epistemic-graph (%s)",
+                            type(exc).__name__,
                         )
 
             async def run_subscriber() -> None:
@@ -649,7 +1897,7 @@ class GraphComputeEngine:
             try:
                 loop.run_until_complete(run_subscriber())
             except Exception as e:
-                logger.error("Event bridge worker failed: %s", e)
+                logger.error("Event bridge worker failed (%s)", type(e).__name__)
 
         t = threading.Thread(
             target=bridge_worker, daemon=True, name="EventBridgeWorker"
@@ -664,8 +1912,8 @@ class GraphComputeEngine:
 
         Supports both explicit dict and NX-style kwargs::
 
-            engine.add_node("n1", {"type": "Agent"})
-            engine.add_node("n1", type="Agent", name="foo")
+            engine.add_node("n1", {"node_type": "Agent"})
+            engine.add_node("n1", node_type="Agent", name="foo")
         """
 
         def clean_props(d: Mapping[str, Any]) -> dict[str, Any]:
@@ -693,6 +1941,17 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
+        if "type" in props:
+            raise ValueError(
+                "node property 'type' is not supported; use canonical 'node_type'"
+            )
+        declared_id = props.get("id")
+        if declared_id is not None and str(declared_id) != str(node_id):
+            raise ValueError("node property 'id' must match the native node identity")
+        # Native Cypher property predicates intentionally use one stored `id`
+        # field. Stamping it on every typed write removes the Python-side
+        # virtual-id interpreter and keeps point predicates inside the engine.
+        props["id"] = str(node_id)
         props = clean_props(props)
         self._client.nodes.add(node_id, props)
 
@@ -707,8 +1966,8 @@ class GraphComputeEngine:
 
         Supports both explicit dict and NX-style kwargs::
 
-            engine.add_edge("a", "b", {"type": "DEPENDS_ON"})
-            engine.add_edge("a", "b", type="DEPENDS_ON")
+            engine.add_edge("a", "b", {"relationship": "DEPENDS_ON"})
+            engine.add_edge("a", "b", relationship="DEPENDS_ON")
         """
 
         def clean_props(d: dict[str, Any]) -> dict[str, Any]:
@@ -736,6 +1995,17 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
+        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
+            props
+        )
+        if aliases:
+            names = ", ".join(sorted(aliases))
+            raise ValueError(
+                f"edge relationship aliases are not supported ({names}); "
+                "use canonical 'relationship'"
+            )
+        if not props.get("relationship"):
+            raise ValueError("edge property 'relationship' is required")
         props = clean_props(props)
 
         if self.has_edge(source_id, target_id):
@@ -795,12 +2065,101 @@ class GraphComputeEngine:
         ``expected`` (a missing field reads as null), merge every
         ``(field, value)`` in ``updates`` into the node and return ``True``;
         otherwise return ``False`` with no mutation. This is the authoritative,
-        backend-agnostic primitive behind cross-host :Task claiming
+        backend-agnostic primitive for atomic graph-field coordination
         (CONCEPT:AU-KG.compute.user-override-prompt-library). Mirrors ``add_node``: the call goes straight to
         ``self._client.nodes.*``; the SyncEpistemicGraphClient wrapper handles
         the run-in-loop dispatch.
         """
         return bool(self._client.nodes.compare_and_set(node_id, conditions, updates))
+
+    def claim_work_item(self, request: Any) -> Any:
+        """Atomically select and lease one WorkItem in the engine."""
+        from agent_utilities.protocols.epistemic_operations import (
+            ClaimWorkItemRequest,
+            ClaimWorkItemResult,
+        )
+
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "claim", None)
+        if not callable(method):
+            raise NotImplementedError("connected engine has no work_items.claim")
+        try:
+            operation = ClaimWorkItemRequest.model_validate(request)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid ClaimWorkItem request") from exc
+        return ClaimWorkItemResult.model_validate(
+            method(operation.model_dump(mode="json"))
+        )
+
+    def renew_work_item_lease(self, request: dict[str, Any]) -> Any:
+        """Renew a WorkItem lease under its epoch/fencing token."""
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "renew", None)
+        if not callable(method):
+            raise NotImplementedError("connected engine has no work_items.renew")
+        return method(
+            tenant=str(request.get("tenant") or ""),
+            work_item_id=str(request.get("work_item_id") or ""),
+            worker_id=str(request.get("worker_ref") or ""),
+            lease_epoch=int(request.get("expected_epoch") or 0),
+            fencing_token=int(request.get("fencing_token") or 0),
+            now_ms=int(float(request.get("now_unix") or 0) * 1000),
+            lease_ms=max(1, int(float(request.get("lease_ttl") or 0) * 1000)),
+        )
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> Any:
+        """Atomically commit a fenced WorkItem result/retry/outbox outcome."""
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "commit_result", None)
+        if not callable(method):
+            raise NotImplementedError(
+                "connected engine has no work_items.commit_result"
+            )
+        return method(
+            tenant=str(request.get("tenant") or ""),
+            work_item_id=str(request.get("work_item_id") or ""),
+            worker_id=str(request.get("worker_ref") or ""),
+            lease_epoch=int(request.get("expected_epoch") or 0),
+            fencing_token=int(request.get("fencing_token") or 0),
+            idempotency_key=str(request.get("idempotency_key") or ""),
+            outcome=str(request.get("outcome") or ""),
+            now_ms=int(float(request.get("now_unix") or 0) * 1000),
+            result_ref=request.get("result_ref"),
+            error_ref=request.get("error_ref"),
+            retryable=bool(request.get("retryable", False)),
+        )
+
+    def cancel_work_item(self, request: dict[str, Any]) -> Any:
+        """Cancel an unleased WorkItem without manufacturing ownership."""
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "cancel", None)
+        if not callable(method):
+            raise NotImplementedError("connected engine has no work_items.cancel")
+        return method(
+            tenant=str(request.get("tenant") or ""),
+            work_item_id=str(request.get("work_item_id") or ""),
+            idempotency_key=str(request.get("idempotency_key") or ""),
+            reason_ref=request.get("reason_ref"),
+            now_ms=int(float(request.get("now_unix") or 0) * 1000),
+        )
+
+    def defer_work_item(self, request: dict[str, Any]) -> Any:
+        """Release a fenced lease until ``next_retry_at`` without an attempt."""
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "defer", None)
+        if not callable(method):
+            raise NotImplementedError("connected engine has no work_items.defer")
+        return method(
+            tenant=str(request.get("tenant") or ""),
+            work_item_id=str(request.get("work_item_id") or ""),
+            worker_id=str(request.get("worker_ref") or ""),
+            lease_epoch=int(request.get("expected_epoch") or 0),
+            fencing_token=int(request.get("fencing_token") or 0),
+            idempotency_key=str(request.get("idempotency_key") or ""),
+            next_retry_at_ms=int(float(request.get("next_retry_at") or 0) * 1000),
+            reason_ref=request.get("reason_ref"),
+            now_ms=int(float(request.get("now_unix") or 0) * 1000),
+        )
 
     def node_count(self) -> int:
         """Return the number of nodes in the graph."""
@@ -847,6 +2206,7 @@ class GraphComputeEngine:
         plan: list[dict[str, Any]],
         *,
         reorder_filter_selectivity: float | None = None,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Run ONE cross-modal unified plan in a single costed round-trip (CONCEPT:AU-KG.compute.kg-2).
 
@@ -862,13 +2222,400 @@ class GraphComputeEngine:
 
         Requires an engine built with the ``query`` feature; on a build without it
         the call raises a clear engine error — there is no O(N) Python fallback.
+
+        Args:
+            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
+                ``KnowledgeBatch`` currency, extended from ``KnowledgeGraph.query``
+                to this cross-modal surface). Default ``False`` — byte-for-byte the
+                same ``[{"id", "score"}]`` rows as before this parameter existed.
+                When ``True``, currency-upgrades the SAME ids (in the SAME
+                post-``Rank`` order) via ``explain_provenance_by_ids`` into
+                :class:`~.epistemic_row.EpistemicRow` results carrying the
+                engine's confidence, bitemporal window, evidence provenance, and
+                policy labels — never fabricated, resolved server-side. See
+                ``docs/architecture/epistemic-columns-currency.md``.
         """
-        return (
+        rows = (
             self._client.query.unified(
                 plan, reorder_filter_selectivity=reorder_filter_selectivity
             )
             or []
         )
+        if include_epistemic:
+            from .epistemic_row import attach_epistemic_rows
+
+            return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
+        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
+        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
+        from agent_utilities.core.config import config as _app_config
+
+        from .epistemic_row import (
+            attach_epistemic_columns,
+            should_attach_epistemic_columns,
+        )
+
+        if should_attach_epistemic_columns(
+            rows, default=_app_config.epistemic_light_default
+        ):
+            rows = attach_epistemic_columns(rows, self.explain_provenance_by_ids)
+        return rows
+
+    def query_cypher(self, query: str) -> list[dict[str, Any]]:
+        """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).
+
+        This is the engine's OWN Cypher executor (``eg-query::cypher``, compiled
+        to the label index / VF2 / BFS — no Python-side regex interpretation),
+        reached via ``client.query.cypher_read``. It requires an engine built with the
+        ``cypher`` feature; on a build without it, or on a query the parser
+        rejects, the call raises a clear engine error naming the problem — there
+        is NO client-side fallback that silently narrows or drops the query.
+
+        The wire protocol carries the literal query plus an explicit read mode
+        (no separate params map). The engine parses the statement independently
+        and rejects a mode mismatch before execution. Callers must inline every
+        ``$param`` as a Cypher literal before calling this method (see
+        ``EpistemicGraphBackend._inline_cypher_params``).
+        """
+        return self._client.query.cypher_read(query) or []
+
+    def query_cypher_write(self, query: str) -> list[dict[str, Any]]:
+        """Run one explicitly authorized native Cypher mutation.
+
+        The Rust server reparses the complete statement, rejects a read/write
+        mode mismatch, and commits graph state through its durable MutationBatch
+        gateway before publishing the result. Public raw-query surfaces never
+        call this method; their contract is read-only.
+        """
+        return self._client.query.cypher_write(query) or []
+
+    def submit_program_optimization(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        """Submit one governed native ``ProgramOptimize`` analytics job.
+
+        ``request`` is the exact versioned ``eg-program`` mapping. Raw prompts,
+        outputs, identities, endpoints, and paths are intentionally absent; the
+        engine authority-rebinds policy before persisting the job.
+        """
+        import msgpack
+
+        if not isinstance(request, Mapping) or request.get("schema_version") != 1:
+            raise ValueError("program optimization request is invalid")
+        payload = msgpack.packb(dict(request), use_bin_type=True)
+        return self._client.jobs.submit_program_optimization(
+            self.graph_name,
+            payload,
+            purpose="program-optimization",
+            max_attempts=1,
+        )
+
+    def program_optimization_status(self, job_id: str) -> dict[str, Any]:
+        """Return the authoritative durable state for one submitted program job."""
+        if not isinstance(job_id, str) or not job_id:
+            raise ValueError("program optimization job id is invalid")
+        status = self._client.jobs.status(job_id)
+        if not isinstance(status, dict) or status.get("job_id") != job_id:
+            raise RuntimeError("program optimization status response is invalid")
+        return status
+
+    @staticmethod
+    def program_optimization_result(job: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate and return a succeeded job's typed program result rows."""
+        state = job.get("state")
+        if not isinstance(state, Mapping) or set(state) != {"Succeeded"}:
+            raise RuntimeError("program optimization job did not succeed")
+        succeeded = state.get("Succeeded")
+        if not isinstance(succeeded, Mapping):
+            raise RuntimeError("program optimization success state is invalid")
+        result_ref = succeeded.get("result_ref")
+        if not isinstance(result_ref, str) or not _OPAQUE_PROGRAM_REF.fullmatch(
+            result_ref
+        ):
+            raise RuntimeError("program optimization result reference is invalid")
+
+        output = job.get("output")
+        if not isinstance(output, Mapping):
+            raise RuntimeError("program optimization output is missing")
+        schema = output.get("schema")
+        if (
+            not isinstance(schema, list)
+            or tuple(
+                (
+                    column.get("name"),
+                    column.get("logical_type"),
+                    column.get("nullable"),
+                )
+                if isinstance(column, Mapping)
+                else (None, None, None)
+                for column in schema
+            )
+            != _PROGRAM_RESULT_SCHEMA
+        ):
+            raise RuntimeError("program optimization result schema is invalid")
+        rows = output.get("rows")
+        if not isinstance(rows, list) or not rows:
+            raise RuntimeError("program optimization rows are missing")
+
+        list_fields = {
+            "evidence_refs",
+            "source_refs",
+            "proof_ids",
+            "contradiction_ids",
+            "demonstration_refs",
+            "artifact_refs",
+            "composition_refs",
+            "modalities",
+            "plan_step_kinds",
+            "plan_executors",
+            "plan_input_refs",
+            "plan_output_refs",
+            "plan_depends_on",
+        }
+        optional_refs = {
+            "instruction_ref",
+            "tool_policy_ref",
+            "model_profile_ref",
+            "plan_ref",
+        }
+        ref_lists = {
+            "evidence_refs",
+            "source_refs",
+            "proof_ids",
+            "contradiction_ids",
+            "demonstration_refs",
+            "artifact_refs",
+            "composition_refs",
+            "plan_input_refs",
+            "plan_output_refs",
+            "plan_depends_on",
+        }
+        normalized: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, Mapping) or set(row) != _PROGRAM_RESULT_FIELDS:
+                raise RuntimeError("program optimization row schema is invalid")
+            kind = row.get("kind")
+            if kind not in {
+                "program_candidate",
+                "program_optimization_plan_step",
+            }:
+                raise RuntimeError("program optimization row kind is invalid")
+            confidence = row.get("confidence")
+            if (
+                not isinstance(confidence, int | float)
+                or isinstance(confidence, bool)
+                or not 0.0 <= float(confidence) <= 1.0
+            ):
+                raise RuntimeError("program optimization confidence is invalid")
+            for field in ("id", "program_ref"):
+                value = row.get(field)
+                if not isinstance(value, str) or not _OPAQUE_PROGRAM_REF.fullmatch(
+                    value
+                ):
+                    raise RuntimeError("program optimization reference is invalid")
+            for field in optional_refs:
+                value = row.get(field)
+                if value is not None and (
+                    not isinstance(value, str)
+                    or not _OPAQUE_PROGRAM_REF.fullmatch(value)
+                ):
+                    raise RuntimeError(
+                        "program optimization optional reference is invalid"
+                    )
+            for field in list_fields:
+                values = row.get(field)
+                if not isinstance(values, list) or not all(
+                    isinstance(value, str) for value in values
+                ):
+                    raise RuntimeError("program optimization list field is invalid")
+                if field in ref_lists and not all(
+                    _OPAQUE_PROGRAM_REF.fullmatch(value) for value in values
+                ):
+                    raise RuntimeError("program optimization reference list is invalid")
+            if not row.get("evidence_refs") or not row.get("source_refs"):
+                raise RuntimeError(
+                    "program optimization lineage references are missing"
+                )
+            if not isinstance(row.get("selected"), bool):
+                raise RuntimeError("program optimization selection flag is invalid")
+            optimizer = row.get("optimizer")
+            execution = row.get("execution")
+            if (
+                not isinstance(optimizer, str)
+                or not isinstance(execution, str)
+                or _PROGRAM_OPTIMIZER_EXECUTIONS.get(optimizer) != execution
+            ):
+                raise RuntimeError("program optimization lineage is invalid")
+            candidate_role = row.get("candidate_role")
+            if candidate_role is not None and not isinstance(candidate_role, str):
+                raise RuntimeError("program optimization candidate role is invalid")
+            modalities = row.get("modalities")
+            if not modalities or not set(modalities) <= _PROGRAM_MODALITIES:
+                raise RuntimeError("program optimization modalities are invalid")
+            max_operations = row.get("max_operations")
+            if max_operations is not None and (
+                not isinstance(max_operations, int)
+                or isinstance(max_operations, bool)
+                or max_operations <= 0
+            ):
+                raise RuntimeError("program optimization operation bound is invalid")
+            if kind == "program_candidate":
+                tool_policy_ref = row.get("tool_policy_ref")
+                valid_tool_policy_binding = (
+                    optimizer == "avatar"
+                    and tool_policy_ref is not None
+                    and tool_policy_ref in row.get("artifact_refs", [])
+                    and row.get("instruction_ref") is None
+                ) or (optimizer != "avatar" and tool_policy_ref is None)
+                if (
+                    candidate_role not in _PROGRAM_CANDIDATE_ROLES
+                    or not valid_tool_policy_binding
+                    or row.get("plan_ref") is not None
+                    or not row.get("demonstration_refs")
+                    or any(
+                        row.get(field)
+                        for field in (
+                            "plan_step_kinds",
+                            "plan_executors",
+                            "plan_input_refs",
+                            "plan_output_refs",
+                            "plan_depends_on",
+                        )
+                    )
+                    or max_operations is not None
+                ):
+                    raise RuntimeError(
+                        "program optimization candidate shape is invalid"
+                    )
+            elif (
+                candidate_role is not None
+                or row.get("instruction_ref") is not None
+                or row.get("tool_policy_ref") is not None
+                or row.get("model_profile_ref") is not None
+                or row.get("plan_ref") is None
+                or row.get("selected") is not False
+                or len(row.get("plan_step_kinds")) != 1
+                or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
+                or len(row.get("plan_executors")) != 1
+                or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
+                or not row.get("plan_input_refs")
+                or not row.get("plan_output_refs")
+                or max_operations is None
+            ):
+                raise RuntimeError("program optimization plan shape is invalid")
+            normalized.append(dict(row))
+        return {"result_ref": result_ref, "rows": normalized}
+
+    def optimize_program(
+        self,
+        request: Mapping[str, Any],
+        *,
+        timeout_seconds: float = 30.0,
+        poll_interval_seconds: float = 0.05,
+    ) -> dict[str, Any]:
+        """Submit, boundedly poll, and validate one native optimization job."""
+        timeout = min(max(float(timeout_seconds), 0.1), 300.0)
+        interval = min(max(float(poll_interval_seconds), 0.01), 1.0)
+        submitted = self.submit_program_optimization(request)
+        job_id = submitted.get("job_id") if isinstance(submitted, Mapping) else None
+        if not isinstance(job_id, str) or not job_id:
+            raise RuntimeError("program optimization submission is invalid")
+
+        deadline = time.monotonic() + timeout
+        current = dict(submitted)
+        while time.monotonic() < deadline:
+            state = current.get("state")
+            if isinstance(state, Mapping):
+                if set(state) == {"Succeeded"}:
+                    result = self.program_optimization_result(current)
+                    return {
+                        "status": "proposed",
+                        "result": {"job_id": job_id, **result},
+                    }
+                if set(state) in ({"Failed"}, {"Cancelled"}):
+                    raise RuntimeError("program optimization job terminated")
+                if set(state) not in ({"Running"}, {"Publishing"}):
+                    raise RuntimeError("program optimization state is invalid")
+            elif state != "Submitted":
+                raise RuntimeError("program optimization state is invalid")
+            time.sleep(interval)
+            current = self.program_optimization_status(job_id)
+        raise TimeoutError("program optimization job timed out")
+
+    def explain_provenance_by_ids(self, ids: list[str]) -> list[dict[str, Any]]:
+        """Resolve and project the engine's protocol EvidenceBundle for ``ids``
+        (CONCEPT:EG-KB-CURRENCY — Seam 1, the ``KnowledgeBatch`` currency).
+
+        Reaches ``Method::ExplainProvenanceByIds`` via
+        ``client.query.explain_provenance_by_ids`` — the ID-seeded sibling of
+        ``ExplainProvenance`` that needs no ``Op`` plan. Each returned row dict is
+        projected as ``{"id", "kind", "score", "confidence", "valid_time",
+        "tx_time", "source_refs", "policy_labels", "evidence_spans"}`` — straight
+        field copies off the engine's schema-generated evidence claims, never
+        fabricated client-side. This is the primitive
+        :meth:`KnowledgeGraph.query`'s ``include_epistemic=True`` path builds
+        :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+        results from. Requires an engine built with the ``query`` feature; an id
+        absent from the graph is silently skipped (never fabricated).
+        """
+        if not ids:
+            return []
+        from agent_utilities.protocols.epistemic_operations import EvidenceBundle
+
+        bundle = EvidenceBundle.model_validate(
+            self._client.query.explain_provenance_by_ids(list(ids))
+        )
+        return [
+            {
+                "id": claim.claim_ref,
+                "kind": claim.kind,
+                "score": claim.score,
+                "confidence": claim.confidence,
+                "valid_time": [claim.valid_time.start_ms, claim.valid_time.end_ms],
+                "tx_time": [
+                    claim.transaction_time.start_ms,
+                    claim.transaction_time.end_ms,
+                ],
+                "source_refs": list(claim.source_refs),
+                "evidence_spans": [],
+                "evidence_locus_refs": list(claim.evidence_locus_refs),
+                "policy_labels": list(claim.policy_labels),
+                "contradiction_ids": list(claim.contradiction_refs),
+                "proof_ids": list(claim.proof_refs),
+            }
+            for claim in bundle.claims
+        ]
+
+    def register_materialization(self, derived_id: str) -> dict[str, Any]:
+        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
+        across the storage boundary).
+
+        Reaches ``Method::RegisterMaterialization`` via
+        ``client.query.register_materialization`` — the engine reads
+        ``derived_id``'s OWN already-stored provenance (its ``invalidation_deps``
+        property plus any outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a
+        dependency set and tracks it on its process-global truth-maintenance index.
+        Call this ONCE, right after writing a derived node (a mined claim, a
+        computed capability index entry, ...) plus its provenance edges — from then
+        on, ANY committed change to a dependency (through the normal write path)
+        automatically marks this materialization stale, with no further action
+        needed here. Returns ``{"id", "depends_on", "generating_activity"}`` — the
+        dependency set the engine actually resolved, never fabricated client-side;
+        an empty ``depends_on`` means the node carried no recognized provenance
+        (a legitimate answer, not an error). Requires an engine built with the
+        ``epistemic-tms`` feature (opt-in, not part of ``full``); on a build
+        without it the call raises a clear engine error — callers writing a
+        derived artifact should treat this as best-effort, the same posture as
+        every other write-path audit overlay in this codebase.
+        """
+        return self._client.query.register_materialization(derived_id) or {}
+
+    def materialization_status(self, id: str) -> str | None:
+        """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
+        never registered) of a materialization tracked on the SAME index
+        :meth:`register_materialization` writes to (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3).
+        Read-only — does not itself recompute anything. Requires an engine built
+        with the ``epistemic-tms`` feature (opt-in, not part of ``full``)."""
+        result = self._client.query.materialization_status(id) or {}
+        return result.get("status") if isinstance(result, dict) else None
 
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).
@@ -953,10 +2700,6 @@ class GraphComputeEngine:
             res.append({"id": nid, "type": "Node", "depth": min(i, max_depth)})
         return res
 
-    def parse_repository(self, root_path: str) -> None:
-        """Parse repository AST natively using the Rust backend."""
-        self._client.graph.parse_repository(root_path)
-
     def parse_file(self, file_path: str, source: bytes) -> dict[str, Any]:
         """Parse one source file's AST natively via the Rust engine.
 
@@ -969,26 +2712,10 @@ class GraphComputeEngine:
         """Batch-parse many files in ONE engine round-trip (CONCEPT:EG-KG.compute.graph-compute-engine).
 
         Returns one ``ParseFile``-shaped result per input file, in input order.
-        Collapses a per-file parse storm into a single RPC. Requires an engine
-        that advertises ``ParseFiles`` — gate on :attr:`supports_batch_parse`.
+        Collapses a per-file parse storm into a single RPC. ``ParseFiles`` is
+        mandatory in the current engine contract.
         """
         return self._client.graph.parse_files(files)
-
-    @property
-    def supports_batch_parse(self) -> bool:
-        """Whether the connected engine supports the batched ``ParseFiles`` op.
-
-        Cached. Lets callers fall back to per-file ``parse_file`` against an
-        engine built before ``ParseFiles`` existed (backward-compatible rollout).
-        """
-        cached = getattr(self, "_supports_batch_parse", None)
-        if cached is None:
-            try:
-                cached = bool(self._client.supports("ParseFiles"))
-            except Exception:
-                cached = False
-            self._supports_batch_parse = cached
-        return cached
 
     def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
         """Parse a batch AND resolve cross-file edges in ONE round-trip (CONCEPT:EG-KG.compute.turn-each-project).
@@ -997,9 +2724,8 @@ class GraphComputeEngine:
         unlike :meth:`parse_files` (one raw result per file), this returns a SINGLE
         merged ``IndexResult`` dict whose ``calls`` (symbol→symbol) and
         ``depends_on`` (file→file) edges point at real node ids — the cross-file
-        binding the GitLab code graph and impact analysis are built on. Requires an
-        engine that advertises ``IndexRepository`` — gate on
-        :attr:`supports_index_repository`.
+        binding the GitLab code graph and impact analysis are built on.
+        ``IndexRepository`` is mandatory in the exact current engine contract.
         """
         return self._client.graph.index_repository(files)
 
@@ -1020,8 +2746,8 @@ class GraphComputeEngine:
         the AT-SPI ``elements`` (``[{role,name,x,y,w,h}, ...]``) into a
         ``ComputerUseSession`` + ``ScreenObservation`` frame + one ``UIElement`` per
         accessible, returning a ``ScreenObservationResult`` (nodes/edges + frame_id,
-        hash, changed). Requires an engine advertising ``ObserveScreen`` — gate on
-        :attr:`supports_observe_screen`.
+        hash, changed). ``ObserveScreen`` is mandatory in the exact current engine
+        contract.
         """
         return self._client.graph.observe_screen(
             png,
@@ -1031,38 +2757,6 @@ class GraphComputeEngine:
             prev_hash=prev_hash,
             elements=elements or [],
         )
-
-    @property
-    def supports_observe_screen(self) -> bool:
-        """Whether the connected engine supports the ``ObserveScreen`` enrichment (KG-2.185).
-
-        Cached. Lets the computer-use driver fall back to a11y-only grounding against
-        an engine built before ``ObserveScreen`` existed.
-        """
-        cached = getattr(self, "_supports_observe_screen", None)
-        if cached is None:
-            try:
-                cached = bool(self._client.supports("ObserveScreen"))
-            except Exception:
-                cached = False
-            self._supports_observe_screen = cached
-        return cached
-
-    @property
-    def supports_index_repository(self) -> bool:
-        """Whether the connected engine supports the resolved ``IndexRepository`` op.
-
-        Cached. Lets callers fall back to ``parse_files`` (raw, unresolved) against
-        an engine built before ``IndexRepository`` existed.
-        """
-        cached = getattr(self, "_supports_index_repository", None)
-        if cached is None:
-            try:
-                cached = bool(self._client.supports("IndexRepository"))
-            except Exception:
-                cached = False
-            self._supports_index_repository = cached
-        return cached
 
     def vf2_subgraph_match(self, pattern: "GraphComputeEngine") -> list[dict[str, str]]:
         """Find all subgraph isomorphism matches from pattern to target graph."""
@@ -1088,14 +2782,48 @@ class GraphComputeEngine:
 
         Shared parser to ensure Rust and Python ledger formats stay in sync.
         """
-        parts = tx.split("|")
-        if not parts:
+        if not isinstance(tx, str) or not tx:
             return ("", [])
-        return (parts[0], parts[1:])
+        if len(tx.encode("utf-8")) > _MAX_LEDGER_ENTRY_BYTES or "\x00" in tx:
+            raise ValueError("mutation ledger entry exceeds the safe input contract")
+        operation, separator, payload = tx.partition("|")
+        if not separator:
+            return (operation, [])
+        # JSON property values may legitimately contain ``|``. Split only the
+        # fixed routing prefix and preserve the final JSON document verbatim.
+        if operation == "AddNode":
+            return (operation, payload.split("|", 1))
+        if operation == "AddEdge":
+            return (operation, payload.split("|", 2))
+        return (operation, [payload])
 
     def apply_ledger(self, transactions: list[str]) -> None:
         """Replay mutations from a transaction ledger log."""
         self._client.ledger.apply(transactions)
+
+    def audit_verify(self) -> dict[str, Any]:
+        """Cryptographically verify this graph's tamper-evident hash-chained audit log.
+
+        CONCEPT:AU-KG.audit.hash-chain-verify — routes to the engine's native
+        ``Method::AuditVerify`` (``epistemic-graph/src/audit.rs``): every durable
+        mutation already chains into a per-graph SHA-256 hash chain (the redb
+        ``AUDIT`` table, keyed ``(graph, seq)``); this walks it and reports whether
+        every entry's stored hash still matches its recomputed link — i.e. whether
+        the durable write history has been tampered with post-hoc. The engine
+        client (``epistemic_graph.client``) does not yet wrap ``AuditVerify`` as a
+        typed ``LedgerClient`` method, so this uses the raw wire escape hatch
+        used by :meth:`remove_triples` (``_send_wire``) rather than
+        waiting on that package to add one — no Rust rebuild is required, the wire
+        ``Method`` already exists and is dispatched by any engine built with the
+        ``security`` feature (part of the default ``full`` build).
+
+        Returns the engine's ``AuditReport``: ``{"graph", "ok", "entries",
+        "first_broken_seq", "detail"}``. Raises if the engine build/config doesn't
+        support it (no ``security`` feature, or no durable redb persist dir
+        configured) so callers can degrade cleanly instead of silently trusting an
+        unverified log.
+        """
+        return dict(self._send_wire("AuditVerify"))
 
     def flush_ledger_to_backend(self, backend: Any) -> int:
         """Flush the epistemic-graph mutation ledger to a persistent backend.
@@ -1113,15 +2841,25 @@ class GraphComputeEngine:
         count = 0
         for tx in txs:
             op, args = self._parse_ledger_entry(tx)
-            if op == "AddNode" and len(args) >= 2:
+            if op == "AddNode":
+                if len(args) < 2:
+                    raise ValueError("incomplete node mutation in ledger")
                 node_id = args[0]
                 props_str = args[1]
                 try:
                     props = json.loads(props_str)
-                except Exception:
-                    props = {}
+                except Exception as exc:
+                    raise ValueError("invalid node payload in mutation ledger") from exc
+                if not isinstance(props, dict):
+                    raise ValueError(
+                        "node payload in mutation ledger must be an object"
+                    )
 
-                node_type = props.get("type", props.get("node_type", "Entity"))
+                node_type = props.get("node_type", "Entity")
+                if not isinstance(node_type, str) or not _CYPHER_IDENTIFIER.fullmatch(
+                    node_type
+                ):
+                    raise ValueError("unsafe node type in mutation ledger")
                 if node_type == "SYMBOL":
                     symbol_type = props.get("symbol_type", "Unknown")
                     file_path = props.get("file_path", "")
@@ -1131,7 +2869,7 @@ class GraphComputeEngine:
 
                     query = (
                         "MERGE (n:Symbol {id: $id}) "
-                        "SET n.type = 'SYMBOL', n.name = $name, "
+                        "SET n.node_type = 'SYMBOL', n.name = $name, "
                         "n.symbol_type = $sym_type, n.file_path = $fp, "
                         "n.ast_hash = $ast_hash, n.metadata = $meta"
                     )
@@ -1147,8 +2885,11 @@ class GraphComputeEngine:
                                 "meta": metadata_str,
                             },
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to sync Symbol node {node_id}: {e}")
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "mutation ledger backend write failed "
+                            f"({type(exc).__name__})"
+                        ) from exc
                 else:
                     # Generic node fallback
                     query = f"MERGE (n:{node_type} {{id: $id}}) SET n.metadata = $meta"
@@ -1160,21 +2901,33 @@ class GraphComputeEngine:
                                 "meta": props_str,
                             },
                         )
-                    except Exception as e:
-                        logger.error(f"Failed to sync Node {node_id}: {e}")
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "mutation ledger backend write failed "
+                            f"({type(exc).__name__})"
+                        ) from exc
                 count += 1
-            elif op == "AddEdge" and len(args) >= 3:
+            elif op == "AddEdge":
+                if len(args) < 3:
+                    raise ValueError("incomplete edge mutation in ledger")
                 src = args[0]
                 tgt = args[1]
                 props_str = args[2]
                 try:
                     props = json.loads(props_str)
-                except Exception:
-                    props = {}
+                except Exception as exc:
+                    raise ValueError("invalid edge payload in mutation ledger") from exc
+                if not isinstance(props, dict):
+                    raise ValueError(
+                        "edge payload in mutation ledger must be an object"
+                    )
 
-                edge_type = props.get("type") or props.get("edge_type") or "RELATED_TO"
-                # Sanitize edge type for cypher
+                edge_type = props.get("relationship") or "RELATED_TO"
+                if not isinstance(edge_type, str):
+                    raise ValueError("edge type in mutation ledger must be a string")
                 edge_type = edge_type.replace(" ", "_").upper()
+                if not _CYPHER_IDENTIFIER.fullmatch(edge_type):
+                    raise ValueError("unsafe edge type in mutation ledger")
                 query = (
                     f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "
                     f"MERGE (a)-[r:{edge_type}]->(b) "
@@ -1189,9 +2942,13 @@ class GraphComputeEngine:
                             "meta": props_str,
                         },
                     )
-                except Exception as e:
-                    logger.error(f"Failed to sync Edge {src}->{tgt}: {e}")
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"mutation ledger backend write failed ({type(exc).__name__})"
+                    ) from exc
                 count += 1
+            else:
+                raise ValueError("unsupported mutation operation in ledger")
 
         self.clear_ledger()
         return count
@@ -1240,7 +2997,7 @@ class GraphComputeEngine:
 
         The engine-side per-graph unload behind the KG-2.62 pool eviction hook:
         deletes the tenant's named graph from the engine process. **Lossy unless
-        the data is durably mirrored to a backend mirror**, so the pool only
+        an explicit durable mirror holds the data**, so the pool only
         calls this when ``KG_ENGINE_POOL_DROP_ON_EVICT`` is set. Returns True on
         success. Never raises — eviction must not crash a request.
         """
@@ -1248,7 +3005,7 @@ class GraphComputeEngine:
             self._client.tenants.delete(self.graph_name)
             return True
         except Exception as exc:  # noqa: BLE001 — best-effort unload
-            logger.debug("drop_graph(%s) failed: %s", self.graph_name, exc)
+            logger.debug("Configured graph unload failed (%s)", type(exc).__name__)
             return False
 
     def to_msgpack(self) -> bytes:
@@ -1368,22 +3125,14 @@ class GraphComputeEngine:
         """Return all node IDs in the graph."""
         return self._client.nodes.ids()
 
-    def get_triples(self) -> list[list[str]]:
-        """Bulk-export the graph as ``[subject, predicate, object]`` RDF triples.
+    def get_rdf(self) -> str:
+        """Serialize the live graph as datatype/lang-faithful N-Triples.
 
-        Uses the engine's native ``GetTriples`` op (one round-trip) — the fast path
-        for local SPARQL materialization. Raises if the engine/op is unavailable so
-        callers can fall back to per-node iteration.
+        This is the engine's canonical ``GetRdf`` surface. Consumers that require
+        structured triples parse the returned N-Triples document with an RDF parser;
+        no lossy property-graph triple-list representation is exposed.
         """
-        import asyncio
-
-        sc = getattr(self._client, "__wrapped__", self._client)  # unwrap breaker
-        async_client = getattr(sc, "_client", None)
-        loop = getattr(sc, "_loop", None)
-        if async_client is None or loop is None:
-            raise RuntimeError("GetTriples unavailable (no sync engine client/loop)")
-        fut = asyncio.run_coroutine_threadsafe(async_client._send("GetTriples"), loop)
-        return fut.result() or []
+        return str(self._client.rdf.get_rdf() or "")
 
     def sparql(
         self,
@@ -1448,7 +3197,7 @@ class GraphComputeEngine:
 
         Escape hatch for wire ops the typed Python ``client.rdf``/``client.query``
         namespaces don't yet wrap (e.g. the engine's ``RemoveTriples`` /
-        ``DropNamedGraph`` retract ops). Mirrors :meth:`get_triples` — it unwraps the
+        ``DropNamedGraph`` retract ops). It unwraps the
         circuit-breaker proxy, reaches the underlying async client + loop, and runs the
         coroutine on it. Raises if no sync engine client/loop is available.
         """
@@ -1619,10 +3368,8 @@ class GraphComputeEngine:
     def batch_update(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
         """Batch update: apply multiple operations in a single service call."""
         result = self._client.lifecycle.batch_update(operations)
-        # The client already decodes the MessagePack response to a dict; only
-        # decode if a raw JSON string/bytes came back (older transports).
-        if isinstance(result, str | bytes | bytearray):
-            return json.loads(result)
+        if not isinstance(result, dict):
+            raise RuntimeError("current BatchUpdate contract returned an invalid shape")
         return result
 
     def multi_graph_batch_update(
@@ -1638,10 +3385,6 @@ class GraphComputeEngine:
         with the number of DISTINCT destination graphs (the per-shard content-keyed
         fanout, CONCEPT:AU-KG.ingest.unified-query-routing) instead of pinning one lock.
 
-        Degrades cleanly against an OLDER engine that lacks the op: each graph's
-        sub-batch is applied through its own graph-bound engine via
-        :func:`~agent_utilities.knowledge_graph.core.ingest_routing.engine_for_graph`
-        (correctness preserved; the client-side pool still overlaps submission).
         Returns ``{"results": {graph: <batch_result>}, "errors": {graph: msg}}``.
         """
         if not batches:
@@ -1649,46 +3392,15 @@ class GraphComputeEngine:
 
         lifecycle = getattr(self._client, "lifecycle", None)
         fn = getattr(lifecycle, "multi_graph_batch_update", None)
-        if callable(fn):
-            try:
-                result = fn(batches)
-            except Exception as exc:  # noqa: BLE001 — degrade to per-graph writes
-                logger.debug(
-                    "multi_graph_batch_update RPC failed (%s); per-graph fallback",
-                    exc,
-                )
-            else:
-                if isinstance(result, str | bytes | bytearray):
-                    return json.loads(result)
-                # Register the touched content graphs so unified read unions them.
-                self._register_multi_graph_targets(batches)
-                return result
-
-        # Fallback: apply each sub-batch on its own graph-bound engine.
-        from .ingest_routing import engine_for_graph, is_content_graph
-
-        results: dict[str, Any] = {}
-        errors: dict[str, str] = {}
-        for graph, ops in batches.items():
-            try:
-                if graph == self.graph_name:
-                    results[graph] = self.batch_update(list(ops))
-                else:
-                    eng = engine_for_graph(graph)
-                    gc = getattr(eng, "graph_compute", None) or getattr(
-                        eng, "backend", None
-                    )
-                    target: Any = getattr(gc, "graph", None) or gc
-                    if target is None:
-                        raise RuntimeError(
-                            f"no batch_update target for graph {graph!r}"
-                        )
-                    results[graph] = target.batch_update(list(ops))
-                if is_content_graph(graph):
-                    self._register_multi_graph_targets({graph: ops})
-            except Exception as exc:  # noqa: BLE001 — partial-success contract
-                errors[graph] = str(exc)
-        return {"results": results, "errors": errors}
+        if not callable(fn):
+            raise RuntimeError("current engine contract requires MultiGraphBatchUpdate")
+        result = fn(batches)
+        if not isinstance(result, dict):
+            raise RuntimeError(
+                "current MultiGraphBatchUpdate contract returned an invalid shape"
+            )
+        self._register_multi_graph_targets(batches)
+        return result
 
     @staticmethod
     def _register_multi_graph_targets(
@@ -1744,123 +3456,61 @@ class GraphComputeEngine:
         """
         return self._client.lifecycle.evict_lru(max_nodes)
 
-    # ── Multiplexed engine connection pool (CONCEPT:AU-KG.compute.when-exposes) ─────────────
-    # Consumer-side adoption of the epistemic_graph ShardRouter / ConnectionPool
-    # (CONCEPT:EG-KG.backend.multiplexed-connections). This engine's own ``SyncEpistemicGraphClient`` is ONE
-    # connection — M concurrent callers serialize on it (and on the engine's
-    # serial per-connection read loop). For INDEPENDENT ops we instead fan out
-    # across an auto-sized pool: each op rides its OWN pooled connection, which the
-    # engine services as a separate ``tokio::spawn`` task, so wall-clock collapses
-    # from the serial sum toward one op. Ordering-dependent ops (node-before-edge in
-    # ONE logical write) stay on ONE connection — they belong INSIDE a single op
-    # closure, never split across two entries (the engine still serializes per
-    # shard; this only parallelizes the client→engine submission).
+    # ── Native multiplexed engine transport (CONCEPT:AU-KG.compute.when-exposes) ────────────
+    # The current client demultiplexes many in-flight requests by request id on
+    # the ONE authenticated process transport. An auxiliary connection pool is
+    # redundant and would pin one caller's authority into long-lived clients.
 
     def _engine_loop(self) -> Any:
         """The background asyncio loop the sync client runs on, or ``None``.
 
-        The pool's asyncio primitives (Queue/Lock) and its pooled connections are
-        bound to this loop, so every pool op MUST be driven on it (via
-        ``run_coroutine_threadsafe``). Reached through the breaker proxy.
+        The native socket, demultiplexer, and write lock are bound to this loop,
+        so concurrent submissions are driven there via
+        ``run_coroutine_threadsafe``. Reached through the breaker proxy.
         """
         sc = getattr(self._client, "__wrapped__", self._client)
         return getattr(sc, "_loop", None)
 
-    def _ensure_pool(self) -> Any:
-        """Lazily build an auto-sized ShardRouter sharing this engine's endpoints.
+    def _engine_async_client(self) -> Any:
+        """Return the routed async view behind the process sync client."""
 
-        Built ONCE, on the sync client's background loop, so its pooled connections
-        live on the same loop the bridge drives. The pool auto-sizes to the box
-        (``epistemic_graph.pool`` — no knob). Returns the router, or ``None`` when
-        the pool is unavailable (import/build/loop failure); callers then fall back
-        to the single shared connection. Never raises.
-
-        Single-endpoint homelab: the router still hands out N connections to the one
-        endpoint, so the server's task-per-connection still parallelizes — the pool
-        is a win even without multiple shards.
-        """
-        cached = getattr(self, "_pool_router", _POOL_UNSET)
-        if cached is not _POOL_UNSET:
-            return cached
-        router: Any = None
-        try:
-            import asyncio as _asyncio
-
-            from epistemic_graph.pool import ShardRouter
-
-            from agent_utilities.core.config import AgentConfig
-
-            from .shard_topology import resolve_endpoints
-
-            loop = self._engine_loop()
-            if loop is None:
-                self._pool_router = None
-                return None
-            config = AgentConfig()
-            endpoints = resolve_endpoints(config)
-            auth_secret, insecure = resolve_engine_auth(config)
-            router = ShardRouter(
-                endpoints, auth_secret=None if insecure else auth_secret
-            )
-            # Open the per-endpoint pools' min_size connections ON the engine loop.
-            fut = _asyncio.run_coroutine_threadsafe(router.initialize(), loop)
-            fut.result(timeout=30)
-        except Exception as exc:  # noqa: BLE001 — the pool is an optional accelerator
-            logger.debug(
-                "connection pool unavailable; using single connection: %s", exc
-            )
-            router = None
-        self._pool_router = router
-        return router
+        sync_client = getattr(self._client, "__wrapped__", self._client)
+        client = getattr(sync_client, "_client", None)
+        if client is None:
+            raise RuntimeError("no routed engine client is available")
+        return client
 
     def batch_update_concurrent(
         self,
         batches: list[list[dict[str, Any]]],
         graph: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Apply INDEPENDENT op-batches concurrently, each on its OWN pooled
-        connection (CONCEPT:AU-KG.compute.when-exposes).
+        """Apply independent batches through native request-id pipelining.
 
         Each entry of ``batches`` is a ``batch_update`` op-list (same shape as
         :meth:`batch_update`). The batches must be independent of one another; ops
-        WITHIN a batch keep their order (one batch rides one ``BatchUpdate`` RPC on
-        one connection). The batches fan out across the auto-sized pool so the engine
-        services them as parallel per-connection tasks instead of serializing behind
-        the single shared client. Results are returned in input order.
-
-        Degrades cleanly: with no pool available the batches apply SEQUENTIALLY
-        through the existing single connection (correctness preserved, no
-        parallelism). Use this only for independent batches — a node-before-edge
-        ordering must live within ONE batch, not split across two entries.
+        WITHIN a batch keep their order because each batch is one RPC. The RPCs
+        share the process transport but remain concurrently in flight and are
+        demultiplexed by request id. Results preserve input order. Keep a
+        node-before-edge sequence inside one batch.
         """
         if not batches:
             return []
-        router = self._ensure_pool()
         loop = self._engine_loop()
-        graph_name = graph or self.graph_name
-        if router is None or loop is None:
-            return [self.batch_update(b) for b in batches]
+        if loop is None:
+            raise RuntimeError("no engine loop available for concurrent batches")
+        if graph is not None and graph != self.graph_name:
+            raise PermissionError("concurrent batches cannot retarget the graph view")
         import asyncio as _asyncio
 
-        def _make_op(batch: list[dict[str, Any]]) -> Any:
-            async def _run(client: Any) -> Any:
-                return await client.lifecycle.batch_update(batch)
-
-            return _run
-
         async def _drive() -> list[Any]:
-            return await router.map_concurrent(
-                graph_name, [_make_op(b) for b in batches]
+            client = self._engine_async_client()
+            return await _asyncio.gather(
+                *(client.lifecycle.batch_update(batch) for batch in batches)
             )
 
-        try:
-            fut = _asyncio.run_coroutine_threadsafe(_drive(), loop)
-            results = fut.result()
-        except Exception as exc:  # noqa: BLE001 — degrade to the single connection
-            logger.debug(
-                "concurrent batch submit failed (%s); sequential fallback", exc
-            )
-            return [self.batch_update(b) for b in batches]
+        fut = _asyncio.run_coroutine_threadsafe(_drive(), loop)
+        results = fut.result()
         out: list[dict[str, Any]] = []
         for result in results:
             if isinstance(result, str | bytes | bytearray):
@@ -1874,58 +3524,31 @@ class GraphComputeEngine:
         ops: list[Any],
         graph: str | None = None,
     ) -> list[Any]:
-        """Run INDEPENDENT engine ops concurrently across the pool (CONCEPT:AU-KG.compute.when-exposes).
+        """Run independent engine operations through native pipelining.
 
-        ``ops`` is a list of ``async (client) -> result`` callables; each runs on its
-        OWN pooled connection so the engine services them as parallel per-connection
-        tasks. Awaitable from ANY event loop: the pool lives on the sync client's
-        background loop, so the work is bridged there and the result awaited via
-        ``asyncio.wrap_future``. Results keep ``ops`` order. Independent ops ONLY —
-        an ordered node-before-edge sequence goes inside a single ``op`` (one
-        connection), never split across two entries.
-
-        Degrades cleanly: with no pool the ops run SEQUENTIALLY on the single shared
-        async connection (correctness preserved, no parallelism).
+        Every task receives the same routed async view. The native client safely
+        demultiplexes in-flight RPCs while its ContextVar binds the calling task's
+        verified GraphSession. Results preserve input order.
         """
         if not ops:
             return []
         import asyncio as _asyncio
 
-        router = self._ensure_pool()
         loop = self._engine_loop()
         if loop is None:
             raise RuntimeError("no engine loop available for map_concurrent")
-        graph_name = graph or self.graph_name
-        if router is not None:
-            coro = router.map_concurrent(graph_name, ops)
-        else:
+        if graph is not None and graph != self.graph_name:
+            raise PermissionError(
+                "concurrent operations cannot retarget the graph view"
+            )
 
-            async def _seq() -> list[Any]:
-                raw = getattr(self._client, "__wrapped__", self._client)
-                async_client = getattr(raw, "_client", None)
-                return [await op(async_client) for op in ops]
+        async def _drive() -> list[Any]:
+            client = self._engine_async_client()
+            return await _asyncio.gather(*(op(client) for op in ops))
 
-            coro = _seq()
+        coro = _drive()
         fut = _asyncio.run_coroutine_threadsafe(coro, loop)
         return await _asyncio.wrap_future(fut)
-
-    def close_pool(self) -> None:
-        """Close the pooled connections (best-effort). Idempotent; safe if no pool."""
-        router = getattr(self, "_pool_router", None)
-        if router is None:
-            return
-        loop = self._engine_loop()
-        if loop is None:
-            self._pool_router = None
-            return
-        try:
-            import asyncio as _asyncio
-
-            fut = _asyncio.run_coroutine_threadsafe(router.close_all(), loop)
-            fut.result(timeout=10)
-        except Exception:  # noqa: BLE001 — teardown is best-effort
-            pass
-        self._pool_router = None
 
     # ── Graph Traversal API ──────────────────────────────────────────────
     # These provide the standard graph traversal interface used across

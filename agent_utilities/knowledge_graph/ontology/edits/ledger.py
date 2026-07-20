@@ -106,7 +106,7 @@ class Edit(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if not self.id:
-            self.id = f"edit:{self.edit_type}:{uuid.uuid4().hex[:12]}"
+            self.id = f"edit:{self.edit_type}:{uuid.uuid4().hex}"
 
     @property
     def iso_timestamp(self) -> str:
@@ -468,7 +468,7 @@ class EditLedger:
             return
         try:
             store.execute(
-                "MERGE (n {id: $id}) SET n.type = $node_type, "
+                "MERGE (n {id: $id}) SET n.node_type = $node_type, "
                 "n.edit_type = $edit_type, n.actor = $actor, "
                 "n.object_id = $object_id, n.provenance = $provenance, "
                 "n.invocation_ref = $invocation_ref, n.timestamp = $timestamp, "

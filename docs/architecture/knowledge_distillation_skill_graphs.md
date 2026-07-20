@@ -5,7 +5,8 @@
 > **Packages:** `agent_utilities/knowledge_graph/distillation/` · `agent_utilities/knowledge_graph/ingestion/`
 > **Engine:** `epistemic-graph` `GetSubgraph` (batched subgraph read)
 > **MCP:** `graph_ingest(action="distill" | "import_pack")` · **CLIs:** `python -m agent_utilities.knowledge_graph.distillation.skill_graph_distiller`, `python -m agent_utilities.knowledge_graph.ingestion`
-> **Skills (universal-skills):** `skill-graph-builder` (`generate_skill.py --from-kg`), `web-crawler` (`crawl.py --ingest-kg`), `kg-ingest`
+> **Skills:** `graph-ingestion-and-integration` for graph import/export plus the
+> universal `skill-graph-builder` and `web-crawler` authoring utilities.
 
 ## Why
 
@@ -195,17 +196,17 @@ machine-readable step DAG (`### Step N: <atomic-skill> [depends_on: Step M, ...]
 a Claude-executable `## Execution` section (run independent steps in parallel,
 dependents after), and a standard delegation footer:
 
-> If graph-os is reachable, offload the whole DAG via `graph_orchestrate
-> action=execute_workflow` (or the kg-delegate skill); otherwise execute
+> If graph-os is reachable, offload the whole DAG via `graph_workflows
+> action=execute` (or the `graph-orchestration-and-automation` skill); otherwise execute
 > steps natively in dependency order.
 
 **Wiring (default-ON, propose-only).** The distiller runs as the `distill_skills`
 stage of `LoopController.run_one_cycle` (best-effort, alongside reason/standardize/
 distill; reuses the per-cycle embedder for semantic dedup), and is reachable on
-both surfaces: MCP `graph_orchestrate(action="distill_skills")` and REST
-`POST /api/graph/orchestrate/distill-skills`, both dispatching into the same
+both surfaces: MCP `graph_evolution(action="distill_skills")` and REST
+`POST /api/graph/evolution`, both dispatching into the same
 action core. Review uses the proposal nodes; on approval
-`graph_orchestrate(action="distill_skills", task="materialize:<proposal_id>")`
+`graph_evolution(action="distill_skills", target="<proposal_id>")`
 materializes via `PhysicalDistillationEngine` — into a **staging dir**, never a
 source repo.
 
@@ -253,8 +254,8 @@ Implemented across the three engine layers (`src/protocol.rs` `Method::GetSubgra
 |---|---|
 | Distill skill-graph | `graph_ingest(action="distill", target_path="<out>", corpus_name="<seed>" \| description="<query>", max_depth=2)` |
 | Distill workflow | …same, with `content_type="workflow"` |
-| Connector → skill proposals | `graph_orchestrate(action="distill_skills"[, task="draft"])` · `POST /api/graph/orchestrate/distill-skills` |
-| Materialize an approved proposal | `graph_orchestrate(action="distill_skills", task="materialize:<proposal_id>")` |
+| Connector → skill proposals | `graph_evolution(action="distill_skills", draft=true)` · `POST /api/graph/evolution` |
+| Materialize an approved proposal | `graph_evolution(action="distill_skills", target="<proposal_id>")` |
 | Import a pack | `graph_ingest(action="import_pack", target_path="<dir>", corpus_name="dedup")` |
 | Build from KG | `generate_skill.py --from-kg "<seed-or-query>" <name>` |
 | Route crawl → KG | `crawl.py --ingest-kg` · `generate_skill.py --ingest-kg` |

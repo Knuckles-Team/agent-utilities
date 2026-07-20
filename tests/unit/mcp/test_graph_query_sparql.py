@@ -8,8 +8,6 @@ dispatches the same tool, so surface-parity holds with no second handler.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
@@ -51,7 +49,7 @@ def test_sparql_scope_routes_to_engine_sparql(monkeypatch):
         scope="sparql",
         params="{}",
     )
-    assert json.loads(out) == rows
+    assert out.model_dump()["claims"] == rows
     assert engine.seen.startswith("SELECT ?s ?p ?o")
 
 
@@ -63,8 +61,10 @@ def test_sparql_scope_ask_roundtrip(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("kg", engine)], {}, False),
     )
-    out = json.loads(graph_query(cypher="ASK { ?s a ?o }", scope="sparql", params="{}"))
-    assert out == [{"boolean": True}]
+    out = graph_query(
+        cypher="ASK { ?s a ?o }", scope="sparql", params="{}"
+    ).model_dump()
+    assert out["claims"] == [{"boolean": True}]
 
 
 def test_sparql_scope_fans_out(monkeypatch):
@@ -75,15 +75,14 @@ def test_sparql_scope_fans_out(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("k1", e1), ("k2", e2)], {}, True),
     )
-    out = json.loads(
-        graph_query(
-            cypher="SELECT ?x WHERE { ?x a ?t }",
-            scope="sparql",
-            target="all",
-            params="{}",
-        )
-    )
-    assert out["targets"] == {"k1": [{"x": "a"}], "k2": [{"x": "b"}]}
+    out = graph_query(
+        cypher="SELECT ?x WHERE { ?x a ?t }",
+        scope="sparql",
+        target="all",
+        params="{}",
+    ).model_dump()
+    payload = out["reasoning_trace"][-1]["payload"]
+    assert payload["targets"] == {"k1": [{"x": "a"}], "k2": [{"x": "b"}]}
 
 
 # ── engine.sparql() bridge (CONCEPT:AU-KG.ingest.mirror-inbound) ─────────────────────────────────

@@ -2,8 +2,8 @@
 """Gate: every OKF-CIS marker's domain is in the closed vocabulary (CONCEPT:AU-OS.governance.concept-2).
 
 The anti-sprawl guarantee: breadth is governed. A marker whose ``<domain>`` is not
-listed in ``governance/domain_vocab.yaml`` for its pillar fails the build — so the
-flat-number sprawl cannot reconstitute itself as ad-hoc domain sprawl. Also verifies
+listed in ``governance/domain_vocab.yaml`` for its pillar fails the build, preventing
+ungoverned domain sprawl. The gate also verifies
 each id parses under the OKF-CIS grammar and its SLUG is registered.
 
 Usage: python scripts/check_domain_vocab.py [ROOT ...]  (default: cwd)

@@ -34,7 +34,11 @@ def main(argv: list[str] | None = None) -> int:
         default="managed_image",
         help="managed_image = combined pg-age-full image; existing = connect-only.",
     )
-    parser.add_argument("--dsn", default=None, help="Postgres DSN (else GRAPH_DB_URI).")
+    parser.add_argument(
+        "--connection-profile-ref",
+        default=None,
+        help="Runtime secret reference resolving to the Postgres connection profile.",
+    )
     parser.add_argument(
         "--sparql-target",
         choices=["builtin", "fuseki", "stardog"],
@@ -65,14 +69,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.verify:
-        result = verify_postgres(args.dsn)
+        result = verify_postgres(args.connection_profile_ref)
         print(json.dumps(result, indent=2))
         return 0 if result.get("status") == "success" else 1
 
     report = setup_environment(
         profile=args.profile,
         postgres_mode=args.postgres_mode,
-        dsn=args.dsn,
+        connection_profile_ref=args.connection_profile_ref,
         sparql_target=args.sparql_target,
         mirror_targets=args.mirror,
         do_backfill=not args.no_backfill,

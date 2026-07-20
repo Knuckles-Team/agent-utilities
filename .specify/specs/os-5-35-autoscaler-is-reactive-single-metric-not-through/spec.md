@@ -51,7 +51,7 @@ replica when one metric is hot".
   today's number (regression-locked).
 
 ### US-2 — Heterogeneous placement tier folded into the live loop
-**As** an operator with GB10-GPU and CPU hosts, **I want** the chosen tier (cheap-CPU vs GPU)
+**As** an operator with accelerator and CPU hosts, **I want** the chosen tier (cheap-CPU vs GPU)
 emitted on the scale action, **so that** compute-weighted placement runs in the live OS-5.29
 loop, closing the `agent_dispatch.py` "affinity-aware placement … is future work" gap.
 - **AC4**: `_evaluate_service` emits the chosen `tier` in the `scale_service` `ActionRequest`

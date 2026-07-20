@@ -7,11 +7,19 @@ modules without changing tool behavior or names.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import (
+    public_error_json,
+    public_error_text,
+)
+from agent_utilities.security.persistence_privacy import persistence_reference
+
+_OPAQUE_NODE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
 
 
 def _parse_source_specs(raw: str, spec_cls: Any) -> list[Any]:
@@ -230,28 +238,34 @@ def register_write_ingest_tools(mcp):
                     )
                     return "\n".join(str(r) for r in res)
                 elif action == "recall_media":
-                    # CONCEPT:AU-KG.ingest.list-durable-media — list durable :MediaAsset records (the
-                    # content-addressed media we persisted from chat). Returns
-                    # metadata (asset_id + content_digest + media_type), NOT raw
-                    # bytes (those are fetched by digest via MediaStore.fetch_bytes).
+                    # CONCEPT:AU-KG.identity.asset-occurrence — list durable media
+                    # occurrence records only. Content identity remains a property;
+                    # it is never reused as occurrence identity.
+                    # Returns metadata (occurrence_id + content_digest + media_type), NOT
+                    # raw bytes (those are fetched by digest via
+                    # MediaStore.fetch_bytes).
                     # Optional filter: node_id=<message memory id> for a turn's media.
-                    where = "n.type = 'MediaAsset'"
+                    where = "n.node_type = 'AssetOccurrence'"
                     if node_id:
+                        if not _OPAQUE_NODE_ID.fullmatch(node_id):
+                            return public_error_json(
+                                ValueError("invalid node identifier"),
+                                code="invalid_request",
+                            )
                         where += f" AND n.message_id = '{node_id}'"
                     try:
-                        rows = engine.graph_compute._client.query.cypher(
+                        rows = engine.query_cypher(
                             f"MATCH (n) WHERE {where} RETURN "
-                            "n.id AS asset_id, n.content_digest AS digest, "
+                            "n.id AS occurrence_id, n.content_digest AS digest, "
                             "n.media_type AS media_type, n.mime_type AS mime_type, "
                             "n.created_at AS created_at LIMIT 50"
                         )
                         return json.dumps(
-                            {"action": "recall_media", "assets": rows}, default=str
+                            {"action": "recall_media", "occurrences": rows},
+                            default=str,
                         )
                     except Exception as e:  # noqa: BLE001
-                        return json.dumps(
-                            {"action": "recall_media", "error": str(e)}, default=str
-                        )
+                        return public_error_json(e)
                 elif action in (
                     "log_chat",
                     "submit_sdd",
@@ -283,7 +297,7 @@ def register_write_ingest_tools(mcp):
                 else:
                     return f"Error: Unknown write action '{action}'"
             except Exception as e:
-                return f"Write error: {str(e)}"
+                return public_error_text(e)
 
         # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). Writes only fan out on
         # an EXPLICIT multi-target request ('all' or a list); the default and a
@@ -292,7 +306,7 @@ def register_write_ingest_tools(mcp):
         try:
             entries, errors, fanout = kg_server._resolve_target_engines(target)
         except Exception as e:
-            return f"Write error: {str(e)}"
+            return public_error_text(e)
 
         # CONCEPT:AU-KG.ingest.role-enforcement — role enforcement: a 'read' (data source) or 'mirror'
         # (fan-out replica) connection rejects direct target= writes. Mirrors are
@@ -304,9 +318,9 @@ def register_write_ingest_tools(mcp):
             if registry.is_writable(name):
                 writable.append((name, eng))
             else:
-                errors[
-                    name
-                ] = f"connection '{name}' is read-only (role={registry.role(name)})"
+                errors[name] = (
+                    f"connection '{name}' is read-only (role={registry.role(name)})"
+                )
 
         if not fanout:
             if not writable:
@@ -398,7 +412,7 @@ def register_write_ingest_tools(mcp):
             )
             return json.dumps(result.as_dict())
         except Exception as e:
-            return f"Feedback error: {str(e)}"
+            return public_error_text(e)
 
     kg_server.REGISTERED_TOOLS["graph_feedback"] = graph_feedback
 
@@ -419,10 +433,16 @@ def register_write_ingest_tools(mcp):
         ),
         action: str = Field(
             default="ingest",
-            description="Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so kg-delegate / graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, target_path=high|normal). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
+            description="Action to perform. Queue control uses job_id with priority_bucket=0..3 for prioritize; no named priority aliases are accepted.",
         ),
         job_id: str = Field(
             default="", description="ID of the job to check status for."
+        ),
+        priority_bucket: int = Field(
+            default=1,
+            ge=0,
+            le=3,
+            description="Integer WorkItem claim bucket used by prioritize.",
         ),
         corpus_name: str = Field(
             default="", description="Name of the corpus to add/update."
@@ -552,7 +572,17 @@ def register_write_ingest_tools(mcp):
                 if not target_path:
                     return "Error: target_path (a URL) required for ingest_url"
                 url = target_path.strip()
-                prov: dict[str, Any] = {"agent_id": agent_id, "source_url": url}
+                # Default ON (CONCEPT:AU-KG.ingest.chunk-overlap-stage): first-class embedded Chunk objects +
+                # contextual-retrieval enrichment, at parity with connector ingestion
+                # (KG-2.50) — makes this tool's documented "chunking + contextual
+                # enrichment + embeddings" behavior real instead of only the plain
+                # idea_block text chunks.
+                prov: dict[str, Any] = {
+                    "agent_id": agent_id,
+                    "source_url": url,
+                    "chunk_objects": True,
+                    "contextual": True,
+                }
                 flag = (description or "").strip().lower()
                 if flag in ("extract_papers", "papers", "extract_papers=true", "true"):
                     prov["extract_papers"] = True
@@ -638,20 +668,15 @@ def register_write_ingest_tools(mcp):
             elif action == "jobs":
                 import json as _json
 
-                from agent_utilities.knowledge_graph.core.engine_tasks import (
-                    _decode_metadata,
-                )
-
-                jobs = engine.query_cypher(
-                    "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta LIMIT 20"
-                )
+                grouped = engine.list_tasks()
                 lines = []
-                for j in jobs or []:
-                    meta = _decode_metadata(j.get("meta"))
-                    target = meta.get("target", "unknown")
-                    dur = meta.get("duration_ms")
-                    dur_s = f" {dur / 1000:.1f}s" if dur else ""
-                    lines.append(f"{j['id']}: {j['status']} ({target}){dur_s}")
+                for status, jobs in grouped.items():
+                    if not isinstance(jobs, list):
+                        continue
+                    for job in jobs[:20]:
+                        lines.append(
+                            f"{job['job_id']}: {status} ({job.get('target', 'unknown')})"
+                        )
                 # Per-category metrics breakdown (time/nodes/edges/failures) —
                 # the harness-style view, pollable over MCP (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
                 breakdown = {}
@@ -677,18 +702,11 @@ def register_write_ingest_tools(mcp):
                     return "Error: job_id required"
                 import json as _json
 
-                from agent_utilities.knowledge_graph.core.engine_tasks import (
-                    _decode_metadata,
-                )
-
-                jobs = engine.query_cypher(
-                    "MATCH (t:Task) WHERE t.id = $job_id RETURN t.status as status, t.metadata as meta",
-                    {"job_id": job_id},
-                )
-                if not jobs:
+                job = engine.get_task_status(job_id)
+                if not job:
                     return f"Job {job_id} not found."
-                status = jobs[0]["status"]
-                meta = _decode_metadata(jobs[0].get("meta"))
+                status = job["status"]
+                meta = job.get("metadata") or {}
                 metrics = {
                     k: meta[k]
                     for k in (
@@ -727,14 +745,12 @@ def register_write_ingest_tools(mcp):
                 )
 
             elif action == "prioritize":
-                # ``target_path`` carries the level: 'high' (default) | 'normal'.
                 import json as _json
 
                 if not job_id:
                     return "Error: job_id required for prioritize"
-                tp = target_path if isinstance(target_path, str) else ""
                 return _json.dumps(
-                    engine.prioritize_task(job_id, (tp or "high").strip().lower()),
+                    engine.prioritize_task(job_id, priority_bucket),
                     indent=2,
                 )
 
@@ -836,7 +852,7 @@ def register_write_ingest_tools(mcp):
                     )
                     return result or "No new observations extracted."
                 except Exception as e:
-                    return f"Observe error: {e}"
+                    return public_error_text(e)
 
             elif action == "materialize":
                 try:
@@ -852,7 +868,7 @@ def register_write_ingest_tools(mcp):
                         }
                     )
                 except Exception as e:
-                    return f"Materialize error: {e}"
+                    return public_error_text(e)
 
             elif action == "sync":
                 try:
@@ -867,7 +883,7 @@ def register_write_ingest_tools(mcp):
                         else "No edits detected."
                     )
                 except Exception as e:
-                    return f"Sync error: {e}"
+                    return public_error_text(e)
 
             elif action == "reflect":
                 try:
@@ -878,7 +894,7 @@ def register_write_ingest_tools(mcp):
                     result = run_reflector(engine)
                     return result or "No observations to reflect on."
                 except Exception as e:
-                    return f"Reflect error: {e}"
+                    return public_error_text(e)
 
             elif action == "materialize_source":
                 # CONCEPT:AU-KG.ingest.enterprise-source-extractor — persist an enterprise source extractor
@@ -914,12 +930,12 @@ def register_write_ingest_tools(mcp):
                         default=str,
                     )
                 except Exception as e:
-                    return f"Materialize source error: {e}"
+                    return public_error_text(e)
 
             elif action == "skill_workflows":
                 # CONCEPT:AU-KG.ingest.skill-workflow-corpus — ingest the universal-skills workflow corpus
                 # (workflows/<domain>/<name>/SKILL.md) as dispatchable
-                # WorkflowDefinition DAGs so kg-delegate /
+                # WorkflowDefinition DAGs so the orchestration workflow /
                 # execute_workflow can discover & fire them. ``target_path`` is
                 # an optional explicit corpus root (a dir that is/contains
                 # ``workflows/``); default = installed universal_skills package.
@@ -949,7 +965,7 @@ def register_write_ingest_tools(mcp):
                         }
                     )
                 except Exception as e:
-                    return f"Skill-workflow ingest error: {e}"
+                    return public_error_text(e)
 
             elif action == "curate_wiki":
                 # CONCEPT:AU-KG.ingest.wiki-delta-ingest — delta-skip continuous ingest of a self-curating wiki dir.
@@ -965,7 +981,7 @@ def register_write_ingest_tools(mcp):
                     summary = curate_wiki(engine, target_path)
                     return json.dumps(summary, default=str)
                 except Exception as e:
-                    return f"Wiki curation error: {e}"
+                    return public_error_text(e)
 
             elif action == "distill":
                 # CONCEPT:AU-AHE.optimization.physical-distillation-engine — Distill a coherent KG subgraph OUT into a
@@ -1036,7 +1052,7 @@ def register_write_ingest_tools(mcp):
                         default=str,
                     )
                 except Exception as e:
-                    return f"Distill error: {e}"
+                    return public_error_text(e)
 
             elif action in (
                 "build_skill_graph",
@@ -1069,7 +1085,7 @@ def register_write_ingest_tools(mcp):
                     try:
                         specs = _parse_source_specs(base_path, SourceSpec)
                     except ValueError as exc:
-                        return json.dumps({"error": str(exc)})
+                        return public_error_json(exc)
                     if not specs:
                         return json.dumps({"error": "no sources provided in base_path"})
                     sg_built = await asyncio.to_thread(
@@ -1165,7 +1181,7 @@ def register_write_ingest_tools(mcp):
                         {"status": "imported", "stats": stats}, default=str
                     )
                 except Exception as e:  # noqa: BLE001
-                    return f"Import error: {e}"
+                    return public_error_text(e)
 
             elif action == "fact_extract":
                 # CONCEPT:AU-KG.enrichment.atomic-triple-extraction — document → atomic-triple fact extraction.
@@ -1189,12 +1205,14 @@ def register_write_ingest_tools(mcp):
                 )
 
                 text = description or ""
-                source_file = ""
+                source_ref = ""
                 if not text and target_path:
                     p = Path(target_path)
                     if p.exists() and p.is_file():
                         text = p.read_text(encoding="utf-8", errors="ignore")
-                        source_file = target_path
+                        source_ref = persistence_reference(
+                            "fact_source", target_path, namespace="fact-extraction"
+                        )
                     else:
                         text = target_path
                 if not text.strip():
@@ -1206,7 +1224,7 @@ def register_write_ingest_tools(mcp):
                     )
 
                 facts: list[ExtractedFact] = []
-                async for ev in extract_facts(text, rounds=1, source_file=source_file):
+                async for ev in extract_facts(text, rounds=1, source_file=source_ref):
                     if ev["type"] == "fact":
                         facts.append(ExtractedFact(**ev["fact"]))
 
@@ -1226,6 +1244,69 @@ def register_write_ingest_tools(mcp):
                     },
                     default=str,
                 )
+
+            elif action == "classify_topics":
+                # CONCEPT:AU-KG.enrichment.topic-classification-topology — ad-hoc WorldView
+                # subject/topic classification: classify text (description=raw text,
+                # or target_path=file) and materialize the :Topic hierarchy +
+                # HAS_TOPIC/CLASSIFIED_AS edges linking it to a Document node id
+                # (target_path, when NOT a readable file, is used as that node id;
+                # otherwise one is derived from a content hash). Same core the
+                # ingestion enrichment seam runs default-on for every ingested
+                # document (ingestion/engine.py::_enrich_text).
+                import hashlib
+                from pathlib import Path
+
+                from agent_utilities.knowledge_graph.enrichment.topic_classifier import (
+                    classify_and_link_topics,
+                )
+
+                text = description or ""
+                doc_id = ""
+                if target_path:
+                    p = Path(target_path)
+                    if p.exists() and p.is_file():
+                        text = text or p.read_text(encoding="utf-8", errors="ignore")
+                        doc_id = "doc:source:" + persistence_reference(
+                            "document_source", target_path, namespace="topic-classifier"
+                        )
+                    else:
+                        doc_id = "doc:source:" + persistence_reference(
+                            "document_source", target_path, namespace="topic-classifier"
+                        )
+                if not text.strip():
+                    return json.dumps(
+                        {
+                            "error": "classify_topics requires text (description=) "
+                            "or a readable file (target_path=)"
+                        }
+                    )
+                if not doc_id:
+                    doc_id = (
+                        f"doc:adhoc:{hashlib.sha256(text.encode()).hexdigest()[:16]}"
+                    )
+
+                backend = getattr(engine, "backend", None) or engine
+                topic_res = await classify_and_link_topics(
+                    backend, doc_id, text, title=corpus_name or "", source_type="adhoc"
+                )
+                return json.dumps(topic_res, default=str)
+
+            elif action == "enrich_pending_documents":
+                # CONCEPT:AU-KG.enrichment.topic-classification-topology — hub-side catch-up sweep for
+                # ``:Document`` nodes a connector wrote via the ``native_ingest``
+                # primitive (searxng-mcp results, any future native-ingest
+                # producer) from OUTSIDE the hub process, so they arrived as raw
+                # text without chunking/enrichment. Finds every
+                # ``needs_enrichment=true`` Document (max_depth=limit, default
+                # 200) and runs it through the SAME DocumentProcessor +
+                # central _enrich_text seam every directly-ingested document gets.
+                from agent_utilities.knowledge_graph.memory.native_ingest import (
+                    enrich_pending_documents,
+                )
+
+                sweep_res = await enrich_pending_documents(engine, limit=200)
+                return json.dumps(sweep_res)
 
             elif action in (
                 "extract_submit",
@@ -1286,7 +1367,7 @@ def register_write_ingest_tools(mcp):
             else:
                 return f"Error: Unknown ingest action '{action}'"
         except Exception as e:
-            return f"Ingest error: {str(e)}"
+            return public_error_text(e)
 
     kg_server.REGISTERED_TOOLS["graph_ingest"] = graph_ingest
 
@@ -1324,8 +1405,16 @@ def register_write_ingest_tools(mcp):
         """Read-side analytics over the usage store. Returns JSON."""
         import json as _json
 
+        from agent_utilities.usage.authorization import (
+            UsageAuthorizationError,
+            resolve_usage_tenant,
+        )
         from agent_utilities.usage.service import get_usage_service
 
+        try:
+            authoritative_tenant = resolve_usage_tenant(tenant_id or None)
+        except UsageAuthorizationError as exc:
+            return f"usage_query authorization error: {exc.detail}"
         svc = get_usage_service()
         f = {
             k: v
@@ -1336,7 +1425,7 @@ def register_write_ingest_tools(mcp):
                 "agent": agent,
                 "model": model,
                 "origin": origin,
-                "tenant_id": tenant_id,
+                "tenant_id": authoritative_tenant,
             }.items()
             if v
         }
@@ -1360,12 +1449,35 @@ def register_write_ingest_tools(mcp):
             elif action == "session_detail":
                 if not session_id:
                     return "Error: session_id required for session_detail"
-                detail = svc.session_detail(session_id)
+                detail = svc.session_detail(session_id, **f)
                 out = detail.model_dump() if detail else None
             elif action == "search":
                 if not query:
                     return "Error: query required for search"
-                out = [e.model_dump() for e in svc.search(query, limit=limit)]
+                out = [e.model_dump() for e in svc.search(query, limit=limit, **f)]
+            elif action == "traces":
+                from agent_utilities.observability.langfuse_exporter import (
+                    get_langfuse_exporter,
+                )
+                exporter = get_langfuse_exporter()
+                enabled = bool(getattr(exporter, "enabled", False))
+                trace_filters = {**f, "origin": "runtime"}
+                rows = svc.sessions(limit=min(max(limit, 1), 500), **trace_filters)
+                out = {
+                    "enabled": enabled,
+                    "trace_count": len(rows) if enabled else 0,
+                    "traces": (
+                        [
+                            {
+                                "trace_ref": persistence_reference("trace", row.id),
+                                "project": row.project,
+                            }
+                            for row in rows
+                        ]
+                        if enabled
+                        else []
+                    ),
+                }
             elif action == "series":
                 # CONCEPT:AU-KG.ingest.per-agent-token-usage — per-agent token usage over time from the engine
                 # tsdb (native range/window), not a Python re-scan. ``from_date``/
@@ -1393,8 +1505,8 @@ def register_write_ingest_tools(mcp):
             else:
                 return f"Error: unknown usage_query action '{action}'"
             return _json.dumps(out, default=str)
-        except Exception as e:  # noqa: BLE001
-            return f"usage_query error: {e}"
+        except Exception as exc:  # noqa: BLE001
+            return f"usage_query error_type={type(exc).__name__}"
 
     kg_server.REGISTERED_TOOLS["usage_query"] = usage_query
 
@@ -1426,11 +1538,22 @@ def register_write_ingest_tools(mcp):
         import json as _json
         import uuid as _uuid
 
+        from agent_utilities.usage.authorization import (
+            UsageAuthorizationError,
+            require_usage_admin,
+            resolve_usage_tenant,
+        )
+
         try:
+            authoritative_tenant = resolve_usage_tenant(tenant_id or None)
             if action == "collect":
                 from agent_utilities.ingestion.collector import collect_local_sessions
 
-                return _json.dumps(collect_local_sessions(), default=str)
+                require_usage_admin()
+                return _json.dumps(
+                    collect_local_sessions(tenant_id=authoritative_tenant or ""),
+                    default=str,
+                )
             if action == "upload":
                 # CONCEPT:AU-KG.ingest.drain-session-bundle — NON-BLOCKING upload. Each uploaded session
                 # expands to many usage-store rows (sessions + events + tool
@@ -1442,50 +1565,59 @@ def register_write_ingest_tools(mcp):
                 # drains it (parse → usage store) off the call path. A tiny batch
                 # is cheap, so it still runs inline (auto-sized, no user knob).
                 from agent_utilities.usage.models import ParsedSessionBundle
+                from agent_utilities.usage.privacy import normalize_bundle
                 from agent_utilities.usage.recorder import get_usage_recorder
 
                 raw = _json.loads(bundles_json) if bundles_json else []
+                if not isinstance(raw, list):
+                    return "Error: bundles_json must contain a JSON array"
+                normalized_items: list[dict] = []
+                for item in raw:
+                    bundle = ParsedSessionBundle.model_validate(item)
+                    if authoritative_tenant:
+                        bundle.session.tenant_id = authoritative_tenant
+                    normalized_items.append(normalize_bundle(bundle).model_dump())
                 # Inline fast path only for a handful of bundles — well under the
                 # call ceiling; anything larger enqueues.
                 _UPLOAD_INLINE_MAX = 3
-                if len(raw) <= _UPLOAD_INLINE_MAX:
+                if len(normalized_items) <= _UPLOAD_INLINE_MAX:
                     recorder = get_usage_recorder()
                     ok = 0
-                    for item in raw:
+                    for item in normalized_items:
                         bundle = ParsedSessionBundle.model_validate(item)
-                        if tenant_id:
-                            bundle.session.tenant_id = tenant_id
                         if recorder.record_bundle(bundle):
                             ok += 1
                     return _json.dumps(
-                        {"received": len(raw), "ingested": ok, "status": "ingested"}
+                        {
+                            "received": len(normalized_items),
+                            "ingested": ok,
+                            "status": "ingested",
+                        }
                     )
 
-                # Large upload → enqueue and return. Carry the bundles on the
-                # Task node's metadata payload (same shape as ``kg_memory``,
+                # Large upload → enqueue and return. Carry the bundles in the
+                # WorkItem metadata payload (same shape as ``kg_memory``,
                 # CONCEPT:AU-KG.compute.offloaded-memory-write); the host worker reads it back, parses and
                 # records. ``skip_dedupe`` because each batch is a distinct,
                 # idempotent (record_bundle replaces rows) payload — never collapse
                 # two real uploads into one. A unique target keeps job ids distinct.
                 engine = kg_server._get_engine()
-                target = f"session-upload:{_uuid.uuid4().hex[:12]}"
+                target = f"session-upload:{_uuid.uuid4().hex}"
                 jid = engine.submit_task(
                     target_path=target,
                     is_codebase=False,
                     provenance={"agent_id": "ingest_sessions"},
                     task_type="session_upload",
                     skip_dedupe=True,
-                    extra_meta={
-                        "payload": {"bundles": raw, "tenant_id": tenant_id or ""}
-                    },
+                    extra_meta={"payload": {"bundles": normalized_items}},
                 )
                 return _json.dumps(
                     {
                         "status": "enqueued",
                         "job_id": jid,
-                        "received": len(raw),
+                        "received": len(normalized_items),
                         "message": (
-                            f"{len(raw)} session bundles enqueued as background job "
+                            f"{len(normalized_items)} session bundles enqueued as background job "
                             f"{jid}; poll with graph_ingest action=job_status "
                             f"job_id={jid}."
                         ),
@@ -1494,15 +1626,21 @@ def register_write_ingest_tools(mcp):
             if action == "paths":
                 from agent_utilities.ingestion.collector import collect_paths
 
+                require_usage_admin()
                 raw = target_path.strip()
                 paths = (
                     _json.loads(raw)
                     if raw.startswith("[")
                     else [p.strip() for p in raw.split(",") if p.strip()]
                 )
-                return _json.dumps(collect_paths(paths), default=str)
+                return _json.dumps(
+                    collect_paths(paths, tenant_id=authoritative_tenant or ""),
+                    default=str,
+                )
             return f"Error: unknown ingest_sessions action '{action}'"
-        except Exception as e:  # noqa: BLE001
-            return f"ingest_sessions error: {e}"
+        except UsageAuthorizationError as exc:
+            return f"ingest_sessions authorization error: {exc.detail}"
+        except Exception as exc:  # noqa: BLE001
+            return f"ingest_sessions error_type={type(exc).__name__}"
 
     kg_server.REGISTERED_TOOLS["ingest_sessions"] = ingest_sessions

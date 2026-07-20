@@ -396,6 +396,26 @@ def test_refresh_no_file_delta_is_fresh(tmp_path):
 # ── site profiler / llms.txt acquisition ───────────────────────────────────────
 
 
+def test_http_get_uses_bounded_dns_pinned_source_boundary(monkeypatch):
+    import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors import http_safety
+
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return "safe"
+
+    monkeypatch.setattr(http_safety, "safe_get_text", fake_get)
+    monkeypatch.setattr(config, "source_http_allowed_private_hosts", ["docs.internal"])
+
+    assert mod._http_get("https://docs.example.invalid/llms.txt", max_bytes=1234) == "safe"
+    assert captured["max_bytes"] == 1234
+    assert captured["max_redirects"] == 0
+    assert captured["allowed_private_hosts"] == ["docs.internal"]
+
+
 def test_llms_full_detection_and_split(monkeypatch):
     import agent_utilities.knowledge_graph.distillation.skill_graph_pipeline as mod
 
@@ -477,88 +497,6 @@ def test_llms_index_strips_raw_html(monkeypatch):
     assert len(docs) == 1
     assert not mod._looks_like_html(docs[0].text)  # HTML stripped to text
     assert "real content here" in docs[0].text
-
-
-# ── legacy migration ──────────────────────────────────────────────────────────
-
-
-def _legacy_graph(root: Path, name: str, *, source_url: str | None, files: int) -> Path:
-    """Write a legacy-format skill-graph (old frontmatter, no sources.json)."""
-    d = root / name
-    (d / "reference").mkdir(parents=True)
-    for i in range(files):
-        (d / "reference" / f"f{i}.md").write_text(
-            f"# F{i}\n\nbody {i}\n", encoding="utf-8"
-        )
-    fm = [f"name: {name}", "description: Legacy docs.", "crawl_depth: 3"]
-    if source_url:
-        fm.append(f"source_url: {source_url}")
-    (d / "SKILL.md").write_text(
-        "---\n" + "\n".join(fm) + "\n---\n# legacy\n", encoding="utf-8"
-    )
-    return d
-
-
-def test_classify_legacy_modes(tmp_path):
-    pipe = _pipe()
-    reacq = _legacy_graph(tmp_path, "a-docs", source_url="https://x/docs", files=2)
-    wrap = _legacy_graph(tmp_path, "b-docs", source_url=None, files=2)
-    native = tmp_path / "c"
-    (native).mkdir()
-    (native / "SKILL.md").write_text("---\nname: c\n---\n# native\n", encoding="utf-8")
-
-    assert pipe.classify_legacy(reacq)["mode"] == "reacquire"
-    assert pipe.classify_legacy(wrap)["mode"] == "wrap"
-    assert pipe.classify_legacy(native)["mode"] == "native"
-
-
-def test_migrate_wrap_preserves_content_and_standardizes(tmp_path):
-    g = _legacy_graph(tmp_path, "b-docs", source_url=None, files=3)
-    res = _pipe().migrate_legacy(g, mode="auto")
-    assert res["migrated_mode"] == "wrap"
-    assert res["version"] == "1.0.0"
-    assert res["file_count"] == 3
-    assert res["validation_errors"] == []
-    manifest = json.loads((g / "sources.json").read_text())
-    assert manifest["schema"] == SOURCES_SCHEMA
-    fm = parse_frontmatter((g / "SKILL.md").read_text())
-    assert fm["skill_graph_version"] == "1.0.0"
-
-
-def test_migrate_wrap_records_upstream_web_provenance(tmp_path):
-    # A crawled legacy graph (has source_url) wrapped offline: content is adopted from
-    # the existing reference/, but the durable sources are the web URLs so it stays
-    # re-crawlable. No temp path leaks into the manifest.
-    g = _legacy_graph(tmp_path, "site-docs", source_url="https://site/docs", files=2)
-    res = _pipe().migrate_legacy(g, mode="wrap")
-    assert res["migrated_mode"] == "wrap" and res["file_count"] == 2
-    manifest = json.loads((g / "sources.json").read_text())
-    assert [s["kind"] for s in manifest["sources"]] == ["web"]
-    assert manifest["sources"][0]["uri"] == "https://site/docs"
-    assert "/tmp/" not in json.dumps(manifest["sources"])
-    fm = parse_frontmatter((g / "SKILL.md").read_text())
-    assert fm["source_types"] == ["web"]
-    assert fm["source_url"] == "https://site/docs"
-
-
-def test_migrate_reacquire_uses_source_url(tmp_path):
-    seen = {}
-
-    def crawler_fn(spec):
-        seen["uri"] = spec.uri
-        return [
-            AcquiredDoc(
-                rel_path="page.md", text="# Fresh\n\nnew\n", source_uri=spec.uri
-            )
-        ]
-
-    pipe = SkillGraphPipeline(crawler_fn=crawler_fn, kg_enrich=False)
-    g = _legacy_graph(tmp_path, "a-docs", source_url="https://x/docs", files=2)
-    res = pipe.migrate_legacy(g, mode="auto")
-    assert res["migrated_mode"] == "reacquire"
-    assert seen["uri"] == "https://x/docs"
-    fm = parse_frontmatter((g / "SKILL.md").read_text())
-    assert fm["source_types"] == ["web"]
 
 
 def test_refresh_skips_unchanged_and_rebuilds_changed(tmp_path):
@@ -661,11 +599,3 @@ def test_refresh_all_reports_per_graph(tmp_path):
     report = pipe.refresh_all(root)
     assert {r["name"] for r in report["results"]} == {"a-docs", "b-docs"}
     assert all(r["status"] == "fresh" for r in report["results"])
-
-
-def test_migrate_skips_native(tmp_path):
-    native = tmp_path / "c"
-    native.mkdir()
-    (native / "SKILL.md").write_text("---\nname: c\n---\n# native\n", encoding="utf-8")
-    res = _pipe().migrate_legacy(native, mode="auto")
-    assert res["skipped"] is True and res["reason"] == "native"

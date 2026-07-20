@@ -158,19 +158,15 @@ class ResolutionResult:
 
 
 def _transliterate(name: str) -> str:
-    """ASCII-fold accents/non-Latin so ``"José"``≡``"Jose"`` (CONCEPT:AU-AHE.assimilation.transliteration-singularization-extend-ahe).
+    """ASCII-fold accents with the deterministic standard-library algorithm."""
+    import unicodedata
 
-    ``unidecode`` lives in the optional ``[ingest-dedup]`` extra; absent (the lean
-    serving plane), this is a no-op and folding falls back to raw alphanumerics.
-    """
-    try:
-        from unidecode import unidecode
-    except ImportError:
-        return name
-    try:
-        return unidecode(name)
-    except Exception:  # noqa: BLE001
-        return name
+    folded = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", errors="ignore")
+        .decode("ascii")
+    )
+    return folded or name
 
 
 def _inflect_engine() -> object | None:

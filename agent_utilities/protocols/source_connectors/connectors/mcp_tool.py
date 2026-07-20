@@ -53,6 +53,7 @@ from ..base import (
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
 from ..registry import register_source
 from .mcp_package import _decode_tool_result, _load_mcp_config, _run_async
@@ -68,6 +69,9 @@ __all__ = [
     "get_tool_preset",
     "list_tool_presets",
     "all_tool_presets",
+    "provider_tool_presets",
+    "provider_tool_schema_fingerprints",
+    "preset_provider",
     "reset_contributed_presets_cache",
     "call_tool_once",
 ]
@@ -570,7 +574,7 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     # action-routed tool that takes plain keyword args (``params_style='args'``):
     # ``action='trace_list'`` + page/limit. Langfuse returns ``{"data": [...], "meta":
     # {...}}``; page-number paging (a short final page ends the sweep). The handler also
-    # drains ``legacy_observations_v1_get_many`` → :Observation / :Generation.
+    # drains current observations → :Observation / :Generation.
     "langfuse-traces": {
         "server": "langfuse-mcp",
         "tool": "langfuse_observability",
@@ -580,8 +584,15 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "records_path": "data",
         "id_field": "id",
         "title_field": "name",
-        "text_field": "input",
+        "text_field": "name",
         "updated_field": "timestamp",
+        "metadata_fields": [
+            "timestamp",
+            "release",
+            "version",
+            "environment",
+            "tags",
+        ],
         "pagination": "page",
         "page_kind": "number",
         "page_param": "page",
@@ -590,26 +601,31 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
         "start_page": 1,
         "doc_type": "trace",
     },
-    # Uses the STABLE legacy ``/api/public/observations`` route (page-number paging),
-    # not the ``v2`` observations endpoint — ``/api/public/v2/observations`` is absent
-    # on older self-hosted Langfuse and 404s, which burned the ingestion-sweep retries.
+    # Current observations endpoint with cursor pagination. The cursor is returned
+    # at ``meta.cursor`` and sent back through the MCP tool's ``cursor`` argument.
     "langfuse-observations": {
         "server": "langfuse-mcp",
         "tool": "langfuse_observability",
-        "action": "legacy_observations_v1_get_many",
+        "action": "observations_get_many",
         "params_style": "args",
         "params": {"limit": 100},
         "records_path": "data",
         "id_field": "id",
         "title_field": "name",
-        "text_field": "input",
+        "text_field": "name",
         "updated_field": "startTime",
-        "pagination": "page",
-        "page_kind": "number",
-        "page_param": "page",
-        "page_size_param": "limit",
+        "metadata_fields": [
+            "startTime",
+            "endTime",
+            "type",
+            "level",
+            "version",
+            "environment",
+        ],
+        "pagination": "cursor",
+        "cursor_param": "cursor",
+        "cursor_path": "meta.cursor",
         "page_size": 100,
-        "start_page": 1,
         "doc_type": "observation",
     },
     # Home Assistant states → :Device / :Entity (CONCEPT:AU-KG.compute.home-assistant-states). ``home_assistant_states``
@@ -1007,6 +1023,42 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
     },
 }
 
+_MANDATORY_PRESET_FIELDS: dict[str, dict[str, Any]] = {
+    "langfuse-traces": {
+        "text_field": "name",
+        "metadata_fields": (
+            "timestamp",
+            "release",
+            "version",
+            "environment",
+            "tags",
+        ),
+    },
+    "langfuse-observations": {
+        "text_field": "name",
+        "metadata_fields": (
+            "startTime",
+            "endTime",
+            "type",
+            "level",
+            "version",
+            "environment",
+        ),
+    },
+    "langfuse-sessions": {
+        "text_field": "id",
+        "metadata_fields": ("createdAt", "environment"),
+    },
+}
+
+
+def _apply_mandatory_preset_fields(name: str, preset: dict[str, Any]) -> dict[str, Any]:
+    """Apply privacy invariants that provider overlays cannot weaken."""
+    hardened = dict(preset)
+    for field, value in _MANDATORY_PRESET_FIELDS.get(name, {}).items():
+        hardened[field] = list(value) if isinstance(value, tuple) else value
+    return hardened
+
 
 # ── Per-repo preset contribution (CONCEPT:AU-KG.ingest.mcp-tool-connector) ──────────────────────────
 #
@@ -1021,15 +1073,18 @@ MCP_TOOL_PRESETS: dict[str, dict[str, Any]] = {
 #
 # pointing at a data subpackage that contains a ``mcp_source_presets.json`` file —
 # a JSON object of ``{preset_name: {server, tool, action, field-map, ...}}`` with
-# exactly the schema of an entry in :data:`MCP_TOOL_PRESETS`. The hub resolves the
-# data dir via ``importlib.resources`` (it never imports the connector's business
-# logic), reads the JSON, and merges it into the catalog. Contributed presets take
+# exactly the schema of an entry in :data:`MCP_TOOL_PRESETS`. The hub reads the JSON
+# and merges it into the catalog. Contributed presets take
 # precedence over the central dict (they live WITH the connector and track its tool
 # surface); the central dict is the fallback for connectors that don't ship one.
-# Discovery is failure-isolated and cached for the process.
+# The owning distribution manifest resolves this directory without importing provider
+# code; bounded regular-file validation rejects links and special files. Discovery is
+# failure-isolated and cached for the process.
 SOURCE_PRESET_PROVIDER_GROUP = "agent_utilities.source_connector_providers"
 _PRESET_DATA_FILE = "mcp_source_presets.json"
+_TOOL_SCHEMA_DATA_FILE = "tool_schema_fingerprints.json"
 _contributed_presets_cache: dict[str, dict[str, Any]] | None = None
+_contributed_preset_providers: dict[str, str] = {}
 
 
 def _load_contributed_presets() -> dict[str, dict[str, Any]]:
@@ -1038,39 +1093,181 @@ def _load_contributed_presets() -> dict[str, dict[str, Any]]:
     if _contributed_presets_cache is not None:
         return _contributed_presets_cache
     presets: dict[str, dict[str, Any]] = {}
+    providers: dict[str, str] = {}
     try:
         from agent_utilities.core.providers import iter_provider_dirs
 
-        for _name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP):
+        for provider_name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP):
             data_file = data_dir / _PRESET_DATA_FILE
             if not data_file.is_file():
                 continue
             try:
                 loaded = json.loads(data_file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
-                logger.debug("[KG-2.59] bad contributed presets at %s", data_file)
+                logger.debug("[KG-2.59] invalid contributed presets")
                 continue
+            fingerprint_file = data_dir / _TOOL_SCHEMA_DATA_FILE
+            fingerprints: dict[str, str] = {}
+            try:
+                fingerprint_data = json.loads(
+                    fingerprint_file.read_text(encoding="utf-8")
+                )
+                raw_fingerprints = (
+                    fingerprint_data.get("tools", fingerprint_data)
+                    if isinstance(fingerprint_data, dict)
+                    else {}
+                )
+                if isinstance(raw_fingerprints, dict):
+                    fingerprints = {
+                        str(tool): str(digest).strip().lower()
+                        for tool, digest in raw_fingerprints.items()
+                    }
+            except (OSError, ValueError):
+                # Keep the preset discoverable, but its empty pin will fail
+                # configuration before any tool call or source record is read.
+                fingerprints = {}
             if isinstance(loaded, dict):
                 for key, value in loaded.items():
-                    if isinstance(value, dict):
-                        presets[str(key)] = dict(value)
-    except Exception:  # noqa: BLE001 — one bad provider never breaks the catalog
-        logger.debug("[KG-2.59] contributed-preset discovery failed", exc_info=True)
+                    if str(key).startswith("_") or not isinstance(value, dict):
+                        continue
+                    governed = dict(value)
+                    tool = str(governed.get("tool") or "")
+                    governed["strict_schema"] = True
+                    governed["verify_live_schema"] = True
+                    governed["tool_schema_sha256"] = fingerprints.get(tool, "")
+                    presets[str(key)] = governed
+                    providers[str(key)] = provider_name
+    except Exception as exc:  # noqa: BLE001 — one bad provider never breaks the catalog
+        logger.debug(
+            "[KG-2.59] contributed-preset discovery failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+    _contributed_preset_providers.clear()
+    _contributed_preset_providers.update(providers)
     _contributed_presets_cache = presets
     return presets
+
+
+def provider_tool_presets(provider: str) -> dict[str, dict[str, Any]] | None:
+    """Return one installed provider's source presets, validated strictly.
+
+    General catalog discovery remains failure-isolated, but the mandatory
+    connector gate needs to distinguish an absent/broken provider from a valid
+    empty catalog.  This strict lookup never imports connector business logic;
+    it resolves the same data-only entry point and raises a source error for a
+    missing or malformed preset artifact.  Returned keys beginning with ``_``
+    are metadata and are omitted.
+    """
+    from agent_utilities.core.providers import iter_provider_dirs
+
+    match = next(
+        (
+            data_dir
+            for name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP)
+            if name == provider
+        ),
+        None,
+    )
+    if match is None:
+        return None
+
+    data_file = match / _PRESET_DATA_FILE
+    if not data_file.is_file():
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} has no {_PRESET_DATA_FILE}"
+        )
+    try:
+        loaded = json.loads(data_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} has invalid preset data"
+        ) from exc
+    if not isinstance(loaded, dict):
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} must expose a JSON object"
+        )
+
+    presets: dict[str, dict[str, Any]] = {}
+    for key, value in loaded.items():
+        if str(key).startswith("_"):
+            continue
+        if not isinstance(value, dict):
+            raise McpToolSourceError(
+                f"source preset {key!r} from provider {provider!r} must be an object"
+            )
+        presets[str(key)] = dict(value)
+    return presets
+
+
+def provider_tool_schema_fingerprints(provider: str) -> dict[str, str] | None:
+    """Load one connector-owned exact ``list_tools`` schema fingerprint map.
+
+    The sidecar is data-only and is resolved through the same provider entry
+    point as ``mcp_source_presets.json``.  Its normalized shape is either
+    ``{"tools": {name: sha256}}`` or the bare ``{name: sha256}`` map.  Missing
+    sidecars return ``None`` so the mandatory manifest gate can distinguish an
+    uncertified connector from an empty-but-valid catalog.
+    """
+
+    from agent_utilities.core.providers import iter_provider_dirs
+
+    match = next(
+        (
+            data_dir
+            for name, data_dir in iter_provider_dirs(SOURCE_PRESET_PROVIDER_GROUP)
+            if name == provider
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    data_file = match / _TOOL_SCHEMA_DATA_FILE
+    if not data_file.is_file():
+        return None
+    try:
+        loaded = json.loads(data_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} has invalid tool-schema fingerprints"
+        ) from exc
+    if not isinstance(loaded, dict):
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} tool-schema fingerprints must be an object"
+        )
+    raw_tools = loaded.get("tools", loaded)
+    if not isinstance(raw_tools, dict):
+        raise McpToolSourceError(
+            f"source preset provider {provider!r} tool-schema tools must be an object"
+        )
+    fingerprints: dict[str, str] = {}
+    for tool_name, digest in raw_tools.items():
+        if str(tool_name).startswith("_"):
+            continue
+        normalized = str(digest or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized):
+            raise McpToolSourceError(
+                f"source preset provider {provider!r} has invalid schema fingerprint "
+                f"for tool {tool_name!r}"
+            )
+        fingerprints[str(tool_name)] = normalized
+    return fingerprints
 
 
 def reset_contributed_presets_cache() -> None:
     """Clear the contributed-preset cache (tests / after an install)."""
     global _contributed_presets_cache
     _contributed_presets_cache = None
+    _contributed_preset_providers.clear()
 
 
 def all_tool_presets() -> dict[str, dict[str, Any]]:
     """The full catalog: central presets overlaid with per-repo contributions."""
     merged: dict[str, dict[str, Any]] = dict(MCP_TOOL_PRESETS)
     merged.update(_load_contributed_presets())  # contributed wins (lives w/ connector)
-    return merged
+    return {
+        name: _apply_mandatory_preset_fields(name, preset)
+        for name, preset in merged.items()
+    }
 
 
 def get_tool_preset(name: str) -> dict[str, Any]:
@@ -1081,8 +1278,19 @@ def get_tool_preset(name: str) -> dict[str, Any]:
     """
     contributed = _load_contributed_presets()
     if name in contributed:
-        return dict(contributed[name])
-    return dict(MCP_TOOL_PRESETS.get(name, {}))
+        return _apply_mandatory_preset_fields(name, contributed[name])
+    return _apply_mandatory_preset_fields(name, MCP_TOOL_PRESETS.get(name, {}))
+
+
+def preset_provider(name: str) -> str | None:
+    """Return the connector package that owns a contributed preset.
+
+    Central compatibility presets have no entry-point owner, so their configured
+    MCP server becomes the governance source at the registry boundary.
+    """
+
+    _load_contributed_presets()
+    return _contributed_preset_providers.get(name)
 
 
 def list_tool_presets() -> list[str]:
@@ -1199,6 +1407,11 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         records_path: Dotted path to the record list in the result ("" = the
             result itself). A ``{columns, rows}`` tabular envelope (sql-mcp) is
             zipped into row dicts automatically.
+        records_is_mapping: Treat a mapping at ``records_path`` as keyed
+            records. The source key is copied to ``mapping_key_field`` without
+            replacing an explicit field in the value object.
+        mapping_key_field: Field that receives the mapping key (default
+            ``source_key``).
         id_field / title_field / text_field / updated_field: dotted field maps.
         doc_type: Document type hint.
         metadata_fields: Record fields copied into document metadata (default:
@@ -1260,6 +1473,8 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         params_arg: str = "params_json",
         arguments: dict[str, Any] | None = None,
         records_path: str = "",
+        records_is_mapping: bool = False,
+        mapping_key_field: str = "source_key",
         id_field: str = "id",
         title_field: str = "title",
         text_field: str = "text",
@@ -1287,6 +1502,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         batch_size: int = 200,
         updated_since_param: str = "",
         sql_table: dict[str, Any] | None = None,
+        strict_schema: bool = False,
+        verify_live_schema: bool = False,
+        tool_schema_sha256: str = "",
         **_: object,
     ) -> None:
         # Merge the preset under the explicit config (explicit keys win).
@@ -1305,7 +1523,19 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             for key in ("params", "arguments"):
                 if isinstance(base.get(key), dict):
                     merged[key] = {**base[key], **(self._config.get(key) or {})}
+            merged = _apply_mandatory_preset_fields(preset, merged)
             self._config = merged
+            provider = _contributed_preset_providers.get(preset)
+            if provider:
+                from ....knowledge_graph.ontology.connector_manifest_gate import (
+                    precheck_source,
+                )
+
+                gate = precheck_source(provider)
+                if not gate.get("checked") or not gate.get("ok"):
+                    raise McpToolSourceError(
+                        "connector capability bundle did not pass its signed gate"
+                    )
             self.configure(**merged)
             return
 
@@ -1340,10 +1570,24 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         self.params_arg = params_arg
         self.extra_arguments = dict(arguments or {})
         self.records_path = records_path
+        self.records_is_mapping = bool(records_is_mapping)
+        self.mapping_key_field = str(mapping_key_field or "source_key")
         self.id_field = id_field
         self.title_field = title_field
         self.text_field = text_field
         self.updated_field = updated_field
+        self.strict_schema = bool(strict_schema)
+        self.verify_live_schema = bool(verify_live_schema)
+        self.tool_schema_sha256 = str(tool_schema_sha256 or "").strip().lower()
+        if (
+            self.strict_schema
+            and self.verify_live_schema
+            and not re.fullmatch(r"[0-9a-f]{64}", self.tool_schema_sha256)
+        ):
+            raise McpToolSourceError(
+                "governed connector has no valid live tool-schema certification"
+            )
+        self.live_tool_schema_sha256 = ""
         self.doc_type = doc_type
         self.metadata_fields = list(metadata_fields or [])
         self.acl_public_field = acl_public_field
@@ -1478,9 +1722,41 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             raise
         except Exception as exc:
             raise McpToolSourceError(
-                f"MCP tool {tool!r} on {self.server or self.url or 'inline'} "
-                f"failed: {exc}"
+                f"MCP source tool call failed ({type(exc).__name__})"
             ) from exc
+
+    async def _verify_live_tool_schema(self, client: Any) -> None:
+        """Discover and validate the signed tool contract before data is pulled."""
+
+        if not self.verify_live_schema:
+            return
+        try:
+            listed = await client.list_tools()
+        except Exception as exc:  # noqa: BLE001 - governed discovery fails closed
+            raise McpToolSourceError(
+                f"MCP list_tools failed before governed pull ({type(exc).__name__})"
+            ) from exc
+
+        from ..tool_schema import (
+            ToolSchemaContractError,
+            validate_live_tool_contract,
+        )
+
+        required: dict[str, str] = {}
+        if self.action:
+            required[self.action_param] = "string"
+        if self.params_style == "json":
+            required[self.params_arg] = "string"
+        try:
+            contract = validate_live_tool_contract(
+                listed,
+                tool_name=self.tool,
+                expected_schema_sha256=self.tool_schema_sha256,
+                required_argument_types=required,
+            )
+        except ToolSchemaContractError as exc:
+            raise McpToolSourceError(str(exc)) from exc
+        self.live_tool_schema_sha256 = contract.compatibility_sha256
 
     def _records(self, result: Any) -> list[dict[str, Any]]:
         """Extract the record list; a {columns, rows} envelope is zipped."""
@@ -1496,8 +1772,30 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 for row in data["rows"]
                 if isinstance(row, list)
             ]
+        if isinstance(data, dict) and self.records_is_mapping:
+            records: list[dict[str, Any]] = []
+            for source_key, value in data.items():
+                if not isinstance(value, dict):
+                    if self.strict_schema:
+                        raise McpToolSourceError(
+                            "mandatory connector mapping contains a non-object record"
+                        )
+                    continue
+                record = dict(value)
+                record.setdefault(self.mapping_key_field, str(source_key))
+                records.append(record)
+            return records
         if isinstance(data, list):
-            return [r for r in data if isinstance(r, dict)]
+            records = [r for r in data if isinstance(r, dict)]
+            if self.strict_schema and len(records) != len(data):
+                raise McpToolSourceError(
+                    "mandatory connector response contains a non-object record"
+                )
+            return records
+        if self.strict_schema:
+            raise McpToolSourceError(
+                "mandatory connector response does not match its signed records_path"
+            )
         return []
 
     # ── record → document ────────────────────────────────────────────────────
@@ -1509,7 +1807,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             or self.acl_groups_field
             or self.acl_markings_field
         ):
-            return ExternalAccess.public()
+            # No ACL fields configured for this certified preset/instance
+            # (CONCEPT:AU-P0-4): unknown access is always quarantined.
+            return default_external_access()
 
         def _principals(field: str) -> list[str]:
             raw = _dig(record, field) if field else None
@@ -1519,14 +1819,23 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 return [str(p) for p in raw if p]
             return []
 
-        public = True
+        # World-public is a source-owned assertion, never an inferred default.
+        # Missing/malformed public values remain private and a descriptor with
+        # no effective grant is quarantined below.
+        public = False
         if self.acl_public_field:
-            public = bool(_dig(record, self.acl_public_field))
+            raw_public = _dig(record, self.acl_public_field)
+            public = raw_public is True or (
+                isinstance(raw_public, str)
+                and raw_public.strip().casefold() in {"1", "true", "yes", "on"}
+            )
         users = _principals(self.acl_users_field)
         groups = _principals(self.acl_groups_field)
         markings = _principals(self.acl_markings_field)
         if users or groups:
-            public = False if not self.acl_public_field else public
+            public = False
+        if not public and not (users or groups or markings):
+            return ExternalAccess.quarantined()
         return ExternalAccess(
             is_public=public,
             user_emails=users,
@@ -1562,6 +1871,10 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         rid = _dig(record, self.id_field)
         body = text if text is not None else _dig(record, self.text_field)
         if rid is None or not isinstance(body, str) or not body.strip():
+            if self.strict_schema:
+                raise McpToolSourceError(
+                    "mandatory connector record does not match its signed id/text fields"
+                )
             return None
         doc_title = title or _dig(record, self.title_field)
         updated = _dig(record, self.updated_field) if self.updated_field else None
@@ -1736,14 +2049,18 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         closed before returning (CONCEPT:AU-KG.ingest.mcp-tool-connector session lifecycle).
         """
 
-        async def run() -> (
-            tuple[list[SourceDocument], dict[str, Any], bool, str | None]
-        ):
+        async def run() -> tuple[
+            list[SourceDocument], dict[str, Any], bool, str | None
+        ]:
             docs: list[SourceDocument] = []
             new_state = dict(state)
             exhausted = False
             max_updated: str | None = None
             async with self._open_client() as client:
+                # The live server is authoritative for its MCP contract.  A
+                # governed connector must discover it before making the first
+                # pull call; missing tools/schema drift are hard failures.
+                await self._verify_live_tool_schema(client)
                 if not self._sql_ready:
                     await self._prepare_sql_table(client)
                 pages = 0

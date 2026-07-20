@@ -6,16 +6,16 @@ CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit — Schema-Pack Lifecycle, Lo
 """
 
 
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.models import schema_pack_loader as loader
 
 
 @pytest.fixture(autouse=True)
-def _isolate(monkeypatch, tmp_path):
-    # Neutralise ambient config so precedence tests are deterministic.
-    monkeypatch.delenv("GRAPH_SCHEMA_PACK", raising=False)
-    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
+def _isolate(monkeypatch):
+    monkeypatch.setattr(loader, "config", SimpleNamespace(graph_schema_pack="core"))
     # Reset module state.
     loader._active_pack = None
     loader._listeners.clear()
@@ -24,31 +24,21 @@ def _isolate(monkeypatch, tmp_path):
     loader._listeners.clear()
 
 
-def test_default_is_core(monkeypatch):
+def test_default_is_core():
     assert loader.resolve_pack_name() == "core"
     assert loader.resolve_active_pack().name == "core"
 
 
-def test_env_precedence(monkeypatch):
-    monkeypatch.setenv("GRAPH_SCHEMA_PACK", "research-state")
+def test_agent_config_selects_pack():
+    loader.config.graph_schema_pack = "research-state"
     assert loader.resolve_pack_name() == "research-state"
     assert loader.resolve_active_pack().name == "research-state"
 
 
-def test_explicit_arg_overrides_env(monkeypatch):
-    monkeypatch.setenv("GRAPH_SCHEMA_PACK", "research-state")
-    assert loader.resolve_pack_name("finance") == "finance"
-
-
-def test_config_json_precedence(tmp_path, monkeypatch):
-    (tmp_path / "config.json").write_text('{"graph": {"schema_pack": "biomedical"}}')
-    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
-    assert loader.resolve_pack_name() == "biomedical"
-
-
-def test_unknown_pack_falls_back_to_core():
-    # Must never raise — a config typo can't take the graph offline.
-    assert loader.resolve_active_pack("does-not-exist").name == "core"
+def test_unknown_configured_pack_fails_closed():
+    loader.config.graph_schema_pack = "does-not-exist"
+    with pytest.raises(KeyError):
+        loader.resolve_active_pack()
 
 
 def test_set_active_pack_notifies_listeners():

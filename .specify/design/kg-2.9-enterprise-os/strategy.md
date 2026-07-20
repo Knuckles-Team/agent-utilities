@@ -20,9 +20,8 @@
   fallback (read‑oriented today).
 - **Infra ingestion** — `infrastructure-orchestrator` + `agent-os-deployment`
   skills already discover hardware/containers/DNS and ingest topology to the KG.
-- **Compute/cache** — epistemic‑graph (sharded via ShardRouter/ConnectionPool) +
-  tiered backend (L1 epistemic‑graph / L3 pggraph) + the single `GraphBackend`
-  interface.
+- **Graph authority** — epistemic‑graph (sharded via ShardRouter/ConnectionPool),
+  optional explicit mirrors, and the single `GraphBackend` interface.
 
 ## The gap (what KG‑2.9 builds)
 1. **One enterprise ontology** unifying the above into a connected graph (not silos):
@@ -60,7 +59,7 @@
    read‑through caching of expensive cross‑system joins.
 5. **Scale (100K+ employees)** — sharded epistemic‑graph + partitioned pggraph;
    delta‑sync connectors (only changed records by updated‑at/hash); batched
-   embeddings; the single `GraphBackend` interface + tiered backend already
+   embeddings; the single `GraphBackend` interface + explicit mirrors already
    support horizontal scale. Coordination/eventing on `__bus__`; durable knowledge
    in the `kg` tenant; ephemeral sync scratch in per‑job tenants (KG‑2.8 planes).
 

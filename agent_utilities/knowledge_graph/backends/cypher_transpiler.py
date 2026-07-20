@@ -83,6 +83,14 @@ class TranspiledQuery:
 
 # Edge table name constant
 EDGE_TABLE = "kg_edges"
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+def _require_sql_identifier(value: object) -> str:
+    rendered = str(value or "")
+    if not _SQL_IDENTIFIER.fullmatch(rendered):
+        raise ValueError("SQL identifier is invalid")
+    return rendered
 
 
 def _param_key_to_positional(
@@ -132,7 +140,8 @@ def transpile(
     cypher: str,
     params: dict[str, Any] | None = None,
     known_tables: set[str] | None = None,
-    node_tables: set[str] | None = None,
+    *,
+    node_tables: set[str],
 ) -> TranspiledQuery:
     """Transpile a Cypher query into a PostgreSQL SQL statement.
 
@@ -146,12 +155,14 @@ def transpile(
             fan-out (``MATCH (n {id: …})``) projects ``properties`` across a UNION,
             so it must only span node-shaped tables — typed/ontology tables
             (e.g. ``Account``) lack ``properties`` and would make the UNION fail
-            with ``column "properties" does not exist``. Defaults to
-            ``known_tables`` when not supplied (back-compatible).
+            with ``column "properties" does not exist``. This current-contract
+            inventory is required; guessing from all tables is unsafe.
     """
     params = params or {}
-    known_tables = known_tables or set()
-    node_tables = node_tables if node_tables is not None else known_tables
+    known_tables = {
+        _require_sql_identifier(table) for table in (known_tables or set())
+    }
+    node_tables = {_require_sql_identifier(table) for table in node_tables}
     cypher_stripped = cypher.strip().rstrip(";")
 
     # Remove internal params
@@ -421,9 +432,10 @@ def transpile(
             sid = clean_params.get(sid_param, clean_params.get("sid"))
             tid = clean_params.get(tid_param, clean_params.get("tid"))
             sql = (
-                f"INSERT INTO {EDGE_TABLE} (source_id, target_id, rel_type, properties) "
-                f"VALUES (%s, %s, %s, %s::jsonb) "
-                f"ON CONFLICT (source_id, target_id, rel_type) DO UPDATE SET properties = EXCLUDED.properties"  # nosec B608
+                "INSERT INTO kg_edges (source_id, target_id, rel_type, properties) "
+                "VALUES (%s, %s, %s, %s::jsonb) "
+                "ON CONFLICT (source_id, target_id, rel_type) "
+                "DO UPDATE SET properties = EXCLUDED.properties"
             )
             # Collect edge properties (both inline literals and params)
             edge_props = {}
@@ -646,15 +658,15 @@ def _build_where(
 ) -> tuple[str, list[Any]]:
     """Extract WHERE conditions from Cypher and build SQL WHERE clause."""
     where_match = re.search(
-        r"WHERE\s+(.+?)(?:SET|RETURN|MERGE|CREATE|DELETE|$)",
+        r"WHERE\s+(.+?)(?=\s+(?:SET|RETURN|MERGE|CREATE|DETACH\s+DELETE|DELETE)\b|$)",
         cypher,
         re.IGNORECASE | re.DOTALL,
     )
     # ``where_raw`` is empty when there's no explicit WHERE keyword — but the
     # MATCH pattern may still carry an inline ``{id: $id}`` property filter, the
-    # form the engine uses for deletes (e.g. ``MATCH (t:Task {id:$id}) DETACH
-    # DELETE t``). Returning early here dropped that filter and produced an empty
-    # WHERE (``DELETE FROM "Task" WHERE`` → syntax error → swallowed L3 mirror
+    # form the engine uses for deletes (e.g. ``MATCH (n:Record {id:$id}) DETACH
+    # DELETE n``). Returning early here dropped that filter and produced an empty
+    # WHERE (``DELETE FROM "Record" WHERE`` → syntax error → swallowed mirror
     # failure → durable row never deleted). The inline-property block below scans
     # the full Cypher, so it must run even without a WHERE clause. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     where_raw = where_match.group(1).strip() if where_match else ""
@@ -691,7 +703,8 @@ def _build_where(
     for m in _COALESCE.finditer(where_raw):
         col, default, op, compare_val = m.group(2), m.group(3), m.group(4), m.group(5)
         sql_op = "!=" if op == "<>" else op
-        sql_parts.append(f"COALESCE(\"{col}\", '{default}') {sql_op} '{compare_val}'")
+        sql_parts.append(f'COALESCE("{col}", %s) {sql_op} %s')
+        values.extend((default, compare_val))
 
     # Handle IN clause: n.type IN $types
     for m in re.finditer(rf"{alias}\.(\w+)\s+IN\s+\$(\w+)", where_raw):
@@ -768,6 +781,7 @@ def _union_all_tables(tables: set[str], cols: str = "*", where: str = "") -> str
     select_cols = _UNION_BASE_COLS if cols == "*" else cols
     parts = []
     for tbl in sorted(tables):
+        tbl = _require_sql_identifier(tbl)
         q = f"SELECT {select_cols}, '{tbl}' AS _table_label FROM \"{tbl}\""
         if where:
             q += f" WHERE {where}"

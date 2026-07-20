@@ -28,6 +28,12 @@ unreachable — host-vs-service), ``health`` (general posture).
 from typing import Any
 
 from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
+from agent_utilities.observability.trace_ontology import (
+    TRACE_USED_TOOL_EDGE,
+)
+from agent_utilities.observability.trace_ontology import (
+    trace_id as canonical_trace_id,
+)
 
 VALID_INTENTS = ("run", "service", "health")
 
@@ -80,7 +86,7 @@ _LAYER_HINTS: dict[str, tuple[str, ...]] = {
         "no route",
         "session terminated",
         "down",
-        ".arpa",
+        "reverse proxy",
         "host",
     ),
     "cross_cutting": (
@@ -98,15 +104,13 @@ _LAYER_HINTS: dict[str, tuple[str, ...]] = {
 
 
 def _trace_id(node_id: str) -> str:
-    """Normalize a run/trace identifier to the ``trace:<run_id>`` node id."""
+    """Normalize a run/trace identifier to its opaque canonical node id."""
     nid = (node_id or "").strip()
     if not nid:
         return ""
-    if nid.startswith("trace:"):
-        return nid
     if nid.startswith("toolcall:"):
         return ""
-    return f"trace:{nid}"
+    return canonical_trace_id(nid)
 
 
 def _classify(query: str, intent: str) -> list[str]:
@@ -134,9 +138,9 @@ _PLAYBOOK: dict[str, dict[str, str]] = {
         "question": "What did the agent/delegation actually do, and where did it fail?",
         "signal": ":RunTrace + :ToolCall provenance (KG-2.296) + the always-on "
         "Trace/Span/Generation subgraph (OS-5.68).",
-        "tool": "graph_query the run: MATCH (t:RunTrace {id:'trace:<run_id>'})"
-        "-[:MADE_TOOL_CALL]->(tc:ToolCall) RETURN tc.tool_name, tc.status, "
-        "tc.error, tc.result_preview ORDER BY tc.sequence — or graph_observe "
+        "tool": "Resolve the run through graph_jobs status, then graph_query its opaque RunTrace id."
+        "-[:USED_TOOL]->(tc:ToolCall) RETURN tc.tool_name, tc.status, "
+        "tc.error_digest, tc.result_digest ORDER BY tc.sequence — or graph_observe "
         "action=trace_rootcause for the span/generation analysis.",
     },
     "container": {
@@ -158,8 +162,8 @@ _PLAYBOOK: dict[str, dict[str, str]] = {
     "host": {
         "question": "Is the host DOWN, or is only the service down? (the decisive split)",
         "signal": "Raw SSH reachability vs container presence on the host.",
-        "tool": "Resolve the host from the inventory (cm__list_hosts / tm__* — "
-        "an .arpa edge 502 means SSH the ACTUAL upstream, not the edge). Then "
+        "tool": "Resolve the host from the inventory (cm__list_hosts / tm__*). "
+        "A reverse-proxy 502 only proves the edge is reachable, so test the actual upstream. Then "
         "tm__remote / ssh <host>: 'No route to host' or timeout = HOST DOWN "
         "(operator/infra — nothing to restart service-side); connects but the "
         "container is stopped/absent/crash-looping = SERVICE DOWN (restart it, "
@@ -172,8 +176,8 @@ _PLAYBOOK: dict[str, dict[str, str]] = {
         "tool": "lgtm__grafana (dashboards/Loki/Tempo queries) + lgtm__alertmanager "
         "for firing alerts; the gateway /metrics series (ENGINE_BREAKER_STATE, "
         "KG_INGEST_QUEUE_DEPTH, MCP_CHILD_BREAKER_STATE, DISPATCH_QUEUE_DEPTH) "
-        "show breaker/queue/child health. graph_analyze action=explain "
-        "target='ops:health' reads the live :Task lane/queue state (KG-2.137).",
+        "show breaker/queue/child health. graph_explain action=explain "
+        "target='ops:health' reads live WorkItem lane/queue state (KG-2.137).",
     },
 }
 
@@ -209,16 +213,18 @@ def diagnose_symptom(
         rows = read_rows(
             engine,
             "MATCH (t:RunTrace {id: $tid}) RETURN t.id AS id, "
-            "t.agent_name AS agent_name, t.status AS status, t.error AS error, "
+            "t.attribution_ref AS attribution_ref, t.status AS status, "
+            "t.error_digest AS error_digest, "
             "t.duration_ms AS duration_ms",
             {"tid": trace_id},
         )
         trace_row = rows[0] if rows else {}
         tool_calls = read_rows(
             engine,
-            "MATCH (t:RunTrace {id: $tid})-[:MADE_TOOL_CALL]->(tc:ToolCall) "
+            f"MATCH (t:RunTrace {{id: $tid}})-[:{TRACE_USED_TOOL_EDGE}]->(tc:ToolCall) "
             "RETURN tc.tool_name AS tool_name, tc.status AS status, "
-            "tc.error AS error, tc.sequence AS sequence ORDER BY tc.sequence",
+            "tc.error_digest AS error_digest, tc.error_character_count AS error_character_count, "
+            "tc.sequence AS sequence ORDER BY tc.sequence",
             {"tid": trace_id},
         )
         if trace_row:
@@ -235,7 +241,8 @@ def diagnose_symptom(
         failed_runs = read_rows(
             engine,
             "MATCH (t:RunTrace) WHERE t.status IN ['failed','error'] "
-            "RETURN t.id AS id, t.agent_name AS agent_name, t.error AS error "
+            "RETURN t.id AS id, t.attribution_ref AS attribution_ref, "
+            "t.error_digest AS error_digest "
             "ORDER BY t.timestamp DESC LIMIT $k",
             {"k": limit},
         )
@@ -283,15 +290,16 @@ def _synthesize(
                 (tc for tc in tool_calls if str(tc.get("status")) == "error"), None
             )
             head = (
-                f"Run {trace_row.get('id')} ({trace_row.get('agent_name')}): "
+                f"Run {trace_row.get('id')} ({trace_row.get('attribution_ref')}): "
                 f"status={trace_row.get('status')}"
             )
-            if trace_row.get("error"):
-                head += f", error={str(trace_row.get('error'))[:160]}"
+            if trace_row.get("error_digest"):
+                head += f", error_ref={trace_row.get('error_digest')}"
             if failed_tc:
                 head += (
                     f"; first failing tool call: {failed_tc.get('tool_name')} "
-                    f"(seq {failed_tc.get('sequence')}) — {str(failed_tc.get('error'))[:120]}"
+                    f"(seq {failed_tc.get('sequence')}, "
+                    f"error_ref={failed_tc.get('error_digest')})"
                 )
             out.append(head + ".")
         else:
@@ -304,8 +312,8 @@ def _synthesize(
     elif failed_runs:
         out.append(
             f"{len(failed_runs)} recent errored run(s); start with "
-            f"{failed_runs[0].get('id')} ({failed_runs[0].get('agent_name')}): "
-            f"{str(failed_runs[0].get('error'))[:160]}."
+            f"{failed_runs[0].get('id')} ({failed_runs[0].get('attribution_ref')}), "
+            f"error_ref={failed_runs[0].get('error_digest')}."
         )
     else:
         out.append(
@@ -318,7 +326,7 @@ def _synthesize(
     if "host" in layers[:2]:
         out.append(
             "DECIDE host-vs-service FIRST: SSH the upstream host (resolve via the "
-            "inventory; an .arpa 502 means the edge is up but the upstream isn't). "
+            "inventory; a reverse-proxy 502 means the edge is up but the upstream may not be). "
             "'No route to host' = HOST down (operator/infra). Connects but the "
             "container is stopped/crash-looping = SERVICE down (restart + read "
             "container logs; exit 137 = OOM)."

@@ -242,8 +242,7 @@ class ResearchArtifactGenerator:
         filepath.write_text(digest.markdown, encoding="utf-8")
 
         logger.info(
-            "[CONCEPT:AU-KG.research.research-pipeline-runner] Digest saved: %s",
-            filepath,
+            "[CONCEPT:AU-KG.research.research-pipeline-runner] Digest saved"
         )
         return str(filepath)
 
@@ -330,7 +329,7 @@ class ResearchArtifactGenerator:
         # Look at neighboring nodes
         for neighbor in self.engine.graph.successors(article_id):
             n_data = self.engine.graph.nodes.get(neighbor, {})
-            n_type = n_data.get("type", "")
+            n_type = n_data.get("node_type", "")
             if n_type in ("concept", "fact", "knowledge_base"):
                 linkages.append(
                     {
@@ -342,7 +341,7 @@ class ResearchArtifactGenerator:
 
         for predecessor in self.engine.graph.predecessors(article_id):
             p_data = self.engine.graph.nodes.get(predecessor, {})
-            p_type = p_data.get("type", "")
+            p_type = p_data.get("node_type", "")
             if p_type in ("concept", "fact", "knowledge_base"):
                 linkages.append(
                     {
@@ -390,7 +389,7 @@ class ResearchArtifactGenerator:
             edge_data = self.engine.graph.get_edge_data(article_id, succ)
             if edge_data:
                 for _, edata in edge_data.items():
-                    if edata.get("type") in ("AUTHORED", "authored"):
+                    if edata.get("relationship") in ("AUTHORED", "authored"):
                         name = self.engine.graph.nodes.get(succ, {}).get("name", "")
                         if name:
                             authors.append(name)

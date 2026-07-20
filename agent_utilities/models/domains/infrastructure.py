@@ -101,10 +101,10 @@ class PlatformServiceNode(RegistryNode):
 class GPUAcceleratorNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.GPU_ACCELERATOR
     vram_gb: float = 0.0
-    vendor: str = "Nvidia"
+    vendor: str = "unknown"
 
 
 class StorageArrayNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.STORAGE_ARRAY
     capacity_tb: float = 0.0
-    storage_type: str = "SSD"
+    storage_type: str = "unknown"

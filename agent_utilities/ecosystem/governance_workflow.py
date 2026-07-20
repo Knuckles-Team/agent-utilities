@@ -81,7 +81,7 @@ class ChangeProposal:
     ChangeProposal and submitted to the GovernanceWorkflow.
     """
 
-    id: str = field(default_factory=lambda: f"chg-{uuid.uuid4().hex[:12]}")
+    id: str = field(default_factory=lambda: f"chg-{uuid.uuid4().hex}")
     change_type: ChangeType = ChangeType.AGENTS_MD_EDIT
     title: str = ""
     description: str = ""

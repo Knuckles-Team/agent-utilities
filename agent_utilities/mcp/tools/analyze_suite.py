@@ -10,10 +10,10 @@ COHESIVE, intent-scoped tools, each with a short scannable description:
 * ``graph_explain``  — the universal context plane (one cited answer per question)
 * ``graph_observe``  — KG-native observability/eval analytics (CONCEPT:AU-KG.ingest.observability-queries-opik-cannot)
 
-The code/research/evaluate/explain tools are THIN facades: they carry only a focused
-description and delegate to the SAME proven action core via ``_execute_tool`` (no logic
-duplication, FieldInfo defaults resolved there). ``graph_observe`` routes to the trace
-analytics. ``graph_analyze`` remains as the residual ops/structural surface + catch-all.
+The code/research/evaluate/explain tools are thin facades: they carry only a focused
+description and delegate to the same action core without duplicating logic.
+``graph_observe`` routes to trace analytics. ``graph_analyze`` is strictly the six-action
+operations/structural surface; it is not a compatibility catch-all.
 """
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.tools.analysis_tools import execute_focused_analysis
+from agent_utilities.models.evidence_bundle import EvidenceBundle
+from agent_utilities.security.error_surface import public_error_text
 
 
 def register_analyze_suite_tools(mcp: Any) -> None:
@@ -32,10 +35,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
     async def _delegate(
         action: str, query: str, top_k: int, node_id: str, depth: int, target: str
     ) -> Any:
-        # One core: every facade routes the SAME action set through _execute_tool, which
-        # resolves FieldInfo defaults exactly like an MCP invocation. No second handler.
-        return await kg_server._execute_tool(
-            "graph_analyze",
+        return await execute_focused_analysis(
             action=action,
             query=query,
             top_k=top_k,
@@ -82,7 +82,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             default="",
             description="how|usage|impact (code_context) or callees|callers|inherits (call_graph).",
         ),
-    ) -> str:
+    ) -> EvidenceBundle:
         """Code intelligence over the ingested, resolved code graph."""
         return await _delegate(action, query, top_k, node_id, depth, target)
 
@@ -109,7 +109,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         node_id: str = Field(default="", description="Optional node id."),
         depth: int = Field(default=2, description="Optional depth."),
         target: str = Field(default="", description="Optional target."),
-    ) -> str:
+    ) -> EvidenceBundle:
         """Research assimilation + knowledge-synthesis pipeline."""
         return await _delegate(action, query, top_k, node_id, depth, target)
 
@@ -140,7 +140,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         node_id: str = Field(default="", description="Optional node id."),
         depth: int = Field(default=2, description="Optional depth."),
         target: str = Field(default="", description="Optional target."),
-    ) -> str:
+    ) -> EvidenceBundle:
         """Evaluation, harness gates, world-model rollouts, forecasting/causal analysis."""
         return await _delegate(action, query, top_k, node_id, depth, target)
 
@@ -151,14 +151,20 @@ def register_analyze_suite_tools(mcp: Any) -> None:
             "provider and return ONE grounded, cited answer. action='explain' with "
             "target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', "
             "'entity:health') — or a bare intent with the domain inferred, or target='domains' "
-            "to list providers. action='context' returns a synthesized context bundle. "
+            "to list providers. action='context' returns a synthesized context bundle; "
+            "action='executable_rag' runs the grounded multi-hop retriever. "
             "Domains: code, ops (live task-queue), deploy (is my change live — KG-2.138), "
-            "entity/tickets/deploys/process (KG-2.139)."
+            "entity/tickets/deploys/process (KG-2.139), capability (Capability Power "
+            "Descriptor for a graph-os tool by id, e.g. 'capability:graph_query', or "
+            "'capability:list' for the browsable index — Seam 8 Phase 1, "
+            "CONCEPT:AU-KG.retrieval.capability-power-descriptor)."
         ),
         tags=["graph-os", "explain"],
     )
     async def graph_explain(
-        action: str = Field(default="explain", description="explain | context"),
+        action: str = Field(
+            default="explain", description="explain | context | executable_rag"
+        ),
         query: str = Field(default="", description="The question."),
         top_k: int = Field(default=10, description="Result count."),
         node_id: str = Field(default="", description="Optional anchor node id."),
@@ -166,7 +172,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
         target: str = Field(
             default="", description="'domain:intent' | bare intent | 'domains'."
         ),
-    ) -> str:
+    ) -> EvidenceBundle:
         """One grounded, cited answer per question, routed to the right domain provider."""
         return await _delegate(action, query, top_k, node_id, depth, target)
 
@@ -212,7 +218,7 @@ def register_analyze_suite_tools(mcp: Any) -> None:
                 return f"Error: Unknown observe action '{action}'"
             return json.dumps(out, indent=2, default=str)
         except Exception as e:
-            return f"Observe error: {e}"
+            return public_error_text(e)
 
     for _name, _fn in [
         ("graph_code", graph_code),

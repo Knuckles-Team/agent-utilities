@@ -45,7 +45,7 @@ async def execute_workspace_sync(
         with open(yml_path, encoding="utf-8") as f:
             ws_data = yaml.safe_load(f)
     except Exception as e:
-        logger.error(f"Failed to parse workspace.yml: {e}")
+        logger.error("Failed to parse workspace.yml (%s)", type(e).__name__)
         return {"status": "failed", "error": f"Failed to parse workspace.yml: {e}"}
 
     projects = ws_data.get("projects", [])

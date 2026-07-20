@@ -196,7 +196,7 @@ flowchart TD
   `agent_utilities/gateway/fleet.py` and mounted under `/api`:
 
 ```bash
-# list pending approvals (Task nodes awaiting decision + ActionApproval nodes)
+# list pending approvals (ActionApproval records; no executable WorkItem yet)
 curl -sS http://localhost:8000/api/fleet/approvals
 
 # grant one (deny with "decision": "denied")

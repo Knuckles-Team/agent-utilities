@@ -2,8 +2,8 @@
 
 Covers: bucket math, burst capacity, per-tenant isolation, the
 disabled-by-default contract, the 429 response shape (Retry-After + JSON
-body), exemption of /metrics and health routes, and bucket-key fallback
-(tenant → authenticated actor → client IP).
+body), exemption of /metrics and health routes, privacy-safe bucket identities,
+and bucket-key fallback (tenant → authenticated actor → shared anonymous).
 """
 
 from __future__ import annotations
@@ -141,7 +141,8 @@ class TestRateLimitMiddleware:
         assert retry_after >= 1
         body = json.loads(sent[1]["body"])
         assert body["error"] == "rate limit exceeded"
-        assert body["tenant"] == "acme"
+        assert "tenant" not in body
+        assert "acme" not in repr(sent)
         assert body["retry_after"] == retry_after
 
     async def test_per_tenant_isolation(self):
@@ -153,15 +154,19 @@ class TestRateLimitMiddleware:
         with use_actor(_actor(tenant="globex")):
             assert _status(await _call(mw)) == 200
 
-    async def test_key_fallback_actor_id_then_ip(self):
+    async def test_key_fallback_actor_id_then_shared_anonymous(self):
         mw = GatewayRateLimitMiddleware(_ok_app, rate=1.0, burst=1.0)
         # authenticated, no tenant claim → keyed by actor id
         with use_actor(_actor(tenant="", actor_id="svc-a")):
             await _call(mw)
-        assert "svc-a" in mw._buckets
-        # unauthenticated (ambient system actor) → keyed by client IP
+        assert "svc-a" not in repr(mw._buckets)
+        # unauthenticated traffic shares one bucket; source IP is not collected.
         await _call(mw, client=("203.0.113.7", 999))
-        assert "203.0.113.7" in mw._buckets
+        await _call(mw, client=("198.51.100.8", 999))
+        assert "203.0.113.7" not in repr(mw._buckets)
+        assert "198.51.100.8" not in repr(mw._buckets)
+        assert all(key.startswith("bucket_") for key in mw._buckets)
+        assert len(mw._buckets) == 2  # authenticated actor + one anonymous bucket
 
     async def test_exempt_paths_never_limited(self):
         mw = GatewayRateLimitMiddleware(_ok_app, rate=1.0, burst=1.0)
@@ -200,4 +205,6 @@ class TestRateLimitMiddleware:
         with use_actor(_actor(tenant="acme")):
             await _call(mw)
             await _call(mw)
-        assert {"tenant": "acme"} in calls
+        assert calls
+        assert calls[0]["tenant"].startswith("bucket_")
+        assert "acme" not in repr(calls)

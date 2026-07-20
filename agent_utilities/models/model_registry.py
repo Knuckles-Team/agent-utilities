@@ -38,15 +38,15 @@ _TIER_ORDER: list[ModelTier] = ["light", "medium", "heavy", "reasoning"]
 # three-specialized-model pattern (planner / generator / learner; agent-oss/agent.py:58-92),
 # generalized to a role→(tier,tags) binding over the existing registry so any provider
 # pool works and degrades gracefully via pick_for_task() instead of hardcoded model ids.
-# CONCEPT:AU-ORCH.routing.conductor-per-step-model (+ORCH-1.12 RLM extension): planner/generator/learner/judge plus the RLM-GEPA
-# roles — a cheap proxy executor + sub-LM optimized against a strong proposer (the AppWorld trick).
+# CONCEPT:AU-ORCH.routing.conductor-per-step-model (+ORCH-1.12 RLM extension):
+# planner/generator/learner/judge plus depth-specific RLM execution roles.
 ModelRole = Literal[
     "planner",
     "generator",
     "learner",
     "judge",
     "rlm-executor",
-    "rlm-proposer",
+    "rlm-root",
     "rlm-sublm",
 ]
 
@@ -74,12 +74,11 @@ _DEFAULT_ROLE_ROUTING: dict[str, RoleSpec] = {
     "generator": RoleSpec(tier="heavy", tags=["synthesis"]),
     "learner": RoleSpec(tier="heavy", tags=["extraction"]),
     "judge": RoleSpec(tier="reasoning", tags=[]),
-    # CONCEPT:AU-ORCH.routing.conductor-per-step-model RLM-GEPA roles: cheap executor/sub-LM run the skill; the strong proposer
-    # reflects on traces and rewrites it. A skill optimized with a cheap executor still lifts a
-    # strong one at eval — so this is the cost/quality Pareto knob for RLM-GEPA.
+    # The root performs the high-capability synthesis/reasoning pass; recursive
+    # execution and sub-LM calls use economical models.
     "rlm-executor": RoleSpec(tier="light", tags=["code"]),
     "rlm-sublm": RoleSpec(tier="light", tags=[]),
-    "rlm-proposer": RoleSpec(tier="reasoning", tags=["synthesis"]),
+    "rlm-root": RoleSpec(tier="reasoning", tags=["synthesis"]),
 }
 
 
@@ -113,7 +112,7 @@ _ROLE_TASK_CLASS: dict[str, str] = {
     "judge": "judge",
     "rlm-executor": "code",
     "rlm-sublm": "code",
-    "rlm-proposer": "reasoning",
+    "rlm-root": "reasoning",
 }
 
 
@@ -177,14 +176,6 @@ class ModelDefinition(BaseModel):
             "Static HTTP headers sent on every request to this model's endpoint "
             "(e.g. a gateway client-id header {'X-Client-Id': '...'}). Merged under any "
             "per-call custom headers. Independent of the auth mode."
-        ),
-    )
-    ssl_verify: bool | str | None = Field(
-        default=None,
-        description=(
-            "Per-model TLS verification. Null inherits the caller/global setting; false "
-            "disables verification for THIS endpoint only (internal self-signed); a string "
-            "is a CA-bundle path used to verify this endpoint."
         ),
     )
     reasoning_effort: str | None = Field(

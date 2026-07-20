@@ -99,11 +99,11 @@ portainer_stack(action="create_standalone_stack",
 ```python
 # Via adguard-home-mcp
 adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "erp.knuckles.team", "answer": "10.0.0.X"}')
+    params_json='{"domain": "erp.example.test", "answer": "192.0.2.10"}')
 adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "crm.knuckles.team", "answer": "10.0.0.X"}')
+    params_json='{"domain": "crm.example.test", "answer": "192.0.2.11"}')
 adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "legal.knuckles.team", "answer": "10.0.0.X"}')
+    params_json='{"domain": "legal.example.test", "answer": "192.0.2.12"}')
 ```
 
 ### 2.3 Register in KG Topology
@@ -118,8 +118,8 @@ erp = CompanySoftware(
     software_name="ERPNext",
     version="15.0",
     function_category="accounting",
-    api_endpoint="https://erp.knuckles.team/api",
-    dns_rewrite="erp.knuckles.team",
+    api_endpoint="https://erp.example.test/api",
+    dns_rewrite="erp.example.test",
     host_id="host_prod_01",
 )
 ```
@@ -157,7 +157,7 @@ for skill_dir in Path("skills/ops").iterdir():
 ```
 
 Alternatively, register a skill directly through MCP with
-`graph_orchestrate(action="compile_workflow", ...)`.
+`graph_workflows(action="compile", ...)`.
 
 ## Phase 4: KPI Dashboard Setup
 
@@ -182,9 +182,7 @@ mrr_kpi = KPI(
 
 Use the KG cron scheduler to periodically update KPIs:
 ```python
-graph_orchestrate(action="trigger_cron_job",
-    task="Update all financial KPIs from ERP data",
-    agent_name="finance_operations_coordinator")
+graph_schedules(action="run_now", name="financial-kpi-refresh")
 ```
 
 ## Phase 5: Security Hardening

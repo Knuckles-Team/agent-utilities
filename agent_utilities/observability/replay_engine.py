@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ReplayManifest(BaseModel):
     """Manifest tracking an entire replayable execution trace."""
 
-    id: str = Field(default_factory=lambda: f"manifest:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"manifest:{uuid.uuid4().hex}")
     process_id: str
     agent_id: str
     created_at: float = Field(default_factory=time.time)
@@ -30,7 +30,7 @@ class ReplayManifest(BaseModel):
 class InteractionRecord(BaseModel):
     """Detailed record of a single execution interaction step."""
 
-    step_id: str = Field(default_factory=lambda: f"step:{uuid.uuid4().hex[:8]}")
+    step_id: str = Field(default_factory=lambda: f"step:{uuid.uuid4().hex}")
     step_type: str  # e.g., 'prompt', 'tool_call', 'response'
     index: int
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -53,11 +53,7 @@ class DistributedReplayEngine:
         """Initialize a new trace recording manifest."""
         manifest = ReplayManifest(process_id=process_id, agent_id=agent_id)
         self._manifests[process_id] = manifest
-        logger.info(
-            "ReplayEngine started recording process: %s (agent=%s)",
-            process_id,
-            agent_id,
-        )
+        logger.info("ReplayEngine started recording process")
 
         # Persist manifest to KG if available
         if self.engine is not None:

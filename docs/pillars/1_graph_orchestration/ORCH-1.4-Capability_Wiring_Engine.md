@@ -31,7 +31,7 @@ Jointly optimizes decomposition depth, worker choice, and inference budget from 
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Ontological Fallback Chains](pillars/1_graph_orchestration/ORCH-1.14-Ontological_Fallback_Chains.md) (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
+# Ontological Fallback Chains (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
 ## Overview
 Uses the KG to find fallback models dynamically rather than relying on static lists during rate limits.
@@ -42,6 +42,9 @@ Uses the KG to find fallback models dynamically rather than relying on static li
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
+
+See the [Graph Orchestration pillar](../1_graph_orchestration.md) for the
+canonical capability inventory.
 # Subagent Lifecycle Patterns (CONCEPT:AU-ORCH.execution.execution-budget-caps)
 
 ## Overview

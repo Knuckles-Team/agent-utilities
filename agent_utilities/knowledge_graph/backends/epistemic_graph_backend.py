@@ -1,1586 +1,383 @@
 from __future__ import annotations
 
-"""Pure In-Memory Graph Backend (CONCEPT:AU-OS.safety.doom-loop-detection).
+"""Epistemic Graph authority adapter.
 
-Zero-dependency, zero-disk backend using GraphComputeEngine (Rust/epistemic-graph).
-Ideal for testing, edge devices, ephemeral containers,
-and as the default lightweight backend.
+This backend is deliberately thin. Cypher is parsed, planned, authorized, and
+executed by the Rust engine through its explicit ``cypher_read`` and
+``cypher_write`` wire modes. Python does not interpret patterns, traverse the
+graph, scan labels, simulate aggregation, compile mutations, or translate
+``UNWIND`` batches.
 
-Implements the full GraphBackend ABC with optional
-JSON serialization for persistence.
+Public reads reach this adapter only after a verified
+:class:`~agent_utilities.knowledge_graph.core.session.GraphSession` has passed
+the guarded query service. Internal query-language writes use the engine's
+durable mutation gateway; structured ingestion uses native ``ChangeEnvelope``
+instead of raw Cypher batches.
 """
 
-
+import datetime
+import hashlib
 import json
 import logging
 import re
 from typing import Any
 
-from .base import GraphBackend
+from .base import GraphBackend, is_write
 
 logger = logging.getLogger(__name__)
 
-# A variable-length relationship pattern ``-[*lo..hi]-`` / ``-[*]->`` etc. These
-# are bounded multi-hop traversals the L1 engine resolves via a BFS over its
-# native neighbour ops. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
-_VAR_LEN_RE = re.compile(r"\[\s*[A-Za-z_]*\s*:?\s*\w*\s*\*")
-
-# Write-DDL keyword detection as *whole words*. A substring scan misroutes a READ
-# whose alias/property merely contains the letters — ``RETURN n.x AS created`` is
-# not a CREATE, ``n.merge_status`` is not a MERGE — sending it to the legacy
-# reader and silently returning []. Match on word boundaries instead. (KG-2.63)
-_WRITE_KW_RE = {
-    kw: re.compile(rf"\b{kw}\b")
-    for kw in ("CREATE", "MERGE", "DELETE", "SET", "REMOVE")
-}
+_PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
+_CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
+_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
-def _has_kw(qu: str, kw: str) -> bool:
-    """True if ``kw`` appears as a whole Cypher clause keyword in ``qu`` (upper)."""
-    return bool(_WRITE_KW_RE[kw].search(qu))
+def _query_reference(query: str) -> str:
+    """Return a non-reversible query identifier safe for logs and errors."""
+    return hashlib.sha256(str(query).encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+class CypherEngineError(RuntimeError):
+    """The native Cypher authority rejected or failed a request.
+
+    Query text, parameters, endpoints, paths, and backend error details are not
+    retained or exposed. Operators can correlate the stable reference with the
+    engine's governed audit record.
+    """
+
+    def __init__(self, query: str, mode: str, cause: BaseException) -> None:
+        self.query_reference = _query_reference(query)
+        self.mode = mode
+        self.error_type = type(cause).__name__
+        super().__init__(
+            "native Cypher authority rejected request "
+            f"(query_ref={self.query_reference}, mode={mode}, "
+            f"error_type={self.error_type})"
+        )
+
+
+def _cypher_literal(value: Any) -> str:
+    """Render a bound value in the engine's dependency-free Cypher grammar."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        raise ValueError(
+            "Cypher parameters cannot encode NULL literals; use IS NULL or IS NOT NULL"
+        )
+    if isinstance(value, int | float):
+        if value < 0:
+            raise ValueError("Cypher parameters cannot encode negative number literals")
+        return str(value)
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+        return f"'{escaped}'"
+    if isinstance(value, list | tuple):
+        return "[" + ", ".join(_cypher_literal(item) for item in value) + "]"
+    raise TypeError(
+        f"Cypher parameters do not support {type(value).__name__}; "
+        "use scalar values or scalar lists"
+    )
 
 
 class EpistemicGraphBackend(GraphBackend):
-    """Pure in-memory graph backend using GraphComputeEngine (Rust-native).
+    """One-process adapter over the authoritative Rust graph service."""
 
-    This is the lightest-weight backend: zero disk, zero external
-    dependencies beyond the compiled graph engine. All data lives in
-    process memory and is lost on shutdown unless explicitly saved
-    via ``save_to_json()``.
-
-    Use cases:
-        - Unit testing (fast, deterministic)
-        - Edge compute (minimal footprint)
-        - Ephemeral containers (no persistent storage needed)
-        - Development/prototyping
-    """
+    @property
+    def typed_mutation_support(self) -> str:
+        """Declare the explicit lossless mutation seam used by engine writers."""
+        return "native"
 
     @property
     def cypher_support(self) -> str:
-        """No Cypher engine: only the bounded operational subset the orchestration
-        engine emits is interpreted directly (CONCEPT:AU-KG.backend.multi-connection-registry)."""
-        return "subset"
+        """Report the sole Cypher implementation used by this backend."""
+        return "native"
 
     def __init__(self, graph_name: str | None = None) -> None:
-        """Initialize the backend, optionally bound to a named engine graph.
-
-        CONCEPT:AU-KG.backend.schedule-on-control-graph — Control-plane graph isolation (foundation). The
-        optional ``graph_name`` selects which engine graph this backend instance
-        reads from and writes to. It is threaded straight through to the
-        underlying :class:`GraphComputeEngine` (and thence the
-        ``SyncEpistemicGraphClient`` connection), so a caller can later bind a
-        dedicated graph (e.g. a separate ``__control__`` graph for the scheduler
-        / task control plane) that is isolated from sustained content-ingestion
-        writes which otherwise hold the single per-graph write lock.
-
-        Default (``graph_name=None``) preserves EXACTLY today's behaviour:
-        ``GraphComputeEngine`` resolves the ambient/configured default graph
-        (``config.kg_default_graph`` or the tenant-routed graph) exactly as it
-        did before this parameter existed.
-        """
         from ..core.graph_compute import GraphComputeEngine
 
-        self._graph = GraphComputeEngine(graph_name=graph_name, backend_type="rust")
-        # Surface the effective graph the engine resolved (None-default routes to
-        # the configured/tenant graph) so callers/tiered wrappers can introspect
-        # the binding. (CONCEPT:AU-KG.backend.schedule-on-control-graph)
-        self.graph_name = getattr(self._graph, "graph_name", graph_name)
-        self._embeddings: dict[str, list[float]] = {}
-        self._node_counter = 0
-        logger.info(
-            "EpistemicGraphBackend initialized (GraphComputeEngine, pure in-memory%s)",
-            f", graph={self.graph_name}" if graph_name else "",
+        self._graph = GraphComputeEngine.get_or_create(
+            graph_name=graph_name,
+            backend_type="rust",
         )
+        self.graph_name = getattr(self._graph, "graph_name", graph_name)
+        logger.info("EpistemicGraphBackend bound to the process graph authority")
+
+    def for_graph(self, graph_name: str) -> EpistemicGraphBackend:
+        """Return a graph-scoped view without opening another transport."""
+        target = str(graph_name or self.graph_name)
+        if target == self.graph_name:
+            return self
+        view = object.__new__(type(self))
+        view._graph = self._graph.for_graph(target)
+        view.graph_name = target
+        return view
 
     @property
     def graph(self) -> Any:
-        """Direct access to the underlying GraphComputeEngine."""
+        """Return the non-owning process graph view."""
         return self._graph
 
-    # --- GraphBackend ABC Implementation ---
+    @staticmethod
+    def _inline_cypher_params(
+        query: str,
+        params: dict[str, Any],
+    ) -> str:
+        """Bind parameters for the current literal-only Cypher wire contract.
+
+        The native engine remains the only parser and execution authority. This
+        renderer merely serializes values because ``CypherQuery`` currently
+        carries query text rather than a separate parameter map.
+        """
+        if not str(query or "").strip():
+            raise ValueError("an explicit Cypher statement is required")
+        rendered = _CURRENT_TIMESTAMP_RE.sub(
+            lambda _match: _cypher_literal(
+                datetime.datetime.now(datetime.UTC).isoformat()
+            ),
+            query,
+        )
+
+        def replace(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in params:
+                raise ValueError(
+                    "Cypher query is missing a referenced parameter "
+                    f"(query_ref={_query_reference(query)})"
+                )
+            return _cypher_literal(params[name])
+
+        return _PARAM_TOKEN_RE.sub(replace, rendered)
 
     def execute(
-        self, query: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        """Execute a Cypher query against the in-memory graph.
-
-        This backend has no Cypher engine, so it interprets the *operational
-        subset* the orchestration engine relies on directly over the
-        ``GraphComputeEngine`` node store. Supported for single-node
-        ``MATCH`` patterns (no relationships):
-
-          - label filter ``(v:Label ...)`` (matched against ``node_type``,
-            ``label``, or ``labels``)
-          - inline ``{prop: $param | 'literal'}`` and ``WHERE`` equality,
-            ``IN [...]``, ``CONTAINS``, ``IS [NOT] NULL`` filters
-          - ``SET v.prop = $param | 'literal'`` property mutation (upsert
-            merge — critical for Task status transitions)
-          - ``DETACH DELETE v``
-          - ``RETURN`` projection: bare ``v`` (full node), ``v.prop AS alias``,
-            and ``count(v) AS alias``; honours ``LIMIT``
-
-        Anything outside this subset (relationship traversal, MERGE/CREATE,
-        unrecognised shapes) falls back to the legacy id/label/all behaviour.
-        """
-        params = params or {}
-        q = (query or "").strip()
-        qu = q.upper()
-
-        # Node upsert: ``MERGE (n:Label {id: $id}) SET n.k = $props_k, ...`` is the
-        # persistence path used by the graph-writer daemon and sync phase. Without
-        # this, ingested nodes never land in the in-memory store. (CONCEPT:AU-KG.query.object-graph-mapper)
-        if qu.startswith("MERGE") and "->" not in q and "<-" not in q:
-            handled, result = self._exec_merge_node(q, params)
-            if handled:
-                return result
-
-        # Relationship upsert: ``MATCH (a),(b) WHERE a.id=$x AND b.id=$y
-        # MERGE (a)-[:REL]->(b)``. Resolve both endpoints by id (O(1)) and add
-        # the edge directly — otherwise this falls to the full-scan legacy reader
-        # AND never creates the L1 edge. (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
-        if "->" in q and _has_kw(qu, "MERGE") and qu.startswith("MATCH"):
-            handled, result = self._exec_rel_merge(q, params)
-            if handled:
-                return result
-
-        # Relationship-pattern READ — single-hop outbound ``->``, inbound ``<-``,
-        # or bounded variable-length ``-[*lo..hi]-``. The L1 engine resolves these
-        # natively over its neighbour/BFS ops, so they no longer have to fall back
-        # to L3. Critically, if no traversal interpreter matches we return ``[]``
-        # — NOT the whole graph — so a tiered caller can defer to L3 instead of
-        # silently receiving every node (the old legacy full-scan footgun).
-        # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
-        if (
-            qu.startswith("MATCH")
-            and ("->" in q or "<-" in q or _VAR_LEN_RE.search(q))
-            and not _has_kw(qu, "MERGE")
-            and not _has_kw(qu, "CREATE")
-            and not _has_kw(qu, "DELETE")
-        ):
-            if _VAR_LEN_RE.search(q):
-                handled, result = self._exec_var_length_match(q, params)
-                if handled:
-                    return result
-            handled, result = self._exec_rel_match(q, params)
-            if handled:
-                return result
-            # Edge existence/count/property reads (count(r), r.prop, r) anchored by
-            # WHERE or inline ids — makes written edges readable from L1.
-            handled, result = self._exec_rel_aggregate(q, params)
-            if handled:
-                return result
-            # LABEL+WHERE-anchored traversal (the graph_code_nav shapes): resolve
-            # the anchor by scan, then walk. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
-            handled, result = self._exec_where_anchored_traversal(q, params)
-            if handled:
-                return result
-            # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): an *aggregate* (``count(...)``)
-            # over a relationship pattern whose WHERE filter no interpreter could
-            # honor must NOT silently return ``[]`` — a caller reads an empty
-            # aggregate as 0, which is a confidently wrong number. Fail loud so the
-            # query is fixed/anchored or routed to a backend (L3) that can transpile
-            # it, rather than returning a fabricated count. Non-aggregate unhandled
-            # reads keep the deliberate ``return []`` deferral (lets a tiered caller
-            # fall through to L3 without a full-graph scan).
-            if re.search(
-                r"RETURN\s+count\s*\(", q, re.I
-            ) and self._where_has_unhonored_filter(q):
-                raise ValueError(
-                    "epistemic_graph (L1) cannot honor this aggregate query's "
-                    "WHERE filter; refusing to return an unfiltered global count "
-                    "(route to an L3 cypher→SQL backend or anchor the query): "
-                    f"{q[:200]}"
-                )
-            logger.debug(
-                "epistemic_graph backend: unhandled relationship read; "
-                "returning [] (no full-graph fallback): %s",
-                q[:160],
-            )
-            return []
-
-        # Single-node MATCH patterns are interpreted directly; relationship
-        # traversals and other write-DDL fall through to the legacy reader.
-        if (
-            qu.startswith("MATCH")
-            and "->" not in q
-            and "<-" not in q
-            and not _has_kw(qu, "MERGE")
-            and not _has_kw(qu, "CREATE")
-        ):
-            handled, result = self._exec_node_match(q, params)
-            if handled:
-                return result
-
-        return self._legacy_execute(params)
-
-    def _exec_rel_match(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret an id-anchored single-hop traversal read, in either direction:
-
-          - outbound ``MATCH (a {id:$x})-[:REL]->(b:Label) RETURN b...`` → successors
-          - inbound  ``MATCH (a {id:$x})<-[:REL]-(b:Label) RETURN b...`` → predecessors
-
-        Resolves the anchor ``a`` by id, walks ``REL`` neighbours in the matched
-        direction, filters targets ``b`` by label, and projects on ``b``. Returns
-        ``(False, [])`` for any shape outside this subset so the caller can fall
-        back. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
-        """
-        anchor_re = (
-            r"MATCH\s*\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*"
-            r"(\$\w+|'[^']*'|\"[^\"]*\")\s*\}\s*\)"
-        )
-        tgt_re = r"\(\s*(\w+)\s*(?::(\w+))?\s*\)"
-        # Anchor id accepts either a ``$param`` placeholder or an inline quoted
-        # literal (``{id:'foo'}``) — interactive callers commonly write the literal.
-        out = re.search(
-            anchor_re + r"\s*-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*->\s*" + tgt_re,
-            q,
-            re.I,
-        )
-        if out:
-            direction, m = "out", out
-        else:
-            inb = re.search(
-                anchor_re + r"\s*<-\s*\[\s*\w*\s*:?\s*(\w+)?[^\]]*\]\s*-\s*" + tgt_re,
-                q,
-                re.I,
-            )
-            if not inb:
-                return False, []
-            direction, m = "in", inb
-        _src_var, id_token, rel, tgt_var, tgt_label = m.groups()
-
-        # Only the simple "anchor by id, project the target" shape is supported.
-        if re.search(r"\bSET\b|\bDETACH\b", q, re.I):
-            return False, []
-
-        anchor_id = self._coerce_literal(id_token, params)
-        if anchor_id is None or not self._graph.has_node(anchor_id):
-            return True, []
-
-        rel_upper = rel.upper() if rel else None
-        step = (
-            self._graph.get_successors
-            if direction == "out"
-            else self._graph.get_predecessors
-        )
-        matched: list[tuple[str, dict[str, Any]]] = []
-        for tgt in step(anchor_id):
-            # Edge ordering follows the arrow direction: outbound is (anchor→tgt),
-            # inbound is (tgt→anchor).
-            if direction == "out":
-                edge_props = self._graph._get_edge_properties(anchor_id, tgt) or {}
-            else:
-                edge_props = self._graph._get_edge_properties(tgt, anchor_id) or {}
-            if rel_upper:
-                edge_rel = str(
-                    edge_props.get("rel_type") or edge_props.get("type") or ""
-                ).upper()
-                if edge_rel != rel_upper:
-                    continue
-            data = self._graph._get_node_properties(tgt) or {}
-            if tgt_label and not self._label_match(data, tgt_label):
-                continue
-            matched.append((tgt, data))
-
-        # Honour ``ORDER BY <tgt>.<prop> [DESC]`` over the projected targets,
-        # since neighbour order is not guaranteed to be meaningful.
-        ob = re.search(
-            rf"\bORDER\s+BY\s+{tgt_var}\.(\w+)\s*(DESC|ASC)?",
-            q,
-            re.I,
-        )
-        if ob:
-            order_prop = ob.group(1)
-            reverse = bool(ob.group(2)) and ob.group(2).upper() == "DESC"
-
-            def _sort_key(item: tuple[str, dict[str, Any]]) -> tuple[int, Any]:
-                val = item[1].get(order_prop)
-                # None sorts last; keep numeric/string ordering stable otherwise.
-                return (1, "") if val is None else (0, val)
-
-            matched.sort(key=_sort_key, reverse=reverse)
-
-        return True, self._project(q, tgt_var, matched, params)
-
-    @staticmethod
-    def _where_has_unhonored_filter(q: str) -> bool:
-        """True if the WHERE clause carries a predicate the *unanchored* edge
-        aggregate cannot apply (CONCEPT:AU-KG.backend.where-clause-carrying).
-
-        The unanchored ``count(r)`` / edge-export path can only honor ``<var>.id =
-        …`` equalities (consumed as id anchors). Any other WHERE predicate —
-        notably a node-property filter like ``d.doc_type = 'news_article'`` — is
-        silently dropped if we fall through to the global edge count, producing a
-        confidently wrong answer. Detect that case so the caller can defer rather
-        than lie. Returns ``False`` when there is no WHERE (the legitimate
-        ``MATCH ()-[r]->() RETURN count(r)`` global-count shape).
-        """
-        wm = re.search(r"\bWHERE\b(.+?)(?:\bRETURN\b|\bSET\b|$)", q, re.I | re.S)
-        if not wm:
-            return False
-        where_body = wm.group(1)
-        # Strip the ``<var>.id = <literal/param>`` equalities the aggregate already
-        # consumes as anchors; if anything predicate-like survives, it's unhonored.
-        residual = re.sub(
-            r"\w+\.id\s*=\s*(?:\$\w+|'[^']*'|\"[^\"]*\")",
-            "",
-            where_body,
-            flags=re.I,
-        )
-        # Boolean glue between consumed equalities is not itself a predicate.
-        residual = re.sub(r"\b(AND|OR|NOT)\b", "", residual, flags=re.I)
-        # A surviving ``<var>.<prop>`` reference (e.g. ``d.doc_type``) or any
-        # comparison operator means there is a filter we can't apply.
-        if re.search(r"\w+\.\w+", residual):
-            return True
-        if re.search(
-            r"[<>=!]=?|\bCONTAINS\b|\bIN\b|\bSTARTS\b|\bENDS\b", residual, re.I
-        ):
-            return True
-        return False
-
-    def _exec_rel_aggregate(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Edge existence / count / property read, anchored by WHERE or inline ids.
-
-        Handles the shapes the conformance contract and ``query_cypher`` emit that
-        ``_exec_rel_match`` (target-projection only) does not:
-
-          MATCH (s[:L])-[r:REL]->(t[:L]) WHERE s.id=$s AND t.id=$t
-            RETURN count(r) AS c | r.<prop> AS alias | r
-
-        Resolves endpoints by id, matches the edge (and ``rel_type`` if given), and
-        projects a count, an edge property, or the full edge-property map. This is
-        what makes edges *readable* from the L1 backend (they were write-only before
-        — present in the compute graph but not returned by ``backend.execute``).
-        """
-        pat = re.search(
-            r"\(\s*(\w*)[^)]*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*"
-            r"\(\s*(\w*)[^)]*\)",
-            q,
-            re.I,
-        )
-        if not pat:
-            return False, []
-        s_var, r_var, rel, t_var = (
-            pat.group(1),
-            pat.group(2),
-            pat.group(3),
-            pat.group(4),
-        )
-
-        idmap: dict[str, Any] = {}
-        for mv in re.finditer(r"(\w+)\.id\s*=\s*(\$\w+|'[^']*'|\"[^\"]*\")", q, re.I):
-            idmap[mv.group(1)] = self._coerce_literal(mv.group(2), params)
-        for mv in re.finditer(
-            r"\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")\s*\}",
-            q,
-            re.I,
-        ):
-            idmap[mv.group(1)] = self._coerce_literal(mv.group(2), params)
-        s_id, t_id = idmap.get(s_var), idmap.get(t_var)
-        rel_upper = rel.upper() if rel else None
-
-        def _edge_between(a: Any, b: Any) -> dict[str, Any] | None:
-            ep = self._graph._get_edge_properties(a, b) or {}
-            if not ep and not self._graph.has_edge(a, b):
-                return None
-            if rel_upper:
-                er = str(ep.get("rel_type") or ep.get("type") or "").upper()
-                if er != rel_upper:
-                    return None
-            return ep
-
-        matches: list[dict[str, Any]] = []
-        if s_id is not None and t_id is not None:
-            ep = _edge_between(s_id, t_id)
-            if ep is not None:
-                matches.append(ep)
-        elif s_id is not None and self._graph.has_node(s_id):
-            for tgt in self._graph.get_successors(s_id):
-                ep = _edge_between(s_id, tgt)
-                if ep is not None:
-                    matches.append(ep)
-        elif t_id is not None and self._graph.has_node(t_id):
-            for src in self._graph.get_predecessors(t_id):
-                ep = _edge_between(src, t_id)
-                if ep is not None:
-                    matches.append(ep)
-        else:
-            # No id anchor → global edge read. Only *edge-centric* projections are
-            # served here (``count(r)`` or the edges/edge-props themselves): a bare
-            # ``count(r)`` is answered in O(1) via the engine's edge count; a
-            # rel-type-filtered count or an ``r``/``r.prop`` projection enumerates
-            # the engine's native triple export. An unanchored *node* projection
-            # (e.g. ``RETURN b``) still defers (``return False``) rather than
-            # scanning every node — the deliberate L1 guard. This is what makes
-            # ``MATCH ()-[r]->() RETURN count(r)`` readable from the L1 backend.
-            # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
-            #
-            # SILENT-WRONG GUARD (CONCEPT:AU-KG.backend.where-clause-carrying): a WHERE clause carrying a
-            # node-property predicate this aggregate cannot honor (e.g.
-            # ``MATCH (d)-[r]->(c) WHERE d.doc_type='news_article' RETURN count(c)``)
-            # must NOT collapse to the *unfiltered* global edge count — that returns
-            # a confidently wrong number (the cardinal sin: worse than an error).
-            # The only WHERE predicates this branch can apply are the ``.id``
-            # equalities already consumed into ``idmap`` (which would have anchored
-            # the lookup above). If any other predicate remains, defer (``return
-            # False, []``) so the dispatcher tries the label+WHERE traversal and,
-            # failing that, returns ``[]`` (or the tiered backend routes to L3's
-            # cypher→SQL transpiler) — never a silent global count.
-            if self._where_has_unhonored_filter(q):
-                logger.debug(
-                    "epistemic_graph backend: unanchored relationship aggregate "
-                    "with an unhonored WHERE filter; deferring instead of "
-                    "returning a global count: %s",
-                    q[:160],
-                )
-                return False, []
-            wants_count = re.search(r"RETURN\s+count\s*\(", q, re.I) is not None
-            wants_edge = bool(r_var) and re.search(rf"RETURN\s+{r_var}(\b|\.)", q, re.I)
-            if not (wants_count or wants_edge):
-                return False, []
-            edge_count = getattr(self._graph, "edge_count", None)
-            get_triples = getattr(self._graph, "get_triples", None)
-            if wants_count and not rel_upper and callable(edge_count):
-                alias_m = re.search(r"count\s*\(\s*\w*\s*\)\s*(?:AS\s+(\w+))?", q, re.I)
-                alias = (alias_m.group(1) if alias_m else None) or "count"
-                return True, [{alias: edge_count()}]
-            if not callable(get_triples):
-                return False, []
-            for triple in get_triples():
-                if len(triple) != 3:
-                    continue
-                src, rel_t, tgt = triple
-                if rel_upper and str(rel_t).upper() != rel_upper:
-                    continue
-                ep = self._graph._get_edge_properties(src, tgt) or {}
-                if rel_upper and not (ep.get("rel_type") or ep.get("type")):
-                    ep = {**ep, "rel_type": rel_t}
-                matches.append(ep)
-
-        cnt = re.search(r"RETURN\s+count\s*\(\s*\w+\s*\)\s*(?:AS\s+(\w+))?", q, re.I)
-        if cnt:
-            return True, [{cnt.group(1) or "count": len(matches)}]
-        if r_var:
-            propm = re.search(rf"RETURN\s+{r_var}\.(\w+)\s*(?:AS\s+(\w+))?", q, re.I)
-            if propm:
-                key, alias = propm.group(1), (propm.group(2) or propm.group(1))
-                return True, [{alias: ep.get(key)} for ep in matches]
-            if re.search(rf"RETURN\s+{r_var}\b", q, re.I):
-                return True, [{r_var: ep} for ep in matches]
-        return False, []
-
-    def _exec_where_anchored_traversal(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret a LABEL+WHERE-anchored traversal (not id-anchored):
-
-          MATCH (l:La)-[:REL]->(r:Lb)        WHERE <anchor>.<p> = $x  RETURN <free>…
-          MATCH (l:La)-[:REL*lo..hi]->(r:Lb) WHERE <anchor>.<p> = $x  RETURN <free>…
-
-        This is the shape ``graph_code_nav`` emits (find_references / trace_call_graph
-        / impact_of_change): the *anchor* node is pinned by a WHERE property (e.g.
-        ``def.name = $symbol``), and the *free* node is projected. We resolve the
-        anchor ids via a label+WHERE scan (the engine's labeled fetch), then walk
-        ``calls`` edges in the direction implied by which side is anchored —
-        single-hop (rel-type filtered) or bounded k-hop. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
-        """
-        import re
-
-        if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b|\bMERGE\b", q, re.I):
-            return False, []
-        node = r"\(\s*(\w+)\s*(?::(\w+))?\s*\)"
-        rel = (
-            r"\s*(<-|-)\s*\[\s*\w*\s*:?\s*(\w+)?\s*"
-            r"(\*\s*(\d*)\s*\.\.?\s*(\d*))?\s*[^\]]*\]\s*(->|-)\s*"
-        )
-        m = re.search(node + rel + node, q, re.I)
-        if not m:
-            return False, []
-        (
-            lvar,
-            llabel,
-            larrow,
-            rel_type,
-            varlen,
-            lo_s,
-            hi_s,
-            rarrow,
-            rvar,
-            rlabel,
-        ) = m.groups()
-
-        mw = re.search(r"\bWHERE\b(.+?)(?:\bRETURN\b|$)", q, re.I | re.S)
-        if not mw:
-            return False, []
-        # Anchor = the node carrying the WHERE condition; free = the other.
-        if re.search(rf"\b{lvar}\.\w", mw.group(1)):
-            anchor_var, free_var = lvar, rvar
-            anchor_label, free_label = llabel, rlabel
-        elif re.search(rf"\b{rvar}\.\w", mw.group(1)):
-            anchor_var, free_var = rvar, lvar
-            anchor_label, free_label = rlabel, llabel
-        else:
-            return False, []
-
-        groups = self._parse_where_or(mw.group(1), anchor_var, params)
-        if not groups:
-            return False, []
-
-        # Resolve anchor node ids: labeled fetch + WHERE filter.
-        anchor_ids: list[str] = []
-        try:
-            rows = self._graph.get_nodes_by_label(anchor_label or "", 0)
-        except Exception:  # noqa: BLE001
-            # Fall back to a full node scan if the engine exposes one; if it
-            # exposes NEITHER, defer cleanly (``False, []``) rather than letting an
-            # AttributeError escape — the caller's silent-wrong guard then decides
-            # whether to fail loud. (CONCEPT:AU-KG.backend.where-clause-carrying)
-            _scan = getattr(self._graph, "_get_all_nodes_with_properties", None)
-            if not callable(_scan):
-                return False, []
-            rows = _scan()
-        for nid, data in rows or []:
-            data = data or {}
-            if anchor_label and not self._label_match(data, anchor_label):
-                continue
-            if self._eval_groups(nid, data, groups):
-                anchor_ids.append(nid)
-
-        # Direction from the anchor's perspective. Pattern is ``(l)-[…]->(r)``
-        # (left→right) when ``rarrow == '->'``. Anchored-on-source ⇒ walk out
-        # (its callees); anchored-on-target ⇒ walk in (its callers).
-        ltr = rarrow == "->" and larrow != "<-"
-        if anchor_var == lvar:
-            direction = "out" if ltr else "in"
-        else:
-            direction = "in" if ltr else "out"
-
-        lo = int(lo_s) if lo_s else 1
-        hi = int(hi_s) if hi_s else (5 if varlen else 1)
-        if not varlen:
-            lo = hi = 1
-        rel_upper = rel_type.upper() if rel_type else None
-
-        matched: list[tuple[str, dict[str, Any]]] = []
-        seen: set[str] = set()
-        for aid in anchor_ids:
-            if varlen:
-                hops = self._khop(aid, lo, hi, direction)
-            else:
-                step = (
-                    self._graph.get_successors
-                    if direction == "out"
-                    else self._graph.get_predecessors
-                )
-                hops = []
-                for nb in step(aid):
-                    if rel_upper:
-                        ep = (
-                            self._graph._get_edge_properties(aid, nb)
-                            if direction == "out"
-                            else self._graph._get_edge_properties(nb, aid)
-                        ) or {}
-                        er = str(ep.get("rel_type") or ep.get("type") or "").upper()
-                        if er != rel_upper:
-                            continue
-                    hops.append(nb)
-            for nid in hops:
-                if nid in seen:
-                    continue
-                seen.add(nid)
-                data = self._graph._get_node_properties(nid) or {}
-                if free_label and not self._label_match(data, free_label):
-                    continue
-                matched.append((nid, data))
-
-        return True, self._project(q, free_var, matched, params)
-
-    def _exec_var_length_match(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret an id-anchored bounded variable-length traversal read:
-
-        ``MATCH (n)-[*1..3]-(t {id:$x}) RETURN n`` and its mirror (anchor on the
-        left) and directed ``->`` / ``<-`` variants. Resolves the anchor by id,
-        runs a bounded BFS over the engine's native neighbour ops to ``hi`` hops,
-        filters the free node by label, and projects on it. Returns ``(False, [])``
-        for shapes outside this subset. (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — L1 native traversal.)
-        """
-        if re.search(r"\bSET\b|\bDETACH\b|\bDELETE\b", q, re.I):
-            return False, []
-        node = r"\(\s*(\w+)\s*(?::(\w+))?\s*(\{[^}]*\})?\s*\)"
-        rel = r"\s*(<-|-)\s*\[[^\]]*\*\s*(\d*)\s*(\.\.)?\s*(\d*)[^\]]*\]\s*(->|-)\s*"
-        m = re.search(node + rel + node, q, re.I)
-        if not m:
-            return False, []
-        (
-            lvar,
-            llabel,
-            linline,
-            larrow,
-            lo_s,
-            dotdot,
-            hi_s,
-            rarrow,
-            rvar,
-            rlabel,
-            rinline,
-        ) = m.groups()
-
-        def _id_from_inline(inline: str | None) -> Any:
-            if not inline:
-                return None
-            im = re.search(r"id\s*:\s*(\$\w+|'[^']*'|\"[^\"]*\")", inline, re.I)
-            return self._coerce_literal(im.group(1), params) if im else None
-
-        left_id, right_id = _id_from_inline(linline), _id_from_inline(rinline)
-        if left_id is not None and self._graph.has_node(left_id):
-            anchor_id, anchor_on_left = left_id, True
-            free_var, free_label = rvar, rlabel
-        elif right_id is not None and self._graph.has_node(right_id):
-            anchor_id, anchor_on_left = right_id, False
-            free_var, free_label = lvar, llabel
-        else:
-            # No inline-id anchor → defer so a WHERE/label-anchored traversal
-            # (``…-[:calls*1..n]->(t) WHERE t.name=$s``) can resolve the anchor by
-            # scan instead of being swallowed as "no rows". (CONCEPT:AU-KG.backend.declared-columns-so-schema)
-            return False, []
-
-        lo = int(lo_s) if lo_s else 1
-        if hi_s:
-            hi = int(hi_s)
-        elif dotdot:
-            hi = max(lo, 5)  # open upper bound → safe cap
-        else:
-            hi = lo
-        if hi < lo:
-            hi = lo
-
-        # Direction from the anchor's perspective. ``rarrow == '->'`` is outbound,
-        # ``larrow == '<-'`` is inbound; otherwise undirected.
-        if rarrow == "->" and larrow != "<-":
-            direction = "out" if anchor_on_left else "in"
-        elif larrow == "<-" and rarrow != "->":
-            direction = "in" if anchor_on_left else "out"
-        else:
-            direction = "both"
-
-        matched: list[tuple[str, dict[str, Any]]] = []
-        for nid in self._khop(anchor_id, lo, hi, direction):
-            data = self._graph._get_node_properties(nid) or {}
-            if free_label and not self._label_match(data, free_label):
-                continue
-            matched.append((nid, data))
-        return True, self._project(q, free_var, matched, params)
-
-    def _khop(self, anchor: str, lo: int, hi: int, direction: str) -> list[str]:
-        """Bounded BFS from ``anchor``: node ids first reached in ``[lo, hi]`` hops.
-
-        ``direction``: 'out' (successors), 'in' (predecessors), 'both' (neighbours).
-        Each frontier expansion is one engine round-trip per node; bounded by
-        ``hi`` so an L1 traversal stays a small, fast working set.
-        """
-        if direction == "out":
-            step = self._graph.get_successors
-        elif direction == "in":
-            step = self._graph.get_predecessors
-        else:
-            step = self._graph.get_neighbors
-        visited = {anchor}
-        frontier = [anchor]
-        out: list[str] = []
-        for depth in range(1, hi + 1):
-            nxt: list[str] = []
-            for node in frontier:
-                for nb in step(node):
-                    if nb not in visited:
-                        visited.add(nb)
-                        nxt.append(nb)
-                        if depth >= lo:
-                            out.append(nb)
-            frontier = nxt
-            if not frontier:
-                break
-        return out
-
-    def _exec_rel_merge(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret ``MATCH (a),(b) ... MERGE (a)-[:REL]->(b)`` as an O(1) edge add."""
-        import re
-
-        mm = re.search(
-            r"MERGE\s*\(\s*(\w+)\s*\)\s*-\s*\[\s*(\w*)\s*:?\s*(\w+)?[^\]]*\]\s*->\s*\(\s*(\w+)\s*\)",
-            q,
-            re.I,
-        )
-        if not mm:
-            return False, []
-        src_var, rel_var, rel, tgt_var = (
-            mm.group(1),
-            mm.group(2),
-            (mm.group(3) or "RELATED"),
-            mm.group(4),
-        )
-
-        # Resolve each var's id from WHERE (``v.id = $param``) or inline
-        # (``(v:Label {id: $param})``).
-        idmap: dict[str, Any] = {}
-        for mv in re.finditer(r"(\w+)\.id\s*=\s*\$(\w+)", q, re.I):
-            idmap[mv.group(1)] = params.get(mv.group(2))
-        for mv in re.finditer(
-            r"\(\s*(\w+)\s*(?::\w+)?\s*\{\s*id\s*:\s*\$(\w+)\s*\}", q, re.I
-        ):
-            idmap[mv.group(1)] = params.get(mv.group(2))
-
-        src_id, tgt_id = idmap.get(src_var), idmap.get(tgt_var)
-        if not src_id or not tgt_id:
-            return False, []  # unrecognised shape → defer to legacy
-
-        # Persist edge properties (confidence, source, bitemporal stamps, …) from
-        # the SET clause and inline relationship props — not just rel_type — so the
-        # durable L1 edge carries the same data as the compute edge (KG-2.7 parity).
-        edge_props: dict[str, Any] = {"rel_type": rel}
-        if rel_var:
-            for sm in re.finditer(
-                rf"\b{rel_var}\.(\w+)\s*=\s*(\$\w+|'[^']*'|\"[^\"]*\"|-?[\d.]+)",
-                q,
-                re.I,
-            ):
-                edge_props[sm.group(1)] = self._coerce_literal(sm.group(2), params)
-        try:
-            self._graph.add_edge(src_id, tgt_id, edge_props)
-        except Exception:  # noqa: BLE001
-            pass
-        return True, []
-
-    def _exec_merge_node(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret ``MERGE (n:Label {id: $id}) [SET ...]`` as an upsert."""
-        import re
-
-        m = re.search(
-            r"MERGE\s*\(\s*(\w+)\s*:(\w+)\s*\{\s*id\s*:\s*\$(\w+)\s*\}\s*\)", q, re.I
-        )
-        if not m:
-            return False, []
-        var, label, id_param = m.group(1), m.group(2), m.group(3)
-        nid = params.get(id_param)
-        if nid is None:
-            return True, []
-
-        existing = (
-            self._graph._get_node_properties(nid) if self._graph.has_node(nid) else {}
-        )
-        merged = dict(existing or {})
-        merged["node_type"] = label
-        # The engine's label index (``get_nodes_by_label``) keys off ``label`` /
-        # ``type`` / ``labels`` — NOT ``node_type``. Stamp the MERGE label so a
-        # later ``MATCH (n:Label) WHERE …`` scan finds the node. (CONCEPT:AU-KG.backend.declared-columns-so-schema)
-        merged["label"] = label
-
-        ms = re.search(r"\bSET\b(.+?)$", q, re.I | re.S)
-        if ms:
-            for frag in self._split_top_level(ms.group(1)):
-                if "=" not in frag:
-                    continue
-                lhs, rhs = frag.split("=", 1)
-                prop = lhs.strip()
-                prop = prop[len(var) + 1 :] if prop.startswith(var + ".") else prop
-                # Bulk-write templates backtick-quote keys (``n.`name` = $name``);
-                # strip them so the stored property is ``name``, not `` `name` ``.
-                prop = prop.strip().strip("`")
-                merged[prop] = self._coerce_literal(rhs, params)
-
-        self._graph.add_node(nid, merged)
-        return True, []
-
-    # --- Operational Cypher subset interpreter ---------------------------
-
-    def _legacy_execute(self, params: dict[str, Any]) -> list[dict[str, Any]]:
-        """Original best-effort reader: id lookup / label-param / return-all."""
-        if "id" in params:
-            node_id = params["id"]
-            if self._graph.has_node(node_id):
-                data = self._graph._get_node_properties(node_id)
-                data["id"] = node_id
-                return [data]
-            return []
-
-        if "label" in params:
-            label = params["label"]
-            results = []
-            for nid in self._graph._get_all_nodes():
-                data = self._graph._get_node_properties(nid)
-                if data.get("label") == label:
-                    entry = dict(data)
-                    entry["id"] = nid
-                    results.append(entry)
-            return results
-
-        # CONCEPT:AU-ORCH.session.session-anchored-collections-native (hardening) — NEVER silently return the entire graph for an
-        # unparsed query. That over-match was the `graph_context list` "garbage" bug and a
-        # latent correctness/cost hazard for every caller. Default to empty; require an
-        # explicit opt-in (KG_ALLOW_FULL_SCAN=true) for a rare deliberate full enumeration.
-        # Fresh AgentConfig() (not the import-time singleton) so a runtime
-        # override is honored on this rare, deliberate full-scan path — same
-        # live-env contract as MergePolicy.from_env.
-        from agent_utilities.core.config import AgentConfig
-
-        if AgentConfig().kg_allow_full_scan:
-            results = []
-            for nid in self._graph._get_all_nodes():
-                data = self._graph._get_node_properties(nid)
-                entry = dict(data)
-                entry["id"] = nid
-                results.append(entry)
-            return results
-        logger.warning(
-            "epistemic_graph backend: unscoped query (no id/label, no parseable WHERE) — "
-            "refusing full-graph scan, returning []. Set KG_ALLOW_FULL_SCAN=true to override."
-        )
-        return []
-
-    @staticmethod
-    def _label_match(data: dict[str, Any], label: str) -> bool:
-        # ``type`` is the system's canonical label key (the Rust node store
-        # normalises node_type→type on read-back; see graph_compute
-        # ``props.get("type", props.get("node_type", ...))``). Check all
-        # conventions so a label filter matches regardless of writer path.
-        # Compare case-insensitively: schema labels are PascalCase (``Prompt``)
-        # while the node-type enum values are lowercase (``prompt``).
-        target = label.lower()
-        if target in (
-            str(data.get("type", "")).lower(),
-            str(data.get("node_type", "")).lower(),
-            str(data.get("label", "")).lower(),
-        ):
-            return True
-        labels = data.get("labels")
-        return isinstance(labels, list | tuple) and any(
-            str(lbl).lower() == target for lbl in labels
-        )
-
-    @staticmethod
-    def _coerce_literal(raw: str, params: dict[str, Any]) -> Any:
-        """Resolve a Cypher value token to a Python value."""
-        raw = raw.strip()
-        if raw.startswith("$"):
-            return params.get(raw[1:])
-        if (raw.startswith("'") and raw.endswith("'")) or (
-            raw.startswith('"') and raw.endswith('"')
-        ):
-            return raw[1:-1]
-        if raw.lower() in ("true", "false"):
-            return raw.lower() == "true"
-        if raw.lower() in ("null", "current_timestamp()"):
-            import datetime
-
-            if raw.lower() == "null":
-                return None
-            return datetime.datetime.now(datetime.UTC).isoformat()
-        try:
-            return int(raw)
-        except ValueError:
-            try:
-                return float(raw)
-            except ValueError:
-                return raw
-
-    def _node_value(self, nid: str, data: dict[str, Any], prop: str) -> Any:
-        return nid if prop == "id" else data.get(prop)
-
-    def _exec_node_match(
-        self, q: str, params: dict[str, Any]
-    ) -> tuple[bool, list[dict[str, Any]]]:
-        """Interpret a single-node MATCH. Returns (handled, rows)."""
-        import re
-
-        m = re.search(r"MATCH\s*\(\s*(\w+)\s*(?::(\w+))?\s*(\{[^}]*\})?\s*\)", q, re.I)
-        if not m:
-            return False, []
-        var, label, inline = m.group(1), m.group(2), m.group(3)
-        qu = q.upper()
-
-        inline_conds: list[tuple[str, str, Any]] = []
-        if inline:
-            for pair in inline.strip("{}").split(","):
-                if ":" not in pair:
-                    continue
-                k, v = pair.split(":", 1)
-                inline_conds.append((k.strip(), "=", self._coerce_literal(v, params)))
-
-        # WHERE is parsed into DNF — a list of AND-groups that are OR-combined (a row
-        # matches if ANY group matches). An inline ``{prop:..}`` pattern ANDs into
-        # every group. A genuinely unsupported shape returns None and is logged
-        # loudly rather than silently returning [] — the old behaviour masqueraded
-        # "I can't parse this" as "no rows", a debugging footgun. (CONCEPT:AU-KG.query.object-graph-mapper)
-        where_groups: list[list[tuple[str, str, Any]]] = [inline_conds]
-        mw = re.search(
-            r"\bWHERE\b(.+?)(?:\bSET\b|\bRETURN\b|\bDETACH\b|\bDELETE\b|$)",
-            q,
-            re.I | re.S,
-        )
-        if mw:
-            groups = self._parse_where_or(mw.group(1), var, params)
-            if groups is None:
-                logger.warning(
-                    "epistemic_graph backend: unsupported WHERE shape, deferring to "
-                    "legacy reader (may under-match): %s",
-                    mw.group(1).strip()[:200],
-                )
-                return False, []  # unsupported WHERE → defer to legacy
-            where_groups = [inline_conds + g for g in groups]
-
-        # Gather matching nodes. Fast path: a single AND-group with an ``id = <value>``
-        # equality resolves one node directly (O(1)) instead of scanning the whole
-        # graph (O(N)). Ingestion issues many id-keyed MATCH/SET upserts, so without
-        # this every write is O(N) → ingestion is O(N²) and degrades as the graph
-        # grows. A disjunction (OR) can't use the fast path → full scan.
-        # (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
-        matched: list[tuple[str, dict[str, Any]]] = []
-        id_val = None
-        if len(where_groups) == 1:
-            id_val = next(
-                (
-                    v
-                    for (p, op, v) in where_groups[0]
-                    if p == "id" and op == "=" and v is not None
-                ),
-                None,
-            )
-
-        # Fast path: a bare aggregate count (``MATCH (n) RETURN count(n)``) with
-        # no label/WHERE/SET/DELETE needs only the node *count* — never per-node
-        # properties. The general scan below issues one ``_get_node_properties``
-        # UDS round-trip per node, so an unfiltered count is O(N) round-trips and
-        # gets slower as the graph grows (a full ``count(*)`` was taking minutes
-        # on an accumulated graph). Resolve it from the id list directly.
-        # (CONCEPT:EG-KG.storage.nonblocking-checkpoint ingestion throughput)
-        cnt_m = re.search(r"\bRETURN\b\s+count\s*\(\s*\*?\s*\w*\s*\)", q, re.I)
-        if (
-            id_val is None
-            and not any(where_groups)
-            and not label
-            and cnt_m
-            and not _has_kw(qu, "SET")
-            and not _has_kw(qu, "DELETE")
-        ):
-            cnt = len(self._graph._get_all_nodes())
-            alias_m = re.search(r"count\s*\([^)]*\)\s+as\s+(\w+)", q, re.I)
-            alias = alias_m.group(1) if alias_m else "count"
-            return True, [{alias: cnt}]
-
-        if id_val is not None:
-            if self._graph.has_node(id_val):
-                data = self._graph._get_node_properties(id_val) or {}
-                if (not label or self._label_match(data, label)) and self._eval_groups(
-                    id_val, data, where_groups
-                ):
-                    matched.append((id_val, data))
-        else:
-            # Engine-side labeled fetch (CONCEPT:EG-KG.txn.per-graph-write-isolation): a label-scoped MATCH
-            # fetches only that label's nodes — never the whole graph — and pushes
-            # the LIMIT down for a pure read (no WHERE/SET/DELETE could drop a
-            # match and under-return). A bare (label-less) MATCH still does the
-            # single-round-trip full scan (guarded elsewhere). Before this, every
-            # label scan materialized all ~80K nodes' properties over the wire.
-            rows: Any
-            if label:
-                lim_m = re.search(r"\bLIMIT\s+(\$?\w+)", q, re.I)
-                limit_n = 0
-                if lim_m:
-                    tok = lim_m.group(1)
-                    try:
-                        limit_n = (
-                            int(params.get(tok[1:], 0))
-                            if tok.startswith("$")
-                            else int(tok)
-                        )
-                    except (TypeError, ValueError):
-                        limit_n = 0
-                pure_read = (
-                    limit_n > 0
-                    and not any(where_groups)
-                    and not _has_kw(qu, "SET")
-                    and not _has_kw(qu, "DELETE")
-                )
-                try:
-                    rows = self._graph.get_nodes_by_label(
-                        label, limit_n if pure_read else 0
-                    )
-                except Exception:  # noqa: BLE001 — fall back to the legacy full scan
-                    rows = self._graph._get_all_nodes_with_properties()
-            else:
-                # Full-graph scan: fetch all nodes WITH their properties in a single
-                # round-trip (one ``_get_node_properties`` per node is an N+1 that
-                # cost ~45s on a 40K-node graph). (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
-                rows = self._graph._get_all_nodes_with_properties()
-            for nid, data in rows:
-                data = data or {}
-                if label and not self._label_match(data, label):
-                    continue
-                if not self._eval_groups(nid, data, where_groups):
-                    continue
-                matched.append((nid, data))
-
-        if "DETACH DELETE" in qu or re.search(rf"\bDELETE\s+{var}\b", q, re.I):
-            for nid, _ in matched:
-                self._graph.remove_node(nid)
-                self._embeddings.pop(nid, None)
-            return True, []
-
-        ms = re.search(r"\bSET\b(.+?)(?:\bRETURN\b|$)", q, re.I | re.S)
-        if ms:
-            assigns: dict[str, Any] = {}
-            for frag in self._split_top_level(ms.group(1)):
-                if "=" not in frag:
-                    continue
-                lhs, rhs = frag.split("=", 1)
-                prop = lhs.strip()
-                prop = prop[len(var) + 1 :] if prop.startswith(var + ".") else prop
-                assigns[prop] = self._coerce_literal(rhs, params)
-            for nid, data in matched:
-                merged = dict(data)
-                merged.update(assigns)
-                self._graph.add_node(nid, merged)
-                data.update(assigns)
-
-        return True, self._project(q, var, matched, params)
-
-    def _parse_where(
-        self, text: str, var: str, params: dict[str, Any]
-    ) -> list[tuple[str, str, Any]] | None:
-        """Parse a conjunctive WHERE clause. None ⇒ unsupported shape."""
-        import re
-
-        conds: list[tuple[str, str, Any]] = []
-        for clause in re.split(r"\bAND\b", text, flags=re.I):
-            clause = clause.strip()
-            if not clause:
-                continue
-            m_in = re.match(rf"{var}\.(\w+)\s+IN\s+\[(.*?)\]", clause, re.I | re.S)
-            m_null = re.match(rf"{var}\.(\w+)\s+IS\s+(NOT\s+)?NULL", clause, re.I)
-            m_has = re.match(rf"{var}\.(\w+)\s+CONTAINS\s+(.+)", clause, re.I)
-            m_eq = re.match(rf"{var}\.(\w+)\s*=\s*(.+)", clause, re.I)
-            if m_in:
-                vals = [
-                    self._coerce_literal(t, params)
-                    for t in m_in.group(2).split(",")
-                    if t.strip()
-                ]
-                conds.append((m_in.group(1), "IN", vals))
-            elif m_null:
-                conds.append(
-                    (m_null.group(1), "NOTNULL" if m_null.group(2) else "ISNULL", None)
-                )
-            elif m_has:
-                conds.append(
-                    (
-                        m_has.group(1),
-                        "CONTAINS",
-                        self._coerce_literal(m_has.group(2), params),
-                    )
-                )
-            elif m_eq:
-                conds.append(
-                    (m_eq.group(1), "=", self._coerce_literal(m_eq.group(2), params))
-                )
-            else:
-                return None
-        return conds
-
-    def _parse_where_or(
-        self, text: str, var: str, params: dict[str, Any]
-    ) -> list[list[tuple[str, str, Any]]] | None:
-        """Parse a WHERE clause into DNF — OR of AND-groups.
-
-        Splits on top-level ``OR`` and parses each disjunct with the conjunctive
-        ``_parse_where``. Returns a list of AND-groups (a row matches if ANY group
-        matches), or ``None`` if any disjunct is an unsupported shape. With no
-        top-level ``OR`` this returns a single group, identical to the prior
-        AND-only behaviour.
-        """
-        groups: list[list[tuple[str, str, Any]]] = []
-        for part in self._split_or(text):
-            parsed = self._parse_where(part, var, params)
-            if parsed is None:
-                return None
-            groups.append(parsed)
-        return groups or None
-
-    @staticmethod
-    def _split_or(text: str) -> list[str]:
-        """Split on top-level ``OR`` (case-insensitive), respecting (), [], {}, quotes."""
-        import re
-
-        out: list[str] = []
-        buf: list[str] = []
-        depth = 0
-        quote: str | None = None
-        i, n = 0, len(text)
-        while i < n:
-            ch = text[i]
-            if quote:
-                buf.append(ch)
-                if ch == quote:
-                    quote = None
-                i += 1
-            elif ch in "'\"":
-                quote = ch
-                buf.append(ch)
-                i += 1
-            elif ch in "([{":
-                depth += 1
-                buf.append(ch)
-                i += 1
-            elif ch in ")]}":
-                depth -= 1
-                buf.append(ch)
-                i += 1
-            elif depth == 0 and (m := re.match(r"\s+OR\s+", text[i:], re.I)):
-                out.append("".join(buf))
-                buf = []
-                i += m.end()
-            else:
-                buf.append(ch)
-                i += 1
-        if buf:
-            out.append("".join(buf))
-        return [s for s in out if s.strip()]
-
-    def _eval_groups(
         self,
-        nid: str,
-        data: dict[str, Any],
-        groups: list[list[tuple[str, str, Any]]],
-    ) -> bool:
-        """DNF evaluation: the row matches if ANY AND-group matches."""
-        return any(self._eval_conds(nid, data, g) for g in groups)
-
-    def _eval_conds(
-        self, nid: str, data: dict[str, Any], conds: list[tuple[str, str, Any]]
-    ) -> bool:
-        for prop, op, val in conds:
-            actual = self._node_value(nid, data, prop)
-            if op == "=":
-                if actual != val:
-                    return False
-            elif op == "IN":
-                if actual not in val:
-                    return False
-            elif op == "CONTAINS":
-                if actual is None or val is None or str(val) not in str(actual):
-                    return False
-            elif op == "ISNULL":
-                if actual is not None:
-                    return False
-            elif op == "NOTNULL":
-                if actual is None:
-                    return False
-        return True
-
-    @staticmethod
-    def _split_top_level(text: str) -> list[str]:
-        """Split on commas not nested inside brackets/quotes."""
-        out, buf, depth, quote = [], [], 0, None
-        for ch in text:
-            if quote:
-                buf.append(ch)
-                if ch == quote:
-                    quote = None
-            elif ch in "'\"":
-                quote = ch
-                buf.append(ch)
-            elif ch in "[{(":
-                depth += 1
-                buf.append(ch)
-            elif ch in "]})":
-                depth -= 1
-                buf.append(ch)
-            elif ch == "," and depth == 0:
-                out.append("".join(buf))
-                buf = []
-            else:
-                buf.append(ch)
-        if buf:
-            out.append("".join(buf))
-        return [s for s in out if s.strip()]
-
-    def _project(
-        self,
-        q: str,
-        var: str,
-        matched: list[tuple[str, dict[str, Any]]],
-        params: dict[str, Any],
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        import re
+        """Dispatch an internal statement to an explicit native engine mode.
 
-        m_ret = re.search(r"\bRETURN\b(.+?)$", q, re.I | re.S)
-        if not m_ret:
-            return []
-        ret = m_ret.group(1)
-
-        limit = None
-        m_lim = re.search(r"\bLIMIT\s+(\$?\w+)", ret, re.I)
-        if m_lim:
-            tok = m_lim.group(1)
-            limit = params.get(tok[1:]) if tok.startswith("$") else int(tok)
-            ret = ret[: m_lim.start()]
-        ret = re.sub(r"\bORDER\s+BY\b.*$", "", ret, flags=re.I | re.S)
-
-        # ``RETURN DISTINCT ...`` — dedupe the projected rows (KG-2.63).
-        distinct = False
-        m_dist = re.match(r"\s*DISTINCT\b", ret, re.I)
-        if m_dist:
-            distinct = True
-            ret = ret[m_dist.end() :]
-
-        items = self._split_top_level(ret)
-
-        def _project_item(it: str, nid: str, data: dict[str, Any]) -> dict[str, Any]:
-            """Project a single non-aggregate RETURN item to its column(s)."""
-            it = it.strip()
-            cols: dict[str, Any] = {}
-            m_alias = re.match(rf"{var}\.(\w+)\s+as\s+(\w+)", it, re.I) or re.match(
-                rf"{var}\.(\w+)", it, re.I
-            )
-            if m_alias and "." in it:
-                prop = m_alias.group(1)
-                value = self._node_value(nid, data, prop)
-                if m_alias.lastindex and m_alias.lastindex >= 2:
-                    cols[m_alias.group(2)] = value
-                else:
-                    # No explicit ``AS`` alias: expose both the standard Cypher
-                    # column name (``var.prop``) and the bare prop name so callers
-                    # using either convention resolve it.
-                    cols[f"{var}.{prop}"] = value
-                    cols.setdefault(prop, value)
-            elif it == var or re.match(rf"{var}\s+as\s+\w+", it, re.I):
-                # Bare ``RETURN v`` → a single column named ``v`` holding the full
-                # node dict (Cypher semantics; callers read ``res["v"]``).
-                full = dict(data)
-                full["id"] = nid
-                alias_m = re.match(rf"{var}\s+as\s+(\w+)", it, re.I)
-                cols[alias_m.group(1) if alias_m else var] = full
-            else:
-                cols[it] = None
-            return cols
-
-        # Cypher has no explicit GROUP BY: aggregates (count/sum/avg/min/max)
-        # collapse over the grouping keys, which are exactly the *non-aggregate*
-        # return items. Partition the items so ``RETURN n.kind, count(*)`` groups
-        # by ``n.kind`` instead of collapsing to one total. (KG-2.63)
-        _agg_re = re.compile(
-            r"\s*(count|sum|avg|min|max)\s*\(\s*(\*|[\w.]*)\s*\)\s*(?:as\s+(\w+))?",
-            re.I,
+        Public query surfaces call :meth:`execute_read` directly. This
+        compatibility-free internal method never guesses authorization: a
+        lexical write indication can only select the stricter write mode, and
+        the engine reparses the complete statement and rejects every mode
+        mismatch before execution.
+        """
+        if is_write(query):
+            if include_epistemic:
+                raise ValueError("epistemic row projection is available only for reads")
+            return self.execute_write(query, params)
+        return self.execute_read(
+            query,
+            params,
+            include_epistemic=include_epistemic,
         )
-        aggregates = [(it, _agg_re.match(it.strip())) for it in items]
-        agg_specs = [m for _it, m in aggregates if m]
-        group_items = [it for it, m in aggregates if not m]
 
-        if agg_specs:
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute through the engine's parser-enforced read-only mode."""
+        from ..core.session import resolve_session
 
-            def _agg_value(
-                spec: re.Match[str], bucket: list[tuple[str, dict[str, Any]]]
-            ) -> tuple[str, Any]:
-                fn = spec.group(1).lower()
-                arg = spec.group(2)
-                alias = spec.group(3) or (fn if arg in ("", "*") else f"{fn}({arg})")
-                if fn == "count":
-                    return alias, len(bucket)
-                prop = arg.split(".", 1)[1] if "." in arg else arg
-                vals = [
-                    v
-                    for nid2, data2 in bucket
-                    if isinstance(
-                        (v := self._node_value(nid2, data2, prop)), int | float
-                    )
-                ]
-                if not vals:
-                    return alias, None
-                agg = {
-                    "sum": sum(vals),
-                    "avg": sum(vals) / len(vals),
-                    "min": min(vals),
-                    "max": max(vals),
-                }
-                return alias, agg[fn]
+        resolve_session(required_scope="kg:read")
+        rendered = self._inline_cypher_params(query, params or {})
+        try:
+            rows = list(self._graph.query_cypher(rendered) or [])
+        except Exception as exc:  # noqa: BLE001 - replace unsafe driver details
+            raise CypherEngineError(rendered, "read", exc) from None
+        if not include_epistemic:
+            return rows
+        from ..core.epistemic_row import attach_epistemic_rows
 
-            def _agg_row(
-                gcols: dict[str, Any], bucket: list[tuple[str, dict[str, Any]]]
-            ) -> dict[str, Any]:
-                row = dict(gcols)
-                for spec in agg_specs:
-                    alias, val = _agg_value(spec, bucket)
-                    row[alias] = val
-                return row
+        return attach_epistemic_rows(rows, self._graph.explain_provenance_by_ids)  # type: ignore[return-value]
 
-            if not group_items:
-                return [_agg_row({}, matched)]
+    def execute_write(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute an internal query-language mutation through MutationBatch."""
+        from ..core.session import resolve_session
 
-            buckets: dict[str, tuple[dict[str, Any], list]] = {}
-            order: list[str] = []
-            for nid, data in matched:
-                gcols: dict[str, Any] = {}
-                for it in group_items:
-                    gcols.update(_project_item(it, nid, data))
-                key = json.dumps(gcols, sort_keys=True, default=str)
-                if key not in buckets:
-                    buckets[key] = (gcols, [])
-                    order.append(key)
-                buckets[key][1].append((nid, data))
-            grouped = [_agg_row(*buckets[k]) for k in order]
-            return grouped[:limit] if limit is not None else grouped
-
-        rows: list[dict[str, Any]] = []
-        seen: set[str] = set()
-        for nid, data in matched:
-            row: dict[str, Any] = {}
-            for it in items:
-                row.update(_project_item(it, nid, data))
-            if distinct:
-                key = json.dumps(row, sort_keys=True, default=str)
-                if key in seen:
-                    continue
-                seen.add(key)
-            rows.append(row)
-
-        if limit is not None:
-            rows = rows[:limit]
-        return rows
+        resolve_session(required_scope="kg:write")
+        rendered = self._inline_cypher_params(query, params or {})
+        try:
+            return list(self._graph.query_cypher_write(rendered) or [])
+        except Exception as exc:  # noqa: BLE001 - replace unsafe driver details
+            raise CypherEngineError(rendered, "write", exc) from None
 
     def execute_batch(
-        self, query: str, batch: list[dict[str, Any]]
+        self,
+        query: str,
+        batch: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Execute batch operations.
+        """Reject raw query-language batches.
 
-        The bulk-write callers (``ingest_external_batch``, ``write_batch``) emit the
-        Neo4j/AGE idiom ``UNWIND $batch AS row MERGE (n:Label {id: row.id}) SET
-        n.`k` = row.`k` …``. This adapter has no UNWIND engine, so translate the
-        template ONCE into the per-row ``$param`` shape the MERGE-node/MERGE-rel
-        interpreters already handle (``row.`k```/``row.k`` → ``$k``) and run it per
-        row. Without this the whole batch silently no-ops (the raw ``row.id``
-        template matches no interpreter) — ingested code/entities never land.
-        (CONCEPT:AU-KG.backend.declared-columns-so-schema)
+        Translating ``UNWIND`` into per-row statements created a second Python
+        mutation compiler and split durability. Connector and materialization
+        batches must use native ``ChangeEnvelope`` ingestion.
         """
-        per_row = self._unwind_to_per_row(query)
-        results = []
-        for params in batch:
-            results.extend(self.execute(per_row, params))
-        return results
-
-    @staticmethod
-    def _unwind_to_per_row(query: str) -> str:
-        """Strip an ``UNWIND $batch AS row`` header and rewrite ``row.<k>`` /
-        ``row.`<k>``` references to ``$<k>`` so each row runs as a normal
-        parameterized statement. A non-UNWIND query is returned unchanged."""
-        import re
-
-        q = (query or "").strip()
-        m = re.match(r"(?is)^UNWIND\s+\$batch\s+AS\s+row\b(.*)$", q)
-        if not m:
-            return query
-        body = m.group(1).strip()
-        body = re.sub(r"row\.`([^`]+)`", r"$\1", body)
-        body = re.sub(r"row\.(\w+)", r"$\1", body)
-        return body
+        del query, batch
+        raise RuntimeError(
+            "raw Cypher batches are not supported by the graph authority; "
+            "commit a native ChangeEnvelope graph slice"
+        )
 
     def create_schema(self) -> None:
-        """Initialize schema metadata representation."""
-        # Simple schema metadata tracking for in-memory backend
-        self._schema_created = True
+        """Validate that the native authority is reachable."""
+        if not self.health_check():
+            raise RuntimeError("native graph authority health check failed")
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        """Store an embedding for a node — in the engine HNSW AND the local cache.
-
-        The engine index (CONCEPT:AU-KG.query.object-graph-mapper) is what makes ``semantic_search`` O(log N)
-        and survives across processes; before this, embeddings only lived in the
-        per-process ``_embeddings`` dict, so on the served/restarted graph the
-        index was empty and retrieval fell back to an O(N) full-graph scan.
-        """
-        self._embeddings[node_id] = embedding  # write-through cache (single-proc/tests)
-        try:
-            self._graph.add_embedding(node_id, embedding)
-        except Exception as e:  # noqa: BLE001 — engine index is best-effort
-            logger.debug(
-                "engine add_embedding failed for %s (cache kept): %s", node_id, e
-            )
+        """Write an embedding to the engine-maintained ANN index."""
+        self._graph.add_embedding(node_id, embedding)
 
     def semantic_search(
-        self, query_embedding: list[float], n_results: int = 5
+        self,
+        query_embedding: list[float],
+        n_results: int = 5,
     ) -> list[dict[str, Any]]:
-        """Vector search — engine HNSW first (O(log N)), local cosine as fallback."""
-        # Preferred: the engine's native HNSW. Scales and works after a restart.
-        try:
-            hits = self._graph.semantic_search(query_embedding, n_results)
-            results: list[dict[str, Any]] = []
-            for item in hits or []:
-                if isinstance(item, list | tuple) and len(item) >= 2:
-                    node_id, score = str(item[0]), float(item[1])
-                elif isinstance(item, dict):
-                    node_id, score = (
-                        str(item.get("id", "")),
-                        float(item.get("_similarity", item.get("score", 0.0)) or 0.0),
-                    )
-                else:
-                    continue
-                if not node_id:
-                    continue
-                data = self._graph._get_node_properties(node_id) or {}
-                data["id"] = node_id
-                data["_similarity"] = score
-                results.append(data)
-            if results:
-                return results
-        except Exception as e:  # noqa: BLE001 — fall back to local cosine
-            logger.debug("engine semantic_search failed, using local cache: %s", e)
-
-        # Fallback: in-process cosine over the local cache (single-proc / tests).
-        if not self._embeddings:
-            return []
-
-        from agent_utilities.numeric import xp as np
-
-        query_vec = np.array(query_embedding)
-        query_norm = np.linalg.norm(query_vec)
-        if query_norm == 0:
-            return []
-
-        scores: list[tuple[str, float]] = []
-        for node_id, emb in self._embeddings.items():
-            emb_vec = np.array(emb)
-            emb_norm = np.linalg.norm(emb_vec)
-            if emb_norm == 0:
+        """Run the engine-maintained ANN query without an O(N) Python fallback."""
+        hits = self._graph.semantic_search(query_embedding, n_results) or []
+        results: list[dict[str, Any]] = []
+        for item in hits:
+            if isinstance(item, list | tuple) and len(item) >= 2:
+                node_id, score = str(item[0]), float(item[1])
+            elif isinstance(item, dict):
+                node_id = str(item.get("id", ""))
+                score = float(item.get("_similarity", item.get("score", 0.0)) or 0.0)
+            else:
                 continue
-            similarity = float(np.dot(query_vec, emb_vec) / (query_norm * emb_norm))
-            scores.append((node_id, similarity))
-
-        scores.sort(key=lambda x: x[1], reverse=True)
-
-        results = []
-        for node_id, score in scores[:n_results]:
-            if self._graph.has_node(node_id):
-                data = self._graph._get_node_properties(node_id)
-                data["id"] = node_id
-                data["_similarity"] = score
-                results.append(data)
-
+            if not node_id:
+                continue
+            data = self._graph._get_node_properties(node_id) or {}
+            results.append({**data, "id": node_id, "_similarity": score})
         return results
 
     def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
-        """One-time backfill: index existing node ``embedding`` properties into the
-        engine HNSW. Embeddings have long been stored as node properties but never
-        registered in the index, so legacy graphs need a single pass to make
-        ``semantic_search`` fast. Reads from the graph (no re-embedding); a single
-        full scan is acceptable for a one-shot migration. Returns the count indexed.
-        """
+        """Run the one-time persisted-state embedding-index migration."""
         count = 0
-        for nid, props in self._graph._get_all_nodes_with_properties():
-            emb = (props or {}).get("embedding")
-            if not emb:
+        for node_id, props in self._graph._get_all_nodes_with_properties():
+            embedding = (props or {}).get("embedding")
+            if not embedding:
                 continue
-            try:
-                self._graph.add_embedding(nid, list(emb))
-                count += 1
-                if count % batch_log_every == 0:
-                    logger.info("hydrate_engine_embeddings: indexed %d so far", count)
-            except Exception as e:  # noqa: BLE001 — best-effort per node
-                logger.debug("hydrate add_embedding failed for %s: %s", nid, e)
-        logger.info("hydrate_engine_embeddings: indexed %d embeddings into HNSW", count)
+            self._graph.add_embedding(node_id, list(embedding))
+            count += 1
+            if count % batch_log_every == 0:
+                logger.info("embedding-index migration processed %d rows", count)
+        logger.info("embedding-index migration completed (%d rows)", count)
         return count
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        """Prune nodes matching criteria."""
-        to_remove = []
-        for nid in self._graph._get_all_nodes():
-            data = self._graph._get_node_properties(nid)
-            match = all(data.get(k) == v for k, v in criteria.items())
-            if match:
-                to_remove.append(nid)
-
-        for nid in to_remove:
-            self._graph.remove_node(nid)
-            self._embeddings.pop(nid, None)
-
-        logger.info("Pruned %d nodes", len(to_remove))
+        """Remove nodes selected by a native read followed by typed removals."""
+        if not criteria:
+            raise ValueError("prune criteria must not be empty")
+        if any(not _CYPHER_IDENTIFIER_RE.fullmatch(str(key)) for key in criteria):
+            raise ValueError("prune criteria contains an invalid property identifier")
+        predicates = " AND ".join(f"n.{key} = ${key}" for key in criteria)
+        rows = self.execute_read(
+            f"MATCH (n) WHERE {predicates} RETURN n AS node_id",
+            criteria,
+        )
+        for row in rows:
+            node_id = row.get("node_id")
+            if isinstance(node_id, str) and node_id:
+                self._graph.remove_node(node_id)
+        logger.info("graph prune completed (%d nodes)", len(rows))
 
     def close(self) -> None:
-        """Reset the in-memory graph."""
-        from ..core.graph_compute import GraphComputeEngine
-
-        self._graph = GraphComputeEngine(backend_type="rust")
-        self._embeddings.clear()
-
-    # --- Extended API ---
+        """Keep the shared process transport alive; graph views own no resource."""
 
     def health_check(self) -> bool:
-        """Always healthy for in-memory backend."""
-        return True
+        """Return native service health."""
+        try:
+            return bool(self._graph.client.health())
+        except Exception:  # noqa: BLE001 - health is a boolean probe
+            return False
 
     def get_stats(self) -> dict[str, Any]:
-        """Return graph statistics."""
+        """Return native graph cardinalities."""
         return {
-            "backend": "memory",
+            "backend": "epistemic-graph",
             "nodes": self._graph.node_count(),
             "edges": self._graph.edge_count(),
-            "embeddings": len(self._embeddings),
         }
 
-    # --- Node/Edge Operations ---
-
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
-        """Add a node to the graph."""
-        props = {"label": label, **properties}
-        self._graph.add_node(node_id, props)
-        self._node_counter += 1
+        """Atomically create or field-merge one node through ``BatchUpdate``.
+
+        ``upsert_node`` is the native counterpart of ``MERGE`` plus ``SET``: a
+        missing node is created and an existing node keeps fields omitted by this
+        call.  Keeping the operation typed preserves nested and list-valued
+        properties without compiling a second mutation language in Python.
+        """
+        if "type" in properties:
+            raise ValueError("node property 'type' is retired; use node_type")
+        node_type = str(properties.get("node_type") or label).strip()
+        if not node_type:
+            raise ValueError("node_type is required")
+        self._graph.batch_update(
+            [
+                {
+                    "op": "upsert_node",
+                    "id": node_id,
+                    "properties": {
+                        **properties,
+                        "id": node_id,
+                        "node_type": node_type,
+                    },
+                }
+            ]
+        )
 
     def add_edge(
         self,
-        source: str,
-        target: str,
+        source_id: str,
+        target_id: str,
         rel_type: str = "",
+        /,
         **properties: Any,
     ) -> None:
-        """Add an edge between two nodes."""
-        props = {"rel_type": rel_type, **properties}
-        self._graph.add_edge(source, target, props)
+        """Add or replace one edge through the typed native operation."""
+        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
+            properties
+        )
+        if aliases:
+            raise ValueError("edge relationship aliases are retired; use relationship")
+        relationship = str(properties.get("relationship") or rel_type).strip()
+        if not relationship:
+            raise ValueError("relationship is required")
+        self._graph.batch_update(
+            [
+                {
+                    "op": "upsert_edge",
+                    "source": source_id,
+                    "target": target_id,
+                    "properties": {
+                        **properties,
+                        "relationship": relationship,
+                    },
+                }
+            ]
+        )
 
     def get_node_properties(self, node_id: str) -> dict[str, Any] | None:
-        """Return a node's current properties, or ``None`` if it doesn't exist.
-
-        Cheap in-memory read used by the Company Brain write-path guard for
-        field-level survivorship (CONCEPT:AU-KG.research.research-pipeline-runner). Returns ``{}`` for a node that
-        exists with no properties; ``None`` lets the guard fall back to
-        node-level arbitration.
-        """
-        try:
-            if not self._graph.has_node(node_id):
-                return None
-            props = self._graph._get_node_properties(node_id)
-            return dict(props) if isinstance(props, dict) else {}
-        except Exception:  # pragma: no cover - read best-effort
+        """Return one node through the typed native point read."""
+        if not self._graph.has_node(node_id):
             return None
+        props = self._graph._get_node_properties(node_id)
+        return dict(props) if isinstance(props, dict) else {}
 
     def nodes_by_label(
-        self, label: str, limit: int = 0
+        self,
+        label: str,
+        limit: int = 0,
     ) -> list[tuple[str, dict[str, Any]]]:
-        """Engine-side label scan (CONCEPT:EG-KG.txn.per-graph-write-isolation) — ``(node_id, properties)`` for
-        every node carrying ``label`` (``limit=0`` ⇒ uncapped), via the engine's
-        label index. The reliable label-scan primitive the consolidated engine-only
-        stores (CONCEPT:AU-KG.backend.cache-lives-as-248) use for their ``list``/scan reads (the limited
-        ``execute()`` Cypher interpreter refuses an unscoped ``MATCH (n:L) RETURN n``).
-        """
-        try:
-            return self._graph.get_nodes_by_label(label, limit) or []
-        except Exception:  # pragma: no cover - read best-effort
-            return []
+        """Read a label through the engine-maintained label index."""
+        return self._graph.get_nodes_by_label(label, limit) or []
 
     def compare_and_set_node_fields(
         self,
@@ -1588,36 +385,19 @@ class EpistemicGraphBackend(GraphBackend):
         conditions: dict[str, Any],
         updates: dict[str, Any],
     ) -> bool:
-        """Atomic compare-and-set on a node's top-level fields (CONCEPT:AU-KG.compute.user-override-prompt-library).
-
-        Delegates to the authoritative GraphComputeEngine CAS op; returns
-        ``True`` iff the conditions held and the updates were applied. The
-        backend-agnostic primitive behind cross-host :Task claiming.
-        """
+        """Apply an atomic native conditional field update."""
         return self._graph.compare_and_set_node_fields(node_id, conditions, updates)
 
-    # --- Persistence ---
-
     def save_to_json(self, path: str) -> None:
-        """Serialize the graph to a JSON file."""
-        graph_json = self._graph.to_json()
-        data = json.loads(graph_json)
-        data["_embeddings"] = {k: v for k, v in self._embeddings.items()}
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-        logger.info("Graph saved to %s", path)
+        """Export an operator-requested snapshot without logging its location."""
+        data = json.loads(self._graph.to_json())
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2, default=str)
+        logger.info("graph export completed")
 
     def load_from_json(self, path: str) -> None:
-        """Deserialize the graph from a JSON file."""
-        with open(path) as f:
-            data = json.load(f)
-
-        embeddings = data.pop("_embeddings", {})
+        """Import an operator-requested snapshot without logging its location."""
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
         self._graph.from_json(json.dumps(data))
-        self._embeddings = embeddings
-        logger.info(
-            "Graph loaded from %s (%d nodes, %d edges)",
-            path,
-            self._graph.node_count(),
-            self._graph.edge_count(),
-        )
+        logger.info("graph import completed")

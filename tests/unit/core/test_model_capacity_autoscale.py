@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.core import model_capacity_autoscale as subject
 from agent_utilities.core.model_capacity_autoscale import (
     AdaptiveCapacityController,
     metrics_url_from_base,
@@ -57,6 +58,37 @@ def test_metrics_url_drops_v1_and_appends_metrics():
     )
     assert metrics_url_from_base("http://vllm.arpa") == "http://vllm.arpa/metrics"
     assert metrics_url_from_base("http://vllm.arpa/v1/") == "http://vllm.arpa/metrics"
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "file:///model/v1",
+        "https://user:secret@model.example/v1",
+        "https://model.example/v1?credential=value",
+    ),
+)
+def test_metrics_url_rejects_non_http_and_credential_bearing_urls(url):
+    assert metrics_url_from_base(url) == ""
+
+
+def test_metrics_fetch_uses_bounded_model_egress(monkeypatch):
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors import http_safety
+
+    captured = {}
+
+    def fake_get(url, **kwargs):
+        captured.update(url=url, **kwargs)
+        return "metric 1"
+
+    monkeypatch.setattr(http_safety, "safe_get_text", fake_get)
+    monkeypatch.setattr(config, "model_http_allowed_private_hosts", ["model.internal"])
+
+    assert subject._http_get("https://model.example.invalid/metrics") == "metric 1"
+    assert captured["max_bytes"] == 2 * 1024 * 1024
+    assert captured["max_redirects"] == 0
+    assert captured["allowed_private_hosts"] == ["model.internal"]
 
 
 # --- gauge parsing ----------------------------------------------------------

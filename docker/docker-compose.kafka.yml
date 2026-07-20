@@ -7,12 +7,18 @@
 # tunable partitions) use docker/kafka-kraft.compose.yml instead.
 services:
   kafka:
-    image: confluentinc/cp-kafka:7.4.0
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
+    image: confluentinc/cp-kafka:7.4.0@sha256:187dac6627e7906c350f5f8c982f80ce735ff1a0e571a20de6000a309a12ce63
     hostname: kafka
     container_name: kafka
     ports:
-      - "9092:9092"
-      - "9093:9093"
+      - "127.0.0.1:9092:9092"
+      - "127.0.0.1:9093:9093"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
@@ -28,3 +34,9 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
       KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
       CLUSTER_ID: 'MkU3OEVBNTcwNTJENDM2Qk'
+    healthcheck:
+      test: ["CMD", "/usr/bin/kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s

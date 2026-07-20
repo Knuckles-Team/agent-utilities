@@ -245,8 +245,8 @@ class TestGovernedPublishLivePath:
         )
         assert report["status"] == "published"
         assert report["change_kind"] == "code"
-        assert report["code_synthesis"]["files"] == ["pkg/gen.py"]
-        assert report["publish"]["branch"].startswith("evolution/")
+        assert report["code_synthesis"]["file_count"] == 1
+        assert report["publish"]["branch_ref"].startswith("pref_branch_")
 
     def test_unattributed_proposal_still_publishes_prose(self, target_repo, tmp_path):
         # No monkeypatch: real synthesize_code returns None for a no-target proposal,

@@ -1,7 +1,7 @@
 #!/usr/bin/python
 """Background OWL-RL + SHACL closure for recently-ingested knowledge.
 
-CONCEPT:AU-KG.research.research-pipeline-runner — Background semantic closure (L2 of the layered KG)
+CONCEPT:AU-KG.research.research-pipeline-runner — Background semantic closure
 
 This is the tail of the universal ingestion funnel::
 
@@ -20,7 +20,7 @@ The job is **best-effort and never raises**: any missing optional dependency
 structured no-op summary rather than propagating into the maintenance tick or the
 MCP/REST surface that invokes it.
 
-It reuses the existing L2 machinery rather than re-implementing it:
+It reuses the existing semantic-closure machinery rather than re-implementing it:
 
 * :class:`~agent_utilities.knowledge_graph.core.owl_bridge.OWLBridge` for the
   promote → reason → downfeed cycle (``run_cycle`` and ``_build_rdf_graph``).
@@ -76,7 +76,7 @@ def run_closure(engine: Any, limit: int = 2000) -> dict[str, Any]:
 
     Args:
         engine: The active ``IntelligenceGraphEngine`` (exposes ``.graph`` — the
-            in-memory LPG — and ``.backend`` — the durable tier, possibly ``None``).
+            native LPG — and ``.backend`` — the configured authority).
         limit: Soft cap on how many recently-touched nodes are considered for
             promotion. Promotion eligibility (recency + importance) is enforced by
             :class:`OWLBridge`; this caps the candidate set so a background tick

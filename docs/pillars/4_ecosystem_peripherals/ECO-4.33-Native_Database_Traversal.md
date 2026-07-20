@@ -11,9 +11,10 @@ Oracle, SQLite, and MongoDB**; the DSN scheme selects the backend
 database connectors. Here a database is both an *ingestion* source (the
 `database` document-source connector, ECO-4.25) and an *interactive* agent tool.
 
-Safety: read-only by default (a deny-list blocks DDL/DML); writes require
-`DB_TOOLS_ALLOW_WRITE=1` and are routed through a committing path. Connection
-strings resolve from `{ALIAS}_DSN` env vars so secrets never enter agent text.
+Safety: interactive traversal is permanently read-only (a deny-list blocks
+DDL/DML). Mutations use governed connector change envelopes. Connection strings
+are accepted only as runtime secret references, so endpoints and credentials do
+not enter agent text or tracked configuration.
 
 ## Implementation Details
 - **Source Code**: `agent_utilities/tools/db_tools.py` (`db_tables`, `db_schema`,

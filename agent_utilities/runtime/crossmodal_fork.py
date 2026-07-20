@@ -1,6 +1,6 @@
 """CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout — warm-fork fan-out over an engine cross-modal candidate set.
 
-The agent-utilities side of the epistemic-graph cross-modal seam (was engine spec EG-397).
+The agent-utilities side of the epistemic-graph cross-modal seam.
 The warm-fork primitive (CONCEPT:AU-ORCH.sandbox.shared-host-helper-bridge /
 :class:`~agent_utilities.rlm.sandboxes.base.ForkableSandbox` + the host
 :class:`~agent_utilities.runtime.warm_registry.WarmParentRegistry`, ORCH-1.86..93) lives here,
@@ -16,21 +16,18 @@ The capability, end to end:
    copy-on-write resident) via the shared :class:`WarmParentRegistry`, and the candidate set is
    handed to it as forked-in context.
 3. **Fork N copy-on-write branches.** Each branch reuses *that one* candidate set — no branch
-   re-queries the engine — and runs its own divergent computation over it concurrently. Because
-   each fork is a separate process that receives its own copy of the candidate set, a branch
-   mutating its view can never leak into a sibling (structural isolation).
+   re-queries the engine — and runs its own divergent computation over it concurrently. Each
+   governed child receives an isolated view, so a branch mutating its view cannot leak into a
+   sibling.
 
 Reuse proof: :attr:`CrossModalForkResult.retrieval_calls` is ``1`` regardless of the branch
 count (the guard would raise on a second retrieval). Isolation proof: divergent per-branch
 mutations of the candidate set are observed only by the mutating branch.
 
-Honest scope of the local rung: the ``forkserver`` backend shares *loaded modules* copy-on-write
-through ``os.fork``; the candidate-set *data* is serialised into each child over the bridge
-(``context.json``), so it is materialised once in the orchestrator but copied per child. A live
-KV-cache-fork rung (LMCacheMPConnector snapshot → branch, the vLLM path in the KV-cache memory
-note) additionally shares the candidate set's KV / embedding pages as copy-on-write memory,
-making the data-sharing itself zero-copy — the same :class:`ForkableSandbox` seam, a stronger
-backend. This module is backend-agnostic: it drives whichever warm-fork rung is available.
+The governed Firecracker rung provides the code-execution boundary. The engine KV-cache-fork
+rung (LMCacheMPConnector snapshot → branch, the vLLM path in the KV-cache memory note) can also
+share candidate-set KV / embedding pages as copy-on-write memory, making page sharing itself
+zero-copy. This module stays backend-agnostic and drives the configured governed primitive.
 
 The zero-copy rung now EXISTS engine-side (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork): the
 ``epistemic-graph`` ``eg-kvcache`` crate implements the "snapshot → branch" primitive on its
@@ -39,16 +36,15 @@ pages, ``fork(snapshot)`` fans out N branches that all read those SAME physical 
 (one copy regardless of N), and ``branch_put`` is copy-on-write per branch — exposed over the
 KV-cache HTTP surface as ``POST /kv/snapshot`` + ``POST /kv/snapshot/<id>/fork`` +
 ``GET|PUT /kv/branch/<bid>/<key>`` (``GET /kv/fork/stats`` proves resident bytes stay flat vs
-branch count). This is the rung the ``max_concurrency>1`` path can now target to make fan-out
-O(1) in copies instead of the forkserver's per-branch serialize-and-copy (18–43 ms/branch in the
-phase-2 benchmark). Still external: the vLLM/LMCache connector that maps live attention KV pages
+branch count). This is the rung the ``max_concurrency>1`` path targets to make page fan-out
+O(1) in copies. Still external: the vLLM/LMCache connector that maps live attention KV pages
 onto this store — the engine provides the zero-copy substrate, not the model-side page mapping.
 
 :class:`CrossModalForkFanout` now *drives* that substrate as an OPT-IN rung: pass
 :meth:`CrossModalForkFanout.fan_out`'s ``kv_page_keys`` (the engine KV-page keys of the retrieved
-context) and it snapshots+forks them so the branches share those pages zero-copy. It is DEFAULT-OFF
-— omit ``kv_page_keys`` and the fan-out is byte-for-byte the forkserver copy path. And it wires only
-the SHARING/plumbing of pages that already live in the store; producing the pages (mapping live
+context) and it snapshots+forks them so the branches share those pages zero-copy. Omit
+``kv_page_keys`` to run without engine page sharing. The implementation wires only the
+SHARING/plumbing of pages that already live in the store; producing the pages (mapping live
 attention KV onto the store) remains the external vLLM/LMCache job, so an absent/unreachable KV
 backend degrades to the copy path rather than failing the cohort.
 """
@@ -210,11 +206,7 @@ def engine_cross_modal_candidates(
     # raised "'GraphComputeEngine' object has no attribute 'backend'" and broke the
     # served ``graph_fork`` cross-modal fan-out. Prefer the live singleton (the same
     # engine graph-os serves), building one only when none is active.
-    eng = (
-        engine
-        if engine is not None
-        else (IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine())
-    )
+    eng = engine if engine is not None else IntelligenceGraphEngine.get_or_create()
     retriever = HybridRetriever(eng)
     return retriever.retrieve_hybrid(
         query, context_window=context_window, multi_hop_depth=multi_hop_depth
@@ -232,9 +224,9 @@ class CrossModalForkFanout:
     ``kv_backend`` is the OPTIONAL zero-copy KV-fork rung
     (:class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`, CONCEPT:EG-KG.memory.zero-copy-snapshot-fork).
     It is only engaged when a caller passes ``kv_page_keys`` to :meth:`fan_out`; leave it ``None``
-    and the fan-out behaves EXACTLY as before (the local forkserver copy path). Inject one to reuse
-    a pooled connector, or leave it ``None`` and one is lazily built from the KV-cache env when the
-    rung is actually requested.
+    and the fan-out runs without engine page sharing. Inject one to reuse a pooled connector, or
+    leave it ``None`` and one is lazily built from the governed KV-cache configuration when the
+    rung is requested.
     """
 
     def __init__(
@@ -266,7 +258,10 @@ class CrossModalForkFanout:
 
             self._kv_backend = EpistemicGraphKVBackend.from_env()
         except Exception as exc:  # noqa: BLE001 — no engine / no deps ⇒ copy path
-            logger.debug("KV-fork rung unavailable, using copy path: %s", exc)
+            logger.debug(
+                "KV-fork rung unavailable; using copy path (exception_type=%s)",
+                type(exc).__name__,
+            )
             self._kv_backend = None
         return self._kv_backend
 
@@ -276,8 +271,8 @@ class CrossModalForkFanout:
         """Pin ``kv_page_keys`` into one snapshot, then fork one CoW branch per cohort branch.
 
         Returns ``(snapshot_id, per_branch_ids, fork_stats)``. Every failure degrades to a
-        no-op (``(None, [], {})`` or ``None`` branch entries) — the fan-out then simply falls
-        back to the local forkserver copy path, never raising.
+        no-op (``(None, [], {})`` or ``None`` branch entries); branch execution continues without
+        engine page sharing.
 
         HONEST SCOPE (read before relying on this): this shares KV pages that ALREADY EXIST
         in the engine's content-addressed store — it is the SHARING/plumbing rung, NOT page
@@ -315,21 +310,17 @@ class CrossModalForkFanout:
         (served host-side over the bridge). Every branch forks off the *one* warmed parent; the
         candidate set is retrieved exactly once for the whole cohort.
 
-        ``max_concurrency`` bounds how many branches fork at once. It defaults to ``1`` because
-        the local ``forkserver`` rung forks through the stdlib ``multiprocessing`` forkserver
-        *process singleton*, whose control socket is not safe for concurrent ``os.fork`` requests
-        — serialising the fork step is the correct semantics for it (the warm-fork win is the
-        amortised parent, not wall-clock parallelism). A live KV-cache-fork rung
-        (LMCacheMPConnector snapshot → branch) or the container-fork rung can fan out truly in
-        parallel; raise ``max_concurrency`` when driving one of those.
+        ``max_concurrency`` bounds how many governed branches run at once. It defaults to ``1``
+        to keep resource use conservative; raise it only when the selected backend and host
+        capacity support concurrent branches.
 
         ``kv_page_keys`` is the OPTIONAL zero-copy KV-fork rung (default ``None`` ⇒ OFF, and the
         fan-out behaves EXACTLY as before). When supplied — the engine KV-page keys of the
         retrieved context — the candidate set's pages are pinned into one engine snapshot and one
         copy-on-write branch is forked per cohort branch (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork),
         so branches SHARE those pages by ``Arc`` (one physical copy regardless of branch count)
-        instead of the forkserver's per-branch serialize-and-copy. That shared-immutable /
-        per-branch-CoW topology is what makes ``max_concurrency>1`` safe to parallelise. Each
+        without copying those pages per branch. That shared-immutable / per-branch-CoW topology
+        is what makes ``max_concurrency>1`` efficient. Each
         branch's KV branch id is exposed to its snippet as ``kv_branch_id``; the fork ids +
         ``/kv/fork/stats`` land on the result (:attr:`CrossModalForkResult.kv_fork_shared`).
 
@@ -358,9 +349,8 @@ class CrossModalForkFanout:
                 sandbox=None,
                 degraded=True,
                 error=(
-                    "no warm-fork rung available on this host (forkserver needs a "
-                    "POSIX-fork-capable interpreter; container_fork needs docker; "
-                    "firecracker needs forkd + KVM)"
+                    "no governed warm-fork rung is available on this host "
+                    "(firecracker needs a reachable forkd controller + KVM)"
                 ),
             )
 
@@ -403,12 +393,16 @@ class CrossModalForkFanout:
                     snippet, SandboxEnv(vars=env_vars, helpers={"FINAL_VAR": FINAL_VAR})
                 )
             except Exception as exc:  # noqa: BLE001 — one branch never fails the cohort
-                return CrossModalBranchResult(index=idx, ok=False, error=str(exc))
+                return CrossModalBranchResult(
+                    index=idx,
+                    ok=False,
+                    error=f"sandbox execution failed ({type(exc).__name__})",
+                )
             return CrossModalBranchResult(
                 index=idx,
                 ok=res.error is None,
                 stdout=res.stdout,
-                error=res.error,
+                error="sandbox execution failed" if res.error is not None else None,
                 output=captured.get("out", captured or None),
             )
 

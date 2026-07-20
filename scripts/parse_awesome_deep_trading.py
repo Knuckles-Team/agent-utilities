@@ -92,17 +92,20 @@ def parse_readme(file_path: Path) -> KnowledgePackBundle:
 
 
 if __name__ == "__main__":
-    readme_path = Path(
-        "/home/apps/workspace/open-source-libraries/awesome-deep-trading/README.md"
-    )
+    if len(sys.argv) < 2:
+        print("Usage: parse_awesome_deep_trading.py SOURCE_README [OUTPUT_YAML]")
+        sys.exit(2)
+    readme_path = Path(sys.argv[1])
     if not readme_path.exists():
         print(f"Error: {readme_path} not found.")
         sys.exit(1)
 
     bundle = parse_readme(readme_path)
 
-    out_path = Path(
-        "agent_utilities/workflows/presets/finance/awesome-deep-trading-pack.yaml"
+    out_path = (
+        Path(sys.argv[2])
+        if len(sys.argv) > 2
+        else Path("agent_utilities/workflows/presets/finance/awesome-deep-trading-pack.yaml")
     )
     KnowledgePackExporter.to_yaml(bundle, out_path)
     print(

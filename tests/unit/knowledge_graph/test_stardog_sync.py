@@ -13,7 +13,7 @@ from agent_utilities.knowledge_graph.integrations.stardog_sync import (
 
 
 class _FakeGraph:
-    """Minimal L1-compute shape that ``migration._iter_source_*`` understands."""
+    """Minimal native graph shape understood by ``migration._iter_source_*``."""
 
     def __init__(self, nodes, edges):
         self._nodes = nodes  # {id: props}

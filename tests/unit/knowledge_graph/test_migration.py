@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 from agent_utilities.knowledge_graph.migration import copy_graph
 
@@ -53,8 +55,8 @@ class RecBackend(GraphBackend):
         pass
 
 
-class _L1GraphStub:
-    """A fake L1 compute graph: nodes with reserved-word + nested props, one edge."""
+class _NativeGraphStub:
+    """A fake native graph: nodes with reserved-word + nested props, one edge."""
 
     def _get_all_nodes(self):
         return ["a", "b"]
@@ -72,13 +74,13 @@ class _L1GraphStub:
         return [("a", "b", {"type": "LINKS", "confidence": 0.9})]
 
 
-class _L1Source:
-    graph = _L1GraphStub()
+class _NativeSource:
+    graph = _NativeGraphStub()
 
 
 def test_copy_graph_copies_nodes_edges_embeddings():
     tgt = RecBackend()
-    summary = copy_graph(_L1Source(), tgt)
+    summary = copy_graph(_NativeSource(), tgt)
     assert summary["nodes"] == 2
     assert summary["edges"] == 1
     assert summary["embeddings"] == 2
@@ -86,7 +88,7 @@ def test_copy_graph_copies_nodes_edges_embeddings():
 
 
 class _CorruptKeyGraphStub:
-    """L1 node whose ``type`` lives under a BACKTICKED key (legacy corruption)."""
+    """Malformed node whose ``type`` lives under a backticked key."""
 
     def _get_all_nodes(self):
         return ["x"]
@@ -108,26 +110,17 @@ class _CorruptKeySource:
     graph = _CorruptKeyGraphStub()
 
 
-def test_copy_graph_recovers_backticked_keys_no_loss():
-    """A node with backticked property keys must NOT be lost: keys are sanitised,
-    the real label is recovered from the cleaned ``type``, and the emitted cypher
-    has no double backticks."""
+def test_copy_graph_rejects_invalid_property_keys():
     tgt = RecBackend()
-    summary = copy_graph(_CorruptKeySource(), tgt, copy_embeddings=False)
-    assert summary["nodes"] == 1 and summary["errors"] == 0
-    node_writes = [q for q, _ in tgt.writes if q.startswith("MERGE (n:")]
-    assert node_writes, "node not written"
-    # real label recovered from the cleaned `type`, not the default "Node"
-    assert any("MERGE (n:Memory " in q for q in node_writes), node_writes
-    for q, _ in tgt.writes:
-        assert "``" not in q, f"double backtick leaked: {q}"
+    with pytest.raises(ValueError, match="invalid property key"):
+        copy_graph(_CorruptKeySource(), tgt, copy_embeddings=False)
 
 
 def test_copy_graph_emits_clean_merge_not_double_backticks():
     """The regression: writes must be portable MERGE with single-backtick keys,
     never the double-backticked `` ``type`` `` the old reconcile produced."""
     tgt = RecBackend()
-    copy_graph(_L1Source(), tgt, copy_embeddings=False)
+    copy_graph(_NativeSource(), tgt, copy_embeddings=False)
     node_writes = [q for q, _ in tgt.writes if q.startswith("MERGE (n:")]
     assert node_writes, "no node MERGE writes recorded"
     for q in tgt.writes:

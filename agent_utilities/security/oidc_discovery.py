@@ -1,77 +1,160 @@
 #!/usr/bin/python
-"""Provider-agnostic OIDC discovery (CONCEPT:AU-OS.identity.resolve-token-endpoint-from).
-
-Fleet auth is configured by **issuer URL only** — never vendor-specific endpoint
-paths. Given an OIDC issuer (a Keycloak realm ``http://keycloak.arpa/realms/homelab``,
-an Okta org ``https://ORG.okta.com/oauth2/default``, Auth0, Entra ID, …), fetch its
-RFC 8414 / OIDC discovery document (``<issuer>/.well-known/openid-configuration``) and
-read ``jwks_uri`` and ``token_endpoint`` from it. This keeps the identity provider
-abstracted away: the only thing a deployment sets is ``OIDC_ISSUER`` (plus client id /
-secret), and the provider-specific paths (Keycloak ``/protocol/openid-connect/certs``
-vs Okta ``/v1/keys``) are resolved at runtime rather than hardcoded.
-
-Used by:
-- ``mcp/server_factory.py`` — derive the inbound JWT ``jwks_uri`` from the issuer.
-- ``mcp/client_credentials.py`` — derive the outbound ``token_endpoint`` for minting.
-
-Both keep an explicit override (``FASTMCP_SERVER_AUTH_JWT_JWKS_URI`` / ``OIDC_TOKEN_URL``)
-for providers without reachable discovery or for pinning; discovery is the default.
-"""
+"""Provider-neutral, DNS-pinned OIDC discovery and transport construction."""
 
 from __future__ import annotations
 
+import json
 import time
+from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
-from agent_utilities.core._env import setting
+from agent_utilities.core.http_client import (
+    create_async_http_client,
+    create_http_client,
+)
+from agent_utilities.core.transport_security import resolve_configured_tls_profile
 
-# issuer -> (expiry_monotonic, discovery_doc)
-_cache: dict[str, tuple[float, dict]] = {}
+_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_TTL_S = 3600.0
+_MAX_DISCOVERY_BYTES = 1024 * 1024
 
 
-def _verify_tls() -> bool:
-    return setting("OIDC_TLS_VERIFY", "true").strip().lower() not in (
-        "false",
-        "0",
-        "no",
+def _canonical_endpoint(value: str, *, field: str) -> str:
+    rendered = str(value or "").strip()
+    if len(rendered) > 8_192:
+        raise ValueError(f"{field} is too large")
+    parsed = urlsplit(rendered)
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError(f"{field} must be an absolute HTTP(S) URL")
+    if parsed.scheme.lower() == "http" and parsed.hostname.lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
+        raise ValueError(f"{field} requires HTTPS outside loopback")
+    return rendered
+
+
+def canonical_oidc_endpoint(value: str, *, field: str = "OIDC endpoint") -> str:
+    """Validate an operator/configuration supplied OAuth/OIDC endpoint."""
+    return _canonical_endpoint(value, field=field)
+
+
+def _trust() -> tuple[Any, list[str]]:
+    from agent_utilities.core.config import config
+
+    trust = resolve_configured_tls_profile(
+        "OIDC",
+        profile_name=config.oidc_tls_profile,
+        profile_ref=config.oidc_tls_profile_ref,
+        config=config,
+    )
+    if trust.proxy_url:
+        # DNS pinning cannot prove the origin peer when a generic forward proxy
+        # owns the TCP connection. Use a private egress gateway outside process.
+        raise RuntimeError("OIDC TLS profile cannot configure an inline proxy")
+    return trust.ssl_context, list(config.oidc_http_allowed_private_hosts)
+
+
+def oidc_http_client(*, timeout: float = 15.0) -> httpx.Client:
+    """Build the canonical synchronous OIDC/JWKS/token client."""
+    verify, private_hosts = _trust()
+    return create_http_client(
+        timeout=timeout,
+        verify=verify,
+        trust_env=False,
+        follow_redirects=False,
+        pin_egress=True,
+        allowed_private_hosts=private_hosts,
+        allow_loopback=True,
     )
 
 
-def discover(issuer: str, *, verify: bool | None = None) -> dict:
-    """Return the OIDC discovery document for ``issuer`` (cached, TTL 1h).
+def oidc_async_http_client(*, timeout: float = 15.0) -> httpx.AsyncClient:
+    """Build the canonical asynchronous OIDC/JWKS/token client."""
+    verify, private_hosts = _trust()
+    return create_async_http_client(
+        timeout=timeout,
+        verify=verify,
+        trust_env=False,
+        follow_redirects=False,
+        pin_egress=True,
+        allowed_private_hosts=private_hosts,
+        allow_loopback=True,
+    )
 
-    Raises ``httpx.HTTPError`` if the document cannot be fetched/parsed.
-    """
-    issuer = issuer.rstrip("/")
+
+def _read_bounded(response: httpx.Response, limit: int) -> bytes:
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body.extend(chunk)
+        if len(body) > limit:
+            raise RuntimeError("OIDC response exceeded its safety boundary")
+    return bytes(body)
+
+
+def discover(issuer: str) -> dict[str, Any]:
+    """Return a bounded, validated OIDC discovery document (cached for one hour)."""
+    canonical_issuer = _canonical_endpoint(issuer, field="OIDC issuer").rstrip("/")
     now = time.monotonic()
-    cached = _cache.get(issuer)
+    cached = _cache.get(canonical_issuer)
     if cached and now < cached[0]:
-        return cached[1]
+        return dict(cached[1])
 
-    if verify is None:
-        verify = _verify_tls()
-    url = f"{issuer}/.well-known/openid-configuration"
-    with httpx.Client(timeout=10.0, verify=verify) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-        doc = resp.json()
-    _cache[issuer] = (now + _CACHE_TTL_S, doc)
-    return doc
-
-
-def jwks_uri_for(issuer: str, *, verify: bool | None = None) -> str | None:
-    """Discover the ``jwks_uri`` for ``issuer`` (``None`` if discovery fails)."""
+    url = f"{canonical_issuer}/.well-known/openid-configuration"
+    with oidc_http_client(timeout=10.0) as client:
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            body = _read_bounded(response, _MAX_DISCOVERY_BYTES)
     try:
-        return discover(issuer, verify=verify).get("jwks_uri")
-    except Exception:  # noqa: BLE001 - discovery is best-effort; caller falls back
+        document = json.loads(body)
+    except (TypeError, ValueError):
+        raise RuntimeError("OIDC discovery response was not valid JSON") from None
+    if not isinstance(document, dict):
+        raise RuntimeError("OIDC discovery response had an invalid shape")
+    discovered_issuer = _canonical_endpoint(
+        str(document.get("issuer") or ""), field="discovered issuer"
+    ).rstrip("/")
+    if discovered_issuer != canonical_issuer:
+        raise RuntimeError("OIDC discovery issuer did not match configuration")
+    for field in ("jwks_uri", "token_endpoint"):
+        if document.get(field):
+            document[field] = _canonical_endpoint(str(document[field]), field=field)
+    _cache[canonical_issuer] = (now + _CACHE_TTL_S, dict(document))
+    return dict(document)
+
+
+def jwks_uri_for(issuer: str) -> str | None:
+    """Discover the ``jwks_uri``; return ``None`` on a fail-closed miss."""
+    try:
+        value = discover(issuer).get("jwks_uri")
+        return str(value) if value else None
+    except Exception:
         return None
 
 
-def token_endpoint_for(issuer: str, *, verify: bool | None = None) -> str | None:
-    """Discover the ``token_endpoint`` for ``issuer`` (``None`` if discovery fails)."""
+def token_endpoint_for(issuer: str) -> str | None:
+    """Discover the ``token_endpoint``; return ``None`` on a fail-closed miss."""
     try:
-        return discover(issuer, verify=verify).get("token_endpoint")
-    except Exception:  # noqa: BLE001 - discovery is best-effort; caller falls back
+        value = discover(issuer).get("token_endpoint")
+        return str(value) if value else None
+    except Exception:
         return None
+
+
+__all__ = [
+    "canonical_oidc_endpoint",
+    "discover",
+    "jwks_uri_for",
+    "oidc_async_http_client",
+    "oidc_http_client",
+    "token_endpoint_for",
+]

@@ -2,10 +2,10 @@
 
 Generalises the per-class pool + idle-reap pattern of :class:`~.docker_workspace.DockerWorkspace`
 (``_REGISTRY`` + ``reap_idle``) into one substrate-agnostic registry shared by every warm-fork
-rung (``forkserver``, ``container_fork``, ``firecracker`` — CONCEPT:AU-ORCH.sandbox.warmforkfanoutcapability/1.86). A rung pays
-warm-up once for a :class:`~agent_utilities.rlm.sandboxes.base.WarmSpec`, registers the resulting
-parent here keyed by the spec's content hash, and subsequent fan-out *reuses* the parent instead
-of re-warming.
+rung (currently the governed Firecracker microVM backend —
+CONCEPT:AU-ORCH.sandbox.warmforkfanoutcapability/1.86). A rung pays warm-up once for a
+:class:`~agent_utilities.rlm.sandboxes.base.WarmSpec`, registers the resulting parent here keyed
+by the spec's content hash, and subsequent fan-out *reuses* the parent instead of re-warming.
 
 Deliberately dependency-light and **opaque**: it stores parent objects + a synchronous ``close``
 callable + metadata, and never imports the sandbox layer — so there is no ``runtime`` ↔ ``rlm``
@@ -27,8 +27,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# A warm parent (a loaded process / warmed container / live microVM) idle longer than this is
-# reaped. Mirrors DockerWorkspace.reap_idle's 3600s default.
+# A warm parent (for example, a live microVM snapshot) idle longer than this is reaped.
 DEFAULT_IDLE_TTL_SECS = 1800.0
 
 # CONCEPT:AU-ORCH.sandbox.warm-parent-lifetime-cap — a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
@@ -136,8 +135,8 @@ class WarmParentRegistry:
     ) -> None:
         """Store a freshly-warmed ``parent``. Evicts the LRU parent if the pool is at capacity.
 
-        ``close`` is a *synchronous* teardown for the parent (terminate the process, rm the
-        container, kill the microVM) — invoked on reap/drain/eviction.
+        ``close`` is a *synchronous* teardown for the parent (for example, deleting a microVM)
+        and is invoked on reap/drain/eviction.
         """
         now = time.time()
         with self._lock:
@@ -210,5 +209,9 @@ class WarmParentRegistry:
     def _safe_close(close: Callable[[], None], kind: str) -> None:
         try:
             close()
-        except Exception as e:  # noqa: BLE001 - teardown is best-effort; never raise from reap
-            logger.warning("warm-parent close failed (kind=%s): %s", kind, e)
+        except Exception as exc:  # noqa: BLE001 - teardown is best-effort
+            logger.warning(
+                "warm-parent close failed kind=%s error_type=%s",
+                kind,
+                type(exc).__name__,
+            )

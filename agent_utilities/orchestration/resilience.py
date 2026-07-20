@@ -7,8 +7,8 @@ reference architecture. The platform already ships the canonical circuit
 breaker (:class:`agent_utilities.knowledge_graph.core.engine_breaker.CircuitBreaker`),
 a per-server breaker on the live specialist-execution path
 (``ctx.deps.server_health`` in ``agent_utilities/graph/executor.py``),
-and KG-persisted durable checkpoints
-(:class:`agent_utilities.orchestration.durable_execution.DurableExecutionManager`),
+and engine-native WorkItem leases/checkpoints
+(:mod:`agent_utilities.orchestration.work_item`),
 but there was no *declarative* policy describing how an individual unit of work
 should retry, back off, fall back, or time out.
 

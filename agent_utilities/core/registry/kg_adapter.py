@@ -33,6 +33,14 @@ from ...models.knowledge_graph import (
 logger = logging.getLogger(__name__)
 
 
+def _canonical_node_payload(value: Any, node_type: str) -> dict[str, Any]:
+    """Serialize a registry DTO into canonical graph-node properties."""
+    data = value.model_dump() if hasattr(value, "model_dump") else dict(value)
+    data.pop("type", None)
+    data["node_type"] = node_type
+    return data
+
+
 @dataclass
 class FocusedSubgraph:
     """A task-specific subgraph extraction result."""
@@ -49,7 +57,7 @@ class FocusedSubgraph:
         builder = FlowchartBuilder(title=f"Subgraph: {self.query}")
 
         for node in self.nodes:
-            n_type = node.get("type", "symbol")
+            n_type = node.get("node_type", "symbol")
             shape = "box"
             if n_type == "file":
                 shape = "cylinder"
@@ -64,7 +72,7 @@ class FocusedSubgraph:
             )
 
         for edge in self.edges:
-            builder.add_edge(edge["source"], edge["target"], label=edge["type"])
+            builder.add_edge(edge["source"], edge["target"], label=edge["relationship"])
 
         return builder.render()
 
@@ -117,8 +125,8 @@ class RegistryMixin(_Base):
                 {
                     "id": node_id,
                     "label": data.get("name") or str(node_id).split(":")[-1],
-                    "type": data.get("type", "symbol"),
-                    "file": data.get("file", data.get("skill_code_path", "")),
+                    "node_type": data.get("node_type", "symbol"),
+                    "file": data.get("file", ""),
                     "line": data.get("line"),
                     "centrality": data.get("centrality", 0.0),
                 }
@@ -130,7 +138,7 @@ class RegistryMixin(_Base):
                     {
                         "source": src,
                         "target": tgt,
-                        "type": "calls",
+                        "relationship": "calls",
                         "weight": 1.0,
                     }
                 )
@@ -165,27 +173,7 @@ class RegistryMixin(_Base):
 
                 c_data = res[0]["c"]
                 # Handle JSON serialization of complex fields if stored as strings
-                for k in ["hierarchy", "nodes", "edges", "metadata"]:
-                    if k in c_data and isinstance(c_data[k], str):
-                        with contextlib.suppress(Exception):
-                            c_data[k] = json.loads(c_data[k])
-                return CodemapArtifact.model_validate(c_data)
-        return None
-
-    async def get_codemap_by_slug(self, slug: str) -> Any | None:
-        """Retrieve a codemap artifact by a fuzzy match on prompt/slug."""
-        if self.backend:
-            res = self.backend.execute(
-                "MATCH (c:Codemap) WHERE c.prompt CONTAINS $slug OR c.id CONTAINS $slug RETURN c LIMIT 1",
-                {"slug": slug},
-            )
-            if res:
-                import json
-
-                from ...models.codemap import CodemapArtifact
-
-                c_data = res[0]["c"]
-                for k in ["hierarchy", "nodes", "edges", "metadata"]:
+                for k in ["hierarchy", "nodes", "edges", "evidence_refs"]:
                     if k in c_data and isinstance(c_data[k], str):
                         with contextlib.suppress(Exception):
                             c_data[k] = json.loads(c_data[k])
@@ -195,7 +183,7 @@ class RegistryMixin(_Base):
     async def store_codemap(self, artifact: Any):
         """Persist a codemap artifact to the graph."""
         node_id = f"codemap:{artifact.id}"
-        data = artifact.model_dump()
+        data = _canonical_node_payload(artifact, "Codemap")
 
         # Add to in-memory graph
         self.graph.add_node(node_id, data)
@@ -239,7 +227,7 @@ class RegistryMixin(_Base):
         # In-memory fallback within graph
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if str(data.get("type", "")).lower() == "system_prompt":
+            if str(data.get("node_type", "")).lower() == "system_prompt":
                 return {"id": nid, **data}
 
         return {"id": "", "name": "Agent", "description": "", "content": ""}
@@ -255,7 +243,7 @@ class RegistryMixin(_Base):
         Returns:
             The created identity dict with generated id.
         """
-        node_id = f"identity:{uuid.uuid4().hex[:8]}"
+        node_id = f"identity:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = SystemPromptNode(
             id=node_id,
@@ -269,7 +257,7 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, node.model_dump())
+        self.graph.add_node(node.id, _canonical_node_payload(node, "system_prompt"))
         if self.backend:
             data = self._serialize_node(node, label="SystemPrompt")
             self._upsert_node("SystemPrompt", node.id, data)
@@ -336,7 +324,7 @@ class RegistryMixin(_Base):
         # In-memory
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if str(data.get("type", "")).lower() == "prompt":
+            if str(data.get("node_type", "")).lower() == "prompt":
                 results.append({"id": nid, **data})
         return results
 
@@ -375,7 +363,7 @@ class RegistryMixin(_Base):
 
         Returns the created prompt dict with generated id.
         """
-        prompt_id = f"prompt:{uuid.uuid4().hex[:8]}"
+        prompt_id = f"prompt:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node = PromptNode(
             id=prompt_id,
@@ -385,7 +373,7 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, node.model_dump())
+        self.graph.add_node(node.id, _canonical_node_payload(node, "prompt"))
         if self.backend:
             data = self._serialize_node(node, label="Prompt")
             data["author"] = author
@@ -420,7 +408,7 @@ class RegistryMixin(_Base):
         versions = self.get_prompt_versions(prompt_id, limit=1)
         next_version = len(versions) + 1
 
-        new_id = f"prompt:{uuid.uuid4().hex[:8]}"
+        new_id = f"prompt:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = PromptNode(
@@ -431,8 +419,12 @@ class RegistryMixin(_Base):
             timestamp=ts,
         )
 
-        self.graph.add_node(node.id, node.model_dump())
-        self.graph.add_edge(new_id, prompt_id, {"type": RegistryEdgeType.SUPERSEDES})
+        self.graph.add_node(node.id, _canonical_node_payload(node, "prompt"))
+        self.graph.add_edge(
+            new_id,
+            prompt_id,
+            {"relationship": RegistryEdgeType.SUPERSEDES},
+        )
 
         if self.backend:
             data = self._serialize_node(node, label="Prompt")
@@ -546,7 +538,7 @@ class RegistryMixin(_Base):
         if self.backend:
             rows = self.backend.execute(
                 "MATCH (s:CallableResource) WHERE s.resource_type = 'AGENT_SKILL' "
-                "RETURN s.id, s.name, s.description, s.skill_code_path, s.timestamp",
+                "RETURN s.id, s.name, s.description, s.source_ref, s.timestamp",
                 {},
             )
             for row in rows:
@@ -558,14 +550,14 @@ class RegistryMixin(_Base):
                         "enabled": True,
                         "type": "skill",
                         "source": "universal-skills",
-                        "path": row.get("s.skill_code_path", ""),
+                        "source_ref": row.get("s.source_ref", ""),
                     }
                 )
 
         # Also check in-memory graph for Skill-type nodes
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            n_type = str(data.get("type", "")).lower()
+            n_type = str(data.get("node_type", "")).lower()
             r_type = str(data.get("resource_type", "")).lower()
             if n_type == "skill" or r_type == "agent_skill":
                 if not any(r["id"] == nid for r in results):
@@ -750,7 +742,7 @@ class RegistryMixin(_Base):
 
         for n in node_ids:
             data = self.graph._get_node_properties(n)
-            n_type = data.get("type", "unknown")
+            n_type = data.get("node_type", "unknown")
             shape = "box"
             if n_type == "episode":
                 shape = "round"
@@ -769,7 +761,7 @@ class RegistryMixin(_Base):
         for u, v in self.graph._get_all_edges():
             if u in set(node_ids) and v in set(node_ids):
                 props = self.graph._get_edge_properties(u, v)
-                rel_type = props.get("type") or props.get("edge_type") or ""
+                rel_type = props.get("relationship") or ""
                 builder.add_edge(u, v, label=rel_type)
 
         # Add some default styling for KG types
@@ -829,7 +821,7 @@ class RegistryMixin(_Base):
         # Also check in-memory
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if str(data.get("type", "")).lower() == "team_config":
+            if str(data.get("node_type", "")).lower() == "team_config":
                 try:
                     node = TeamConfigNode.model_validate({"id": nid, **data})
                     if node not in results:
@@ -867,7 +859,7 @@ class RegistryMixin(_Base):
         )
 
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        tc_id = f"team_config:{uuid.uuid4().hex[:8]}"
+        tc_id = f"team_config:{uuid.uuid4().hex}"
 
         # Extract coalition metadata
         coalition_data: dict[str, Any] = {}
@@ -895,7 +887,7 @@ class RegistryMixin(_Base):
         )
 
         # Persist to graph
-        self.graph.add_node(tc_id, node.model_dump())
+        self.graph.add_node(tc_id, _canonical_node_payload(node, "team_config"))
         if self.backend:
             clean_data = self._serialize_node(node, label="TeamConfig")
             self._upsert_node("TeamConfig", tc_id, clean_data)
@@ -905,7 +897,7 @@ class RegistryMixin(_Base):
             tc_id,
             coalition_id,
             {
-                "type": RegistryEdgeType.REUSED_TEAM,
+                "relationship": RegistryEdgeType.REUSED_TEAM,
             },
         )
         if self.backend:
@@ -991,7 +983,7 @@ class RegistryMixin(_Base):
             agent_id,
             prompt_id,
             {
-                "type": RegistryEdgeType.USES_PROMPT,
+                "relationship": RegistryEdgeType.USES_PROMPT,
             },
         )
         if self.backend:
@@ -999,7 +991,7 @@ class RegistryMixin(_Base):
                 "MATCH (a {id: $aid}), (p {id: $pid}) MERGE (a)-[:USES_PROMPT]->(p)",
                 {"aid": agent_id, "pid": prompt_id},
             )
-        logger.info("Linked agent %s → prompt %s (USES_PROMPT)", agent_id, prompt_id)
+        logger.info("Linked agent to prompt (USES_PROMPT)")
 
     # ─────────────────────────────────────────────────────────────────────
     #  Self-Describing Function Registry (CONCEPT:AU-ECO.toolkit.self-describing-registry)
@@ -1041,7 +1033,7 @@ class RegistryMixin(_Base):
         """
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         node_data = {
-            "type": "callable_resource",
+            "node_type": "callable_resource",
             "resource_type": resource_type,
             "name": name,
             "description": description,
@@ -1121,7 +1113,7 @@ class RegistryMixin(_Base):
 
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if str(data.get("type", "")).lower() != "callable_resource":
+            if str(data.get("node_type", "")).lower() != "callable_resource":
                 continue
 
             # Apply resource_type filter
@@ -1185,7 +1177,7 @@ class RegistryMixin(_Base):
         # Fallback: NX graph
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if nid == team_id and data.get("type") == "team_config":
+            if nid == team_id and data.get("node_type") == "team_config":
                 return {
                     "version": "1.0",
                     "type": "team_config",
@@ -1210,12 +1202,12 @@ class RegistryMixin(_Base):
             The new TeamConfig node ID.
         """
         config = bundle.get("config", {})
-        new_id = f"tc:imported:{uuid.uuid4().hex[:8]}"
+        new_id = f"tc:imported:{uuid.uuid4().hex}"
 
         # Override ID and mark as imported
         config["id"] = new_id
         config["origin"] = "community"
-        config["type"] = "team_config"
+        config["node_type"] = "team_config"
         config["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         if hasattr(self, "backend") and self.backend:
@@ -1286,7 +1278,7 @@ class RegistryMixin(_Base):
         # Also include NX graph entries
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if data.get("type") == "team_config":
+            if data.get("node_type") == "team_config":
                 rate = data.get("success_rate", 0)
                 if rate >= min_success_rate:
                     if not any(c["id"] == nid for c in configs):
@@ -1372,7 +1364,7 @@ class RegistryMixin(_Base):
         # Also include NX graph entries
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            if data.get("type") == "agent_template":
+            if data.get("node_type") == "agent_template":
                 if not any(t.get("id") == nid for t in templates):
                     templates.append(
                         {
@@ -1410,12 +1402,12 @@ class RegistryMixin(_Base):
         Returns:
             The AgentTemplate node ID.
         """
-        node_id = template.get("id", f"at:{uuid.uuid4().hex[:8]}")
+        node_id = template.get("id", f"at:{uuid.uuid4().hex}")
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node_data = {
             "id": node_id,
-            "type": "agent_template",
+            "node_type": "agent_template",
             "name": template.get("name", f"Template: {template.get('role', '')}"),
             "description": template.get("description", ""),
             "role": template.get("role", ""),
@@ -1445,7 +1437,10 @@ class RegistryMixin(_Base):
             self.graph.add_edge(
                 node_id,
                 prompt_id,
-                {"type": RegistryEdgeType.USES_PROMPT.value, "weight": 1.0},
+                {
+                    "relationship": RegistryEdgeType.USES_PROMPT.value,
+                    "weight": 1.0,
+                },
             )
 
         # Wire REQUIRES_TOOLSET edges
@@ -1453,7 +1448,10 @@ class RegistryMixin(_Base):
             self.graph.add_edge(
                 node_id,
                 tool_id,
-                {"type": RegistryEdgeType.REQUIRES_TOOLSET.value, "weight": 1.0},
+                {
+                    "relationship": RegistryEdgeType.REQUIRES_TOOLSET.value,
+                    "weight": 1.0,
+                },
             )
 
         # Wire COMPATIBLE_WITH_MODEL if specified
@@ -1500,7 +1498,7 @@ class RegistryMixin(_Base):
                     and tgt_id in self.graph.get_successors(src_id)
                 ):
                     edge_data: dict[str, Any] = {}
-                    if edge_data.get("type") in (
+                    if edge_data.get("relationship") in (
                         "depends_on",
                         RegistryEdgeType.DEPENDS_ON.value,
                     ):

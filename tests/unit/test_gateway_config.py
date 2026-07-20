@@ -1,6 +1,9 @@
 """Tests for agent_utilities.gateway.config — migrated from service-dashboard-core."""
 
 import json
+from pathlib import Path
+
+import pytest
 
 from agent_utilities.gateway.config import ConfigManager
 from agent_utilities.gateway.models import (
@@ -9,6 +12,47 @@ from agent_utilities.gateway.models import (
     ServiceConfig,
     ServiceGroup,
 )
+from agent_utilities.gateway.widgets.base import BaseWidget
+
+
+class _URLWidget(BaseWidget):
+    service_type = "configured-service"
+    env_prefix = "CONFIGURED_SERVICE"
+
+    def get_fields(self):
+        return []
+
+    def fetch_data(self, config):
+        raise NotImplementedError
+
+
+def test_widget_url_is_required_and_resolves_explicit_config():
+    widget = _URLWidget()
+    missing = ServiceConfig(id="service", name="Service", widget_type="configured")
+    with pytest.raises(RuntimeError, match="URL is not configured"):
+        widget._resolve_url(missing)
+    configured = missing.model_copy(update={"url": "https://service.example.test"})
+    assert widget._resolve_url(configured) == "https://service.example.test"
+
+
+def test_widget_url_resolves_process_configuration(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.gateway.widgets.base.setting",
+        lambda key, default="": (
+            "https://service.example.test" if key == "CONFIGURED_SERVICE_URL" else default
+        ),
+    )
+    config = ServiceConfig(id="service", name="Service", widget_type="configured")
+    assert _URLWidget()._resolve_url(config) == "https://service.example.test"
+
+
+def test_widget_modules_contain_no_environment_specific_url_fallbacks():
+    widgets = Path(__file__).parents[2] / "agent_utilities" / "gateway" / "widgets"
+    forbidden = "local" + ".example.com"
+    retired_default = "default" + "_url"
+    sources = [path.read_text() for path in widgets.glob("*.py")]
+    assert all(forbidden not in source for source in sources)
+    assert all(retired_default not in source for source in sources)
 
 
 def test_config_manager_load_save(tmp_path):
@@ -75,3 +119,55 @@ def test_auto_discover(tmp_path, monkeypatch):
     assert layout.groups[0].name == ServiceCategory.INFRASTRUCTURE.value
     assert layout.groups[0].services[0].id == "portainer-agent"
     assert layout.groups[0].services[0].url == "http://portainer.local"
+
+
+def test_inline_credentials_are_never_serialized(tmp_path):
+    config_file = tmp_path / "services.yaml"
+    manager = ConfigManager(config_path=config_file)
+    service = ServiceConfig(
+        id="service",
+        name="Service",
+        widget_type="portainer",
+        api_key="top-secret",
+        username="private-user",
+        password="private-password",
+        credential_refs={"api_key": "env://SERVICE_API_KEY"},
+    )
+    manager.save(
+        DashboardLayout(groups=[ServiceGroup(name="Services", services=[service])])
+    )
+
+    persisted = config_file.read_text(encoding="utf-8")
+    for forbidden in ("top-secret", "private-user", "private-password"):
+        assert forbidden not in persisted
+    assert "env://SERVICE_API_KEY" in persisted
+    assert "api_key" not in service.model_dump()
+
+
+def test_persistent_inline_credentials_fail_closed(tmp_path):
+    config_file = tmp_path / "services.yaml"
+    config_file.write_text(
+        """
+groups:
+  - name: Services
+    services:
+      - id: service
+        name: Service
+        widget_type: portainer
+        api_key: top-secret
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="inline credentials"):
+        ConfigManager(config_path=config_file).load()
+
+
+def test_credential_refs_require_runtime_secret_uris():
+    with pytest.raises(ValueError, match="runtime secret reference"):
+        ServiceConfig(
+            id="service",
+            name="Service",
+            widget_type="portainer",
+            credential_refs={"api_key": "top-secret"},
+        )

@@ -62,23 +62,23 @@ def _load_prompt_metadata(pfile: Path) -> dict[str, Any] | None:
     is supported. Returns ``None`` if the file cannot be parsed.
     """
     if pfile.suffix != ".json":
-        logger.debug("Skipping unsupported prompt file: %s", pfile.name)
+        logger.debug("Skipping unsupported prompt file")
         return None
 
     try:
         raw = pfile.read_text(encoding="utf-8")
     except OSError as e:
-        logger.warning(f"Failed to read prompt file {pfile.name}: {e}")
+        logger.warning("Failed to read prompt file (%s)", type(e).__name__)
         return None
 
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse prompt JSON {pfile.name}: {e}")
+        logger.warning("Failed to parse prompt JSON (%s)", type(e).__name__)
         return None
 
     if not isinstance(data, dict):
-        logger.warning(f"Prompt {pfile.name} is not a JSON object")
+        logger.warning("Prompt file is not a JSON object")
         return None
 
     data.setdefault("name", pfile.stem)
@@ -144,33 +144,40 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     Precedence is list order, low→high; because ``_upsert_node`` is keyed on the
     namespaced id, a later same-id source naturally overwrites an earlier one:
 
-      1. packaged base   — ``agent_utilities/prompts/*.json``
+      1. validated base  — exact XDG generation or current packaged source
       2. fleet-contributed — each ``agent_utilities.prompt_providers`` dir
       3. operator overlay  — ``prompts_dir()`` (``~/.config/agent-utilities/prompts``)
     """
     from agent_utilities.core.paths import prompts_dir
-    from agent_utilities.core.providers import resolve_prompt_provider_dirs
+    from agent_utilities.core.providers import (
+        resolve_base_prompt_dir,
+        resolve_prompt_provider_dirs,
+    )
 
     sources: list[tuple[str, Path]] = []
 
-    base = Path(__file__).parent.parent / "prompts"
-    if base.exists():
-        sources += [(_BASE_SOURCE, f) for f in sorted(base.glob("*.json"))]
+    base = resolve_base_prompt_dir()
+    sources += [(_BASE_SOURCE, f) for f in sorted(base.glob("*.json"))]
 
-    # XDG-first (CONCEPT:AU-OS.deployment.unified-install-tree): the materialized unified tree when populated, else
-    # live ``prompt_providers`` entry-point discovery.
+    # XDG-first (CONCEPT:AU-OS.deployment.unified-install-tree): exact materialized
+    # generations when current, otherwise validated live provider sources.
     for provider_name, pdir in resolve_prompt_provider_dirs():
         try:
             sources += [(provider_name, f) for f in sorted(pdir.glob("*.json"))]
-        except OSError as e:  # pragma: no cover - defensive
-            logger.debug("Could not list prompt provider %s: %s", provider_name, e)
+        except OSError as exc:  # pragma: no cover - defensive
+            logger.debug(
+                "Could not list prompt provider (exception_type=%s)",
+                type(exc).__name__,
+            )
 
     try:
         overlay = prompts_dir()
         if overlay.exists():
             sources += [(_OVERLAY_SOURCE, f) for f in sorted(overlay.glob("*.json"))]
-    except Exception as e:  # pragma: no cover - defensive
-        logger.debug("Could not list prompt overlay dir: %s", e)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(
+            "Could not list prompt overlay (exception_type=%s)", type(exc).__name__
+        )
 
     return sources
 
@@ -179,7 +186,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
 #
 # A prompt blueprint is the persona; an ``AgentTemplate`` is what makes that
 # persona a *runnable* agent — it binds the system-prompt node, the toolsets,
-# and the model preference so ``graph_orchestrate(action='execute_agent')``
+# and the model preference so ``graph_orchestrate``
 # resolves it (``orchestration/agent_runner._resolve_agent_from_kg``). The
 # ``agent-utilities-expert`` is the resident ecosystem expert: it is bound to its
 # base prompt, the platform's own management toolsets, and the local qwen model.
@@ -191,13 +198,12 @@ _BUILTIN_AGENT_TEMPLATES: list[dict[str, Any]] = [
         "description": (
             "Resident expert of the entire agent-utilities ecosystem — understands "
             "the 5 pillars, the one-engine ontology-driven Knowledge Graph, the dev "
-            "discipline, SDD, graph-os + the multiplexer, connectors/ingestion, and "
+            "discipline, SDD, GraphOS fleet tooling, connectors/ingestion, and "
             "the evolution loop; manages and evolves the platform as code."
         ),
         "system_prompt_id": "prompt:agent-utilities-expert",
         "toolset_ids": [
             "graph-os",
-            "mcp-multiplexer",
             "repository-manager-mcp",
             "data-science-mcp",
             "scholarx-mcp",
@@ -276,7 +282,7 @@ async def ingest_prompts_to_graph():
         engine = IntelligenceGraphEngine.get_active()
         if not engine:
             db_path = str(workspace / "knowledge_graph.db")
-            engine = IntelligenceGraphEngine(db_path=db_path)
+            engine = IntelligenceGraphEngine.get_or_create(db_path=db_path)
 
         if engine.backend:
             engine.backend.create_schema()
@@ -329,7 +335,7 @@ async def ingest_prompts_to_graph():
                 serialized_data = engine._serialize_node(node, label="Prompt")
                 engine._upsert_node("Prompt", node.id, serialized_data)
             except Exception as e:
-                logger.warning(f"Failed to ingest prompt {pfile.name}: {e}")
+                logger.warning("Failed to ingest prompt (%s)", type(e).__name__)
 
         # CONCEPT:AU-ORCH.dispatch.builtin-agent-templates — once the prompt nodes exist, seed the built-in
         # AgentTemplates that bind them into dispatchable agents (USES_PROMPT).

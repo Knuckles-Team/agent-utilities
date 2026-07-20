@@ -1,0 +1,188 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: epistemic-graph-raft
+  namespace: graphos-cell
+  labels:
+    app.kubernetes.io/name: epistemic-graph-raft
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector: {app.kubernetes.io/name: epistemic-graph-raft}
+  ports:
+    - {name: rpc, port: 9100, targetPort: rpc, protocol: TCP}
+    - {name: raft, port: 9200, targetPort: raft, protocol: TCP}
+    - {name: metrics, port: 9101, targetPort: metrics, protocol: TCP}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epistemic-graph-coordinator
+  namespace: graphos-cell
+  labels:
+    app.kubernetes.io/name: epistemic-graph-coordinator
+    graphos.io/authority-role: coordinator
+spec:
+  selector:
+    app.kubernetes.io/name: epistemic-graph-raft
+  ports:
+    - {name: rpc, port: 9100, targetPort: rpc, protocol: TCP}
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: epistemic-graph-raft
+  namespace: graphos-cell
+  labels:
+    app.kubernetes.io/name: epistemic-graph-raft
+    graphos.io/tier: data
+    graphos.io/worker-role: projection-index-reasoning
+spec:
+  serviceName: epistemic-graph-raft
+  replicas: 3
+  podManagementPolicy: Parallel
+  updateStrategy:
+    # Exact releases are activated together after the one-time state migration;
+    # the release controller deletes all old-version pods before this template.
+    type: OnDelete
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: epistemic-graph-raft
+        graphos.io/tier: data
+        graphos.io/worker-role: projection-index-reasoning
+        graphos.io/tenant-partition: raft-groups
+      annotations:
+        graphos.io/mtls-mode: strict
+        sidecar.istio.io/nativeSidecar: "true"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts":true}'
+    spec:
+      serviceAccountName: graphos-engine
+      automountServiceAccountToken: false
+      priorityClassName: graphos-serving
+      terminationGracePeriodSeconds: 180
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      containers:
+        - name: engine
+          image: epistemic-graph-image
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              ordinal="${HOSTNAME##*-}"
+              exec env EPISTEMIC_GRAPH_RAFT_NODE_ID="${ordinal}" \
+                epistemic-graph-server \
+                --tcp-addr 0.0.0.0:9100 \
+                --persist-dir /var/lib/epistemic-graph/data \
+                --metrics-addr 0.0.0.0:9101
+          ports:
+            - {name: rpc, containerPort: 9100, protocol: TCP}
+            - {name: metrics, containerPort: 9101, protocol: TCP}
+            - {name: raft, containerPort: 9200, protocol: TCP}
+          envFrom:
+            - configMapRef: {name: graphos-cell-contract}
+            - secretRef: {name: graphos-runtime-secrets, optional: false}
+          env:
+            - name: EPISTEMIC_GRAPH_RAFT_PEERS
+              value: >-
+                0@epistemic-graph-raft-0.epistemic-graph-raft.graphos-cell.svc:9200,
+                1@epistemic-graph-raft-1.epistemic-graph-raft.graphos-cell.svc:9200,
+                2@epistemic-graph-raft-2.epistemic-graph-raft.graphos-cell.svc:9200
+            - {name: EPISTEMIC_GRAPH_RAFT_BIND_ADDR, value: 0.0.0.0:9200}
+            - {name: GRAPH_SERVICE_PERSIST_DIR, value: /var/lib/epistemic-graph/data}
+            - {name: REQUESTS_CA_BUNDLE, value: /var/run/graphos/trust/ca-bundle.pem}
+            - {name: SSL_CERT_FILE, value: /var/run/graphos/trust/ca-bundle.pem}
+            - {name: GRAPH_SERVICE_TLS_CERT, value: /var/run/graphos/engine-tls/tls.crt}
+            - {name: GRAPH_SERVICE_TLS_KEY, value: /var/run/graphos/engine-tls/tls.key}
+            - {name: GRAPH_SERVICE_TLS_SERVER_NAME, value: epistemic-graph-coordinator.graphos-cell.svc}
+            - {name: WORKLOAD_IDENTITY_TOKEN_FILE, value: /var/run/secrets/tokens/graphos-token}
+          volumeMounts:
+            - {name: engine-data, mountPath: /var/lib/epistemic-graph/data}
+            - {name: object-archive, mountPath: /archive}
+            - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: trust-bundle, mountPath: /var/run/graphos/trust, readOnly: true}
+            - {name: engine-tls, mountPath: /var/run/graphos/engine-tls, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          startupProbe:
+            tcpSocket: {port: rpc}
+            failureThreshold: 60
+            periodSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - >-
+                  import os,socket,ssl;
+                  context=ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"]);
+                  raw=socket.create_connection(("127.0.0.1",9100),timeout=3);
+                  tls=context.wrap_socket(raw,server_hostname=os.environ["GRAPH_SERVICE_TLS_SERVER_NAME"]);
+                  tls.close()
+            failureThreshold: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: rpc}
+            failureThreshold: 3
+            periodSeconds: 20
+          resources:
+            requests: {cpu: "8", memory: 48Gi}
+            limits: {cpu: "32", memory: 96Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+      volumes:
+        - name: object-archive
+          persistentVolumeClaim: {claimName: graphos-object-archive}
+        - name: workload-identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: "${GRAPHOS_WORKLOAD_IDENTITY_AUDIENCE:?required}"
+                  expirationSeconds: 3600
+                  path: graphos-token
+        - name: trust-bundle
+          secret: {secretName: graphos-trust-bundle, optional: false}
+        - name: engine-tls
+          secret: {secretName: graphos-engine-tls, optional: false, defaultMode: 0440}
+        - {name: tmp, emptyDir: {sizeLimit: 4Gi}}
+  volumeClaimTemplates:
+    - metadata:
+        name: engine-data
+        labels: {graphos.io/storage-role: authoritative-engine}
+      spec:
+        storageClassName: graphos-retained-rwo
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests: {storage: 512Gi}

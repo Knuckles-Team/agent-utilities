@@ -12,8 +12,8 @@ The durable record of *what we shipped*, so the loop never re-opens it. Three jo
   ``feature -[DERIVED_FROM_RESEARCH]-> source`` and ``source -[ASSIMILATED_INTO]-> codebase``
   and flip the status to ``implemented`` (KG-2.7 US-1/3). This closes the research
   → code provenance loop and excludes the feature from future cycles.
-* :func:`promote_feature_ledger` — lift the YAML feature/capability ledger
-  (``scripts/build_feature_ledger.py``) into `SDDFeature` nodes so existing code is
+* :func:`promote_feature_ledger` — lift a governed feature/capability ledger
+  supplied by the caller into `SDDFeature` nodes so existing code is
   represented in the assimilation graph.
 * :func:`ledger_state` — a queryable open/closed/by-status summary.
 

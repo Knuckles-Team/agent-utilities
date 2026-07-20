@@ -1,0 +1,175 @@
+connector: uptime-kuma-agent
+ontology_source: uptimekuma
+schema_version: '1'
+resources:
+- name: HeartbeatStat
+  label: Heartbeat Stat
+  id_prefix: heartbeatstat
+  relations:
+  - name: heartbeatOf
+    label: heartbeat of
+    target: UptimeMonitor
+    lpg_rel_type: ''
+- name: MonitorTag
+  label: Monitor Tag
+  id_prefix: monitortag
+  relations: []
+- name: Notification
+  label: Notification
+  id_prefix: notification
+  relations: []
+- name: StatusPage
+  label: Status Page
+  id_prefix: statuspage
+  relations: []
+- name: UptimeMonitor
+  label: Uptime Monitor
+  id_prefix: uptimemonitor
+  relations:
+  - name: notifiesVia
+    label: notifies via
+    target: Notification
+    lpg_rel_type: ''
+  - name: onStatusPage
+    label: on status page
+    target: StatusPage
+    lpg_rel_type: ''
+  - name: taggedWith
+    label: tagged with
+    target: MonitorTag
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    uptimekuma: id
+  title_field:
+    uptimekuma: name
+  text_field:
+    uptimekuma: url
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  HeartbeatStat:
+    ontology_class: null
+    fields:
+      checkInterval: xsd:integer
+      heartbeatMsg: xsd:string
+      heartbeatStatus: xsd:integer
+      heartbeatTime: xsd:string
+      monitorActive: xsd:boolean
+      monitorType: xsd:string
+      monitorUrl: xsd:string
+      ping: xsd:double
+      uptimeKumaId: xsd:string
+  MonitorTag:
+    ontology_class: null
+    fields:
+      checkInterval: xsd:integer
+      heartbeatMsg: xsd:string
+      heartbeatStatus: xsd:integer
+      heartbeatTime: xsd:string
+      monitorActive: xsd:boolean
+      monitorType: xsd:string
+      monitorUrl: xsd:string
+      ping: xsd:double
+      uptimeKumaId: xsd:string
+  Notification:
+    ontology_class: null
+    fields:
+      checkInterval: xsd:integer
+      heartbeatMsg: xsd:string
+      heartbeatStatus: xsd:integer
+      heartbeatTime: xsd:string
+      monitorActive: xsd:boolean
+      monitorType: xsd:string
+      monitorUrl: xsd:string
+      ping: xsd:double
+      uptimeKumaId: xsd:string
+  StatusPage:
+    ontology_class: Document
+    fields:
+      checkInterval: xsd:integer
+      heartbeatMsg: xsd:string
+      heartbeatStatus: xsd:integer
+      heartbeatTime: xsd:string
+      monitorActive: xsd:boolean
+      monitorType: xsd:string
+      monitorUrl: xsd:string
+      ping: xsd:double
+      uptimeKumaId: xsd:string
+  UptimeMonitor:
+    ontology_class: null
+    fields:
+      checkInterval: xsd:integer
+      heartbeatMsg: xsd:string
+      heartbeatStatus: xsd:integer
+      heartbeatTime: xsd:string
+      monitorActive: xsd:boolean
+      monitorType: xsd:string
+      monitorUrl: xsd:string
+      ping: xsd:double
+      uptimeKumaId: xsd:string
+sync:
+- preset: uptimekuma-monitors
+  server: uptime-kuma-agent
+  tool: uptime_kuma_monitors
+  action: get_monitors
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: url
+  updated_field: ''
+  pagination: null
+  doc_type: uptimekuma
+  tool_schema_sha256: 48a9ba14d62993c0544b0e97e4ce6ca638bc9338506d186c5b72fbfcc9e9c816
+  raw:
+    server: uptime-kuma-agent
+    tool: uptime_kuma_monitors
+    action: get_monitors
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: url
+    updated_field: ''
+    doc_type: uptimekuma
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - uptime_kuma_agent/connectors/mcp_source_presets.json
+  - uptime_kuma_agent/connectors/tool_schema_fingerprints.json
+  - uptime_kuma_agent/ontology/uptimekuma.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 21db40e1afa26d5a16d77595825c4a03aa7ecd1d66a7cdab95b71a45581f0b0c
+    triple_count: 63
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: kTop4CaiLY2LOwlxj5cvGJmSZnQUPNRFmk8wW_NO7zCvce4Q3HvB0XfoDlw6FlJbY_dtPokMGIeFqU8tzWX8DA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.HeartbeatStat.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MonitorTag.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Notification.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.StatusPage.ontology_class = 'Document' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.UptimeMonitor.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

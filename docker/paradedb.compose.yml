@@ -6,21 +6,32 @@
 #
 # Environment:
 #   GRAPH_BACKEND=postgresql
-#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+#   GRAPH_DB_URI is injected from the deployment secret provider.
 
 services:
   paradedb-db:
-    image: paradedb/paradedb:latest
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
+    image: ${PARADEDB_IMAGE:?set-PARADEDB_IMAGE-to-image@sha256-digest}
     container_name: agent-paradedb
     environment:
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent
-      POSTGRES_DB: agent_kg
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD from a secret}"
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB}"
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - paradedb-data:/var/lib/postgresql
-      - ./paradedb-init:/docker-entrypoint-initdb.d
+      - ./paradedb-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U '$${POSTGRES_USER}' -d '$${POSTGRES_DB}'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:

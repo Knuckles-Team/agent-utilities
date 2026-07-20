@@ -33,7 +33,7 @@ When merging a branch back to the base state:
   * If both changed, it resolves utilizing a custom arbitrating callback (`resolver`) or last-writer-wins (branch preference).
 
 ## Implementation Details
-* **Source Code Path**: [distributed_state_manager.py](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/harness/distributed_state_manager.py)
+* **Source Code Path**: [distributed_state_manager.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/harness/distributed_state_manager.py)
 * **Pillar**: Agentic Harness Engineering (AHE)
 * **Concept ID**: `CONCEPT:AU-AHE.harness.concept-2`
 

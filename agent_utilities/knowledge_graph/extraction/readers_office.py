@@ -102,7 +102,7 @@ def read_eml(path: str) -> str:
     try:
         msg = BytesParser(policy=policy.default).parsebytes(_read_bytes(path))
     except Exception as exc:  # pragma: no cover - unreadable file
-        logger.debug("read_eml failed for %s: %s", path, exc)
+        logger.debug("read_eml failed (%s)", type(exc).__name__)
         return ""
 
     headers = {f: str(msg.get(f, "") or "").strip() for f in _EMAIL_HEADER_FIELDS}
@@ -147,9 +147,7 @@ def read_msg(path: str) -> str:
         import extract_msg  # type: ignore[import-not-found]
     except ImportError:
         logger.warning(
-            "extract-msg not installed; cannot read %s "
-            "(install with: pip install extract-msg). Skipping.",
-            path,
+            "extract-msg not installed; configured source skipped"
         )
         return ""
     try:
@@ -168,7 +166,7 @@ def read_msg(path: str) -> str:
             pass
         return _format_email(headers, body, source=path)
     except Exception as exc:  # pragma: no cover - corrupt .msg
-        logger.debug("read_msg failed for %s: %s", path, exc)
+        logger.debug("read_msg failed (%s)", type(exc).__name__)
         return ""
 
 
@@ -190,15 +188,13 @@ def read_pptx(path: str) -> str:
         from pptx import Presentation  # type: ignore[import-not-found]
     except ImportError:
         logger.warning(
-            "python-pptx not installed; cannot read %s "
-            "(install with: pip install python-pptx). Skipping.",
-            path,
+            "python-pptx not installed; configured source skipped"
         )
         return ""
     try:
         prs = Presentation(path)
     except Exception as exc:  # pragma: no cover - corrupt pptx
-        logger.debug("read_pptx failed to open %s: %s", path, exc)
+        logger.debug("read_pptx failed (%s)", type(exc).__name__)
         return ""
 
     slides: list[str] = []
@@ -271,16 +267,12 @@ def read_xlsx(path: str) -> str:
     try:
         from openpyxl import load_workbook  # type: ignore[import-not-found]
     except ImportError:
-        logger.warning(
-            "openpyxl not installed; cannot read %s "
-            "(install with: pip install openpyxl). Skipping.",
-            path,
-        )
+        logger.warning("openpyxl not installed; configured source skipped")
         return ""
     try:
         wb = load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:  # pragma: no cover - corrupt xlsx
-        logger.debug("read_xlsx failed to open %s: %s", path, exc)
+        logger.debug("read_xlsx failed (%s)", type(exc).__name__)
         return ""
 
     blocks: list[str] = []
@@ -309,7 +301,7 @@ def read_csv(path: str) -> str:
     try:
         raw = Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError as exc:  # pragma: no cover - unreadable file
-        logger.debug("read_csv failed for %s: %s", path, exc)
+        logger.debug("read_csv failed (%s)", type(exc).__name__)
         return ""
     if not raw.strip():
         return ""
@@ -327,7 +319,7 @@ def read_csv(path: str) -> str:
         reader = csv.reader(raw.splitlines(), delimiter=delimiter)
         rows = [list(r) for r in reader]
     except csv.Error as exc:  # pragma: no cover - malformed csv
-        logger.debug("read_csv parse failed for %s: %s", path, exc)
+        logger.debug("read_csv parse failed (%s)", type(exc).__name__)
         return raw
     return _format_rows(rows)
 

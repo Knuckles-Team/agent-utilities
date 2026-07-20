@@ -8,29 +8,35 @@ embedding models. It supports various providers including OpenAI, Ollama,
 HuggingFace, and local models, with robust environment-based configuration.
 """
 
+import asyncio
 import json
+import math
 import threading
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from agent_utilities._version import __version__ as __version__
 from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     from llama_index.core.embeddings import BaseEmbedding
 
 
-from agent_utilities.base_utilities import to_boolean
 from agent_utilities.core.config import config
-from agent_utilities.core.http_client import create_http_client
+from agent_utilities.core.http_client import (
+    create_async_http_client,
+    create_http_client,
+)
+from agent_utilities.core.model_runtime_auth import (
+    resolve_model_api_key,
+    resolve_model_headers,
+)
 
 try:
     from llama_index.embeddings.ollama import OllamaEmbedding
 except ImportError:
     OllamaEmbedding = None
-
-
-__version__ = "0.2.40"
 
 
 # CONCEPT:AU-KG.compute.config-keyed-embedder-client — process-scoped embedder-client cache.
@@ -69,7 +75,6 @@ def create_embedding_model(
     base_url: str | None = None,
     api_key: str | None = None,
     oauth2: dict[str, Any] | None = None,
-    ssl_verify: bool | str = to_boolean(string=setting("SSL_VERIFY", "true")),
     timeout: float = 300.0,
 ) -> "BaseEmbedding":
     """Initialize an embedding model based on provider and environment.
@@ -83,7 +88,6 @@ def create_embedding_model(
         oauth2: OAuth2 client_credentials block (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle)
             — mutually exclusive with ``api_key``. See
             ``agent_utilities.security.oauth_client_credentials.OAuth2ClientCredentialsConfig``.
-        ssl_verify: Whether to verify SSL certificates.
         timeout: Request timeout in seconds.
 
     Returns:
@@ -95,6 +99,15 @@ def create_embedding_model(
             ``oauth2`` are supplied.
 
     """
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or not 0 < float(timeout) <= 3_600
+    ):
+        raise ValueError(
+            "embedding timeout must be finite and between 0 and 3600 seconds"
+        )
     if oauth2 and api_key:
         raise ValueError(
             "create_embedding_model: 'api_key' and 'oauth2' are mutually exclusive — "
@@ -113,15 +126,11 @@ def create_embedding_model(
     _active_provider = _embed_cfg.provider if _embed_cfg else None
     _active_model = _embed_cfg.id if _embed_cfg else None
     _active_base_url = _embed_cfg.base_url if _embed_cfg else None
-    _active_api_key = _embed_cfg.api_key if _embed_cfg else None
+    _active_api_key_ref = _embed_cfg.api_key_ref if _embed_cfg else None
     _active_oauth2 = _embed_cfg.oauth2 if _embed_cfg else None
-    # Per-model static headers + TLS (mirrors ChatModelConfig): honored natively for the
-    # openai-compatible embedder — a gateway client-id header / a self-signed internal
-    # embedder endpoint work without any global change. ``None`` ssl_verify ⇒ inherit.
-    _active_headers = (
-        dict(_embed_cfg.headers) if _embed_cfg and _embed_cfg.headers else {}
-    )
-    _active_ssl_verify = _embed_cfg.ssl_verify if _embed_cfg else None
+    # Per-model static headers are honored natively. TLS trust is selected only
+    # through the runtime embedding TLS profile.
+    _active_headers_ref = _embed_cfg.headers_ref if _embed_cfg else None
     if provider is None and model is None and base_url is None:
         try:
             from agent_utilities.core.embedding_failover import (
@@ -132,17 +141,12 @@ def create_embedding_model(
             _active_provider = _ep.provider or _active_provider
             _active_model = _ep.model_id or _active_model
             _active_base_url = _ep.base_url or _active_base_url
-            _active_api_key = _ep.api_key or _active_api_key
-            _active_oauth2 = _ep.oauth2 or _active_oauth2
-            # A failed-over embedder carries its OWN headers / TLS while active.
-            if _ep.headers:
-                _active_headers = dict(_ep.headers)
-            if _ep.ssl_verify is not None:
-                _active_ssl_verify = _ep.ssl_verify
+            _active_api_key_ref = _ep.api_key_ref
+            _active_oauth2 = _ep.oauth2
+            # A failed-over embedder carries its own headers while active.
+            _active_headers_ref = _ep.headers_ref
         except Exception:  # noqa: BLE001 — failover is best-effort; keep static defaults
             pass
-    # Per-model TLS (when configured) overrides the caller/global ssl_verify for THIS endpoint.
-    ssl_verify = _active_ssl_verify if _active_ssl_verify is not None else ssl_verify
     provider_str = (
         provider
         or _active_provider
@@ -150,22 +154,34 @@ def create_embedding_model(
         or "openai"
     )
     provider_str = provider_str.lower()
-    model_str = model or _active_model or "text-embedding-nomic-embed-text-v2-moe"
+    model_str = model or _active_model
+    if not model_str:
+        raise ValueError(
+            "No embedding model is configured; set an embedding model in "
+            "AgentConfig or pass model explicitly."
+        )
     base_url_str = (
-        base_url
-        or _active_base_url
-        or (_chat_cfg.base_url if _chat_cfg else None)
-        or "http://vllm-embed.arpa/v1"
+        base_url or _active_base_url or (_chat_cfg.base_url if _chat_cfg else None)
     )
-    api_key_str = (
-        api_key or _active_api_key or (_chat_cfg.api_key if _chat_cfg else None)
+    selected_api_key_ref = _active_api_key_ref
+    oauth2_val: dict[str, Any] | None = oauth2 or _active_oauth2
+    if api_key is None and selected_api_key_ref is None and oauth2_val is None:
+        selected_api_key_ref = _chat_cfg.api_key_ref if _chat_cfg else None
+        oauth2_val = _chat_cfg.oauth2 if _chat_cfg else None
+    api_key_str = resolve_model_api_key(
+        value=api_key,
+        reference=selected_api_key_ref if api_key is None else None,
     )
-    # CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle — an explicit call-site oauth2
-    # wins; else the resolved (possibly failed-over) embedding endpoint's oauth2 block; else the
-    # default chat model's, mirroring the api_key_str fallback chain above.
-    oauth2_val: dict[str, Any] | None = (
-        oauth2 or _active_oauth2 or (_chat_cfg.oauth2 if _chat_cfg else None)
+    selected_headers_ref = _active_headers_ref or (
+        _chat_cfg.headers_ref if _chat_cfg else None
     )
+    _active_headers = resolve_model_headers(reference=selected_headers_ref)
+    # The selected endpoint owns exactly one auth source. A chat-model fallback
+    # is consulted only when the embedder declares neither API-key nor OAuth2.
+    if oauth2_val and api_key_str:
+        raise ValueError(
+            "embedding authentication source is ambiguous"
+        )
 
     if provider_str == "mock":
         raise ValueError(
@@ -178,8 +194,16 @@ def create_embedding_model(
     # construction time even when oauth2 is configured — it is a harmless placeholder in
     # that case, immediately overwritten on every request by the oauth2 httpx.Auth below.
     if provider_str == "openai" and not api_key_str:
-        api_key_str = (
-            "oauth2-managed" if oauth2_val else (config.openai_api_key or "Test-1234")
+        api_key_str = "oauth2-managed" if oauth2_val else config.openai_api_key
+        if not api_key_str:
+            raise ValueError(
+                "The OpenAI-compatible embedding provider requires explicit "
+                "credentials; configure an API-key secret reference or OAuth2."
+            )
+    if provider_str == "ollama" and not base_url_str:
+        raise ValueError(
+            "The Ollama embedding endpoint is not configured; set its base_url "
+            "in AgentConfig or pass base_url explicitly."
         )
 
     # CONCEPT:AU-KG.compute.config-keyed-embedder-client — return the cached client for this exact resolved config
@@ -196,8 +220,6 @@ def create_embedding_model(
         api_key_str,
         oauth2_key,
         headers_key,
-        # Raw value (bool or CA-bundle path str) so a path and `True` cache distinctly.
-        ssl_verify,
         float(timeout),
     )
     cached = _EMBED_MODEL_CACHE.get(cache_key)
@@ -214,7 +236,6 @@ def create_embedding_model(
             base_url_str=base_url_str,
             api_key_str=api_key_str,
             oauth2_cfg=oauth2_val,
-            ssl_verify=ssl_verify,
             timeout=timeout,
             provider=provider,
             headers=_active_headers or None,
@@ -227,9 +248,8 @@ def _build_embedding_model(
     *,
     provider_str: str,
     model_str: str,
-    base_url_str: str,
+    base_url_str: str | None,
     api_key_str: str | None,
-    ssl_verify: bool | str,
     timeout: float,
     provider: str | None,
     oauth2_cfg: dict[str, Any] | None = None,
@@ -252,35 +272,58 @@ def _build_embedding_model(
 
         oauth2_auth = httpx_auth_from_config(oauth2_cfg)
 
-    # TLS verification is ON unless the deployment's SSL_VERIFY flag (or an
-    # explicit ssl_verify=False/CA-path argument) opts out — the canonical factory
-    # keeps verify=True the default; insecure stays a per-call decision. A custom client
-    # (sync + async) is also built when an oauth2 bearer must be injected per-request, or
-    # when static per-model ``headers`` must ride on every request.
+    from agent_utilities.core.transport_security import (
+        TransportSecurityError,
+        resolve_configured_tls_profile,
+    )
+
+    tls_profile = resolve_configured_tls_profile(
+        "embedding",
+        profile_name=config.embedding_tls_profile,
+        profile_ref=config.embedding_tls_profile_ref,
+        config=config,
+    )
+    if tls_profile.proxy_url:
+        raise TransportSecurityError("embedding_proxy_incompatible_with_dns_pinning")
+
+    # OpenAI-compatible embedding requests always use the same DNS-pinned,
+    # finite, redirect-free transport as chat models.  CA/mTLS policy comes
+    # from the runtime TLS profile; no endpoint or certificate material is
+    # copied into durable configuration or traces.
     http_client: httpx.Client | None = None
     async_http_client: httpx.AsyncClient | None = None
-    if not ssl_verify or oauth2_auth is not None or headers:
+    if provider_str == "openai":
         http_client = create_http_client(
-            verify=ssl_verify, timeout=timeout, auth=oauth2_auth, headers=headers
-        )  # nosec B501
-        # The async embed path needs the same per-request injection (bearer + headers);
-        # the insecure-only case keeps its prior sync-only client (unchanged behaviour).
-        if oauth2_auth is not None or headers:
-            from agent_utilities.core.http_client import create_async_http_client
-
-            async_http_client = create_async_http_client(
-                verify=ssl_verify, timeout=timeout, auth=oauth2_auth, headers=headers
-            )
+            verify=tls_profile.ssl_context,
+            timeout=timeout,
+            auth=oauth2_auth,
+            headers=headers,
+            pin_egress=True,
+            allowed_private_hosts=config.model_http_allowed_private_hosts,
+            allow_loopback=False,
+            trust_env=False,
+            follow_redirects=False,
+        )
+        async_http_client = create_async_http_client(
+            verify=tls_profile.ssl_context,
+            timeout=timeout,
+            auth=oauth2_auth,
+            headers=headers,
+            pin_egress=True,
+            allowed_private_hosts=config.model_http_allowed_private_hosts,
+            allow_loopback=False,
+            trust_env=False,
+            follow_redirects=False,
+        )
 
     if provider_str == "openai":
         import sys
 
         from llama_index.embeddings.openai import OpenAIEmbedding
 
-        # One line per distinct embedder config now (cache-miss only), not per call. Never logs
-        # the oauth2 bearer/secret — only the static api_key placeholder, which is a harmless
-        # sentinel ("Test-1234"/"EMPTY"-style) when oauth2 is configured (CONCEPT:AU-OS.identity.oauth2-client-credentials-lifecycle).
-        print(f"Creating OpenAIEmbedding with key={api_key_str}", file=sys.stderr)
+        # One non-sensitive line per distinct embedder config (cache-miss only).
+        # Credentials, endpoints, and filesystem-backed trust material are never logged.
+        print(f"Creating OpenAIEmbedding model={model_str}", file=sys.stderr)
 
         return OpenAIEmbedding(
             model_name=model_str,
@@ -305,12 +348,59 @@ def _build_embedding_model(
     elif provider_str == "ollama":
         if OllamaEmbedding is None:
             raise ImportError("llama-index-embeddings-ollama is not installed.")
-
-        return OllamaEmbedding(
+        if not base_url_str:
+            raise ValueError("Ollama embedding endpoint is not configured")
+        ollama_headers = dict(headers or {})
+        if api_key_str and not any(
+            key.casefold() == "authorization" for key in ollama_headers
+        ):
+            ollama_headers["Authorization"] = f"Bearer {api_key_str}"
+        model_obj = OllamaEmbedding(
             model_name=model_str,
             base_url=base_url_str,
-            timeout=timeout,
+            client_kwargs={
+                "verify": tls_profile.ssl_context,
+                "timeout": timeout,
+                "follow_redirects": False,
+                "trust_env": False,
+                "headers": ollama_headers,
+            },
         )
+        # Ollama constructs its own httpx clients. Replace their transports
+        # before first use so local/private endpoints obey the exact AgentConfig
+        # allow-list and every request is DNS-pinned and peer-verified.
+        safe_sync = create_http_client(
+            base_url=base_url_str,
+            verify=tls_profile.ssl_context,
+            timeout=timeout,
+            headers=ollama_headers,
+            pin_egress=True,
+            allowed_private_hosts=config.model_http_allowed_private_hosts,
+            allow_loopback=False,
+            trust_env=False,
+            follow_redirects=False,
+        )
+        safe_async = create_async_http_client(
+            base_url=base_url_str,
+            verify=tls_profile.ssl_context,
+            timeout=timeout,
+            headers=ollama_headers,
+            pin_egress=True,
+            allowed_private_hosts=config.model_http_allowed_private_hosts,
+            allow_loopback=False,
+            trust_env=False,
+            follow_redirects=False,
+        )
+        old_sync = model_obj._client._client  # noqa: SLF001
+        old_async = model_obj._async_client._client  # noqa: SLF001
+        model_obj._client._client = safe_sync  # noqa: SLF001
+        model_obj._async_client._client = safe_async  # noqa: SLF001
+        old_sync.close()
+        try:
+            asyncio.get_running_loop().create_task(old_async.aclose())
+        except RuntimeError:
+            asyncio.run(old_async.aclose())
+        return model_obj
 
     elif provider_str == "local":
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding

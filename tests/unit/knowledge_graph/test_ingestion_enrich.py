@@ -12,9 +12,56 @@ from typing import Any
 
 import pytest
 
+from agent_utilities.knowledge_graph.enrichment import topic_classifier
 from agent_utilities.knowledge_graph.extraction import fact_extractor
 from agent_utilities.knowledge_graph.extraction.fact_extractor import ExtractedFact
-from agent_utilities.knowledge_graph.ingestion.engine import IngestionEngine
+from agent_utilities.knowledge_graph.ingestion.engine import (
+    ContentType,
+    IngestionEngine,
+    IngestionManifest,
+    IngestionResult,
+)
+
+
+@pytest.fixture(autouse=True)
+def _native_enrichment_slice(monkeypatch):
+    """Apply the native-slice seam to the recording backend without a service."""
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    def _apply(
+        _engine,
+        _connector,
+        entities,
+        relationships=None,
+        *,
+        backend=None,
+        **_kwargs,
+    ):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            backend.add_node(node_id, **row)
+        for relationship in relationships or []:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("type", "")
+            backend.add_edge(source, target, rel_type=rel_type, **row)
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _apply)
+
+
+def _patch_topics_noop(monkeypatch) -> None:
+    """These tests isolate the concepts/facts layers; the topic-classification
+    layer (CONCEPT:AU-KG.enrichment.topic-classification-topology) is covered by its own
+    ``test_topic_classifier.py`` — no-op it here so it doesn't add nodes/edges to
+    the shared recording backend these tests assert exact contents against."""
+
+    async def _noop(*_a: Any, **_kw: Any):  # noqa: ANN401
+        return {"status": "skipped"}
+
+    monkeypatch.setattr(topic_classifier, "classify_and_link_topics", _noop)
 
 
 class _RecordingBackend:
@@ -58,9 +105,32 @@ def _fact_event(**over: Any) -> dict[str, Any]:
     }
 
 
+def test_ingestion_history_boundary_removes_locations_and_content() -> None:
+    result = IngestionResult(
+        manifest=IngestionManifest(
+            content_type=ContentType.DOCUMENT,
+            source_uri="/home/example/private/source.md",
+            metadata={"source_url": "https://private.example.invalid/document"},
+        ),
+        status="failed",
+        error="failed at /home/example/private/source.md",
+        details={"path": "/home/example/private/source.md"},
+        enrichable=[{"text": "contact@example.invalid"}],
+    )
+
+    safe = IngestionEngine._privacy_safe_result(result, retain_enrichable=False)
+    rendered = safe.model_dump_json()
+
+    assert safe.manifest.source_uri.startswith("pref_ingestion_source_")
+    assert safe.enrichable == []
+    assert "/home/example" not in rendered
+    assert "private.example.invalid" not in rendered
+
+
 @pytest.mark.asyncio
 async def test_enrich_text_persists_facts_as_edges(monkeypatch):
     eng, backend = _engine()
+    _patch_topics_noop(monkeypatch)
 
     async def _fake_extract(text: str, **_kw: Any):  # noqa: ANN401
         yield {"type": "round_start", "round": 1}
@@ -87,6 +157,7 @@ async def test_enrich_text_persists_facts_as_edges(monkeypatch):
 @pytest.mark.asyncio
 async def test_enrich_facts_opt_out_skips_llm(monkeypatch):
     eng, backend = _engine()
+    _patch_topics_noop(monkeypatch)
 
     async def _boom(*_a: Any, **_kw: Any):  # noqa: ANN401
         raise AssertionError("fact extraction must not run when enrich_facts=False")
@@ -146,7 +217,9 @@ async def test_ingest_drains_enrichable_payloads_centrally(tmp_path, monkeypatch
 
     assert result.status == "success"
     assert calls and calls[0][1] == "prompt"  # the prompt payload was enriched
-    assert result.details["enrichment"] == {"concepts": 2, "facts": 3}
+    # The stub's return value doesn't include "topics" — _run_inline_enrich
+    # defaults it to 0 via counts.get("topics", 0) (CONCEPT:AU-KG.enrichment.topic-classification-topology).
+    assert result.details["enrichment"] == {"concepts": 2, "facts": 3, "topics": 0}
 
 
 @pytest.mark.asyncio

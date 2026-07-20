@@ -55,7 +55,7 @@ TASK_LANES: dict[str, dict] = {
         # connector_drain = ONE paginated page of a chunked full-corpus drain (CONCEPT:AU-KG.ontology.single-source-full-drain):
         # a single ``source_sync(full)`` of a large source (freshrss's ~11k backlog) fans out as a
         # self-continuing chain of these, draining the whole corpus under this lane's background
-        # priority + the GB10 capacity guard so it can't time out or OOM.
+        # priority + the accelerator capacity guard so it cannot time out or OOM.
         "task_types": frozenset({"connector_sync", "feed_sweep", "connector_drain"}),
         "model_role": "lite",
     },
@@ -72,7 +72,7 @@ TASK_LANES: dict[str, dict] = {
     # CONCEPT:AU-KG.ingest.worldview-stream — the WORLDVIEW stream: relevance-gated news/world-event
     # articles (feed_ingest) build the world model. Its OWN lane so it drains in
     # parallel with — and never head-of-line-blocks behind — research-paper fetch
-    # (which feeds agent-utilities-self-evolution) or the heavy codebase backlog. The
+    # (which feeds agent-utilities-evolution) or the heavy codebase backlog. The
     # world-model gate is the router that splits feed items into research vs here.
     "worldview": {
         "task_types": frozenset({"feed_ingest"}),
@@ -143,6 +143,9 @@ LANE_SOFT_TIMEOUT_SEC: dict[str, float] = {
     "connectors": 180.0,
     "worldview": 300.0,
     "maint": 600.0,
+    # Card-enrichment backfill: bound a wedged tick to minutes, not the 30-min default,
+    # so a stalled card LLM frees its worker promptly (CONCEPT:AU-KG.enrichment.card-attempt-status).
+    "enrichment": 300.0,
     "research": 1800.0,
     "extraction": 1800.0,
     "ingestion": 3600.0,
@@ -202,8 +205,8 @@ _TYPE_TO_LANE: dict[str, str] = {
 #
 # The split is enforced purely at the in-process admission layer
 # (:class:`~.worker_scheduler.AdmissionPolicy`), transport-agnostically, so the
-# executor-swap property of ``TASK_QUEUE_BACKEND`` / ``AGENT_DISPATCH_BACKEND``
-# is preserved: swapping the queue/dispatch backend does not change which lane
+# executor-swap property of ``TASK_QUEUE_BACKEND`` is preserved: swapping the
+# queue backend does not change which lane
 # belongs to which pool or how the two budgets are sized.
 ACQUISITION_POOL = "acquisition"
 MEMORY_GEN_POOL = "memory_gen"
@@ -268,3 +271,29 @@ def lane_task_types(lane: str) -> list[str]:
 def lane_model_role(lane: str) -> str:
     """The model role a lane routes its LLM work to (for create_model role resolution)."""
     return TASK_LANES.get(lane, TASK_LANES[DEFAULT_LANE])["model_role"]
+
+
+def record_lane_metrics(
+    pending_by_lane: dict[str, int], running_by_lane: dict[str, int]
+) -> None:
+    """Publish per-lane queue-depth + in-flight gauges (Phase-0 daemon telemetry, CONCEPT:AU-ORCH.execution.two-level-fair-rotation).
+
+    Reuses the existing ``observability/gateway_metrics`` Prometheus registry —
+    default-on where the optional ``metrics`` extra is configured, a no-op
+    otherwise. Callers already compute both maps for admission control
+    (``_pending_by_lane``/``WorkerRegistry.running_by_lane``) — this just
+    republishes that same snapshot as gauges, one series per lane
+    (``LANE_NAMES`` is small and bounded). Best-effort: telemetry must never
+    break the caller's tick.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            LANE_IN_FLIGHT,
+            LANE_QUEUE_DEPTH,
+        )
+
+        for lane in LANE_NAMES:
+            LANE_QUEUE_DEPTH.labels(lane=lane).set(pending_by_lane.get(lane, 0))
+            LANE_IN_FLIGHT.labels(lane=lane).set(running_by_lane.get(lane, 0))
+    except Exception:  # noqa: BLE001 — telemetry is best-effort, never fatal
+        pass

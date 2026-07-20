@@ -13,6 +13,8 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.models.evidence_bundle import EvidenceBundle
+from agent_utilities.security.error_surface import public_error_json, public_error_text
 
 #: Cypher aggregate functions. A query that calls one of these in a projection
 #: collapses many rows into per-group rows, so it CANNOT be fanned across graphs
@@ -49,8 +51,8 @@ def _parse_ranges(spec: str) -> list[tuple[int, int]]:
         lo_s, hi_s = part.split("..", 1)
         try:
             lo, hi = int(lo_s), int(hi_s)
-        except ValueError as e:
-            raise ValueError(f"invalid range {part!r}: {e}") from e
+        except ValueError:
+            raise ValueError("invalid range") from None
         if hi < lo:
             raise ValueError(f"invalid range {part!r}: end < start")
         out.append((lo, hi))
@@ -86,6 +88,22 @@ def _persist_sections(
         except Exception:  # noqa: BLE001 — best-effort per edge
             pass
     return ok
+
+
+def _json_default(obj: Any) -> Any:
+    """``json.dumps(default=...)`` helper that dataclass-serializes an
+    :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
+    (or any other dataclass instance) instead of stringifying it (CONCEPT:AU-KB-CURRENCY).
+
+    Used wherever a tool's result may carry ``include_epistemic=True`` rows —
+    plain dicts pass through ``json.dumps`` untouched; only genuinely
+    non-serializable values (dataclass instances) reach this hook.
+    """
+    import dataclasses
+
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return dataclasses.asdict(obj)
+    return str(obj)
 
 
 def is_aggregation_cypher(cypher: str) -> bool:
@@ -191,6 +209,41 @@ def build_code_nav_query(
     return cypher, params
 
 
+def _evidence_bundle_for_rows(engine: Any, rows: list[Any]) -> Any:
+    """Build an :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle`
+    over a plain Cypher result ``rows`` for ``graph_query``'s typed response.
+
+    Currency-upgrades ``rows`` the SAME way
+    :meth:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph._attach_epistemic`
+    does for its per-row ``EpistemicRow`` path: extract the distinct ids
+    (:func:`~agent_utilities.knowledge_graph.core.epistemic_row.row_ids_from_plain_rows`),
+    resolve their engine-side epistemic envelope in ONE round-trip via
+    ``engine.graph.explain_provenance_by_ids`` (``Method::ExplainProvenanceByIds``),
+    then fold the resulting ``KnowledgeSet`` rows into ONE aggregate
+    :class:`EvidenceBundle` via :meth:`EvidenceBundle.from_engine_wire` — confidence
+    (top-scored row), freshness (bitemporal min/max), contradictions (scanned across
+    row claims), and policy exclusions, never fabricated. Degrades to an empty
+    bundle (never raises) when the engine has no ``explain_provenance_by_ids``
+    primitive or no row carries a resolvable id.
+    """
+    from agent_utilities.knowledge_graph.core.epistemic_row import (
+        row_ids_from_plain_rows,
+    )
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+    fetch = getattr(getattr(engine, "graph", None), "explain_provenance_by_ids", None)
+    if fetch is None:
+        return EvidenceBundle.from_engine_wire({"rows": []})
+    plain_rows = (
+        [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+    )
+    id_props = row_ids_from_plain_rows(plain_rows)
+    if not id_props:
+        return EvidenceBundle.from_engine_wire({"rows": []})
+    wire_rows = fetch([ip["id"] for ip in id_props]) or []
+    return EvidenceBundle.from_engine_wire({"rows": wire_rows})
+
+
 def _resolve_symbol_id(engine, *, symbol: str, node_id: str) -> dict[str, Any] | None:
     """Resolve a symbol name (or exact id) to its best :Code node row."""
     if node_id:
@@ -274,12 +327,7 @@ def code_connects(
 def register_query_tools(mcp):
     """Register the query_tools group on the given FastMCP server."""
 
-    @mcp.tool(
-        name="graph_query",
-        description="Execute a read-only Cypher query against the Knowledge Graph.",
-        tags=["graph-os", "query"],
-    )
-    def graph_query(
+    def _run_graph_query(
         cypher: str = Field(
             description="A Cypher query string (read-only — no CREATE/MERGE/DELETE)."
         ),
@@ -316,9 +364,27 @@ def register_query_tools(mcp):
                 "get per-connection labeled results."
             ),
         ),
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in for local Cypher "
+                "(ignored on scope='sql'/'sparql'/'federated'). When true, each "
+                "result row is currency-upgraded via the "
+                "engine's `explain_provenance_by_ids` into a per-row epistemic "
+                "envelope — confidence, bitemporal valid/tx time, evidence "
+                "provenance, policy labels — alongside the row's own properties "
+                "(never fabricated, resolved server-side). The widened rows are "
+                "projected into the same EvidenceBundle response. Degrades to an empty "
+                "result when the "
+                "connected backend has no epistemic primitive."
+            ),
+        ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
         parsed_params = json.loads(params) if params else {}
+        include_epistemic_flag = (
+            include_epistemic if isinstance(include_epistemic, bool) else False
+        )
 
         if scope == "sql":
             # CONCEPT:AU-KG.query.read-only-sql-over — read-only SQL over the KG via the engine's
@@ -328,13 +394,13 @@ def register_query_tools(mcp):
             try:
                 entries, errors, fanout = kg_server._resolve_target_engines(target)
             except Exception as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
             if not fanout:
                 _name, engine = entries[0]
                 try:
                     return json.dumps(engine.sql(cypher), default=str)
                 except Exception as e:
-                    return json.dumps({"error": str(e)})
+                    return public_error_json(e)
             results, fan_errors = kg_server.fanout_execute(
                 entries, lambda name, engine: engine.sql(cypher)
             )
@@ -351,13 +417,13 @@ def register_query_tools(mcp):
             try:
                 entries, errors, fanout = kg_server._resolve_target_engines(target)
             except Exception as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
             if not fanout:
                 _name, engine = entries[0]
                 try:
                     return json.dumps(engine.sparql(cypher), default=str)
                 except Exception as e:
-                    return json.dumps({"error": str(e)})
+                    return public_error_json(e)
             results, fan_errors = kg_server.fanout_execute(
                 entries, lambda name, engine: engine.sparql(cypher)
             )
@@ -378,38 +444,23 @@ def register_query_tools(mcp):
                 )
                 return json.dumps(results, default=str)
             except Exception as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
 
-        # Local query — block writes. Match write keywords only as whole Cypher
-        # clause keywords (word boundaries) and ignore quoted string literals, so
-        # identifiers like ``created_at``/``offset`` or a literal ``'CREATE …'`` are
-        # not misread as a mutation. (CONCEPT:AU-KG.backend.multi-connection-registry)
-        import re
-
-        _cypher_no_literals = re.sub(r"'[^']*'|\"[^\"]*\"", "", cypher)
-        _write_kw = re.search(
-            r"\b(CREATE|MERGE|DELETE|REMOVE|DROP|SET)\b",
-            _cypher_no_literals,
-            re.IGNORECASE,
-        )
-        if _write_kw:
-            return json.dumps(
-                {
-                    "error": f"Write operation '{_write_kw.group(1).upper()}' not allowed. Use kg_write for mutations."
-                }
-            )
-
+        # Local reads use each backend's server-enforced read-only transaction.
+        # The native engine requires an explicit read mode and validates it with
+        # the complete parser; external backends without an equivalent contract
+        # fail closed. No lexical query filter is an authorization boundary.
         # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing —
         # with ingestion graph routing on, an implicit-default read fans across the
         # active content-graph set so split content is still queryable as one KG.
         try:
             entries, errors, fanout = kg_server._resolve_read_engines(target)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
         # Whether this fan-out is the implicit content-graph UNION (no explicit
-        # target) — those rows are merged into one flat list to preserve the legacy
-        # JSON-list shape; an explicit ``target='all'``/list keeps the per-target map.
+        # target). Those rows are merged into the canonical ``rows`` field; an
+        # explicit ``target='all'``/list keeps the per-target map.
         _union_read = fanout and (
             target is None
             or (isinstance(target, str) and target.strip().lower() in ("", "default"))
@@ -417,41 +468,59 @@ def register_query_tools(mcp):
 
         # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
         # content-graph union CANNOT be fanned: aggregate rows carry no node id to
-        # dedup on, so the legacy id-dedup leaves one copy of every group row PER
-        # graph (the bug: a Task count repeated ~24×). Summing them generically is
+        # dedup on, so id-dedup leaves one copy of every group row PER
+        # graph (for example, one aggregate row repeated per graph). Summing generically is
         # unsafe (wrong for avg/min/max/distinct). Run the aggregation against the
         # canonical default graph only — control-plane/aggregate reads resolve there.
         if _union_read and is_aggregation_cypher(cypher):
             engine = kg_server._get_engine()
             try:
                 results = engine.query_cypher(
-                    cypher, parsed_params, as_of=as_of or None
+                    cypher,
+                    parsed_params,
+                    as_of=as_of or None,
+                    include_epistemic=include_epistemic_flag,
                 )
-                return json.dumps(results, default=str)
+                return json.dumps({"rows": results}, default=str)
             except Exception as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
 
         if not fanout:
-            # Single connection (default or one named) — identical shape to legacy.
+            # Single connection (default or one named).
             _name, engine = entries[0]
             try:
                 results = engine.query_cypher(
-                    cypher, parsed_params, as_of=as_of or None
+                    cypher,
+                    parsed_params,
+                    as_of=as_of or None,
+                    include_epistemic=include_epistemic_flag,
                 )
-                return json.dumps(results, default=str)
+                if include_epistemic_flag:
+                    return json.dumps({"rows": results}, default=_json_default)
+                return json.dumps(
+                    {
+                        "rows": results,
+                        "evidence_bundle": _evidence_bundle_for_rows(
+                            engine, results
+                        ).model_dump(),
+                    },
+                    default=str,
+                )
             except Exception as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
 
         # Fan-out — per-target timeout so one slow backend can't stall the set.
         results, fan_errors = kg_server.fanout_execute(
             entries,
             lambda name, engine: engine.query_cypher(
-                cypher, parsed_params, as_of=as_of or None
+                cypher,
+                parsed_params,
+                as_of=as_of or None,
+                include_epistemic=include_epistemic_flag,
             ),
         )
         if _union_read:
-            # Merge the per-graph row lists into one flat, id-deduped list so the
-            # unified default query returns the legacy shape (a JSON array of rows).
+            # Merge the per-graph row lists into one id-deduped canonical row set.
             merged: list[Any] = []
             seen_ids: set[str] = set()
             for _name in results:
@@ -462,10 +531,55 @@ def register_query_tools(mcp):
                             continue
                         seen_ids.add(rid)
                     merged.append(row)
-            return json.dumps(merged, default=str)
+            return json.dumps({"rows": merged}, default=_json_default)
         return json.dumps(
-            {"targets": results, "errors": {**errors, **fan_errors}}, default=str
+            {"targets": results, "errors": {**errors, **fan_errors}},
+            default=_json_default,
         )
+
+    @mcp.tool(
+        name="graph_query",
+        description=(
+            "Execute a read-only Cypher, SQL, SPARQL, or federated graph query and "
+            "return the sole typed EvidenceBundle response."
+        ),
+        tags=["graph-os", "query"],
+    )
+    def graph_query(
+        cypher: str = Field(
+            description="A read-only query string; the selected scope determines its dialect."
+        ),
+        params: str = Field(default="{}", description="JSON-encoded query parameters."),
+        scope: str = Field(
+            default="local",
+            description="local | sql | sparql | federated",
+        ),
+        reference_id: str = Field(
+            default="",
+            description="ExternalGraphReference id required for federated queries.",
+        ),
+        as_of: str = Field(
+            default="", description="Optional ISO-8601 bitemporal query instant."
+        ),
+        target: str = Field(
+            default="",
+            description="Named graph connection, 'all', or a connection list.",
+        ),
+        include_epistemic: bool = Field(
+            default=False,
+            description="Resolve per-row epistemic data before building the bundle.",
+        ),
+    ) -> EvidenceBundle:
+        raw = _run_graph_query(
+            cypher=cypher,
+            params=params,
+            scope=scope,
+            reference_id=reference_id,
+            as_of=as_of,
+            target=target,
+            include_epistemic=include_epistemic,
+        )
+        return EvidenceBundle.from_payload(raw, operation="graph_query")
 
     kg_server.REGISTERED_TOOLS["graph_query"] = graph_query
 
@@ -499,19 +613,28 @@ def register_query_tools(mcp):
             description="When false, return only the generated query (preview/dry-run).",
         ),
         limit: int = Field(default=50, description="Max result rows to return."),
-        envelope: str = Field(
-            default="raw",
-            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
-            "(additionally wrap the result as an EvidenceBundle under "
-            "`evidence_bundle`). Additive/opt-in.",
+        include_epistemic: bool = Field(
+            default=False,
+            description=(
+                "CONCEPT:AU-KB-CURRENCY — opt-in. Only takes effect when the "
+                "generated (or forced) query resolves to the 'cypher' dialect "
+                "(sql/sparql have no epistemic-envelope surface, so this is a "
+                "silent no-op for those). When true and honored, `results` holds "
+                "per-row epistemic envelopes (confidence, bitemporal valid/tx "
+                "time, evidence provenance, policy labels) instead of plain rows, "
+                "and `citations` degrades to an empty list."
+            ),
         ),
-    ) -> str:
+    ) -> EvidenceBundle:
         from agent_utilities.knowledge_graph.core.nl_query import nl_to_query
 
         try:
             engine = kg_server._get_engine()
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": f"no active engine: {e}"})
+            return EvidenceBundle.from_payload(
+                public_error_json(e, code="dependency_unavailable"),
+                operation="graph_ask",
+            )
         try:
             result = nl_to_query(
                 engine,
@@ -519,23 +642,13 @@ def register_query_tools(mcp):
                 dialect=str(dialect),
                 execute=bool(execute),
                 limit=int(limit),
+                include_epistemic=bool(include_epistemic),
             )
-            # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
-            # that omits `envelope` binds it to the Field(...) descriptor itself, not
-            # the string default — normalize defensively so that degrades to "raw".
-            envelope_mode = envelope if isinstance(envelope, str) else "raw"
-            if envelope_mode.strip().lower() == "bundle":
-                from agent_utilities.models.evidence_bundle import EvidenceBundle
-
-                result = {
-                    **result,
-                    "evidence_bundle": EvidenceBundle.from_nl_query(
-                        result
-                    ).model_dump(),
-                }
-            return json.dumps(result, default=str)
+            return EvidenceBundle.from_nl_query(result)
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return EvidenceBundle.from_payload(
+                public_error_json(e), operation="graph_ask"
+            )
 
     kg_server.REGISTERED_TOOLS["graph_ask"] = graph_ask
 
@@ -575,19 +688,16 @@ def register_query_tools(mcp):
             description="When false, return only the generated query (preview/dry-run).",
         ),
         limit: int = Field(default=50, description="Max result rows to return."),
-        envelope: str = Field(
-            default="raw",
-            description="'raw' (default; byte-identical legacy shape) or 'bundle' "
-            "(additionally wrap the result as an EvidenceBundle under "
-            "`evidence_bundle`). Additive/opt-in.",
-        ),
-    ) -> str:
+    ) -> EvidenceBundle:
         from agent_utilities.knowledge_graph.core import nl_planner
 
         try:
             engine = kg_server._get_engine()
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": f"no active engine: {e}"})
+            return EvidenceBundle.from_payload(
+                public_error_json(e, code="dependency_unavailable"),
+                operation="nl_query",
+            )
         try:
             result = nl_planner.nl_query(
                 engine,
@@ -597,22 +707,11 @@ def register_query_tools(mcp):
                 execute=bool(execute),
                 limit=int(limit),
             )
-            # A raw direct call (bypassing FastMCP schema resolution / _execute_tool)
-            # that omits `envelope` binds it to the Field(...) descriptor itself, not
-            # the string default — normalize defensively so that degrades to "raw".
-            envelope_mode = envelope if isinstance(envelope, str) else "raw"
-            if envelope_mode.strip().lower() == "bundle":
-                from agent_utilities.models.evidence_bundle import EvidenceBundle
-
-                result = {
-                    **result,
-                    "evidence_bundle": EvidenceBundle.from_nl_query(
-                        result
-                    ).model_dump(),
-                }
-            return json.dumps(result, default=str)
+            return EvidenceBundle.from_nl_query(result)
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return EvidenceBundle.from_payload(
+                public_error_json(e), operation="nl_query"
+            )
 
     kg_server.REGISTERED_TOOLS["nl_query"] = nl_query
     # CONCEPT:AU-KG.query.ask-gateway-rest-twin — gateway REST twin (W1 exposure; MCP⇄REST parity)
@@ -656,7 +755,7 @@ def register_query_tools(mcp):
         try:
             engine = kg_server._get_engine()
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": f"no active engine: {e}"})
+            return public_error_json(e, code="dependency_unavailable")
         try:
             return json.dumps(
                 data_analyst.ask_data(
@@ -669,7 +768,7 @@ def register_query_tools(mcp):
                 default=str,
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ask_data"] = ask_data
     # CONCEPT:AU-KG.query.data-gateway-rest-twin — gateway REST twin (W1 exposure; MCP⇄REST parity)
@@ -727,7 +826,7 @@ def register_query_tools(mcp):
         try:
             engine = kg_server._get_engine()
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": f"no active engine: {e}"})
+            return public_error_json(e, code="dependency_unavailable")
 
         try:
             if action == "ingest":
@@ -779,7 +878,7 @@ def register_query_tools(mcp):
                 return json.dumps(engine.sql(str(sql)), default=str)
             return json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_table"] = graph_table
 
@@ -793,7 +892,7 @@ def register_query_tools(mcp):
             "handoff, persisted in the epistemic-graph so a SEPARATELY-spawned agent can read "
             "it by id. Actions: 'put' (store content, returns context_id), 'get' (fetch by "
             "context_id), 'list' (by session_id). Pass the returned context_id to "
-            "graph_orchestrate(action='execute_agent', context_ref=...)."
+            "graph_orchestrate(context_ref=...)."
         ),
         tags=["graph-os", "orchestrate", "context"],
     )
@@ -821,8 +920,8 @@ def register_query_tools(mcp):
         if action == "put":
             if not content:
                 return json.dumps({"error": "content required for put"})
-            sid = session_id or _uuid.uuid4().hex[:8]
-            cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex[:6]}"
+            sid = session_id or _uuid.uuid4().hex
+            cid = context_id or f"ctx:{sid}:{key or _uuid.uuid4().hex}"
             engine.add_node(
                 cid,
                 "ContextBlob",
@@ -866,7 +965,7 @@ def register_query_tools(mcp):
                     return json.dumps({"error": "context expired", "expired": True})
                 return json.dumps(row, default=str)
             except Exception as exc:  # noqa: BLE001
-                return json.dumps({"error": str(exc)})
+                return public_error_json(exc)
         if action == "prune":
             # Delete expired ContextBlobs (CONCEPT:AU-ORCH.session.invoker-agent-handoff lifecycle).
             try:
@@ -886,7 +985,7 @@ def register_query_tools(mcp):
                             pruned += 1
                 return json.dumps({"pruned": pruned, "expired": len(rows or [])})
             except Exception as exc:  # noqa: BLE001
-                return json.dumps({"error": str(exc)})
+                return public_error_json(exc)
         if action == "list":
             try:
                 # CONCEPT:AU-ORCH.session.session-anchored-collections-native — id-anchored traversal from the Session node (the engine's
@@ -911,7 +1010,7 @@ def register_query_tools(mcp):
                 items.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
                 return json.dumps(items[:50], default=str)
             except Exception as exc:  # noqa: BLE001
-                return json.dumps({"error": str(exc)})
+                return public_error_json(exc)
         return json.dumps({"error": f"unknown action: {action}"})
 
     kg_server.REGISTERED_TOOLS["graph_context"] = graph_context
@@ -927,7 +1026,7 @@ def register_query_tools(mcp):
             "Actions: 'open' (session_id+run_id → channel_id), 'send' (channel_id+sender+payload "
             "[+durable]), 'receive' (channel_id [+since cursor] → new messages + cursor), "
             "'history' (durable replay, survives restart), 'close'. Use the channel_id returned "
-            "by graph_orchestrate(execute_agent, open_channel=True) to talk to the spawned agent."
+            "by graph_orchestrate(open_channel=True) to talk to the spawned agent."
         ),
         tags=["graph-os", "orchestrate", "messaging"],
     )
@@ -968,7 +1067,14 @@ def register_query_tools(mcp):
                 }
             )
         if action == "receive":
-            msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
+            try:
+                msgs, cursor = agent_channel.receive(engine, channel_id, since=since)
+            except agent_channel.ChannelNotFoundError:
+                # BUG-8: surface the not-found condition instead of a silent
+                # empty result indistinguishable from "no new messages".
+                return json.dumps(
+                    {"error": "channel not found", "channel_id": channel_id}
+                )
             return json.dumps({"messages": msgs, "cursor": cursor}, default=str)
         if action == "history":
             return json.dumps(
@@ -993,7 +1099,7 @@ def register_query_tools(mcp):
         query: str = Field(description="Natural language search query or concept ID."),
         mode: str = Field(
             default="hybrid",
-            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:AU-KG.retrieval.self-correcting-second-pass).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'AU-KG.query.vendor-agnostic-traversal', 'AU-ORCH.execution.inject-signal-board-observations').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:AU-KG.query.adore-concept-expansion/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).",
+            description="Search strategy:\n- 'hybrid': Semantic + keyword weighted search (default).\n- 'hyde': Memory-first HyDE multi-query plan + dual threshold (CONCEPT:AU-KG.retrieval.self-correcting-second-pass).\n- 'deep': Wide-recall single query at the 0.28 deep threshold.\n- 'concept': Look up a CONCEPT:ID (e.g. 'AU-KG.query.vendor-agnostic-traversal', 'AU-ORCH.execution.inject-signal-board-observations').\n- 'analogy': Find structurally similar concepts.\n- 'memory': Search tiered memory (episodic/semantic/procedural).\n- 'discover': Cross-reference query against all ingested content.\n- 'dci': Direct Corpus Interaction.\n- 'latent': Latent-topology hierarchical routing (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'sira': Single-shot SIRA sparsity-aligned context.\n- 'hard_negatives': Mine hard negatives for the query (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).\n- 'rerank': Hybrid semantic+keyword re-scoring of candidates.\n- 'adore': Iterative query expansion with retrieval-grounded graded relevance feedback + training-free stopping (CONCEPT:AU-KG.query.adore-concept-expansion/2.87).\n- 'chrono_ids': Attach an explicit temporal semantic ID (+recency bucket) to each result for generative retrieval (CONCEPT:AU-KG.query.chronoid-fits-residual-quantization).\n- 'compiled': Policy-aware ``ContextCompiler`` bundle (CONCEPT:AU-KG.retrieval.context-compiler) — MMR-diversified, evidence/freshness-weighted, token-budgeted, policy-filtered context with citations + a proof graph, instead of the plain relevance-sorted text the other modes return.",
         ),
         top_k: int = Field(default=10, description="Maximum results to return."),
         self_correct: bool = Field(
@@ -1012,6 +1118,13 @@ def register_query_tools(mcp):
                 "fan out and get per-connection labeled results."
             ),
         ),
+        token_budget: int = Field(
+            default=0,
+            description=(
+                "mode='compiled' only: token budget the assembled bundle must fit "
+                "inside (CONCEPT:AU-KG.retrieval.context-compiler). 0 uses the compiler's default budget."
+            ),
+        ),
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
 
@@ -1021,7 +1134,7 @@ def register_query_tools(mcp):
             try:
                 return _search_with_engine(engine)
             except Exception as e:
-                return f"Search error: {str(e)}"
+                return public_error_text(e)
 
         def _search_with_engine(engine: Any) -> str:
             if mode in ("hyde", "deep"):
@@ -1115,12 +1228,38 @@ def register_query_tools(mcp):
                     except Exception:  # noqa: BLE001
                         qemb = []
                 results = HybridSearchScorer().score_documents(query, qemb, docs)
+            elif mode == "compiled":
+                # CONCEPT:AU-KG.retrieval.context-compiler — policy-aware ContextCompiler bundle: reuses the
+                # SAME engine ANN/hybrid retriever the other modes call, but
+                # additionally MMR-diversifies, scores evidence-quality/freshness
+                # from the epistemic columns (EPI-P3-1), fits a token budget, and
+                # runs every candidate through the live permissioning gate before
+                # returning citations + a proof graph — replacing the plain
+                # relevance-sorted concat the branch below performs for every
+                # other mode.
+                from agent_utilities.knowledge_graph.core.session import (
+                    GraphSession,
+                )
+                from agent_utilities.knowledge_graph.retrieval.context_compiler import (  # noqa: E501
+                    ContextCompiler,
+                )
+
+                session = GraphSession.from_ambient()
+                compiler = ContextCompiler(engine)
+                kwargs: dict[str, Any] = {"top_k": top_k, "as_of": as_of or None}
+                if token_budget:
+                    kwargs["token_budget"] = token_budget
+                bundle = compiler.compile(query, session=session, **kwargs)
+                return bundle.as_text()
             else:
                 return f"Error: Unknown search mode '{mode}'"
 
             if not results:
                 return f"No results found for query: '{query}'"
 
+            # The direct retrieval modes use a flat, score-sorted text block with no
+            # diversity/evidence/freshness/policy/budget shaping — prefer
+            # mode='compiled' for a citation- and proof-graph-bearing bundle.
             formatted_results = []
             for res in results:
                 score = res.get("score", 0)
@@ -1141,15 +1280,55 @@ def register_query_tools(mcp):
         try:
             entries, errors, fanout = kg_server._resolve_read_engines(target)
         except Exception as e:
-            return f"Search error: {str(e)}"
+            return public_error_text(e)
 
         if not fanout:
             return _run_search(entries[0][1])
 
-        # Fan-out — per-target timeout so one slow backend can't stall the set.
-        results, fan_errors = kg_server.fanout_execute(
-            entries, lambda name, engine: _run_search(engine)
+        # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
+        # (no ``target`` passed, or explicitly "default") fans across every active
+        # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
+        # connections, often idle/unreachable. An explicit ``target='all'``/list is
+        # a deliberate cross-repo search and keeps the full per-backend budget.
+        is_implicit_target = target is None or (
+            isinstance(target, str) and target.strip().lower() in ("", "default")
         )
+        if is_implicit_target:
+            # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
+            # primary ``__commons__`` + control-plane content and is the source of
+            # the real ranked hits. So run it separately at the normal budget
+            # (never the skip-timeout) and apply the SHORT skip-timeout ONLY to the
+            # supplementary content backends. Under a wide implicit fan-out (~70
+            # ``code:*`` graphs) a single shared short wall-clock across ALL targets
+            # starved the primary — it was queued behind the hung code backends and
+            # timed out too, so the search returned zero results even though the
+            # engine was healthy. Splitting the primary out fixes that: a search
+            # still returns the primary's real hits in a few seconds when every
+            # supplementary backend is dead.
+            primary = [(n, e) for n, e in entries if n == "default"]
+            supplementary = [(n, e) for n, e in entries if n != "default"]
+            # Robustness: if the resolver produced no ``default`` entry, treat the
+            # first as primary so SOMETHING always grounds at the full budget.
+            if not primary and entries:
+                primary, supplementary = [entries[0]], entries[1:]
+            results: dict[str, Any] = {}
+            fan_errors: dict[str, str] = {}
+            for name, engine in primary:
+                results[name] = _run_search(engine)
+            if supplementary:
+                sup_results, sup_errors = kg_server.fanout_execute(
+                    supplementary,
+                    lambda name, engine: _run_search(engine),
+                    timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
+                )
+                results.update(sup_results)
+                fan_errors.update(sup_errors)
+        else:
+            # Explicit cross-repo fan-out — per-target timeout at the full budget so
+            # one slow backend can't stall the set.
+            results, fan_errors = kg_server.fanout_execute(
+                entries, lambda name, engine: _run_search(engine)
+            )
         out_lines = [f"=== {name} ===\n{results[name]}" for name in results]
         out_lines += [
             f"=== {name} (error) ===\n{err}"
@@ -1217,7 +1396,7 @@ def register_query_tools(mcp):
             try:
                 trajs = _json.loads(trajectories) if trajectories else []
             except Exception as e:  # noqa: BLE001
-                return f"Error: invalid trajectories JSON: {e}"
+                return public_error_text(e)
             return _json.dumps(realized_difficulty(trajs))
 
         if action != "synthesize":
@@ -1232,12 +1411,10 @@ def register_query_tools(mcp):
                 self._eng = eng
 
             def query(self, cypher: str, params: Any = None) -> list[dict[str, Any]]:
-                backend = getattr(self._eng, "backend", None)
-                if backend is not None and hasattr(backend, "execute"):
-                    return backend.execute(cypher, params or {}) or []
-                if hasattr(self._eng, "query"):
-                    return self._eng.query(cypher, params or {}) or []
-                return []
+                query_cypher = getattr(self._eng, "query_cypher", None)
+                if not callable(query_cypher):
+                    raise RuntimeError("authoritative graph query service unavailable")
+                return query_cypher(cypher, params or {}) or []
 
         engine = kg_server._get_engine()
         if not engine:
@@ -1253,7 +1430,7 @@ def register_query_tools(mcp):
                 max_per_source=max_per_source,
             )
         except Exception as e:  # noqa: BLE001
-            return f"Synthesis error: {str(e)}"
+            return public_error_text(e)
         return _json.dumps(task.to_dict())
 
     kg_server.REGISTERED_TOOLS["graph_search_synthesis"] = graph_search_synthesis
@@ -1330,7 +1507,7 @@ def register_query_tools(mcp):
                     default=str,
                 )
             except Exception as e:  # noqa: BLE001
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
 
         try:
             cypher, qparams = build_code_nav_query(
@@ -1342,13 +1519,13 @@ def register_query_tools(mcp):
                 limit=limit,
             )
         except ValueError as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
         try:
             rows = engine.query_cypher(cypher, qparams)
             return json.dumps({"action": action, "results": rows}, default=str)
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_code_nav"] = graph_code_nav
 
@@ -1476,7 +1653,7 @@ def register_query_tools(mcp):
             try:
                 parsed = _parse_ranges(ranges)
             except ValueError as e:
-                return json.dumps({"error": str(e)})
+                return public_error_json(e)
             roots = HierarchicalDocumentRetriever(engine).load_tree(document_id)
             if not roots:
                 return json.dumps(

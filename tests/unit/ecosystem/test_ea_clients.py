@@ -7,7 +7,7 @@ from agent_utilities.ecosystem.ea_clients import LeanixEAClient, get_leanix_clie
 
 
 def _client() -> LeanixEAClient:
-    c = LeanixEAClient("https://demo.leanix.net", "tok", verify_ssl=False)
+    c = LeanixEAClient("https://demo.leanix.net", "tok")
     c._bearer = "bearer"  # skip token exchange
     return c
 

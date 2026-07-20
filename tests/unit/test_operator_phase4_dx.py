@@ -41,14 +41,14 @@ def test_record_gotcha_pins_node_with_normalized_path():
     assert node["type"] == "Gotcha"
     # path normalized off the /au mount
     assert node["path"].startswith(
-        "/home/apps/workspace/agent-packages/agent-utilities/"
+        "/home/agent-user/workspace/agent-packages/agent-utilities/"
     )
     assert "hangs" in node["note"]
 
 
 @pytest.mark.concept("AU-KG.ingest.gotcha-feedback-capture")
 def test_code_context_surfaces_gotchas_in_how():
-    _CANON = "/home/apps/workspace/agent-packages/agent-utilities/x.py"
+    _CANON = "/home/agent-user/workspace/agent-packages/agent-utilities/x.py"
 
     class _Engine:
         def query_cypher(self, cypher, params):
@@ -119,7 +119,7 @@ def test_execute_redeploy_confirm_blocks_without_restart_mechanic(monkeypatch):
 @pytest.mark.concept("AU-OS.deployment.os-2")
 @pytest.mark.parametrize(
     "script",
-    ["validate_change.py", "scaffold_graph_action.py", "reserve_concepts_hook.py"],
+    ["validate_change.py", "scaffold_graph_action.py"],
 )
 def test_dx_scripts_have_help(script):
     res = subprocess.run(
@@ -128,6 +128,6 @@ def test_dx_scripts_have_help(script):
         text=True,
         timeout=30,
     )
-    # --help exits 0 for argparse scripts; reserve_concepts_hook has no argparse
+    # --help exits 0 for argparse scripts.
     # so it treats --help as a filename and exits 0 (no markers found).
     assert res.returncode == 0

@@ -62,6 +62,58 @@ def test_runtime_allowlist_not_dead(tmp_path: Path) -> None:
     assert _types(report, "DEAD") == set()
 
 
+def test_platform_runtime_inputs_are_not_provider_configuration(
+    tmp_path: Path,
+) -> None:
+    """Locale and Windows platform inputs need no provider env documentation."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=https://service.example.invalid\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {"env": {"MCP_TOOL_MODE": "intent"}},
+            }
+        },
+        code=(
+            "import os\n"
+            'os.getenv("LC_ALL")\n'
+            'os.getenv("SYSTEMROOT")\n'
+            'os.getenv("PROGRAMFILES")\n'
+            'setting("DEMO_BASE_URL", "")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    platform_inputs = {"LC_ALL", "SYSTEMROOT", "PROGRAMFILES"}
+    assert platform_inputs.isdisjoint(_types(report, "UNDOCUMENTED"))
+    declared = (root / ".env.example").read_text(encoding="utf-8")
+    assert all(name not in declared for name in platform_inputs)
+
+
+def test_parent_injected_provider_profile_is_not_public_configuration(
+    tmp_path: Path,
+) -> None:
+    """The GraphOS child selector is internal and needs no provider env entry."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=https://service.example.invalid\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {"env": {"MCP_TOOL_MODE": "intent"}},
+            }
+        },
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            'setting("AGENT_PROVIDER_PROFILE", "")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    assert "AGENT_PROVIDER_PROFILE" not in _types(report, "UNDOCUMENTED")
+    assert "AGENT_PROVIDER_PROFILE" not in (root / ".env.example").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_missing_tool_mode_flagged(tmp_path: Path) -> None:
     """An mcp_config env block without MCP_TOOL_MODE is flagged."""
     root = _make_pkg(
@@ -74,8 +126,8 @@ def test_missing_tool_mode_flagged(tmp_path: Path) -> None:
     assert "MCP_TOOL_MODE" in _types(report, "MISSING_TOOL_MODE")
 
 
-def test_host_alias_not_undocumented(tmp_path: Path) -> None:
-    """A legacy host alias (DEMO_HOST) is not UNDOCUMENTED when DEMO_BASE_URL is documented."""
+def test_upstream_host_not_undocumented(tmp_path: Path) -> None:
+    """An upstream SDK host input is covered by its documented service host."""
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
@@ -111,6 +163,44 @@ def test_os_getenv_read_not_dead(tmp_path: Path) -> None:
     report = drift.analyze(root)
     assert "HARVEST_HOST" not in _types(report, "DEAD")
     assert "HARVEST_PORT" not in _types(report, "DEAD")
+
+
+def test_multiline_and_wrapped_reads_are_discovered(tmp_path: Path) -> None:
+    """AST discovery covers multiline and package-local config wrappers."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_TOKEN=\nDEMO_GATE=true\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            "def _setting(name, default):\n"
+            "    return setting(name, default)\n"
+            "setting(\n"
+            "    'DEMO_TOKEN',\n"
+            "    '',\n"
+            ")\n"
+            "_setting('DEMO_GATE', 'true')\n"
+        ),
+    )
+    report = drift.analyze(root)
+    assert "DEMO_TOKEN" not in _types(report, "DEAD")
+    assert "DEMO_GATE" not in _types(report, "DEAD")
+
+
+def test_test_only_reads_are_not_deployment_configuration(tmp_path: Path) -> None:
+    """Test fixtures never expand a package's public runtime configuration."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        code='setting("DEMO_BASE_URL", "")\n',
+    )
+    tests = root / "tests"
+    tests.mkdir()
+    (tests / "test_fixture.py").write_text(
+        'setting("TEST_ONLY_RUNTIME_INPUT", "")\n', encoding="utf-8"
+    )
+    assert "TEST_ONLY_RUNTIME_INPUT" not in _types(drift.analyze(root), "UNDOCUMENTED")
 
 
 def test_env_write_not_a_read(tmp_path: Path) -> None:

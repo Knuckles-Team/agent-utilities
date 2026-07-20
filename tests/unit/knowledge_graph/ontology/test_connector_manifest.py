@@ -4,7 +4,7 @@ Covers (CONCEPT:AU-KG.ontology.connector-manifest-schema / -compiler / supply-ch
 
   * schema round-trips (pydantic validate/dump),
   * canonical-hash **serialization-order invariance** (URDNA2015-equivalent),
-  * HMAC sign/verify + fail-closed (unsigned / unknown-signer / tampered),
+  * Ed25519 release signing + fail-closed verification,
   * the compiler's **anti-sprawl refusal** and **fail-closed signature check** in
     ``apply_manifest``,
   * the **golden-file LeanIX regression** — the generalized compiler reproduces the
@@ -14,6 +14,10 @@ Covers (CONCEPT:AU-KG.ontology.connector-manifest-schema / -compiler / supply-ch
 
 from __future__ import annotations
 
+import base64
+import secrets
+
+import pytest
 import rdflib
 
 from agent_utilities.knowledge_graph.ontology import ontology_integrity as oi
@@ -56,6 +60,16 @@ META_MODEL = {
 }
 
 
+@pytest.fixture(autouse=True)
+def release_signing_key(monkeypatch):
+    private_key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
+    monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL", private_key)
+    monkeypatch.setenv(
+        "ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF",
+        "env://ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL",
+    )
+
+
 def _signed_manifest(connector: str = "servicenow") -> ConnectorManifest:
     """Build a minimal, correctly-signed manifest for compiler tests."""
     resources = [
@@ -84,12 +98,21 @@ def _signed_manifest(connector: str = "servicenow") -> ConnectorManifest:
     g = rdflib.Graph()
     g.parse(data=ttl, format="turtle")
     digest, n = oi.canonical_hash(g)
+    signer = oi.ReleaseSigner.from_runtime()
     prov = ProvenanceSpec(
         integrity=IntegrityInfo(hash=digest, triple_count=n),
-        signer=oi.DEFAULT_SIGNER_ID,
-        signature=oi.sign(digest, signer_id=oi.DEFAULT_SIGNER_ID),
+        signer=signer.signer_id,
+        signature_algorithm=signer.algorithm,
+        signing_public_key=signer.public_key,
     )
-    return base.model_copy(update={"provenance": prov})
+    unsigned = base.model_copy(update={"provenance": prov})
+    return unsigned.model_copy(
+        update={
+            "provenance": prov.model_copy(
+                update={"signature": signer.sign(oi.canonical_manifest_hash(unsigned))}
+            )
+        }
+    )
 
 
 # ── schema ────────────────────────────────────────────────────────────────────
@@ -149,29 +172,61 @@ def test_canonical_hash_is_serialization_order_invariant():
     assert oi.canonical_hash(g3)[0] != h0
 
 
-# ── sign / verify fail-closed (X6) ──────────────────────────────────────────────
-
-
-def test_sign_verify_roundtrip_and_fail_closed():
+def test_release_sign_verify_is_public_and_deterministic():
     digest = "d" * 64
-    sig = oi.sign(digest)
-    assert oi.verify(digest, sig, signer_id=oi.DEFAULT_SIGNER_ID)
-    # unsigned → False
-    assert not oi.verify(digest, None, signer_id=oi.DEFAULT_SIGNER_ID)
-    assert not oi.verify(digest, "", signer_id=oi.DEFAULT_SIGNER_ID)
-    # unknown signer (not in allowlist) → False
-    assert not oi.verify(digest, sig, signer_id="mallory")
-    assert not oi.verify(
-        digest, sig, signer_id=oi.DEFAULT_SIGNER_ID, allowlist=("someone-else",)
-    )
-    # tampered signature → False
-    assert not oi.verify(
+    signer_one = oi.ReleaseSigner.from_runtime()
+    signer_two = oi.ReleaseSigner.from_runtime()
+    signature = signer_one.sign(digest)
+
+    assert signer_one.public_key == signer_two.public_key
+    assert signature == signer_two.sign(digest)
+    assert oi.verify_release_signature(
         digest,
-        sig[:-1] + ("0" if sig[-1] != "0" else "1"),
-        signer_id=oi.DEFAULT_SIGNER_ID,
+        signature,
+        signer_id=signer_one.signer_id,
+        algorithm=signer_one.algorithm,
+        public_key=signer_one.public_key,
+        trusted_public_keys=(signer_one.public_key,),
     )
-    # tampered hash (signature no longer matches) → False
-    assert not oi.verify("e" * 64, sig, signer_id=oi.DEFAULT_SIGNER_ID)
+    assert not oi.verify_release_signature(
+        "e" * 64,
+        signature,
+        signer_id=signer_one.signer_id,
+        algorithm=signer_one.algorithm,
+        public_key=signer_one.public_key,
+        trusted_public_keys=(signer_one.public_key,),
+    )
+    tampered_signature = signature[:-1] + ("A" if signature[-1] != "A" else "B")
+    assert not oi.verify_release_signature(
+        digest,
+        tampered_signature,
+        signer_id=signer_one.signer_id,
+        algorithm=signer_one.algorithm,
+        public_key=signer_one.public_key,
+        trusted_public_keys=(signer_one.public_key,),
+    )
+    assert not oi.verify_release_signature(
+        digest,
+        signature,
+        signer_id=signer_one.signer_id,
+        algorithm=signer_one.algorithm,
+        public_key=signer_one.public_key,
+        trusted_public_keys=(),
+    )
+
+
+def test_release_signer_refuses_missing_or_malformed_runtime_key(monkeypatch):
+    monkeypatch.delenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", raising=False)
+    with pytest.raises(oi.ReleaseSigningError):
+        oi.ReleaseSigner.from_runtime()
+
+    monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL", "not-a-raw-key")
+    monkeypatch.setenv(
+        "ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF",
+        "env://ONTOLOGY_RELEASE_SIGNING_TEST_MATERIAL",
+    )
+    with pytest.raises(oi.ReleaseSigningError):
+        oi.ReleaseSigner.from_runtime()
 
 
 # ── compiler ───────────────────────────────────────────────────────────────────
@@ -214,7 +269,12 @@ def test_apply_manifest_writes_when_signed_and_wired(tmp_path, monkeypatch):
     target = (
         tmp_path / "ontology_servicenow.ttl"
     )  # exists=False, but source is federated-wired
-    result = apply_manifest(m, ttl_path=target, dry_run=False)
+    result = apply_manifest(
+        m,
+        ttl_path=target,
+        dry_run=False,
+        trusted_public_keys=(str(m.provenance.signing_public_key),),
+    )
     assert target.exists()
     assert result["canonical_hash"] == m.provenance.integrity.hash
     assert {"incident", "configurationitem"} <= owl_bridge.DYNAMIC_PROMOTABLE_NODE_TYPES
@@ -227,7 +287,12 @@ def test_apply_manifest_fail_closed_on_bad_signature(tmp_path):
     )
     target = tmp_path / "ontology_servicenow.ttl"
     try:
-        apply_manifest(tampered, ttl_path=target, dry_run=False)
+        apply_manifest(
+            tampered,
+            ttl_path=target,
+            dry_run=False,
+            trusted_public_keys=(str(m.provenance.signing_public_key),),
+        )
         raise AssertionError("expected SignatureVerificationError")
     except SignatureVerificationError:
         pass
@@ -245,7 +310,12 @@ def test_apply_manifest_fail_closed_on_tampered_hash(tmp_path):
     )
     target = tmp_path / "ontology_servicenow.ttl"
     try:
-        apply_manifest(tampered, ttl_path=target, dry_run=False)
+        apply_manifest(
+            tampered,
+            ttl_path=target,
+            dry_run=False,
+            trusted_public_keys=(str(m.provenance.signing_public_key),),
+        )
         raise AssertionError("expected SignatureVerificationError on hash mismatch")
     except SignatureVerificationError:
         pass
@@ -257,7 +327,12 @@ def test_apply_manifest_anti_sprawl_refusal(tmp_path):
     m = _signed_manifest(connector="totally-new-unwired-source")
     target = tmp_path / "ontology_totally-new-unwired-source.ttl"  # does not exist
     try:
-        apply_manifest(m, ttl_path=target, dry_run=False)
+        apply_manifest(
+            m,
+            ttl_path=target,
+            dry_run=False,
+            trusted_public_keys=(str(m.provenance.signing_public_key),),
+        )
         raise AssertionError("expected AntiSprawlError")
     except AntiSprawlError as exc:
         assert "owl:imports" in str(exc)

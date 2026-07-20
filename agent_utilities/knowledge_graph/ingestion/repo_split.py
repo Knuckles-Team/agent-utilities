@@ -2,7 +2,7 @@
 """Deterministic big-repo split planner (CONCEPT:AU-KG.ingest.big-repo-structural-split).
 
 The tail problem this removes. A single huge repo (agent-utilities, epistemic-graph:
-thousands of files) is ONE ``codebase`` :Task → ONE per-repo graph (``code:<repo>``,
+thousands of files) is ONE ``codebase`` WorkItem → ONE per-repo graph (``code:<repo>``,
 KG-2.269) → ONE redb shard writer (EG-026). Its structural write therefore
 *serialises* on one writer thread and pins one worker for many minutes (live tail:
 codebase p50=36s but p95=650s / max=797s), while the other K-1 shard writers sit

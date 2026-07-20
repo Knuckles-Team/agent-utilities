@@ -7,9 +7,9 @@ from __future__ import annotations
 from agent_utilities.knowledge_graph.core.ogm import KGMapper, kg_label, resolve_label
 from agent_utilities.models.knowledge_graph import (
     AgentNode,
+    MemoryRetrieverNode,
     ProposalNode,
     RegistryNodeType,
-    SelfModelNode,  # type: ignore[attr-defined]
     SwarmCoalitionNode,
 )
 
@@ -86,7 +86,7 @@ class TestKGMapperUpsert:
         node = AgentNode(
             id="agent:test",
             name="Test Agent",
-            agent_type="mcp",
+            agent_type="specialist",
         )
         result_id = mapper.upsert(node)
 
@@ -102,7 +102,7 @@ class TestKGMapperUpsert:
         node = AgentNode(
             id="agent:test",
             name="Test Agent",
-            agent_type="mcp",
+            agent_type="specialist",
         )
         mapper.upsert(node)
 
@@ -113,7 +113,7 @@ class TestKGMapperUpsert:
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
-        node = SelfModelNode(
+        node = MemoryRetrieverNode(
             id="sm:001",
             name="Self-Model v1",
             version=1,
@@ -133,7 +133,7 @@ class TestKGMapperLoad:
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
-        node = SelfModelNode(
+        node = MemoryRetrieverNode(
             id="sm:001",
             name="Self-Model v1",
             version=1,
@@ -141,7 +141,7 @@ class TestKGMapperLoad:
         )
         mapper.upsert(node)
 
-        loaded = mapper.load("sm:001", SelfModelNode)
+        loaded = mapper.load("sm:001", MemoryRetrieverNode)
         assert loaded is not None
         assert loaded.id == "sm:001"
         assert loaded.version == 1
@@ -151,7 +151,7 @@ class TestKGMapperLoad:
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
-        loaded = mapper.load("nonexistent", SelfModelNode)
+        loaded = mapper.load("nonexistent", MemoryRetrieverNode)
         assert loaded is None
 
 
@@ -160,7 +160,7 @@ class TestKGMapperDelete:
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
-        node = AgentNode(id="agent:del", name="Delete Me", agent_type="mcp")
+        node = AgentNode(id="agent:del", name="Delete Me", agent_type="specialist")
         mapper.upsert(node)
         assert "agent:del" in engine.graph
 
@@ -203,7 +203,7 @@ class TestKGMapperWatch:
 
         mapper.watch("Agent", on_change)
 
-        node = AgentNode(id="agent:watch", name="Watched", agent_type="mcp")
+        node = AgentNode(id="agent:watch", name="Watched", agent_type="specialist")
         mapper.upsert(node)
 
         assert len(events) == 1
@@ -222,7 +222,7 @@ class TestCustomLabel:
         engine = FakeEngine()
         mapper = KGMapper(engine)
 
-        node = MyNode(id="custom:1", name="Custom", agent_type="mcp")
+        node = MyNode(id="custom:1", name="Custom", agent_type="specialist")
         label = mapper._get_label(node)
         assert label == "CustomLabel"
 
@@ -232,7 +232,7 @@ class TestCustomLabel:
 
 class TestNewNodeTypes:
     def test_self_model_node_creation(self):
-        node = SelfModelNode(
+        node = MemoryRetrieverNode(
             id="sm:test",
             name="Test Self-Model",
             version=3,

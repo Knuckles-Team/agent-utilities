@@ -192,8 +192,8 @@ class MementoCompaction(AbstractCapability[Any]):
             new_messages, n_evicted = self.mementoize_messages(
                 list(messages), budget_tokens=trigger, engine=engine
             )
-        except Exception as e:  # noqa: BLE001 - compaction must never break the run
-            logger.warning("Memento compaction failed, sending full history: %s", e)
+        except Exception:  # noqa: BLE001 - compaction must never break the run
+            logger.warning("Memento compaction failed; sending full in-memory history")
             return request_context
         if n_evicted:
             logger.info(

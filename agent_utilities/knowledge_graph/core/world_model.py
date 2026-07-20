@@ -404,7 +404,7 @@ class WorldModel:
 
         try:
             self.engine.add_node(
-                f"wm_transition:{uuid.uuid4().hex[:12]}",
+                f"wm_transition:{uuid.uuid4().hex}",
                 "WorldModelTransition",
                 properties={
                     "state": state,
@@ -426,7 +426,7 @@ class WorldModel:
         import json
         import uuid
 
-        rollout_id = f"wm_rollout:{uuid.uuid4().hex[:12]}"
+        rollout_id = f"wm_rollout:{uuid.uuid4().hex}"
         try:
             self.engine.add_node(
                 rollout_id,

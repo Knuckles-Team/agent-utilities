@@ -6,12 +6,10 @@ import pytest
 from pydantic_ai.models.test import TestModel
 
 from agent_utilities.graph.graph_models import ValidationResult
+from agent_utilities.graph.lifecycle import usage_guard_step
+from agent_utilities.graph.routing import dispatcher_step
 from agent_utilities.graph.state import GraphDeps, GraphState
-from agent_utilities.graph.steps import (
-    dispatcher_step,
-    usage_guard_step,
-    verifier_step,
-)
+from agent_utilities.graph.verification import verifier_step
 from agent_utilities.models import (
     ExecutionStep,
     GraphPlan,
@@ -37,7 +35,7 @@ def test_graph_deps_tool_guard_mode_regression():
         mcp_toolsets=[],
     )
     assert hasattr(deps, "tool_guard_mode")
-    assert deps.tool_guard_mode in ["on", "off", "strict"]
+    assert deps.tool_guard_mode in ["on", "strict"]
 
 
 @pytest.mark.asyncio

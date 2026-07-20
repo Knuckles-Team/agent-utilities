@@ -173,7 +173,7 @@ graph TB
 | 7 | **Reference** | Builds the call graph by identifying where specific symbols are referenced or invoked. |
 | 8 | **Communities** | Clusters nodes into tightly-coupled modules using **Louvain** topological clustering. |
 | 9 | **Centrality** | Runs **PageRank** analysis to identify critical path "God Objects" and core utilities. |
-| 10 | **Embedding** | Generates semantic vector embeddings via LM Studio (`text-embedding-nomic-embed-text-v2-moe`) for hybrid search. |
+| 10 | **Embedding** | Generates semantic vectors through the embedding provider selected in AgentConfig for hybrid search. |
 | 11 | **Sync** | Commits the enriched graph into the **epistemic-graph engine** (the authority); committed writes fan out asynchronously to any configured mirrors. |
 | 12 | **OWL Reasoning** | Promotes stable nodes to OWL, runs HermiT/Stardog inference, downfeeds inferred facts. |
 | 13 | **Knowledge Base** | Compiles articles, concepts, and facts into the **LLM Knowledge Base** layer. |
@@ -185,7 +185,7 @@ graph TB
 The graph engine supports policy-guided retrieval across five orthogonal views, ensuring the agent has the right context for the right task:
 - **Semantic View**: Traditional RAG/vector search for conceptual similarity.
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
-- **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
+- **Causal View**: Canonical execution provenance and outcomes (e.g., `RunTrace -[:USED_TOOL]-> ToolCall` and `RunTrace -[:PRODUCED_OUTCOME]-> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
 - **Epistemic View** (CONCEPT:AU-KG.ingest.engineering-rules): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions (CONTRADICTS). Powered by `retrieve_epistemic_view()`.
 
@@ -217,29 +217,30 @@ on the read path.
 **The authority:**
 | Backend | Status | Connection | Role |
 |---|---|---|---|
-| **epistemic_graph** | Full (default) | In-process / UDS Rust client | The one database — durable persistence, in-memory cache, graph compute, ontology reasoning. Serves ALL reads; all writes commit here first. |
+| **epistemic_graph** | Full (default) | Out-of-process Rust engine over a private UDS or authenticated loopback-TCP transport | The one database — durable persistence, in-memory cache, graph compute, ontology reasoning. Serves all reads; all writes commit here first. |
 | **memory** | Full | In-process | Pure ephemeral engine for tests/CI; no persistence. |
 
-**Optional mirrors (interop / BI / DR — fan out via `GRAPH_BACKEND=fanout`):**
+**Optional projections (interop / BI / DR — automatic fan-out when declared):**
 | Mirror | Connection | Use Case |
 |---|---|---|
-| **PostgreSQL / pg-age** | `postgresql://host:port` | Relational + graph external query via pgvector & transpiler; BI/reporting/DR |
-| **LadybugDB** | File path (`knowledge_graph.db`) | Embedded, schema-enforced Cypher mirror |
-| **FalkorDB** | `host:port` (Redis protocol) | High-performance distributed graph mirror |
-| **Neo4j** | `bolt://host:port` or `neo4j://` | Enterprise property-graph interop |
+| **PostgreSQL / pg-age** | Runtime `connection_profile_ref` | Relational + graph external query via pgvector and transpiler; BI/reporting/DR |
+| **LadybugDB** | Runtime `connection_profile_ref` | Schema-enforced Cypher mirror |
+| **FalkorDB** | Runtime `connection_profile_ref` | Distributed graph mirror |
+| **Neo4j** | Runtime `connection_profile_ref` | Property-graph interop |
 
-> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. The engine alone is the default (`GRAPH_BACKEND=epistemic_graph`); set `GRAPH_BACKEND=fanout` with `GRAPH_MIRROR_TARGETS` to also populate mirrors. Mirror drivers (`postgresql`/`falkordb`/`neo4j`) are imported only when a mirror is enabled.
+> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. The engine is always the authority; declare `GRAPH_MIRROR_TARGETS` to also populate external projections. Projection drivers (`postgresql`/`falkordb`/`neo4j`) are imported only when enabled.
 
 For step-by-step setup, Docker files, and multi-agent production guides, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
 **OWL Reasoning Backends** (for Hybrid OWL Layer):
 | Backend | Status | Connection | Use Case |
 |---|---|---|---|
-| **Owlready2** | Full (default) | SQLite quadstore (`owl_store.db`) | Local, embedded, HermiT reasoning |
-| **Stardog** | Full | `http://host:5820` | Enterprise, remote OWL/SPARQL reasoning |
+| **Native engine RDF/OWL** | Full (default) | Packaged epistemic-graph authority | Local RDF projection, SPARQL, and ontology reasoning |
+| **Stardog** | Optional | Runtime connection-profile and TLS references | External OWL/SPARQL interop |
 
 **Factory Usage:**
 ```python
+from agent_utilities.core.config import config
 from agent_utilities.knowledge_graph.backends import create_backend
 
 # Default: the epistemic-graph engine — the one database / authority
@@ -249,38 +250,39 @@ backend = create_backend()
 backend = create_backend(
     backend_type="fanout",
     mirror_targets=["postgresql"],
-    uri="postgresql://agent:agent@localhost:5433/agent_kg",
+    connection_profile_ref=config.graph_db_connection_profile_ref,
 )
 
-# Mirror connection details (only used when that mirror is enabled)
-# uri="bolt://prod-neo4j:7687"          # Neo4j mirror
-# host="redis-host", port=6380          # FalkorDB mirror
-# db_path="/data/agent.db"              # LadybugDB mirror
+# The referenced JSON profile supplies backend-specific connection and TLS fields.
 ```
 
-**Environment Variables:**
-| Variable | Description | Default |
+**AgentConfig:**
+| Setting | Description | Default |
 |---|---|---|
-| `GRAPH_BACKEND` | `epistemic_graph` (the engine only — default), `fanout` (engine + mirrors), or `memory` (ephemeral) | `epistemic_graph` |
-| `GRAPH_MIRROR_TARGETS` | Comma-separated mirrors to fan out to under `fanout`: `postgresql`, `neo4j`, `falkordb`, `ladybug` | *None* |
-| `GRAPH_DB_PATH` | File path for the engine store (or a LadybugDB mirror) | `knowledge_graph.db` |
-| `GRAPH_DB_HOST` | Host for a FalkorDB/Neo4j mirror | `localhost` |
-| `GRAPH_DB_PORT` | Port for a FalkorDB (6379) or Neo4j (7687) mirror | varies |
-| `GRAPH_DB_URI` | Full URI for a Neo4j or PostgreSQL mirror | `bolt://localhost:7687` |
-| `GRAPH_DB_USER` | Username for a Neo4j/PostgreSQL mirror | `neo4j` |
-| `GRAPH_DB_PASSWORD` | Password for a Neo4j/PostgreSQL mirror | `password` |
-| `GRAPH_DB_NAME` | Database/graph name for a FalkorDB/PostgreSQL mirror | `agent_graph` |
-| `GRAPH_POOL_MIN` | Minimum PostgreSQL connection pool size | `2` |
-| `GRAPH_POOL_MAX` | Maximum PostgreSQL connection pool size | `10` |
-| `GRAPH_PGGRAPH_SCHEMA` | Schema for pg-age table registration | `public` |
-| `OWL_BACKEND` | OWL backend type: `owlready2`, `stardog` | `owlready2` |
-| `OWL_DB_PATH` | SQLite quadstore path for Owlready2 | `owl_store.db` |
-| `STARDOG_ENDPOINT` | Stardog server URL | `http://localhost:5820` |
-| `STARDOG_DATABASE` | Stardog database name | `agent_kg` |
-| `STARDOG_USER` | Stardog username | `admin` |
-| `STARDOG_PASSWORD` | Stardog password | `admin` |
+| `GRAPH_MIRROR_TARGETS` | Mirror aliases receiving the asynchronous committed-write stream | *None* |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | Runtime secret reference resolving the selected mirror's connection, identity, credential, and TLS document | *None* |
+| `KG_CONNECTIONS` | Role-aware reference-only declarations for several governed graph connections | *None* |
+
+Use the generated [runtime configuration catalog](../reference/runtime-configuration.md)
+for pool, capacity, and backend-specific bounds. Do not persist resolved connection
+documents or machine paths in AgentConfig.
 
 **Architecture:** All consumers (engine, pipeline phases, server, MCP manager, registry builder) use `create_backend()` or receive a shared `backend` instance via dependency injection. No module directly imports a specific backend class -- the factory handles selection based on config/env.
+
+### External source ingestion
+
+An external graph source is not a mirror and never becomes operational authority.
+Neo4j/openCypher, Apache AGE, LadybugDB/Kuzu, remote epistemic-graph, and GraphQL
+sources use typed `EXTERNAL_GRAPH_CONNECTORS` declarations containing neutral aliases,
+governance limits, and runtime references only. GraphOS performs bounded schema
+discovery, generates a digest-bound mapping proposal, requires explicit approval,
+checks schema and policy drift, then materializes native `ChangeEnvelope` transactions.
+
+See [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md)
+for the current `add → discover → propose → approve → doctor → ingest` lifecycle and
+[Privacy-safe External Graph Ingestion](../architecture/privacy-safe-external-ingestion.md)
+for the complete AgentConfig declaration. No source endpoint, query, discovered schema,
+custom ontology, credential, certificate path, or raw upstream identifier is bundled.
 
 ## Knowledge Base (KB) Layer
 
@@ -309,7 +311,7 @@ Agent Q&A and Knowledge Queries
   - `RawSource` -- original ingested documents (linked via `COMPILED_FROM`)
   - `KBIndex` -- auto-maintained discovery index with suggested queries (linked via `INDEXES_KB`)
 
-**KB Tools (8 total):**
+**KB Tools (7 total):**
 | Tool | Description |
 |---|---|
 | `ingest_knowledge_base` | Ingest directory, file, URL, or skill-graph into a named KB |
@@ -319,12 +321,11 @@ Agent Q&A and Knowledge Queries
 | `update_knowledge_base` | Incrementally re-ingest changed files (hash-based, cheap) |
 | `run_kb_health_check` | LLM-backed audit: contradictions, orphans, gaps, suggestions |
 | `archive_knowledge_base` | Compress low-importance articles to summary-only (saves memory) |
-| `export_knowledge_base` | Export to Obsidian-compatible markdown with YAML frontmatter |
 
 ## Memory Maintenance & Pruning
 
 The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several background maintenance operations using the unified `GraphBackend.prune()` interface:
-1. **Embedding Enrichment**: Vectorizes unembedded content via LM Studio.
+1. **Embedding Enrichment**: Vectorizes unembedded content through the embedding provider selected in AgentConfig.
 2. **Cron Log Pruning**: Deletes successful logs older than 30 days.
 3. **Chat Summarization**: Compresses old threads into `ChatSummary` nodes.
 4. **Importance Scoring**: PageRank-based centrality scoring for all nodes.
@@ -722,7 +723,7 @@ The KG Eval Capture harness records real queries and their retrieval results to 
 | Env Variable | Default | Description |
 |---|---|---|
 | `KG_EVAL_CAPTURE` | `false` | Enable/disable capture |
-| `KG_EVAL_DB_PATH` | `~/.agent-utilities/eval_log.db` | Database path |
+| `KG_EVAL_DB_PATH` | XDG data location | Optional runtime override for the evaluation store; do not persist a machine path in project configuration |
 
 ### Usage
 
@@ -770,13 +771,14 @@ from agent_utilities.knowledge_graph.core.fingerprint import (
     compute_fingerprint,
     classify_change,
 )
+from agent_utilities.core.workspace import get_agent_workspace
 
 # Single file fingerprinting
 fp = compute_fingerprint("src/engine.py")
 print(fp.functions)  # [{"name": "run", "args": ["ctx"], ...}]
 
 # Workspace-level incremental analysis
-manager = FingerprintManager("/path/to/repo")
+manager = FingerprintManager(str(get_agent_workspace()))
 current = manager.scan()
 structural_only = manager.get_structural_changes(previous_snapshot)
 # Only re-ingest files in structural_only list
@@ -878,7 +880,9 @@ The `build_contextual_description()` helper (`knowledge_graph/core/context_build
 2. **Topological Hierarchy**: A 2-level traversal capturing up to 5 immediate parent/grandparent relations, and up to 5 child/grandchild relations.
 3. **OWL Inferences**: Any relationships specifically marked with `inferred=True` (typically originating from HermiT or Stardog downfeed).
 
-This contextual string is passed to the embedding model (LM Studio), ensuring the resulting vector captures both the semantic meaning of the node *and* its position in the broader ontology.
+This contextual string is passed to the embedding model selected in AgentConfig,
+ensuring the resulting vector captures both the semantic meaning of the node *and*
+its position in the broader ontology.
 
 ### Immediate Re-Embedding on Inference Downfeed
 

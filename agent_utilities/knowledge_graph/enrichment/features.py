@@ -144,7 +144,11 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
         loaded = False
         if bulk is not None:
             node_ops = [
-                {"op": "add_node", "id": nid, "properties": {"type": "Code"}}
+                {
+                    "op": "add_node",
+                    "id": nid,
+                    "properties": {"node_type": "Code"},
+                }
                 for nid in node_ids
             ]
             edge_ops = [
@@ -152,7 +156,7 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
                     "op": "add_edge",
                     "source": src,
                     "target": tgt,
-                    "properties": {"type": "CALLS"},
+                    "properties": {"relationship": "CALLS"},
                 }
                 for src, tgt in edges
             ]
@@ -165,9 +169,9 @@ def make_community_fn(graph_compute: Any, resolution: float = 1.0) -> CommunityF
                 logger.debug("community batch load failed (%s); per-element", e)
         if not loaded:
             for nid in node_ids:
-                graph_compute.add_node(nid, {"type": "Code"})
+                graph_compute.add_node(nid, {"node_type": "Code"})
             for src, tgt in edges:
-                graph_compute.add_edge(src, tgt, {"type": "CALLS"})
+                graph_compute.add_edge(src, tgt, {"relationship": "CALLS"})
         try:
             return graph_compute.community_detection(resolution)
         except Exception:

@@ -2,12 +2,10 @@
 
 **CONCEPT:AU-KG.enrichment.ciso-assistant-extraction (extractor) · CONCEPT:AU-KG.enrichment.ciso-2 (writeback sink)**
 
-intuitem **CISO Assistant** is the homelab's open-source GRC system-of-record
-(Risk, Compliance & Audit, AppSec, TPRM, BIA, Privacy). This connector federates
-its governance data with the one ontology-driven Knowledge Graph hub —
-bidirectionally — and, *through that hub*, reconciles it with the **Egeria**
-open-metadata catalog and the **Camunda** business-process estate that already
-live in the graph.
+**CISO Assistant** is an open-source GRC system for risk, compliance, audit,
+AppSec, third-party risk, business-impact analysis, and privacy. The native
+connector federates its governance data with the ontology-driven Knowledge Graph
+and can reconcile it with other configured metadata and business-process sources.
 
 ## The one ontology
 
@@ -85,18 +83,26 @@ skipped, not invented.
 
 ## Configuration
 
-The connector resolves its vendor client in-process from the
-`ciso_assistant_api` package's `auth.get_client()` — which reads
-`CISO_ASSISTANT_URL` + `CISO_ASSISTANT_TOKEN` (or `CISO_ASSISTANT_USERNAME` /
-`CISO_ASSISTANT_PASSWORD`) from its own environment. Writeback is gated by
-`CISO_ASSISTANT_ENABLE_WRITE` (default off).
+Register the connector through the operator-owned MCP/connector catalog referenced
+from XDG AgentConfig. Its runtime profile supplies:
+
+- a discovered service endpoint;
+- a workload-scoped credential reference;
+- a TLS profile reference containing trust and optional client-certificate material;
+- bounded pagination, timeout, and rate-limit policy; and
+- the explicit `CISO_ASSISTANT_ENABLE_WRITE` gate, which is off by default.
+
+The client factory resolves credential and TLS references only in process. AgentConfig,
+the connector manifest, traces, and reports retain opaque references rather than raw
+tokens, passwords, endpoints, certificate paths, or user identities. Do not use a
+repository `.env` file or disable TLS verification.
 
 ## Verification
 
 ```bash
-# inbound, live (needs a running CISO Assistant backend + the package installed)
-source_sync(source="ciso_assistant", mode="delta")   # via served MCP
-source_sync(source="ciso_assistant", mode="delta")   # re-run → skipped_unchanged > 0
+# Inbound through the configured MCP connector
+source_sync(source="ciso_assistant", mode="delta")
+source_sync(source="ciso_assistant", mode="delta")   # skipped_unchanged > 0
 
 # outbound writeback dry-run (fail-closed; CISO_ASSISTANT_ENABLE_WRITE unset)
 graph_writeback(target="ciso_assistant", dry_run=True)   # proposals only, created == 0

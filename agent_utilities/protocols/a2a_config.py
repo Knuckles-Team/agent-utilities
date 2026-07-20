@@ -16,15 +16,15 @@ Example ``a2a_config.json``::
 
     {
       "agents": {
-        "servicenow-agent": {
-          "url": "http://10.0.0.18:8001",
-          "description": "ServiceNow incident management",
+        "incident-agent": {
+          "url": "https://incident-agent.example.test",
+          "description": "Incident management",
           "auth": "none"
         },
-        "gitlab-agent": {
-          "url": "http://10.0.0.18:8002",
+        "scm-agent": {
+          "url": "https://scm-agent.example.test",
           "auth": "bearer",
-          "auth_token": "secret://a2a/gitlab/token"
+          "auth_token": "secret://a2a/scm/token"
         }
       },
       "refresh_interval_seconds": 300
@@ -164,7 +164,7 @@ async def sync_a2a_agents(
     try:
         config = load_a2a_config(resolved_path)
     except Exception as e:
-        logger.warning(f"Failed to load A2A config from {resolved_path}: {e}")
+        logger.warning("Failed to load A2A configuration (%s)", type(e).__name__)
         return stats
 
     agents_config = config.get("agents", {})
@@ -190,12 +190,11 @@ async def sync_a2a_agents(
         try:
             card = await client.fetch_card(url)
         except Exception as e:
-            logger.warning(f"A2A agent '{name}': Failed to fetch card from {url}: {e}")
+            logger.warning("A2A agent-card fetch failed (%s)", type(e).__name__)
 
         if card is None:
             logger.warning(
-                f"A2A agent '{name}': .well-known/agent-card.json unreachable "
-                f"at {url}. Registering with config-only metadata."
+                "A2A agent card unreachable; registering config-only metadata"
             )
 
         # Build description from card or config fallback
@@ -276,8 +275,7 @@ async def periodic_a2a_refresh(
         interval_seconds: Refresh interval in seconds (default: 300).
     """
     logger.info(
-        f"A2A periodic refresh started (interval: {interval_seconds}s, "
-        f"config: {config_path})"
+        "A2A periodic refresh started interval_seconds=%d", interval_seconds
     )
     while True:
         await asyncio.sleep(interval_seconds)

@@ -221,10 +221,11 @@ class TestLocalBranchPublisher:
         assert result.branch.startswith("evolution/")
         assert len(result.commit_sha) == 40
         assert result.gate_result == "pass"
-        # The branch exists in the target repo; the commit cites the proposal.
+        # The branch exists; commit history carries only an opaque proposal ref.
         assert result.branch in _git("branch", "--list", result.branch, cwd=target_repo)
         message = _git("log", "-1", "--format=%B", result.branch, cwd=target_repo)
-        assert "proposal:code-1" in message
+        assert "Proposal reference: pref_proposal_" in message
+        assert "proposal:code-1" not in message
         assert "AU-AHE.harness.evolution-branch-bridge" in message
         # Published file landed in the fresh worktree, not the canonical tree.
         assert (Path(result.worktree_path) / "pkg/cache.py").exists()
@@ -241,8 +242,11 @@ class TestLocalBranchPublisher:
         assert result.ok and result.gate_result == "hold"
         records = engine.by_type("ProposalPublication")
         assert len(records) == 1
-        assert records[0]["branch"] == result.branch
-        assert records[0]["commit_sha"] == result.commit_sha
+        assert records[0]["branch_ref"].startswith("pref_branch_")
+        assert records[0]["commit_ref"].startswith("pref_commit_")
+        assert records[0]["repository_ref"].startswith("pref_repository_")
+        assert "repo_path" not in records[0]
+        assert "worktree_path" not in records[0]
         assert records[0]["gate_result"] == "hold"
         assert ("proposal:code-1", records[0]["id"], "PUBLISHED_AS") in engine.edges
 
@@ -268,7 +272,19 @@ class TestLocalBranchPublisher:
         assert ".specify/specs/improve-ranking-heuristics/tasks.md" in files
 
     def test_runs_proposal_named_tests_in_worktree(self, target_repo, tmp_path):
-        pub = _publisher(BridgeEngine(), target_repo, tmp_path)
+        seen = []
+
+        def sandbox_runner(**kwargs):
+            seen.append(kwargs)
+            return {"passed": True, "returncode": 0, "tail": "not exposed"}
+
+        pub = _publisher(
+            BridgeEngine(),
+            target_repo,
+            tmp_path,
+            run_tests=True,
+            test_runner=sandbox_runner,
+        )
         change = ChangeSet(
             proposal_id="proposal:tested",
             title="Tested change",
@@ -288,7 +304,52 @@ class TestLocalBranchPublisher:
         assert result.ok
         assert result.tests_passed is True
         assert result.test_report is not None
-        assert result.test_report["targets"] == ["tests/test_answer.py"]
+        assert result.test_report["target_count"] == 1
+        assert "targets" not in result.test_report
+        assert "tail" not in result.test_report
+        assert seen and seen[0]["targets"] == ["tests/test_answer.py"]
+
+    def test_public_result_never_exposes_local_paths_or_branch_name(
+        self, target_repo, tmp_path
+    ):
+        pub = _publisher(BridgeEngine(), target_repo, tmp_path)
+        result = pub.publish(synthesize_change_set(_code_proposal(), validate=False))
+
+        public = result.to_dict()
+        rendered = json.dumps(public, sort_keys=True)
+        assert str(target_repo) not in rendered
+        assert str(tmp_path) not in rendered
+        assert result.branch not in rendered
+        assert "repo_path" not in public
+        assert "worktree_path" not in public
+
+    def test_publication_rechecks_path_confinement_and_privacy(
+        self, target_repo, tmp_path
+    ):
+        pub = _publisher(BridgeEngine(), target_repo, tmp_path)
+        outside = tmp_path / "escaped.py"
+        traversal = ChangeSet(
+            proposal_id="proposal:traversal",
+            title="Traversal",
+            kind="code",
+            files=[FileChange("../escaped.py", "ESCAPED = True\n")],
+        )
+
+        traversal_result = pub.publish(traversal)
+
+        assert traversal_result.ok is False
+        assert not outside.exists()
+        assert _git("branch", "--list", "evolution/*", cwd=target_repo) == ""
+
+        identifying = ChangeSet(
+            proposal_id="proposal:identifying",
+            title="Identifying",
+            kind="code",
+            files=[FileChange("pkg/private.py", "OWNER = 'person@example.test'\n")],
+        )
+        identifying_result = pub.publish(identifying)
+        assert identifying_result.ok is False
+        assert _git("branch", "--list", "evolution/*", cwd=target_repo) == ""
 
     def test_no_remote_means_nothing_pushed(self, target_repo, tmp_path):
         pub = _publisher(BridgeEngine(), target_repo, tmp_path)
@@ -346,14 +407,14 @@ class TestGovernedPublish:
         engine = BridgeEngine()
         proposal = _code_proposal()
         publisher = _publisher(engine, target_repo, tmp_path)
-        first = governed_publish(engine, proposal, publisher=publisher)
-        approval_id = _grant_pending_approval(engine, first["proposal_id"])
+        governed_publish(engine, proposal, publisher=publisher)
+        approval_id = _grant_pending_approval(engine, proposal["id"])
 
         report = governed_publish(engine, proposal, publisher=publisher)
 
         assert report["status"] == "published"
         assert report["approval_id"] == approval_id
-        assert report["publish"]["branch"].startswith("evolution/")
+        assert report["publish"]["branch_ref"].startswith("pref_branch_")
         assert engine.nodes[approval_id]["status"] == "executed"
         executions = engine.by_type("ActionExecution")
         assert executions and executions[0]["kind"] == "merge_promotion"
@@ -387,8 +448,8 @@ class TestGovernedPublish:
             files=[{"path": "pkg/broken.py", "content": "def broken(:\n"}]
         )
         publisher = _publisher(engine, target_repo, tmp_path)
-        first = governed_publish(engine, proposal, publisher=publisher)
-        approval_id = _grant_pending_approval(engine, first["proposal_id"])
+        governed_publish(engine, proposal, publisher=publisher)
+        approval_id = _grant_pending_approval(engine, proposal["id"])
 
         report = governed_publish(engine, proposal, publisher=publisher)
 
@@ -417,7 +478,13 @@ class TestGovernedPublish:
         report = publish_proposal(engine, "proposal:seeded", publisher=publisher)
 
         assert report["status"] == "published"
-        branch = report["publish"]["branch"]
+        branch = _git(
+            "branch",
+            "--format=%(refname:short)",
+            "--list",
+            "evolution/*",
+            cwd=target_repo,
+        ).splitlines()[0]
         files = _git("ls-tree", "-r", "--name-only", branch, cwd=target_repo)
         assert "pkg/seeded.py" in files.splitlines()
 
@@ -494,7 +561,7 @@ class TestMergerBridgeWiring:
         assert evaluation.merged
         assert evaluation.publication["status"] == "published"
         publish = evaluation.publication["publish"]
-        assert publish["branch"].startswith("evolution/")
+        assert publish["branch_ref"].startswith("pref_branch_")
         assert publish["gate_result"] == "pass"
         records = engine.by_type("ProposalPublication")
-        assert records and records[0]["branch"] == publish["branch"]
+        assert records and records[0]["branch_ref"] == publish["branch_ref"]

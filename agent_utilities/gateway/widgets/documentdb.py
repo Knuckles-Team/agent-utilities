@@ -37,8 +37,8 @@ class Widget(BaseWidget):
         try:
             dbs = client.list_databases() or []
         except Exception as e:
-            logger.debug("DocumentDB fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("DocumentDB fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

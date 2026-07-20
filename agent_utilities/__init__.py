@@ -4,62 +4,14 @@
 This module serves as the primary entry point for the agent-utilities package,
 providing a unified interface for agent creation, graph orchestration, workspace
 management, and various helper utilities.
-
-Warning suppression is centralized here so every downstream import inherits
-the filters without needing per-file boilerplate.
 """
 
-import os
-import warnings
-
-from agent_utilities.core.config import setting
+from agent_utilities._version import __version__
+from agent_utilities.core.log_privacy import install_log_privacy_boundary
 
 # ruff: noqa: E402, F401
 
-# ── Centralized warning suppression ──────────────────────────────────
-# All library-level noise is filtered once at package init so that
-# downstream modules (server, mcp_utilities, base_utilities, etc.)
-# don't need their own copies.
-
-# 1. requests/urllib3 version-mismatch noise
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
-    try:
-        from requests.exceptions import RequestsDependencyWarning
-
-        warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-    except ImportError:
-        pass
-
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", message=".*urllib3.*or charset_normalizer.*")
-warnings.filterwarnings("ignore", message=r".*urllib3 v2.*only supports OpenSSL.*")
-
-# 2. InsecureRequestWarning (emitted when ssl_verify=False)
-try:
-    import urllib3
-
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-except Exception:  # nosec B110
-    pass
-warnings.filterwarnings("ignore", message=".*Unverified HTTPS request.*")
-
-# 3. DeprecationWarnings from third-party libs
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="pydantic")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="httpx")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="google")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
-
-# 4. PydanticDeprecatedSince20 (noisy in older pydantic shims)
-try:
-    from pydantic import PydanticDeprecatedSince20
-
-    warnings.filterwarnings("ignore", category=PydanticDeprecatedSince20)
-except ImportError:
-    pass
-
-# ── End warning suppression ──────────────────────────────────────────
+install_log_privacy_boundary()
 
 
 # Lazy imports for all modules to avoid heavy import chains
@@ -98,6 +50,10 @@ def __getattr__(name):
         from .agent.factory import create_agent_parser
 
         return create_agent_parser
+    elif name == "create_agent":
+        from .agent.factory import create_agent
+
+        return create_agent
     elif name == "DEFAULT_GRAPH_PERSISTENCE_PATH":
         from .core.config import DEFAULT_GRAPH_PERSISTENCE_PATH
 
@@ -115,7 +71,7 @@ def __getattr__(name):
     elif name in [
         "GraphState",
         "build_tag_env_map",
-        "create_agent",
+        "create_graph_agent",
         "create_master_graph",
         "get_graph_mermaid",
         "initialize_graph_from_workspace",
@@ -129,7 +85,7 @@ def __getattr__(name):
         from .graph import (
             GraphState,
             build_tag_env_map,
-            create_agent,
+            create_graph_agent,
             create_master_graph,
             get_graph_mermaid,
             initialize_graph_from_workspace,
@@ -364,10 +320,6 @@ def __getattr__(name):
 
         return locals()[name]
     # Agent-Runtimes Capabilities (CONCEPT:AU-ECO.messaging.native-backend-abstraction, CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle, CONCEPT:AU-AHE.harness.capability-ratchet)
-    elif name == "DurableExecutionManager":
-        from .orchestration.durable_execution import DurableExecutionManager
-
-        return DurableExecutionManager
     elif name == "JupyterKernelAdapter":
         from .tools.jupyter_adapter import JupyterKernelAdapter
 
@@ -412,10 +364,6 @@ def __getattr__(name):
         from .orchestration.distributed_coordinator import DistributedCoordinator
 
         return DistributedCoordinator
-    elif name == "RecoveryDaemon":
-        from .orchestration.recovery_daemon import RecoveryDaemon
-
-        return RecoveryDaemon
     # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     elif name == "SemanticCompactor":
         from .knowledge_graph.memory.memory_compaction import SemanticCompactor
@@ -448,26 +396,19 @@ def __getattr__(name):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# Set environment variables without using to_boolean
-os.environ.setdefault("OTEL_ENABLE_OTEL", "false")
-os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
-if setting("ENABLE_OTEL", "True").lower() in ["true", "1", "yes"]:
-    os.environ.setdefault("OTEL_ENABLE_OTEL", "True")
-
 # ── Graph Integration ────────────────────────────────────────────────
 # Disabled by default to avoid import overhead during testing
 # Can be enabled by setting ENABLE_GRAPH_INTEGRATION=true and calling initialize_graph_integration() explicitly
 
-__version__ = "1.15.0"
-
 __all__ = [
-    # Agent creation (graph-based)
+    # Agent creation
     "create_agent",
     "create_agent_parser",
     "create_agent_server",
     "GatewayClient",
     # Graph orchestration
     "GraphState",
+    "create_graph_agent",
     "create_master_graph",
     "run_graph",
     "run_graph_stream",
@@ -581,7 +522,6 @@ __all__ = [
     "PatternType",
     "PatternResult",
     # Agent-Runtimes Capabilities
-    "DurableExecutionManager",
     "JupyterKernelAdapter",
     "SandboxExecutor",
     "AgentSpecGenerator",
@@ -597,7 +537,6 @@ __all__ = [
     "CognitiveScheduler",
     # Distributed Coordination (CONCEPT:AU-OS.host.homeostatic-recovery-daemon)
     "DistributedCoordinator",
-    "RecoveryDaemon",
     # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     "SemanticCompactor",
     # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)

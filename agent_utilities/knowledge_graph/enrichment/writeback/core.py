@@ -1,4 +1,18 @@
-"""Unified write-back core: result, resolver, gate, sink registry (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9)."""
+"""Unified write-back core: result, resolver, gate, sink registry (CONCEPT:EG-KG.storage.nonblocking-checkpoint/2.9).
+
+Bitemporal ``as_of`` on writeback (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers): read
+paths (``engine_query.py``, ``hybrid_retriever.py``, ``context_compiler.py``) have long
+accepted an ``as_of`` instant and filtered rows via
+:func:`~agent_utilities.knowledge_graph.core.bitemporal.filter_as_of`; nothing on the
+write side stamped the valid-time a KG-derived fact was mirrored under. ``run_writeback``'s
+optional ``as_of`` (default ``None`` → wall-clock "now", so every existing caller is
+unaffected byte-for-byte) is threaded onto :class:`WritebackContext` and applied by
+:meth:`WritebackContext.stamp_valid_time` — call it from a sink alongside
+:meth:`WritebackContext.stamp_external_id` to stamp the SAME
+``storage_time``/``event_time``/``valid_from``/``valid_to`` quadruple the read path already
+understands onto a mirrored record, so a later ``as_of`` query can answer "what did we mirror
+as valid at time T", not only "what is the current value."
+"""
 
 from __future__ import annotations
 
@@ -8,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
 from agent_utilities.core.config import setting
+from agent_utilities.knowledge_graph.core.bitemporal import stamp_bitemporal
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +71,78 @@ class WritebackContext:
 
     backend: Any = None
     engine: Any = None
+    #: bitemporal valid-time (ISO-8601) this writeback pass asserts its writes
+    #: are valid as of — CONCEPT:AU-KG.temporal.bi-temporal-memory-layers.
+    #: ``None`` (the default) means "now": :meth:`stamp_valid_time` then
+    #: stamps wall-clock storage/event/valid_from, matching every caller's
+    #: pre-existing behavior byte-for-byte.
+    as_of: str | None = None
 
     def resolver(self, domain: str) -> Callable[[str], str | None]:
         return resolve_external_id(self.backend, domain)
+
+    def stamp_valid_time(self, props: dict[str, Any]) -> dict[str, Any]:
+        """Inject this context's bitemporal validity onto ``props`` (in place, returned).
+
+        Thin wrapper over :func:`~agent_utilities.knowledge_graph.core.bitemporal.
+        stamp_bitemporal` using ``self.as_of`` as the asserted ``event_time`` —
+        ``as_of=None`` (default) resolves to wall-clock "now", identical to every
+        writeback call made before this context carried an ``as_of``.
+        """
+        return stamp_bitemporal(props, event_time=self.as_of)
+
+    def stamp_external_id(
+        self,
+        node_id: str | None,
+        target: str,
+        external_id: str | None,
+        *,
+        node_type: str = "",
+    ) -> bool:
+        """Round-trip the SoR's returned CI id back onto the source KG node.
+
+        After a sink creates a CI/asset/record it calls this with the returned id
+        so the node carries three stamps: ``<target>_ci_id`` (the per-sink identity
+        used to dedupe re-runs — idempotency across ALL sinks), and the shared
+        ``domain`` / ``externalToolId`` federation key the resolver reads. Writing
+        the stamp turns the next :func:`~.inventory.collect_inventory_creations`
+        pass into a skip/update instead of a duplicate create. Also stamps this
+        context's bitemporal validity (:meth:`stamp_valid_time`) onto the SAME
+        props, so the mirrored record carries a ``valid_from``/``valid_to`` an
+        ``as_of`` read can filter on (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers).
+
+        Best-effort (fail-closed): a stamp failure never breaks the sink write —
+        it only means the node may be re-proposed next pass.
+        """
+        if not (node_id and external_id) or self.engine is None:
+            return False
+        eid = str(external_id)
+        props = self.stamp_valid_time(
+            {
+                f"{(target or '').lower().strip()}_ci_id": eid,
+                "externalToolId": eid,
+                "domain": (target or "").lower().strip(),
+            }
+        )
+        add_node = getattr(self.engine, "add_node", None)
+        if add_node is None:
+            return False
+        label = node_type or "ConfigurationItem"
+        try:
+            # IntelligenceGraphEngine.add_node(node_id, node_type, properties) — merge-upsert.
+            add_node(node_id, label, props)
+            return True
+        except TypeError:
+            try:
+                # Alternate signature: add_node(node_id, label="", **properties).
+                add_node(node_id, label=label, **props)
+                return True
+            except Exception:  # noqa: BLE001 - stamping is best-effort
+                logger.debug("stamp_external_id fallback failed", exc_info=True)
+                return False
+        except Exception:  # noqa: BLE001 - stamping is best-effort
+            logger.debug("stamp_external_id failed for %s", node_id, exc_info=True)
+            return False
 
 
 @runtime_checkable
@@ -135,6 +219,7 @@ def run_writeback(
     backend: Any = None,
     engine: Any = None,
     dry_run: bool = True,
+    as_of: str | None = None,
     **ops: Any,
 ) -> dict[str, Any]:
     """Single fail-closed, dry-run-first write-back entrypoint (MCP + REST core).
@@ -142,6 +227,15 @@ def run_writeback(
     Resolves the ``target`` sink, enforces its ``enable_flag`` for live writes,
     and returns a uniform manifest. ``ops`` carries target-specific payloads
     (inferences / enrichments / creations / retirements / process_ids / …).
+
+    ``as_of`` (ISO-8601, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) is the bitemporal
+    valid-time this pass asserts its writes are valid as of — threaded onto the
+    :class:`WritebackContext` a sink receives so it can stamp
+    ``storage_time``/``event_time``/``valid_from``/``valid_to`` (via
+    :meth:`WritebackContext.stamp_valid_time`, and automatically for any
+    :meth:`WritebackContext.stamp_external_id` call) on every mirrored record.
+    Defaults to ``None`` ("now" at stamp time) so a caller that doesn't pass it
+    behaves byte-for-byte as before this parameter existed.
     """
     sink = get_sink(target)
     if sink is None:
@@ -158,7 +252,7 @@ def run_writeback(
             "reason": f"{sink.enable_flag} not set; refusing live write to the system-of-record",
             "hint": "run with dry_run=true to preview the proposed writes",
         }
-    ctx = WritebackContext(backend=backend, engine=engine)
+    ctx = WritebackContext(backend=backend, engine=engine, as_of=as_of)
 
     # High-stakes sinks NEVER auto-execute: a live request (enabled, not dry-run,
     # not carrying an approval token) is previewed and queued for approval instead.
@@ -195,4 +289,5 @@ def run_writeback(
     out["dry_run"] = dry_run
     out["write_enabled"] = write_enabled
     out["risk_tier"] = risk_tier
+    out["as_of"] = ctx.as_of
     return out

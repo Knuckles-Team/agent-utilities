@@ -95,19 +95,21 @@ class DocumentIngestionPipeline:
         """Write section nodes/edges via the engine's convenience write API."""
         ok = False
         for n in nodes:
-            props = {k: v for k, v in n.items() if k not in ("id", "type")}
+            props = {k: v for k, v in n.items() if k not in ("id", "node_type")}
             try:
-                self.knowledge_graph.add_node(n["id"], n["type"], props)
+                self.knowledge_graph.add_node(n["id"], n["node_type"], props)
                 ok = True
             except Exception as exc:  # noqa: BLE001 — best-effort per node
                 logger.debug("section node persist failed for %s: %s", n["id"], exc)
         for e in edges:
             props = {
-                k: v for k, v in e.items() if k not in ("source", "target", "type")
+                k: v
+                for k, v in e.items()
+                if k not in ("source", "target", "relationship")
             }
             try:
                 self.knowledge_graph.add_edge(
-                    e["source"], e["target"], e["type"], **props
+                    e["source"], e["target"], e["relationship"], **props
                 )
                 ok = True
             except Exception as exc:  # noqa: BLE001 — best-effort per edge
@@ -170,7 +172,7 @@ class DocumentIngestionPipeline:
                 metadata=metadata or {},
                 rollback_actions=rollback_actions,
             )
-            self.id_registry.mark_system_synced(ontological_identifier)
+            self.id_registry.mark_synced(ontological_identifier)
             logger.info("Created unified knowledge graph nodes")
 
             # Step 5: Register unified ID

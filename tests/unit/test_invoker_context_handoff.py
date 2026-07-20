@@ -196,7 +196,6 @@ def test_cred_ref_resolves_to_auth_token_only_on_transient_deps():
         project_root="",
         knowledge_engine=None,
         mcp_toolsets=[],
-        ssl_verify=True,
         provider="openai",
         base_url=None,
         api_key=None,

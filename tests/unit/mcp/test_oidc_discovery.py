@@ -67,6 +67,35 @@ def test_discovery_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None
     assert oidc_discovery.token_endpoint_for("http://unreachable.test/iss") is None
 
 
+def test_oidc_clients_admit_only_canonicalized_loopback_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The transport must agree with the endpoint validator's loopback policy."""
+    captured: list[dict[str, object]] = []
+    sentinel = object()
+
+    monkeypatch.setattr(oidc_discovery, "_trust", lambda: (sentinel, []))
+    monkeypatch.setattr(
+        oidc_discovery,
+        "create_http_client",
+        lambda **kwargs: (captured.append(kwargs), sentinel)[1],
+    )
+    monkeypatch.setattr(
+        oidc_discovery,
+        "create_async_http_client",
+        lambda **kwargs: (captured.append(kwargs), sentinel)[1],
+    )
+
+    assert oidc_discovery.oidc_http_client() is sentinel
+    assert oidc_discovery.oidc_async_http_client() is sentinel
+    assert len(captured) == 2
+    for kwargs in captured:
+        assert kwargs["pin_egress"] is True
+        assert kwargs["allow_loopback"] is True
+        assert kwargs["trust_env"] is False
+        assert kwargs["follow_redirects"] is False
+
+
 def test_minter_token_url_from_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent_utilities.mcp import client_credentials
 

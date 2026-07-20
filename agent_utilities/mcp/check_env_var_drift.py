@@ -25,8 +25,7 @@ The code-read set =
   ``setting("VAR", …)`` reads in the package
   ∪ derived tool toggles: ``register_<tag>_tools`` → ``<TAG>TOOL``
   ∪ the inherited agent-utilities surface (``readme_env_vars.INHERITED_ENV`` + framework extras)
-  ∪ ``setting("VAR", …)`` reads in agent-utilities core (covers connector-base reads like
-    ``{SERVICE}_SSL_VERIFY`` so they are never mis-flagged as dead).
+  ∪ ``setting("VAR", …)`` reads in agent-utilities core.
 
 Usage (from an agent repo root)::
 
@@ -40,23 +39,24 @@ Wire ``--check`` as a pre-commit hook (the agent-package-builder scaffold does).
 from __future__ import annotations
 
 import argparse
+import ast
 import json
+import os
 import re
 import sys
 from functools import lru_cache
 from pathlib import Path
 
+# Direct script execution puts ``agent_utilities/mcp`` first on ``sys.path``.
+# Force this checkout's repository root ahead of any globally installed copy so
+# the guard and its mutually importing env-source helper share one implementation.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
-# Env reads the code performs. ``setting(...)`` is the sanctioned accessor, but bare
-# ``os.getenv`` / ``os.environ.get`` / ``os.environ[...]`` (and ``from os import …`` forms)
-# are also real reads — count them so a live var is never mis-flagged DEAD. A subscript
-# ``os.environ["X"] = ...`` is a WRITE (cross-process signaling, not config to document),
-# so the subscript branch excludes an assignment via negative lookahead.
-_ENV_READ = re.compile(
-    r"""(?:setting|(?:os\.)?getenv|(?:os\.)?environ\.get)\(\s*['"]([A-Z][A-Z0-9_]*)['"]"""
-    r"""|(?:os\.)?environ\[\s*['"]([A-Z][A-Z0-9_]*)['"]\](?!\s*=(?!=))"""
-)
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 # ``register_<tag>_tools`` — a condensed registrar; toggle env var is ``<TAG>TOOL``.
 _REGISTRAR = re.compile(r"register_([a-z][a-z0-9_]*?)_tools\b")
 # A ``- "KEY=value"`` or ``KEY: value`` line inside a compose ``environment:`` list/map.
@@ -77,14 +77,21 @@ README_ADDL = "<!-- BEGIN GENERATED: additional-deployment-options -->"
 FRAMEWORK_EXTRA: frozenset[str] = frozenset(
     {
         "AUTH_TYPE",
+        "AGENT_PROVIDER_PROFILE",
         "AGENT_DESCRIPTION",
         "AGENT_SYSTEM_PROMPT",
         "DEFAULT_AGENT_NAME",
         "ENABLE_OTEL",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_EXPORTER_OTLP_PROTOCOL",
-        "OTEL_EXPORTER_OTLP_PUBLIC_KEY",
-        "OTEL_EXPORTER_OTLP_SECRET_KEY",
+        # Parent-resolved OTLP headers are an internal, process-lifetime value.
+        # Operators configure only OTEL_EXPORTER_OTLP_HEADERS_REF.
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_EXPORTER_OTLP_HEADERS_REF",
+        "OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF",
+        "OTEL_EXPORTER_OTLP_SECRET_KEY_REF",
+        "OTEL_TLS_PROFILE",
+        "OTEL_TLS_PROFILE_REF",
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "PROVIDER",
@@ -94,7 +101,7 @@ FRAMEWORK_EXTRA: frozenset[str] = frozenset(
     }
 )
 # Connector-standard suffixes read by the agent-utilities connector base, not the package.
-_SAFE_SUFFIXES: tuple[str, ...] = ("_SSL_VERIFY",)
+_SAFE_SUFFIXES: tuple[str, ...] = ()
 # Generic process / library runtime vars legitimately set in a launch env but never read
 # via ``setting()`` — not app config, so not "dead".
 RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
@@ -108,19 +115,138 @@ RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
         "PYTHONPATH",
         "LOG_LEVEL",
         "TZ",
+        # OS / desktop / shell conventions the code reads for interop (build a subprocess
+        # env, detect a display server, resolve an XDG override) — never app config to set
+        # in .env.example; the OS or shell sets these, not a deployer of this package.
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "PWD",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "TMUX",
+        "VIRTUAL_ENV",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "SYSTEMROOT",
+        "PROGRAMFILES",
+        "XDG_CONFIG_HOME",
+        "XDG_STATE_HOME",
+        "XDG_DATA_HOME",
+        "XDG_RUNTIME_DIR",
+        "SSH_AUTH_SOCK",
+        "SSH_AGENT_PID",
+        "CI",
+        "PYTEST_CURRENT_TEST",
+        "container",
+        # A well-known third-party ecosystem convention (HuggingFace's own cache-dir var,
+        # read for interop when pointing an embedding model at a shared cache) — not an
+        # agent-utilities-defined config surface.
+        "HF_HOME",
     }
 )
 # Library-owned runtime vars identified by prefix (consumed by the library, not our code).
 _RUNTIME_PREFIXES: tuple[str, ...] = ("FASTMCP_",)
+# Synthetic constants that exist ONLY to exercise the config-loading machinery itself in a
+# unit test (``tests/unit/core/test_setting_accessor.py`` probing ``setting()`` type
+# inference, configuration-source tests probing explicit process/XDG loading, and a
+# stale probe in ``test_kg_autorouting.py``) — never real app config a deployer
+# would set, so they must not be pushed into ``.env.example``.
+TEST_FIXTURE_VARS: frozenset[str] = frozenset(
+    {
+        "AU_T_STR",
+        "AU_T_INT",
+        "AU_T_FLOAT",
+        "AU_T_BOOL",
+        "AU_T_LIST",
+        "MY_VERBOSE_TEST_KEY",
+        "PUSH_ENV_VAR_MARKER",
+        "LIGHTWEIGHT_MODEL",
+        # a fake writeback sink's enable_flag, defined only in
+        # tests/unit/knowledge_graph/enrichment/test_writeback_approval.py to exercise the
+        # approval flow — no real "TestHomeSink" sink or system-of-record exists.
+        "TESTHS_ENABLE_WRITE",
+    }
+)
+# Files that document the env-read patterns above USING those exact placeholder names as
+# prose (a ``setting`` call spelled out with a "VAR" placeholder, a getenv-style lookup
+# spelled out with an "X" placeholder), not a real read — skip them so the scanner doesn't
+# mistake its own documentation for a live var literally named "VAR"/"X".
+_SELF_DOC_FILES: frozenset[str] = frozenset(
+    {"check_env_var_drift.py", "check_no_env_sprawl.py"}
+)
+# docker/*.compose.yml recipes for bundled THIRD-PARTY infra images (see
+# ``_compose_env_keys``) — their ``environment:`` block belongs to that image, not to
+# agent-utilities' own code-read surface.
+_THIRD_PARTY_COMPOSE_FILES: frozenset[str] = frozenset(
+    {
+        "docker-compose.kafka.yml",
+        "kafka-kraft.compose.yml",
+        "egeria.compose.yml",
+        "jena_fuseki.compose.yml",
+        "neo4j.compose.yml",
+        "paradedb.compose.yml",
+        "pg-age.compose.yml",
+        "pg-age-full.compose.yml",
+        "falkordb.compose.yml",
+    }
+)
 
 
 _HOST_SUFFIXES = ("_BASE_URL", "_URL", "_HOST")
+_WALK_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+    }
+)
+_NON_RUNTIME_SOURCE_DIRS = frozenset(
+    {
+        "docs",
+        "examples",
+        "reports",
+        "scripts",
+        "test",
+        "tests",
+    }
+)
+
+
+def _walk_files(root: Path, *, suffix: str) -> list[Path]:
+    """Walk source files without entering dependency/cache trees.
+
+    Pruning at ``os.walk`` directory boundaries is essential: filtering paths
+    produced by ``Path.rglob`` still traverses entire virtual environments and
+    can exhaust memory or file handles on large WSL-mounted environments.
+    """
+    found: list[Path] = []
+    for directory, names, files in os.walk(root):
+        names[:] = sorted(
+            name
+            for name in names
+            if name not in _WALK_SKIP_DIRS and not name.startswith(".")
+        )
+        base = Path(directory)
+        found.extend(base / name for name in files if name.endswith(suffix))
+    return sorted(found)
 
 
 def _stem(var: str) -> str:
     """The service/domain stem of a var, suffixes stripped (for alias/rename matching)."""
     return re.sub(
-        r"(_BASE_URL|_URL|_HOST|_TOKEN|_API_KEY|_KEY|_SECRET|_VERIFY|_SSL_VERIFY|TOOL)$",
+        r"(_BASE_URL|_URL|_HOST|_TOKEN|_API_KEY|_KEY|_SECRET|TOOL)$",
         "",
         var,
     )
@@ -130,11 +256,110 @@ def _is_host_var(var: str) -> bool:
     return var.endswith(_HOST_SUFFIXES)
 
 
-def _in_string_literal(line: str, pos: int) -> bool:
-    """True if ``pos`` on ``line`` sits inside a quote — i.e. the env-read keyword is
-    itself part of a string literal (a code-generator template like
-    ``lines.append('... os.environ.get(<VAR>) ...')``), not a real read."""
-    return line.count("'", 0, pos) % 2 == 1 or line.count('"', 0, pos) % 2 == 1
+def _literal_env_name(node: ast.AST | None) -> str | None:
+    """Return an uppercase environment name represented by a literal AST node."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value if _ENV_NAME.fullmatch(node.value) else None
+    return None
+
+
+def _is_environ(node: ast.AST) -> bool:
+    """Return whether *node* denotes ``os.environ`` or an imported ``environ``."""
+    return (
+        isinstance(node, ast.Name)
+        and node.id == "environ"
+        or isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "os"
+        and node.attr == "environ"
+    )
+
+
+def _is_os_module(node: ast.AST) -> bool:
+    """Return whether *node* denotes the imported ``os`` module."""
+    if isinstance(node, ast.Name) and node.id == "os":
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "__import__"
+        and bool(node.args)
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "os"
+    )
+
+
+def _env_names_from_tree(tree: ast.AST) -> set[str]:
+    """Collect literal runtime configuration reads from one parsed module.
+
+    AST inspection handles multiline calls and excludes lookalike snippets embedded
+    in strings. It also distinguishes ``os.environ[...]`` reads from assignment
+    writes, which a line-oriented regular expression cannot do reliably.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            direct_reader = isinstance(node.func, ast.Name) and node.func.id in {
+                "_setting",
+                "setting",
+                "getenv",
+            }
+            os_getenv = (
+                isinstance(node.func, ast.Attribute)
+                and _is_os_module(node.func.value)
+                and node.func.attr == "getenv"
+            )
+            environ_get = (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and _is_environ(node.func.value)
+            )
+            if (direct_reader or os_getenv or environ_get) and node.args:
+                name = _literal_env_name(node.args[0])
+                if name:
+                    found.add(name)
+
+            field_call = (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "Field"
+                or isinstance(node.func, ast.Attribute)
+                and node.func.attr == "Field"
+            )
+            if field_call:
+                for keyword in node.keywords:
+                    if keyword.arg == "alias":
+                        name = _literal_env_name(keyword.value)
+                        if name:
+                            found.add(name)
+
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.ctx, ast.Load)
+            and _is_environ(node.value)
+        ):
+            name = _literal_env_name(node.slice)
+            if name:
+                found.add(name)
+
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        if any(
+            isinstance(target, ast.Name)
+            and target.id == "enable_flag"
+            or isinstance(target, ast.Attribute)
+            and target.attr == "enable_flag"
+            for target in targets
+        ):
+            name = _literal_env_name(value)
+            if name:
+                found.add(name)
+    return found
 
 
 def _scan_setting_calls(root: Path) -> set[str]:
@@ -142,27 +367,36 @@ def _scan_setting_calls(root: Path) -> set[str]:
     ``*.py`` under ``root``. Skips assignment writes and reads nested inside a string
     literal (codegen templates)."""
     found: set[str] = set()
-    for py in root.rglob("*.py"):
-        if ".venv" in py.parts or "__pycache__" in py.parts:
+    for py in _walk_files(root, suffix=".py"):
+        try:
+            relative_parts = py.relative_to(root).parts
+        except ValueError:
+            relative_parts = py.parts
+        if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
+            continue
+        if py.name in _SELF_DOC_FILES:
             continue
         try:
-            text = py.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        except (OSError, SyntaxError, UnicodeDecodeError):
             continue
-        for line in text.splitlines():
-            for m in _ENV_READ.finditer(line):
-                if _in_string_literal(line, m.start()):
-                    continue
-                found.add(m.group(1) or m.group(2))
+        found.update(_env_names_from_tree(tree))
     found.discard("")
     return found
 
 
 def _derive_toggle_vars(root: Path) -> set[str]:
-    """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name)."""
+    """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name).
+
+    Scans only production code, not ``tests/`` — unit tests routinely define a throwaway
+    ``def register_<fake_tag>_tools(mcp): pass`` test double to exercise the tool-surface
+    dispatch mechanism generically (e.g. ``tests/test_verbose_tools.py``,
+    ``tests/mcp/test_check_env_var_drift.py``), which is not a real registrar and would
+    otherwise mint a phantom ``<FAKE_TAG>TOOL`` var with no real toggle behind it.
+    """
     tags: set[str] = set()
-    for py in root.rglob("*.py"):
-        if ".venv" in py.parts or "__pycache__" in py.parts:
+    for py in _walk_files(root, suffix=".py"):
+        if "tests" in py.parts or "test" in py.parts:
             continue
         try:
             tags.update(_REGISTRAR.findall(py.read_text(encoding="utf-8")))
@@ -185,8 +419,14 @@ def _agent_utilities_reads() -> frozenset[str]:
 def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
     """Every ``mcpServers.<name>.env`` block across ``mcp_config*.json`` files."""
     blocks: list[tuple[Path, dict[str, str]]] = []
-    for cfg in [*root.glob("mcp_config*.json"), *root.rglob("mcp_config*.json")]:
-        if ".venv" in cfg.parts:
+    for cfg in _walk_files(root, suffix=".json"):
+        if not cfg.name.startswith("mcp_config"):
+            continue
+        if "data" in cfg.parts and cfg.name == "mcp_config.json":
+            # agent_utilities/data/mcp_config.json is a packaged SCAFFOLDING template
+            # (a generic "example-mcp" server) shipped for other packages/tools to copy
+            # the schema from — not a launch config for agent-utilities' own servers, so
+            # its placeholder env keys (e.g. a bare "API_KEY") are never a real read here.
             continue
         try:
             data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -243,13 +483,25 @@ def _readme_example_env_blocks(root: Path) -> list[dict[str, str]]:
 
 
 def _compose_env_keys(root: Path) -> dict[str, set[str]]:
-    """Env keys referenced in each ``*compose*.yml`` ``environment:`` section."""
+    """Env keys referenced in each ``*compose*.yml`` ``environment:`` section.
+
+    Skips ``_THIRD_PARTY_COMPOSE_FILES`` — recipe files that stand up a bundled
+    THIRD-PARTY infra image (a database/broker/platform: postgres, neo4j, kafka,
+    falkordb, egeria-platform, jena-fuseki) rather than agent-utilities' own service.
+    Their ``environment:`` block configures that upstream image's own entrypoint
+    script (e.g. the official postgres image reads ``POSTGRES_USER``/``_PASSWORD``/
+    ``_DB`` to bootstrap itself) — it is never a code-read surface for THIS package,
+    so cross-checking it against our ``setting()``/``Field(alias=...)`` surface would
+    only ever produce false "DEAD" findings.
+    """
     out: dict[str, set[str]] = {}
     candidates = [
         *root.glob("*compose*.y*ml"),
         *root.glob("docker/*compose*.y*ml"),
     ]
     for comp in candidates:
+        if comp.name in _THIRD_PARTY_COMPOSE_FILES:
+            continue
         try:
             lines = comp.read_text(encoding="utf-8").splitlines()
         except OSError:
@@ -282,6 +534,7 @@ def _is_framework_known(var: str, code_read: set[str]) -> bool:
         or var in INHERITED_ENV
         or var in FRAMEWORK_EXTRA
         or var in RUNTIME_ALLOWLIST
+        or var in TEST_FIXTURE_VARS
         or var.startswith(_RUNTIME_PREFIXES)
         or any(var.endswith(suf) for suf in _SAFE_SUFFIXES)
     )
@@ -291,7 +544,18 @@ def analyze(root: Path) -> dict:
     """Compute the code-read set and diff the declared sets against it."""
     pkg_reads = _scan_setting_calls(root)
     toggles = _derive_toggle_vars(root)
-    code_read = pkg_reads | toggles | set(_agent_utilities_reads())
+    import agent_utilities
+
+    package_root = Path(agent_utilities.__file__).resolve().parent
+    resolved_root = root.resolve()
+    framework_reads = (
+        set()
+        if package_root == resolved_root
+        or resolved_root in package_root.parents
+        or package_root in resolved_root.parents
+        else set(_agent_utilities_reads())
+    )
+    code_read = pkg_reads | toggles | framework_reads
 
     env_example = root / ".env.example"
     declared_env = (
@@ -337,9 +601,19 @@ def analyze(root: Path) -> dict:
         # skip framework-inherited vars (shown in the inherited table)
         if var in INHERITED_ENV or var in FRAMEWORK_EXTRA:
             continue
-        # skip a legacy host alias whose canonical host sibling is already documented
-        # (e.g. legacy LANGFUSE_HOST when LANGFUSE_BASE_URL is in .env.example) — but
-        # never suppress a credential/toggle just because a host of the same stem exists.
+        # skip system/OS/runtime vars the code reads for interop (e.g. PATH passthrough,
+        # an XDG override) — same allowlist that already suppresses these from DEAD; it
+        # must apply here too, or a runtime var flip-flops between DEAD and UNDOCUMENTED
+        # instead of being silently accepted like the framework vars above.
+        if var in RUNTIME_ALLOWLIST or var.startswith(_RUNTIME_PREFIXES):
+            continue
+        # skip synthetic config-machinery test fixtures (never real deployable config)
+        if var in TEST_FIXTURE_VARS:
+            continue
+        # Skip an upstream child-process host variable whose canonical AU host
+        # sibling is documented (for example the Langfuse MCP adapter emits the
+        # child SDK's BASE_URL from LANGFUSE_HOST). Never suppress a credential
+        # or toggle merely because a host with the same stem exists.
         if _is_host_var(var) and _stem(var) in declared_host_stems:
             continue
         findings.append(
@@ -354,12 +628,12 @@ def analyze(root: Path) -> dict:
                     "type": "MISSING_TOOL_MODE",
                     "var": "MCP_TOOL_MODE",
                     "sources": [_rel(path, root)],
-                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the env block',
+                    "hint": 'add "MCP_TOOL_MODE": "intent" to the env block',
                 }
             )
 
     # env_sources imports this module, so defer the import to call time (no import cycle).
-    from agent_utilities.mcp.env_sources import example_env_pairs, is_agent_only
+    from agent_utilities.mcp.env_sources import is_agent_only
 
     # MALFORMED_VALUE — a whitespace-padded substitution like "${ VAR:-True }".
     for path, env in mcp_blocks:
@@ -390,11 +664,16 @@ def analyze(root: Path) -> dict:
                 )
 
     # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
-    allowed = {name for name, _ in example_env_pairs(root)} | {
-        "TRANSPORT",
-        "HOST",
-        "PORT",
-    }
+    allowed = {
+        variable
+        for variable in pkg_reads | toggles
+        if variable not in INHERITED_ENV
+        and variable not in FRAMEWORK_EXTRA
+        and variable not in RUNTIME_ALLOWLIST
+        and not variable.startswith(_RUNTIME_PREFIXES)
+        and not any(variable.endswith(suffix) for suffix in _SAFE_SUFFIXES)
+        and not is_agent_only(variable)
+    } | {"MCP_TOOL_MODE", "TRANSPORT", "HOST", "PORT"}
     for env in _readme_example_env_blocks(root):
         if "MCP_TOOL_MODE" not in env:
             findings.append(
@@ -402,7 +681,7 @@ def analyze(root: Path) -> dict:
                     "type": "MISSING_TOOL_MODE",
                     "var": "MCP_TOOL_MODE",
                     "sources": ["README.md (example)"],
-                    "hint": 'add "MCP_TOOL_MODE": "condensed" to the example env block',
+                    "hint": 'add "MCP_TOOL_MODE": "intent" to the example env block',
                 }
             )
         for var in sorted(env):
@@ -421,7 +700,7 @@ def analyze(root: Path) -> dict:
                 )
 
     return {
-        "package": root.name,
+        "package": root.resolve().name,
         "code_read_count": len(code_read),
         "findings": findings,
         "drift": len(findings),

@@ -14,8 +14,13 @@ The manifest serves as the **causal boundary** in the hybrid model:
     - **Causal Boundary: Change Manifest (what caused improvement)**
 
 Manifests are stored in two locations:
-    - ``.specify/manifests/<round_id>.json`` — git-diffable normative state
-    - Knowledge Graph ``ChangeManifest`` nodes — epistemic queries
+    - ``.specify/manifests/manifest-<digest>.json`` — reference-only normative state
+    - Knowledge Graph ``ChangeManifest`` records — the same content-safe projection
+
+The in-memory model retains operational relative paths so an approved edit can be
+applied. :meth:`EvolveAgent.persist_manifest` never serializes those paths or raw diff,
+trace, prompt, task, or evidence content; it emits opaque references and validated
+compiled metadata instead.
 """
 
 
@@ -63,7 +68,7 @@ class ComponentEdit(BaseModel):
         timestamp: ISO 8601 timestamp of when the edit was recorded.
     """
 
-    id: str = Field(default_factory=lambda: f"edit:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"edit:{uuid.uuid4().hex}")
     component_type: ComponentType
     file_path: str
     edit_summary: str
@@ -152,7 +157,7 @@ class ChangeManifest(BaseModel):
         verification_result: Detailed verification outcome.
     """
 
-    round_id: str = Field(default_factory=lambda: f"round:{uuid.uuid4().hex[:8]}")
+    round_id: str = Field(default_factory=lambda: f"round:{uuid.uuid4().hex}")
     edits: list[ComponentEdit] = Field(default_factory=list)
     baseline_score: float | None = None
     predicted_score: float | None = None
@@ -188,9 +193,10 @@ class ChangeManifest(BaseModel):
         return [e for e in self.edits if e.component_type == component_type]
 
     def to_sdd_path(self, workspace_path: str) -> str:
-        """Return the file path for SDD manifest storage."""
+        """Return a portable, non-identifying path for manifest storage."""
+        import hashlib
         import os
 
         manifests_dir = os.path.join(workspace_path, ".specify", "manifests")
-        os.makedirs(manifests_dir, exist_ok=True)
-        return os.path.join(manifests_dir, f"{self.round_id}.json")
+        token = hashlib.sha256(self.round_id.encode("utf-8")).hexdigest()[:32]
+        return os.path.join(manifests_dir, f"manifest-{token}.json")

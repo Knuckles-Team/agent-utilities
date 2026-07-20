@@ -10,13 +10,17 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
+import mcp.types
 import pytest
+from fastmcp.exceptions import ToolError
 
 from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
     SessionVisibilityMiddleware,
+    _make_forwarder,
     _register_forwarder,
     _register_meta_tools,
+    _session_key,
     _tool_is_verbose,
     get_server_prefix,
 )
@@ -36,6 +40,20 @@ def _write_config(tmp_path, servers: dict) -> object:
     return path
 
 
+@pytest.mark.asyncio
+async def test_forwarder_preserves_child_tool_error_as_outer_error(tmp_path) -> None:
+    mux = MCPMultiplexer(tmp_path / "mcp_config.json")
+    mux.call_proxied_tool = AsyncMock(
+        return_value=mcp.types.CallToolResult(
+            content=[mcp.types.TextContent(type="text", text="private child detail")],
+            isError=True,
+        )
+    )
+
+    with pytest.raises(ToolError, match="delegated_child_tool_failed"):
+        await _make_forwarder(mux, "synthetic__tool")()
+
+
 def _fake_tool(
     name: str,
     description: str = "",
@@ -46,6 +64,7 @@ def _fake_tool(
     tool.name = name
     tool.description = description
     tool.inputSchema = schema if schema is not None else {}
+    tool.annotations = None
     # FastMCP propagates tags via _meta; the multiplexer reads tool.meta.
     tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None
     return tool
@@ -81,6 +100,73 @@ def test_load_catalog_excludes_self_and_disabled(tmp_path):
     assert "off" not in catalog
     # idempotent / cached
     assert mux.load_catalog() is catalog
+
+
+def test_reload_catalog_drops_stale_routing_and_reparses(tmp_path):
+    config_path = _write_config(
+        tmp_path,
+        {"first": {"command": "first-server"}},
+    )
+    mux = MCPMultiplexer(config_path)
+    assert set(mux.load_catalog()) == {"first"}
+    mux.tool_to_server["first__query"] = ("first", "query")
+
+    config_path.write_text(
+        json.dumps({"mcpServers": {"second": {"command": "second-server"}}})
+    )
+    catalog = mux.reload_catalog()
+
+    assert set(catalog) == {"second"}
+    assert mux.tool_to_server == {}
+
+
+def test_load_catalog_auto_registers_native_langfuse_mcp(tmp_path, monkeypatch):
+    config_path = tmp_path / "missing.json"
+    native = {
+        "command": "langfuse-mcp",
+        "args": [],
+        "env": {
+            "LANGFUSE_HOST": "https://telemetry.example.test",
+            "LANGFUSE_PUBLIC_KEY": "synthetic-public",
+            "LANGFUSE_SECRET_KEY": "synthetic-secret",
+            "LANGFUSE_PERSISTENCE_HMAC_KEY": "synthetic-persistence-material",
+            "LANGFUSE_PERSISTENCE_HMAC_MATERIALIZED": "true",
+        },
+    }
+    monkeypatch.setattr(
+        "agent_utilities.observability.langfuse_trust.native_langfuse_mcp_config",
+        lambda: native,
+    )
+    prepare = MagicMock(side_effect=AssertionError("native config prepared twice"))
+    monkeypatch.setattr(
+        "agent_utilities.observability.langfuse_trust.prepare_langfuse_mcp_config",
+        prepare,
+    )
+
+    catalog = MCPMultiplexer(config_path).load_catalog()
+
+    assert catalog["langfuse-mcp"]["command"] == "langfuse-mcp"
+    assert "UV_NATIVE_TLS" not in catalog["langfuse-mcp"]["env"]
+    assert prepare.call_count == 0
+    assert catalog["langfuse-mcp"]["_runtime_materialized_secret_keys"] == [
+        "LANGFUSE_PERSISTENCE_HMAC_KEY",
+        "LANGFUSE_SECRET_KEY",
+    ]
+
+
+def test_load_catalog_classifies_native_langfuse_failure(tmp_path, monkeypatch, caplog):
+    from agent_utilities.observability.langfuse_trust import LangfuseTrustError
+
+    monkeypatch.setattr(
+        "agent_utilities.observability.langfuse_trust.native_langfuse_mcp_config",
+        MagicMock(side_effect=LangfuseTrustError("langfuse_credentials_missing")),
+    )
+
+    catalog = MCPMultiplexer(tmp_path / "missing.json").load_catalog()
+
+    assert catalog == {}
+    assert "credentials configuration invalid" in caplog.text
+    assert "invalid CA bundle" not in caplog.text
 
 
 async def test_mount_child_lazy_and_idempotent(tmp_path):
@@ -245,7 +331,7 @@ async def test_probe_server_records_unreachable(tmp_path):
     mux._open_one_session = AsyncMock(side_effect=_boom)  # type: ignore[method-assign]
     info = await mux.probe_server(CNT, timeout=1)
     assert info["tools"] == []
-    assert "connection refused" in info["error"]
+    assert info["error"] == "OSError"
 
 
 async def test_probe_server_uses_live_tools_when_mounted(tmp_path):
@@ -435,9 +521,9 @@ def test_format_probe_error_unwraps_exceptiongroup():
         [RuntimeError("HTTP 502 Bad Gateway"), RuntimeError("HTTP 502 Bad Gateway")],
     )
     msg = _format_probe_error(eg)
-    assert "HTTP 502 Bad Gateway" in msg
-    assert "TaskGroup" not in msg  # opaque wrapper removed
-    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError: refused"
+    assert msg == "RuntimeError"
+    assert "HTTP 502 Bad Gateway" not in msg
+    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError"
 
 
 # --------------------------------------------------------------------------- #
@@ -544,13 +630,14 @@ async def test_meta_tools_registered_and_load_exposes(tmp_path):
     assert CNT_PREFIXED in names_after  # forwarder registered process-globally
     assert CNT_PREFIXED in mux._exposed
     # ...and made visible to this (default, context-less) session.
-    assert CNT_PREFIXED in mux.session_loaded("__default__")
+    session_key = _session_key()
+    assert CNT_PREFIXED in mux.session_loaded(session_key)
 
     # unload retracts it from THIS session; the forwarder stays registered
     # (other sessions may still have it loaded) — visibility is the middleware's job.
     unload = await mcp.get_tool("unload_tools")
     await unload.fn(tools=[CNT_PREFIXED])
-    assert CNT_PREFIXED not in mux.session_loaded("__default__")
+    assert CNT_PREFIXED not in mux.session_loaded(session_key)
     assert CNT_PREFIXED in mux._exposed  # still globally registered
 
 
@@ -578,7 +665,7 @@ async def test_per_session_disclosure_isolation(tmp_path):
         async with Client(mcp) as b:
             b_tools = {t.name for t in await b.list_tools()}
             # B cannot even call A's tool (gated until B loads it).
-            with pytest.raises(Exception):
+            with pytest.raises(ToolError):
                 await b.call_tool(CNT_PREFIXED, {})
 
     # A sees its loaded tool + the meta-tools; B sees only the meta-tools.

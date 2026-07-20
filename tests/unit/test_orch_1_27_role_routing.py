@@ -99,9 +99,9 @@ def test_role_routing_round_trips_through_json():
 
 @pytest.mark.concept(id="AU-ORCH.routing.conductor-per-step-model")
 def test_default_map_covers_all_quarq_roles():
-    # The four Quarq roles plus the RLM-GEPA roles (executor/sub-LM/proposer).
+    # The four general roles plus depth-specific RLM roles.
     assert {"planner", "generator", "learner", "judge"} <= set(_DEFAULT_ROLE_ROUTING)
-    assert {"rlm-executor", "rlm-sublm", "rlm-proposer"} <= set(_DEFAULT_ROLE_ROUTING)
+    assert {"rlm-executor", "rlm-sublm", "rlm-root"} <= set(_DEFAULT_ROLE_ROUTING)
 
 
 @pytest.mark.concept(id="AU-ORCH.routing.conductor-per-step-model")

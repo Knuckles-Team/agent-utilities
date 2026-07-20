@@ -33,13 +33,14 @@ Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intak
    normalized out so the *same* failure produces the *same* signature across
    occurrences. A pattern must recur at least `min_occurrences` times (default 2)
    to qualify — single one-offs are noise.
-3. **Materialize** — each recurring pattern writes, into the durable KG:
+3. **Materialize** — each recurring pattern crosses the native `ChangeEnvelope`
+   authority boundary and writes atomically into the durable KG:
    - a `PerformanceAnomaly` node (`anomaly_type ∈ {ERROR_RATE, LOW_SCORE, TIMEOUT,
      HIGH_COST, HIGH_TOKEN_USAGE}`),
    - an `ExecutionSummary` rollup per failing workflow (`success_rate < 1.0`, so
      `maintainer.trigger_self_improvement` picks it up), and
    - a synthetic **`failure_gap` `Concept`** topic — labelled `Concept` with **no
-     `ADDRESSED_BY` edge** and `evidence_trace_ids` linking back to Langfuse — so
+     `ADDRESSED_BY` edge** and non-reversible `evidence_trace_refs` — so
      the golden loop's existing `unresolved_topics()` intake surfaces it unchanged.
 4. **Remediate** — the failure-ingest path runs one golden-loop cycle that
    addresses the just-materialized gaps **directly** (see *Targeting* below) and
@@ -47,7 +48,8 @@ Langfuse  ── pull ──▶  cluster ──▶  materialize ──▶  intak
 5. **Regression-gated merge** — promotion of a failure remediation is gated by a
    regression check bound to the originating failures: it re-queries Langfuse and
    holds the proposal if any signature is actively spiking (current > baseline).
-   Each gap is also appended to the durable eval corpus and the failing
+   When the separately governed regression-corpus opt-in is enabled, each gap is
+   appended as a metadata-only assertion and the failing
    capability's reward is nudged down (`FeedbackService`).
 6. **Lock regression (CONCEPT:AU-AHE.evaluation.failure-analysis-loop)** — when the gate *passes* (the fix holds
    against the originally-observed failures), `_lock_regression_cases` promotes one
@@ -79,7 +81,41 @@ non-null `toTimestamp`.
 deprecated fallback:
 
 - `LANGFUSE_HOST` (host base URL; **not** `LANGFUSE_BASE_URL`)
-- `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`
+- `LANGFUSE_PUBLIC_KEY_REF`, `LANGFUSE_SECRET_KEY_REF`
+
+### Self-hosted trust and the native MCP server
+
+Configure private or self-hosted trust through an AgentConfig TLS profile, not a
+hard-coded verification switch or a checked-in certificate path. Durable config
+contains only `TLS_PROFILES_REF` plus `LANGFUSE_TLS_PROFILE_REF` (or the narrowly
+scoped `LANGFUSE_CA_BUNDLE_REF`); endpoint, CA material, client credentials, and
+proxy details are resolved at runtime. A CA value may be a complete PEM chain or
+a trust store containing independent roots. Verification is mandatory and an
+invalid or incomplete profile fails closed.
+
+GraphOS projects that one resolved profile into the SDK, Requests, SSL, and the
+Langfuse MCP child environment. The child runs the `langfuse-agent` module from
+the same installed serving artifact and current interpreter, so it performs no
+package bootstrap and cannot drift to a different provider release. The current
+provider consumes the shared canonical `LANGFUSE_HOST` contract directly;
+`LANGFUSE_BASE_URL` is rejected as a retired input. Resolved keys and certificate
+paths remain child-process state and are never returned by doctor, logs, graph
+records, or status APIs.
+
+When both credential refs are available, GraphOS lazily registers the native
+Langfuse MCP server and enables propose-only failure evolution unless either is
+explicitly disabled. `LANGFUSE_CAPTURE_CONTENT` remains `false`; this enables
+metadata traces, not prompt or response retention. Validate configuration and
+trust without displaying secrets with:
+
+```bash
+agent-utilities-doctor --only langfuse
+```
+
+An `ok` result proves local configuration, credential resolution, TLS material,
+and MCP launcher readiness. Seeing a trace still requires executing a traced
+request and querying the configured Langfuse project; documentation does not
+substitute for that environment-dependent certification.
 
 ## Targeting: addressing the right gap
 
@@ -92,7 +128,7 @@ remediation is deterministic.
 
 ## How to run it
 
-- **On demand (MCP):** `graph_orchestrate(action="failure_ingest")` — pulls
+- **On demand (MCP):** `graph_evolution(action="failure_ingest")` — pulls
   failures, materializes gaps, and runs the regression-gated remediation cycle,
   returning a JSON report (`gap_concepts`, `anomalies`, and a `remediation` block).
 - **As a daemon tick:** the consolidated KG daemon registers a `failure_ingest`
@@ -105,11 +141,20 @@ Both share one implementation: `failure_analyzer.run_failure_ingest(engine)`.
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `KG_FAILURE_EVOLUTION` | `False` | Enable the daemon `failure_ingest` tick. Parsed via `to_boolean` (`"True"`/`"False"`). |
+| `KG_FAILURE_EVOLUTION` | `auto` | Enabled when both Langfuse credentials are runtime-injected; explicit `False` opts out. Runs the propose-only daemon `failure_ingest` tick. |
 | `KG_FAILURE_EVOLUTION_INTERVAL` | `3600` | Daemon tick interval (seconds). |
 | `KG_FAILURE_EVOLUTION_WINDOW` | `86400` | How far back to pull telemetry (seconds). |
-| `KG_FAILURE_REGRESSION_DATASET` | `False` | Enable the dataset-based regression path (build a Langfuse dataset from the failing traces). |
+| `KG_FAILURE_REGRESSION_DATASET` | `False` | Content-bearing dataset path. Keep off unless a separately governed implementation proves metadata-only retention. |
 | `KG_GOLDEN_AUTO_MERGE` | `False` | Master switch for promoting a passing remediation `proposal → active`. Off ⇒ propose-only. |
+
+Failure evolution treats Langfuse as an external authoritative observation boundary.
+Workflow labels, error details, and trace identifiers are converted to stable,
+non-reversible persistence references before they enter KG properties, feedback, or
+regression metadata. Raw trace ids and trace content remain transient; logs contain only
+controlled reason codes and aggregate counts. Production requires a configured
+`PERSISTENCE_IDENTITY_HMAC_KEY_REF` (or equivalent graph service secret) so references
+are keyed and deployment-scoped. `LANGFUSE_CAPTURE_CONTENT=false` is the supported
+production posture.
 
 ## Code paths
 
@@ -125,7 +170,7 @@ Both share one implementation: `failure_analyzer.run_failure_ingest(engine)`.
   daemon job.
 - `agent_utilities/knowledge_graph/research/golden_loop.py` — `run_one_cycle(topics=…)`
   override; regression check threaded into `GovernedAutoMerger`.
-- `agent_utilities/mcp/kg_server.py` — `graph_orchestrate(action="failure_ingest")`.
+- `agent_utilities/mcp/tools/evolution_tools.py` — `graph_evolution(action="failure_ingest")`.
 - `agent_utilities/models/schema_definition.py` — `ExecutionSummary`,
   `PerformanceAnomaly`.
 

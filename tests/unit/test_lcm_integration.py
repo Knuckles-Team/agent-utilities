@@ -1,7 +1,7 @@
 """Tests for Lossless Context Management (LCM) integration.
 
 Validates the KG-persistent compaction pipeline, Summary DAG construction,
-escalation logic, and the unified ElasticContextManager LCM operations.
+escalation logic, and the unified AgentContextManager LCM operations.
 
 CONCEPT:AU-KG.memory.tiered-memory-caching — Lossless Context Management
 """
@@ -164,20 +164,20 @@ class TestContextCompactorPersistence:
 
 
 # ---------------------------------------------------------------------------
-# ElasticContextManager — LCM Operations Tests
+# AgentContextManager — LCM Operations Tests
 # ---------------------------------------------------------------------------
 
 
-class TestElasticContextManagerLCM:
+class TestAgentContextManagerLCM:
     """Tests for compact_thread, expand_summary, grep_memories, describe_summary."""
 
     def test_compact_thread_below_threshold(self, mock_engine):
         """compact_thread() should return 'below_threshold' for small threads."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        ecm = ElasticContextManager(max_tokens=16000)
+        ecm = AgentContextManager(max_tokens=16000)
 
         # Mock a thread with only 5 messages (below default threshold of 30)
         mock_engine.query_cypher.return_value = [
@@ -199,10 +199,10 @@ class TestElasticContextManagerLCM:
     def test_compact_thread_no_engine_returns_error(self):
         """compact_thread() should return error when no engine provided."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        ecm = ElasticContextManager(max_tokens=16000)
+        ecm = AgentContextManager(max_tokens=16000)
 
         result = ecm.compact_thread(
             thread_id="thread_no_engine",
@@ -215,10 +215,10 @@ class TestElasticContextManagerLCM:
     def test_expand_summary_no_engine_returns_error(self):
         """expand_summary() should return error when no engine provided."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        result = ElasticContextManager.expand_summary(
+        result = AgentContextManager.expand_summary(
             summary_id="sum_001",
             engine=None,
         )
@@ -229,7 +229,7 @@ class TestElasticContextManagerLCM:
     def test_expand_summary_returns_messages(self, mock_engine):
         """expand_summary() should traverse SUMMARIZES edges to recover messages."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
         # First call: summary itself, Second call: children
@@ -258,7 +258,7 @@ class TestElasticContextManagerLCM:
             ],
         ]
 
-        result = ElasticContextManager.expand_summary(
+        result = AgentContextManager.expand_summary(
             summary_id="sum_001",
             engine=mock_engine,
         )
@@ -269,10 +269,10 @@ class TestElasticContextManagerLCM:
     def test_grep_memories_empty_without_engine(self):
         """grep_memories() should return empty list without engine."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        result = ElasticContextManager.grep_memories(
+        result = AgentContextManager.grep_memories(
             query="compaction",
             engine=None,
         )
@@ -282,7 +282,7 @@ class TestElasticContextManagerLCM:
     def test_grep_memories_with_partition_filter(self, mock_engine):
         """grep_memories() should support partition filtering."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
         mock_engine.query_cypher.return_value = [
@@ -296,7 +296,7 @@ class TestElasticContextManagerLCM:
             },
         ]
 
-        result = ElasticContextManager.grep_memories(
+        result = AgentContextManager.grep_memories(
             query="compaction",
             engine=mock_engine,
             partition="antigravity",
@@ -308,10 +308,10 @@ class TestElasticContextManagerLCM:
     def test_describe_summary_no_engine_returns_error(self):
         """describe_summary() should return error without engine."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
-        result = ElasticContextManager.describe_summary(
+        result = AgentContextManager.describe_summary(
             summary_id="sum_002",
             engine=None,
         )
@@ -322,7 +322,7 @@ class TestElasticContextManagerLCM:
     def test_describe_summary_returns_metadata(self, mock_engine):
         """describe_summary() should return summary metadata and child count."""
         from agent_utilities.knowledge_graph.memory import (
-            ElasticContextManager,
+            AgentContextManager,
         )
 
         # First call: summary metadata, Second call: children
@@ -351,7 +351,7 @@ class TestElasticContextManagerLCM:
             ],
         ]
 
-        result = ElasticContextManager.describe_summary(
+        result = AgentContextManager.describe_summary(
             summary_id="sum_002",
             engine=mock_engine,
         )

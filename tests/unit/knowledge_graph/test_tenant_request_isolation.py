@@ -3,7 +3,7 @@
 Proves the MCP/orchestration read chokepoint (IntelligenceGraphEngine.query_cypher)
 applies tenant scope() + owner/scope visibility on a shared backend graph, and
 that guarded writes stamp tenant_id so the predicate matches. Enforcement is on
-only inside these tests (the guarded backend + KG_BRAIN_ENFORCE).
+only inside these tests (the mandatory guarded backend).
 """
 
 from __future__ import annotations
@@ -31,7 +31,6 @@ def _actor(tid, aid):
 
 @pytest.fixture
 def guarded_engine(monkeypatch):
-    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
     from agent_utilities.knowledge_graph.backends.brain_guarded_backend import (
         BrainGuardedBackend,
     )
@@ -109,7 +108,8 @@ def test_within_org_private_then_shared(guarded_engine):
     # alice shares her node with the org → bob now sees it.
     from agent_utilities.knowledge_graph.core import tenant_sharing as ts
 
-    ts.share_with_org(alice_id, store=guarded)
+    with use_actor(_actor(org, "alice")):
+        ts.share_with_org(alice_id, store=guarded)
     with use_actor(_actor(org, "bob")):
         after = _ids(engine.query_cypher(q))
     assert alice_id in after  # now org-shared

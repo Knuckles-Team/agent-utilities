@@ -1,0 +1,434 @@
+connector: github-agent
+ontology_source: github
+schema_version: '1'
+resources:
+- name: Branch
+  label: Branch
+  id_prefix: branch
+  relations: []
+- name: CheckRun
+  label: Check Run
+  id_prefix: checkrun
+  relations: []
+- name: Commit
+  label: Commit
+  id_prefix: commit
+  relations: []
+- name: Issue
+  label: Issue
+  id_prefix: issue
+  relations: []
+- name: Organization
+  label: Organization
+  id_prefix: organization
+  relations: []
+- name: PipelineRun
+  label: Pipeline Run
+  id_prefix: pipelinerun
+  relations:
+  - name: hasJob
+    label: has job
+    target: CheckRun
+    lpg_rel_type: ''
+  - name: ranFor
+    label: ran for
+    target: owl:Thing
+    lpg_rel_type: ''
+- name: PullRequest
+  label: Pull Request
+  id_prefix: pullrequest
+  relations:
+  - name: closesIssue
+    label: closes issue
+    target: Issue
+    lpg_rel_type: ''
+  - name: targetsBranch
+    label: targets branch
+    target: Branch
+    lpg_rel_type: ''
+- name: Release
+  label: Release
+  id_prefix: release
+  relations:
+  - name: documentsRelease
+    label: documents release
+    target: Document
+    lpg_rel_type: ''
+- name: Repository
+  label: Repository
+  id_prefix: repository
+  relations:
+  - name: ownedByOrg
+    label: owned by organization
+    target: Organization
+    lpg_rel_type: ''
+- name: Workflow
+  label: Workflow
+  id_prefix: workflow
+  relations:
+  - name: hasWorkflowRun
+    label: has workflow run
+    target: WorkflowRun
+    lpg_rel_type: ''
+- name: WorkflowRun
+  label: Workflow Run
+  id_prefix: workflowrun
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: github-repositories.updated
+  resource: repository
+  description: "Watermark event for 'github-repositories' \u2014 advances on updated_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    repository: id
+  title_field:
+    repository: full_name
+  text_field:
+    repository: description
+  updated_field:
+    repository: updated_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Branch:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  CheckRun:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Commit:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Issue:
+    ontology_class: Incident
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Organization:
+    ontology_class: Organization
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  PipelineRun:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  PullRequest:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Release:
+    ontology_class: null
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Repository:
+    ontology_class: SoftwareProject
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  Workflow:
+    ontology_class: Action
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+  WorkflowRun:
+    ontology_class: Action
+    fields:
+      completedAt: xsd:dateTime
+      conclusion: xsd:string
+      defaultBranch: xsd:string
+      durationSeconds: xsd:integer
+      event: xsd:string
+      fullName: xsd:string
+      headBranch: xsd:string
+      headSha: xsd:string
+      htmlUrl: xsd:string
+      isDraft: xsd:boolean
+      isPrivate: xsd:boolean
+      number: xsd:integer
+      runStartedAt: xsd:dateTime
+      runStatus: xsd:string
+      runUpdatedAt: xsd:dateTime
+      sha: xsd:string
+      startedAt: xsd:dateTime
+      state: xsd:string
+      status: xsd:string
+      tagName: xsd:string
+sync:
+- preset: github-repositories
+  server: github-agent
+  tool: github_repos
+  action: list
+  records_path: data
+  id_field: id
+  title_field: full_name
+  text_field: description
+  updated_field: updated_at
+  pagination: page
+  doc_type: repository
+  tool_schema_sha256: 125cd86b75abcb9a0ac47575ffbdda660260ded083695f69fe9725b3858cd46f
+  raw:
+    server: github-agent
+    tool: github_repos
+    action: list
+    records_path: data
+    id_field: id
+    title_field: full_name
+    text_field: description
+    updated_field: updated_at
+    pagination: page
+    page_kind: page
+    page_param: page
+    page_size_param: per_page
+    doc_type: repository
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - github_agent/connectors/mcp_source_presets.json
+  - github_agent/connectors/tool_schema_fingerprints.json
+  - github_agent/ontology/github.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: e8d81e4a4e12957326dd75e30c19a8844acc345d32f658af9189e27b49050afd
+    triple_count: 130
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Pr4XBRTpOnfFFcbtTRJhEqHeMwPn3Tn5xIhv57JJjUyWCHlBkUB3i181OzKQ_Qo0jEW--bSwqNtp7VJRCgrPBw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'assignedTo' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'authoredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'belongsToRepository' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Branch.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CheckRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Commit.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Issue.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Organization.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.PipelineRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PullRequest.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Release.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Repository.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Workflow.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.WorkflowRun.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."

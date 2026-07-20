@@ -97,9 +97,9 @@ async def run_adversarial_pass(
         return None
 
     try:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
-        adversarial_agent = Agent(
+        adversarial_agent = create_context_agent(
             model=deps.agent_model,
             output_type=AdversarialResult,
             system_prompt=(

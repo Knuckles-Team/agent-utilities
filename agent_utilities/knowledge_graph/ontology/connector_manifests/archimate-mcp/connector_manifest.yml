@@ -1,0 +1,955 @@
+connector: archimate-mcp
+ontology_source: archimate
+schema_version: '1'
+resources:
+- name: ApplicationCollaboration
+  label: Application Collaboration
+  id_prefix: applicationcollaboration
+  relations: []
+- name: ApplicationEvent
+  label: Application Event
+  id_prefix: applicationevent
+  relations: []
+- name: ApplicationFunction
+  label: Application Function
+  id_prefix: applicationfunction
+  relations: []
+- name: ApplicationInteraction
+  label: Application Interaction
+  id_prefix: applicationinteraction
+  relations: []
+- name: ApplicationInterface
+  label: Application Interface
+  id_prefix: applicationinterface
+  relations: []
+- name: ApplicationLayerElement
+  label: Application Layer Element
+  id_prefix: applicationlayerelement
+  relations: []
+- name: ApplicationProcess
+  label: Application Process
+  id_prefix: applicationprocess
+  relations: []
+- name: ApplicationService
+  label: Application Service
+  id_prefix: applicationservice
+  relations: []
+- name: ArchimateElement
+  label: ArchiMate Element
+  id_prefix: archimateelement
+  relations:
+  - name: relAccess
+    label: access
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relAggregation
+    label: aggregation
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relAssignment
+    label: assignment
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relAssociation
+    label: association
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relComposition
+    label: composition
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relFlow
+    label: flow
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relInfluence
+    label: influence
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relRealization
+    label: realization
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relServing
+    label: serving
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relSpecialization
+    label: specialization
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relTriggering
+    label: triggering
+    target: ArchimateElement
+    lpg_rel_type: ''
+- name: ArchimateModel
+  label: ArchiMate Model
+  id_prefix: archimatemodel
+  relations:
+  - name: hasElement
+    label: has element
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: hasView
+    label: has view
+    target: ArchimateView
+    lpg_rel_type: ''
+- name: ArchimateRelationship
+  label: ArchiMate Relationship
+  id_prefix: archimaterelationship
+  relations:
+  - name: relSource
+    label: relationship source
+    target: ArchimateElement
+    lpg_rel_type: ''
+  - name: relTarget
+    label: relationship target
+    target: ArchimateElement
+    lpg_rel_type: ''
+- name: ArchimateView
+  label: ArchiMate View
+  id_prefix: archimateview
+  relations:
+  - name: depictsElement
+    label: depicts element
+    target: ArchimateElement
+    lpg_rel_type: ''
+- name: Artifact
+  label: Artifact
+  id_prefix: artifact
+  relations: []
+- name: Assessment
+  label: Assessment
+  id_prefix: assessment
+  relations: []
+- name: BusinessActor
+  label: Business Actor
+  id_prefix: businessactor
+  relations: []
+- name: BusinessCollaboration
+  label: Business Collaboration
+  id_prefix: businesscollaboration
+  relations: []
+- name: BusinessEvent
+  label: Business Event
+  id_prefix: businessevent
+  relations: []
+- name: BusinessFunction
+  label: Business Function
+  id_prefix: businessfunction
+  relations: []
+- name: BusinessInteraction
+  label: Business Interaction
+  id_prefix: businessinteraction
+  relations: []
+- name: BusinessInterface
+  label: Business Interface
+  id_prefix: businessinterface
+  relations: []
+- name: BusinessLayerElement
+  label: Business Layer Element
+  id_prefix: businesslayerelement
+  relations: []
+- name: BusinessObject
+  label: Business Object
+  id_prefix: businessobject
+  relations: []
+- name: BusinessRole
+  label: Business Role
+  id_prefix: businessrole
+  relations: []
+- name: BusinessService
+  label: Business Service
+  id_prefix: businessservice
+  relations: []
+- name: BusinessTask
+  label: Business Task
+  id_prefix: businesstask
+  relations: []
+- name: Capability
+  label: Capability
+  id_prefix: capability
+  relations: []
+- name: CommunicationNetwork
+  label: Communication Network
+  id_prefix: communicationnetwork
+  relations: []
+- name: CompositeElement
+  label: Composite / Cross-layer Element
+  id_prefix: compositeelement
+  relations: []
+- name: Constraint
+  label: Constraint
+  id_prefix: constraint
+  relations: []
+- name: Contract
+  label: Contract
+  id_prefix: contract
+  relations: []
+- name: CourseOfAction
+  label: Course Of Action
+  id_prefix: courseofaction
+  relations: []
+- name: DataObject
+  label: Data Object
+  id_prefix: dataobject
+  relations: []
+- name: Deliverable
+  label: Deliverable
+  id_prefix: deliverable
+  relations: []
+- name: Device
+  label: Device
+  id_prefix: device
+  relations: []
+- name: DistributionNetwork
+  label: Distribution Network
+  id_prefix: distributionnetwork
+  relations: []
+- name: Driver
+  label: Driver
+  id_prefix: driver
+  relations: []
+- name: Equipment
+  label: Equipment
+  id_prefix: equipment
+  relations: []
+- name: Facility
+  label: Facility
+  id_prefix: facility
+  relations: []
+- name: Gap
+  label: Gap
+  id_prefix: gap
+  relations: []
+- name: Goal
+  label: Goal
+  id_prefix: goal
+  relations: []
+- name: Grouping
+  label: Grouping
+  id_prefix: grouping
+  relations: []
+- name: ImplementationElement
+  label: Implementation & Migration Element
+  id_prefix: implementationelement
+  relations: []
+- name: ImplementationEvent
+  label: Implementation Event
+  id_prefix: implementationevent
+  relations: []
+- name: Junction
+  label: Junction
+  id_prefix: junction
+  relations: []
+- name: Location
+  label: Location
+  id_prefix: location
+  relations: []
+- name: Material
+  label: Material
+  id_prefix: material
+  relations: []
+- name: Meaning
+  label: Meaning
+  id_prefix: meaning
+  relations: []
+- name: MotivationElement
+  label: Motivation Element
+  id_prefix: motivationelement
+  relations: []
+- name: Node
+  label: Node
+  id_prefix: node
+  relations: []
+- name: Outcome
+  label: Outcome
+  id_prefix: outcome
+  relations: []
+- name: Path
+  label: Path
+  id_prefix: path
+  relations: []
+- name: PhysicalElement
+  label: Physical Layer Element
+  id_prefix: physicalelement
+  relations: []
+- name: Plateau
+  label: Plateau
+  id_prefix: plateau
+  relations: []
+- name: Principle
+  label: Principle
+  id_prefix: principle
+  relations: []
+- name: Product
+  label: Product
+  id_prefix: product
+  relations: []
+- name: Representation
+  label: Representation
+  id_prefix: representation
+  relations: []
+- name: Requirement
+  label: Requirement
+  id_prefix: requirement
+  relations: []
+- name: Resource
+  label: Resource
+  id_prefix: resource
+  relations: []
+- name: Stakeholder
+  label: Stakeholder
+  id_prefix: stakeholder
+  relations: []
+- name: StrategyElement
+  label: Strategy Layer Element
+  id_prefix: strategyelement
+  relations: []
+- name: SystemSoftware
+  label: System Software
+  id_prefix: systemsoftware
+  relations: []
+- name: TechnologyCollaboration
+  label: Technology Collaboration
+  id_prefix: technologycollaboration
+  relations: []
+- name: TechnologyEvent
+  label: Technology Event
+  id_prefix: technologyevent
+  relations: []
+- name: TechnologyFunction
+  label: Technology Function
+  id_prefix: technologyfunction
+  relations: []
+- name: TechnologyInteraction
+  label: Technology Interaction
+  id_prefix: technologyinteraction
+  relations: []
+- name: TechnologyInterface
+  label: Technology Interface
+  id_prefix: technologyinterface
+  relations: []
+- name: TechnologyLayerElement
+  label: Technology Layer Element
+  id_prefix: technologylayerelement
+  relations: []
+- name: TechnologyProcess
+  label: Technology Process
+  id_prefix: technologyprocess
+  relations: []
+- name: TechnologyService
+  label: Technology Service
+  id_prefix: technologyservice
+  relations: []
+- name: Value
+  label: Value
+  id_prefix: value
+  relations: []
+- name: ValueStream
+  label: Value Stream
+  id_prefix: valuestream
+  relations: []
+- name: WorkPackage
+  label: Work Package
+  id_prefix: workpackage
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    archimate-element: id
+    archimate-relationship: id
+  title_field:
+    archimate-element: name
+    archimate-relationship: name
+  text_field:
+    archimate-element: documentation
+    archimate-relationship: documentation
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  ApplicationCollaboration:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationEvent:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationFunction:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationInteraction:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationInterface:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationLayerElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationProcess:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ApplicationService:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ArchimateElement:
+    ontology_class: null
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ArchimateModel:
+    ontology_class: null
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ArchimateRelationship:
+    ontology_class: null
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ArchimateView:
+    ontology_class: null
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Artifact:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Assessment:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessActor:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessCollaboration:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessEvent:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessFunction:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessInteraction:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessInterface:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessLayerElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessObject:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessRole:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessService:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  BusinessTask:
+    ontology_class: BusinessProcess
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Capability:
+    ontology_class: StrategyElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  CommunicationNetwork:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  CompositeElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Constraint:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Contract:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  CourseOfAction:
+    ontology_class: StrategyElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  DataObject:
+    ontology_class: ApplicationLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Deliverable:
+    ontology_class: ImplementationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Device:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  DistributionNetwork:
+    ontology_class: PhysicalElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Driver:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Equipment:
+    ontology_class: PhysicalElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Facility:
+    ontology_class: PhysicalElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Gap:
+    ontology_class: ImplementationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Goal:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Grouping:
+    ontology_class: CompositeElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ImplementationElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ImplementationEvent:
+    ontology_class: ImplementationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Junction:
+    ontology_class: CompositeElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Location:
+    ontology_class: CompositeElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Material:
+    ontology_class: PhysicalElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Meaning:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  MotivationElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Node:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Outcome:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Path:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  PhysicalElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Plateau:
+    ontology_class: ImplementationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Principle:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Product:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Representation:
+    ontology_class: BusinessLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Requirement:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Resource:
+    ontology_class: StrategyElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Stakeholder:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  StrategyElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  SystemSoftware:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyCollaboration:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyEvent:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyFunction:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyInteraction:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyInterface:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyLayerElement:
+    ontology_class: ArchimateElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyProcess:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  TechnologyService:
+    ontology_class: TechnologyLayerElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  Value:
+    ontology_class: MotivationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  ValueStream:
+    ontology_class: StrategyElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+  WorkPackage:
+    ontology_class: ImplementationElement
+    fields:
+      archimateLayer: xsd:string
+      archimateType: xsd:string
+sync:
+- preset: archimate-elements
+  server: archimate-mcp
+  tool: archi_element
+  action: list
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: documentation
+  updated_field: null
+  pagination: null
+  doc_type: archimate-element
+  tool_schema_sha256: b8ddbc22df54353480a9724c58a733d0f6798526e8af755303a3a850517b8cc8
+  raw:
+    server: archimate-mcp
+    tool: archi_element
+    action: list
+    params:
+      params_json: '{}'
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: documentation
+    type_field: type
+    doc_type: archimate-element
+- preset: archimate-relationships
+  server: archimate-mcp
+  tool: archi_relationship
+  action: list
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: documentation
+  updated_field: null
+  pagination: null
+  doc_type: archimate-relationship
+  tool_schema_sha256: 0280cde5322dd2e3b45326483c9702e46ef1b2a2648a35d24f2b8fb52137c19d
+  raw:
+    server: archimate-mcp
+    tool: archi_relationship
+    action: list
+    params:
+      params_json: '{}'
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: documentation
+    type_field: type
+    doc_type: archimate-relationship
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - archimate_mcp/connectors/mcp_source_presets.json
+  - archimate_mcp/connectors/tool_schema_fingerprints.json
+  - archimate_mcp/ontology/archimate.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 5c23ea227bbd105fc4dd0e3ddaf7442fa5bd424ade712502f07688a56cfa8a5c
+    triple_count: 358
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: ENu99NpE4JC1-SPCaBE4M17qs934Xc507aOl5P-jYPfmiDpiSjYzWoH7FbTOwXbNnHfgylKeAFTarbPBrYZpBA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'flowsTo' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.ApplicationCollaboration.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationEvent.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationFunction.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationInteraction.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationInterface.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationLayerElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationProcess.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ApplicationService.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ArchimateElement.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ArchimateModel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ArchimateRelationship.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ArchimateView.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Artifact.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Assessment.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessActor.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessCollaboration.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessEvent.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessFunction.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessInteraction.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessInterface.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessLayerElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessObject.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessRole.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessService.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.BusinessTask.ontology_class = 'BusinessProcess' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Capability.ontology_class = 'StrategyElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CommunicationNetwork.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CompositeElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Constraint.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Contract.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CourseOfAction.ontology_class = 'StrategyElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataObject.ontology_class = 'ApplicationLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Deliverable.ontology_class = 'ImplementationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Device.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DistributionNetwork.ontology_class = 'PhysicalElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Driver.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Equipment.ontology_class = 'PhysicalElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Facility.ontology_class = 'PhysicalElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Gap.ontology_class = 'ImplementationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Goal.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Grouping.ontology_class = 'CompositeElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ImplementationElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ImplementationEvent.ontology_class = 'ImplementationElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Junction.ontology_class = 'CompositeElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Location.ontology_class = 'CompositeElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Material.ontology_class = 'PhysicalElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Meaning.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MotivationElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Node.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Outcome.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Path.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PhysicalElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Plateau.ontology_class = 'ImplementationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Principle.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Product.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Representation.ontology_class = 'BusinessLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Requirement.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Resource.ontology_class = 'StrategyElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Stakeholder.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.StrategyElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SystemSoftware.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyCollaboration.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyEvent.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyFunction.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyInteraction.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyInterface.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyLayerElement.ontology_class = 'ArchimateElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyProcess.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TechnologyService.ontology_class = 'TechnologyLayerElement' [source ttl rdfs:subClassOf]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Value.ontology_class = 'MotivationElement' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ValueStream.ontology_class = 'StrategyElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WorkPackage.ontology_class = 'ImplementationElement' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."

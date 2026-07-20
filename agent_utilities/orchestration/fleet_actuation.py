@@ -216,7 +216,7 @@ def execute_action(
         result = act.apply(request) or {}
     except Exception as e:  # noqa: BLE001 — a misbehaving actuator never raises out
         result = {"ok": False, "dry_run": False, "detail": f"actuator error: {e}"}
-    record_id = f"action_execution:{uuid.uuid4().hex[:12]}"
+    record_id = f"action_execution:{uuid.uuid4().hex}"
     if engine is not None:
         try:
             engine.add_node(

@@ -23,7 +23,15 @@ _REPRESENTATIVE: dict[str, tuple[str, dict]] = {
     "nodes": ("has", {"node_id": "n1"}),
     "edges": ("has", {"source_id": "a", "target_id": "b"}),
     "graph": ("topological_sort", {}),
-    "analytics": ("pagerank", {"damping": 0.85, "iterations": 10}),
+    # Bounded call — the unbounded-analytics OOM guard in engine_tools._dispatch
+    # rejects the whole-graph 'pagerank'/'betweenness_centrality'/
+    # 'degree_centrality_all' (and an unseeded 'personalized_pagerank') fail-loud
+    # before dispatch, so the representative smoke test for this domain must use
+    # a bounded call.
+    "analytics": (
+        "personalized_pagerank",
+        {"seed_nodes": [["n1", 1.0]], "damping": 0.85, "iterations": 10},
+    ),
     "lifecycle": ("metrics", {}),
     "reasoning": ("reason", {}),
     "ledger": ("get", {}),

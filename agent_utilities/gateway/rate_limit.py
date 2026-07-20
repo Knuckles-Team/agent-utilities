@@ -10,7 +10,11 @@ is already in scope. Bucket key precedence:
 
 1. ``ActorContext.tenant_id`` (multi-tenant isolation)
 2. authenticated ``actor_id`` (per-service/user when no tenant claim)
-3. client IP (unauthenticated legacy traffic)
+3. one shared anonymous bucket (no network identity collection)
+
+The selected identity is immediately transformed with a per-process keyed hash;
+raw tenant, actor, and network identifiers never become bucket keys, metric
+labels, logs, or response fields.
 
 Disabled by default (``GATEWAY_RATE_LIMIT=0``). The configured rate is the
 sustained requests/second; ``GATEWAY_RATE_BURST`` is the bucket capacity
@@ -25,9 +29,11 @@ configured rate. Precise distributed limiting is a later
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
+import secrets
 import threading
 import time
 from typing import Any
@@ -41,8 +47,8 @@ logger = logging.getLogger(__name__)
 # Liveness probes and Prometheus scrapes must never be throttled.
 EXEMPT_PATHS: frozenset[str] = HEALTH_PATHS | {"/metrics"}
 
-# Bucket-map hygiene: prune idle buckets so hostile/unbounded key churn
-# (e.g. IP-keyed traffic) cannot grow the map without bound.
+# Bucket-map hygiene: prune idle buckets so hostile/unbounded authenticated
+# identity churn cannot grow the map without bound.
 _PRUNE_THRESHOLD = 4096
 _PRUNE_IDLE_SECONDS = 600.0
 
@@ -90,16 +96,24 @@ class GatewayRateLimitMiddleware:
         self.burst = raw_burst if raw_burst > 0 else max(self.rate * 2.0, 1.0)
         self._buckets: dict[str, _TokenBucket] = {}
         self._lock = threading.Lock()
+        # Per-process HMAC-style key keeps client/tenant identifiers out of
+        # memory keys, metric labels, and responses without creating a durable
+        # cross-restart tracking identifier.
+        self._privacy_key = secrets.token_bytes(32)
 
     # ------------------------------------------------------------------
-    def _bucket_key(self, scope: dict[str, Any]) -> str:
+    def _bucket_key(self) -> str:
         actor = current_actor()
         if actor.tenant_id:
-            return actor.tenant_id
-        if actor.authenticated and actor.actor_id:
-            return actor.actor_id
-        client = scope.get("client")
-        return str(client[0]) if client else "unknown"
+            raw = f"tenant:{actor.tenant_id}"
+        elif actor.authenticated and actor.actor_id:
+            raw = f"actor:{actor.actor_id}"
+        else:
+            raw = "anonymous"
+        digest = hashlib.blake2s(
+            raw.encode("utf-8"), key=self._privacy_key, digest_size=12
+        ).hexdigest()
+        return f"bucket_{digest}"
 
     def _consume(self, key: str) -> tuple[bool, float]:
         now = time.monotonic()
@@ -124,7 +138,7 @@ class GatewayRateLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        key = self._bucket_key(scope)
+        key = self._bucket_key()
         allowed, retry_after = self._consume(key)
         if allowed:
             await self.app(scope, receive, send)
@@ -135,7 +149,6 @@ class GatewayRateLimitMiddleware:
         body = json.dumps(
             {
                 "error": "rate limit exceeded",
-                "tenant": key,
                 "retry_after": retry,
             }
         ).encode("utf-8")

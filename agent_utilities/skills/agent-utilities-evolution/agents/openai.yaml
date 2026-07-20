@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Utilities Evolution"
+  short_description: "Evidence-to-proposal improvement and regression hardening"
+  default_prompt: "Use $agent-utilities-evolution to turn this evidence into a reviewed proposal and measurable improvement before implementation approval."

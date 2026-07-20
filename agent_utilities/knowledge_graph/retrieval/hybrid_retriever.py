@@ -13,8 +13,7 @@ import math
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai import Agent
-
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.core.embedding_utilities import create_embedding_model
 from agent_utilities.core.model_factory import create_model
 
@@ -151,8 +150,8 @@ class HybridRetriever:
         * **Unseeded kNN (native ANN).** Label-agnostic retrieval — the common case
           — uses the engine's native ``semantic_search`` ANN primitive: the
           full-store kNN, O(log N), the SAME engine vector index the unified
-          ``Rank`` reads. No ``query`` feature is required, so this also serves a
-          lean (``pi``-tier) engine.
+          ``Rank`` reads. This remains a bounded operational fallback when unified
+          planning is unavailable in the mandatory full engine artifact.
 
         Both are the engine's vector index — there is NO Python cosine scan and NO
         SQLite-style fallback: with no engine ANN the arm returns ``[]`` and
@@ -887,7 +886,7 @@ class HybridRetriever:
         )
         try:
             model = create_model(role="planner")
-            agent = Agent(model=model, system_prompt=system_prompt)
+            agent = create_context_agent(model=model, system_prompt=system_prompt)
             result: Any = agent.run_sync(query)
             raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
         except Exception as e:  # pragma: no cover - planner is best-effort
@@ -955,7 +954,7 @@ class HybridRetriever:
         """Decompose a complex query into sub-queries for targeted retrieval (CONCEPT:AU-AHE.evaluation.backtest-harness)."""
         try:
             model = create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 system_prompt=(
                     f"Decompose the following complex task into up to {max_subtasks} abstract "
@@ -999,7 +998,7 @@ class HybridRetriever:
         )
         try:
             model = create_model(role="planner")
-            agent = Agent(model=model, system_prompt=system_prompt)
+            agent = create_context_agent(model=model, system_prompt=system_prompt)
             result: Any = agent.run_sync(query)
             raw = str(getattr(result, "output", None) or getattr(result, "data", ""))
         except Exception as e:  # pragma: no cover - planner is best-effort

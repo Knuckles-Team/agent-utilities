@@ -1,7 +1,7 @@
 """invoke_specialized_agent is a thin wrapper onto the orchestration core (CONCEPT:AU-ECO.toolkit.unified-delegation-surface).
 
-One delegation surface: ``invoke_specialized_agent`` and ``graph_orchestrate(action=
-"execute_agent")`` both converge on ``Orchestrator.execute_agent`` — there is no separate
+One delegation surface: ``invoke_specialized_agent`` and ``graph_orchestrate`` both converge
+on ``Orchestrator.execute_agent`` — there is no separate
 discovery / A2A / sub-agent-build path in the tool. These tests pin that contract.
 """
 
@@ -47,7 +47,7 @@ async def test_invoke_specialized_agent_routes_through_orchestrator(
         _Ctx(engine), agent_name="github", prompt="fetch issues"
     )
     assert out == "delegated result"
-    # The SAME core graph_orchestrate(execute_agent) uses was invoked with our args.
+    # The same core graph_orchestrate uses was invoked with our args.
     assert seen == {
         "engine": engine,
         "agent_name": "github",

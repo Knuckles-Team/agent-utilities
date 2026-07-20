@@ -1,89 +1,292 @@
-# Multi-tenant graph-os — homelab/Swarm profile (CONCEPT:OS-5.14 + KG-2.58).
+# Security-hardened single-node GraphOS Swarm profile.
 #
-# The SAME `graph-os` image and env contract as deploy/k8s/graphos.yaml, downscaled
-# to a single Swarm: front service (streamable-HTTP, replicated) + one engine host
-# + an external/managed Postgres (kg-backbone_pg-age). Differs from the cloud
-# profile ONLY in replica counts and placement — the code path is identical.
+# Kubernetes production-cell remains the HA production reference. This profile
+# keeps the same identity, session, secret, and native-engine TLS boundaries on
+# a smaller Swarm. Operators must pre-create every external secret and the
+# engine-data volume; this template contains no endpoint, credential, key, or
+# certificate material.
 #
+# GRAPHOS_IMAGE_DIGEST must be an immutable image reference ending in
+# @sha256:<64 lowercase hexadecimal characters>. Run the static contract before
+# rendering or deploying:
+#
+#   python scripts/deployment/check_swarm_assets.py --runtime-image "$GRAPHOS_IMAGE_DIGEST"
 #   docker stack deploy -c deploy/swarm/graphos.stack.yml graphos
-#
-# Put the real secrets in an .env / Swarm secrets and apply deploy/postgres/tenant_rls.sql
-# to the L3 database once (KG-2.61).
+
 version: "3.9"
 
+x-runtime-secret: &runtime-secret
+  uid: "10001"
+  gid: "10001"
+  mode: 0400
+
+x-service-security: &service-security
+  image: "${GRAPHOS_IMAGE_DIGEST:?set an immutable image digest}"
+  user: "10001:10001"
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  stop_grace_period: 60s
+  networks: [graphos-internal]
+
 networks:
-  graphos:
+  graphos-internal:
     driver: overlay
-    attachable: true
+    attachable: false
+    driver_opts:
+      encrypted: ""
 
 services:
   front:
-    image: ghcr.io/your-org/graph-os:latest
-    command: ["graph-os", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
-    networks: [graphos]
+    <<: *service-security
+    command:
+      - graph-os
+      - --transport
+      - streamable-http
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tls-certfile
+      - /run/secrets/front-tls.crt
+      - --tls-keyfile
+      - /run/secrets/front-tls.key
     environment:
-      TRANSPORT: "streamable-http"
+      APP_PROFILE: production
+      TRANSPORT: streamable-http
       HOST: "0.0.0.0"
       PORT: "8000"
-      KG_AUTH_REQUIRED: "1"
-      KG_BRAIN_ENFORCE: "1"
-      KG_DAEMON_ROLE: "client"          # front never owns a local engine
-      KG_DEFAULT_GRAPH: "__commons__"       # commons graph
-      AUTH_JWT_JWKS_URI: "https://keycloak.arpa/realms/agent-os/protocol/openid-connect/certs"
-      AUTH_JWT_ISSUER: "https://keycloak.arpa/realms/agent-os"
-      AUTH_JWT_AUDIENCE: "graph-os"
-      # Single-shard homelab: point at the one engine host below. Add more
-      # endpoints (and engine replicas) to shard tenants across hosts.
-      GRAPH_SERVICE_ENDPOINTS: "tcp://engine:9090"
-      STATE_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_state"
-      GRAPH_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_kg"
-      # Outbound fleet auth (CONCEPT:AU-OS.identity.so-jwt-protected-children): graph-os
-      # fronts the *-mcp fleet (it absorbed the multiplexer), whose children enforce
-      # JWT — without a service credential every remote-child call is 401. Put the
-      # real values in the Portainer stack Env (secrets there, not in this file),
-      # sourced from OpenBao `apps/mcp-multiplexer/oidc`; these ${VAR} refs pass them
-      # through. Scheme = `oidc-client-credentials` (bearer) or `basic` (set the
-      # MCP_BASIC_AUTH_* pair instead of OIDC_*).
-      MCP_CLIENT_AUTH: "${MCP_CLIENT_AUTH:-oidc-client-credentials}"
-      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-mcp-multiplexer}"
-      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
-      OIDC_AUDIENCE: "${OIDC_AUDIENCE:-agent-services}"
-      OIDC_TOKEN_URL: "${OIDC_TOKEN_URL:-}"
-      MCP_BASIC_AUTH_USERNAME: "${MCP_BASIC_AUTH_USERNAME:-}"
-      MCP_BASIC_AUTH_PASSWORD: "${MCP_BASIC_AUTH_PASSWORD:-}"
+      AUTH_TYPE: jwt
+      KG_DAEMON_ROLE: client
+      MCP_TOOL_MODE: intent
+      MCP_CLIENT_AUTH: oidc-client-credentials
+      REQUESTS_CA_BUNDLE: /run/secrets/ca-bundle.pem
+      SSL_CERT_FILE: /run/secrets/ca-bundle.pem
+      ENGINE_CA_BUNDLE: /run/secrets/ca-bundle.pem
+      ENGINE_CLIENT_CERT: /run/secrets/engine-client.crt
+      ENGINE_CLIENT_KEY: /run/secrets/engine-client.key
+      UV_NATIVE_TLS: "true"
+      PERSISTENCE_IDENTITY_HMAC_KEY_REF: env://PERSISTENCE_IDENTITY_HMAC_KEY
+    secrets:
+      - <<: *runtime-secret
+        source: graphos-jwt-jwks-uri
+        target: FASTMCP_SERVER_AUTH_JWT_JWKS_URI
+      - <<: *runtime-secret
+        source: graphos-jwt-issuer
+        target: OIDC_ISSUER
+      - <<: *runtime-secret
+        source: graphos-jwt-audience
+        target: FASTMCP_SERVER_AUTH_JWT_AUDIENCE
+      - <<: *runtime-secret
+        source: graphos-mcp-allowed-hosts
+        target: MCP_ALLOWED_HOSTS
+      - <<: *runtime-secret
+        source: graphos-front-tls-server-name
+        target: MCP_TLS_SERVER_NAME
+      - <<: *runtime-secret
+        source: graphos-engine-endpoints
+        target: GRAPH_SERVICE_ENDPOINTS
+      - <<: *runtime-secret
+        source: graphos-engine-tls-server-name
+        target: ENGINE_TLS_SERVER_NAME
+      - <<: *runtime-secret
+        source: graphos-engine-auth-secret
+        target: GRAPH_SERVICE_AUTH_SECRET
+      - <<: *runtime-secret
+        source: graphos-state-db-uri
+        target: STATE_DB_URI
+      - <<: *runtime-secret
+        source: graphos-graph-db-connection-profile-ref
+        target: GRAPH_DB_CONNECTION_PROFILE_REF
+      - <<: *runtime-secret
+        source: graphos-policy-version
+        target: KG_POLICY_VERSION
+      - <<: *runtime-secret
+        source: graphos-persistence-identity-key
+        target: PERSISTENCE_IDENTITY_HMAC_KEY
+      - <<: *runtime-secret
+        source: graphos-oidc-client-id
+        target: OIDC_CLIENT_ID
+      - <<: *runtime-secret
+        source: graphos-oidc-client-secret
+        target: OIDC_CLIENT_SECRET
+      - <<: *runtime-secret
+        source: graphos-oidc-audience
+        target: OIDC_AUDIENCE
+      - <<: *runtime-secret
+        source: graphos-oidc-token-url
+        target: OIDC_TOKEN_URL
+      - <<: *runtime-secret
+        source: graphos-ca-bundle
+        target: ca-bundle.pem
+        mode: 0444
+      - <<: *runtime-secret
+        source: graphos-front-tls-cert
+        target: front-tls.crt
+      - <<: *runtime-secret
+        source: graphos-front-tls-key
+        target: front-tls.key
+      - <<: *runtime-secret
+        source: graphos-engine-client-cert
+        target: engine-client.crt
+      - <<: *runtime-secret
+        source: graphos-engine-client-key
+        target: engine-client.key
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=268435456,uid=10001,gid=10001,mode=0700
     ports:
       - target: 8000
-        published: 8080
+        published: 8443
         protocol: tcp
+        mode: ingress
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import socket,ssl;
+          name=open('/run/secrets/MCP_TLS_SERVER_NAME',encoding='utf-8').read().strip();
+          context=ssl.create_default_context(cafile='/run/secrets/ca-bundle.pem');
+          raw=socket.create_connection(('127.0.0.1',8000),timeout=3);
+          channel=context.wrap_socket(raw,server_hostname=name);
+          channel.sendall(('GET /health HTTP/1.1\r\nHost: '+name+'\r\nConnection: close\r\n\r\n').encode());
+          assert channel.recv(32).startswith(b'HTTP/1.1 200')
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       replicas: 2
       placement:
         constraints: [node.role == worker]
-      restart_policy: {condition: any}
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      resources:
+        reservations: {cpus: "0.50", memory: 1G}
+        limits: {cpus: "4.00", memory: 4G}
+
+  engine:
+    <<: *service-security
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        export GRAPH_SERVICE_AUTH_SECRET="$$(cat /run/secrets/GRAPH_SERVICE_AUTH_SECRET)";
+        exec epistemic-graph-server
+        --tcp-addr 0.0.0.0:9100
+        --persist-dir /var/lib/epistemic-graph/data
+        --tcp-tls-cert /run/secrets/engine-tls.crt
+        --tcp-tls-key /run/secrets/engine-tls.key
+        --tcp-tls-client-ca /run/secrets/ca-bundle.pem
+    environment:
+      APP_PROFILE: production
+      GRAPH_SERVICE_PERSIST_DIR: /var/lib/epistemic-graph/data
+      EPISTEMIC_GRAPH_REQUIRE_VERIFIED_CONTEXT: "1"
+      EPISTEMIC_GRAPH_REQUIRE_SIGNED: "1"
+      EPISTEMIC_GRAPH_RLS_DEFAULT_DENY: "1"
+      EPISTEMIC_GRAPH_PERSIST_BACKEND: redb
+      SSL_CERT_FILE: /run/secrets/ca-bundle.pem
+    secrets:
+      - <<: *runtime-secret
+        source: graphos-engine-auth-secret
+        target: GRAPH_SERVICE_AUTH_SECRET
+      - <<: *runtime-secret
+        source: graphos-engine-tls-server-name
+        target: ENGINE_TLS_SERVER_NAME
+      - <<: *runtime-secret
+        source: graphos-ca-bundle
+        target: ca-bundle.pem
+        mode: 0444
+      - <<: *runtime-secret
+        source: graphos-engine-tls-cert
+        target: engine-tls.crt
+      - <<: *runtime-secret
+        source: graphos-engine-tls-key
+        target: engine-tls.key
+      - <<: *runtime-secret
+        source: graphos-engine-client-cert
+        target: engine-client.crt
+      - <<: *runtime-secret
+        source: graphos-engine-client-key
+        target: engine-client.key
+    volumes:
+      - engine-data:/var/lib/epistemic-graph/data
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=1073741824,uid=10001,gid=10001,mode=0700
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/api/health'); sys.exit(0)"]
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import socket,ssl;
+          name=open('/run/secrets/ENGINE_TLS_SERVER_NAME',encoding='utf-8').read().strip();
+          context=ssl.create_default_context(cafile='/run/secrets/ca-bundle.pem');
+          context.load_cert_chain('/run/secrets/engine-client.crt','/run/secrets/engine-client.key');
+          raw=socket.create_connection(('127.0.0.1',9100),timeout=3);
+          channel=context.wrap_socket(raw,server_hostname=name);
+          channel.close()
       interval: 20s
       timeout: 5s
       retries: 5
-
-  engine:
-    image: ghcr.io/your-org/graph-os:latest
-    command: ["graph-os-daemon"]
-    networks: [graphos]
-    environment:
-      KG_DAEMON_ROLE: "host"            # owns the L1 compute, mirrors to L3
-      EPISTEMIC_GRAPH_AUTOSTART: "1"
-      GRAPH_SERVICE_TCP_ADDR: "0.0.0.0:9090"
-      KG_DEFAULT_GRAPH: "__commons__"
-      GRAPH_DB_URI: "postgresql://agent:agent@pg-age:5432/agent_kg"
-    volumes:
-      - engine-data:/data
+      start_period: 30s
     deploy:
       replicas: 1
       placement:
-        # Pin the shard so a graph's HRW winner is stable across restarts.
         constraints: [node.labels.graphos_engine == true]
-      restart_policy: {condition: any}
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+      resources:
+        reservations: {cpus: "4.00", memory: 16G}
+        limits: {cpus: "16.00", memory: 64G}
 
 volumes:
   engine-data:
+    external: true
+    name: graphos-engine-data
+
+secrets:
+  graphos-jwt-jwks-uri: {external: true}
+  graphos-jwt-issuer: {external: true}
+  graphos-jwt-audience: {external: true}
+  graphos-mcp-allowed-hosts: {external: true}
+  graphos-front-tls-server-name: {external: true}
+  graphos-engine-endpoints: {external: true}
+  graphos-engine-tls-server-name: {external: true}
+  graphos-engine-auth-secret: {external: true}
+  graphos-state-db-uri: {external: true}
+  graphos-graph-db-connection-profile-ref: {external: true}
+  graphos-policy-version: {external: true}
+  graphos-persistence-identity-key: {external: true}
+  graphos-oidc-client-id: {external: true}
+  graphos-oidc-client-secret: {external: true}
+  graphos-oidc-audience: {external: true}
+  graphos-oidc-token-url: {external: true}
+  graphos-ca-bundle: {external: true}
+  graphos-front-tls-cert: {external: true}
+  graphos-front-tls-key: {external: true}
+  graphos-engine-tls-cert: {external: true}
+  graphos-engine-tls-key: {external: true}
+  graphos-engine-client-cert: {external: true}
+  graphos-engine-client-key: {external: true}

@@ -62,7 +62,7 @@ class EvidenceEntry(BaseModel):
         tags: Categorization tags for clustering.
     """
 
-    id: str = Field(default_factory=lambda: f"ev:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"ev:{uuid.uuid4().hex}")
     task_id: str
     pass_fail: bool
     root_cause: str | None = None
@@ -95,7 +95,7 @@ class FailureCluster(BaseModel):
         severity: Estimated severity (0.0-1.0).
     """
 
-    cluster_id: str = Field(default_factory=lambda: f"clst:{uuid.uuid4().hex[:8]}")
+    cluster_id: str = Field(default_factory=lambda: f"clst:{uuid.uuid4().hex}")
     label: str
     root_cause_summary: str
     task_ids: list[str] = Field(default_factory=list)
@@ -127,7 +127,7 @@ class EvidenceCorpus(BaseModel):
         benchmark_score: Aggregate benchmark score.
     """
 
-    round_id: str = Field(default_factory=lambda: f"corpus:{uuid.uuid4().hex[:8]}")
+    round_id: str = Field(default_factory=lambda: f"corpus:{uuid.uuid4().hex}")
     overview: str = ""
     entries: list[EvidenceEntry] = Field(default_factory=list)
     failure_clusters: list[FailureCluster] = Field(default_factory=list)

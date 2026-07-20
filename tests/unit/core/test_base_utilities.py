@@ -229,23 +229,6 @@ def test_is_loopback_url_exception_path() -> None:
 
 
 # ---------------------------------------------------------------------------
-# GET_DEFAULT_SSL_VERIFY
-# ---------------------------------------------------------------------------
-
-
-def test_get_default_ssl_verify_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default SSL verify (no env)."""
-    monkeypatch.delenv("SSL_VERIFY", raising=False)
-    assert base_utilities.GET_DEFAULT_SSL_VERIFY() is True
-
-
-def test_get_default_ssl_verify_false(monkeypatch: pytest.MonkeyPatch) -> None:
-    """SSL_VERIFY=false env override."""
-    monkeypatch.setenv("SSL_VERIFY", "false")
-    assert base_utilities.GET_DEFAULT_SSL_VERIFY() is False
-
-
-# ---------------------------------------------------------------------------
 # ensure_package_installed: auto-install paths (lines 293-317)
 # ---------------------------------------------------------------------------
 
@@ -301,106 +284,6 @@ def test_ensure_package_installed_missing_with_auto_install_failure(
         auto_install=True,
     )
     assert result is False
-
-
-# ---------------------------------------------------------------------------
-# load_env_vars: file discovery (lines 330-361)
-# ---------------------------------------------------------------------------
-
-
-def test_load_env_vars_finds_dotenv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """load_env_vars finds and loads a .env upward from caller frame."""
-    # Create a .env in tmp_path
-    env_file = tmp_path / ".env"
-    env_file.write_text("PUSH_ENV_VAR_MARKER=hello_from_dotenv\n")
-
-    # Write a caller script into tmp_path and exec it to simulate a frame
-    # outside of agent_utilities.  Instead we monkeypatch inspect.stack()
-    # to return a fake frame pointing at tmp_path/sub/caller.py.
-    sub = tmp_path / "sub"
-    sub.mkdir()
-    caller_py = sub / "caller.py"
-    caller_py.write_text("# dummy caller\n")
-
-    FakeFrame = type(
-        "FakeFrame",
-        (),
-        {"filename": str(caller_py)},
-    )
-
-    def fake_stack() -> list[Any]:
-        return [FakeFrame()]
-
-    monkeypatch.setenv("PUSH_ENV_VAR_MARKER", "initial_value")
-    monkeypatch.setattr(inspect, "stack", fake_stack)
-    # Also force retrieve_package_name to return a valid value
-    monkeypatch.setattr(
-        base_utilities, "retrieve_package_name", lambda: "some_caller_pkg"
-    )
-
-    base_utilities.load_env_vars(override=True)
-    # .env should have been loaded and overridden
-    assert os.environ.get("PUSH_ENV_VAR_MARKER") == "hello_from_dotenv"
-    # Cleanup
-    monkeypatch.delenv("PUSH_ENV_VAR_MARKER", raising=False)
-
-
-def test_load_env_vars_no_dotenv_found(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """load_env_vars traverses upward but finds no .env (line 357-358)."""
-    caller_py = tmp_path / "caller.py"
-    caller_py.write_text("# dummy caller\n")
-
-    FakeFrame = type("FakeFrame", (), {"filename": str(caller_py)})
-
-    def fake_stack() -> list[Any]:
-        return [FakeFrame()]
-
-    monkeypatch.setattr(inspect, "stack", fake_stack)
-    monkeypatch.setattr(
-        base_utilities, "retrieve_package_name", lambda: "some_caller_pkg"
-    )
-    # Must not raise
-    base_utilities.load_env_vars()
-    assert True, "load_env_vars should not raise when .env is missing"
-
-
-def test_load_env_vars_exception_handling(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exception in load_env_vars is caught (line 360-361)."""
-
-    def boom() -> str:
-        raise RuntimeError("simulated")
-
-    monkeypatch.setattr(base_utilities, "retrieve_package_name", boom)
-    # Should not raise — exception is caught internally
-    base_utilities.load_env_vars()
-    assert True, "load_env_vars should catch RuntimeError from retrieve_package_name"
-
-
-def test_load_env_vars_unknown_package(monkeypatch: pytest.MonkeyPatch) -> None:
-    """retrieve_package_name returns 'unknown_package' early-exit."""
-    monkeypatch.setattr(
-        base_utilities, "retrieve_package_name", lambda: "unknown_package"
-    )
-    base_utilities.load_env_vars()
-    assert True, "load_env_vars should not raise for unknown packages"
-
-
-def test_load_env_vars_no_external_caller(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When every frame is inside agent_utilities, caller_file stays None."""
-    FakeFrame = type(
-        "FakeFrame",
-        (),
-        {"filename": "/some/path/agent_utilities/file.py"},
-    )
-    monkeypatch.setattr(inspect, "stack", lambda: [FakeFrame()])
-    monkeypatch.setattr(base_utilities, "retrieve_package_name", lambda: "foo_pkg")
-    # Must not raise (caller_file is None)
-    base_utilities.load_env_vars()
-    assert True, "load_env_vars should not raise without external caller"
 
 
 # ---------------------------------------------------------------------------

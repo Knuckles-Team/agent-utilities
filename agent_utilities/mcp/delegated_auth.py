@@ -27,15 +27,35 @@ CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 
 from __future__ import annotations
 
+import json
 import logging
-import threading
+from contextvars import ContextVar, Token
 from typing import Any
-
-import requests
 
 logger = logging.getLogger(__name__)
 
-local = threading.local()
+_MAX_TOKEN_RESPONSE_BYTES = 1024 * 1024
+
+_user_token_ctx: ContextVar[str | None] = ContextVar(
+    "agent_utilities_delegated_user_token", default=None
+)
+_user_claims_ctx: ContextVar[dict[str, Any] | None] = ContextVar(
+    "agent_utilities_delegated_user_claims", default=None
+)
+
+
+def _set_delegated_identity(
+    token: str, claims: dict[str, Any]
+) -> tuple[Token[str | None], Token[dict[str, Any] | None]]:
+    """Scope validated delegation material to the current async task."""
+    return _user_token_ctx.set(token), _user_claims_ctx.set(dict(claims))
+
+
+def _reset_delegated_identity(
+    tokens: tuple[Token[str | None], Token[dict[str, Any] | None]],
+) -> None:
+    _user_token_ctx.reset(tokens[0])
+    _user_claims_ctx.reset(tokens[1])
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +73,56 @@ def _get_default_config() -> dict[str, Any]:
     return mcp_auth_config
 
 
+def _post_token(
+    endpoint: str,
+    data: dict[str, Any],
+    *,
+    auth: tuple[str, str] | None = None,
+    timeout: int = 30,
+) -> dict[str, Any]:
+    """POST one bounded token request through the canonical OIDC transport."""
+    from agent_utilities.security.oidc_discovery import (
+        canonical_oidc_endpoint,
+        oidc_http_client,
+    )
+
+    endpoint = canonical_oidc_endpoint(endpoint, field="token endpoint")
+    if not 1 <= int(timeout) <= 60:
+        raise ValueError("Token request timeout is outside the safe range")
+
+    with oidc_http_client(timeout=float(timeout)) as client:
+        with client.stream("POST", endpoint, data=data, auth=auth) as response:
+            response.raise_for_status()
+            body = bytearray()
+            for chunk in response.iter_bytes():
+                body.extend(chunk)
+                if len(body) > _MAX_TOKEN_RESPONSE_BYTES:
+                    raise RuntimeError("Token response exceeded its safety boundary")
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        raise RuntimeError("Token response was not valid JSON") from None
+    if not isinstance(payload, dict):
+        raise RuntimeError("Token response had an invalid shape")
+    return payload
+
+
+def _bounded_text(
+    value: Any,
+    *,
+    field: str,
+    minimum: int = 1,
+    maximum: int = 4_096,
+) -> str:
+    rendered = str(value or "")
+    if (
+        not minimum <= len(rendered.encode("utf-8")) <= maximum
+        or any(character in rendered for character in "\r\n\x00")
+    ):
+        raise ValueError(f"{field} is invalid")
+    return rendered
+
+
 # ---------------------------------------------------------------------------
 # User-token accessors
 # ---------------------------------------------------------------------------
@@ -63,28 +133,31 @@ def get_user_token() -> str | None:
 
     Returns ``None`` when delegation is disabled or no token was captured.
     """
-    return getattr(local, "user_token", None)
+    return _user_token_ctx.get()
 
 
 def get_user_claims() -> dict[str, Any] | None:
     """Retrieve decoded JWT claims stored by ``UserTokenMiddleware``."""
-    return getattr(local, "user_claims", None)
+    claims = _user_claims_ctx.get()
+    return dict(claims) if claims is not None else None
 
 
 def get_user_identity() -> dict[str, Any]:
     """Return a structured identity dict for audit / identity passthrough.
 
-    Extracts ``sub``, ``email``, ``name``, and ``preferred_username`` from
-    the JWT claims (if available).  Agents that cannot perform token
-    exchange should call this to log who is making the downstream call.
+    Returns only an opaque, non-reversible reference. Raw subject, email,
+    display name and username claims must not cross a log/trace/persistence
+    boundary.
     """
     claims = get_user_claims() or {}
+    subject = claims.get("sub") or claims.get("client_id") or claims.get("azp")
+    if not subject:
+        return {"identity_ref": "", "has_claims": bool(claims)}
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     return {
-        "subject": claims.get("sub"),
-        "email": claims.get("email"),
-        "name": claims.get("name"),
-        "username": claims.get("preferred_username"),
-        "has_claims": bool(claims),
+        "identity_ref": persistence_reference("delegated_actor", subject),
+        "has_claims": True,
     }
 
 
@@ -97,14 +170,13 @@ def get_delegated_token(
     config: dict[str, Any] | None = None,
     audience: str | None = None,
     scopes: str | None = None,
-    verify: bool = True,
     timeout: int = 30,
 ) -> str:
     """Exchange the MCP-layer user token for a downstream service token.
 
     Implements `RFC 8693 <https://tools.ietf.org/html/rfc8693>`_ OAuth 2.0
     Token Exchange.  The subject token is the IdP-issued JWT stored by
-    ``UserTokenMiddleware`` in ``threading.local().user_token``.
+    ``UserTokenMiddleware`` in request-scoped context-variable state.
 
     Parameters
     ----------
@@ -118,8 +190,6 @@ def get_delegated_token(
     scopes:
         Override for requested scopes (space-separated).  Falls back to
         ``config["delegated_scopes"]``.
-    verify:
-        SSL verification for the token endpoint call.
     timeout:
         HTTP timeout in seconds.
 
@@ -136,7 +206,6 @@ def get_delegated_token(
         If the token exchange request fails.
     """
     cfg = config or _get_default_config()
-
     user_token = get_user_token()
     if not user_token:
         raise ValueError(
@@ -160,8 +229,14 @@ def get_delegated_token(
             "OIDC_CLIENT_SECRET environment variables."
         )
 
-    target_audience = audience or cfg.get("audience")
-    target_scopes = scopes or cfg.get("delegated_scopes", "api")
+    target_audience = _bounded_text(
+        audience or cfg.get("audience"), field="delegation audience", maximum=2_048
+    )
+    target_scopes = _bounded_text(
+        scopes or cfg.get("delegated_scopes", "api"),
+        field="delegation scopes",
+        maximum=4_096,
+    )
 
     exchange_data = {
         "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
@@ -172,53 +247,27 @@ def get_delegated_token(
         "scope": target_scopes,
     }
 
-    logger.info(
-        "Initiating RFC 8693 token exchange",
-        extra={
-            "audience": target_audience,
-            "scopes": target_scopes,
-            "token_endpoint": token_endpoint,
-        },
-    )
+    logger.info("Initiating RFC 8693 token exchange")
 
     try:
-        response = requests.post(
+        payload = _post_token(
             token_endpoint,
-            data=exchange_data,
+            exchange_data,
             auth=(oidc_client_id, oidc_client_secret),
-            verify=verify,
             timeout=timeout,
         )
-        response.raise_for_status()
-        new_token = response.json()["access_token"]
-        logger.info(
-            "Token exchange successful",
-            extra={"new_token_length": len(new_token)},
-        )
+        new_token = payload["access_token"]
+        if not isinstance(new_token, str) or not 1 <= len(new_token) <= 65_536:
+            raise RuntimeError("Token exchange response had an invalid token")
+        logger.info("Token exchange successful")
         return new_token
-    except requests.exceptions.HTTPError as e:
-        logger.error(
-            "Token exchange HTTP error",
-            extra={
-                "status_code": e.response.status_code
-                if e.response is not None
-                else None,
-                "response_body": (
-                    e.response.text[:500] if e.response is not None else ""
-                ),
-            },
-        )
-        raise RuntimeError(
-            f"Token exchange failed (HTTP {e.response.status_code if e.response is not None else '?'}): "
-            f"{e.response.text[:200] if e.response is not None else str(e)}"
-        ) from e
     except KeyError:
         raise RuntimeError(
             "Token exchange response missing 'access_token' field."
         ) from None
     except Exception as e:
-        logger.error("Token exchange failed", extra={"error": str(e)})
-        raise RuntimeError(f"Token exchange failed: {str(e)}") from e
+        logger.error("Token exchange failed (exception_type=%s)", type(e).__name__)
+        raise RuntimeError("Token exchange failed") from None
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +298,7 @@ def get_3lo_authorization_url(
     scopes:
         List of OAuth scopes to request.
     state:
-        Optional CSRF state parameter.
+        Required caller-bound CSRF state parameter.
 
     Returns
     -------
@@ -258,17 +307,32 @@ def get_3lo_authorization_url(
     """
     from urllib.parse import urlencode
 
-    params = {
-        "client_id": client_id,
-        "redirect_uri": redirect_uri,
-        "response_type": "code",
-        "scope": " ".join(scopes),
-        "prompt": "consent",
-    }
-    if state:
-        params["state"] = state
+    from agent_utilities.security.oidc_discovery import canonical_oidc_endpoint
 
-    return f"{authorization_endpoint}?{urlencode(params)}"
+    endpoint = canonical_oidc_endpoint(
+        authorization_endpoint, field="authorization endpoint"
+    )
+    redirect = canonical_oidc_endpoint(redirect_uri, field="redirect URI")
+    client = _bounded_text(client_id, field="OAuth client ID", maximum=512)
+    if not isinstance(scopes, list) or not 1 <= len(scopes) <= 64:
+        raise ValueError("OAuth scopes are invalid")
+    requested_scopes = [
+        _bounded_text(scope, field="OAuth scope", maximum=256) for scope in scopes
+    ]
+    csrf_state = _bounded_text(
+        state, field="OAuth state", minimum=16, maximum=1_024
+    )
+
+    params = {
+        "client_id": client,
+        "redirect_uri": redirect,
+        "response_type": "code",
+        "scope": " ".join(requested_scopes),
+        "prompt": "consent",
+        "state": csrf_state,
+    }
+    separator = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{separator}{urlencode(params)}"
 
 
 def exchange_authorization_code(
@@ -277,7 +341,6 @@ def exchange_authorization_code(
     client_secret: str,
     code: str,
     redirect_uri: str,
-    verify: bool = True,
     timeout: int = 30,
 ) -> dict[str, Any]:
     """Exchange an authorization code for access and refresh tokens.
@@ -297,8 +360,6 @@ def exchange_authorization_code(
         The authorization code received from the callback.
     redirect_uri:
         Must match the redirect_uri used in the authorization request.
-    verify:
-        SSL verification.
     timeout:
         HTTP timeout.
 
@@ -313,6 +374,15 @@ def exchange_authorization_code(
     RuntimeError
         If the code exchange fails.
     """
+    from agent_utilities.security.oidc_discovery import canonical_oidc_endpoint
+
+    token_endpoint = canonical_oidc_endpoint(token_endpoint, field="token endpoint")
+    redirect_uri = canonical_oidc_endpoint(redirect_uri, field="redirect URI")
+    client_id = _bounded_text(client_id, field="OAuth client ID", maximum=512)
+    client_secret = _bounded_text(
+        client_secret, field="OAuth client secret", maximum=16_384
+    )
+    code = _bounded_text(code, field="authorization code", maximum=16_384)
     data = {
         "grant_type": "authorization_code",
         "client_id": client_id,
@@ -324,19 +394,18 @@ def exchange_authorization_code(
     logger.info("Exchanging authorization code for tokens")
 
     try:
-        response = requests.post(
-            token_endpoint,
-            data=data,
-            verify=verify,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        token_data = response.json()
+        token_data = _post_token(token_endpoint, data, timeout=timeout)
+        access_token = token_data.get("access_token")
+        if not isinstance(access_token, str) or not 1 <= len(access_token) <= 65_536:
+            raise RuntimeError("Authorization response had an invalid token")
         logger.info("Authorization code exchange successful")
         return token_data
     except Exception as e:
-        logger.error(f"Authorization code exchange failed: {e}")
-        raise RuntimeError(f"3LO authorization code exchange failed: {e}") from e
+        logger.error(
+            "Authorization code exchange failed (exception_type=%s)",
+            type(e).__name__,
+        )
+        raise RuntimeError("Authorization code exchange failed") from None
 
 
 def refresh_access_token(
@@ -344,7 +413,6 @@ def refresh_access_token(
     client_id: str,
     client_secret: str,
     refresh_token: str,
-    verify: bool = True,
     timeout: int = 30,
 ) -> dict[str, Any]:
     """Use a refresh token to obtain a new access token.
@@ -359,8 +427,6 @@ def refresh_access_token(
         The OAuth application client secret.
     refresh_token:
         The refresh token from a previous authorization.
-    verify:
-        SSL verification.
     timeout:
         HTTP timeout.
 
@@ -370,6 +436,16 @@ def refresh_access_token(
         Token response containing a new ``access_token`` and potentially
         a new ``refresh_token``.
     """
+    from agent_utilities.security.oidc_discovery import canonical_oidc_endpoint
+
+    token_endpoint = canonical_oidc_endpoint(token_endpoint, field="token endpoint")
+    client_id = _bounded_text(client_id, field="OAuth client ID", maximum=512)
+    client_secret = _bounded_text(
+        client_secret, field="OAuth client secret", maximum=16_384
+    )
+    refresh_token = _bounded_text(
+        refresh_token, field="refresh token", maximum=65_536
+    )
     data = {
         "grant_type": "refresh_token",
         "client_id": client_id,
@@ -378,17 +454,14 @@ def refresh_access_token(
     }
 
     try:
-        response = requests.post(
-            token_endpoint,
-            data=data,
-            verify=verify,
-            timeout=timeout,
-        )
-        response.raise_for_status()
-        return response.json()
+        payload = _post_token(token_endpoint, data, timeout=timeout)
+        access_token = payload.get("access_token")
+        if not isinstance(access_token, str) or not 1 <= len(access_token) <= 65_536:
+            raise RuntimeError("Token refresh response had an invalid token")
+        return payload
     except Exception as e:
-        logger.error(f"Token refresh failed: {e}")
-        raise RuntimeError(f"Token refresh failed: {e}") from e
+        logger.error("Token refresh failed (exception_type=%s)", type(e).__name__)
+        raise RuntimeError("Token refresh failed") from None
 
 
 # ---------------------------------------------------------------------------

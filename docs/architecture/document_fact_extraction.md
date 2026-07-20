@@ -202,12 +202,15 @@ edit files in the directory and the KG converges on the next tick.
 **Configure it** (deployment) via `config.json`:
 
 ```json
-{ "kg_watch_dirs": "/home/genius/Documents" }
+{ "kg_watch_dirs": "${HOME}/Documents" }
 ```
 
 or env `KG_WATCH_DIRS=~/Documents` (JSON array or `os.pathsep`/comma list for
-multiple). Supported file types: `.pdf .docx .doc .txt .md` — PDFs read via the
-PyMuPDF fast path. See `docs/architecture/configuration.md` (`KG_WATCH_DIRS`).
+multiple). Supported file types: `.pdf .docx .doc .txt .md` — PDFs use the single
+bounded pypdf path in a killable spawned worker. File, page, extracted-character, and
+IPC limits are enforced; Unix workers also receive CPU/address-space limits, while every
+platform enforces a wall deadline and terminates the worker on expiry. See
+`docs/architecture/configuration.md` (`KG_WATCH_DIRS`).
 
 ## Entry points
 

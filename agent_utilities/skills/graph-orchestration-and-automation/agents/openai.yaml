@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Orchestration and Automation"
+  short_description: "Dependency-aware delegation, scheduling, and synthesis"
+  default_prompt: "Use $graph-orchestration-and-automation to decompose this goal, stop at a reviewable plan when read-only, or execute authorized work and verify the synthesis."

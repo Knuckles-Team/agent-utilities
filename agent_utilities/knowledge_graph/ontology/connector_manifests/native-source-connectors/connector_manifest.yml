@@ -1,0 +1,188 @@
+connector: native-source-connectors
+ontology_source: native_source_connector
+schema_version: '1'
+resources:
+- name: SourceDocument
+  label: Governed source document
+  id_prefix: source-document
+  relations: []
+actions: []
+events: []
+identity:
+  id_field:
+    SourceDocument: id
+  title_field:
+    SourceDocument: title
+  text_field:
+    SourceDocument: text
+  updated_field:
+    SourceDocument: updated_at
+permissions:
+  acl_fields:
+  - external_access
+  tenant_field: tenant_id
+  read_roles: []
+schema_mappings:
+  SourceDocument:
+    ontology_class: Document
+    fields:
+      title: xsd:string
+      text: xsd:string
+      updated_at: xsd:dateTime
+sync:
+- preset: native-ard
+  server: agent-utilities
+  tool: ard
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 3ad474b96eb9b2bf1689ced6be2ac7529cfbe4421df6b27713dec292c7012488
+  raw:
+    source_type: ard
+    interface: source_connector_v1
+- preset: native-database
+  server: agent-utilities
+  tool: database
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 4e130a66e310684deed02d6f31adef6b3091c12a0083ce661b6e8258a14111f5
+  raw:
+    source_type: database
+    interface: source_connector_v1
+- preset: native-external-graph
+  server: agent-utilities
+  tool: external_graph
+  action: ingest
+  records_path: null
+  id_field: null
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: null
+  tool_schema_sha256: e8c0da6dc1f94c9b67056e901d3757a3eb4bb3a349bbd385ff1d4de04cf4afee
+  raw:
+    source_type: external_graph
+    interface: external_graph_ingestion_v1
+- preset: native-filesystem
+  server: agent-utilities
+  tool: filesystem
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 1d009f56d4851af1cc00c5ecca0b8ff0544d5f3edd86ccf73c22b8d775f2147f
+  raw:
+    source_type: filesystem
+    interface: source_connector_v1
+- preset: native-graphql-document
+  server: agent-utilities
+  tool: graphql_document
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: f5f407244c88fe0811e758c8b1effbf90fb9359c8dcec16414ec3b23f5c21d8c
+  raw:
+    source_type: graphql_document
+    interface: source_connector_v1
+- preset: native-reader
+  server: agent-utilities
+  tool: reader
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 71a1cfc864c703e236bfa3cfcdc2668d77556d954ff1f25150344397cbafc5c3
+  raw:
+    source_type: reader
+    interface: source_connector_v1
+- preset: native-rest
+  server: agent-utilities
+  tool: rest
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: a343206d470167506b2311fbafdba7aaafcb885863465b3807ba895995288817
+  raw:
+    source_type: rest
+    interface: source_connector_v1
+- preset: native-rss
+  server: agent-utilities
+  tool: rss
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: 3bd34ca603760a58d4f2c304bfda1747f47783e59cfbcaa1bea87bdf6147a795
+  raw:
+    source_type: rss
+    interface: source_connector_v1
+- preset: native-web
+  server: agent-utilities
+  tool: web
+  action: load
+  records_path: null
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: updated_at
+  pagination: null
+  doc_type: document
+  tool_schema_sha256: e34885f4ea1c1fbb6b1d89dc3fc59cc0cd65a9a7e5263fafba4d20e198cf453c
+  raw:
+    source_type: web
+    interface: source_connector_v1
+provenance:
+  generated_by: scripts/generate_native_connector_manifest.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - agent_utilities/protocols/source_connectors/connectors
+  - agent_utilities/knowledge_graph/ingestion/external_graph.py
+  - tool_schema_fingerprints.json
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
+    triple_count: 17
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: pG-cnemh3F5UNZ1V-DTu-GOF7F1TqZmKB5HpyceMuT-MNogzlM2MVuPe4h-XdO8j1u1DAobWLD0fnr8kyO29Cg
+policy:
+  pii_fields: {}
+  tenant_boundary: tenant_id
+  rls:
+  - external_access must be enforced before materialization
+review_todos: []

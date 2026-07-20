@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class KnowledgeGap(BaseModel):
     """An identified gap in the agent's knowledge."""
 
-    id: str = Field(default_factory=lambda: f"gap:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"gap:{uuid.uuid4().hex}")
     domain: str
     statement: str
     severity: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -38,7 +38,7 @@ class KnowledgeGap(BaseModel):
 class Hypothesis(BaseModel):
     """A testable hypothesis generated to fill a knowledge gap."""
 
-    id: str = Field(default_factory=lambda: f"hyp:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"hyp:{uuid.uuid4().hex}")
     gap_id: str
     statement: str
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
@@ -50,7 +50,7 @@ class Hypothesis(BaseModel):
 class Experiment(BaseModel):
     """A structured experiment to test a hypothesis."""
 
-    id: str = Field(default_factory=lambda: f"exp:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"exp:{uuid.uuid4().hex}")
     hypothesis_id: str
     design: str
     variables: dict[str, str] = Field(default_factory=dict)
@@ -98,7 +98,7 @@ class ReviewBundle(BaseModel):
 class Discovery(BaseModel):
     """A validated discovery resulting from an experiment."""
 
-    id: str = Field(default_factory=lambda: f"disc:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"disc:{uuid.uuid4().hex}")
     experiment_id: str
     hypothesis_id: str
     gap_id: str

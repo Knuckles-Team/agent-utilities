@@ -59,7 +59,7 @@ def _paper(pid, title):
         "id": pid,
         "title": title,
         "abstract": "",
-        "authors": [],
+        "authors": ["Synthetic Author"],
         "url": f"http://x/{pid}",
     }
 
@@ -74,6 +74,10 @@ def test_high_grade_enqueues_prioritized_fetch(_patched):
     assert fetch["priority"] == 0
     assert fetch["extra_meta"]["paper"]["id"] == "arxiv:1"
     assert fetch["skip_dedupe"] is False  # queue target-dedup handles re-grades
+    assert "Synthetic Author" not in str(fetch)
+    assert fetch["extra_meta"]["paper"]["authors"][0].startswith(
+        "pref_research_author_"
+    )
 
 
 def test_marginal_grade_ingests_abstract_only(_patched):

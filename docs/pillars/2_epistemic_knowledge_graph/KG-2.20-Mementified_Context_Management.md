@@ -25,7 +25,33 @@ naturally multi-turn, where each action-observation cycle is laid out as a natur
 | MEM-1 | **Live `MementoCompaction` capability** — on `before_model_request`, when the running history exceeds budget, segment → compress completed blocks → **evict** raw blocks, keeping `mementos + current block`. Default **ON** in `agent/factory.py` (also covers the RLM multi-turn repl loop via its factory agent) | `capabilities/memento.py` |
 | MEM-2 | **Judge-refine loop** — compressor→judge→recompress on a six-dimension rubric (formulas-verbatim, values, methods, validation, no-hallucination, result-first), `τ=8/10`, `≤2` iters. The paper measured single-shot mementos at **28%** rubric pass vs **92%** after two judge passes | `memento_compressor.compress_to_memento` |
 | MEM-3 | **Semantic-boundary segmentation** — `boundary_score` (never cut mid-derivation; cut at turn / action↔observation boundaries) + `segment_into_blocks` (min-block floor, no tiny danglers). New `memento_blocks` `ContextCompactor` strategy is the LLM-free path | `memento_compressor.segment_into_blocks`, `agent_context.ContextCompactor` |
-| MEM-4 | **Lossless recoverability** — each evicted block is persisted as an `EvictedBlock` node linked `Memento -[:SUMMARIZES]-> EvictedBlock`; `recover_evicted_block()` re-fetches it on demand | `memento_compressor._persist_memento` / `recover_evicted_block` |
+| MEM-4 | **Privacy-safe optional recovery** — raw blocks are not persisted by default. An explicitly approved, secret-backed policy may retain an AES-256-GCM `EvictedBlock` linked by `Memento -[:SUMMARIZES]-> EvictedBlock`; plaintext transcripts are forbidden | `memento_compressor._persist_memento` / `recover_evicted_block` |
+
+## Persistence privacy and raw-retention policy
+
+Every durable Memento source is a stable, opaque `pref_…` reference. Memento text passes through the
+persistence privacy guard, so runtime identity terms, session identifiers, credentials, machine
+paths, and recognized personal identifiers do not enter the graph. The raw conversation is not
+stored under the default configuration.
+
+Raw recovery is available only when all three settings are present and valid:
+
+```text
+MEMENTO_RAW_RETENTION_ENABLED=true
+MEMENTO_RAW_RETENTION_POLICY=approved-encrypted-v1
+MEMENTO_RAW_ENCRYPTION_KEY_REF=vault://apps/graph-os/memento-raw-key
+```
+
+The last value is a secret reference, never key material. It is resolved at runtime through the
+configured secrets backend. Stored records contain authenticated ciphertext, a random nonce, and an
+opaque key reference; they contain neither plaintext nor the secret reference. Any missing setting,
+unknown policy version, resolution error, key mismatch, or authentication failure disables
+retention/recovery rather than falling back to plaintext.
+
+`get_recent_mementos()` reads only opaque source references and sanitizes persisted summaries before
+returning them. Recovery accepts only the authenticated encrypted block schema. Plaintext blocks,
+raw source identifiers, and records without the configured key reference fail closed and must be
+removed or transformed before the current service starts.
 
 ## Honest limitation (why this is not the paper, end-to-end)
 
@@ -33,9 +59,10 @@ The paper's headline result is a **dual information stream**: because masking ha
 one forward pass*, the memento's KV-cache entries retain implicit information from the block they
 replaced — removing that channel costs **−15pp** (their "restart mode"). We do not control the
 inference engine's KV cache, so an orchestration-level memento **is** restart mode and cannot
-reproduce that implicit channel. MEM-4's lossless `expand`/`recover` is the substitute (the evicted
-block is re-fetchable), not an equivalent. We also do not train models (the SFT curriculum and the
-OpenMementos data-gen pipeline are out of scope; noted for any future RLM-role fine-tuning).
+reproduce that implicit channel. Encrypted MEM-4 recovery is an optional operator-approved
+substitute, not an equivalent, and is intentionally unavailable by default. We also do not train
+models (the SFT curriculum and the OpenMementos data-gen pipeline are out of scope; noted for any
+future RLM-role fine-tuning).
 
 ## Wiring (Wire-First)
 
@@ -51,9 +78,12 @@ real `ModelMessage` objects.
 - Peak context tokens/session **−≥40%** vs no-compaction on a multi-turn run at **≥95%** task-success
   parity (the live-path test shows −77% on a synthetic 8-cycle trajectory).
 - Memento acceptance (rubric ≥8/10) **≥90%** within ≤2 judge iterations (paper: 92%).
-- **100%** of evicted blocks recoverable (lossless pointer present).
+- **0** plaintext raw blocks and **0** raw source identifiers persisted in the default profile.
+- **100%** of retained raw blocks authenticated and encrypted under the approved policy.
 
 ## Tests
 
-`tests/knowledge_graph/memory/test_kg_2_20_memento.py` (judge-refine, segmentation, lossless recall,
-capability live-path, factory-default-ON) + `test_memento_compressor.py`.
+`tests/knowledge_graph/memory/test_kg_2_20_memento.py` (judge-refine, segmentation, encrypted recall,
+capability live-path, factory-default-ON), `test_memento_compressor.py`, and
+`test_memento_privacy.py` (default-off, policy/key gates, opaque sources, encryption, legacy
+migration).

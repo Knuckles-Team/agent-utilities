@@ -10,6 +10,8 @@ Covers:
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core import tenant_sharing as ts
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext
@@ -43,10 +45,10 @@ def test_stamp_ownership_skips_privileged():
     assert props[ts.TENANT_KEY] == "acme"  # but still tenant-attributed
 
 
-def test_stamp_ownership_skips_system_actor():
+def test_stamp_ownership_rejects_unverified_system_actor():
     props: dict = {}
-    ts.stamp_ownership(props, ActorContext(actor_id="system"))
-    assert ts.OWNER_KEY not in props
+    with pytest.raises(PermissionError):
+        ts.stamp_ownership(props, ActorContext(actor_id="system"))
 
 
 def test_stamp_ownership_does_not_overwrite_existing_share():
@@ -68,10 +70,8 @@ def test_visibility_predicate_for_user():
 
 def test_visibility_predicate_none_for_privileged():
     assert ts.visibility_predicate(_user("root", roles=("admin",))) is None
-    assert (
+    with pytest.raises(PermissionError):
         ts.visibility_predicate(ActorContext(actor_id="system", roles=("system",)))
-        is None
-    )
 
 
 def test_visibility_predicate_unsafe_id_fails_closed():
@@ -108,9 +108,10 @@ def test_accessible_graphs_org_first_commons_last():
     assert len(set(graphs)) == len(graphs)  # de-duplicated
 
 
-def test_accessible_graphs_tenantless_is_commons_only():
+def test_accessible_graphs_tenantless_is_rejected():
     cfg = type("C", (), {"kg_default_graph": "kg"})()
-    assert ts.accessible_graphs(ActorContext(actor_id="x"), config=cfg) == ["kg"]
+    with pytest.raises(PermissionError):
+        ts.accessible_graphs(ActorContext(actor_id="x"), config=cfg)
 
 
 # --- read union ------------------------------------------------------------
@@ -161,8 +162,21 @@ class _FakeStore:
 
 
 def test_share_with_org_sets_scope():
-    store = _FakeStore()
-    ts.share_with_org("n1", store=store)
+    # BUG-6 (kg-exhaustive-smoke.md): _set_scope now existence-checks first —
+    # the fake store must report the node as found for the SET call to happen.
+    store = _FakeStore(
+        rows=[
+            {
+                "id": "n1",
+                "props": {
+                    "id": "n1",
+                    ts.TENANT_KEY: "acme",
+                    ts.OWNER_KEY: "alice",
+                },
+            }
+        ]
+    )
+    assert ts.share_with_org("n1", store=store, actor=_user("alice", "acme")) is True
     cypher, params = store.calls[-1]
     assert "_shared_scope = $scope" in cypher
     assert params["scope"] == ts.SCOPE_ORG
@@ -170,15 +184,64 @@ def test_share_with_org_sets_scope():
 
 
 def test_make_private_sets_owner_to_caller():
-    store = _FakeStore()
-    ts.make_private("n1", store=store, actor=_user("bob", "acme"))
+    store = _FakeStore(
+        rows=[
+            {
+                "id": "n1",
+                "props": {
+                    "id": "n1",
+                    ts.TENANT_KEY: "acme",
+                    ts.OWNER_KEY: "bob",
+                },
+            }
+        ]
+    )
+    assert ts.make_private("n1", store=store, actor=_user("bob", "acme")) is True
     cypher, params = store.calls[-1]
     assert params["scope"] == ts.SCOPE_PRIVATE
     assert params["owner"] == "bob"
 
 
+# --- BUG-6: share_with_org / make_private no-op (and report False) for a
+# nonexistent node id, instead of silently "succeeding" with a MATCH that
+# matched zero rows ------------------------------------------------------
+
+
+def test_share_with_org_missing_node_returns_false():
+    store = _FakeStore(rows=[])  # existence check finds nothing
+    assert (
+        ts.share_with_org(
+            "does-not-exist", store=store, actor=_user("alice", "acme")
+        )
+        is False
+    )
+    # No SET was ever issued — only the existence-check read happened.
+    assert all("SET" not in cypher for cypher, _ in store.calls)
+
+
+def test_make_private_missing_node_returns_false():
+    store = _FakeStore(rows=[])
+    assert (
+        ts.make_private("does-not-exist", store=store, actor=_user("bob", "acme"))
+        is False
+    )
+    assert all("SET" not in cypher for cypher, _ in store.calls)
+
+
 def test_promote_to_commons_copies_node():
-    src = _FakeStore(rows=[{"props": {"id": "n1", "title": "x"}, "labels": ["Doc"]}])
+    src = _FakeStore(
+        rows=[
+            {
+                "props": {
+                    "id": "n1",
+                    "title": "x",
+                    ts.TENANT_KEY: "acme",
+                    ts.OWNER_KEY: "alice",
+                },
+                "labels": ["Doc"],
+            }
+        ]
+    )
     dst = _FakeStore()
     ok = ts.promote_to_commons(
         "n1", store=src, commons_store=dst, actor=_user("alice", "acme")
@@ -192,4 +255,66 @@ def test_promote_to_commons_copies_node():
 def test_promote_to_commons_missing_node_returns_false():
     src = _FakeStore(rows=[])
     dst = _FakeStore()
-    assert ts.promote_to_commons("nope", store=src, commons_store=dst) is False
+    assert (
+        ts.promote_to_commons(
+            "nope",
+            store=src,
+            commons_store=dst,
+            actor=_user("alice", "acme"),
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize("transition", ["org", "commons", "private"])
+def test_share_transition_rejects_non_owner_without_mutation(transition):
+    src = _FakeStore(
+        rows=[
+            {
+                "id": "n1",
+                "props": {
+                    "id": "n1",
+                    ts.TENANT_KEY: "acme",
+                    ts.OWNER_KEY: "alice",
+                },
+            }
+        ]
+    )
+    dst = _FakeStore()
+
+    with pytest.raises(PermissionError, match="owner or administrator"):
+        if transition == "org":
+            ts.share_with_org("n1", store=src, actor=_user("bob", "acme"))
+        elif transition == "commons":
+            ts.promote_to_commons(
+                "n1",
+                store=src,
+                commons_store=dst,
+                actor=_user("bob", "acme"),
+            )
+        else:
+            ts.make_private("n1", store=src, actor=_user("bob", "acme"))
+
+    assert all(" SET " not in f" {cypher} " for cypher, _ in src.calls)
+    assert dst.calls == []
+
+
+def test_share_transition_rejects_cross_tenant_admin():
+    store = _FakeStore(
+        rows=[
+            {
+                "props": {
+                    "id": "n1",
+                    ts.TENANT_KEY: "other-tenant",
+                    ts.OWNER_KEY: "alice",
+                }
+            }
+        ]
+    )
+
+    with pytest.raises(PermissionError, match="same-tenant"):
+        ts.share_with_org(
+            "n1",
+            store=store,
+            actor=_user("root", "acme", roles=("admin",)),
+        )

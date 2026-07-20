@@ -1,14 +1,16 @@
 """Vector search/index goes through the engine HNSW, not a per-process dict.
 
-CONCEPT:AU-KG.query.object-graph-mapper — `add_embedding` must register vectors in the engine's HNSW (so
-they survive restarts and `semantic_search` is O(log N)); `semantic_search` must
-prefer the engine and only fall back to the local cosine cache. A one-time
-`hydrate_engine_embeddings` indexes legacy `embedding` node properties.
+CONCEPT:AU-KG.query.object-graph-mapper — `add_embedding` registers vectors in the engine's HNSW so
+they survive restarts and `semantic_search` remains O(log N). There is no
+per-process O(N) cosine authority. A one-time persisted-state migration indexes
+pre-existing `embedding` node properties.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+import pytest
 
 from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
     EpistemicGraphBackend,
@@ -51,23 +53,22 @@ def _backend(graph: _FakeGraph) -> EpistemicGraphBackend:
         EpistemicGraphBackend
     )  # skip engine-connecting __init__
     b._graph = graph
-    b._embeddings = {}
     return b
 
 
-def test_add_embedding_writes_local_and_engine() -> None:
+def test_add_embedding_writes_engine_index() -> None:
     g = _FakeGraph()
     b = _backend(g)
     b.add_embedding("n1", [0.1, 0.2])
-    assert b._embeddings["n1"] == [0.1, 0.2]  # write-through cache
-    assert g.added == [("n1", [0.1, 0.2])]  # indexed in the engine HNSW
+    assert g.added == [("n1", [0.1, 0.2])]
 
 
-def test_add_embedding_engine_failure_keeps_cache() -> None:
+def test_add_embedding_engine_failure_is_not_hidden() -> None:
     g = _FakeGraph(add_raises=True)
     b = _backend(g)
-    b.add_embedding("n1", [0.1, 0.2])  # must not raise
-    assert b._embeddings["n1"] == [0.1, 0.2]
+
+    with pytest.raises(RuntimeError, match="engine down"):
+        b.add_embedding("n1", [0.1, 0.2])
 
 
 def test_semantic_search_prefers_engine() -> None:
@@ -82,13 +83,10 @@ def test_semantic_search_prefers_engine() -> None:
     assert out[0]["name"] == "A"
 
 
-def test_semantic_search_falls_back_to_local_when_engine_empty() -> None:
+def test_semantic_search_does_not_scan_a_local_cache_when_engine_is_empty() -> None:
     g = _FakeGraph(hits=[], nodes={"n1": {"name": "A"}})
     b = _backend(g)
-    b._embeddings = {"n1": [1.0, 0.0]}
-    out = b.semantic_search([1.0, 0.0], 5)  # engine empty -> local cosine
-    assert [d["id"] for d in out] == ["n1"]
-    assert out[0]["_similarity"] > 0.99
+    assert b.semantic_search([1.0, 0.0], 5) == []
 
 
 def test_hydrate_indexes_node_embedding_properties() -> None:

@@ -11,7 +11,8 @@ from __future__ import annotations
 from agent_utilities.core.state_store import open_state_connection
 
 from ..models import SearchHit
-from ..schema import postgres_ddl
+from ..privacy import sanitize_query_text
+from ..schema import enforce_privacy_schema, postgres_ddl
 from .sql_base import SqlUsageBackend
 
 
@@ -30,6 +31,7 @@ class PostgresUsageBackend(SqlUsageBackend):
         if self._schema_ready:
             return
         with self._connect() as conn:  # ensure_state_schema runs inside open
+            enforce_privacy_schema(conn)
             conn.commit()
         self._schema_ready = True
 
@@ -50,14 +52,19 @@ class PostgresUsageBackend(SqlUsageBackend):
     def search(self, query, *, limit=50, **filters):
         if not query or not query.strip():
             return []
+        query = sanitize_query_text(query)
+        where, params = self._where(filters, alias="s")
+        conjunction = " AND " if where else " WHERE "
         with self._connect() as conn:
             cur = conn.execute(
                 """SELECT m.session_id, m.ordinal, m.role,
                       substr(m.content, 1, 160), s.project, s.agent
                     FROM messages m JOIN sessions s ON s.id = m.session_id
-                    WHERE m.content_tsv @@ plainto_tsquery('english', ?)
-                    LIMIT ?""",
-                (query, limit),
+                    """
+                + where
+                + conjunction
+                + "m.content_tsv @@ plainto_tsquery('english', ?) LIMIT ?",
+                (*params, query, limit),
             )
             rows = cur.fetchall()
         return [

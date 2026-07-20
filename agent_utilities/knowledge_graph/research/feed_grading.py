@@ -6,7 +6,7 @@ ScholarX arXiv source, and FreshRSS-arXiv items all grade and enqueue the SAME w
 
   keyword score (``score_paper``) + novelty probe (``_paper_novelty``; ``None`` on
   embedder outage → keyword-only) →
-    score ≥ relevant  → enqueue a ``research_paper_fetch`` :Task, ``prio_bucket``
+    score ≥ relevant  → enqueue a ``research_paper_fetch`` WorkItem, ``prio_bucket``
                          derived from the grade (best-graded fetched FIRST)
     score ≥ marginal  → abstract-only ingest inline
     else              → rejected
@@ -51,6 +51,28 @@ def grade_and_enqueue_paper(engine: Any, paper: dict[str, Any]) -> dict[str, Any
     authors = paper.get("authors", []) or []
     url = paper.get("url", "") or ""
 
+    # Work-item metadata is durable. Preserve co-authorship identity only as a
+    # stable non-reversible reference; raw author names/emails remain ephemeral.
+    from agent_utilities.security.persistence_privacy import (
+        PersistencePrivacyGuard,
+        persistence_reference,
+    )
+
+    author_terms = [str(value).strip() for value in authors if str(value).strip()]
+    author_refs = [
+        persistence_reference("research_author", value, namespace="scholarx")
+        for value in author_terms
+    ]
+    privacy = PersistencePrivacyGuard(deny_terms=author_terms)
+    durable_title, _ = privacy.sanitize_text(title)
+    durable_abstract, _ = privacy.sanitize_text(abstract)
+    durable_url, _ = privacy.sanitize_text(str(url))
+    durable_pdf_url, _ = privacy.sanitize_text(str(paper.get("pdf_url", "") or ""))
+    if not durable_url.startswith(("https://", "http://")):
+        durable_url = ""
+    if not durable_pdf_url.startswith(("https://", "http://")):
+        durable_pdf_url = ""
+
     score, domains = runner.score_paper(title, abstract)
     novelty = runner._paper_novelty(title, abstract)  # None on embedder outage
     # Already-built (low-novelty) high-keyword paper → demote to memory-only.
@@ -61,20 +83,20 @@ def grade_and_enqueue_paper(engine: Any, paper: dict[str, Any]) -> dict[str, Any
         # Higher grade → lower (more urgent) bucket → fetched first.
         bucket = 0 if score >= 2 * relevant else 1
         engine.submit_task(
-            target_path=url or paper.get("pdf_url", "") or aid,
+            target_path=durable_url or durable_pdf_url or aid,
             is_codebase=False,
-            provenance={"source_url": url},
+            provenance={"source_url": durable_url},
             task_type="research_paper_fetch",
             skip_dedupe=False,
             priority=bucket,
             extra_meta={
                 "paper": {
                     "id": aid,
-                    "title": title,
-                    "abstract": abstract,
-                    "authors": authors,
-                    "url": url,
-                    "pdf_url": paper.get("pdf_url", ""),
+                    "title": durable_title,
+                    "abstract": durable_abstract,
+                    "authors": author_refs,
+                    "url": durable_url,
+                    "pdf_url": durable_pdf_url,
                     "score": score,
                     "domains": domains,
                 }

@@ -167,7 +167,7 @@ class BlastRadiusAnalyzer:
         )
 
         return BlastRadiusNode(
-            id=f"br_{uuid.uuid4().hex[:8]}",
+            id=f"br_{uuid.uuid4().hex}",
             name=f"Blast radius: {symbol_name}",
             description=(
                 f"Symbol '{symbol_name}' has {usage_count} usages "

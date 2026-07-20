@@ -2,41 +2,44 @@
 
 > **CONCEPT:AU-ECO.messaging.native-backend-abstraction** | Pillar 4: Ecosystem & Peripherals
 >
-> Complete reference for configuring all 17 messaging backends through the
-> unified XDG `config.json` system. Every environment variable and config
-> key documented exhaustively.
+> Complete reference for configuring all 17 messaging backends through typed
+> AgentConfig plus explicit runtime-secret injection. Every environment variable
+> and non-secret config key is documented exhaustively.
 
 ---
 
 ## Configuration Architecture
 
-All messaging configuration lives in a single file:
+Non-secret messaging policy lives in the XDG AgentConfig document:
 
 ```
 ~/.config/agent-utilities/config.json
 ```
 
-This file is loaded at startup by `_load_xdg_json_config()` in `core/config.py`.
-Every key in `config.json` is automatically promoted to an environment variable
-(uppercased). This means:
+It is loaded and validated by `AgentConfig` in `core/config.py`. Credential
+material is deliberately rejected from that durable document. Inject literal
+tokens only into the supervised process environment, or have the supervisor
+resolve a governed secret reference before process start. For example:
 
-```json
-{
-    "messaging_discord_token": "BOT_TOKEN_HERE"
-}
+```bash
+MESSAGING_DISCORD_TOKEN="$(secret-controller read messaging/discord)" graph-os
 ```
 
-...becomes `MESSAGING_DISCORD_TOKEN=BOT_TOKEN_HERE` in the process environment,
-which the `MessagingRegistry._auto_config()` reads.
+`MessagingRegistry._auto_config()` reads the resulting process value in memory;
+it is never copied into AgentConfig or a repository file.
 
 ### Priority Chain
 
 Configuration values are resolved in this order (first wins):
 
-1. **Environment variable** — explicit `MESSAGING_DISCORD_TOKEN=...`
-2. **XDG config.json** — `~/.config/agent-utilities/config.json`
-3. **`.env` file** — project-local `.env` file
-4. **Platform-native env vars** — `DISCORD_BOT_TOKEN` (fallback)
+1. **Environment variable** — explicit runtime value injected by the supervisor
+2. **XDG config.json** — non-secret typed settings only
+3. **Platform-native process env vars** — `DISCORD_BOT_TOKEN` (fallback)
+
+AgentConfig does not read a checkout `.env` file. Concrete credential values
+must come from the process environment or a governed secret resolver, never the
+portable XDG document. Do not put a reference URI in a raw token field: each
+messaging backend consumes the already-resolved token.
 
 ---
 
@@ -44,7 +47,7 @@ Configuration values are resolved in this order (first wins):
 
 These control the overall messaging subsystem behavior.
 
-| config.json Key | Env Var | Type | Default | Description |
+| Setting name | Env Var | Type | Default | Description |
 |---|---|---|---|---|
 | `messaging_enabled_backends` | `MESSAGING_ENABLED_BACKENDS` | `list[str]` | `[]` | Backend IDs to auto-connect on startup. Example: `["discord", "slack"]` |
 | `messaging_kg_ingest` | `MESSAGING_KG_INGEST` | `bool` | `true` | Auto-ingest all messages into the Knowledge Graph |
@@ -76,20 +79,20 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Discord
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_discord_token` | `MESSAGING_DISCORD_TOKEN` | `DISCORD_BOT_TOKEN` | `str` | `null` | Bot token from Discord Developer Portal |
 
 **Setup:**
 1. Create a bot at [discord.com/developers](https://discord.com/developers)
 2. Enable `MESSAGE_CONTENT`, `GUILD_MEMBERS`, and `REACTIONS` intents
-3. Add token to `config.json`
+3. Inject the token into `MESSAGING_DISCORD_TOKEN` at process start
 
 ---
 
 ### Slack
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_slack_token` | `MESSAGING_SLACK_TOKEN` | `SLACK_BOT_TOKEN` | `str` | `null` | Bot OAuth token (`xoxb-...`) |
 | `messaging_slack_app_token` | `MESSAGING_SLACK_APP_TOKEN` | `SLACK_APP_TOKEN` | `str` | `null` | App-level token (`xapp-...`) for Socket Mode |
@@ -103,7 +106,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Telegram
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_telegram_token` | `MESSAGING_TELEGRAM_TOKEN` | `TELEGRAM_BOT_TOKEN` | `str` | `null` | Bot token from @BotFather |
 
@@ -115,7 +118,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### WhatsApp
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_whatsapp_token` | `MESSAGING_WHATSAPP_TOKEN` | `WHATSAPP_TOKEN` | `str` | `null` | Business API access token or bridge token |
 | `messaging_whatsapp_phone_number_id` | `MESSAGING_WHATSAPP_PHONE_NUMBER_ID` | `WHATSAPP_PHONE_NUMBER_ID` | `str` | `null` | Business API phone number ID |
@@ -129,7 +132,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Microsoft Teams
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_teams_app_id` | `MESSAGING_TEAMS_APP_ID` | `MSTEAMS_APP_ID` | `str` | `null` | Bot Framework app ID |
 | `messaging_teams_app_secret` | `MESSAGING_TEAMS_APP_SECRET` | `MSTEAMS_APP_PASSWORD` | `str` | `null` | Bot Framework app password |
@@ -140,7 +143,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Google Chat
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_googlechat_token` | `MESSAGING_GOOGLECHAT_TOKEN` | `GOOGLE_CHAT_SERVICE_ACCOUNT` | `str` | `null` | Path to service account JSON file |
 | — | `MESSAGING_GOOGLECHAT_APP_ID` | `GOOGLE_CHAT_PROJECT_ID` | `str` | `""` | GCP project ID |
@@ -154,7 +157,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Google Meet
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_googlemeet_token` | `MESSAGING_GOOGLEMEET_TOKEN` | `GOOGLE_MEET_SERVICE_ACCOUNT` | `str` | `null` | Path to service account JSON file |
 
@@ -164,7 +167,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Mattermost
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_mattermost_token` | `MESSAGING_MATTERMOST_TOKEN` | `MATTERMOST_TOKEN` | `str` | `null` | Personal access token |
 | `messaging_mattermost_url` | `MESSAGING_MATTERMOST_URL` | `MATTERMOST_URL` | `str` | `null` | Server URL (e.g. `https://mm.company.com`) |
@@ -173,7 +176,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Matrix
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_matrix_token` | `MESSAGING_MATRIX_TOKEN` | `MATRIX_ACCESS_TOKEN` | `str` | `null` | Access token |
 | `messaging_matrix_homeserver` | `MESSAGING_MATRIX_HOMESERVER` | `MATRIX_HOMESERVER` | `str` | `null` | Homeserver URL (e.g. `https://matrix.org`) |
@@ -183,7 +186,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### IRC
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_irc_server` | `MESSAGING_IRC_SERVER` | `IRC_SERVER` | `str` | `null` | IRC server hostname (e.g. `irc.libera.chat`) |
 | `messaging_irc_port` | `MESSAGING_IRC_PORT` | `IRC_PORT` | `int` | `6667` | IRC server port |
@@ -194,7 +197,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Signal
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_signal_token` | `MESSAGING_SIGNAL_TOKEN` | `SIGNAL_PHONE_NUMBER` | `str` | `null` | Registered phone number (e.g. `+1234567890`) |
 
@@ -204,7 +207,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### iMessage
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | — | `MESSAGING_IMESSAGE_TOKEN` | — | `str` | `""` | Not required (macOS AppleScript bridge) |
 
@@ -214,7 +217,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### LINE
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_line_token` | `MESSAGING_LINE_TOKEN` | `LINE_CHANNEL_ACCESS_TOKEN` | `str` | `null` | Channel access token |
 | — | `MESSAGING_LINE_APP_ID` | `LINE_CHANNEL_ID` | `str` | `""` | Channel ID |
@@ -225,7 +228,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Twitch
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_twitch_token` | `MESSAGING_TWITCH_TOKEN` | `TWITCH_OAUTH_TOKEN` | `str` | `null` | OAuth access token |
 | `messaging_twitch_channels` | `MESSAGING_TWITCH_CHANNELS` | `TWITCH_CHANNELS` | `list[str]` | `[]` | Channels to join (comma-separated in native env var, JSON array in config.json) |
@@ -234,15 +237,15 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Synology Chat
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
-|---|---|---|---|---|---|
-| `messaging_synology_webhook_url` | `MESSAGING_SYNOLOGY_WEBHOOK_URL` | `SYNOLOGY_CHAT_WEBHOOK_URL` | `str` | `null` | Incoming webhook URL from Synology Chat integration settings |
+| Setting name | Secret-reference Env Var | Type | Default | Description |
+|---|---|---|---|---|
+| `messaging_synology_webhook_url` | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | `str` | `null` | Runtime profile value or secret-provider reference for the incoming webhook URL |
 
 ---
 
 ### Voice Call (Twilio)
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_voicecall_app_id` | `MESSAGING_VOICECALL_APP_ID` | `TWILIO_ACCOUNT_SID` | `str` | `null` | Twilio Account SID |
 | `messaging_voicecall_token` | `MESSAGING_VOICECALL_TOKEN` | `TWILIO_AUTH_TOKEN` | `str` | `null` | Twilio Auth Token |
@@ -252,7 +255,7 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ### Nextcloud Talk
 
-| config.json Key | Env Var | Fallback Env Var | Type | Default | Description |
+| Setting name | Env Var | Fallback Env Var | Type | Default | Description |
 |---|---|---|---|---|---|
 | `messaging_nextcloud_url` | `MESSAGING_NEXTCLOUD_URL` | `NEXTCLOUD_URL` | `str` | `null` | Nextcloud server URL (e.g. `https://cloud.example.com`) |
 | `messaging_nextcloud_token` | `MESSAGING_NEXTCLOUD_TOKEN` | `NEXTCLOUD_TOKEN` | `str` | `null` | App password or user token |
@@ -260,9 +263,11 @@ Valid `<PLATFORM>` values (uppercase): `DISCORD`, `SLACK`, `TELEGRAM`, `WHATSAPP
 
 ---
 
-## Complete config.json Reference
+## Complete AgentConfig Reference
 
-Below is the **full** messaging section of `config.json` with every supported key:
+Below is the durable, **non-secret** messaging section of `config.json`. Backend
+tokens, app secrets, service-account documents, webhook credentials, and phone
+identifiers are runtime-only and intentionally absent:
 
 ```json
 {
@@ -270,59 +275,25 @@ Below is the **full** messaging section of `config.json` with every supported ke
     "messaging_kg_ingest": true,
     "messaging_kg_memory_type": "episodic",
     "messaging_route_to_planner": true,
-
-    "messaging_discord_token": "",
-
-    "messaging_slack_token": "",
-    "messaging_slack_app_token": "",
-
-    "messaging_telegram_token": "",
-
-    "messaging_whatsapp_token": "",
-    "messaging_whatsapp_phone_number_id": "",
     "messaging_whatsapp_use_business_api": false,
-
-    "messaging_teams_app_id": "",
-    "messaging_teams_app_secret": "",
-    "messaging_teams_webhook_url": "",
     "messaging_teams_webhook_port": 0,
-
-    "messaging_googlechat_token": "/path/to/service-account.json",
-
-    "messaging_googlemeet_token": "/path/to/service-account.json",
-
-    "messaging_mattermost_token": "",
     "messaging_mattermost_url": "https://mattermost.example.com",
-
-    "messaging_matrix_token": "",
     "messaging_matrix_homeserver": "https://matrix.org",
     "messaging_matrix_user_id": "@bot:matrix.org",
-
     "messaging_irc_server": "irc.libera.chat",
     "messaging_irc_port": 6667,
     "messaging_irc_nickname": "agent_bot",
     "messaging_irc_channels": ["#general", "#dev"],
-
-    "messaging_signal_token": "+1234567890",
-
-    "messaging_line_token": "",
-    "messaging_line_webhook_url": "",
     "messaging_line_webhook_port": 0,
-
-    "messaging_twitch_token": "",
     "messaging_twitch_channels": ["channelname"],
-
-    "messaging_synology_webhook_url": "https://nas.local/webapi/entry.cgi?...",
-
-    "messaging_voicecall_app_id": "",
-    "messaging_voicecall_token": "",
-    "messaging_voicecall_from_number": "+1234567890",
-
     "messaging_nextcloud_url": "https://cloud.example.com",
-    "messaging_nextcloud_token": "",
     "messaging_nextcloud_app_id": "admin"
 }
 ```
+
+The environment-variable tables below are the runtime injection contract. Treat
+all token, secret, credential-document, webhook, and telephone values as secret
+material even when a platform uses a less obvious field name.
 
 ---
 
@@ -467,8 +438,7 @@ Below is the **full** messaging section of `config.json` with every supported ke
 
 | Env Var | Description |
 |---|---|
-| `MESSAGING_SYNOLOGY_WEBHOOK_URL` | Incoming webhook URL (primary) |
-| `SYNOLOGY_CHAT_WEBHOOK_URL` | Webhook URL (fallback) |
+| `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | Secret-provider reference for the webhook URL |
 
 ### Voice Call (Twilio)
 
@@ -521,14 +491,13 @@ from agent_utilities.core.paths import messaging_sessions_dir, messaging_config_
 
 # Read messaging config from AgentConfig (populated from config.json)
 print(config.messaging_enabled_backends)    # ['discord', 'slack']
-print(config.messaging_discord_token)       # 'BOT_TOKEN...'
 print(config.messaging_kg_ingest)           # True
 
 # XDG paths
 print(messaging_sessions_dir())  # ~/.local/share/agent-utilities/messaging/
 print(messaging_config_path())   # ~/.config/agent-utilities/config.json
 
-# Reload config at runtime (hot-reload without restart)
+# Reload the stable proxy; its validated snapshot swaps without a restart.
 config.reload()
 ```
 
@@ -537,6 +506,6 @@ config.reload()
 ## Cross-References
 
 - [AU-ECO.toolkit.journey-map-milestones Architecture](ECO-4.5-Native_Messaging_Backend.md) — Full architecture and capability matrix
-- [OS-5.0 XDG Paths](../5_agent_os/OS-5.0-Agent_OS_Infrastructure.md) — XDG path resolution
-- [KG-2.1 Tiered Memory](../2_knowledge_graph/KG-2.1-Memory_Architecture.md) — Message memory persistence
-- [ORCH-1.1 Planner Graph Agent](../1_orchestration/ORCH-1.1-Planner_Graph_Agent.md) — Inbound event routing
+- [Agent OS Infrastructure](../5_agent_os_infrastructure.md) — XDG path resolution
+- [Epistemic Knowledge Graph](../2_epistemic_knowledge_graph.md) — message memory persistence
+- [Graph Orchestration](../1_graph_orchestration.md) — inbound event routing

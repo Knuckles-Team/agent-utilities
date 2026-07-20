@@ -1,0 +1,180 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: graphos-control
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: graphos-cell
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: graphos-front-ingress
+  namespace: graphos-control
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: graphos-front}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: ingress}
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: observability}
+      ports:
+        - {port: 8000, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: graphos-front-egress
+  namespace: graphos-control
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: graphos-front}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.io/plane: cell}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      ports:
+        - {port: 9100, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: egress-gateway}
+          podSelector:
+            matchLabels: {graphos.network/role: egress-gateway}
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: state-store}
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: event-backbone}
+      ports:
+        - {port: 9092, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: service-mesh-control}
+      ports:
+        - {port: 15012, protocol: TCP}
+        - {port: 15017, protocol: TCP}
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: engine-ingress
+  namespace: graphos-cell
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: graphos.io/worker-role
+                operator: In
+                values: [dispatch, ingest, analytics]
+        - podSelector:
+            matchLabels: {graphos.io/operation: backup}
+        - namespaceSelector:
+            matchLabels: {graphos.io/plane: control}
+          podSelector:
+            matchLabels: {app.kubernetes.io/name: graphos-front}
+      ports:
+        - {port: 9100, protocol: TCP}
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      ports:
+        - {port: 9100, protocol: TCP}
+        - {port: 9200, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: observability}
+      ports:
+        - {port: 9101, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cell-egress
+  namespace: graphos-cell
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      ports:
+        - {port: 9100, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: event-backbone}
+      ports:
+        - {port: 9092, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: state-store}
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: egress-gateway}
+          podSelector:
+            matchLabels: {graphos.network/role: egress-gateway}
+      ports:
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {graphos.network/role: service-mesh-control}
+      ports:
+        - {port: 15012, protocol: TCP}
+        - {port: 15017, protocol: TCP}
+        - {port: 443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: engine-raft-egress
+  namespace: graphos-cell
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+      ports:
+        - {port: 9200, protocol: TCP}

@@ -31,9 +31,9 @@ def test_write_batch_persists_nodes_and_edges():
         category="infra",
         nodes=[
             GraphNode(
-                id="server:r820",
+                id="server:analysis-node-a",
                 type="Server",
-                props={"hostname": "r820", "ip": "10.0.0.13"},
+                props={"hostname": "analysis-node-a", "ip": "192.0.2.13"},
             ),
             GraphNode(
                 id="service:pggraph",
@@ -43,16 +43,22 @@ def test_write_batch_persists_nodes_and_edges():
         ],
         edges=[
             EnrichmentEdge(
-                source="service:pggraph", target="server:r820", rel_type="RUNS_ON"
+                source="service:pggraph",
+                target="server:analysis-node-a",
+                rel_type="RUNS_ON",
             )
         ],
     )
     backend = FakeBackend()
     n, e = write_batch(backend, batch)
     assert n == 2 and e == 1
-    assert backend.nodes["server:r820"]["type"] == "Server"
-    assert backend.nodes["server:r820"]["hostname"] == "r820"
-    assert ("service:pggraph", "server:r820", "RUNS_ON") in backend.edges
+    assert backend.nodes["server:analysis-node-a"]["type"] == "Server"
+    assert backend.nodes["server:analysis-node-a"]["hostname"] == "analysis-node-a"
+    assert (
+        "service:pggraph",
+        "server:analysis-node-a",
+        "RUNS_ON",
+    ) in backend.edges
 
 
 def test_discover_extractors_runs():

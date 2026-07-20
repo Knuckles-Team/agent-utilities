@@ -30,7 +30,7 @@ class EnterpriseEngineMixin(_Base):
         self, business_unit_id: str, amount: float, currency: str = "USD"
     ) -> str:
         """Allocate a new payment budget to a business unit."""
-        budget_id = f"budget:{uuid.uuid4().hex[:8]}"
+        budget_id = f"budget:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = PaymentBudgetNode(
@@ -57,7 +57,7 @@ class EnterpriseEngineMixin(_Base):
         self, target_id: str, risk_score: float, risk_tolerance: str, assessed_by: str
     ) -> str:
         """Create and link a risk profile to a target node (e.g. strategy or unit)."""
-        risk_id = f"risk:{uuid.uuid4().hex[:8]}"
+        risk_id = f"risk:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = RiskProfileNode(
@@ -84,7 +84,7 @@ class EnterpriseEngineMixin(_Base):
         self, agent_id: str, clearance_level: str, expiry_date: str
     ) -> str:
         """Grant a security clearance to an agent or human."""
-        clearance_id = f"clearance:{uuid.uuid4().hex[:8]}"
+        clearance_id = f"clearance:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = SecurityClearanceNode(

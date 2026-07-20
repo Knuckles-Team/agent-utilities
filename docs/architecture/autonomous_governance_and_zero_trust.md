@@ -32,7 +32,8 @@ C4Context
 
 ### Shared Architecture via IntelligenceGraphEngine
 
-Both the legacy Graph workflows and the new background daemon tasks (like Consolidation and Governance) share a single, native gateway layer interface known as the `IntelligenceGraphEngine`.
+Graph workflows and background daemon tasks such as consolidation and governance
+share the single native `IntelligenceGraphEngine` gateway.
 
 When `agent_utilities` starts via `app.py`, the `FastAPI` lifespan boots a singleton `IntelligenceGraphEngine`. This engine establishes a pool of connections (UDS/TCP) to the persistent backends and the transient `epistemic-graph` service.
 

@@ -96,7 +96,7 @@ class WikiCurator:
                 state[str(path)] = file_hash(path)
                 summary["ingested"] += 1
             except Exception as e:  # noqa: BLE001 - one bad page must not abort the run
-                logger.warning("Wiki ingest failed for %s: %s", path, e)
+                logger.warning("Wiki ingest failed (%s)", type(e).__name__)
                 summary["errors"] += 1
         self._save_state_atomic(state)
         return summary

@@ -139,12 +139,14 @@ class _FakeGraph:
     def _get_node_properties(self, nid):
         return self._nodes.get(nid, {})
 
+    def semantic_search(self, _query, _k):
+        return [(node_id, 1.0) for node_id in self._nodes]
+
 
 class _FakeEngine:
     def __init__(self, nodes):
         self.graph = _FakeGraph(nodes)
         self.backend = None
-        self._designation_index = None
 
 
 class TestDesignationChannelLivePath:
@@ -171,21 +173,37 @@ class TestDesignationChannelLivePath:
 
     def test_edge_node_excluded_on_stable_live_path(self):
         from agent_utilities.graph.routing.enrichers.capability_designation import (
-            _callable_nodes_with_embeddings,
+            designate_specialists,
         )
 
         set_active_channel("stable")
         engine = self._engine()
-        ids = {n["id"] for n in _callable_nodes_with_embeddings(engine)}
+        ids = set(
+            designate_specialists(
+                engine,
+                "search",
+                required_caps=["search"],
+                embed_fn=lambda _query: [0.1, 0.2, 0.3],
+            )
+            or []
+        )
         assert "skill:stable" in ids
         assert "skill:edge" not in ids  # edge hidden on stable
 
     def test_edge_node_included_on_edge_live_path(self):
         from agent_utilities.graph.routing.enrichers.capability_designation import (
-            _callable_nodes_with_embeddings,
+            designate_specialists,
         )
 
         set_active_channel("edge")
         engine = self._engine()
-        ids = {n["id"] for n in _callable_nodes_with_embeddings(engine)}
+        ids = set(
+            designate_specialists(
+                engine,
+                "search",
+                required_caps=["search"],
+                embed_fn=lambda _query: [0.1, 0.2, 0.3],
+            )
+            or []
+        )
         assert {"skill:stable", "skill:edge"} <= ids

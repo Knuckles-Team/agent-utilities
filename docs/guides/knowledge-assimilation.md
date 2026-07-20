@@ -10,7 +10,7 @@
 
 ## Overview
 
-The Knowledge Assimilation Engine extends the existing `agent-utilities-self-evolution`
+The Knowledge Assimilation Engine extends the existing `agent-utilities-evolution`
 skill (which is **pull-based** — scans ScholarX for papers) with a **push-based**
 pathway where any high-signal content from ANY source automatically triggers the
 evolution loop.
@@ -22,7 +22,7 @@ graph TD
     A["Content Sources"] --> B["UniversalKnowledgeClassifier"]
     B --> C{Evolution Potential ≥ 0.6?}
     C -->|Yes| D["EvolutionCandidateNode\ncreated in KG"]
-    D --> E["kg-ingest\n(SKILL)"]
+    D --> E["graph-ingestion-and-integration\n(SKILL)"]
     E --> F["comparative-analysis\n(SKILL)"]
     F --> G{Actionable Gaps?}
     G -->|Yes| H["SDD Plan Generated"]
@@ -56,7 +56,7 @@ graph TD
 
 ## Push vs Pull Evolution
 
-| Dimension | Pull (agent-utilities-self-evolution) | Push (knowledge-assimilation) |
+| Dimension | Pull (agent-utilities-evolution) | Push (knowledge-assimilation) |
 |-----------|----------------------------------|-------------------------------|
 | **Trigger** | Cron (every 60 min) or manual | Incoming content with high evolution potential |
 | **Sources** | ScholarX papers only | X, ScholarX, GitHub, documents, memories |
@@ -117,7 +117,7 @@ All configuration is managed via XDG-compliant paths:
 
 ```
 ~/.config/agent-utilities/config.json    # Model registry, API keys
-~/.agent-utilities/secrets.db            # OAuth tokens (encrypted)
+secret://oauth/<provider>                # Runtime reference into the configured backend
 ```
 
 **Environment Variables:**
@@ -129,7 +129,7 @@ All configuration is managed via XDG-compliant paths:
 
 > Note: `EVOLUTION_AUTO_EXECUTE` and `EVOLUTION_MIN_POTENTIAL` are not currently
 > read by the engine; auto-execute and minimum-potential gating are decided by
-> the `agent-utilities-self-evolution` skill rather than environment variables.
+> the `agent-utilities-evolution` skill rather than environment variables.
 
 ---
 
@@ -137,6 +137,6 @@ All configuration is managed via XDG-compliant paths:
 
 - [x-assistant.md](./x-assistant.md) — X search/browse tools and social ingestion
 - [knowledge-graph.md](./knowledge-graph.md) — Ingestion engine, distillation
-- [agent-utilities-self-evolution SKILL](../../../../skills/universal-skills/universal_skills/research/agent-utilities-self-evolution/SKILL.md) — Pull-based research scanner
-- [comparative-analysis SKILL](../../../../skills/universal-skills/universal_skills/analysis/comparative-analysis/SKILL.md) — Feature extraction
-- [ontology_social.ttl](../../../agent_utilities/knowledge_graph/ontology_social.ttl) — OWL schema for social content
+- [`agent-utilities-evolution`](kg-skill-suite.md) — consolidated evolution workflow
+- `comparative-analysis` skill — feature extraction provided by the configured skill source
+- [ontology_concepts.ttl](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/ontology_concepts.ttl) — canonical OWL concept schema used by ingestion

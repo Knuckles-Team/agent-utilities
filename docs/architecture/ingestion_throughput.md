@@ -113,7 +113,7 @@ gracefully (per-item `_is_known`) when the engine lacks bulk existence.
 lane, but three things stayed invisible: the **token/cost** an ingest spent
 (CONCEPT:AU-OS.observability.ingestion-profile-report — it reported `tokens=0`), the **per-stage** breakdown of a
 single ~5s ingest (CONCEPT:AU-OS.observability.ingest-stage-breakdown — read vs LLM-extract vs embed vs graph-write),
-and **off-queue work** that never becomes a `:Task` (CONCEPT:AU-OS.observability.embed-stage-profile — embed
+and **off-queue work** that never becomes a WorkItem (CONCEPT:AU-OS.observability.embed-stage-profile — embed
 backfill, concept-registry embedding, assimilation passes).
 
 One primitive closes all three: a **contextvar-scoped `IngestProfile`**
@@ -123,7 +123,7 @@ it on the contextvar and record token usage automatically — no parameter
 threading. Ingest code times named stages into it (`with stage("read"): …`);
 off-queue passes activate one and persist a `:ProfileSpan` node on the
 `__control__` graph so the same report covers them. `profile_report` then folds
-`:Task` rows **and** `:ProfileSpan` rows together.
+WorkItems **and** `:ProfileSpan` rows together.
 
 ```mermaid
 flowchart TB
@@ -136,7 +136,7 @@ flowchart TB
     LLMW["make_llm_fn → record_llm_usage()"] -. "prompt/completion tokens" .-> PROF["IngestProfile<br/>stages_ms + tokens + cost (AU-OS.observability.ingestion-profile-report/70)"]
     EMBW["make_embed_fn → record_embed_usage()"] -. "embed tokens" .-> PROF
     ONE --> PROF
-    PROF -->|"on-queue: to_dict() into :Task.metadata.profile"| TASK[":Task nodes"]
+    PROF -->|"on-queue lifecycle"| TASK["WorkItems"]
 
     subgraph OFFQ["Off-queue passes (AU-OS.observability.embed-stage-profile)"]
         BF["embed backfill"]
@@ -182,7 +182,7 @@ scraping to zero. The two knobs — `KG_POOL_ACQUISITION_FLOOR` and
 point). Un-pooled `queries` (interactive) and `maint` (best-effort) keep their
 existing floors/caps. The split is enforced purely at the in-process admission
 layer, transport-agnostically, so the executor-swap property of
-`TASK_QUEUE_BACKEND` / `AGENT_DISPATCH_BACKEND` is preserved. `lane_metrics()`
+`TASK_QUEUE_BACKEND` is preserved. `lane_metrics()`
 surfaces a per-pool `{pending, live_running}` rollup + the two budgets under a
 `pools` key.
 
@@ -219,7 +219,7 @@ Reviews are LLM-free (keyword scoring) and now O(1)-round-trip for dedup, so the
 50k/hr review target is bounded by CPU + network and holds even at one LLM. Only
 the *ingest* of the relevant fraction is GPU-bound, and it drains in the
 `ingestion`/`worldview`/`research` lanes — which the best-effort cap keeps clear of
-the maintenance backlog. Adding capacity (more workers / GB10s) raises ingest
+the maintenance backlog. Adding capacity (more workers or accelerator hosts) raises ingest
 throughput linearly; the review plane is unaffected.
 
 See also: [Unified scheduling](../recipes/unified-scheduling.md),

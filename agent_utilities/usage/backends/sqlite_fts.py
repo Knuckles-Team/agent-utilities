@@ -14,7 +14,8 @@ from pathlib import Path
 from agent_utilities.core.config import setting
 
 from ..models import SearchHit
-from ..schema import sqlite_ddl
+from ..privacy import sanitize_query_text
+from ..schema import enforce_privacy_schema, sqlite_ddl
 from .sql_base import SqlUsageBackend
 
 
@@ -57,6 +58,7 @@ class SqliteUsageBackend(SqlUsageBackend):
             return
         with self._connect() as conn:
             conn.executescript(sqlite_ddl())
+            enforce_privacy_schema(conn)
         self._schema_ready = True
 
     # FTS5 search structure already created by ensure_schema; nothing per-write.
@@ -79,6 +81,9 @@ class SqliteUsageBackend(SqlUsageBackend):
     def search(self, query, *, limit=50, **filters):
         if not query or not query.strip():
             return []
+        query = sanitize_query_text(query)
+        where, params = self._where(filters, alias="s")
+        conjunction = " AND " if where else " WHERE "
         with self._connect() as conn:
             try:
                 cur = conn.execute(
@@ -87,9 +92,11 @@ class SqliteUsageBackend(SqlUsageBackend):
                           s.project, s.agent
                         FROM messages_fts f
                         JOIN sessions s ON s.id = f.session_id
-                        WHERE messages_fts MATCH ?
-                        LIMIT ?""",
-                    (query, limit),
+                        """
+                    + where
+                    + conjunction
+                    + "messages_fts MATCH ? LIMIT ?",
+                    (*params, query, limit),
                 )
                 rows = cur.fetchall()
             except sqlite3.OperationalError:
@@ -99,8 +106,11 @@ class SqliteUsageBackend(SqlUsageBackend):
                           substr(f.content, 1, 160), s.project, s.agent
                         FROM messages_fts f
                         JOIN sessions s ON s.id = f.session_id
-                        WHERE f.content LIKE ? LIMIT ?""",
-                    (f"%{query}%", limit),
+                        """
+                    + where
+                    + conjunction
+                    + "f.content LIKE ? LIMIT ?",
+                    (*params, f"%{query}%", limit),
                 )
                 rows = cur.fetchall()
         return [

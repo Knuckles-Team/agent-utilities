@@ -31,7 +31,6 @@ def mock_deps():
     deps.provider = "openai"
     deps.base_url = "http://localhost"
     deps.api_key = "test-key"
-    deps.ssl_verify = True
     deps.message_history_cache = {}
     deps.server_health = {}
     deps.discovery_metadata = {}
@@ -105,12 +104,15 @@ async def test_execute_specialized_step_subagent_target(mock_deps):
     stream.stream_text = mock_stream_text
 
     stream.get_output.return_value = "Expert Result"
-    stream.usage.return_value = MagicMock()
+    stream.usage = MagicMock()
     stream.all_messages.return_value = []
     mock_agent.run_stream.return_value = stream
 
-    # We must patch Agent in the executor module
-    with patch("agent_utilities.graph.executor.Agent", return_value=mock_agent):
+    # Patch the governed constructor boundary in the executor module.
+    with patch(
+        "agent_utilities.graph.executor.create_context_agent",
+        return_value=mock_agent,
+    ):
         with patch(
             "agent_utilities.graph.executor.load_specialized_prompts",
             return_value="Prompt",
@@ -121,8 +123,7 @@ async def test_execute_specialized_step_subagent_target(mock_deps):
                 with patch("agent_utilities.graph.executor.on_exit_specialist"):
                     res = await _execute_specialized_step(ctx, "specialist")
                     assert res == "execution_joiner"
-                    assert state.results["specialist"] == "Expert Result"
-                    assert "specialist_0" in state.results_registry
+                    assert state.results_registry["specialist_0"] == "Expert Result"
 
 
 @pytest.mark.asyncio
@@ -134,8 +135,10 @@ async def test_execute_specialized_step_error_recovery(mock_deps):
 
     # Ensuring Agent failure triggers recovery
     with patch(
-        "agent_utilities.graph.executor.Agent.run_stream",
-        side_effect=Exception("Simulation Error"),
+        "agent_utilities.graph.executor.create_context_agent",
+        return_value=MagicMock(
+            run_stream=MagicMock(side_effect=Exception("Simulation Error"))
+        ),
     ):
         with patch(
             "agent_utilities.graph.executor.load_specialized_prompts",

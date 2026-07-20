@@ -6,14 +6,13 @@ from __future__ import annotations
 CONCEPT:AU-KG.memory.layered-project-context — Project-Aware Context
 
 This module provides utilities for constructing and resolving agent system
-prompts. It handles loading structured JSON prompt blueprints (with a
-``content`` key) from both the workspace and the package ``prompts/``
+prompts. It handles loading structured JSON prompt blueprints (with an
+``instructions.core_directive`` body) from both the workspace and the package ``prompts/``
 directory, resolving workspace file references (using the ``@`` prefix),
 and aggregating the ``main_agent.json`` configuration and Knowledge Graph
 context into a unified prompt context for the agent.
 
-Prompts are JSON-only; markdown fallbacks (YAML-frontmatter and the legacy
-star-based format) have been removed. Companion files such as ``AGENTS.md``
+Prompts are JSON-only. Companion files such as ``AGENTS.md``
 and ``MEMORY.md`` are still read as plain markdown — they are not prompt
 blueprints, they are contextual memory surfaces.
 """
@@ -23,6 +22,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -41,8 +41,7 @@ def _extract_prompt_content(raw: str) -> str:
 
     Delegates body extraction to the single canonical resolver
     (:func:`agent_utilities.prompting.structured.resolve_body`, CONCEPT:AU-ORCH.routing.resolve-body-single-canonical)
-    so the canonical ``instructions.core_directive`` location is honoured — not
-    just the legacy flat ``content``/``input`` keys this used to read.
+    so the canonical ``instructions.core_directive`` location is honoured.
 
     Args:
         raw: The raw file contents — a JSON object prompt blueprint.
@@ -54,7 +53,7 @@ def _extract_prompt_content(raw: str) -> str:
         ValueError: If ``raw`` is empty, not valid JSON, not a JSON object,
             or yields no renderable body.
     """
-    from agent_utilities.prompting.structured import resolve_body
+    from agent_utilities.prompting.structured import StructuredPrompt, resolve_body
 
     if not raw or not raw.strip():
         raise ValueError("Prompt payload is empty")
@@ -63,16 +62,16 @@ def _extract_prompt_content(raw: str) -> str:
     except json.JSONDecodeError as e:
         raise ValueError(
             "Prompt payload is not valid JSON; expected a blueprint object "
-            "with an 'instructions.core_directive' (or legacy 'content') body"
+            "with an 'instructions.core_directive' body"
         ) from e
     if not isinstance(data, dict):
         raise ValueError("Prompt JSON must decode to an object")
+    StructuredPrompt.model_validate(data)
     body = resolve_body(data)
     if body and body.strip():
         return body
     raise ValueError(
-        "Prompt JSON object has no body: set 'instructions.core_directive' "
-        "(or a legacy 'content'/'input' string)"
+        "Prompt JSON object has no body: set 'instructions.core_directive'"
     )
 
 
@@ -166,16 +165,20 @@ def _resolve_base_body(extends: str) -> str:
                         )
                     except ValueError:
                         continue
-        except Exception as e:  # pragma: no cover - defensive
-            logger.warning("Could not resolve base prompt '%s': %s", ref, e)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Could not resolve base prompt reference (%s)", type(exc).__name__
+            )
         return ""
     filename = ref[1:].strip() if ref.startswith("@") else ref
     content = load_workspace_file(filename)
     if content:
         try:
             return _extract_prompt_content(content)
-        except ValueError:
-            return content.strip()
+        except ValueError as exc:
+            logger.warning(
+                "Rejected invalid base-prompt blueprint (%s)", type(exc).__name__
+            )
     return ""
 
 
@@ -242,13 +245,15 @@ def _load_main_agent_content() -> str:
                         data = None
                 try:
                     body = _extract_prompt_content(pkg_raw)
-                except ValueError as e:
+                except ValueError as exc:
                     logger.warning(
                         "Invalid packaged main_agent.json (%s); using empty prompt",
-                        e,
+                        type(exc).__name__,
                     )
-        except Exception as e:
-            logger.warning(f"Could not load main_agent.json from package: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Could not load packaged agent blueprint (%s)", type(exc).__name__
+            )
 
     if isinstance(data, dict) and data.get("extends"):
         base = _resolve_base_body(str(data["extends"]))
@@ -260,10 +265,10 @@ def _load_main_agent_content() -> str:
 def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
     """Aggregate core workspace files into a unified system prompt.
 
-    Combines the ``content`` body of ``main_agent.json`` with
+    Combines the ``instructions.core_directive`` body of ``main_agent.json`` with
     ``AGENTS.md`` / ``MEMORY.md`` (if present) and an optional
-    ``fallback_prompt`` string. ``main_agent.json`` is strictly JSON; only
-    its ``content`` key is used as the prompt body.
+    ``fallback_prompt`` string. ``main_agent.json`` is strictly JSON and must
+    satisfy the current :class:`StructuredPrompt` contract.
 
     Args:
         fallback_prompt: An optional string to append if core files are
@@ -309,7 +314,7 @@ def build_system_prompt_from_workspace(fallback_prompt: str = "") -> str:
         included_files.append("fallback_prompt")
 
     prompt = "\n\n".join(parts).strip()
-    logger.debug(f"Built System Prompt from files: {', '.join(included_files)}")
+    logger.debug("Built system prompt from %d governed sources", len(included_files))
     return prompt
 
 
@@ -338,12 +343,18 @@ def resolve_prompt(prompt_str: str) -> str:
     return prompt_str
 
 
-def extract_agent_metadata(content: str) -> dict[str, Any]:
+def extract_agent_metadata(
+    content: str,
+    *,
+    demonstration_resolver: Callable[
+        [list[str]], Sequence[Mapping[str, Any]]
+    ]
+    | None = None,
+) -> dict[str, Any]:
     """Extract metadata (name, description, emoji, vibe, etc.) from a JSON blueprint.
 
-    Only the modern JSON blueprint schema (a dict with ``name``,
-    ``description``, ``content`` keys) is supported. Legacy YAML-frontmatter
-    and star-based markdown formats have been removed.
+    Only the current JSON blueprint schema with an
+    ``instructions.core_directive`` body is supported.
 
     If ``content`` cannot be parsed as a JSON object, a generic default is
     returned and a warning is logged so agent startup remains resilient.
@@ -380,25 +391,32 @@ def extract_agent_metadata(content: str) -> dict[str, Any]:
         )
         return meta
 
-    if "role" in data and "description" not in data:
-        data["description"] = data.pop("role")
     meta.update(data)
 
     # CONCEPT:AU-ORCH.routing.resolve-body-single-canonical — resolve the body via the single canonical resolver so
     # decomposed ``instructions.core_directive`` prompts are not read as empty.
-    from agent_utilities.prompting.structured import resolve_body
+    from agent_utilities.prompting.structured import StructuredPrompt
 
-    body = resolve_body(data)
+    prompt = StructuredPrompt.model_validate(data)
+    if data.get("program_compiled_state") is not None:
+        resolver = demonstration_resolver
+        if resolver is None:
+            from agent_utilities.knowledge_graph.adaptation.feedback import (
+                FeedbackService,
+            )
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
 
-    # Prepend few-shot examples if present (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
-    if "few_shot_examples" in data and isinstance(data["few_shot_examples"], list):
-        few_shots = "\n\n".join(
-            f"Example Task:\n{ex.get('task', '')}\nExample Response:\n{ex.get('response', '')}"
-            for ex in data["few_shot_examples"]
-            if "task" in ex or "response" in ex
-        )
-        if few_shots:
-            body = f"{body}\n\n## Examples (Optimized)\n{few_shots}".strip()
+            engine = IntelligenceGraphEngine.get_active()
+            if engine is None:
+                raise RuntimeError("governed program corpus is unavailable")
+            resolver = FeedbackService.from_engine(
+                engine
+            ).resolve_program_demonstrations
+        body = prompt.render_for_execution(resolver)
+    else:
+        body = prompt.render()
 
     if isinstance(body, str):
         meta["content"] = body
@@ -424,7 +442,9 @@ def load_identity(tag: str | None = None) -> dict[str, str]:
         if main_agent_path.is_file():
             content = main_agent_path.read_text(encoding="utf-8")
             return extract_agent_metadata(content)
-    except Exception as e:
-        logger.warning(f"Could not load main_agent.json identity: {e}")
+    except Exception as exc:
+        logger.warning(
+            "Could not load packaged agent identity (%s)", type(exc).__name__
+        )
 
     return {"name": "Agent", "description": "AI Agent", "content": ""}

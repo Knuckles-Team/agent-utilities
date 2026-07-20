@@ -1,106 +1,140 @@
-# Day-0 Deployment
+# Day-0 deployment
 
-How to stand up agent-utilities from nothing — its dependencies, the `graph-os`
-MCP server + multiplexer, the `*-mcp` connector fleet, and the external
-integrations — at the scale that fits you.
+Day 0 establishes the packaged Rust graph engine, a GraphOS surface, optional
+connectors, and runtime integrations without persisting deployment-specific paths,
+endpoints, identities, or secrets in the repository.
 
-> Pick a **profile** and follow its recipe. Everything here is generalized and
-> non-PII; substitute your own hosts/secrets. Profiles:
-> [Tiny (all-local)](../recipes/tiny.md) · [Single-node prod](../recipes/single-node-prod.md) ·
-> [Enterprise (swarm)](../recipes/enterprise.md).
+Choose a supported shape:
 
-## TL;DR — the fastest path (Tiny)
+- [Tiny](../recipes/tiny.md): supervised local engine and no required external
+  database.
+- [Single-node production](../recipes/single-node-prod.md): durable host with optional
+  mirrors and connectors.
+- [Enterprise multi-host](../recipes/enterprise.md): remote engine authority,
+  workload identity, shared state, and horizontally scaled workers.
+
+## Tiny bootstrap
+
+From a trusted source checkout:
 
 ```bash
-git clone https://github.com/Knuckles-Team/agent-utilities && cd agent-utilities
-./scripts/bootstrap.sh          # venv + install + .env(GRAPH_BACKEND=epistemic_graph) + smoke test
+./scripts/bootstrap.sh
 ```
 
-That installs deps, writes a zero-infra `.env`, starts `graph-os`, and runs a
-create-agent → graph_write → graph_query smoke test. No databases, no servers.
+The bootstrap installs the project, creates the tiny profile only when no config is
+present, and runs a graph smoke test. Its configuration target is the XDG AgentConfig
+document at `$XDG_CONFIG_HOME/agent-utilities/config.json`; it does not create or
+consume a repository `.env` file.
 
-## The four steps (any profile)
-
-### 1. Install dependencies
+For an installed package, generate the same neutral profile directly:
 
 ```bash
-uv sync                          # or: pip install -e ".[all]"
+setup-config generate --profile tiny
 ```
 
-The optional-dependency matrix (`pyproject.toml`) lets you install only what a
-profile needs (`agent`, `mcp`, `backends`, `providers`, `embeddings`, `all`).
-See [Installation](installation.md).
+Review the generated AgentConfig, configure one governed client identity where the
+selected surface requires it, and run preflight checks before starting GraphOS:
 
-### 2. Run graph-os (MCP) + the multiplexer
+If local `env://` references are needed, place their values in the optional fixed
+`runtime-secrets.json` beside the XDG `config.json`. On POSIX, set exact mode `0600`
+or `0400`. Only referenced keys are projected, and doctor reports aggregate source
+readiness without paths, names, references, or values. On native Windows, inject
+the referenced values through the process environment; private file sources fail
+closed until descriptor-level ACL validation is available.
 
 ```bash
-# graph-os — the KG MCP server (stdio for IDEs, streamable-http for containers)
-uv run graph-os                                            # stdio
-uv run graph-os --transport streamable-http --host 0.0.0.0 --port 8004
+agent-utilities doctor --only config auth secrets transport_security graph_connections
+```
 
-# Or the REST gateway (one shared KG host, default :9000) for UIs/scripts/fleet supervisor
+## Four steps for every profile
+
+### 1. Install the required composition
+
+```bash
+uv sync
+# Published package alternative:
+uvx --refresh --from "agent-utilities[serving]>=1.27.1,<2.0.0" graph-os --help
+```
+
+The package always carries the full epistemic-graph engine capability. Add only the
+Agent Utilities feature groups required by the selected deployment; see
+[Installation](installation.md).
+
+### 2. Start one surface
+
+```bash
+# MCP for an IDE or delegating agent
+graph-os
+
+# Loopback MCP HTTP
+graph-os --transport streamable-http --host 127.0.0.1 --port 8004
+
+# Headless KG host without an HTTP API
+graph-os-daemon
+
+# REST/API gateway for UIs and application clients
 python -m agent_utilities
-
-# The multiplexer federates graph-os + the whole *-mcp fleet into one endpoint
-uv run mcp-multiplexer --config ./mcp_config.json --transport stdio
 ```
 
-See [Consumption Models](consumption-models.md) for which to choose.
+GraphOS supervises the packaged Rust engine as an out-of-process child when
+`GRAPH_SERVICE_ENDPOINTS` is absent. When endpoints are configured, it is connect-only
+and never creates a local substitute. Non-loopback bindings require verified JWT/OIDC
+identity and trusted TLS termination.
 
-### 3. Deploy the `*-mcp` connector fleet (Portainer)
+The only identity exception is `graph-os --transport stdio` with
+`DEPLOYMENT_PROFILE=tiny`, no endpoints, and neither external process-identity
+source. It creates and validates a neutral bootstrap JWT with an in-memory key,
+then discards the key and token. All other surfaces require exactly one external
+process identity, and failure never falls back locally.
 
-The connector fleet (~50 services — ServiceNow, ERPNext, GitLab, OpenBao,
-Keycloak, Technitium, Kafka, …) is described by the generated
-**`deploy/mcp-fleet.registry.yml`** (regenerate with
-`python scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents --out deploy/mcp-fleet.registry.yml`).
+See [Consumption models](consumption-models.md) for surface selection.
 
-Each connector ships `docker/Dockerfile` + `docker/compose.yml` running its MCP
-server over **streamable-http** (container port `8000`). Deploy them as
-per-service Portainer stacks via the **`portainer-sync-agent`** skill, which
-binds each stack to its Git repo for GitOps auto-sync. Which services run depends
-on the profile (the `profiles:` field in the registry).
+### 3. Attach approved connectors
 
-**Service + host-port table** is generated into the registry; a sample:
+The generated fleet registry describes available `*-mcp` packages, but an external
+runtime profile selects which connectors are enabled and where they run. Use the
+`agent-utilities-deployment` workflow to validate tool schemas, workload identity,
+TLS profiles, and runtime secret references before registration.
 
-| Service | Console script | Container port | Host port | Profiles |
-|---|---|---|---|---|
-| `openbao-mcp` | `openbao-mcp` | 8000 | 8200+ | single-node-prod, enterprise |
-| `technitium-dns-mcp` | `technitium-dns-mcp` | 8000 | 8200+ | single-node-prod, enterprise |
-| `servicenow-mcp` | `servicenow-mcp` | 8000 | 8200+ | enterprise |
-| … (52 total) | | | | |
+Do not commit the selected inventory, discovered endpoints, resolved certificates,
+or source-system credentials. Universal external graph sources are configured through
+`EXTERNAL_GRAPH_CONNECTORS`; see
+[Universal external graph connectors](../architecture/universal-external-graph-connectors.md).
 
-> `genius-agent` is intentionally **not** in the fleet — it's a standalone agent
-> app, not an MCP connector.
+### 4. Configure integrations in XDG AgentConfig
 
-### 4. Wire integrations (à-la-carte)
+Use reference-only settings and neutral service discovery:
 
-Each integration is a single config switch — set only the ones your profile uses:
+| Integration | AgentConfig boundary |
+|---|---|
+| Optional graph projection | `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_CONNECTION_PROFILE_REF=secret://graph/mirror-profile` |
+| Remote engine | `GRAPH_SERVICE_ENDPOINTS` plus `ENGINE_TLS_PROFILE_REF` |
+| Queue scale-out | `TASK_QUEUE_BACKEND`; broker topology, credentials, and TLS stay in the external runtime profile |
+| Client identity | tiny packaged-local GraphOS stdio: neither external source; every other boundary: exactly one of `KG_AUTH_TOKEN_REF` or `KG_IDENTITY_OAUTH2`, plus server JWKS/audience/policy settings |
+| Langfuse | `LANGFUSE_HOST`, both credential references, and `LANGFUSE_TLS_PROFILE_REF` |
+| OpenTelemetry | `ENABLE_OTEL`, `TRACE_EXPORT_ENABLED`, and the configured exporter TLS/credential references |
 
-| Integration | Switch | Profile |
-|---|---|---|
-| KG mirror (Postgres/pg-age) | `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS=age` + `GRAPH_DB_URI=postgresql://…` | single-node-prod, enterprise |
-| Ingest queue scale-out (Kafka) | `TASK_QUEUE_BACKEND=kafka` + `KAFKA_BOOTSTRAP_SERVERS=…` (fail-loud) | enterprise |
-| Secrets (OpenBao/Vault) | `SECRETS_VAULT_URL=…` + `VAULT_AUTH_METHOD=…` | single-node-prod, enterprise |
-| SSO (Keycloak/OIDC) | `AUTH_JWT_JWKS_URI=…` / `OIDC_CONFIG_URL=…` | enterprise |
-| Observability (Langfuse) | `LANGFUSE_HOST` + `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` | any (optional) |
-| Tracing (OTel) | `ENABLE_OTEL=true` + `OTEL_EXPORTER_OTLP_ENDPOINT=…` | any (optional) |
+The engine remains the authority when a mirror is enabled. Mirror writes are
+governed fan-out for external query and reporting; they do not become a second source
+of truth.
 
-Backend resolution (`create_backend()`): the default `GRAPH_BACKEND=epistemic_graph`
-makes the Rust engine the one authority — compute, cache, semantic, and durable
-persistence in a single store, no external DB. For optional mirrors set
-`GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS` (e.g. `age`) and `GRAPH_DB_URI`;
-the engine stays the authority and fans writes out — nothing else changes.
+Langfuse MCP and propose-only failure evolution auto-enable when both Langfuse
+credential references resolve. Trace export, content capture, and KG auto-ingestion
+remain explicit choices. Auto-ingestion also requires a persistence HMAC-key
+reference.
 
-## Automated day-0 (skill-workflow)
+## Automated Day 0
 
-For a one-command bootstrap across a fleet, the universal-skills
-**`agent-os-genesis` (alias `day0`)** workflow is profile-driven: it asks for a
-profile + integration toggles, then runs ssh/swarm/vault/dns/caddy/keycloak,
-deploys graph-os + the `*-mcp` fleet from `mcp-fleet.registry.yml`, and wires the
-selected integrations. The **Tiny** profile collapses to `scripts/bootstrap.sh`.
+The `agent-utilities-deployment` workflow consumes an operator-owned profile, performs
+discovery, writes reference-only XDG AgentConfig, deploys the selected surfaces and
+connectors, and certifies the live topology. It does not add a site profile to this
+repository.
 
-## Next
+## Validate
 
-- [Recipe: Tiny](../recipes/tiny.md) — laptop / edge, zero external services.
-- [Recipe: Single-node prod](../recipes/single-node-prod.md) — one host, durable.
-- [Recipe: Enterprise](../recipes/enterprise.md) — swarm + full integrations.
+```bash
+agent-utilities doctor --only config auth secrets transport_security graph_connections langfuse
+```
+
+Then run the profile's authenticated graph, delegation, trace, and connector smoke
+tests before enabling autonomous mutations.

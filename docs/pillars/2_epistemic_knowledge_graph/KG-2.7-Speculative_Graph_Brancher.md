@@ -104,8 +104,8 @@ When the OWL Bridge (KG-2.2) is active, speculative branches can be used to test
 This pattern enables **safe schema evolution** without risking production KG integrity.
 
 ## Implementation Details
-- **Source Code**: [`kg_versioning.py`](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/core/kg_versioning.py) (413 lines)
+- **Source Code**: [`kg_versioning.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/core/kg_versioning.py) (413 lines)
 - **Classes**: `KGVersionEngine`, `SpeculativeGraphBrancher`, `KGTransaction`, `KGCommit`, `KGDiff`, `KGMutation`, `MutationType`
-- **Tests**: [`test_synergies.py`](file:///home/apps/workspace/agent-packages/agent-utilities/tests/unit/knowledge_graph/test_synergies.py)
+- **Tests**: [`test_synergies.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/tests/unit/knowledge_graph/test_synergies.py)
 - **Pillar**: KG
 - **Dependencies**: `pydantic`, `copy.deepcopy`, `hashlib` (SHA-256 IDs)

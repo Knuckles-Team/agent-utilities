@@ -165,7 +165,7 @@ def priority_scope(priority: PriorityClass | None) -> Iterator[None]:
     gate, an outbound engine call's header, a nested fan-out — inherits it:
 
     * an MCP/REST interactive call  → ``priority_scope(PriorityClass.INTERACTIVE)``
-    * ``graph_orchestrate`` execute → ``priority_scope(PriorityClass.ORCHESTRATION)``
+    * ``graph_orchestrate`` delegation → ``priority_scope(PriorityClass.ORCHESTRATION)``
     * a codebase/document ingest    → ``priority_scope(PriorityClass.BACKGROUND_INGESTION)``
     * the skill/MCP hydration path  → ``priority_scope(PriorityClass.HYDRATION)``
     """

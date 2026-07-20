@@ -57,7 +57,7 @@ from agent_utilities.security.permissions_kernel import AgentRole, PermissionsKe
 
 @pytest.fixture
 def kg() -> KnowledgeGraph:
-    return KnowledgeGraph(backend_type="memory")
+    return KnowledgeGraph()
 
 
 @pytest.fixture(autouse=True)
@@ -301,7 +301,7 @@ def _onboard_action() -> OntologyAction:
 
 
 def test_action_two_side_effects_write_two_edits_and_undo(kg: KnowledgeGraph) -> None:
-    kernel = PermissionsKernel()
+    kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
     # The action executor journals through the SAME edit-ledger surface the
     # ontology exposes; bind it to the live ontology ledger so the governed verb
     # and the edit trail share one ledger.

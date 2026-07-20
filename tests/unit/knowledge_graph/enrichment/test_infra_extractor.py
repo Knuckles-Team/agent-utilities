@@ -17,19 +17,33 @@ from tests.kg_recording_backend import RecordingGraphBackend as FakeBackend
 SAMPLE_INVENTORY = {
     "all": {
         "hosts": {
-            "r820": {
-                "ansible_host": "10.0.0.13",
+            "analysis-node-a": {
+                "ansible_host": "192.0.2.13",
                 "roles": ["manager"],
                 "groups": ["swarm"],
             },
-            "rw710": {"ip": "10.0.0.14", "role": "worker", "groups": "swarm"},
+            "worker-node-b": {
+                "ip": "192.0.2.14",
+                "role": "worker",
+                "groups": "swarm",
+            },
         }
     }
 }
 
 SAMPLE_SERVICES = [
-    {"name": "pggraph", "image": "pggraph:latest", "replicas": 1, "node": "r820"},
-    {"name": "kafka", "image": "kafka:3.7", "replicas": 3, "host": "rw710"},
+    {
+        "name": "graph-store",
+        "image": "graph-store:latest",
+        "replicas": 1,
+        "node": "analysis-node-a",
+    },
+    {
+        "name": "event-broker",
+        "image": "event-broker:stable",
+        "replicas": 3,
+        "host": "worker-node-b",
+    },
     {"name": "floating", "image": "nginx", "replicas": 2},  # no node -> no edge
 ]
 
@@ -40,30 +54,30 @@ def test_extract_servers_services_and_edges():
 
     by_id = {n.id: n for n in batch.nodes}
     # Servers
-    assert by_id["server:r820"].type == "Server"
-    assert by_id["server:r820"].props["hostname"] == "r820"
-    assert by_id["server:r820"].props["ip"] == "10.0.0.13"
-    assert by_id["server:r820"].props["roles"] == ["manager"]
-    assert by_id["server:rw710"].props["ip"] == "10.0.0.14"
-    assert by_id["server:rw710"].props["roles"] == ["worker"]
-    assert by_id["server:rw710"].props["groups"] == ["swarm"]
+    assert by_id["server:analysis-node-a"].type == "Server"
+    assert by_id["server:analysis-node-a"].props["hostname"] == "analysis-node-a"
+    assert by_id["server:analysis-node-a"].props["ip"] == "192.0.2.13"
+    assert by_id["server:analysis-node-a"].props["roles"] == ["manager"]
+    assert by_id["server:worker-node-b"].props["ip"] == "192.0.2.14"
+    assert by_id["server:worker-node-b"].props["roles"] == ["worker"]
+    assert by_id["server:worker-node-b"].props["groups"] == ["swarm"]
 
     # Services
-    assert by_id["service:pggraph"].type == "Service"
-    assert by_id["service:pggraph"].props["image"] == "pggraph:latest"
-    assert by_id["service:pggraph"].props["replicas"] == 1
+    assert by_id["service:graph-store"].type == "Service"
+    assert by_id["service:graph-store"].props["image"] == "graph-store:latest"
+    assert by_id["service:graph-store"].props["replicas"] == 1
 
     # RUNS_ON edges (only services naming a node)
     rels = {(e.source, e.target, e.rel_type) for e in batch.edges}
-    assert ("service:pggraph", "server:r820", "RUNS_ON") in rels
-    assert ("service:kafka", "server:rw710", "RUNS_ON") in rels
+    assert ("service:graph-store", "server:analysis-node-a", "RUNS_ON") in rels
+    assert ("service:event-broker", "server:worker-node-b", "RUNS_ON") in rels
     assert all(e.source != "service:floating" for e in batch.edges)
 
 
 def test_flat_inventory_shape():
-    batch = extract({"inventory": {"node1": {"ip": "192.168.1.5"}}})
+    batch = extract({"inventory": {"node1": {"ip": "198.51.100.5"}}})
     by_id = {n.id: n for n in batch.nodes}
-    assert by_id["server:node1"].props["ip"] == "192.168.1.5"
+    assert by_id["server:node1"].props["ip"] == "198.51.100.5"
 
 
 def test_extract_from_yaml_file(tmp_path):
@@ -71,8 +85,8 @@ def test_extract_from_yaml_file(tmp_path):
     inv.write_text(
         "all:\n"
         "  hosts:\n"
-        "    r820:\n"
-        "      ansible_host: 10.0.0.13\n"
+        "    analysis-node-a:\n"
+        "      ansible_host: 192.0.2.13\n"
         "      roles: [manager]\n",
         encoding="utf-8",
     )
@@ -80,15 +94,20 @@ def test_extract_from_yaml_file(tmp_path):
         {
             "inventory": str(inv),
             "services": [
-                {"name": "pggraph", "image": "pggraph", "replicas": 1, "node": "r820"}
+                {
+                    "name": "graph-store",
+                    "image": "graph-store",
+                    "replicas": 1,
+                    "node": "analysis-node-a",
+                }
             ],
         }
     )
     by_id = {n.id: n for n in batch.nodes}
-    assert by_id["server:r820"].props["ip"] == "10.0.0.13"
+    assert by_id["server:analysis-node-a"].props["ip"] == "192.0.2.13"
     assert any(
-        e.source == "service:pggraph"
-        and e.target == "server:r820"
+        e.source == "service:graph-store"
+        and e.target == "server:analysis-node-a"
         and e.rel_type == "RUNS_ON"
         for e in batch.edges
     )
@@ -108,7 +127,11 @@ def test_write_batch_persists_via_fake_backend():
 
     assert n == len(batch.nodes)
     assert e == len(batch.edges)
-    assert backend.nodes["server:r820"]["type"] == "Server"
-    assert backend.nodes["server:r820"]["hostname"] == "r820"
-    assert backend.nodes["service:pggraph"]["type"] == "Service"
-    assert ("service:pggraph", "server:r820", "RUNS_ON") in backend.edges
+    assert backend.nodes["server:analysis-node-a"]["type"] == "Server"
+    assert backend.nodes["server:analysis-node-a"]["hostname"] == "analysis-node-a"
+    assert backend.nodes["service:graph-store"]["type"] == "Service"
+    assert (
+        "service:graph-store",
+        "server:analysis-node-a",
+        "RUNS_ON",
+    ) in backend.edges

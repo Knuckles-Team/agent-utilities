@@ -31,12 +31,25 @@ class PatternManager:
     def __init__(self, deps: Any):
         self.deps = deps
 
-    async def first_run_tests(self, test_command: str = "uv run pytest"):
+    async def first_run_tests(
+        self,
+        *,
+        selector: str | None = None,
+        framework: str = "pytest",
+        cwd: str | None = None,
+    ):
         """Run initial tests in the workspace."""
         emit_graph_event(
-            self.deps.graph_event_queue, "FIRST_TESTS_RUN", command=test_command
+            self.deps.graph_event_queue,
+            "FIRST_TESTS_RUN",
+            framework=framework,
         )
-        return await run_first_tests(self.deps.workspace_path, test_command)
+        return await run_first_tests(
+            self.deps.workspace,
+            selector=selector,
+            framework=framework,
+            cwd=cwd,
+        )
 
     async def tdd_cycle(self, feature_id: str, goal: str | None = None):
         """Run a full Red/Green/Refactor TDD cycle."""

@@ -27,7 +27,7 @@ from .._jsonl import (
 
 
 def _project_from_path(path: Path) -> str:
-    """Decode the project dir name (``-home-apps-foo`` -> ``/home/apps/foo``)."""
+    """Decode the project dir name (``-workspace-project`` -> ``/workspace/project``)."""
     name = path.parent.name
     if name.startswith("-"):
         return "/" + name[1:].replace("-", "/")

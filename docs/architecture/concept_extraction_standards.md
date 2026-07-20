@@ -112,46 +112,21 @@ one of the consolidated maintenance `_tick_*` jobs (see
 `core/engine_tasks.py::_maintenance_scheduler_loop`) behind the background
 throttle gate. There is no dedicated MCP action to invoke it directly.
 
-## Pydantic Models
+## Analysis output
 
-All LLM extraction uses strict Pydantic models for guaranteed valid output:
-
-```python
-# L2 Synthesis
-class FeatureRecommendation(BaseModel):
-    feature_name: str
-    target_concepts: list[str]
-    implementation_sketch: str
-    expected_impact: str
-    integration_complexity: str  # low/medium/high
-    priority: int               # 1-10
-
-class SynthesisResult(BaseModel):
-    recommendations: list[FeatureRecommendation]
-
-# L3 Deep Extraction
-class DeepExtraction(BaseModel):
-    source_name: str
-    algorithms: list[str]
-    data_structures: list[str]
-    patterns: list[str]
-    integration_blueprint: str
-
-class DeepExtractionResult(BaseModel):
-    extractions: list[DeepExtraction]
-```
-
-These models are defined in:
-`agent_utilities/knowledge_graph/core/analysis_models.py`
+Synthesis and deep extraction intentionally request freeform Markdown. The
+current analyzer returns an explicit stage envelope plus the generated text;
+this avoids model-specific structured-output failures while keeping the outer
+tool response stable and inspectable.
 
 ## MCP Tool Reference
 
 | Tool | Action/Mode | Layer | LLM Required |
 |------|-------------|-------|-------------|
-| `graph_search` | `mode='discover'` | L1 | No |
-| `graph_analyze` | `action='synthesize'` | L1+L2 | Yes |
-| `graph_analyze` | `action='deep_extract'` | L1+L2+L3 | Yes |
-| `graph_analyze` | `action='background_research'` | Async L1+L2+L3 | Yes |
+| `graph_search` | `mode='discover'` | Native retrieval | No |
+| `graph_analyze` | `action='synthesize'` | Retrieval + synthesis | Yes |
+| `graph_analyze` | `action='deep_extract'` | Retrieval + deep extraction | Yes |
+| `graph_analyze` | `action='background_research'` | Async retrieval + synthesis + extraction | Yes |
 | `graph_analyze` | `action='enrichment_coverage'` | Coverage gauge | No |
 | `graph_ingest` | `action='rebuild_indexes'` | HNSW index mgmt | No |
 
@@ -176,12 +151,14 @@ The KG MCP server relies on the unified `agent-utilities` configuration for LLM 
   ],
   "embedding_models": [
     {
-      "id": "text-embedding-nomic-embed-text-v2-moe",
+      "id": "embedding-model",
       "provider": "openai",
-      "base_url": "http://vllm-embed.arpa/v1"
+      "base_url": "https://embedding-api.example.test/v1"
     }
   ]
 }
 ```
 
-Authentication is handled via the `.env` file (e.g., `LLM_API_KEY`).
+Authentication is handled through a runtime credential reference in AgentConfig,
+resolved from explicit process injection, the private XDG runtime-secret source,
+or the configured durable secret backend.

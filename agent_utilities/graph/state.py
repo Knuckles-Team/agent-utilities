@@ -16,9 +16,7 @@ import logging
 import os
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-
-from pydantic_ai import Agent
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -33,9 +31,12 @@ from agent_utilities.core.config import (
     DEFAULT_LLM_BASE_URL,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_ROUTER_MODEL,
-    DEFAULT_SSL_VERIFY,
     TOOL_GUARD_MODE,
     config,
+)
+from agent_utilities.orchestration.response_format import (
+    ResponseFormat,
+    validate_response_format,
 )
 
 from ..models import (
@@ -62,7 +63,7 @@ PlanSyncCallback = Callable[
 # Per-request model override id, populated by the FastAPI middleware in
 # :mod:`agent_utilities.server` from the ``x-agent-model-id`` header.
 # Using a ContextVar lets downstream code (including the ACP adapter's
-# ``run_graph_flow`` closure, which has no direct request access) read the
+# graph execution binding, which has no direct request access) read the
 # value without a thread-through kwarg. ``run_graph`` / ``run_graph_stream``
 # also fall back to this when ``requested_model_id`` is not passed
 # explicitly.
@@ -91,11 +92,10 @@ class GraphDeps:
     router_model: Any | None = DEFAULT_ROUTER_MODEL
     agent_model: Any | None = DEFAULT_LITE_LLM_MODEL_ID
     min_confidence: float = 0.6
-    sub_agents: dict[str, str | Agent] = field(default_factory=dict)
+    sub_agents: dict[str, str | Any] = field(default_factory=dict)
     provider: str | None = DEFAULT_LLM_PROVIDER
     base_url: str | None = DEFAULT_LLM_BASE_URL
     api_key: str | None = DEFAULT_LLM_API_KEY
-    ssl_verify: bool = DEFAULT_SSL_VERIFY
     event_queue: asyncio.Queue[Any] | None = None
     request_id: str = ""
     routing_strategy: str = "hybrid"
@@ -112,7 +112,9 @@ class GraphDeps:
     auto_approve_plan: bool = False
     auto_approve_tasks: bool = False
     approval_timeout: float = 0.0
-    tool_guard_mode: str = TOOL_GUARD_MODE
+    tool_guard_mode: Literal["on", "strict"] = cast(
+        Literal["on", "strict"], TOOL_GUARD_MODE
+    )
     message_history_cache: dict[str, Any] = field(default_factory=dict)
     server_health: dict[str, Any] = field(default_factory=dict)
     discovery_metadata: dict[str, list[str]] = field(default_factory=dict)
@@ -165,12 +167,14 @@ class GraphDeps:
     CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler"""
 
     permissions_kernel: Any | None = None
-    """Optional :class:`~agent_utilities.security.permissions_kernel.PermissionsKernel`
-    for identity-based tool governance.  Typed as Any to avoid circular import.
+    """Required for any MCP tool execution:
+    :class:`~agent_utilities.security.permissions_kernel.PermissionsKernel`.
+    Typed as Any to avoid a circular import; a missing value fails closed when
+    an MCP toolset is bound.
     CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel"""
 
     agent_identity: Any | None = None
-    """The signed ``AgentIdentity`` for this execution context.
+    """The signed ``AgentIdentity`` required for MCP tool execution.
     Populated by the ``PermissionsKernel`` when the graph is initialised.
     CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel"""
 
@@ -187,6 +191,44 @@ class GraphDeps:
     a balanced split; lower values route more aggressively to cheap models.
     CONCEPT:AU-ORCH.routing.confidence-gated-routing-log — Confidence-Gated Router"""
 
+    response_format: ResponseFormat = "text"
+    """Closed final-response contract for this execution."""
+
+    def __post_init__(self) -> None:
+        """Normalize graph models through the mandatory context boundary.
+
+        Production builders already pass ``create_model()`` results, but direct
+        ``GraphDeps`` construction historically left model-id strings for
+        Pydantic AI to resolve on first use. That path bypassed ContextCompiler.
+        Resolving here makes every downstream ``Agent(model=ctx.deps.*_model)``
+        invocation governed regardless of which graph builder supplied deps.
+        """
+
+        self.response_format = validate_response_format(self.response_format)
+
+        from agent_utilities.core.contextual_model import wrap_model_with_context
+        from agent_utilities.core.model_factory import create_model
+
+        def governed(model: Any | None) -> Any | None:
+            if model is None:
+                return None
+            if isinstance(model, str):
+                provider, model_id = (
+                    model.split(":", 1) if ":" in model else (self.provider, model)
+                )
+                if provider == "gemini":
+                    provider = "google"
+                return create_model(
+                    provider=provider,
+                    model_id=model_id,
+                    base_url=self.base_url,
+                    api_key=self.api_key,
+                )
+            return wrap_model_with_context(model)
+
+        self.router_model = governed(self.router_model)
+        self.agent_model = governed(self.agent_model)
+
 
 @dataclass
 class GraphState:
@@ -202,6 +244,11 @@ class GraphState:
 
     query_parts: list[dict[str, Any]] = field(default_factory=list)
     """Rich multi-modal parts of the user query (text, images, etc.)."""
+
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    """Per-tool-call provenance accumulated across every node agent run in this graph
+    execution (CONCEPT:AU-KG.temporal.message-history-read). Surfaced on the GraphResponse so run_agent
+    persists :ToolCall nodes for the multi-agent path, not just the single-server loop."""
 
     # Pro Mode State
     topology: str = "basic"  # "basic" or "pro"
@@ -237,7 +284,6 @@ class GraphState:
     routed_domain: str = ""
     """The domain tag this query was routed to."""
 
-    results: dict[str, Any] = field(default_factory=dict)
     """Accumulated results keyed by domain."""
 
     error: str | None = None
@@ -490,7 +536,7 @@ class GraphState:
                 with open(path, "w") as f:
                     f.write(model.model_dump_json(indent=2))
             except Exception as e:
-                logger.warning(f"Failed to sync artifact {filename}: {e}")
+                logger.warning("Failed to sync graph artifact (%s)", type(e).__name__)
 
     def load_from_disk(self):
         """Recover project state from existing JSON artifacts in the workspace.
@@ -520,9 +566,11 @@ class GraphState:
                         if data.strip():
                             setattr(self, attr, model_cls.model_validate_json(data))
                             loaded = True
-                    logger.info(f"Loaded {filename} for project state.")
+                    logger.info("Loaded project-state artifact")
                 except Exception as e:
-                    logger.warning(f"Could not load {filename}: {e}")
+                    logger.warning(
+                        "Could not load project-state artifact (%s)", type(e).__name__
+                    )
         return loaded
 
     def fork_state(self, new_session_id: str | None = None) -> GraphState:
@@ -540,7 +588,7 @@ class GraphState:
         import copy
         import uuid
 
-        forked_id = new_session_id or f"fork:{uuid.uuid4().hex[:8]}"
+        forked_id = new_session_id or f"fork:{uuid.uuid4().hex}"
 
         fork = copy.deepcopy(self)
         fork.parent_session_id = self.session_id

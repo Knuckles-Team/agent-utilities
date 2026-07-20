@@ -11,8 +11,22 @@
 
 services:
   falkordb-db:
-    image: falkordb/falkordb:latest
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
+    image: ${FALKORDB_IMAGE:?set-FALKORDB_IMAGE-to-image@sha256-digest}
     container_name: agent-falkordb
+    environment:
+      FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD from a secret}
+    command: ["--requirepass", "${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD from a secret}"]
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${FALKORDB_PASSWORD}\" ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
