@@ -242,6 +242,102 @@ async def validate_ontology_candidate(body: OntologyValidateRequest) -> Ontology
     )
 
 
+# ── Import / export (CONCEPT:AU-KG.ontology.import-export-rest-surface, coverage row #23) ───────────
+
+
+class OntologyLoadRequest(BaseModel):
+    """Request body for ``POST /ontology/load``."""
+
+    source: str = Field(
+        default="", description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text."
+    )
+    source_type: str = Field(
+        default="auto", description="How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff)."
+    )
+    iri: str = Field(default="", description="Optional IRI override (defaults to the ontology's own declared IRI).")
+    version: str = Field(default="", description="Optional version (defaults to '1.0.0').")
+    category: str = Field(default="", description="Optional catalogue category label, e.g. 'finance'.")
+    tags: list[str] = Field(default_factory=list, description="Optional catalogue tags.")
+
+
+@ontology_router.post("/ontology/load", response_model=OntologyEnvelope)
+async def load_ontology(body: OntologyLoadRequest) -> OntologyEnvelope:
+    """Parse + SHACL-validate + register + activate a hosted ontology.
+
+    Granular typed twin of ``graph_ontology(action='load')`` — the route the
+    agent-webui Import/Export modal POSTs a dropped/pasted ``.ttl``/RDF file
+    (or a file path / URL) to. Same core as the collapsed MCP surface; no new
+    business logic here.
+    """
+    if not body.source:
+        raise HTTPException(status_code=400, detail="source is required")
+    return OntologyEnvelope(
+        result=await _call(
+            "graph_ontology",
+            action="load",
+            source=body.source,
+            source_type=body.source_type,
+            iri=body.iri,
+            version=body.version,
+            category=body.category,
+            tags_json=json.dumps(body.tags) if body.tags else "",
+        )
+    )
+
+
+@ontology_router.get("/ontology/export", response_model=OntologyEnvelope)
+async def export_ontology(
+    iri: str = Query(..., description="Ontology IRI to export."),
+    version: str = Query("", description="Version to export (omit for the newest loaded)."),
+) -> OntologyEnvelope:
+    """Re-serialize a hosted ontology to turtle (the Import/Export modal's Export button).
+
+    Granular typed twin of ``graph_ontology(action='get', serialize=true)``.
+    The response is the standard :class:`OntologyEnvelope` (turtle text lives at
+    ``result.ontology.turtle``) — consistent with every other route in this
+    module — the caller builds the downloadable file client-side from that string.
+    """
+    res = await _call(
+        "graph_ontology", action="get", iri=iri, version=version, serialize=True
+    )
+    return OntologyEnvelope(
+        result=_not_found_if_error(res, f"ontology not hosted: {iri!r}")
+    )
+
+
+# ── Catalogue (CONCEPT:AU-KG.ontology.catalogue-browse, coverage row #4) ─────
+
+
+@ontology_router.get("/ontology/catalogue", response_model=OntologyEnvelope)
+async def get_ontology_catalogue(
+    search: str = Query("", description="Case-insensitive substring filter over iri/version/source."),
+    category: str = Query("", description="Filter to ontologies loaded with this catalogue category."),
+    source: str = Query("", description="Filter by how the ontology was loaded: 'file' | 'url' | 'text'."),
+    tag: str = Query("", description="Filter to ontologies carrying this catalogue tag."),
+) -> OntologyEnvelope:
+    """Browsable gallery over the hosted-ontology registry.
+
+    Granular typed twin of ``graph_ontology(action='list')`` with search/facet
+    filtering. The storage/lifecycle half already existed (``graph_ontology``
+    hosts arbitrary named/versioned OWL/RDF ontologies); this is the curated-
+    library browse surface Ontology-Playground's catalogue offers, scoped to
+    what this platform actually hosts — see the coverage report's row #4
+    rationale (one continuously-extended ontology library, not many
+    interchangeable demo ontologies). Each entry already carries its
+    #classes/#properties/#axioms counts (``OntologyLifecycle._public``).
+    """
+    return OntologyEnvelope(
+        result=await _call(
+            "graph_ontology",
+            action="list",
+            search=search,
+            category=category,
+            source_type=source,
+            tag=tag,
+        )
+    )
+
+
 # ── Sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / KG-2.94) ──────────────────────────
 
 

@@ -2,8 +2,8 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1007
-total_pillars: 8
+total_concepts: 1013
+total_pillars: 9
 pillars:
 - AU-AHE
 - AU-ECO
@@ -13,6 +13,7 @@ pillars:
 - EG-AHE
 - EG-KG
 - EG-ORCH
+- EG-OS
 concepts:
 - id: AU-AHE.assimilation.baseline-overfit-gate
   name: AU-AHE.assimilation.baseline-overfit-gate
@@ -6810,6 +6811,21 @@ concepts:
   - AU-KG.ontology.capability-node-aliases-lexical
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ontology.catalogue-browse
+  name: catalogue browse
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: 'Browsable catalogue/gallery over the hosted-ontology registry: search/category/source_type/tag
+    filtering over graph_ontology(action=''list'') plus GET /api/ontology/catalogue (Ontology-Playground row #4).'
+  dotted: AU-KG.ontology.catalogue-browse
+  aliases:
+  - AU-KG.ontology.catalogue-browse
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ontology.conformance-check
   name: the function the A3 functions runtime / object queries call
   pillar: AU-KG
@@ -7115,6 +7131,19 @@ concepts:
   dotted: AU-KG.ontology.harness-ontology
   aliases:
   - AU-KG.ontology.harness-ontology
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.import-export-rest-surface
+  name: import export rest surface
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  doc: 'Granular typed REST twins for the hosted-ontology load/export actions: POST /api/ontology/load
+    and GET /api/ontology/export, dispatching graph_ontology(action=''load''/''get'') (Ontology-Playground row #23).'
+  dotted: AU-KG.ontology.import-export-rest-surface
+  aliases:
+  - AU-KG.ontology.import-export-rest-surface
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.inference-profile-implementers
@@ -14126,4 +14155,57 @@ concepts:
   aliases:
   - EG-ORCH.routing.lexical-capability-escalation
   canonical_pillar: EG-ORCH
+  needs_curation: false
+- id: AU-KG.backend.backend-modes
+  name: redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default)
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-ann/src/redb_store.rs
+  - epistemic-graph/crates/eg-core/src/cold_tier.rs
+  - epistemic-graph/tests/test_graceful_shutdown.py
+  doc: redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default)
+  dotted: AU-KG.backend.backend-modes
+  aliases:
+  - AU-KG.backend.backend-modes
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: EG-KG.ontology.resp2-resp3-codec-round
+  name: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/src/main.rs
+  - epistemic-graph/src/server/mod.rs
+  - epistemic-graph/src/server/redis_wire/mod.rs
+  doc: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
+  dotted: EG-KG.ontology.resp2-resp3-codec-round
+  aliases:
+  - EG-KG.ontology.resp2-resp3-codec-round
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-KG.txn.pubsub-transactions
+  name: Redis pub/sub (SUBSCRIBE/PUBLISH) + MULTI/EXEC and S3 multipart-upload transactions
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/src/server/redis_wire/mod.rs
+  - epistemic-graph/src/server/s3/mod.rs
+  doc: Redis pub/sub (SUBSCRIBE/PUBLISH) + MULTI/EXEC and S3 multipart-upload transactions
+  dotted: EG-KG.txn.pubsub-transactions
+  aliases:
+  - EG-KG.txn.pubsub-transactions
+  canonical_pillar: EG-KG
+  needs_curation: false
+- id: EG-OS.deployment.binary-promotion
+  name: 'First authoritative boot: one-time .mp/WAL snapshot to redb migration on binary promotion'
+  pillar: EG-OS
+  status: live
+  code_paths:
+  - epistemic-graph/epistemic_graph/skills/epistemic-graph-migrations/SKILL.md
+  doc: 'First authoritative boot: one-time .mp/WAL snapshot to redb migration on binary promotion'
+  dotted: EG-OS.deployment.binary-promotion
+  aliases:
+  - EG-OS.deployment.binary-promotion
+  canonical_pillar: EG-OS
   needs_curation: false

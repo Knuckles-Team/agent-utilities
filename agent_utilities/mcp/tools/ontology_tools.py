@@ -487,9 +487,12 @@ def register_ontology_tools(mcp):
             "OWL/RDF ontologies hosted in the running KG. action='load' (parse + "
             "SHACL-validate + register a .ttl/OWL from a file path, URL, or raw "
             "turtle text via `source`/`source_type`, idempotent on iri+version, and "
-            "load its axioms into the native reasoner), 'list' (every hosted "
-            "ontology with metadata: iri/version/#classes/#properties/#axioms/"
-            "loaded_at/active), 'get' (inspect one ontology's classes/properties/"
+            "load its axioms into the native reasoner; optional `category`/`tags_json` "
+            "catalogue metadata), 'list' (every hosted ontology with metadata: "
+            "iri/version/#classes/#properties/#axioms/loaded_at/active/category/tags — "
+            "the browsable catalogue surface, CONCEPT:AU-KG.ontology.catalogue-browse: "
+            "optional `search` substring + `category`/`source_type`/`tag` facet filters), "
+            "'get' (inspect one ontology's classes/properties/"
             "axioms; serialize=true returns turtle), 'update' (load a NEW version, "
             "superseding prior — versioned/bi-temporal), 'delete' (unload from the "
             "hosted set + deactivate), 'validate' (run the valid/connected/SHACL "
@@ -538,6 +541,25 @@ def register_ontology_tools(mcp):
             default=False,
             description="For action='delete': also attempt to drop materialized inferences (engine-gap aware).",
         ),
+        category: str = Field(
+            default="",
+            description=(
+                "For load: optional catalogue category label, e.g. 'finance'. "
+                "For list: filter to hosted ontologies loaded with this category."
+            ),
+        ),
+        tags_json: str = Field(
+            default="",
+            description="For load: optional JSON array of catalogue tags, e.g. '[\"draft\",\"finance\"]'.",
+        ),
+        search: str = Field(
+            default="",
+            description="For list: case-insensitive substring filter over iri/version/source.",
+        ),
+        tag: str = Field(
+            default="",
+            description="For list: filter to hosted ontologies carrying this catalogue tag.",
+        ),
         named_graph: str = Field(
             default="",
             description=(
@@ -571,18 +593,40 @@ def register_ontology_tools(mcp):
             if action == "load":
                 if not source:
                     return json.dumps({"error": "load requires `source`"})
+                parsed_tags: list[str] = []
+                if tags_json:
+                    try:
+                        loaded_tags = json.loads(tags_json)
+                    except (TypeError, ValueError):
+                        loaded_tags = []
+                    if isinstance(loaded_tags, list):
+                        parsed_tags = [str(t) for t in loaded_tags]
                 return json.dumps(
                     lc.load(
                         source,
                         source_type=source_type,
                         version=version or None,
                         iri=iri or None,
+                        category=category,
+                        tags=parsed_tags,
                     ),
                     default=str,
                 )
             if action == "list":
+                # source_type defaults to 'auto' (the load/validate parse-hint
+                # sentinel) — never filter on that default, only on a caller's
+                # EXPLICIT file/url/text choice, so plain action='list' calls
+                # keep returning every hosted ontology unfiltered.
+                filter_source_type = "" if source_type in ("", "auto") else source_type
                 return json.dumps(
-                    lc.list_ontologies(active_only=bool(active_only)), default=str
+                    lc.list_ontologies(
+                        active_only=bool(active_only),
+                        search=search,
+                        category=category,
+                        source_type=filter_source_type,
+                        tag=tag,
+                    ),
+                    default=str,
                 )
             if action == "get":
                 if not iri:

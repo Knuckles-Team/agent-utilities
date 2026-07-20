@@ -273,11 +273,18 @@ class OntologyLifecycle:
         iri: str | None = None,
         activate: bool = True,
         force: bool = False,
+        category: str = "",
+        tags: list[str] | None = None,
     ) -> dict[str, Any]:
         """Parse, validate, register, and (if a live engine) activate an ontology.
 
         Idempotent on ``(iri, version)``: loading the same IRI+version twice
         returns the existing record (``idempotent: true``) unless ``force``.
+
+        ``category``/``tags`` are optional catalogue metadata (CONCEPT:AU-KG.ontology.catalogue-browse) —
+        free-form curation labels with no effect on parsing/validation/reasoning,
+        stored on the record so :meth:`list_ontologies` can facet/filter the
+        hosted set into a browsable gallery (Ontology-Playground coverage row #4).
         """
         graph = _parse_graph(source, source_type)
         report = validate_graph(graph)
@@ -321,6 +328,8 @@ class OntologyLifecycle:
             "active": bool(activate),
             "warnings": report["warnings"],
             "engine": engine_report,
+            "category": category,
+            "tags": list(tags) if tags else [],
             "turtle": turtle,
         }
         _REGISTRY[key] = record
@@ -333,14 +342,57 @@ class OntologyLifecycle:
         )
         return {"status": "ok", "idempotent": False, "ontology": self._public(record)}
 
-    # ── list ─────────────────────────────────────────────────────────────────
-    def list_ontologies(self, *, active_only: bool = False) -> dict[str, Any]:
-        """All hosted ontologies with metadata (newest first)."""
+    # ── list / catalogue ─────────────────────────────────────────────────────
+    def list_ontologies(
+        self,
+        *,
+        active_only: bool = False,
+        search: str = "",
+        category: str = "",
+        source_type: str = "",
+        tag: str = "",
+    ) -> dict[str, Any]:
+        """All hosted ontologies with metadata (newest first).
+
+        The optional ``search``/``category``/``source_type``/``tag`` filters turn
+        this into a browsable catalogue/gallery over the hosted set
+        (CONCEPT:AU-KG.ontology.catalogue-browse, Ontology-Playground coverage row #4)
+        — every filter defaults to unset, so a plain ``list_ontologies()`` call is
+        unchanged. ``search`` is a case-insensitive substring match over
+        ``iri``/``version``/``source``; ``category``/``source_type``/``tag`` are
+        case-insensitive exact matches against those stored record fields (a
+        record matches ``tag`` if it appears anywhere in its ``tags`` list).
+        """
         records = [
             self._public(r)
             for r in _REGISTRY.values()
             if not active_only or r.get("active")
         ]
+        if search:
+            needle = search.lower()
+            records = [
+                r
+                for r in records
+                if needle
+                in f"{r.get('iri', '')} {r.get('version', '')} {r.get('source', '')}".lower()
+            ]
+        if category:
+            records = [
+                r for r in records if r.get("category", "").lower() == category.lower()
+            ]
+        if source_type:
+            records = [
+                r
+                for r in records
+                if r.get("source_type", "").lower() == source_type.lower()
+            ]
+        if tag:
+            needle_tag = tag.lower()
+            records = [
+                r
+                for r in records
+                if needle_tag in [t.lower() for t in r.get("tags", [])]
+            ]
         records.sort(key=lambda r: r.get("loaded_at", ""), reverse=True)
         return {"count": len(records), "ontologies": records}
 

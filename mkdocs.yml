@@ -64,6 +64,10 @@ nav:
   - Consumption Models: guides/consumption-models.md
   - Ecosystem: ecosystem.md
   - The Narrative Journey: journey.md
+  - Ontology School:
+      - Overview: learn/index.md
+      - Intro to the Ontology Model: learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md
+      - Querying with UQL: learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md
   - Deployment:
       - One-link self-deploy: deploy.md
       - Self-Setup (config-complete): guides/self-setup.md

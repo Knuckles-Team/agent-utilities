@@ -178,3 +178,53 @@ def test_load_rejects_empty_ontology(lc):
     result = lc.load(empty, source_type="text")
     assert result["status"] == "rejected"
     assert result["valid"] is False
+
+
+# ── Catalogue: category/tags metadata + search/facet filtering (coverage row #4) ──
+
+
+def test_load_stores_category_and_tags(lc):
+    result = lc.load(PETS_TTL, source_type="text", category="animals", tags=["demo", "Pets"])
+    onto = result["ontology"]
+    assert onto["category"] == "animals"
+    assert onto["tags"] == ["demo", "Pets"]
+
+
+def test_load_defaults_category_and_tags_empty(lc):
+    result = lc.load(PETS_TTL, source_type="text")
+    onto = result["ontology"]
+    assert onto["category"] == ""
+    assert onto["tags"] == []
+
+
+def test_list_ontologies_filters_by_search(lc):
+    lc.load(PETS_TTL, source_type="text")
+    listed = lc.list_ontologies(search="pets")
+    assert listed["count"] == 1
+    assert lc.list_ontologies(search="no-such-substring")["count"] == 0
+
+
+def test_list_ontologies_filters_by_category(lc):
+    lc.load(PETS_TTL, source_type="text", category="animals")
+    assert lc.list_ontologies(category="animals")["count"] == 1
+    assert lc.list_ontologies(category="ANIMALS")["count"] == 1  # case-insensitive
+    assert lc.list_ontologies(category="finance")["count"] == 0
+
+
+def test_list_ontologies_filters_by_source_type(lc):
+    lc.load(PETS_TTL, source_type="text")
+    assert lc.list_ontologies(source_type="text")["count"] == 1
+    assert lc.list_ontologies(source_type="url")["count"] == 0
+
+
+def test_list_ontologies_filters_by_tag(lc):
+    lc.load(PETS_TTL, source_type="text", tags=["demo", "pets"])
+    assert lc.list_ontologies(tag="demo")["count"] == 1
+    assert lc.list_ontologies(tag="PETS")["count"] == 1  # case-insensitive
+    assert lc.list_ontologies(tag="no-such-tag")["count"] == 0
+
+
+def test_list_ontologies_unfiltered_default_unchanged(lc):
+    """No filter args -> identical behavior to before the catalogue filters existed."""
+    lc.load(PETS_TTL, source_type="text", category="animals", tags=["demo"])
+    assert lc.list_ontologies()["count"] == 1
