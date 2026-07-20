@@ -14,12 +14,25 @@ f-string of the target into Cypher) for node properties, falling back to
 ``bounded_read.get_node_data`` for a local/test graph, plus
 ``engine.graph_compute.neighbors``/``.degree`` for the O(1) structural
 metrics.
+
+``graph_analyze`` (the registered coroutine under test) returns the typed
+:class:`~agent_utilities.models.evidence_bundle.EvidenceBundle` DIRECTLY
+(CONCEPT:evidence-bundle-envelope) rather than a pre-serialized string — that
+is the current public response contract (see
+``tests/unit/mcp/test_evidence_bundle_envelope.py``, e.g. its
+``# No wrapping toggle needed — the bundle IS the top-level shape.``). Both
+real surfaces already serialize it at their own boundary: the REST twins call
+``safe_json_load(res)`` (``hasattr(res, "model_dump")`` -> ``res.model_dump()``,
+``kg_server.py``), and the live MCP protocol layer serializes a
+``BaseModel``-typed return via FastMCP's own structured-content machinery. So
+these tests — which invoke the raw registered coroutine directly, bypassing
+both boundaries by this suite's convention — assert against the bundle's own
+typed fields (``answer_candidate``/``claims``) rather than string operations.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 
 from agent_utilities.mcp import kg_server
 
@@ -93,8 +106,9 @@ def test_inspect_no_longer_raises_missing_method(monkeypatch):
     tool = _get_tool()
     out = asyncio.run(tool(action="inspect", target="svc:checkout"))
 
-    assert "no attribute 'inspect'" not in out
-    assert not out.startswith("Analysis error"), out
+    assert "no attribute 'inspect'" not in out.answer_candidate
+    assert not out.answer_candidate.startswith("Analysis error"), out.answer_candidate
+    assert out.claims  # a real structural snapshot came back, not an error
 
 
 def test_inspect_returns_structural_snapshot_via_query_cypher(monkeypatch):
@@ -107,7 +121,10 @@ def test_inspect_returns_structural_snapshot_via_query_cypher(monkeypatch):
 
     tool = _get_tool()
     out = asyncio.run(tool(action="inspect", target="svc:checkout"))
-    payload = json.loads(out)
+    # The structural payload has no dedicated EvidenceBundle slot, so
+    # EvidenceBundle.from_payload retains it verbatim as the sole claim (the
+    # envelope's nothing-silently-dropped contract).
+    payload = out.claims[0]
 
     assert payload["id"] == "svc:checkout"
     assert payload["properties"]["name"] == "checkout"
@@ -130,7 +147,7 @@ def test_inspect_falls_back_to_bounded_read_without_backend(monkeypatch):
 
     tool = _get_tool()
     out = asyncio.run(tool(action="inspect", target="svc:billing"))
-    payload = json.loads(out)
+    payload = out.claims[0]
 
     assert payload["id"] == "svc:billing"
     assert payload["properties"]["name"] == "billing"
@@ -145,7 +162,7 @@ def test_inspect_missing_node_reports_not_found(monkeypatch):
     tool = _get_tool()
     out = asyncio.run(tool(action="inspect", target="does-not-exist"))
 
-    assert "No node found" in out
+    assert "No node found" in out.answer_candidate
 
 
 def test_inspect_requires_target(monkeypatch):
@@ -160,5 +177,5 @@ def test_inspect_requires_target(monkeypatch):
     # sentinel rather than its resolved default.
     out = asyncio.run(tool(action="inspect", target="", query="", node_id=""))
 
-    assert "target" in out.lower()
+    assert "target" in out.answer_candidate.lower()
     assert not engine.cypher_calls  # rejected before any read
