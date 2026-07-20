@@ -184,12 +184,33 @@ def _defining_class(client_cls: type, name: str) -> type | None:
     return None
 
 
+def _is_base_infra_class_name(name: str) -> bool:
+    """Whether a class name follows the fleet's base-infra naming convention.
+
+    Two conventions coexist across the ~60-package connector fleet for the class
+    that holds auth/pagination/retry machinery (never a real API operation): a
+    **suffix** (``ServiceNowApiBase``, ``ApiClientBase``) and a **prefix**
+    (``BaseApiClient`` — both the shared :class:`agent_utilities.http.client.
+    BaseApiClient`/``AsyncBaseApiClient`` and the 16+ per-connector
+    ``api/api_client_base.py`` modules still being strangled onto it, e.g.
+    github-agent's ``BaseApiClient.close()``). Matching only the suffix let a
+    prefix-named base leak a spurious verbose tool (e.g. ``github_close``) —
+    either naming shape excludes a class here. A leading underscore (a
+    module-private class, e.g. a test fixture) is ignored before matching so it
+    never masks either shape.
+    """
+    core = name.lstrip("_")
+    return core.endswith("Base") or core.startswith("Base")
+
+
 def _domain_methods(client_cls: type) -> dict[str, type]:
     """Public domain methods of ``client_cls`` mapped to their defining class.
 
     Excludes private names, anything inherited from ``object``, and base-infra
-    methods (auth / pagination / retry live on a ``*Base`` class, never an API
-    operation). The remaining methods are the real per-domain API operations.
+    methods (auth / pagination / retry live on a ``*Base``-suffixed or
+    ``Base*``-prefixed class, never an API operation — see
+    :func:`_is_base_infra_class_name`). The remaining methods are the real
+    per-domain API operations.
     """
     methods: dict[str, type] = {}
     for name in dir(client_cls):
@@ -201,7 +222,7 @@ def _domain_methods(client_cls: type) -> dict[str, type]:
         owner = _defining_class(client_cls, name)
         if owner is None or owner is object:
             continue
-        if owner.__name__.endswith("Base"):
+        if _is_base_infra_class_name(owner.__name__):
             continue
         methods[name] = owner
     return methods

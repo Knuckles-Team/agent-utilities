@@ -85,6 +85,45 @@ def test_domain_methods_excludes_base_and_private():
     assert "_auth" not in owners
 
 
+# --- A github-agent-shaped client: domain methods over a Base*-PREFIXED infra
+# class. Regression: the exclusion originally matched only the *Base SUFFIX
+# convention, so a prefix-named base (``BaseApiClient`` — the shared
+# agent_utilities.http.client base and 16+ per-connector api_client_base.py
+# modules, e.g. github-agent's ``BaseApiClient.close()``) leaked its public
+# infra methods as spurious verbose tools (e.g. ``github_close``). ------------
+class _BaseApiClient:
+    def close(self) -> None:  # public infra on the Base* PREFIX -> excluded
+        return None
+
+    def _auth(self):  # private -> excluded
+        return None
+
+
+class _GithubApi(_BaseApiClient):
+    def get_issue(self, **kwargs):
+        "Get an issue."
+        return {"op": "get_issue", "kwargs": kwargs}
+
+
+def test_domain_methods_excludes_base_prefix_convention():
+    owners = _domain_methods(_GithubApi)
+    assert set(owners) == {"get_issue"}
+    assert "close" not in owners  # infra on Base* PREFIX, not just *Base suffix
+    assert "_auth" not in owners
+
+
+def test_register_verbose_tools_excludes_base_prefix_convention():
+    """Integration-level proof: a BaseApiClient-shaped client's verbose surface
+    covers the real domain method only — no spurious ``<prefix>_close`` tool
+    from the prefix-named base leaking into the surface."""
+    mcp = FastMCP("t")
+    names = register_verbose_tools(
+        mcp, _GithubApi, lambda: _GithubApi(), service="github-agent"
+    )
+    assert names == ["github_get_issue"]
+    assert "github_close" not in names
+
+
 def test_derive_domains_camelcase_boundary():
     # Regression: char-level commonprefix must not cut a token (no stray "mdb").
     domains = _derive_domains(_domain_methods(_Api))
