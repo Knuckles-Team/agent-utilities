@@ -223,7 +223,7 @@ def _patch_trace_mine_result(monkeypatch, *, support: float = 0.9) -> None:
                     {"items": ["Read", "Edit"], "support": support, "count": 4}
                 ]
             },
-            "failure_episodes": 4,
+            "failure_traces": 4,
             "sequences_mined": 4,
             "errors": [],
         },

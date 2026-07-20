@@ -32,16 +32,18 @@ surface joins the SAME continuity model WITHOUT a parallel orchestrator:
   per-session memento (the SAME core primitives the messaging path uses), so the next
   turn — on ANY surface keyed to the same ``session_id`` — recalls it.
 
-Both functions key off the caller-supplied ``session_id`` used VERBATIM as the memento
-``source``. Pass a stable, user-scoped id (e.g. the same id the messaging channel uses)
-to get true cross-surface recall; both are best-effort and never raise on the hot path.
+Both functions accept the caller-supplied ``session_id`` for cross-surface continuity, but the
+Memento layer converts it to a stable opaque reference before persistence. Raw session ids and
+local identity strings are never stored or logged; both functions are best-effort and never raise
+on the hot path.
 """
 
 import asyncio
 import contextlib
 import logging
-import uuid
 from typing import Any
+
+from agent_utilities.orchestration.run_identity import new_run_id
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +55,15 @@ def prime_session_context(
 ) -> str:
     """Recall recent per-session mementos as an ``invoker_context`` string.
 
-    Reads the SAME memento store ``run_agent`` primes from (keyed by
-    ``source=session_id``), so the streaming surface inherits cross-surface continuity.
+    Reads the SAME memento store ``run_agent`` primes from. The raw ``session_id`` is converted to
+    an opaque Memento source reference at the storage boundary, so the streaming surface inherits
+    cross-surface continuity without persisting the caller identifier.
     Zero-I/O on a warm session cache; best-effort — returns ``""`` on any failure or when
     there is nothing to recall.
 
     Args:
         engine: The intelligence/graph engine (the AG-UI ``app.state`` engine).
-        session_id: The session/source key — used verbatim as the memento ``source``.
+        session_id: The runtime session key; persisted only as an opaque reference.
         limit: How many recent mementos to recall.
 
     Returns:
@@ -76,8 +79,8 @@ def prime_session_context(
         )
 
         mementos = get_recent_mementos(engine, source=session_id, limit=limit)
-    except Exception as e:  # noqa: BLE001 — recall is advisory; never block the turn
-        logger.debug("[ORCH-1.104] memento recall skipped for %s: %s", session_id, e)
+    except Exception:  # noqa: BLE001 — recall is advisory; never block the turn
+        logger.debug("[ORCH-1.104] privacy-safe memento recall skipped")
         return ""
     joined = "\n".join(f"- {m}" for m in (mementos or []) if m)
     if not joined:
@@ -104,7 +107,7 @@ async def persist_session_turn(
 
     Args:
         engine: The intelligence/graph engine.
-        session_id: The session/source key — used verbatim as the memento ``source``.
+        session_id: The runtime session key; persisted only as an opaque reference.
         query: The user prompt for this turn.
         reply: The assistant's final reply text for this turn.
         agent_name: The surface label recorded on the RunTrace.
@@ -114,7 +117,7 @@ async def persist_session_turn(
     if not engine or not session_id:
         return
 
-    rid = run_id or f"run:{uuid.uuid4().hex[:8]}"
+    rid = run_id or new_run_id()
 
     # 1) Provenance parity — record a :RunTrace via the seam's own recorder, then anchor
     #    it to its Session (mirrors run_agent Step 5 / CONCEPT:AU-ORCH.session.session-anchored-collections-native).
@@ -132,7 +135,13 @@ async def persist_session_turn(
             None,
             str(reply)[:500],
         )
-        snode = f"session:{session_id}"
+        from agent_utilities.observability.trace_ontology import trace_id
+        from agent_utilities.security.persistence_privacy import persistence_reference
+
+        session_ref = persistence_reference(
+            "session", session_id, namespace="session-continuity"
+        )
+        snode = f"session:{session_ref}"
         with contextlib.suppress(Exception):
             add_node = getattr(engine, "add_node", None)
             add_edge = getattr(engine, "add_edge", None)
@@ -140,9 +149,9 @@ async def persist_session_turn(
                 add_node(
                     snode,
                     "Session",
-                    properties={"id": snode, "session_id": session_id},
+                    properties={"id": snode, "session_ref": session_ref},
                 )
-                add_edge(snode, f"trace:{rid}", "HAS_RUN")
+                add_edge(snode, trace_id(rid), "HAS_RUN")
 
     # 2) Memory parity — compress this turn into a per-session memento via the SAME core
     #    primitive the messaging path uses (CONCEPT:AU-ECO.messaging.universal-graph-agent), then refresh the session

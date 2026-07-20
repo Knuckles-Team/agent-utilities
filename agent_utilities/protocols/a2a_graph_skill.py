@@ -4,8 +4,7 @@ from __future__ import annotations
 
 Graph-backed A2A Skill that delegates directly to ``execute_graph()``.
 
-This replaces the flat ``PydanticAI Agent → run_graph_flow tool`` pattern
-with a direct ``Skill`` handler, eliminating one LLM call per A2A request.
+It uses a direct ``Skill`` handler, eliminating an outer LLM call per A2A request.
 External A2A agents still see the same JSON-RPC interface
 (``message/send``, ``tasks/get``).  The only change is internal: we skip
 the LLM wrapper hop.  The agent card stays identical.
@@ -27,7 +26,7 @@ class PlannerGraphSkill:
 
     External A2A agents see the same JSON-RPC interface.  Internally,
     queries go directly through router→dispatcher→adaptive_agent_router→verifier
-    without an intermediary LLM deciding to call ``run_graph_flow``.
+    without an intermediary LLM deciding whether to invoke the graph.
 
     Args:
         graph: The pydantic graph instance.

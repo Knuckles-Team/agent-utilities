@@ -5,7 +5,7 @@ from __future__ import annotations
 
 CONCEPT:AU-AHE.evaluation.interpretability-tests
 
-Manages team membership, shared tasks, and message routing via the
+Manages team membership, shared WorkItems, and message routing via the
 Agent Communication Protocol (ACP). Persists state to the Knowledge Graph.
 
 Falls back to A2A when ACP is unavailable.
@@ -42,23 +42,19 @@ class _GraphComputeWorkItemView:
     """Adapts a ``GraphComputeEngine`` (``ctx.deps.graph_engine.graph`` — the
     exact object :class:`TeamCapability` already reads/writes) to the
     ``add_node``/``query_cypher``/``compare_and_set_node_fields`` protocol
-    :mod:`agent_utilities.orchestration.work_item` expects, so team
-    ``:TaskNode`` states can be migrated onto the SAME WorkItem state machine
-    as the ``:AgentTask``/ingestion-queue paths WITHOUT introducing a second
-    storage location — the shadow WorkItem lives in the exact graph object
-    team tasks already live in today (CONCEPT:AU-AHE.evaluation.interpretability-tests / AU-P1-CL).
+    :mod:`agent_utilities.orchestration.work_item` expects. Team assignments
+    are stored directly as WorkItems; there is no parallel task node or status
+    projection.
 
     Two adaptations are required because ``GraphComputeEngine``'s own
     ``add_node``/``query_cypher`` signatures differ from the protocol:
 
-    * ``add_node`` stamps an explicit ``id`` property — the native Cypher
-      engine's ``{id: $id}`` node-identity match requires it as a real
-      stored property (unlike the backend-routed engines, which id-fast-path
-      around this).
+    * ``add_node`` stamps canonical ``id`` and ``node_type`` properties for
+      native identity and label matching.
     * ``query_cypher`` has no separate params map (the wire protocol carries
       only literal query text) — params are inlined via
-      ``EpistemicGraphBackend._inline_cypher_params``, the SAME primitive
-      that backend already uses for this exact engine.
+      ``EpistemicGraphBackend._inline_cypher_params`` before the native engine
+      parses and executes the statement.
     """
 
     def __init__(self, graph: Any) -> None:
@@ -72,7 +68,7 @@ class _GraphComputeWorkItemView:
         ephemeral: bool = False,
     ) -> None:
         props = dict(properties or {})
-        props["type"] = node_type
+        props["node_type"] = node_type
         props["id"] = node_id
         self._graph.add_node(node_id, props)
 
@@ -85,7 +81,7 @@ class _GraphComputeWorkItemView:
         ephemeral: bool = False,
     ) -> None:
         with contextlib.suppress(Exception):
-            self._graph.add_edge(source_id, target_id, rel_type=str(rel_type))
+            self._graph.add_edge(source_id, target_id, relationship=str(rel_type))
 
     def query_cypher(
         self, cypher: str, params: dict | None = None
@@ -108,11 +104,25 @@ class _GraphComputeWorkItemView:
             self._graph.compare_and_set_node_fields(node_id, conditions, updates)
         )
 
+    def claim_work_item(self, request: dict[str, Any]) -> Any:
+        return self._graph.claim_work_item(request)
 
-# Free-form team status word -> the WorkItem transition it drives. Anything
-# NOT listed here (the team-collab API is intentionally lenient — arbitrary
-# caller strings are accepted) simply skips the WorkItem transition and
-# mirrors the literal string onto the legacy field, unchanged.
+    def renew_work_item_lease(self, request: dict[str, Any]) -> Any:
+        return self._graph.renew_work_item_lease(request)
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> Any:
+        return self._graph.commit_work_item_result(request)
+
+    def cancel_work_item(self, request: dict[str, Any]) -> Any:
+        return self._graph.cancel_work_item(request)
+
+    def defer_work_item(self, request: dict[str, Any]) -> Any:
+        return self._graph.defer_work_item(request)
+
+
+# Team status word -> the WorkItem transition it drives. Words outside this
+# closed vocabulary are rejected; no projection can invent a state WorkItem
+# did not accept.
 _TEAM_STATUS_TRANSITIONS: dict[str, str] = {
     "in_progress": "start",
     "running": "start",
@@ -127,29 +137,29 @@ _TEAM_STATUS_TRANSITIONS: dict[str, str] = {
 }
 
 
-def _team_task_claim_for_commit(
-    view: _GraphComputeWorkItemView, task_id: str, tenant: str
-) -> dict[str, Any]:
-    """Ensure the shadow exists, claim it if still ``ready``, and return a
-    claim dict usable for :func:`~agent_utilities.orchestration.work_item.commit_result`.
+def _team_work_item_claim_for_commit(
+    view: _GraphComputeWorkItemView, task_id: str
+) -> dict[str, Any] | None:
+    """Claim an existing team assignment and return its fenced commit tuple.
 
-    Team tasks are single-writer (no competing worker pool), so when the
-    shadow is already ``running`` (a prior ``in_progress`` transition already
-    claimed it) this reads its CURRENT fencing epoch rather than re-claiming
-    — safe here precisely because there is no concurrent claimant to fence
-    against, unlike the ingestion queue / AgentTask dispatch.
+    If a prior ``in_progress`` transition already claimed the item, resume its
+    current lease tuple. CommitResult still validates owner, epoch, token, and
+    tenant atomically, so a stale reconstructed tuple is fenced rather than
+    treated as authority.
     """
     from ..orchestration import work_item as _wi
 
-    item_id = _wi.ensure_team_task_work_item(view, task_id, tenant=tenant)
+    item_id = _wi.team_work_item_id(task_id)
     item = _wi.get_work_item(view, item_id)
+    if item is None or item.get("kind") != "team_assignment":
+        return None
     if item is not None and item.get("status") == _wi.WorkItemStatus.READY.value:
         claim = _wi.claim_specific(view, item_id)
         if claim is not None:
             _wi.mark_running(view, item_id, claim)
             return claim
         item = _wi.get_work_item(view, item_id)
-    return {"work_item_id": item_id, "fence_token": (item or {}).get("lease_epoch")}
+    return _wi.current_work_item_claim(view, item_id)
 
 
 @dataclass
@@ -170,58 +180,73 @@ class TeamCapability(AbstractCapability[Any]):
         self, ctx: RunContext[Any], name: str, member_ids: list[str]
     ) -> str:
         """Create a new team and record it in the graph."""
-        self.team_id = f"team_{uuid.uuid4().hex[:8]}"
+        self.team_id = f"team_{uuid.uuid4().hex}"
         self.members = member_ids
 
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
+            from ..messaging.bus_privacy import bus_reference
             from ..models.knowledge_graph import RegistryNodeType, TeamNode
+            from ..security.persistence_privacy import PersistencePrivacyGuard
+
+            persisted_members = [
+                bus_reference("team_member", member, tenant=self.team_id or "")
+                for member in member_ids
+            ]
+            clean_name, _privacy_report = PersistencePrivacyGuard().sanitize_text(name)
 
             node = TeamNode(
                 id=self.team_id,
                 type=RegistryNodeType.TEAM,
-                name=name,
+                name=clean_name,
                 status="active",
                 member_count=len(member_ids),
                 importance_score=0.8,
                 timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                metadata={"members": member_ids},
+                metadata={"members": persisted_members},
             )
             with contextlib.suppress(Exception):
                 engine.graph.add_node(node.id, **node.model_dump())
-                for member in member_ids:
+                for member in persisted_members:
                     # Link members to team
-                    engine.graph.add_edge(member, self.team_id, type="BELONGS_TO_TEAM")
+                    engine.graph.add_edge(
+                        member, self.team_id, relationship="BELONGS_TO_TEAM"
+                    )
         return self.team_id
 
     async def add_task(
         self, ctx: RunContext[Any], content: str, assigned_to: str | None = None
     ) -> str:
         """Add a shared task to the team and graph."""
-        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        task_id = f"task_{uuid.uuid4().hex}"
 
         engine = getattr(ctx.deps, "graph_engine", None)
         if engine:
-            from ..models.knowledge_graph import RegistryNodeType, TaskNode
+            from ..orchestration import work_item as _wi
 
-            node = TaskNode(
-                id=task_id,
-                type=RegistryNodeType.TASK,
-                name=f"Task: {content[:30]}",
-                content=content,
-                status="pending",
-                assigned_to=assigned_to,
-                created_by=getattr(ctx.deps, "agent_id", "orchestrator"),
-                importance_score=0.6,
-                timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            view = _GraphComputeWorkItemView(engine.graph)
+            work_item_id = _wi.submit_team_work_item(
+                view,
+                task_id,
+                tenant=self.team_id or "",
+                description=content,
+                assigned_to=assigned_to or "",
+                created_by=str(getattr(ctx.deps, "agent_id", "orchestrator")),
             )
             with contextlib.suppress(Exception):
-                engine.graph.add_node(node.id, **node.model_dump())
                 if self.team_id:
-                    engine.graph.add_edge(task_id, self.team_id, type="BELONGS_TO_TEAM")
-                if assigned_to:
                     engine.graph.add_edge(
-                        task_id, assigned_to, type="ASSIGNED_TO_AGENT"
+                        work_item_id, self.team_id, type="BELONGS_TO_TEAM"
+                    )
+                if assigned_to:
+                    from ..messaging.bus_privacy import bus_reference
+
+                    engine.graph.add_edge(
+                        work_item_id,
+                        bus_reference(
+                            "team_member", assigned_to, tenant=self.team_id or ""
+                        ),
+                        type="ASSIGNED_TO_AGENT",
                     )
             # AU-P1-CL: create the ``ready`` shadow WorkItem alongside the
             # legacy TaskNode — best-effort, and independent of the legacy
@@ -298,7 +323,7 @@ class TeamCapability(AbstractCapability[Any]):
     async def update_task_status(
         self, ctx: RunContext[Any], task_id: str, status: str
     ) -> bool:
-        """Update the status of a task in the Knowledge Graph.
+        """Transition a team assignment through its sole WorkItem authority.
 
         AU-P1-CL: drives the REAL transition through the WorkItem state
         machine first (:func:`~agent_utilities.orchestration.work_item.start_team_task_work_item` /
@@ -323,36 +348,44 @@ class TeamCapability(AbstractCapability[Any]):
         if not engine:
             return False
 
-        if task_id not in engine.graph:
-            logger.warning("Task %s not found in graph", task_id)
-            return False
-
         transition = _TEAM_STATUS_TRANSITIONS.get(status.strip().lower())
-        if transition is not None:
-            with contextlib.suppress(Exception):
-                from ..orchestration import work_item as _wi
+        if transition is None:
+            raise ValueError(
+                f"Unsupported team task transition {status!r}; WorkItem owns the state vocabulary"
+            )
+        from ..orchestration import work_item as _wi
 
-                view = _GraphComputeWorkItemView(engine.graph)
-                tenant = self.team_id or ""
-                if transition == "start":
-                    _wi.start_team_task_work_item(view, task_id, tenant=tenant)
-                elif transition == "cancel":
-                    _wi.cancel_work_item(view, _wi.team_task_work_item_id(task_id))
-                else:  # "succeed" / "fail"
-                    claim = _team_task_claim_for_commit(view, task_id, tenant)
-                    _wi.commit_result(
-                        view,
-                        claim["work_item_id"],
-                        claim,
-                        outcome="succeeded" if transition == "succeed" else "failed",
-                        retryable=False,
-                    )
+        view = _GraphComputeWorkItemView(engine.graph)
+        tenant = self.team_id or ""
+        item_id = _wi.team_work_item_id(task_id)
+        item = _wi.get_work_item(view, item_id)
+        if item is None or item.get("kind") != "team_assignment":
+            logger.warning("Team WorkItem %s not found", item_id)
+            return False
+        if transition == "start":
+            if _wi.start_team_work_item(view, task_id, tenant=tenant) is None:
+                return False
+        else:  # "succeed" / "fail" / "cancel"
+            claim = _team_work_item_claim_for_commit(view, task_id)
+            if claim is None:
+                return False
+            result = _wi.commit_result(
+                view,
+                claim["work_item_id"],
+                claim,
+                outcome=(
+                    "succeeded"
+                    if transition == "succeed"
+                    else "cancelled"
+                    if transition == "cancel"
+                    else "failed"
+                ),
+                retryable=False,
+            )
+            if result not in {"committed", "noop"}:
+                return False
 
-        engine.graph.nodes[task_id]["status"] = status
-        engine.graph.nodes[task_id]["updated_at"] = time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-        )
-        logger.info("Task %s status updated to '%s'", task_id, status)
+        logger.info("Team WorkItem %s accepted transition '%s'", item_id, transition)
         return True
 
     async def get_team_members(self, ctx: RunContext[Any]) -> list[str]:

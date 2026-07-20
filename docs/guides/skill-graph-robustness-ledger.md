@@ -33,7 +33,7 @@ often a marketing-site index, not docs.
 | R3 | mariadb (`mariadb.com`) | Root `llms.txt` returned **marketing pages** (pricing/about-us/industry), not docs | Domain-root `/llms.txt` indexes the *marketing site*; real docs corpus is at `/docs/llms-full.txt` | `_llms_scopes` probes the **docs-path scope before root**; mariadb now resolves to `/docs` → 107 real-doc files |
 | R4 | mariadb | Fetched pages stored as **raw `<!doctype html>`** in the corpus | `llms.txt` links served HTML, not markdown; index path stored the body verbatim | `_fetch_llms_index` detects HTML (`_looks_like_html`) and strips to markdown (`_html_to_markdown`: trafilatura → regex fallback). 1.65 MB raw HTML → 10.8 KB clean text; **0 HTML leaks** |
 | R5 | uptime-kuma, gcp | No `llms.txt`; recursive crawl is slow/hang-prone | Sites publish a sitemap but no LLM index | SiteProfiler falls back to **`sitemap.xml`-driven** bounded crawl before recursive render |
-| R6 | chakra-ui, pandas (Wave-1 KG pass) | KG-processing returned **0 nodes** after vitejs succeeded in the same batch | Embedder/engine dropped mid-batch (recurring GB10 power fault → 502) — *not* a content problem | Bounded embed + per-cycle embedder + health-gate already abandon-on-timeout instead of hanging; **retry these two once the engine is healthy** (open) |
+| R6 | two queued repositories (Wave-1 KG pass) | KG-processing returned **0 nodes** after another repository succeeded in the same batch | Embedder/engine dropped mid-batch (accelerator endpoint → 502) — *not* a content problem | Bounded embed + per-cycle embedder + health-gate already abandon-on-timeout instead of hanging; **retry once the engine is healthy** (open) |
 | R7 | All `llms-full.txt` | A tiny stub or 404 body could be mistaken for a real corpus | Some sites return a 200 with a near-empty `llms-full.txt` | `_fetch_llms_docs` requires `len(full) > 2000` before treating it as the corpus; else falls through to the `llms.txt` index / sitemap |
 | R8 | Batch migration | One slow web crawl (gcp first in the batch) **blocked all 24 following graphs** for up to the 900 s crawl bound — zero visible results | A serial batch runs in list order; a heavy crawl at the front hides every fast result behind it | Batch runner pre-detects strategy (HTTP-only) and runs **llms graphs first, web crawls last**; web crawls get a tight `SKILL_GRAPH_CRAWL_TIMEOUT=240` + `SKILL_GRAPH_MAX_PAGES=400` so a slow site fails fast and keeps existing content |
 | R9 | gcp (`cloud.google.com`) | A generic depth-3 / 1000-page crawl from `/docs/overview` is unbounded-feeling and low-value (pulls the whole GCP marketing+docs tree) | `cloud.google.com` is enormous and has no `llms.txt`; "overview" is not a scoped corpus | **Deferred**: a meaningful gcp graph needs a *scoped product path* (e.g. `/run/docs`, `/compute/docs`) as the seed, not the docs root. Open — pick target product(s) (open) |
@@ -41,8 +41,8 @@ often a marketing-site index, not docs.
 ## Open items
 
 - **R6**: re-run KG-processing for `chakra-ui-docs` and `pandas-docs` once the KG
-  engine/embedder is confirmed healthy (GB10 power fault is hardware — see the
-  `gb10-power-fault-and-vllm-topology` note). The reference/ trees are already
+  engine/embedder is confirmed healthy (the recorded fault was hardware-related).
+  The reference trees are already
   migrated; only the KG ingest needs a retry.
 - **gcp** (`cloud.google.com`): very large; sitemap crawl must stay bounded
   (`max_pages`) — confirm the cap is logged, not silently truncating.

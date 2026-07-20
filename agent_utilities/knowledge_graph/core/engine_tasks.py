@@ -6,7 +6,6 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -14,6 +13,100 @@ from typing import Any, Protocol, cast
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
+_DATABASE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_GRAPH_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def _require_verified_background_session(session: Any) -> Any:
+    """Reject non-session or incomplete authority before a thread is created."""
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        SessionRequiredError,
+    )
+
+    if not isinstance(session, GraphSession):
+        raise SessionRequiredError(
+            "Background graph work requires a verified GraphSession"
+        )
+    session.engine_verified_context()
+    if not session.actor.authenticated:
+        raise SessionRequiredError(
+            "Background graph work requires an authenticated actor"
+        )
+    return session
+
+
+def _capture_verified_background_session() -> Any:
+    """Capture the already-verified authority a daemon thread must retain.
+
+    ``ContextVar`` values do not cross :class:`threading.Thread` boundaries.
+    Background graph work therefore captures the immutable process session
+    before spawning and binds both that session and its actor inside the new
+    thread.  Absence or disagreement is an authorization failure, never a
+    reason to synthesize a system identity.
+    """
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        SessionRequiredError,
+    )
+    from agent_utilities.security.brain_context import (
+        IdentityRequiredError,
+        current_actor,
+    )
+
+    session = _require_verified_background_session(GraphSession.from_ambient())
+    try:
+        actor = current_actor()
+    except IdentityRequiredError:
+        raise SessionRequiredError(
+            "Background graph work requires a verified actor"
+        ) from None
+    if actor != session.actor or not actor.authenticated:
+        raise SessionRequiredError(
+            "Background graph actor and session authority must match"
+        )
+    return session
+
+
+def _run_with_background_authority(
+    session: Any, target: Any, *args: Any, **kwargs: Any
+) -> Any:
+    """Run one thread entrypoint under its captured graph authority."""
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+
+    session = _require_verified_background_session(session)
+    with use_actor(session.actor), use_session(session):
+        return target(*args, **kwargs)
+
+
+def _authorized_background_thread(
+    session: Any,
+    target: Any,
+    *,
+    name: str,
+    args: tuple[Any, ...] = (),
+) -> threading.Thread:
+    """Build a daemon thread whose entrypoint explicitly restores authority."""
+    session = _require_verified_background_session(session)
+    return threading.Thread(
+        target=_run_with_background_authority,
+        args=(session, target, *args),
+        daemon=True,
+        name=name,
+    )
+
+
+def _require_database_identifier(value: object) -> str:
+    rendered = str(value or "")
+    if not _DATABASE_IDENTIFIER.fullmatch(rendered):
+        raise ValueError("Database identifier is not permitted")
+    return rendered
+
+
+def _safe_graph_identifier(value: object, *, default: str = "") -> str:
+    rendered = re.sub(r"\W+", "_", str(value or default)).strip("_")
+    return rendered if _GRAPH_IDENTIFIER.fullmatch(rendered) else default
 
 
 def daemon_role() -> str:
@@ -26,8 +119,8 @@ def daemon_role() -> str:
     * ``host``   — run the full UnifiedDaemon (the API gateway sets this).
     * ``client`` — run NOTHING; submit work to the durable queue that the host
       daemon drains (MCP server / CLI / one-shot scripts set this).
-    * ``auto``   — default: run the consolidated daemon in-process (single-
-      process / dev usage, backward compatible).
+    * ``auto``   — default: run the consolidated daemon in-process for
+      single-process development usage.
 
     ``KG_DAEMON_ROLE`` overrides (default ``auto``). Note: test mode and
     ``--stage-to-queue`` independently suppress *auto-start* of the daemon in
@@ -63,24 +156,31 @@ SUPPORTED_EXTENSIONS: set[str] = {
 }
 
 
+class _BoundedPypdfReader:
+    """LlamaIndex file-reader adapter for the governed pypdf path."""
+
+    def load_data(
+        self,
+        file: str | Path | None = None,
+        *,
+        file_path: str | Path | None = None,
+        **_: Any,
+    ) -> list[Any]:
+        from llama_index.core import Document
+
+        from ..extraction.pdf import read_pdf_text
+
+        source = file if file is not None else file_path
+        if source is None:
+            return []
+        text = read_pdf_text(source)
+        return [Document(text=text)] if text else []
+
+
 def _pdf_file_extractor() -> dict[str, Any]:
-    """Map ``.pdf`` to PyMuPDF instead of SimpleDirectoryReader's default (pypdf).
+    """Map ``.pdf`` to the one bounded, license-approved pypdf reader."""
 
-    pypdf's pure-Python ``extract_text`` is pathologically slow on some PDFs — a
-    single 1 MB / 23-page file was observed pinning a core for **5+ minutes** in
-    ``read_from_stream``. Worse, because it never releases the GIL, that one file
-    starves every other KGTaskWorker on the host, so the whole durable queue stalls
-    behind it. PyMuPDF (``fitz``) extracts the same file in ~0.2s and is a C
-    extension that releases the GIL during parsing, so it neither stalls nor
-    serializes other workers. Returns an empty mapping (default reader) if the
-    PyMuPDF reader isn't installed. (CONCEPT:AU-KG.coordination.embedder-breaker)
-    """
-    try:
-        from llama_index.readers.file import PyMuPDFReader
-
-        return {".pdf": PyMuPDFReader()}
-    except Exception:  # pragma: no cover - optional dependency / import guard
-        return {}
+    return {".pdf": _BoundedPypdfReader()}
 
 
 def _encode_metadata(data: dict[str, Any]) -> str:
@@ -139,27 +239,47 @@ def _decode_metadata(raw: str | None) -> dict[str, Any]:
     return {"_raw": raw}
 
 
-def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
-    """Map a priority spec to a discrete claim bucket 0..3 (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
+_WORKSPACE_TARGET_PREFIX = "workspace:"
 
-    Accepts an int bucket, a numeric string, or the legacy ``priority`` string
-    (``critical``/``high``/``normal``/``background``/``low``). Out-of-range ints
-    are clamped into ``[0, 3]`` so a caller can never wedge the claim loop.
-    """
-    if value is None or isinstance(value, bool):
+
+def _portable_task_target(value: str) -> str:
+    """Persist workspace paths without machine roots or user identities."""
+    raw = str(value)
+    path = Path(raw)
+    if not path.is_absolute():
+        return raw
+    from agent_utilities.core.workspace import get_agent_workspace
+
+    try:
+        relative = path.resolve().relative_to(get_agent_workspace().resolve())
+    except ValueError as exc:
+        raise ValueError(
+            "durable ingestion targets must be inside the configured workspace"
+        ) from exc
+    return f"{_WORKSPACE_TARGET_PREFIX}{relative.as_posix()}"
+
+
+def _resolve_task_target(value: str) -> Path:
+    """Resolve a portable WorkItem target against runtime configuration."""
+    raw = str(value)
+    if not raw.startswith(_WORKSPACE_TARGET_PREFIX):
+        return Path(raw)
+    from agent_utilities.core.workspace import get_workspace_path
+
+    return get_workspace_path(raw.removeprefix(_WORKSPACE_TARGET_PREFIX))
+
+
+def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
+    """Validate a current WorkItem claim bucket in the closed interval 0..3."""
+    if value is None:
         return default
+    if isinstance(value, bool):
+        raise TypeError("WorkItem prio_bucket must be an integer")
     if isinstance(value, int):
-        return max(0, min(value, 3))
-    text = str(value).strip().lower()
-    if text.isdigit():
-        return max(0, min(int(text), 3))
-    return {
-        "critical": 0,
-        "high": 1,
-        "normal": 2,
-        "background": 3,
-        "low": 3,
-    }.get(text, default)
+        if 0 <= value <= 3:
+            return value
+        raise ValueError("WorkItem prio_bucket must be between 0 and 3")
+    raise TypeError("WorkItem prio_bucket must be an integer")
 
 
 import sqlite3
@@ -229,7 +349,7 @@ _EMBED_BACKFILL_FETCH = 512
 # scan, so a fixed moderate interval suffices — no env knob needed.
 _ANOMALY_CONSUMER_INTERVAL = 900.0
 
-# Background-daemon cadences and task-reaper limits (config discipline): each has
+# Background-daemon cadences (config discipline): each has
 # one correct default and no per-host correctness requirement, so they are named
 # module constants rather than env knobs (replacing KG_*_INTERVAL / KG_TASK_*).
 # Seconds.
@@ -238,12 +358,11 @@ _RECONCILE_INTERVAL = 900.0
 _ENRICH_INTERVAL = 20.0
 _FILE_WATCH_INTERVAL = 30.0
 # Fast cadence for the reactive autoscale poll (CONCEPT:AU-KG.compute.reactive-push): it only does a
-# cheap non-blocking ``:Task`` change-feed poll and short-circuits when nothing
+# cheap non-blocking WorkItem change-feed poll and short-circuits when nothing
 # changed, so it can run far more often than the slow ``_tick_fleet_autoscaler``
 # safety-net interval — turning "scale on the change" from minutes into seconds.
 _AUTOSCALE_REACTIVE_INTERVAL = 5.0
 _HYGIENE_INTERVAL = 86400.0
-_TASK_REAPER_INTERVAL = 120.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
 # Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): a
@@ -274,34 +393,49 @@ _USAGE_SYNC_INTERVAL = 900.0
 _USAGE_PRICING_REFRESH_INTERVAL = 86400.0
 
 # CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task — Hardened priority and scheduled task queue with retry and dead-letter.
-# Priority is a discrete
-# integer *bucket* (0=critical .. 3=background) rather than a numeric field,
-# because the L1 graph interpreter strips ORDER BY and supports only equality —
-# so the worker claim iterates buckets ascending with one equality query each
-# (the generalization of the old binary high/normal two-query tier). Legacy
-# nodes carrying only the ``priority`` string map high→1, normal→2.
+# Priority is one discrete integer bucket (0=critical .. 3=background). The
+# native WorkItem claim orders and fences these buckets; no string priority or
+# client-side claim selector exists.
 _PRIORITY_BUCKETS: tuple[int, ...] = (0, 1, 2, 3)
 _PRIO_CRITICAL, _PRIO_HIGH, _PRIO_NORMAL, _PRIO_BACKGROUND = 0, 1, 2, 3
 _DEFAULT_PRIO_BUCKET = _PRIO_NORMAL
 
-# Max candidate rows a single claim attempt will CAS before giving up (returning
-# idle). Each miss means a peer host won that row via the engine CAS, so we re-
-# select and try the next pending candidate. Bounds the contention sweep so a
-# burst of competing workers can't spin. (CONCEPT:AU-KG.compute.user-override-prompt-library)
-_CLAIM_MAX_RETRIES = 8
-# App-level retry: a task that *raises* (vs. a host crash, handled by the reaper)
-# is retried with exponential backoff by re-scheduling it for a future minute,
-# then dead-lettered past the cap. Distinct from the reaper's crash-requeue
-# counter (``reaper_resets`` / ``_TASK_MAX_REQUEUE``) — two failure modes.
 _TASK_MAX_ATTEMPTS = 3
-_TASK_RETRY_BASE_SEC = 30.0
-# Delayed/blocked → pending promotion sweep cadence (the only range comparison
-# in the queue, done in Python over the small scheduled/blocked set).
-_PROMOTION_SWEEP_INTERVAL = 60.0
-# Terminal task statuses (no further work). ``dead_letter`` is a poison task
-# that exhausted its app-level retries; kept distinct from ``failed`` (the
-# reaper's crash-requeue terminal) so the two failure modes triage separately.
-_TERMINAL_TASK_STATUS = frozenset({"completed", "failed", "cancelled", "dead_letter"})
+
+# AU-P1-CL: ``_update_task_status``'s terminal-status arg -> the WorkItem
+# outcome committed through the active native claim. All
+# calls through ``_update_task_status`` are treated as non-retryable (the
+# APP-LEVEL retry/backoff/DLQ decision lives in ``_fail_or_retry_task``,
+# which commits through ``work_item.commit_result`` itself with
+# ``retryable=True`` and only calls back into ``_update_task_status`` once
+# IT has already decided the outcome is terminal — see that method).
+_INGEST_TERMINAL_STATUS_TO_WORK_ITEM: dict[str, str] = {
+    "completed": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "dead_letter": "failed",
+}
+
+
+def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
+    """Render the public job-status vocabulary from the sole WorkItem."""
+    status = str((item or {}).get("status") or "")
+    if (
+        status == "ready"
+        and float((item or {}).get("next_retry_at") or 0) > time.time()
+    ):
+        return "scheduled"
+    return {
+        "submitted": "blocked",
+        "ready": "pending",
+        "leased": "running",
+        "running": "running",
+        "succeeded": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "dead_letter": "dead_letter",
+    }.get(status, "unknown")
+
 
 # AU-P1-CL: ``_update_task_status``'s terminal-status arg -> the WorkItem
 # outcome committed through the claim-time shadow (when one exists). All
@@ -364,13 +498,36 @@ class SQLiteTaskQueue(QueueBackend):
         return conn
 
     def put(self, item: dict):
+        self.put_many([item])
+
+    def put_many(self, items: list[dict[str, Any]]) -> None:
         with self.lock:
             conn = self._connect()
             try:
                 with conn:
+                    conn.executemany(
+                        "INSERT INTO queue (data) VALUES (?)",
+                        ((json.dumps(item),) for item in items),
+                    )
+            finally:
+                conn.close()
+
+    def put_if_below(self, item: dict[str, Any], max_depth: int) -> bool:
+        """Atomically admit one item under the local durable depth bound."""
+        if max_depth < 1:
+            raise ValueError("max_depth must be positive")
+        with self.lock:
+            conn = self._connect()
+            try:
+                with conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    row = conn.execute("SELECT COUNT(*) FROM queue").fetchone()
+                    if row and int(row[0]) >= max_depth:
+                        return False
                     conn.execute(
                         "INSERT INTO queue (data) VALUES (?)", (json.dumps(item),)
                     )
+                    return True
             finally:
                 conn.close()
 
@@ -478,7 +635,7 @@ class GraphEngineProtocol(Protocol):
     ) -> None:
         if properties is None:
             properties = {}
-        props = {"rel_type": rel_type, **properties, "ephemeral": ephemeral}
+        props = {"relationship": rel_type, **properties, "ephemeral": ephemeral}
         if hasattr(self, "backend") and self.backend is not None:
             if hasattr(self.backend, "add_edge"):
                 self.backend.add_edge(source_id, target_id, **props)
@@ -496,12 +653,12 @@ class _ControlPlaneWorkItemEngine:
     """Adapts a ``TaskManagerMixin`` host to the ``engine`` protocol
     :mod:`agent_utilities.orchestration.work_item` expects (``add_node``/
     ``query_cypher``/``link_nodes``/``compare_and_set_node_fields``), bound
-    ENTIRELY to the host's isolated ``__control__`` backend (CONCEPT:AU-KG.backend.schedule-on-control-graph).
+    ENTIRELY to the host's configured control authority
+    (CONCEPT:AU-KG.backend.schedule-on-control-graph).
 
-    The ingestion queue's ``:Task`` claim/reap/retry is control-plane, so its
-    WorkItem shadow must be too — reusing ``engine.add_node``/
-    ``engine.query_cypher`` directly (as the AgentTask bridge does) would
-    route the shadow's CAS onto ``__commons__`` and reintroduce exactly the
+    Ingestion WorkItems live in the control plane. Reusing ``engine.add_node``/
+    ``engine.query_cypher`` directly would route scheduling writes onto
+    ``__commons__`` and reintroduce exactly the
     content-ingestion write-lock contention the control/commons split exists
     to avoid. This adapter is the ONLY thing that changes: every state-
     machine transition in ``work_item.py`` is reused unmodified.
@@ -523,11 +680,16 @@ class _ControlPlaneWorkItemEngine:
         ephemeral: bool = False,
     ) -> None:
         backend = self._host._control
-        if backend is None:
-            return
         add = getattr(backend, "add_node", None)
-        if callable(add):
-            add(node_id, label=node_type, **(properties or {}))
+        if not callable(add):
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                "control authority does not expose durable WorkItem creation"
+            )
+        add(node_id, label=node_type, **(properties or {}))
 
     def link_nodes(
         self,
@@ -558,14 +720,56 @@ class _ControlPlaneWorkItemEngine:
 
             raise WorkItemBackendUnavailable(
                 f"{type(backend).__name__} has no compare_and_set_node_fields — "
-                "the ingestion queue's WorkItem shadow requires an engine-native "
+                "the ingestion WorkItem requires an engine-native "
                 "atomic CAS control backend."
             )
         return bool(fn(node_id, conditions, updates))
 
+    def _native_work_items(self) -> Any:
+        """Return the host's one process-owned native WorkItem client."""
+        backend_graph = getattr(self._host._control, "graph", None)
+        if backend_graph is None:
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                "control authority does not expose the native WorkItem client"
+            )
+        return backend_graph
+
+    def _native_work_item_method(self, name: str) -> Any:
+        """Return one required native WorkItem operation or fail closed."""
+        target = self._native_work_items()
+        method = getattr(target, name, None)
+        if not callable(method):
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                f"control authority does not expose required WorkItem operation {name}"
+            )
+        return method
+
+    def claim_work_item(self, request: dict[str, Any]) -> Any:
+        return self._native_work_item_method("claim_work_item")(request)
+
+    def renew_work_item_lease(self, request: dict[str, Any]) -> Any:
+        return self._native_work_item_method("renew_work_item_lease")(request)
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> Any:
+        return self._native_work_item_method("commit_work_item_result")(request)
+
+    def cancel_work_item(self, request: dict[str, Any]) -> Any:
+        return self._native_work_item_method("cancel_work_item")(request)
+
+    def defer_work_item(self, request: dict[str, Any]) -> Any:
+        return self._native_work_item_method("defer_work_item")(request)
+
 
 class TaskManagerMixin(GraphEngineProtocol):
-    """Mixin for native persistent Task Queues in the Intelligence Graph.
+    """Mixin for the native persistent WorkItem queue.
 
     CONCEPT:AU-KG.compute.persistent-task-tracking - Persistent Task Tracking
     """
@@ -574,10 +778,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         super().__init__(*args, **kwargs)
         self._workers_running = False
         self._worker_lock = threading.Lock()
-        # Task claiming is now arbitrated by the engine compare-and-set (it holds
-        # the graph write lock for the flip), so the former in-process
-        # ``_claim_lock`` and the Postgres advisory ``state_claim_guard`` are no
-        # longer needed to serialize the claim. (CONCEPT:AU-KG.compute.user-override-prompt-library)
+        self._active_work_item_claims: dict[str, dict[str, Any]] = {}
+        self._active_work_item_claims_lock = threading.Lock()
 
         # Pre-import LlamaIndex components in main thread to avoid parallel worker import race conditions
         try:
@@ -640,21 +842,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             return
 
-        # Continuous queue drainers that actually move ingested data.
-        # Kafka mode (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): the ``kg-ingest`` consumer group owns
-        # the whole task lifecycle (Task node is created AT CLAIM TIME by the
-        # consuming worker), so the submission drain — which would race the
-        # group for the same messages just to mint a node — does not run.
-        if self._task_queue_backend_name != "kafka":
-            self._submission_thread = threading.Thread(
-                target=self._submission_worker_loop,
-                daemon=True,
-                name="KG-Job-Submitter",
-            )
-            self._submission_thread.start()
-
-        self._graph_writer_thread = threading.Thread(
-            target=self._graph_writer_loop, daemon=True, name="KG-Graph-Writer"
+        self._background_worker_session = _capture_verified_background_session()
+        self._graph_writer_thread = _authorized_background_thread(
+            self._background_worker_session,
+            self._graph_writer_loop,
+            name="KG-Graph-Writer",
         )
         self._graph_writer_thread.start()
 
@@ -669,42 +861,53 @@ class TaskManagerMixin(GraphEngineProtocol):
         # SDD/skills/scholarx file-watch scan — see ``_maintenance_jobs``) in ONE
         # throttled thread behind one shared foreground gate. No separate file
         # watcher thread.
-        self._maintenance_thread = threading.Thread(
-            target=self._maintenance_scheduler_loop,
-            daemon=True,
+        self._maintenance_thread = _authorized_background_thread(
+            self._background_worker_session,
+            self._maintenance_scheduler_loop,
             name="KG-Maintenance-Scheduler",
         )
         self._maintenance_thread.start()
 
         # Dedicated vector-embedding backfill drain (separate from the periodic
         # scheduler so it is never starved behind slow LLM ticks). (KG-2.8)
-        self._embed_backfill_thread = threading.Thread(
-            target=self._embedding_backfill_loop,
-            daemon=True,
+        self._embed_backfill_thread = _authorized_background_thread(
+            self._background_worker_session,
+            self._embedding_backfill_loop,
             name="KG-Embedding-Backfill",
         )
         self._embed_backfill_thread.start()
 
+    def _background_session_for_spawn(self) -> Any:
+        """Return the immutable daemon authority, capturing it exactly once."""
+        session = getattr(self, "_background_worker_session", None)
+        if session is None:
+            session = _capture_verified_background_session()
+            self._background_worker_session = session
+        return _require_verified_background_session(session)
+
     # ── Control-plane backend routing (CONCEPT:AU-KG.backend.schedule-on-control-graph) ─────────────────
-    # The scheduler / task-claim / status / reaper / promotion-sweep / :Schedule
-    # writes are CONTROL plane and must run on the isolated ``__control__`` engine
-    # graph's write lock, NOT ``__commons__``'s — which sustained content
-    # ingestion holds and otherwise starves the control plane through. The engine
-    # builds ``self.control_backend`` (a backend bound to ``__control__``); these
-    # helpers route the control-plane ops to it, degrading to ``self.backend``
-    # when no isolated control backend exists (so behaviour is unchanged on
-    # deployments where construction failed). Content/document/codebase ingestion
-    # writes deliberately keep using ``self.backend`` (``__commons__``).
+    # Native WorkItem operations and :Schedule state are CONTROL plane. The
+    # engine configures exactly one control authority; absence is a hard error,
+    # never an invitation to create a second work-state location in the content
+    # graph. Content/document/codebase ingestion deliberately uses ``self.backend``.
 
     @property
     def _control(self) -> Any:
-        """The control-plane backend (``__control__``), or ``self.backend``.
+        """Return the configured control-plane authority or fail closed.
 
-        CONCEPT:AU-KG.backend.schedule-on-control-graph — single accessor so every control-plane call site
-        routes through the isolated control graph when available and falls back
-        cleanly to the shared content backend when it isn't.
+        A missing authority cannot fall back to the content backend: doing so
+        would split WorkItem truth across graph locations.
         """
-        return getattr(self, "control_backend", None) or self.backend
+        control = getattr(self, "control_backend", None)
+        if control is None:
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                "the configured WorkItem control authority is unavailable"
+            )
+        return control
 
     def _control_cypher(
         self, cypher: str, params: dict | None = None
@@ -712,13 +915,30 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Run a CONTROL-PLANE Cypher read/write against ``__control__``.
 
         Mirrors ``query_cypher`` but targets the isolated control backend
-        (CONCEPT:AU-KG.backend.schedule-on-control-graph). Used for :Task / :Schedule / queue / claim ops so
+        (CONCEPT:AU-KG.backend.schedule-on-control-graph). Used for WorkItem / :Schedule / queue / claim ops so
         they never block on the content-ingestion write lock.
         """
         ctrl = self._control
-        if ctrl is not None and hasattr(ctrl, "execute"):
-            return ctrl.execute(cypher, params)
-        return []
+        execute_read = getattr(ctrl, "execute_read", None)
+        if not callable(execute_read):
+            from agent_utilities.orchestration.work_item import (
+                WorkItemBackendUnavailable,
+            )
+
+            raise WorkItemBackendUnavailable(
+                "the WorkItem control authority has no governed read surface"
+            )
+        return execute_read(cypher, params)
+
+    @property
+    def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
+        """Cached :class:`_ControlPlaneWorkItemEngine` view for the ingestion
+        queue's sole WorkItem authority."""
+        view = getattr(self, "_work_item_engine_cache", None)
+        if view is None:
+            view = _ControlPlaneWorkItemEngine(self)
+            self._work_item_engine_cache = view
+        return view
 
     @property
     def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
@@ -780,20 +1000,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         except Exception:  # noqa: BLE001 - status surface stays best-effort
             pass
         return status
-
-    def start_sdd_watcher(self):
-        """Deprecated: the SDD/plan/skills/scholarx file-watch is now a periodic
-        job inside the consolidated maintenance scheduler (``_tick_file_watch``,
-        registered in ``_maintenance_jobs``), not a dedicated thread.
-
-        Kept as a no-op so existing callers (e.g. the MCP server) don't spawn a
-        second watcher thread. The scan runs only in the daemon ``host``/``auto``
-        process. (CONCEPT:AU-KG.research.research-pipeline-runner / KG-2.8)
-        """
-        logger.debug(
-            "start_sdd_watcher() is a no-op; file-watch runs as the 'file_watch' "
-            "maintenance job in the consolidated scheduler."
-        )
 
     def _tick_kg_analysis(self) -> None:
         """One autonomous-analysis tick (CONCEPT:AU-KG.compute.cross-pillar-synergy).
@@ -889,10 +1095,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                 path = row.get("path", "")
                 if not path:
                     continue
-                # Heuristic: repo root is 6th component of /home/apps/workspace/agent-packages/<name>
-                parts = path.split("/")
-                if len(parts) >= 6:
-                    repo_name = parts[5] if "agent-packages" in path else parts[4]
+                # Resolve the repository by the portable tree marker, independent
+                # of checkout depth, account name, or operating system.
+                parts = [part for part in path.replace("\\", "/").split("/") if part]
+                if "agent-packages" in parts:
+                    marker = parts.index("agent-packages")
+                    repo_name = parts[marker + 1] if marker + 1 < len(parts) else ""
+                    if not repo_name:
+                        continue
                     repo_counts[repo_name] = repo_counts.get(repo_name, 0) + 1
 
             if repo_counts:
@@ -910,19 +1120,18 @@ class TaskManagerMixin(GraphEngineProtocol):
         evolution, the fleet ticks, usage/file/hygiene/tenant-gc sweeps, and the
         declarative ``deploy/schedules.yml`` entries) is now a durable
         ``:Schedule`` that the ``scheduler`` tick ENQUEUES onto the unified queue
-        — those bodies run in the worker pool under the throttle/lease/reaper, not
+        — those bodies run in the worker pool under native WorkItem leases, not
         in this thread (see :meth:`_register_maintenance_schedules`). Only the
         queue's OWN plumbing stays inline, because it must run even when the
         queue/workers are saturated (it is what feeds and heals them):
 
           * ``scheduler``       — evaluate :Schedule nodes and enqueue due jobs
-          * ``task_reaper``     — requeue tasks orphaned by a dead worker/host
-          * ``promotion_sweep`` — promote due/unblocked scheduled & blocked tasks
+        Native ``ClaimWorkItem`` owns lease recovery, dependency release, and
+        delayed availability. No Python maintenance writer is permitted to
+        compete with that authority.
         """
         return [
             ("scheduler", 60.0, self._tick_scheduler),
-            ("task_reaper", _TASK_REAPER_INTERVAL, self._tick_task_reaper),
-            ("promotion_sweep", _PROMOTION_SWEEP_INTERVAL, self._tick_promotion_sweep),
         ]
 
     def _register_maintenance_schedules(self) -> None:
@@ -996,10 +1205,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             enabled=_cfg.kg_failure_evolution,
         )
         _maint(
-            "dspy_optimization",
+            "optimization",
             "optimize_components",
-            _cfg.kg_dspy_optimization_interval,
-            enabled=_cfg.kg_dspy_optimization,
+            _cfg.kg_optimization_interval,
+            enabled=_cfg.kg_optimization_enabled,
         )
         _maint(
             "anomaly_consumer",
@@ -1026,7 +1235,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             enabled=_cfg.fleet_autoscaler,
         )
         # CONCEPT:AU-KG.compute.reactive-push — reactive push half of OS-5.29: a fast, cheap poll of the
-        # engine's ``:Task`` change-feed that evaluates only on a queue-depth change.
+        # engine's WorkItem change-feed that evaluates only on a queue-depth change.
         # Same opt-in gate as the autoscaler; the slow tick above is the safety net.
         _maint(
             "fleet_autoscale_reactive",
@@ -1036,13 +1245,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         _maint("compaction", "compaction", 1800.0)
         _maint("evolution", "evolution", _EVOLUTION_INTERVAL)
+        from ..backends.fanout_backend import FanOutBackend
+
+        _mirror_backend = getattr(getattr(self, "backend", None), "inner", None)
+        if _mirror_backend is None:
+            _mirror_backend = getattr(self, "backend", None)
         _maint(
-            "reconcile_durable",
-            "reconcile_durable",
+            "reconcile_mirrors",
+            "reconcile_mirrors",
             _RECONCILE_INTERVAL,
-            enabled=callable(
-                getattr(getattr(self, "backend", None), "reconcile_to_durable", None)
-            ),
+            enabled=isinstance(_mirror_backend, FanOutBackend),
         )
         # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — OWL capability-card backfill runs in its OWN
         # ``enrichment`` lane (task_type ``enrichment_backfill``), NOT the
@@ -1094,16 +1306,16 @@ class TaskManagerMixin(GraphEngineProtocol):
         for spec in specs:
             try:
                 register_schedule(self, spec)
-            except Exception as e:  # noqa: BLE001 — one schedule never blocks others
+            except Exception as exc:  # noqa: BLE001 — one schedule never blocks others
                 logger.debug(
-                    "register maintenance schedule %s failed: %s", spec.name, e
+                    "register maintenance schedule failed (exception_type=%s)",
+                    type(exc).__name__,
                 )
 
     def _tick_warm_parent_reap(self) -> None:
         """Reap idle warm-fork parents + idle dev-workspace containers (CONCEPT:AU-OS.host.so-they-are-idle).
 
-        Background maintenance: closes warm parents (forkserver processes, warmed containers,
-        microVMs) idle past the registry TTL, and adopts the previously-orphaned
+        Background maintenance closes governed warm parents idle past the registry TTL and runs
         ``DockerWorkspace.reap_idle`` (OS-5.33) so leaked dev-workspace containers are cleaned on
         the same tick. No-ops cheaply when nothing is pooled.
         """
@@ -1124,21 +1336,26 @@ class TaskManagerMixin(GraphEngineProtocol):
                     "Reaped %d idle dev-workspace container(s).", len(workspaces)
                 )
         except Exception as e:  # noqa: BLE001
-            logger.debug("dev-workspace reap skipped: %s", e)
-        try:
-            # CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — stateless backstop: sweep warm-fork sandbox containers the
-            # in-memory registry can no longer see (orphaned by a daemon restart) by label + age.
-            from agent_utilities.rlm.sandboxes.container_fork_backend import (
-                reap_orphaned_sandboxes,
-            )
+            logger.debug("dev-workspace reap skipped (%s)", type(e).__name__)
 
-            orphans = reap_orphaned_sandboxes()
-            if orphans:
-                logger.info(
-                    "Reaped %d orphaned warm-fork sandbox container(s).", len(orphans)
-                )
-        except Exception as e:  # noqa: BLE001 — sweep is best-effort
-            logger.debug("orphaned-sandbox sweep skipped: %s", e)
+    def _tick_package_install_ingest(self) -> None:
+        """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
+
+        Runs the ``package_install`` connector (:mod:`..ingestion.package_install_ingest`)
+        against the live engine — the same handler ``source_sync
+        source=package_install`` calls, so this scheduled tick and the on-demand
+        MCP/REST trigger share one implementation. Watermarked on the
+        ``install-manifest.json`` content hash, so a tick where nothing new was
+        installed since the last run is a cheap no-op.
+        """
+        try:
+            from agent_utilities.knowledge_graph.core.source_sync import sync_source
+
+            report = sync_source(self, "package_install", mode="delta")
+            if not report.get("skipped_unchanged"):
+                logger.info("package_install_ingest: %s", report)
+        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
+            logger.debug("package_install_ingest tick error: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
         """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
@@ -1285,10 +1502,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("fleet_autoscaler tick error: %s", e)
 
     def _fleet_autoscale_subscription(self) -> Any:
-        """Lazily-built reactive control-plane ``:Task`` change-feed (CONCEPT:AU-KG.compute.reactive-push).
+        """Lazily-built reactive control-plane WorkItem change-feed.
 
         One subscription per daemon process, cached on the engine, so the reactive
-        autoscale tick fires on the engine's pushed ``:Task`` change-event (the
+        autoscale tick fires on the engine's pushed WorkItem change-event (the
         queue-depth signal moved) rather than waiting out the slow safety-net
         interval. Rebuilt if it couldn't resolve a streaming surface on first use.
         """
@@ -1303,9 +1520,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         return sub
 
     def _tick_fleet_autoscale_reactive(self) -> None:
-        """Fire an autoscale evaluation ON a control-plane ``:Task`` change (KG-2.253).
+        """Fire an autoscale evaluation on a control-plane WorkItem change.
 
-        The push half of OS-5.29 autoscaling: poll the engine's ``:Task`` change-feed
+        The push half of OS-5.29 autoscaling: poll the engine's WorkItem change-feed
         (non-blocking, O(new changes)) and run one ``autoscale_fleet`` pass ONLY when
         the engine pushed a queue-depth-moving change since the last poll — so a burst
         of enqueued work scales the fleet at change-time, not at the next slow
@@ -1327,7 +1544,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             report = autoscale_fleet(self)
             if report.get("actions"):
                 logger.info(
-                    "[KG-2.253] reactive autoscale on :Task change: evaluated=%s "
+                    "[KG-2.253] reactive autoscale on WorkItem change: evaluated=%s "
                     "actions=%s scaled=%s",
                     report.get("evaluated"),
                     report.get("actions"),
@@ -1337,364 +1554,44 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("fleet_autoscale_reactive tick error: %s", e)
 
     def _get_host_token(self) -> str:
-        """Stable per-process identity for task-claim ownership (zombie reaper).
+        """Opaque process identity for WorkItem lease ownership.
 
-        Unique across process restarts (hostname + pid + boot second), so a task
-        claimed by a now-dead host is distinguishable from one claimed by the live
-        host. Cached on the engine singleton, so every worker thread + the reaper in
-        this process share one value. (CONCEPT:AU-KG.coordination.embedder-breaker)
+        Native lease expiry/fencing distinguishes a dead process from a live
+        holder. Persisting a host name or operating-system identity is neither
+        necessary nor permitted by the privacy contract.
         """
         tok = getattr(self, "_host_token_cache", None)
         if tok is None:
-            import os
-            import socket
+            from agent_utilities.orchestration.agent_dispatch_worker import (
+                worker_token,
+            )
 
-            tok = f"{socket.gethostname()}:{os.getpid()}:{int(time.time())}"
+            tok = worker_token()
             self._host_token_cache = tok
         return tok
 
-    def _tick_task_reaper(self) -> None:
-        """Requeue zombie/stuck 'running' tasks (CONCEPT:AU-KG.coordination.embedder-breaker ingestion durability).
-
-        AU-P1-CL: a task claimed under the WorkItem migration (carries
-        ``work_item_id`` in its metadata — stamped by :meth:`_claim_next_task`)
-        is reaped by :func:`~agent_utilities.orchestration.work_item.reap_expired_leases`
-        below — a single claim-TTL lease-expiry check, the SAME consolidation
-        ``agent_dispatch_worker`` already made for ``:AgentTask`` (folding the
-        dead-host-grace and same-host-runtime-cap cases into one mechanism,
-        since there is no periodic heartbeat renewing the lease mid-execution
-        here either). The bespoke host-token heuristic below now applies ONLY
-        to ``:Task`` rows that predate this migration (no ``work_item_id``)
-        — the non-destructive migration shim for in-flight legacy rows, kept
-        verbatim so it continues to self-heal them without requiring a
-        shadow:
-
-        A task is marked 'running' when a worker claims it; if that worker/host
-        process dies mid-task (crash / SIGKILL / redeploy) the Task is stranded in
-        'running' forever and never re-claimed, silently wedging that ingestion. The
-        singleton host lock guarantees exactly one host runs workers, so any
-        'running' task whose ``claimed_by`` is NOT this host's live token (after a
-        short grace, to tolerate election hand-off) is an orphan from a dead host →
-        reset to 'pending' for re-claim. A same-host task exceeding an absolute
-        runtime cap is also requeued (backstop for a wedged-but-alive worker). A task
-        requeued more than the cap is marked 'failed' (poison-pill guard) so a task
-        that reliably kills its worker cannot loop forever. Host-only; driven by the
-        consolidated maintenance scheduler.
-        """
-
-        from .host_lock import effective_daemon_role
-
-        if effective_daemon_role() != "host":
-            return
-
-        now = time.time()
-
-        # AU-P1-CL: lease-expiry reap for shadowed (migrated) tasks — run
-        # first and independently of the legacy sweep below, so a failure in
-        # one pass never blocks the other.
-        try:
-            from agent_utilities.orchestration import work_item as _wi
-
-            reaped = _wi.reap_expired_leases(self._work_item_engine, now=now)
-            for item_id in reaped.get("reaped_ready", []):
-                job_id = _wi.ingest_task_job_id_from_work_item_id(item_id)
-                if job_id is None:
-                    continue
-                existing = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta",
-                    {"id": job_id},
-                )
-                meta = (
-                    _decode_metadata(existing[0].get("meta"))
-                    if existing and existing[0].get("meta")
-                    else {}
-                )
-                meta.pop("claimed_by", None)
-                meta.pop("claim_unix", None)
-                meta["reaper_last_reason"] = "workitem_lease_expired"
-                meta["reaper_last_at"] = datetime.now(UTC).isoformat()
-                # Guard on status='running' so we never clobber a task a worker
-                # just legitimately completed between the reap scan and this write.
-                self._control_cypher(
-                    "MATCH (t:Task {id: $id, status: 'running'}) "
-                    "SET t.status = 'pending', t.metadata = $meta",
-                    {"id": job_id, "meta": _encode_metadata(meta)},
-                )
-                logger.warning(
-                    "TaskReaper: requeued %s via WorkItem lease-expiry (%s)",
-                    job_id,
-                    item_id,
-                )
-            for item_id in reaped.get("reaped_dead_letter", []):
-                job_id = _wi.ingest_task_job_id_from_work_item_id(item_id)
-                if job_id is None:
-                    continue
-                existing = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta",
-                    {"id": job_id},
-                )
-                meta = (
-                    _decode_metadata(existing[0].get("meta"))
-                    if existing and existing[0].get("meta")
-                    else {}
-                )
-                meta["dead_letter_at"] = datetime.now(UTC).isoformat()
-                meta["error"] = "reaper: WorkItem lease exhausted max_attempts"
-                self._control_cypher(
-                    "MATCH (t:Task {id: $id}) SET t.status = 'dead_letter', t.metadata = $meta",
-                    {"id": job_id, "meta": _encode_metadata(meta)},
-                )
-                logger.warning(
-                    "TaskReaper: dead-lettered %s via WorkItem lease-expiry (%s)",
-                    job_id,
-                    item_id,
-                )
-        except Exception as e:  # noqa: BLE001 — WorkItem reap pass is best-effort
-            logger.debug("task_reaper: WorkItem lease-expiry pass failed: %s", e)
-
-        try:
-            grace = _TASK_ORPHAN_GRACE_SEC
-            max_runtime = _TASK_MAX_RUNTIME_SEC
-            max_resets = _TASK_MAX_REQUEUE
-            token = self._get_host_token()
-
-            from agent_utilities.core.state_store import postgres_state_enabled
-
-            _multi_host = postgres_state_enabled()
-
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the reaper scans + resets :Task on the CONTROL
-            # plane (__control__), never the content graph.
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
-            )
-            requeued = failed = 0
-            for row in rows or []:
-                tid = row.get("id")
-                if not tid:
-                    continue
-                meta = _decode_metadata(row.get("meta")) or {}
-                if meta.get("work_item_id"):
-                    # AU-P1-CL: shadowed tasks are governed by the WorkItem
-                    # lease-expiry pass above — never double-reap the same row.
-                    continue
-                claimed_by = meta.get("claimed_by")
-                # Claim age: prefer claim_unix, else parse started_at; else unknown.
-                claim_unix = meta.get("claim_unix")
-                if claim_unix is None and meta.get("started_at"):
-                    try:
-                        claim_unix = datetime.fromisoformat(
-                            meta["started_at"]
-                        ).timestamp()
-                    except (ValueError, TypeError):
-                        claim_unix = None
-                try:
-                    age = now - float(claim_unix) if claim_unix is not None else None
-                except (ValueError, TypeError):
-                    age = None
-
-                # Orphan: a 'running' task NOT owned by the live host. The singleton
-                # host lock guarantees exactly one host runs workers, so any running
-                # task whose owner isn't this host's token is being processed by
-                # nobody — its worker died. This covers both a *foreign* token (a
-                # previous host) and an *unstamped* task (claimed before the reaper
-                # existed — the first-deploy case), so a fresh host cleans pre-existing
-                # zombies instead of waiting out the absolute cap. A foreign explicit
-                # token is reaped even if its age is unknown (provably a dead host); an
-                # unstamped task needs a known age past the hand-off grace to avoid
-                # racing any malformed-but-fresh claim.
-                #
-                # Multi-host (CONCEPT:AU-OS.state.unified-durable-state-externalization/KG-2.54): with ``state_db_uri`` set,
-                # N hosts legitimately run workers, so a foreign token is NOT
-                # proof of a dead worker — another live host may be processing
-                # it. The reaper (leader-only) then degrades to conservative
-                # age-based reaping: unstamped past the grace, or ANY claim past
-                # the absolute runtime cap.
-                if _multi_host:
-                    orphan = (
-                        claimed_by is None and age is not None and age >= grace
-                    ) or (age is not None and age >= max_runtime)
-                else:
-                    not_live = claimed_by != token  # token is never None
-                    orphan = not_live and (
-                        (claimed_by is not None and age is None)
-                        or (age is not None and age >= grace)
-                    )
-                # Backstop: this host's own task wedged beyond the absolute cap.
-                backstop = (
-                    claimed_by == token and age is not None and age >= max_runtime
-                )
-                if not (orphan or backstop):
-                    continue
-
-                resets = int(meta.get("reaper_resets", 0)) + 1
-                reason = "orphan(dead-host)" if orphan else "stuck(runtime-cap)"
-                if resets > max_resets:
-                    meta["error"] = (
-                        f"reaper: exceeded {max_resets} requeues ({reason}); "
-                        "failing to break the loop"
-                    )
-                    meta["reaper_resets"] = resets
-                    self._control_cypher(
-                        "MATCH (t:Task {id: $id}) SET t.status = 'failed', t.metadata = $meta",
-                        {"id": tid, "meta": _encode_metadata(meta)},
-                    )
-                    failed += 1
-                    logger.warning(
-                        "TaskReaper: FAILED %s after %d requeues (%s)",
-                        tid,
-                        resets - 1,
-                        reason,
-                    )
-                    continue
-
-                meta["reaper_resets"] = resets
-                meta["reaper_last_reason"] = reason
-                meta["reaper_last_at"] = datetime.now(UTC).isoformat()
-                meta.pop("claimed_by", None)
-                meta.pop("claim_unix", None)
-                # Guard on status='running' so we never clobber a task a worker just
-                # legitimately completed between the scan and this write.
-                self._control_cypher(
-                    "MATCH (t:Task {id: $id, status: 'running'}) SET t.status = 'pending', t.metadata = $meta",
-                    {"id": tid, "meta": _encode_metadata(meta)},
-                )
-                # Kafka mode (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): nothing polls 'pending' :Task
-                # nodes — the kg-ingest consumer group drives processing from
-                # the topic — so a reaped orphan is RE-PUBLISHED for re-claim.
-                # The claim is idempotent (status-checked), so a duplicate
-                # delivery of the original message is harmless.
-                if getattr(self, "_task_queue_backend_name", None) == "kafka":
-                    try:
-                        self._submission_queue.put(
-                            {
-                                "job_id": tid,
-                                "props": {
-                                    "status": "pending",
-                                    "metadata": _encode_metadata(meta),
-                                },
-                            }
-                        )
-                    except Exception as e:  # noqa: BLE001 — next reaper tick retries
-                        logger.warning(
-                            "TaskReaper: kafka re-publish of %s failed: %s", tid, e
-                        )
-                requeued += 1
-                logger.warning(
-                    "TaskReaper: requeued %s (%s, age=%ss, claimed_by=%s)",
-                    tid,
-                    reason,
-                    round(age) if age is not None else "?",
-                    claimed_by,
-                )
-            if requeued or failed:
-                logger.info(
-                    "TaskReaper: requeued=%d failed=%d (running scanned=%d)",
-                    requeued,
-                    failed,
-                    len(rows or []),
-                )
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("task_reaper tick error: %s", e)
-
     def _deps_state(self, deps: list[str]) -> str:
-        """Resolve a dependency set to ``ready`` / ``waiting`` / ``broken``.
-
-        ``ready`` = every dep ``completed``; ``broken`` = a dep reached a
-        terminal non-completed state (failed/dead_letter/cancelled) so the
-        dependent must never run on a broken precondition; ``waiting``
-        otherwise. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-        """
+        """Read dependency state exclusively from their WorkItems."""
         if not deps:
             return "ready"
-        # Per-dep id-scoped equality queries: the L1 graph interpreter refuses an
-        # unscoped ``WHERE t.id IN [...]`` (full-graph scan), so we look each dep
-        # up by id (deps are few). (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-        broken = {"failed", "dead_letter", "cancelled"}
+        from agent_utilities.orchestration import work_item as _wi
+
+        broken = {
+            _wi.WorkItemStatus.FAILED.value,
+            _wi.WorkItemStatus.DEAD_LETTER.value,
+            _wi.WorkItemStatus.CANCELLED.value,
+        }
         all_done = True
         for dep in deps:
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — dependency :Task lookups are CONTROL plane.
-            rows = self._control_cypher(
-                "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": dep}
+            item = _wi.get_work_item(
+                self._work_item_engine, _wi.ingest_task_work_item_id(dep)
             )
-            state = rows[0].get("s") if rows else None
+            state = (item or {}).get("status")
             if state in broken:
                 return "broken"
-            if state != "completed":
+            if state != _wi.WorkItemStatus.SUCCEEDED.value:
                 all_done = False
         return "ready" if all_done else "waiting"
-
-    def _tick_promotion_sweep(self) -> None:
-        """Promote due 'scheduled' and unblocked 'blocked' tasks to 'pending'.
-
-        The unified queue defers work two ways without ORDER BY/range queries on
-        the hot path: a delayed/retrying task waits as ``scheduled`` (carrying
-        ``eta_unix``) and a dependent task waits as ``blocked`` (carrying
-        ``depends_on``). This per-minute, leader-only sweep is the ONE place an
-        eta/dependency comparison happens — in Python over the small
-        scheduled/blocked set — so the worker claim stays pure equality.
-        (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-        """
-        from .host_lock import effective_daemon_role
-
-        if effective_daemon_role() != "host":
-            return
-        try:
-            now = time.time()
-            promoted = 0
-            cancelled = 0
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — the promotion sweep reads + flips :Task on the
-            # CONTROL plane (__control__), isolated from content ingestion.
-            # scheduled → pending once eta is due (or eta missing/garbled → now).
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: 'scheduled'}) "
-                "RETURN t.id as id, t.metadata as meta"
-            )
-            for row in rows or []:
-                tid = row.get("id")
-                if not tid:
-                    continue
-                meta = _decode_metadata(row.get("meta")) or {}
-                eta = meta.get("eta_unix")
-                try:
-                    due = eta is None or float(eta) <= now
-                except (TypeError, ValueError):
-                    due = True
-                if due:
-                    self._control_cypher(
-                        "MATCH (t:Task {id: $id, status: 'scheduled'}) "
-                        "SET t.status = 'pending'",
-                        {"id": tid},
-                    )
-                    promoted += 1
-            # blocked → pending once all deps completed; broken deps → cancel.
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: 'blocked'}) "
-                "RETURN t.id as id, t.metadata as meta"
-            )
-            for row in rows or []:
-                tid = row.get("id")
-                if not tid:
-                    continue
-                meta = _decode_metadata(row.get("meta")) or {}
-                deps = meta.get("depends_on") or []
-                state = self._deps_state(deps)
-                if state == "ready":
-                    self._control_cypher(
-                        "MATCH (t:Task {id: $id, status: 'blocked'}) "
-                        "SET t.status = 'pending'",
-                        {"id": tid},
-                    )
-                    promoted += 1
-                elif state == "broken":
-                    meta["error"] = "dependency failed; cancelling dependent task"
-                    self._update_task_status(tid, "cancelled", meta)
-                    cancelled += 1
-            if promoted or cancelled:
-                logger.info(
-                    "PromotionSweep: promoted=%d cancelled=%d", promoted, cancelled
-                )
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("promotion_sweep tick error: %s", e)
 
     def _tick_file_watch(self) -> None:
         """One SDD/skills/scholarx/config file-watch scan (CONCEPT:AU-KG.research.research-pipeline-runner / OS-5.0).
@@ -1712,7 +1609,7 @@ class TaskManagerMixin(GraphEngineProtocol):
 
             run_watcher_scan(self, get_workspace_path())
         except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("file_watch tick error: %s", e)
+            logger.debug("file_watch tick failed (%s)", type(e).__name__)
 
     def _record_queue_telemetry(self, queue_size: int) -> None:
         """Publish ingest queue depth (+ Kafka consumer lag) as Prometheus
@@ -1750,10 +1647,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         yields the GPU/LLM to interactive runs. (CONCEPT:AU-KG.compute.registered-edge-type / KG-2.8)
 
         Tick classification (CONCEPT:AU-OS.state.cross-host-daemon-leadership): every job in this scheduler is
-        **leader-only** — whole-graph/singleton passes (analysis, golden loop,
-        failure ingest, anomaly consumer, fuseki publish, compaction, evolution,
-        durable reconcile, enrichment, SDD/file watch, hygiene, task reaper)
-        where N hosts running them means duplicated LLM spend or double writes.
+        **leader-only**. The remaining inline scheduler tick must have one fleet
+        owner so N hosts do not enqueue the same recurring work.
         With ``state_db_uri`` set, a Postgres advisory lock elects exactly one
         leader fleet-wide; followers idle here and still contribute **per-host**
         capacity (task workers + submission/graph-writer queue drains, whose
@@ -1799,12 +1694,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                     except Exception:  # noqa: BLE001 — queue probe best-effort
                         pass
 
-                # This loop now runs ONLY queue PLUMBING — the scheduler (which
-                # also collapses stale ticks, CONCEPT:AU-OS.state.stale-tick-collapse), the task reaper,
-                # and the promotion sweep. Unlike the heavy job *bodies* they
-                # enqueue (which run in the worker pool under the background
-                # throttle), the plumbing feeds and heals the queue, so it MUST
-                # run even when the queue/workers are saturated. It is therefore
+                # This loop now runs ONLY the scheduler, including stale-tick
+                # collapse (CONCEPT:AU-OS.state.stale-tick-collapse). Native
+                # ClaimWorkItem owns lease recovery, dependency release, and
+                # delayed availability. Unlike the heavy job *bodies* it
+                # enqueues, scheduler plumbing must run even when workers are
+                # saturated. It is therefore
                 # deliberately NOT gated by the foreground throttle or a
                 # bulk-ingest auto-defer: gating it was the regression that let a
                 # stale-tick backlog and dead-worker leases pile up *precisely*
@@ -2075,9 +1970,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         rows and give each a slice of the budget every tick, rotating which
         channel leads (so the per-channel remainder is shared fairly over time).
         Tables without ``source_system`` (internal codebase writes) fall back to
-        the plain bounded scan. L1-safe: only equality filters + LIMIT, no ORDER
+        the plain bounded scan. Interpreter-safe: only equality filters + LIMIT, no ORDER
         BY (the interpreter strips ORDER BY) — exactly like the lane claim.
         """
+        tbl = _require_database_identifier(tbl)
         with conn_factory() as conn, conn.cursor() as cur:
             cur.execute(
                 "SELECT column_name FROM information_schema.columns "
@@ -2091,21 +1987,35 @@ class TaskManagerMixin(GraphEngineProtocol):
             expr = " || ' ' || ".join(f"COALESCE(\"{c}\",'')" for c in text_cols)
             has_source = "source_system" in cols
 
-            def _fetch(where: str, params: tuple, limit: int) -> list[tuple[Any, str]]:
+            unfiltered = object()
+
+            def _fetch(source_system: object, limit: int) -> list[tuple[Any, str]]:
+                if source_system is unfiltered:
+                    source_clause = ""
+                    params: tuple[object, ...] = (limit,)
+                elif source_system is None:
+                    source_clause = " AND source_system IS NULL"
+                    params = (limit,)
+                else:
+                    source_clause = " AND source_system = %s"
+                    params = (str(source_system), limit)
                 cur.execute(
+                    # Both identifiers are selected from fixed allowlists and
+                    # ``tbl`` was validated by ``_require_database_identifier``.
                     f'SELECT id, {expr} FROM "{tbl}" '  # nosec B608
-                    f"WHERE embedding IS NULL{where} LIMIT %s",
-                    (*params, limit),
+                    f"WHERE embedding IS NULL{source_clause} LIMIT %s",
+                    params,
                 )
                 got = [(r[0], (r[1] or "").strip()) for r in cur.fetchall()]
                 return [(nid, txt) for nid, txt in got if txt]
 
             if not has_source:
-                return _fetch("", (), take)
+                return _fetch(unfiltered, take)
 
             # Distinct channels that still have unembedded rows (bounded scan, no
             # GROUP BY ORDER BY — equality-friendly DISTINCT only).
             cur.execute(
+                # ``tbl`` was validated by ``_require_database_identifier``.
                 f'SELECT DISTINCT source_system FROM "{tbl}" '  # nosec B608
                 "WHERE embedding IS NULL LIMIT 64"
             )
@@ -2114,7 +2024,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             if len(channels) <= 1:
                 # One (or zero) channel — nothing to round-robin; plain scan.
-                return _fetch("", (), take)
+                return _fetch(unfiltered, take)
 
             # Rotate which channel leads this tick (fair sharing of the remainder).
             cur_idx = self._EMBED_SOURCE_CURSORS.get(tbl, 0) % len(channels)
@@ -2128,31 +2038,31 @@ class TaskManagerMixin(GraphEngineProtocol):
                     break
                 slot = min(per_channel, take - len(items))
                 if ch == "":
-                    rows = _fetch(" AND source_system IS NULL", (), slot)
+                    rows = _fetch(None, slot)
                 else:
-                    rows = _fetch(" AND source_system = %s", (ch,), slot)
+                    rows = _fetch(ch, slot)
                 items.extend(rows)
             return items[:take]
 
     def _tick_embedding_backfill(self) -> int:
-        """Backfill vector embeddings onto durable nodes that lack them.
+        """Backfill vector embeddings onto configured pgvector nodes that lack them.
 
         Vector features (semantic_search, concept→code RELATES_TO linking,
-        designation, latent retrieval) need embeddings on the L3/pgvector node
+        designation, latent retrieval) need embeddings on pgvector node
         tables, but the structural codebase pass and concept extraction create
         nodes WITHOUT embeddings. This embeds unembedded rows incrementally in
         bounded batches with the configured model, behind the shared foreground
         gate. Idempotent (only ``embedding IS NULL`` rows). (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
-        l3 = getattr(self.backend, "l3", self.backend)
-        conn_factory = getattr(l3, "_conn", None)
-        get_tables = getattr(l3, "_get_embedding_tables", None)
+        target = self.backend
+        conn_factory = getattr(target, "_conn", None)
+        get_tables = getattr(target, "_get_embedding_tables", None)
         if (
             not callable(conn_factory)
             or not callable(get_tables)
-            or not getattr(l3, "pgvector_available", False)
+            or not getattr(target, "pgvector_available", False)
         ):
-            return 0  # not a pgvector-backed L3
+            return 0  # not a pgvector backend
 
         budget = _EMBED_BACKFILL_BUDGET
 
@@ -2193,7 +2103,9 @@ class TaskManagerMixin(GraphEngineProtocol):
             try:
                 items = self._collect_unembedded_rows(conn_factory, tbl, take)
             except Exception as e:  # noqa: BLE001
-                logger.debug("embed backfill: query %s failed: %s", tbl, e)
+                logger.debug(
+                    "embed backfill query failed (error_type=%s)", type(e).__name__
+                )
                 continue
 
             if not items:
@@ -2209,6 +2121,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 with conn_factory() as conn, conn.cursor() as cur:
                     for (nid, _), vec in zip(items, vecs, strict=False):
                         cur.execute(
+                            # ``tbl`` was validated by
+                            # ``_require_database_identifier``.
                             f'UPDATE "{tbl}" SET embedding = %s::vector '  # nosec B608
                             "WHERE id = %s AND embedding IS NULL",
                             (str(vec), nid),
@@ -2218,7 +2132,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 remaining -= len(items)
                 self._embed_circuit_record(True, now)  # healthy → close breaker
             except Exception as e:  # noqa: BLE001
-                logger.debug("embed backfill: store %s failed: %s", tbl, e)
+                logger.debug(
+                    "embed backfill store failed (error_type=%s)", type(e).__name__
+                )
                 # An embed/store failure means the endpoint is likely down for
                 # every table — record it and stop hammering the rest this tick.
                 self._embed_circuit_record(False, now)
@@ -2314,7 +2230,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 summary.get("transitions"),
             )
         except Exception as e:  # noqa: BLE001
-            logger.error("sai_factory tick error: %s", e)
+            logger.error("sai_factory tick failed (%s)", type(e).__name__)
 
     def _tick_failure_ingest(self) -> None:
         """Ingest Langfuse failures → gap topics → regression-gated remediation.
@@ -2340,24 +2256,35 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.error("failure_ingest tick error: %s", e)
 
     def _tick_optimize_components(self) -> None:
-        """Propose-only DSPy optimization sweep over the self-supervised targets.
+        """Propose-only optimization sweep over the self-supervised targets.
 
-        The scheduled twin of ``graph_orchestrate action=optimize_component`` (CONCEPT:
+        The scheduled twin of ``graph_evolution action=optimize_component`` (CONCEPT:
         AHE-3.46): gathers live graph data and runs the extraction / concept_match /
         routing optimizers, recording optimization trajectories. Nothing is auto-applied —
-        promotion stays behind ``should_promote`` and a future auto-apply gate. Opt-in via
-        KG_DSPY_OPTIMIZATION.
+        promotion stays behind ``should_promote`` and a future auto-apply gate. Default ON
+        via KG_OPTIMIZATION_ENABLED. The provider-free native program job is the
+        sole execution contract.
         """
         try:
-            from ...harness.dspy_optimization import run_optimization_sweep
+            from ...harness.program_optimization import run_optimization_sweep
 
             report = run_optimization_sweep(self)
-            logger.info(
-                "DSPy optimization sweep: optimized=%s (propose-only)",
-                report.get("optimized"),
-            )
+            if report.get("failed"):
+                logger.error(
+                    "Optimization sweep tick: FAILURES=%s optimized=%s "
+                    "duration=%ss (propose-only)",
+                    report.get("failed"),
+                    report.get("optimized"),
+                    report.get("duration_s"),
+                )
+            else:
+                logger.info(
+                    "Optimization sweep tick: optimized=%s duration=%ss (propose-only)",
+                    report.get("optimized"),
+                    report.get("duration_s"),
+                )
         except Exception as e:  # noqa: BLE001
-            logger.error("dspy_optimization tick error: %s", e)
+            logger.error("optimization tick error (%s)", type(e).__name__)
 
     def _tick_anomaly_consumer(self) -> None:
         """Drain unconsumed PerformanceAnomaly nodes into failure_gap topics.
@@ -2388,7 +2315,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         The ONE scheduler tick (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent): it reads the durable
         ``:Schedule`` registry (seeded from ``deploy/schedules.yml`` plus the
         former fixed-interval maintenance ticks registered programmatically) and
-        for every due schedule enqueues a ``scheduled_job`` ``:Task`` onto the
+        for every due schedule enqueues a ``scheduled_job`` WorkItem onto the
         unified queue — it does not run any job inline. Cron, interval, and
         adaptive triggers are all handled here. ``/cron calendar`` reads the
         same registry.
@@ -2548,47 +2475,42 @@ class TaskManagerMixin(GraphEngineProtocol):
                 deleted,
             )
 
-    def _tick_reconcile_durable(self) -> None:
-        """Autoheal the L1→L2 durable mirror (CONCEPT:AU-KG.coordination.embedder-breaker).
+    def _tick_reconcile_mirrors(self) -> None:
+        """Repair drift from the engine authority into configured mirrors."""
+        from ..backends.fanout_backend import FanOutBackend
 
-        Backfills any nodes/edges present in the L1 compute graph but missing from
-        the durable Postgres tier, so the two stores converge after an L1-only run,
-        a restart, or a newly-introduced node type. Best-effort + idempotent (writes
-        are upserts; auto-DDL creates any missing type table). Logs a drift summary.
-        """
         backend = getattr(self, "backend", None)
-        fn = getattr(backend, "reconcile_to_durable", None)
-        if not callable(fn):
+        fanout = getattr(backend, "inner", backend)
+        if not isinstance(fanout, FanOutBackend):
             return
         try:
-            summary = fn() or {}
-            # Exact post-condition drift — what truly remained unmirrored after the
-            # pass (not the always-positive count of best-effort writes).
-            missing = summary.get("nodes_missing", 0) + summary.get("edges_missing", 0)
-            errs = summary.get("errors", 0)
+            reports = fanout.reconcile()
+            summaries = [r for r in reports.values() if isinstance(r, dict)]
+            nodes_missing = sum(int(r.get("nodes_missing", 0)) for r in summaries)
+            edges_missing = sum(int(r.get("edges_missing", 0)) for r in summaries)
+            errs = sum(int(r.get("errors", 0)) for r in summaries) + sum(
+                1 for r in summaries if "error" in r
+            )
+            missing = nodes_missing + edges_missing
             if missing or errs:
                 logger.warning(
-                    "durable reconcile: drift remains after sync — "
+                    "mirror reconcile: drift remains after repair — "
                     "%d nodes / %d edges missing, %d write errors (%s)",
-                    summary.get("nodes_missing", 0),
-                    summary.get("edges_missing", 0),
+                    nodes_missing,
+                    edges_missing,
                     errs,
-                    summary,
+                    reports,
                 )
             else:
-                logger.debug(
-                    "durable reconcile: in sync (%d nodes, %d edges mirrored)",
-                    summary.get("nodes", 0),
-                    summary.get("edges", 0),
-                )
+                logger.debug("mirror reconcile: all configured mirrors are in sync")
         except Exception as e:  # noqa: BLE001
-            logger.warning("durable reconcile tick failed: %s", e)
+            logger.warning("mirror reconcile tick failed: %s", e)
 
     def _tick_compaction(self) -> None:
         """One LCM compaction tick (CONCEPT:AU-KG.memory.tiered-memory-caching).
 
         Finds ``Thread`` nodes with more than ``COMPACTION_THRESHOLD``
-        uncompacted messages and delegates to ``ElasticContextManager``. Run by
+        uncompacted messages and delegates to ``AgentContextManager``. Run by
         the consolidated maintenance scheduler.
         """
         COMPACTION_THRESHOLD = 30
@@ -2603,9 +2525,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         )
         if not threads:
             return
-        from agent_utilities.knowledge_graph.memory import ElasticContextManager
+        from agent_utilities.knowledge_graph.memory import AgentContextManager
 
-        ecm = ElasticContextManager(max_tokens=32000)
+        ecm = AgentContextManager(max_tokens=32000)
         for thread in threads:
             thread_id = thread.get("id", "")
             msg_count = thread.get("msg_count", 0)
@@ -2764,6 +2686,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             word.capitalize()
                             for word in raw_type.replace("_", " ").split()
                         )
+                        label = _safe_graph_identifier(label, default="Code")
                         if not label:
                             label = "Code"
 
@@ -2808,16 +2731,21 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                         # Execute MERGE
                         # Using query_cypher to pass props nicely
+                        safe_properties = {
+                            key: value
+                            for key, value in props.items()
+                            if isinstance(key, str) and _GRAPH_IDENTIFIER.fullmatch(key)
+                        }
                         set_clause = ", ".join(
-                            [f"n.{k} = $props_{k}" for k in props.keys()]
+                            [f"n.{key} = $props_{key}" for key in safe_properties]
                         )
                         if set_clause:
                             set_clause = " SET " + set_clause
                         query = f"MERGE (n:{label} {{id: $id}}){set_clause}"
 
                         params = {"id": nid}
-                        for k, v in props.items():
-                            params[f"props_{k}"] = v
+                        for key, value in safe_properties.items():
+                            params[f"props_{key}"] = value
 
                         self.backend.execute(query, params)
 
@@ -2826,8 +2754,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     if "source" in edge and "target" in edge and "type" in edge:
                         src = edge.pop("source")
                         tgt = edge.pop("target")
-                        etype = str(edge.pop("type")).upper()
-                        etype = "".join(c for c in etype if c.isalnum() or c == "_")
+                        etype = _safe_graph_identifier(str(edge.pop("type")).upper())
 
                         if not etype:
                             continue
@@ -2840,49 +2767,12 @@ class TaskManagerMixin(GraphEngineProtocol):
 
                 # Only acknowledge and remove from staging if successful
                 self._submission_queue.ack_staged_graph(item_id)
-            except Exception as e:
-                logger.error(f"Error persisting staged graph (will retry): {e}")
+            except Exception as exc:
+                logger.error(
+                    "Error persisting staged graph; will retry: error_type=%s",
+                    type(exc).__name__,
+                )
                 time.sleep(2.0)
-
-    def _submission_worker_loop(self):
-        """Background daemon thread to drain the SQLite queue and insert tasks into the graph."""
-        import time
-
-        while True:
-            try:
-                item = self._submission_queue.get()
-                if item is None:
-                    time.sleep(0.1)
-                    continue
-
-                item_id, task_data = item
-                job_id = task_data["job_id"]
-                props = task_data["props"]
-
-                # CONCEPT:AU-KG.backend.schedule-on-control-graph — the :Task node is CONTROL plane: write it to
-                # the isolated ``__control__`` graph (via the control backend) so
-                # task creation never blocks behind sustained content ingestion on
-                # ``__commons__``'s write lock.
-                ctrl = self._control
-                if (
-                    ctrl is not None
-                    and ctrl is not self.backend
-                    and hasattr(ctrl, "add_node")
-                ):
-                    # Replicate EXACTLY what the protocol add_node() does (it wraps
-                    # node_type + ephemeral into the property bag), just bound to
-                    # the control backend instead of self.backend.
-                    ctrl.add_node(job_id, node_type="Task", ephemeral=False, **props)
-                else:
-                    # Degrade to the shared content backend (unchanged behaviour).
-                    self.add_node(job_id, "Task", properties=props)
-
-                # Only acknowledge and remove from queue if successful
-                self._submission_queue.ack(item_id)
-                self._checkpoint_db()
-            except Exception as e:
-                logger.error(f"Error persisting queued task (will retry): {e}")
-                time.sleep(1.0)
 
     def submit_task(
         self,
@@ -2891,7 +2781,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         provenance: dict,
         task_type: str | None = None,
         skip_dedupe: bool = False,
-        priority: str | int | None = None,
+        priority: int | None = None,
         scheduled_for: float | None = None,
         depends_on: list[str] | None = None,
         max_attempts: int = _TASK_MAX_ATTEMPTS,
@@ -2900,37 +2790,32 @@ class TaskManagerMixin(GraphEngineProtocol):
     ) -> str:
         """Submit a background task to the unified durable queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
-        ``priority`` picks a claim bucket (0=critical .. 3=background, or the
-        legacy ``high``/``normal`` strings). ``scheduled_for`` (a unix ts in the
-        future) enqueues the task as ``scheduled`` until the per-minute promotion
-        sweep makes it ``pending``. ``depends_on`` (other job ids) enqueues it as
-        ``blocked`` until every dependency has ``completed``. ``job_id`` lets a
+        ``priority`` picks a claim bucket (0=critical .. 3=background).
+        ``scheduled_for`` and ``depends_on`` are evaluated atomically by native
+        WorkItem selection. ``job_id`` lets a
         caller supply a deterministic id (the unified Scheduler uses
         ``sched:<name>:<minute>`` so a double-fire is an idempotent upsert).
         """
-        # Statuses that still represent un-finished work for dedupe + the
-        # promotion sweep: pending/running plus the new delayed/blocked lanes.
+        from agent_utilities.orchestration import work_item as _wi
+
+        durable_target = _portable_task_target(target_path)
+        # WorkItem owns both the immutable execution definition and lifecycle.
         if not skip_dedupe:
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task dedupe read is CONTROL plane → __control__.
-            existing = self._control_cypher(
-                "MATCH (t:Task) WHERE t.status IN "
-                "['pending', 'running', 'scheduled', 'blocked'] "
-                "RETURN t.id as id, t.metadata as meta"
-            )
-            for row in existing:
-                meta = _decode_metadata(row.get("meta"))
-                if meta and meta.get("target") == target_path:
-                    return row["id"]
+            for item in self._ingest_work_item_index().values():
+                meta = item.get("metadata") or {}
+                if meta and meta.get("target") == durable_target:
+                    if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
+                        return str(item.get("payload_ref") or "")
 
         if not job_id:
-            job_id = f"job-{uuid.uuid4().hex[:8]}"
+            job_id = f"job-{uuid.uuid4().hex}"
 
         if not task_type:
             task_type = "codebase" if is_codebase else "document"
 
         now = time.time()
         task_data: dict[str, Any] = {
-            "target": target_path,
+            "target": durable_target,
             "type": task_type,
             "submitted_at": datetime.now(UTC).isoformat(),
             "attempts": 0,
@@ -2938,40 +2823,61 @@ class TaskManagerMixin(GraphEngineProtocol):
         }
         if extra_meta:
             task_data.update(extra_meta)
+            only_files = task_data.get("only_files")
+            if isinstance(only_files, list):
+                task_data["only_files"] = [
+                    _portable_task_target(str(path)) for path in only_files
+                ]
 
         prio_bucket = _coerce_prio_bucket(priority)
-        # Resolve the initial lane: blocked (deps) > scheduled (eta) > pending.
-        status = "pending"
-        due_bucket: int | None = None
         if depends_on:
             task_data["depends_on"] = list(depends_on)
-            status = "blocked"
-        elif scheduled_for and float(scheduled_for) > now:
+        if scheduled_for and float(scheduled_for) > now:
             task_data["eta_unix"] = float(scheduled_for)
-            due_bucket = int(float(scheduled_for) // 60)
-            status = "scheduled"
 
         from agent_utilities.knowledge_graph.core.task_lanes import lane_for_task_type
 
-        encoded_meta = _encode_metadata(task_data)
-        props: dict[str, Any] = {
-            "status": status,
-            "metadata": encoded_meta,
-            "prio_bucket": prio_bucket,
-            # CONCEPT:AU-ORCH.execution.two-level-fair-rotation — stamp the functional lane (top-level, queryable) so the
-            # worker can claim fairly per-lane and we can surface per-lane congestion.
-            "lane": lane_for_task_type(task_type),
-            # CONCEPT:AU-ORCH.scheduling.task-type-stamping — stamp the task TYPE top-level too, so claiming can rotate
-            # fairly across types WITHIN a lane (a fast diff/document not stuck behind codebase).
-            "tkind": task_type,
-        }
-        if due_bucket is not None:
-            props["due_bucket"] = due_bucket
+        lane = lane_for_task_type(task_type)
         if provenance:
-            props.update(provenance)
+            task_data["provenance"] = dict(provenance)
 
-        # Add the Task node to the persistence layer via the dedicated queue
-        self._submission_queue.put({"job_id": job_id, "props": props})
+        try:
+            from agent_utilities.knowledge_graph.core.session import current_session
+
+            active_session = current_session()
+            tenant = active_session.tenant if active_session is not None else ""
+        except Exception:  # pragma: no cover - local bootstrap
+            tenant = ""
+        work_item_id = _wi.ingest_task_work_item_id(job_id)
+        task_data["work_item_id"] = work_item_id
+        _wi.ensure_ingest_task_work_item(
+            self._work_item_engine,
+            job_id,
+            prio_bucket=prio_bucket,
+            resource_class=lane or "default",
+            fairness_group=task_type,
+            tenant=tenant,
+            depends_on=depends_on or (),
+            available_at=float(scheduled_for) if scheduled_for else None,
+            max_attempts=max_attempts,
+            metadata=task_data,
+        )
+        # Kafka remains a notification transport only. Its consumers must win
+        # the same native WorkItem claim before executing; non-Kafka workers
+        # discover ready WorkItems directly and need no second queue record.
+        if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
+            self._submission_queue.put(
+                {
+                    "job_id": job_id,
+                    "partition_ref": persistence_reference(
+                        "ingest_partition", durable_target, namespace=tenant
+                    ),
+                }
+            )
 
         # Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
         # (Kuzu can't SET on indexed columns.) Unaffected indexes stay active.
@@ -3018,23 +2924,12 @@ class TaskManagerMixin(GraphEngineProtocol):
         * a sub-task (carries ``route_repo``/``split_child``) never re-splits;
         * an explicitly-scoped task (``only_files`` already set, e.g. the dirty
           self-ingest) is left exactly as-is;
-        * splitting is skipped unless graph routing is enabled (distinct graphs are
-          what buys the shard parallelism — with routing off every bucket would land
-          on the same graph, so the split would add tasks for no gain);
         * small/medium repos (the healthy p50) fall straight through to the inline
           path, untouched.
         """
         # Already a sub-task, or an explicitly-scoped ingest → never fan out.
         if meta.get("route_repo") or meta.get("split_child") or meta.get("only_files"):
             return False
-        try:
-            from agent_utilities.knowledge_graph.core import ingest_routing
-
-            if not ingest_routing.routing_enabled():
-                return False
-        except Exception:  # noqa: BLE001 — routing probe is best-effort
-            return False
-
         repo_root = Path(target)
         if not repo_root.is_dir():
             return False
@@ -3113,17 +3008,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         runs flat (no fan-out) so it can't flood the queue ahead of structural
         ingest. (CONCEPT:AU-KG.compute.registered-edge-type / KG-2.8)
         """
-        try:
-            rows = self._control_cypher(
-                "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
-                "RETURN t.metadata as meta"
-            )
-        except Exception:  # noqa: BLE001
-            return False
         n = 0
-        for row in rows or []:
-            meta = _decode_metadata(row.get("meta")) if isinstance(row, dict) else None
-            if meta and meta.get("type") == "codebase":
+        for item in self._ingest_work_item_index().values():
+            meta = item.get("metadata") or {}
+            state = _task_status_from_work_item(item)
+            if (
+                meta
+                and meta.get("type") == "codebase"
+                and state in {"pending", "running", "scheduled", "blocked"}
+            ):
                 n += 1
                 if n >= threshold:
                     return True
@@ -3132,31 +3025,17 @@ class TaskManagerMixin(GraphEngineProtocol):
     def ingest_queue_depth(self) -> int:
         """Uniform ingest backlog depth across queue backends (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 
-        ``queued-but-not-yet-claimed`` (the selected backend's queue size — for
-        Kafka that is the ``kg-ingest`` consumer-group lag, for SQLite/Postgres
-        the row count) **plus** in-graph ``pending``/``running`` ``:Task``
-        nodes. This is the single number backpressure consumers (the batch
+        Counts native ingestion WorkItems in a non-terminal state. This is the
+        single number backpressure consumers (the batch
         orchestrator's deferral, the maintenance bulk-defer gate, the lag
         metrics) should read, regardless of which backend is selected.
         """
-        depth = 0
-        q = getattr(self, "_submission_queue", None)
-        if q is not None:
-            try:
-                depth += int(q.get_queue_size())
-            except Exception:  # noqa: BLE001 — depth probe is best-effort
-                pass
-        try:
-            rows = self._control_cypher(
-                "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
-                "RETURN count(t) AS c"
-            )
-            if rows:
-                row = rows[0]
-                depth += int(row.get("c", 0) or 0) if isinstance(row, dict) else 0
-        except Exception:  # noqa: BLE001
-            pass
-        return depth
+        active = {"pending", "running", "scheduled", "blocked"}
+        return sum(
+            1
+            for item in self._ingest_work_item_index().values()
+            if _task_status_from_work_item(item) in active
+        )
 
     def submit_directory_tasks(
         self, directory: Path, provenance: dict
@@ -3173,13 +3052,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         queued_jobs: list[dict[str, str]] = []
         skipped: list[str] = []
 
-        # Pre-fetch active targets to deduplicate efficiently
+        # Pre-fetch WorkItem definitions once.
         active_targets = set()
-        for task in self._control_cypher(
-            "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN t.metadata as meta"
-        ):
-            meta = _decode_metadata(task.get("meta"))
-            if meta and "target" in meta:
+        for item in self._ingest_work_item_index().values():
+            meta = item.get("metadata") or {}
+            state = _task_status_from_work_item(item)
+            if (
+                meta
+                and "target" in meta
+                and state
+                in {
+                    "pending",
+                    "running",
+                    "scheduled",
+                    "blocked",
+                }
+            ):
                 active_targets.add(meta["target"])
 
         for file_path in sorted(directory.rglob("*")):
@@ -3239,12 +3127,13 @@ class TaskManagerMixin(GraphEngineProtocol):
             if self._workers_running:
                 return
 
+            background_session = self._background_session_for_spawn()
             # Start workers
             self._workers_running = True
 
         if getattr(self, "_task_queue_backend_name", "sqlite") == "kafka":
             # CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer — Kafka mode: the host's worker pool joins the
-            # ``kg-ingest`` consumer group instead of polling :Task nodes, so
+            # ``kg-ingest`` consumer group instead of polling WorkItems, so
             # it shares partitions (and per-key ordering) with any decoupled
             # `kg-ingest-worker` processes added for scale-out.
             from ..ingest_worker import start_ingest_consumer_pool
@@ -3253,7 +3142,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "Starting %d kg-ingest consumer workers (kafka task queue)...",
                 worker_count,
             )
-            start_ingest_consumer_pool(self, worker_count=worker_count)
+            start_ingest_consumer_pool(
+                self,
+                worker_count=worker_count,
+                background_session=background_session,
+            )
             return
 
         # ORCH-1.81: record the live pool size so the admission registry/policy
@@ -3261,126 +3154,38 @@ class TaskManagerMixin(GraphEngineProtocol):
         self._ingest_worker_count = int(worker_count)
         logger.info(f"Starting {worker_count} TaskManager workers...")
         for i in range(worker_count):
-            t = threading.Thread(
-                target=self._task_worker_loop, name=f"KGTaskWorker-{i}", daemon=True
+            t = _authorized_background_thread(
+                background_session,
+                self._task_worker_loop,
+                name=f"KGTaskWorker-{i}",
             )
             t.start()
 
-    def _select_pending_task(
-        self,
-        admit: Callable[[str, str], bool] | None = None,
-    ) -> dict[str, Any] | None:
-        """Return one claimable pending Task row, highest priority bucket first.
-
-        Bucketed equality queries (0=critical .. 3=background) replace
-        ``ORDER BY priority`` because the L1 graph interpreter strips ORDER BY
-        and supports only equality. A final untyped sweep picks up legacy nodes
-        that predate ``prio_bucket`` and carry only the ``priority`` string. This
-        single path works on both the SQLite default and pg-age (equality only),
-        so priority + reordering hold everywhere. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-
-        CONCEPT:AU-ORCH.execution.two-level-fair-rotation/1.76 — TWO-LEVEL fair rotation: rotate which functional lane gets
-        first dibs each claim (so a backed-up lane can't head-of-line-block another — codebase
-        ingestion was starved 75-pending/0-run), AND within the chosen lane rotate across its
-        task TYPES (so a fast ``diff``/``document`` is not stuck behind a big ``codebase`` batch
-        sharing the ingestion lane). Inside a (lane,type) the priority buckets still order work;
-        lane-stamped-but-untyped and fully-legacy tasks fall through to the broader sweeps.
-
-        CONCEPT:AU-ORCH.dispatch.worker-scheduling — ``admit(lane, task_type) -> bool`` is the reserved-worker admission
-        gate: rotation proposes the candidate, ``admit`` decides whether THIS free worker may
-        claim that lane/type *now* (hot-spare reservation, per-lane min coverage, codebase cap).
-        A denied (lane, type) is skipped so the rotation can offer a lane that needs coverage;
-        if every typed/lane candidate is denied we fall through to the legacy sweeps (which a
-        ``None`` admit, or an admit that has nothing left to deny, also reaches). When ``admit``
-        is ``None`` the behaviour is exactly the pre-ORCH-1.81 rotation.
-        """
-        from agent_utilities.knowledge_graph.core.task_lanes import (
-            LANE_NAMES,
-            lane_task_types,
+    def _ingest_work_item_index(self) -> dict[str, dict[str, Any]]:
+        """Load ingestion WorkItems keyed by public job id in one graph read."""
+        rows = self._work_item_engine.query_cypher(
+            "MATCH (w:WorkItem) RETURN w.id AS id, w.kind AS kind, "
+            "w.payload_ref AS payload_ref, w.status AS status, "
+            "w.next_retry_at AS next_retry_at, w.resource_class AS resource_class, "
+            "w.fairness_group AS fairness_group, w.prio_bucket AS prio_bucket, "
+            "w.attempt AS attempt, w.max_attempts AS max_attempts, "
+            "w.submitted_at AS submitted_at, w.completed_at AS completed_at, "
+            "w.error_ref AS error_ref, "
+            "w.result_ref AS result_ref, w.metadata AS metadata"
         )
-
-        # Track whether the admission gate denied any candidate this pass — if it
-        # denied at least one real (lane, type) and admitted none, the worker is
-        # being held back as a spare, so the lane-less LEGACY sweeps must NOT grab a
-        # task and spend that spare. With no admit (None), nothing is ever denied,
-        # so legacy sweeps run exactly as before. (CONCEPT:AU-ORCH.dispatch.worker-scheduling)
-        denied_any = False
-
-        def _ok(lane: str, task_type: str) -> bool:
-            nonlocal denied_any
-            if admit is None:
-                return True
-            ok = admit(lane, task_type)
-            if not ok:
-                denied_any = True
-            return ok
-
-        if not hasattr(self, "_lane_cursor"):
-            self._lane_cursor = 0
-            self._type_cursors: dict[str, int] = {}
-        n = len(LANE_NAMES)
-        order = [LANE_NAMES[(self._lane_cursor + i) % n] for i in range(n)]
-        self._lane_cursor = (self._lane_cursor + 1) % n
-        for lane in order:
-            # Per-TYPE fair rotation within the lane (ORCH-1.76).
-            types = lane_task_types(lane)
-            if types:
-                tc = self._type_cursors.get(lane, 0)
-                m = len(types)
-                torder = [types[(tc + i) % m] for i in range(m)]
-                self._type_cursors[lane] = (tc + 1) % m
-                for tk in torder:
-                    # ORCH-1.81: admission gate — a denied (lane, type) is skipped
-                    # so this free worker stays a spare / steers to an uncovered
-                    # lane instead of piling onto a capped/covered one.
-                    if not _ok(lane, tk):
-                        continue
-                    for bucket in _PRIORITY_BUCKETS:
-                        # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task claim selection is CONTROL plane.
-                        rows = self._control_cypher(
-                            "MATCH (t:Task {status: 'pending', tkind: $tk, prio_bucket: $b}) "
-                            "RETURN t.id as id, t.metadata as meta LIMIT 1",
-                            {"tk": tk, "b": bucket},
-                        )
-                        if rows:
-                            return rows[0]
-            # Lane-stamped but un-typed (pre-ORCH-1.76): claim by lane.
-            if not _ok(lane, ""):
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows or []:
+            if (
+                not isinstance(row, dict)
+                or row.get("kind") != "ingest_task"
+                or not row.get("payload_ref")
+            ):
                 continue
-            for bucket in _PRIORITY_BUCKETS:
-                rows = self._control_cypher(
-                    "MATCH (t:Task {status: 'pending', lane: $lane, prio_bucket: $b}) "
-                    "RETURN t.id as id, t.metadata as meta LIMIT 1",
-                    {"lane": lane, "b": bucket},
-                )
-                if rows:
-                    return rows[0]
-        # ORCH-1.81: the admission gate denied work and admitted none → this worker
-        # is being kept as a hot spare; don't let the lane-less legacy sweeps spend
-        # it. (Min-coverage already relaxed the spare inside admit when needed.)
-        if denied_any:
-            return None
-        # Lane-less legacy tasks (pre-ORCH-1.75 stamp): plain bucket sweep.
-        for bucket in _PRIORITY_BUCKETS:
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: 'pending', prio_bucket: $b}) "
-                "RETURN t.id as id, t.metadata as meta LIMIT 1",
-                {"b": bucket},
-            )
-            if rows:
-                return rows[0]
-        # Legacy fallback (pre-bucket nodes): honor the old high-then-any tiering.
-        rows = self._control_cypher(
-            "MATCH (t:Task {status: 'pending', priority: 'high'}) "
-            "RETURN t.id as id, t.metadata as meta LIMIT 1"
-        )
-        if rows:
-            return rows[0]
-        rows = self._control_cypher(
-            "MATCH (t:Task {status: 'pending'}) "
-            "RETURN t.id as id, t.metadata as meta LIMIT 1"
-        )
-        return rows[0] if rows else None
+            item = dict(row)
+            if not isinstance(item.get("metadata"), dict):
+                item["metadata"] = {}
+            out[str(item["payload_ref"])] = item
+        return out
 
     def lane_metrics(self) -> dict[str, Any]:
         """Per-lane congestion snapshot (CONCEPT:AU-ORCH.execution.two-level-fair-rotation): pending depth + in-flight per
@@ -3393,12 +3198,16 @@ class TaskManagerMixin(GraphEngineProtocol):
             lane_model_role,
         )
 
-        def _count(where: str, params: dict[str, Any]) -> int:
-            # CONCEPT:AU-KG.backend.schedule-on-control-graph — lane congestion counts read :Task on __control__.
-            rows = self._control_cypher(
-                f"MATCH (t:Task {{{where}}}) RETURN count(t) as c", params
-            )
-            return int((rows[0].get("c") if rows else 0) or 0) if rows else 0
+        work = self._ingest_work_item_index()
+        counts: dict[tuple[str, str], int] = {}
+        type_pending: dict[str, int] = {}
+        for item in work.values():
+            state = _task_status_from_work_item(item)
+            lane = str(item.get("resource_class") or "")
+            counts[(lane, state)] = counts.get((lane, state), 0) + 1
+            if state == "pending":
+                kind = str(item.get("fairness_group") or "")
+                type_pending[kind] = type_pending.get(kind, 0) + 1
 
         # ORCH-1.81: overlay the LIVE in-process worker registry so the snapshot
         # also shows how many workers each lane is *actually occupying right now*
@@ -3409,16 +3218,20 @@ class TaskManagerMixin(GraphEngineProtocol):
 
         out: dict[str, Any] = {}
         for lane in LANE_NAMES:
-            p = _count("status: 'pending', lane: $l", {"l": lane})
-            r = _count("status: 'running', lane: $l", {"l": lane})
+            p = counts.get((lane, "pending"), 0)
+            r = counts.get((lane, "running"), 0)
             out[lane] = {
                 "pending": p,
                 "running": r,
                 "live_running": int(live_running.get(lane, 0)),
                 "model_role": lane_model_role(lane),
             }
-        total_pending = _count("status: 'pending'", {})
-        total_running = _count("status: 'running'", {})
+        total_pending = sum(
+            v for (lane, status), v in counts.items() if status == "pending"
+        )
+        total_running = sum(
+            v for (lane, status), v in counts.items() if status == "running"
+        )
         out["lane_less"] = {
             "pending": max(
                 0,
@@ -3481,7 +3294,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "live_running": int(live_by_pool.get(pool, 0)),
             }
         # Reflect the per-type pool override in the pending rollup (content_url).
-        cu_pending = _count("status: 'pending', tkind: 'content_url'", {})
+        cu_pending = type_pending.get("content_url", 0)
         cu_pool = pool_for_task_type("content_url")
         if cu_pool in pool_out and cu_pool != "memory_gen":
             pool_out[cu_pool]["pending"] += cu_pending
@@ -3530,188 +3343,102 @@ class TaskManagerMixin(GraphEngineProtocol):
         return reg
 
     def _pending_by_lane(self) -> dict[str, int]:
-        """Pending-task count per functional lane (for admission control).
-
-        One equality count query per lane (LANE_NAMES is small). Lane-stamped
-        tasks are counted directly; typed-but-not-yet-lane-stamped tasks are
-        already covered because every enqueue stamps ``lane``. Best-effort: a
-        query error yields 0 for that lane (degrade to "no pending" → permissive).
-        """
+        """Ready WorkItem count per functional resource-class lane."""
         from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
 
-        out: dict[str, int] = {}
-        for lane in LANE_NAMES:
-            try:
-                rows = self._control_cypher(
-                    "MATCH (t:Task {status: 'pending', lane: $l}) RETURN count(t) as c",
-                    {"l": lane},
-                )
-                out[lane] = int((rows[0].get("c") if rows else 0) or 0)
-            except Exception:  # noqa: BLE001 — best-effort; permissive on error
-                out[lane] = 0
+        out: dict[str, int] = {lane: 0 for lane in LANE_NAMES}
+        for item in self._ingest_work_item_index().values():
+            if _task_status_from_work_item(item) != "pending":
+                continue
+            lane = str(item.get("resource_class") or "")
+            if lane in out:
+                out[lane] += 1
         return out
 
-    def _make_admission(self) -> Callable[[str, str], bool] | None:
-        """Build this-claim's admission predicate, or ``None`` to disable the gate.
+    def _remember_work_item_claim(self, job_id: str, claim: dict[str, Any]) -> None:
+        """Keep the native fencing tuple in process memory while executing.
 
-        Returns ``None`` (pre-ORCH-1.81 behaviour) when the pool is too small for
-        any reservation to make sense (1 worker can't keep a spare AND do work) or
-        when the feature is disabled (``KG_SCHED_RESERVED=0`` and no cap). Otherwise
-        binds an :class:`AdmissionPolicy` over the live registry + a freshly-sampled
-        ``pending_by_lane`` snapshot.
+        Claims are capabilities, not durable task metadata. Persisting them in
+        another node would create a second writable ownership authority.
         """
-        reg = self._worker_registry()
-        cfg = self._sched_config
-        # With a single worker, a hot spare would mean never working; and with no
-        # reservation and no explicit cap there's nothing to enforce.
-        if cfg.worker_count <= 1:
-            return None
-        # CONCEPT:AU-ORCH.dispatch.two-pool — the memory-gen/acquisition pool budget
-        # is worth enforcing on any pool of >2 workers (it keeps memory-gen from
-        # starving acquisition even when the hot-spare and codebase caps are both
-        # disabled), so the gate stays on there regardless of ``reserved``/cap.
-        if cfg.reserved <= 0 and cfg.codebase_cap is None and cfg.worker_count <= 2:
-            return None
-        from .worker_scheduler import AdmissionPolicy
+        with self._active_work_item_claims_lock:
+            self._active_work_item_claims[job_id] = dict(claim)
 
-        policy = AdmissionPolicy(cfg, reg)
-        pending = self._pending_by_lane()
+    def _active_work_item_claim(
+        self, job_id: str, *, pop: bool = False
+    ) -> dict[str, Any] | None:
+        with self._active_work_item_claims_lock:
+            if pop:
+                return self._active_work_item_claims.pop(job_id, None)
+            claim = self._active_work_item_claims.get(job_id)
+            return dict(claim) if claim is not None else None
 
-        def _admit(lane: str, task_type: str) -> bool:
-            return policy.admit(lane, task_type, pending)
+    def _ingest_task_metadata(self, job_id: str) -> dict[str, Any]:
+        """Read an ingestion definition from its sole WorkItem."""
+        from agent_utilities.orchestration import work_item as _wi
 
-        return _admit
+        item = _wi.get_work_item(
+            self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
+        )
+        if item is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion WorkItem for {job_id!r} does not exist"
+            )
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion WorkItem for {job_id!r} has invalid metadata"
+            )
+        return dict(metadata)
 
     def _claim_next_task(
         self, worker_id: str | None = None
     ) -> tuple[str, dict[str, Any]] | None:
-        """Claim the next runnable Task and stamp ownership (CONCEPT:AU-KG.compute.user-override-prompt-library).
-
-        AU-P1-CL: the actual race arbitration is now the engine-native WorkItem
-        state machine, not a raw field CAS on ``:Task``. Each proposed
-        candidate gets a deterministic shadow WorkItem — created lazily,
-        ``ready``, on first claim attempt
-        (:func:`~agent_utilities.orchestration.work_item.ensure_ingest_task_work_item`)
-        — and the win/lose decision is THAT shadow's ``ready -> leased ->
-        running`` CAS
-        (:func:`~agent_utilities.orchestration.work_item.claim_ingest_task_work_item`),
-        bound to the SAME isolated ``__control__`` backend the old raw CAS used
-        (:class:`_ControlPlaneWorkItemEngine`) — so a row is still claimed
-        exactly once *across hosts* without ever contending with content
-        ingestion. The bucket-ascending candidate selection is unchanged. A
-        lost claim (peer won it first, or a stale lease was just reclaimed
-        out from under us) means skip to the next candidate — same contract
-        as the old CAS loss. On a win, the legacy ``:Task.status``/metadata
-        are mirrored (unchanged shape, PLUS the shadow's id + fencing epoch,
-        so a later :meth:`_update_task_status` / :meth:`_fail_or_retry_task`
-        can commit the SAME shadow fenced on that epoch without a second
-        lookup) for unmigrated readers (lane_metrics, the reaper's legacy
-        branch, dashboards). Returns ``(job_id, stamped_meta)`` or ``None``
-        when idle. (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-        """
+        """Claim the next runnable ingestion WorkItem natively."""
         from agent_utilities.orchestration import work_item as _wi
 
-        # ORCH-1.81: build this claim's admission gate from the live worker→lane
-        # registry. Composes WITH the rotation+CAS: rotation proposes a candidate,
-        # ``admit`` decides whether THIS free worker may take that lane/type now
-        # (keep a hot spare, cap codebase, guarantee per-lane min coverage). A
-        # ``None`` gate (tiny pool / disabled) preserves the prior behaviour.
-        try:
-            admit = self._make_admission()
-        except Exception:  # noqa: BLE001 — scheduling is best-effort; never block claims
-            admit = None
-
         token = self._get_host_token()
+        claim = _wi.claim_next(
+            self._work_item_engine,
+            queue="ingest_task",
+            token=token,
+            lease_ttl_s=_TASK_MAX_RUNTIME_SEC,
+        )
+        if claim is None:
+            return None  # authoritative negative; no secondary scan/fallback
+        if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
+            return None
 
-        # Bound the retry sweep so a burst of contending workers can't spin
-        # forever; each miss means a peer claimed that candidate, so the next
-        # selection returns a different pending row (the claimed one is now
-        # 'running' and no longer matches the pending filter).
-        for _ in range(_CLAIM_MAX_RETRIES):
-            row = self._select_pending_task(admit=admit)
-            if not row:
-                return None
-            job_id = row["id"]
-            meta = _decode_metadata(row.get("meta"))
-            tkind = str(meta.get("type") or meta.get("tkind") or "document")
-
-            # The shadow's prio_bucket/resource_class/fairness_group mirror the
-            # :Task's own lane/priority stamps (ORCH-1.75/1.76) — a small extra
-            # control-plane read, bounded by _CLAIM_MAX_RETRIES per attempt.
-            prio_bucket = _DEFAULT_PRIO_BUCKET
-            lane = ""
-            try:
-                fields = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.prio_bucket as prio_bucket, "
-                    "t.lane as lane, t.tkind as tkind",
-                    {"id": job_id},
-                )
-                if fields:
-                    prio_bucket = int(
-                        fields[0].get("prio_bucket") or _DEFAULT_PRIO_BUCKET
-                    )
-                    lane = str(fields[0].get("lane") or "")
-                    tkind = str(fields[0].get("tkind") or tkind)
-            except Exception as e:  # noqa: BLE001 — field lookup is best-effort
-                logger.debug(
-                    "claim: prio/lane/tkind lookup failed for %s: %s", job_id, e
-                )
-
-            max_attempts = int(meta.get("max_attempts", _TASK_MAX_ATTEMPTS))
-
-            try:
-                claim = _wi.claim_ingest_task_work_item(
-                    self._work_item_engine,
-                    job_id,
-                    prio_bucket=prio_bucket,
-                    resource_class=lane or "default",
-                    fairness_group=tkind,
-                    max_attempts=max_attempts,
-                    token=token,
-                    # Single-TTL reap model (AU-P1-CL): mirrors the same
-                    # consolidation agent_dispatch_worker.CLAIM_TTL_S already
-                    # made for AgentTask — the runtime cap IS the lease TTL.
-                    lease_ttl_s=_TASK_MAX_RUNTIME_SEC,
-                )
-            except _wi.WorkItemBackendUnavailable:
-                raise
-            except Exception as e:  # noqa: BLE001 — claim is best-effort; treat as a lost race
-                logger.warning("claim: WorkItem claim errored for %s: %s", job_id, e)
-                claim = None
-
-            if claim is None:
-                # Lost the race for this row (or a peer's stale lease was
-                # reclaimed first) — try the next candidate.
-                continue
-
-            now = time.time()
-            meta["started_at"] = datetime.now(UTC).isoformat()
-            meta["claimed_by"] = token
-            meta["claim_unix"] = now
-            meta["work_item_id"] = claim["work_item_id"]
-            meta["work_item_epoch"] = claim["fence_token"]
-            encoded_meta = _encode_metadata(meta)
-            # Mirror the win onto the legacy :Task node (no longer the race
-            # arbiter, but still what lane_metrics / the reaper's legacy
-            # branch / dashboards read) — CONCEPT:AU-KG.backend.schedule-on-control-graph. Only the
-            # actual WorkItem-CAS winner ever reaches this line for a given
-            # job_id, so an unconditional SET here is safe.
-            self._control_cypher(
-                "MATCH (t:Task {id: $id}) SET t.status = 'running', t.metadata = $meta",
-                {"id": job_id, "meta": encoded_meta},
+        job_id = str(
+            claim.get("payload_ref")
+            or _wi.ingest_task_job_id_from_work_item_id(claim["work_item_id"])
+            or ""
+        )
+        if not job_id:
+            raise _wi.WorkItemBackendUnavailable(
+                "ClaimWorkItem returned an ingest item without payload_ref"
             )
-            # ORCH-1.81: stamp the registry the instant the claim wins so the
-            # NEXT worker's admission sees this lane/type as covered/busy.
-            if worker_id is not None:
-                from agent_utilities.knowledge_graph.core.task_lanes import (
-                    lane_for_task_type,
-                )
+        try:
+            meta = self._ingest_task_metadata(job_id)
+        except _wi.WorkItemBackendUnavailable:
+            _wi.commit_result(
+                self._work_item_engine,
+                claim["work_item_id"],
+                claim,
+                outcome="failed",
+                error_ref=f"invalid_ingest_definition:{job_id}",
+                retryable=False,
+            )
+            raise
+        tkind = str(meta.get("type") or "document")
+        self._remember_work_item_claim(job_id, claim)
+        if worker_id is not None:
+            from agent_utilities.knowledge_graph.core.task_lanes import (
+                lane_for_task_type,
+            )
 
-                self._worker_registry().start(
-                    worker_id, lane_for_task_type(tkind), tkind
-                )
-            return job_id, meta
-        return None
+            self._worker_registry().start(worker_id, lane_for_task_type(tkind), tkind)
+        return job_id, meta
 
     def _task_worker_loop(self):
         """Distributed polling loop that picks up pending tasks natively."""
@@ -3730,14 +3457,14 @@ class TaskManagerMixin(GraphEngineProtocol):
                     job_id, meta = claimed
                     if meta:
                         if "target" in meta:
-                            target_path = Path(meta["target"])
+                            target_path = _resolve_task_target(str(meta["target"]))
                         task_type = meta.get("type", "document")
                         is_codebase = task_type == "codebase"
 
                 if not job_id:
                     # Idle backoff. During a bulk ingest, back off HARD: one worker
-                    # holds the ingest while the other ~7 idle workers were each
-                    # busy-polling two Task graph-scans every 2s, flooding the single
+                    # holds the ingest while the other idle workers repeatedly
+                    # polled the queue every 2s, flooding the single
                     # client event loop + engine and starving the ingest worker
                     # (profiled: 24% of daemon CPU in poll query_cypher vs 10% in the
                     # actual ingest). A new task then waits at most one backoff to be
@@ -3832,7 +3559,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         }
         # CONCEPT:AU-KG.compute.lane-bound-task — bound EVERY claimed task by its lane's soft timeout so a
         # hung task (a connector with no per-call timeout, a wedged maint tick) frees
-        # its worker FAST instead of pinning it until the reaper's 2h absolute cap.
+        # its worker FAST instead of pinning it until the native lease's 2h cap.
         #
         # Why a watchdog THREAD and not ``asyncio.wait_for``: the work is run via
         # ``asyncio.run`` and a hang may be a *synchronous* blocking call (a connector
@@ -3843,8 +3570,6 @@ class TaskManagerMixin(GraphEngineProtocol):
         # the worker RETURN at the bound regardless of where the hang is; the hung
         # thread is abandoned (daemon → never blocks shutdown) and the task is routed
         # through the KG-2.113 retry→backoff→dead_letter machinery by the worker loop.
-        import threading as _threading
-
         from .task_lanes import task_soft_timeout
 
         timeout = task_soft_timeout(task_type)
@@ -3874,14 +3599,16 @@ class TaskManagerMixin(GraphEngineProtocol):
             except BaseException as exc:  # noqa: BLE001 — relayed to the worker loop
                 outcome["exc"] = exc
 
-        worker_thread = _threading.Thread(
-            target=_run_body, name=f"kg-task-{job_id}", daemon=True
+        worker_thread = _authorized_background_thread(
+            self._background_session_for_spawn(),
+            _run_body,
+            name=f"kg-task-{job_id}",
         )
         if heavy:
             # Hold the background concurrency slot only while we WAIT — released the
             # instant the worker is freed (success or timeout), so an abandoned hung
             # thread can't leak a slot forever (it merely over-subscribes by one
-            # transiently, which the reaper/dead-letter then resolves).
+            # transiently while the native WorkItem lifecycle resolves the attempt).
             #
             # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — ``enrichment_backfill`` is deliberately NOT in
             # ``_HEAVY_TASK_TYPES``, so it falls to the ``else`` branch below and runs
@@ -3922,18 +3649,15 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Persist an enqueued session-bundle upload into the usage store.
 
         CONCEPT:AU-KG.ingest.drain-session-bundle — the ``ingest_sessions`` MCP/REST handler enqueues large
-        uploads as a ``session_upload`` task with the bundles on the Task node's
-        metadata payload (same shape as ``kg_memory``); this runs on the host
+        uploads as a ``session_upload`` WorkItem metadata payload (same shape
+        as ``kg_memory``); this runs on the host
         worker, off the request path. ``record_bundle`` is idempotent (replaces
         existing rows) so a retry is safe.
         """
         from agent_utilities.usage.models import ParsedSessionBundle
         from agent_utilities.usage.recorder import get_usage_recorder
 
-        urows = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
-        )
-        umeta = _decode_metadata(urows[0]["m"]) if urows else {}
+        umeta = self._ingest_task_metadata(job_id)
         payload = umeta.get("payload", {}) or {}
         bundles = payload.get("bundles", []) or []
         up_tenant = str(payload.get("tenant_id") or "")
@@ -3942,15 +3666,22 @@ class TaskManagerMixin(GraphEngineProtocol):
         for item in bundles:
             try:
                 bundle = ParsedSessionBundle.model_validate(item)
-            except Exception as e:  # noqa: BLE001
-                logger.warning("session_upload bad bundle skipped: %s", e)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "session_upload_bad_bundle error_type=%s", type(exc).__name__
+                )
                 continue
             if up_tenant:
                 bundle.session.tenant_id = up_tenant
             if recorder.record_bundle(bundle):
                 ok += 1
         result = {"received": len(bundles), "ingested": ok}
-        self._update_task_status(job_id, "completed", {"type": task_type, **result})
+        # The durable queue needed the already privacy-normalized bundle only
+        # until acknowledged ingestion.  Do not retain even sanitized session
+        # payloads after the WorkItem completes.
+        self._update_task_status(
+            job_id, "completed", {"type": task_type, "payload": None, **result}
+        )
         return result
 
     async def _run_background_task(
@@ -3972,10 +3703,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     run_scheduled_job,
                 )
 
-                rows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
-                )
-                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                meta = self._ingest_task_metadata(job_id)
                 sched_name = meta.get("schedule", "")
                 payload = meta.get("payload", {})
                 try:
@@ -4011,12 +3739,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                     ResearchPipelineRunner,
                 )
 
-                rows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
-                )
-                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                meta = self._ingest_task_metadata(job_id)
                 paper = meta.get("paper", {})
                 runner = ResearchPipelineRunner(engine=self)  # type: ignore[arg-type]  # self is the engine
+                from ..research.cohort import resolve_ephemeral_paper_pdf
                 from .ingest_profile import profile_ingest
 
                 # OS-5.69/70 — profile token usage + per-stage timing for this paper.
@@ -4026,9 +3752,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                         paper.get("title", ""),
                         paper.get("abstract", ""),
                         paper.get("authors", []),
-                        # honor a pre-downloaded PDF (CONCEPT:AU-KG.research.so-cohort) so a cohort
-                        # ingests the full paper TEXT as an Article, not an abstract.
-                        pdf_path=paper.get("pdf_path") or None,
+                        # Resolve a pre-downloaded PDF only in worker memory. The
+                        # durable task carries the paper id, never a machine path.
+                        pdf_path=resolve_ephemeral_paper_pdf(str(paper.get("id", ""))),
                         source_url=paper.get("url", ""),
                         relevance_score=float(paper.get("score", 0.0) or 0.0),
                         domains=paper.get("domains"),
@@ -4049,10 +3775,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # CONCEPT:AU-KG.compute.offloaded-memory-write — a memory write offloaded from a SERVING process. The
                 # host performs the embed+write here (inline, _local=True so it never
                 # re-enqueues), isolating heavy ingestion from the serving/read plane.
-                rows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
-                )
-                meta = _decode_metadata(rows[0]["m"]) if rows else {}
+                meta = self._ingest_task_metadata(job_id)
                 p = meta.get("payload", {})
                 mid = self.store_memory(  # type: ignore[attr-defined]  # MemoryMixin, composed onto the engine
                     content=p.get("content", ""),
@@ -4060,7 +3783,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     name=p.get("name", ""),
                     tags=p.get("tags", []),
                     trust_score=p.get("trust_score", 0.8),
-                    agent_id=p.get("agent_id", ""),
+                    agent_id=p.get("agent_ref", ""),
                     extra_props=p.get("extra_props") or None,
                     _local=True,
                     _memory_id=p.get("memory_id"),
@@ -4116,7 +3839,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # route through the unified IngestionEngine DOCUMENT path so the page
                 # is fetched via the resolver (ArchiveBox→crawl4ai→requests) and a
                 # research roundup auto-acquires the papers it cites. The real URL
-                # rides on the Task node's ``source_url`` prop because the claim path
+                # rides in WorkItem metadata because the claim path
                 # wraps ``target`` in Path() (which would collapse ``https://``).
                 from agent_utilities.knowledge_graph.ingestion.engine import (
                     ContentType,
@@ -4124,10 +3847,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     IngestionManifest,
                 )
 
-                trow = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
-                )
-                tprops = trow[0]["t"] if trow else {}
+                tprops = self._ingest_task_metadata(job_id)
                 url = str(tprops.get("source_url") or "").strip()
                 if not url:
                     # Fallback: repair the Path()-mangled scheme separator.
@@ -4185,10 +3905,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     DocumentProcessor,
                 )
 
-                trow = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
-                )
-                meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
+                meta_t = self._ingest_task_metadata(job_id)
                 fd = (meta_t or {}).get("feed_doc") or {}
                 if not fd.get("document_id"):
                     self._update_task_status(
@@ -4199,6 +3916,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 else:
                     proc = DocumentProcessor(
                         getattr(self, "backend", None),
+                        engine=self,
                         chunking=ChunkingConfig(),
                         contextual=True,
                     )
@@ -4211,6 +3929,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                             doc_type=fd.get("doc_type", "news_article"),
                             source=fd.get("source", ""),
                             metadata=fd.get("metadata") or {},
+                            connector="feed",
+                            source_instance="feed-ingest-worker",
                         )
                         # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
                         # DocumentProcessor.process only chunks + contextual-
@@ -4261,10 +3981,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # per-item engine work, so run it in a worker thread.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                trow = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
-                )
-                meta_t = _decode_metadata(trow[0]["t"].get("metadata")) if trow else {}
+                meta_t = self._ingest_task_metadata(job_id)
                 source = str((meta_t or {}).get("feed_source") or "rss")
                 fmode = str((meta_t or {}).get("feed_mode") or "delta")
                 try:
@@ -4364,10 +4081,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track depth
-                trows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
-                )
-                t_props = trows[0]["t"] if trows else {}
+                t_props = self._ingest_task_metadata(job_id)
                 current_depth = int(t_props.get("current_depth", 0))
                 max_depth = int(t_props.get("max_depth", DEFAULT_KG_ANALYSIS_MAX_DEPTH))
 
@@ -4447,10 +4161,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # agent-utilities self-ingest scopes a DIRTY tree to its
                 # git-status-modified files via ``only_files`` on the task
                 # metadata; pass it through so the ingest engine parses only those.
-                cb_rows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as m", {"id": job_id}
-                )
-                cb_meta = _decode_metadata(cb_rows[0]["m"]) if cb_rows else {}
+                cb_meta = self._ingest_task_metadata(job_id)
 
                 # CONCEPT:AU-KG.ingest.subtask-routing-key — big-repo tail: if this is a whole-repo task for a
                 # repo large enough to pin one worker/shard for minutes, fan it out
@@ -4463,7 +4174,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 cb_manifest_meta: dict[str, Any] = {"features": True}
                 only_files = cb_meta.get("only_files")
                 if isinstance(only_files, list) and only_files:
-                    cb_manifest_meta["only_files"] = only_files
+                    cb_manifest_meta["only_files"] = [
+                        str(_resolve_task_target(str(path))) for path in only_files
+                    ]
                 # CONCEPT:AU-KG.ingest.subtask-routing-key — a split sub-task carries its own routing key so
                 # its structural writes land on a distinct per-shard graph
                 # (``code:<repo>__s<i>``) instead of the shared ``code:<repo>``.
@@ -4504,10 +4217,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # (gitlab/servicenow) blocking the rest in a sequential inline loop.
                 from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
-                mrows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.sync_mode as m", {"id": job_id}
-                )
-                mode = str((mrows[0].get("m") if mrows else None) or "delta")
+                connector_meta = self._ingest_task_metadata(job_id)
+                mode = str(connector_meta.get("sync_mode") or "delta")
                 sync_res = sync_source(self, str(target), mode=mode)
                 self._update_task_status(
                     job_id,
@@ -4524,8 +4235,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
             elif task_type == "connector_drain":
                 # CONCEPT:AU-KG.ontology.single-source-full-drain — ONE paginated page of a chunked full-corpus drain. The
-                # Task carries drain_id/source/mode top-level + the resumable connector
-                # checkpoint in its metadata blob; ``run_drain_page`` drains this page, ingests
+                # WorkItem metadata carries the drain identity and resumable
+                # connector checkpoint; ``run_drain_page`` drains this page, ingests
                 # it, and self-continues by enqueuing the NEXT page-task while the cursor has
                 # more — so a single ``source_sync(full)`` drains the whole corpus across many
                 # capacity-guarded background tasks without ever blocking the request.
@@ -4533,20 +4244,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                     run_drain_page,
                 )
 
-                drows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.sync_mode AS mode, "
-                    "t.drain_id AS did, t.drain_source AS src, t.drain_page AS page, "
-                    "t.metadata AS meta",
-                    {"id": job_id},
-                )
-                drow = drows[0] if drows else {}
-                dmeta = _decode_metadata(drow.get("meta")) if drow.get("meta") else {}
+                dmeta = self._ingest_task_metadata(job_id)
                 drain_res = run_drain_page(
                     self,
-                    source=str(drow.get("src") or target),
-                    mode=str(drow.get("mode") or "full"),
-                    drain_id=str(drow.get("did") or ""),
-                    page=int(drow.get("page") or dmeta.get("drain_page") or 0),
+                    source=str(dmeta.get("drain_source") or target),
+                    mode=str(dmeta.get("sync_mode") or "full"),
+                    drain_id=str(dmeta.get("drain_id") or ""),
+                    page=int(dmeta.get("drain_page") or 0),
                     checkpoint_json=dmeta.get("drain_checkpoint"),
                 )
                 self._update_task_status(
@@ -4579,8 +4283,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             elif task_type == "deploy_watch":
                 # Health-gated deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback): 'target' is the
                 # watched service name; the watch spec (window, deadline,
-                # rollback params) rides on this Task node, so a watch
-                # requeued by the zombie reaper resumes against its ORIGINAL
+                # rollback params) rides on the WorkItem, so a reclaimed watch
+                # resumes against its original
                 # deadline. Failure invokes the policy-gated rollback.
                 from agent_utilities.orchestration.deploy_watch import (
                     run_deploy_watch,
@@ -4599,10 +4303,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 query = str(target)
 
                 # Fetch metadata to track top_k if provided
-                srows = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t", {"id": job_id}
-                )
-                t_props = srows[0]["t"] if srows else {}
+                t_props = self._ingest_task_metadata(job_id)
                 top_k = int(t_props.get("top_k", 10))
 
                 try:
@@ -4631,20 +4332,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # member never wedges the cohort) or the deadline passes, run the
                 # assimilation pass + materialize the feature matrix over whatever was
                 # ingested. Until then re-defer ONE poll interval as 'scheduled' (NOT
-                # a failure attempt) so the promotion sweep re-promotes it.
+                # a failure attempt); native availability makes it claimable later.
                 from agent_utilities.knowledge_graph.research.cohort import (
                     cohort_ready,
                     finalize_cohort,
                 )
 
-                crow = self._control_cypher(
-                    "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
-                )
-                cmeta = (
-                    _decode_metadata(crow[0]["meta"])
-                    if crow and crow[0].get("meta")
-                    else {}
-                )
+                cmeta = self._ingest_task_metadata(job_id)
                 cohort_id = str(cmeta.get("cohort_id") or "")
                 deadline = float(cmeta.get("deadline_unix", 0.0) or 0.0)
                 ready, member_st = cohort_ready(self, cohort_id, deadline_unix=deadline)
@@ -4652,15 +4346,29 @@ class TaskManagerMixin(GraphEngineProtocol):
                     eta = time.time() + 60.0
                     cmeta["eta_unix"] = eta
                     cmeta["member_status"] = member_st
-                    self._control_cypher(
-                        "MATCH (t:Task {id: $id}) SET t.status = 'scheduled', "
-                        "t.due_bucket = $due, t.metadata = $meta",
-                        {
-                            "id": job_id,
-                            "due": int(eta // 60),
-                            "meta": _encode_metadata(cmeta),
-                        },
-                    )
+                    from agent_utilities.orchestration import work_item as _wi
+
+                    work_item_id = str(cmeta.get("work_item_id") or "")
+                    if not work_item_id:
+                        raise _wi.WorkItemBackendUnavailable(
+                            f"cohort barrier {job_id} has no authoritative WorkItem"
+                        )
+                    claim = self._active_work_item_claim(job_id)
+                    if claim is None:
+                        raise _wi.WorkItemBackendUnavailable(
+                            f"cohort barrier {job_id} has no active native claim"
+                        )
+                    if not _wi.defer_work_item(
+                        self._work_item_engine,
+                        work_item_id,
+                        claim,
+                        next_retry_at=eta,
+                        reason_ref="cohort_barrier",
+                    ):
+                        raise _wi.WorkItemBackendUnavailable(
+                            f"cohort barrier {job_id} deferral was fenced"
+                        )
+                    self._active_work_item_claim(job_id, pop=True)
                 else:
                     try:
                         result = finalize_cohort(self, cohort_id)
@@ -4697,8 +4405,8 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
                 embed_model = create_embedding_model()
-                # PyMuPDF for PDFs: C-based, GIL-releasing, ~0.2s vs pypdf's
-                # multi-minute stall that would otherwise wedge the whole host.
+                # Override the library default with the governed pypdf adapter,
+                # which enforces file, page, and extracted-character bounds.
                 pdf_extractor = _pdf_file_extractor()
                 if target.is_dir():
                     # exclude_hidden=False is REQUIRED: the research store lives
@@ -4817,7 +4525,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             error_tb = traceback.format_exc()
             logger.error(f"Task {job_id} failed: {error_tb}")
             # App-level failure: retry with backoff, then dead-letter past the cap
-            # (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task). The reaper's crash-requeue is a separate path.
+            # (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task). Native expired-lease recovery is separate.
             self._fail_or_retry_task(
                 job_id,
                 error_msg,
@@ -4986,7 +4694,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 overlap_count = sum(1 for kw in concept_keywords if kw in content_lower)
                 concept_score = min(20.0, overlap_count * 4.0)
 
-                # Architecture compatibility (heuristic based on content signals)
+                # Architecture match (heuristic based on content signals)
                 arch_keywords = [
                     "plugin",
                     "mixin",
@@ -5069,7 +4777,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
 
             except Exception as e:
-                logger.warning(f"RelevanceSweep: error scoring paper {paper_path}: {e}")
+                logger.warning(
+                    "RelevanceSweep: paper scoring failed (%s)", type(e).__name__
+                )
 
         # ── Step 5: Score each repository ──
         for repo_name in repo_set:
@@ -5281,11 +4991,8 @@ class TaskManagerMixin(GraphEngineProtocol):
         if not self.backend:
             return
 
-        # Quick check: are there still pending/running tasks?
-        remaining = self._control_cypher(
-            "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN count(t) as cnt"
-        )
-        if remaining and remaining[0].get("cnt", 0) > 0:
+        # WorkItem decides whether queue work remains.
+        if self.ingest_queue_depth() > 0:
             return
 
         # Use a lock + flag so only one worker triggers the build
@@ -5327,263 +5034,87 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if hasattr(self, "_dropped_tables"):
                     self._dropped_tables = set()
 
-        threading.Thread(target=_build, daemon=True, name="KG-IndexBuilder").start()
+        _authorized_background_thread(
+            self._background_session_for_spawn(),
+            _build,
+            name="KG-IndexBuilder",
+        ).start()
 
     def _update_task_status(
         self, job_id: str, status: str, metadata: dict[str, Any]
     ) -> None:
-        """Update a task's status and metadata using base64-encoded JSON.
-
-        AU-P1-CL: when the task carries a claim-time WorkItem shadow
-        (``metadata['work_item_id']``, stamped by :meth:`_claim_next_task`),
-        a terminal status is first committed through
-        :func:`~agent_utilities.orchestration.work_item.commit_result`,
-        fenced on the epoch captured at claim time
-        (``metadata['work_item_epoch']``) — so a stale/superseded worker's
-        late completion is REJECTED (``"fenced"``) rather than clobbering
-        whatever a newer claim holder already decided, instead of the old
-        unconditional ``SET``. A task with no shadow (pre-migration ``:Task``
-        rows — the non-destructive migration shim) or whose commit is
-        accepted/already-settled falls through to the SAME unconditional
-        legacy ``:Task.status``/metadata write as before.
-
-        CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task status/metadata is CONTROL plane → __control__.
-        """
-        if not self.backend:
-            return
-
-        # Preserve existing metadata timestamps (control-plane read).
-        existing = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
-        )
-        if existing and existing[0].get("meta"):
-            old_meta = _decode_metadata(existing[0]["meta"])
-            old_meta.update(metadata)
-            metadata = old_meta
-
-        if status in ("completed", "failed"):
-            metadata.setdefault("completed_at", datetime.now(UTC).isoformat())
-            # Central per-job duration (CONCEPT:AU-KG.coordination.embedder-breaker metrics) — computed from
-            # started_at (stamped at claim time) so every category gets timing
-            # without editing each completion site.
-            started = metadata.get("started_at")
-            if started and "duration_ms" not in metadata:
-                try:
-                    st = datetime.fromisoformat(started)
-                    ct = datetime.fromisoformat(metadata["completed_at"])
-                    metadata["duration_ms"] = round((ct - st).total_seconds() * 1000, 1)
-                except (ValueError, TypeError):
-                    pass
-
-        work_item_id = metadata.get("work_item_id")
+        """Commit a terminal outcome through the active native WorkItem claim."""
         outcome = _INGEST_TERMINAL_STATUS_TO_WORK_ITEM.get(status)
-        if work_item_id and outcome is not None:
-            from agent_utilities.orchestration import work_item as _wi
+        if outcome is None:
+            raise ValueError(f"unsupported terminal ingestion status: {status!r}")
+        from agent_utilities.orchestration import work_item as _wi
 
-            claim = {"fence_token": metadata.get("work_item_epoch")}
-            try:
-                result = _wi.commit_result(
-                    self._work_item_engine,
-                    work_item_id,
-                    claim,
-                    outcome=outcome,
-                    retryable=False,
-                    result_ref=f"outcome:ingest_task:{job_id}"
-                    if outcome == "succeeded"
-                    else None,
-                    error_ref=f"ingest_task:{job_id}:{status}"
-                    if outcome != "succeeded"
-                    else None,
-                )
-            except Exception as e:  # noqa: BLE001 — WorkItem commit is best-effort
-                logger.warning(
-                    "_update_task_status: WorkItem commit failed for %s (%s): %s",
-                    job_id,
-                    work_item_id,
-                    e,
-                )
-                result = "committed"  # fall through to the legacy mirror write
-            if result == "fenced":
-                logger.info(
-                    "_update_task_status: %s fenced — a newer claim holder "
-                    "already settled %s; skipping the legacy status write "
-                    "so we never clobber it.",
-                    job_id,
-                    work_item_id,
-                )
-                return
-
-        encoded = _encode_metadata(metadata)
-        self._control_cypher(
-            "MATCH (t:Task {id: $id}) SET t.status = $status, t.metadata = $meta",
-            {"id": job_id, "status": status, "meta": encoded},
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} has no active native WorkItem claim"
+            )
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
         )
+        result = _wi.commit_result(
+            self._work_item_engine,
+            work_item_id,
+            claim,
+            outcome=outcome,
+            retryable=False,
+            result_ref=f"outcome:ingest_task:{job_id}"
+            if outcome == "succeeded"
+            else None,
+            error_ref=f"ingest_task:{job_id}:{status}"
+            if outcome != "succeeded"
+            else None,
+        )
+        if result not in {"committed", "noop", "dead_letter"}:
+            raise _wi.WorkItemBackendUnavailable(
+                f"WorkItem commit for {job_id} was rejected ({result})"
+            )
+        self._active_work_item_claim(job_id, pop=True)
         self._checkpoint_db()
 
     def _fail_or_retry_task(
         self, job_id: str, error: str, details: dict[str, Any] | None = None
     ) -> None:
-        """Handle an application-level task failure with retry/backoff/dead-letter.
+        """Commit an application failure through native retry policy."""
+        from agent_utilities.orchestration import work_item as _wi
 
-        AU-P1-CL: when the task carries a claim-time WorkItem shadow, the
-        retry-vs-dead-letter decision AND the backoff delay are now computed
-        by :func:`~agent_utilities.orchestration.work_item.commit_result` —
-        the SAME attempt/backoff/DLQ machinery ``:AgentTask`` already uses,
-        reused rather than reinvented. The numbers are unchanged:
-        ``backoff_base_s``/``max_attempts`` are seeded from THIS task's own
-        values at claim time, so ``base * 2**(attempt-1)`` is exactly the old
-        ``_TASK_RETRY_BASE_SEC * 2**(attempts-1)``. A task with no shadow
-        (pre-migration ``:Task`` rows — the non-destructive migration shim)
-        falls back to the ORIGINAL bespoke backoff/dead-letter math,
-        unchanged.
-
-        A task that *raises* (vs. a host crash, which the reaper handles) is
-        retried with exponential backoff by re-scheduling it for a future
-        minute (``status='scheduled'`` + ``due_bucket``), then dead-lettered
-        once it exhausts ``max_attempts``. The two counters are deliberately
-        separate: ``attempts``/the WorkItem's ``attempt`` answers "does this
-        task reliably throw?", ``reaper_resets`` answers "did its host die?".
-        (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
-        """
-        if not self.backend:
-            return
-        # CONCEPT:AU-KG.backend.schedule-on-control-graph — :Task retry/dead-letter is CONTROL plane → __control__.
-        rows = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.metadata as meta", {"id": job_id}
-        )
-        meta = _decode_metadata(rows[0]["meta"]) if rows and rows[0].get("meta") else {}
-        if details:
-            meta.update(details)
-        meta["error"] = error
-
-        work_item_id = meta.get("work_item_id")
-        if work_item_id:
-            from agent_utilities.orchestration import work_item as _wi
-
-            claim = {"fence_token": meta.get("work_item_epoch")}
-            try:
-                result = _wi.commit_result(
-                    self._work_item_engine,
-                    work_item_id,
-                    claim,
-                    outcome="failed",
-                    retryable=True,
-                    error_ref=f"ingest_task:{job_id}:{error}",
-                )
-            except Exception as e:  # noqa: BLE001 — WorkItem commit is best-effort
-                logger.warning(
-                    "_fail_or_retry_task: WorkItem commit failed for %s (%s): %s",
-                    job_id,
-                    work_item_id,
-                    e,
-                )
-                result = None
-
-            if result == "fenced":
-                logger.info(
-                    "_fail_or_retry_task: %s fenced — a newer claim holder "
-                    "already settled %s; skipping the legacy status write.",
-                    job_id,
-                    work_item_id,
-                )
-                return
-            if result in ("dead_letter", "retry_scheduled"):
-                item = _wi.get_work_item(self._work_item_engine, work_item_id)
-                attempts = int((item or {}).get("attempt") or 0)
-                max_attempts = int(
-                    (item or {}).get("max_attempts") or _TASK_MAX_ATTEMPTS
-                )
-                meta["attempts"] = attempts
-                meta["max_attempts"] = max_attempts
-                if result == "dead_letter":
-                    meta["dead_letter_at"] = datetime.now(UTC).isoformat()
-                    logger.warning(
-                        "Task %s dead-lettered after %d attempts: %s",
-                        job_id,
-                        attempts,
-                        error,
-                    )
-                    self._update_task_status(job_id, "dead_letter", meta)
-                    return
-                # retry_scheduled: mirror the WorkItem's OWN computed
-                # backoff/eta (no duplicate math) onto the delayed-
-                # visibility lane the promotion sweep already drains.
-                eta = float((item or {}).get("next_retry_at") or time.time())
-                meta["eta_unix"] = eta
-                meta.pop("claimed_by", None)
-                meta.pop("claim_unix", None)
-                due_bucket = int(eta // 60)
-                self._control_cypher(
-                    "MATCH (t:Task {id: $id}) "
-                    "SET t.status = 'scheduled', t.due_bucket = $due, t.metadata = $meta",
-                    {"id": job_id, "due": due_bucket, "meta": _encode_metadata(meta)},
-                )
-                logger.info(
-                    "Task %s retry %d/%d scheduled at %.0f (%s)",
-                    job_id,
-                    attempts,
-                    max_attempts,
-                    eta,
-                    error,
-                )
-                return
-            # result in (None, "committed", "noop", "missing") — WorkItem
-            # plumbing errored, already-terminal, or there was no shadow to
-            # commit against: fall through to the legacy bespoke path below
-            # as a safe default so a failure is never silently dropped.
-
-        # Legacy path — non-destructive migration shim for :Task rows that
-        # predate this migration (no work_item_id) and the WorkItem-errored
-        # fallback above.
-        attempts = int(meta.get("attempts", 0)) + 1
-        max_attempts = int(meta.get("max_attempts", _TASK_MAX_ATTEMPTS))
-        meta["attempts"] = attempts
-        if attempts >= max_attempts:
-            meta["dead_letter_at"] = datetime.now(UTC).isoformat()
-            logger.warning(
-                "Task %s dead-lettered after %d attempts: %s",
-                job_id,
-                attempts,
-                error,
+        claim = self._active_work_item_claim(job_id)
+        if claim is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"ingestion job {job_id!r} has no active native WorkItem claim"
             )
-            self._update_task_status(job_id, "dead_letter", meta)
-            return
-        # Exponential backoff with jitter; re-route through the delayed-visibility
-        # machinery so the promotion sweep makes it pending again when due.
-        delay = _TASK_RETRY_BASE_SEC * (2 ** (attempts - 1))
-        delay += (hash(job_id) % 1000) / 1000.0 * _TASK_RETRY_BASE_SEC  # nosec B311
-        eta = time.time() + delay
-        meta["eta_unix"] = eta
-        meta.pop("claimed_by", None)
-        meta.pop("claim_unix", None)
-        due_bucket = int(eta // 60)
-        self._control_cypher(
-            "MATCH (t:Task {id: $id}) "
-            "SET t.status = 'scheduled', t.due_bucket = $due, t.metadata = $meta",
-            {"id": job_id, "due": due_bucket, "meta": _encode_metadata(meta)},
+        work_item_id = str(
+            claim.get("work_item_id") or _wi.ingest_task_work_item_id(job_id)
         )
-        logger.info(
-            "Task %s retry %d/%d scheduled in %.0fs (%s)",
-            job_id,
-            attempts,
-            max_attempts,
-            delay,
-            error,
+        result = _wi.commit_result(
+            self._work_item_engine,
+            work_item_id,
+            claim,
+            outcome="failed",
+            retryable=True,
+            error_ref=f"ingest_task:{job_id}:{error}",
         )
+        if result not in {"committed", "noop", "dead_letter", "retry_scheduled"}:
+            raise _wi.WorkItemBackendUnavailable(
+                f"WorkItem failure commit for {job_id} was rejected ({result})"
+            )
+        self._active_work_item_claim(job_id, pop=True)
+        if result == "dead_letter":
+            logger.warning("ingestion WorkItem %s exhausted retries", job_id)
 
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:
-        """Per-category ingest metrics from completed Task nodes (CONCEPT:AU-KG.coordination.embedder-breaker).
+        """Per-category ingest metrics from ingestion WorkItems.
 
         Powers the MCP ``graph_ingest`` jobs/job_status breakdown so polling shows
         time/nodes/edges/failures per content type — the same view the harness
         writes to ``progress.json``.
         """
-        try:
-            rows = self._control_cypher(
-                "MATCH (t:Task) RETURN t.status as status, t.metadata as meta"
-            )
-        except Exception:  # noqa: BLE001
-            return {}
+        work = self._ingest_work_item_index()
         cutoff = None
         if window_sec:
             try:
@@ -5591,13 +5122,18 @@ class TaskManagerMixin(GraphEngineProtocol):
             except Exception:  # noqa: BLE001
                 cutoff = None
         cats: dict[str, dict[str, Any]] = {}
-        for r in rows or []:
-            meta = _decode_metadata(r.get("meta"))
+        for item in work.values():
+            meta = item.get("metadata") or {}
             if cutoff is not None:
-                ca = meta.get("completed_at")
+                ca = item.get("completed_at")
                 if ca:
                     try:
-                        if datetime.fromisoformat(ca) < cutoff:
+                        completed = (
+                            datetime.fromtimestamp(float(ca), UTC)
+                            if isinstance(ca, (int, float))
+                            else datetime.fromisoformat(str(ca))
+                        )
+                        if completed < cutoff:
                             continue
                     except (ValueError, TypeError):
                         pass
@@ -5614,10 +5150,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                 },
             )
             c["jobs"] += 1
-            st = (r.get("status") or "").lower()
+            st = _task_status_from_work_item(item)
             if st in ("completed", "done", "success"):
                 c["completed"] += 1
-            elif st in ("failed", "error"):
+            elif st in ("failed", "dead_letter", "error"):
                 c["failed"] += 1
             c["nodes"] += int(
                 meta.get("nodes_added", meta.get("nodes_created", 0)) or 0
@@ -5625,7 +5161,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             c["edges"] += int(
                 meta.get("edges_added", meta.get("edges_created", 0)) or 0
             )
-            c["duration_ms"] += float(meta.get("duration_ms", 0) or 0)
+            submitted = item.get("submitted_at")
+            completed = item.get("completed_at")
+            if isinstance(submitted, (int, float)) and isinstance(
+                completed, (int, float)
+            ):
+                c["duration_ms"] += max(0.0, (completed - submitted) * 1000.0)
         for c in cats.values():
             c["duration_ms"] = round(c["duration_ms"], 1)
         return cats
@@ -5633,7 +5174,7 @@ class TaskManagerMixin(GraphEngineProtocol):
     def profile_report(
         self, window_sec: int = 86400, group_by: str = "lane"
     ) -> dict[str, Any]:
-        """Per-lane / per-stage latency + cost profile from Task nodes (CONCEPT:AU-OS.observability.per-lane-latency-metrics).
+        """Per-lane / per-stage latency profile from WorkItems and profile spans.
 
         Where ``aggregate_ingest_metrics`` sums per content TYPE, this groups by a
         chosen dimension — ``lane`` (the functional task lane), ``type`` (the task
@@ -5643,10 +5184,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         profiling run needs to PROVE a speed-up: the same corpus before vs after an
         optimization, and how much pipelining the staged lanes actually buy.
 
-        Reads only metadata every task already carries — ``duration_ms`` (computed in
-        ``_update_task_status``), ``lane``/``type`` (stamped at submit), and optional
-        ``tokens``/``cost``/``usage`` when an LLM stage recorded them — so it adds no
-        write path and covers EVERY ingestion lane uniformly.
+        This is a read-only projection and adds no competing work-state writer.
         """
 
         def _pct(values: list[float], p: float) -> float:
@@ -5660,15 +5198,24 @@ class TaskManagerMixin(GraphEngineProtocol):
             frac = k - lo
             return values[lo] * (1 - frac) + values[hi] * frac
 
-        try:
-            rows = self._control_cypher(
-                "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta"
+        work = self._ingest_work_item_index()
+        rows: list[dict[str, Any]] = []
+        for job_id, item in work.items():
+            meta = dict(item.get("metadata") or {})
+            meta.setdefault("lane", item.get("resource_class"))
+            meta.setdefault("tkind", item.get("fairness_group"))
+            rows.append(
+                {
+                    "id": job_id,
+                    "status": _task_status_from_work_item(item),
+                    "meta": meta,
+                    "submitted_at": item.get("submitted_at"),
+                    "completed_at": item.get("completed_at"),
+                }
             )
-        except Exception:  # noqa: BLE001
-            return {}
         # OS-5.71 — fold in off-queue profile spans (assimilation, embed-backfill,
         # concept-registry embedding) so the report covers paths that never become
-        # :Task nodes. They carry a task-shaped envelope (type='offqueue:<kind>').
+        # WorkItems. They carry a work-shaped envelope (type='offqueue:<kind>').
         try:
             spans = self._control_cypher(
                 "MATCH (s:ProfileSpan) RETURN 'completed' as status, s.metadata as meta"
@@ -5688,17 +5235,27 @@ class TaskManagerMixin(GraphEngineProtocol):
         groups: dict[str, dict[str, Any]] = {}
         starts: list[float] = []
         ends: list[float] = []
-        # CONCEPT:AU-KG.compute.p99-latency-metric — per-TASK tail: keep each task's identity+duration so the
+        # CONCEPT:AU-KG.compute.p99-latency-metric — keep each work identity+duration so the
         # report can name the slowest-N outliers (the p95/max offenders), not just
         # per-lane percentiles. This is what makes a 13-min codebase pin or a 456s
         # hung connector VISIBLE as a specific task, not a lane statistic.
         tail_tasks: list[dict[str, Any]] = []
         for r in rows or []:
-            meta = _decode_metadata(r.get("meta"))
-            ca = meta.get("completed_at")
+            raw_meta = r.get("meta")
+            meta = (
+                dict(raw_meta)
+                if isinstance(raw_meta, dict)
+                else _decode_metadata(raw_meta)
+            )
+            ca = r.get("completed_at") or meta.get("completed_at")
             if cutoff is not None and ca:
                 try:
-                    if datetime.fromisoformat(ca) < cutoff:
+                    completed_dt = (
+                        datetime.fromtimestamp(float(ca), UTC)
+                        if isinstance(ca, (int, float))
+                        else datetime.fromisoformat(str(ca))
+                    )
+                    if completed_dt < cutoff:
                         continue
                 except (ValueError, TypeError):
                     pass
@@ -5734,6 +5291,14 @@ class TaskManagerMixin(GraphEngineProtocol):
             elif st == "dead_letter":
                 grp["dead_letter"] += 1
             dur = float(meta.get("duration_ms", 0) or 0)
+            submitted = r.get("submitted_at")
+            completed = r.get("completed_at")
+            if (
+                dur <= 0
+                and isinstance(submitted, (int, float))
+                and isinstance(completed, (int, float))
+            ):
+                dur = max(0.0, (completed - submitted) * 1000.0)
             if dur > 0:
                 grp["_durations"].append(dur)
                 # CONCEPT:AU-KG.compute.p99-latency-metric — record the per-task tail entry.
@@ -5770,10 +5335,17 @@ class TaskManagerMixin(GraphEngineProtocol):
             grp["edges"] += int(
                 meta.get("edges_added", meta.get("edges_created", 0)) or 0
             )
-            for ts, bucket in ((meta.get("started_at"), starts), (ca, ends)):
+            for ts, bucket in (
+                (r.get("submitted_at") or meta.get("started_at"), starts),
+                (ca, ends),
+            ):
                 if ts:
                     try:
-                        bucket.append(datetime.fromisoformat(ts).timestamp())
+                        bucket.append(
+                            float(ts)
+                            if isinstance(ts, (int, float))
+                            else datetime.fromisoformat(str(ts)).timestamp()
+                        )
                     except (ValueError, TypeError):
                         pass
 
@@ -5816,12 +5388,11 @@ class TaskManagerMixin(GraphEngineProtocol):
         """Force a WAL checkpoint so a SQLite-backed store persists across restarts.
 
         Only a backend that exposes an explicit ``wal_checkpoint()`` (a real
-        SQLite WAL) is checkpointed. The graph / tiered / Postgres backends route
+        SQLite WAL) is checkpointed. Graph and mirror backends route
         ``execute()`` through the Cypher engine, so the previous raw
         ``execute("CHECKPOINT;")`` fallback misparsed that string into a node
         query and **blocked indefinitely on the engine** — deadlocking every
-        task worker after each ``_update_task_status`` (the live
-        ``TieredGraphBackend`` wasn't in the old skip-list). There is nothing to
+        task worker after each ``_update_task_status``. There is nothing to
         WAL-checkpoint on those backends, so they are skipped. (CONCEPT:AU-KG.coordination.embedder-breaker)
         """
         wal = getattr(self.backend, "wal_checkpoint", None)
@@ -5834,48 +5405,47 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("WAL checkpoint skipped: %s", e)
 
     def get_task_status(self, job_id: str) -> dict | None:
-        """Get the status and decoded metadata for a specific task."""
-        results = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.status as status, t.metadata as meta",
-            {"id": job_id},
-        )
-        if not results:
-            return None
+        """Render one ingestion WorkItem using the public job vocabulary."""
+        from agent_utilities.orchestration import work_item as _wi
 
-        status = results[0]["status"]
-        meta = _decode_metadata(results[0].get("meta"))
+        item = _wi.get_work_item(
+            self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
+        )
+        if item is None or item.get("kind") != "ingest_task":
+            return None
+        status = _task_status_from_work_item(item)
 
         return {
             "job_id": job_id,
             "status": status,
-            "metadata": meta,
+            "metadata": dict(item.get("metadata") or {}),
         }
 
     def list_tasks(self) -> dict:
-        """List all tasks grouped by status with decoded metadata."""
-        results = self._control_cypher(
-            "MATCH (t:Task) RETURN t.id as id, t.status as status, t.metadata as meta"
-        )
-        print(f"DEBUG: list_tasks results: {results}")
+        """Group ingestion WorkItems by their rendered public status."""
+        work = self._ingest_work_item_index()
         response: dict[str, Any] = {
             "running": [],
             "pending": [],
+            "scheduled": [],
+            "blocked": [],
             "completed": [],
             "failed": [],
+            "cancelled": [],
+            "dead_letter": [],
+            "unknown": [],
         }
 
-        for row in results:
-            status = row["status"]
-            meta = _decode_metadata(row.get("meta"))
+        for job_id, item in work.items():
+            status = _task_status_from_work_item(item)
+            meta = item.get("metadata") or {}
             job_info: dict[str, Any] = {
-                "job_id": row["id"],
+                "job_id": job_id,
                 "target": meta.get("target", "unknown"),
             }
-            if status == "failed":
-                job_info["error"] = meta.get("error", "Unknown error")
-                if meta.get("traceback"):
-                    job_info["traceback"] = meta["traceback"]
-                response["failed"].append(job_info)
+            if status in {"failed", "dead_letter"}:
+                job_info["error"] = item.get("error_ref") or "Unknown error"
+                response[status].append(job_info)
             elif status in response:
                 if status == "completed":
                     # Include result summary for completed jobs
@@ -5891,18 +5461,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                             job_info[key] = meta[key]
                 response[status].append(job_info)
 
-        sqlite_queue_size = (
-            self._submission_queue.get_queue_size()
-            if hasattr(self, "_submission_queue")
-            else 0
-        )
-        total_tasks = (
-            sqlite_queue_size
-            + len(response["running"])
-            + len(response["pending"])
-            + len(response["completed"])
-            + len(response["failed"])
-        )
+        total_tasks = sum(len(items) for items in response.values())
 
         if total_tasks > 0:
             completed_count = len(response["completed"])
@@ -5913,86 +5472,70 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "completed": completed_count,
                 "pending_in_graph": len(response["pending"]),
                 "running_in_graph": len(response["running"]),
-                "queued_in_sqlite": sqlite_queue_size,
+                "scheduled": len(response["scheduled"]),
+                "blocked": len(response["blocked"]),
             }
 
         return response
 
     def remove_task(self, job_id: str) -> bool:
-        """Remove a task from the graph."""
-        res = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.id as id", {"id": job_id}
-        )
-        if not res:
-            return False
-
-        self._control_cypher("MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": job_id})
-        return True
+        """WorkItem audit records are immutable and cannot be removed."""
+        return False
 
     def clear_completed_tasks(self) -> dict:
-        """Clear all completed or failed tasks from the queue."""
-        results = self._control_cypher(
-            "MATCH (t:Task) WHERE t.status IN ['completed', 'failed'] "
-            "RETURN count(t) as count"
-        )
-        cleared = results[0]["count"] if results else 0
-
-        self._control_cypher(
-            "MATCH (t:Task) WHERE t.status IN ['completed', 'failed'] DETACH DELETE t"
-        )
-
-        rem_results = self._control_cypher("MATCH (t:Task) RETURN count(t) as count")
-        remaining = rem_results[0]["count"] if rem_results else 0
-
-        return {"status": "success", "cleared": cleared, "remaining": remaining}
+        """Reject deletion of immutable WorkItem audit records."""
+        return {
+            "status": "error",
+            "error": "WorkItem audit records cannot be cleared",
+            "cleared": 0,
+            "remaining": len(self._ingest_work_item_index()),
+        }
 
     def cancel_task(self, job_id: str) -> dict:
         """Cancel a single queued/running task by id (terminal 'cancelled').
 
-        Removes it from the worker poll and the reaper's view without deleting the
-        record (audit trail). A 'running' task's in-flight thread isn't interrupted,
-        but the task is never re-claimed or requeued. (CONCEPT:AU-KG.coordination.embedder-breaker queue control)
-
-        AU-P1-CL: also best-effort cancels the claim-time WorkItem shadow (if
-        one exists), so a claimed-but-cancelled task's lease is not left to
-        the reaper — never blocking the legacy cancel on that outcome.
+        The native engine owns cancellation and preserves the audit record.
         """
         if not job_id:
             return {"status": "error", "error": "job_id required"}
-        rows = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
-        )
-        if not rows:
-            return {"status": "error", "error": f"job {job_id} not found"}
-        self._control_cypher(
-            "MATCH (t:Task {id: $id}) SET t.status = 'cancelled'", {"id": job_id}
-        )
         try:
             from agent_utilities.orchestration import work_item as _wi
 
-            _wi.cancel_work_item(
-                self._work_item_engine, _wi.ingest_task_work_item_id(job_id)
+            item_id = _wi.ingest_task_work_item_id(job_id)
+            prior = _wi.get_work_item(self._work_item_engine, item_id)
+            if prior is None:
+                return {"status": "error", "error": f"job {job_id} not found"}
+            cancelled = _wi.cancel_work_item(
+                self._work_item_engine,
+                item_id,
+                reason="cancel_task",
             )
-        except Exception as e:  # noqa: BLE001 — WorkItem cancel is best-effort
-            logger.debug("cancel_task: WorkItem cancel skipped for %s: %s", job_id, e)
-        return {"status": "success", "job_id": job_id, "prev_status": rows[0].get("s")}
+        except Exception as e:  # noqa: BLE001 — public control API is structured
+            return {"status": "error", "error": f"WorkItem cancel failed: {e}"}
+        if not cancelled:
+            return {
+                "status": "error",
+                "error": "WorkItem cancellation was rejected by its current lease",
+            }
+        self._active_work_item_claim(job_id, pop=True)
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "prev_status": _task_status_from_work_item(prior),
+        }
 
     def clear_tasks(self, status: str = "completed") -> dict:
-        """Delete Task nodes from the queue by status filter (CONCEPT:AU-KG.coordination.embedder-breaker queue control).
-
-        ``status`` ∈ pending|running|completed|failed|cancelled|zombie|all.
-        ``zombie`` deletes only 'running' tasks NOT owned by the live host token
-        (orphans from a dead host) — a targeted clear that never removes a task this
-        host is actively processing. ``all`` clears every task. Returns counts.
-        """
+        """Reject deletion of immutable WorkItem audit records."""
         status = (status or "completed").strip().lower()
         valid = {
             "pending",
             "running",
+            "scheduled",
+            "blocked",
             "completed",
             "failed",
             "cancelled",
-            "zombie",
+            "dead_letter",
             "all",
         }
         if status not in valid:
@@ -6001,76 +5544,42 @@ class TaskManagerMixin(GraphEngineProtocol):
                 "error": f"status must be one of {sorted(valid)}",
             }
 
-        if status == "all":
-            rows = self._control_cypher("MATCH (t:Task) RETURN t.id as id")
-            ids = [r["id"] for r in (rows or []) if r.get("id")]
-        elif status == "zombie":
-            token = self._get_host_token()
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: 'running'}) RETURN t.id as id, t.metadata as meta"
-            )
-            ids = []
-            for r in rows or []:
-                if not r.get("id"):
-                    continue
-                meta = _decode_metadata(r.get("meta")) or {}
-                if meta.get("claimed_by") != token:  # foreign or unstamped → orphan
-                    ids.append(r["id"])
-        else:
-            rows = self._control_cypher(
-                "MATCH (t:Task {status: $s}) RETURN t.id as id", {"s": status}
-            )
-            ids = [r["id"] for r in (rows or []) if r.get("id")]
-
-        for tid in ids:
-            self._control_cypher(
-                "MATCH (t:Task {id: $id}) DETACH DELETE t", {"id": tid}
-            )
-
-        rem = self._control_cypher("MATCH (t:Task) RETURN count(t) as count")
-        remaining = rem[0]["count"] if rem else 0
         return {
-            "status": "success",
-            "cleared": len(ids),
+            "status": "error",
+            "error": "WorkItem audit records cannot be cleared",
+            "cleared": 0,
             "filter": status,
-            "remaining": remaining,
+            "remaining": len(self._ingest_work_item_index()),
         }
 
-    def prioritize_task(self, job_id: str, priority: str | int = "high") -> dict:
+    def prioritize_task(self, job_id: str, priority: int = 1) -> dict:
         """Re-prioritize a task by setting its claim bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
-        Accepts a numeric bucket (0=critical .. 3=background) or a named level
-        (``critical``/``high``/``normal``/``background``). The worker claim
-        iterates buckets ascending, so a bumped job runs ahead of higher
-        buckets. The legacy ``priority`` string is kept in lockstep for any
-        node/tool that still reads it.
+        The worker claim iterates integer buckets 0..3 in ascending order, so
+        a lower bucket runs first. Named priority aliases are not accepted.
         """
-        valid_names = {"critical", "high", "normal", "background", "low"}
-        if (
-            isinstance(priority, str)
-            and not priority.strip().lstrip("-").isdigit()
-            and priority.strip().lower() not in valid_names
-        ):
+        try:
+            bucket = _coerce_prio_bucket(priority)
+        except (TypeError, ValueError):
             return {
                 "status": "error",
-                "error": "priority must be one of "
-                f"{sorted(valid_names)} or a bucket 0-3",
+                "error": "priority must be an integer bucket from 0 through 3",
             }
-        bucket = _coerce_prio_bucket(priority)
-        legacy = {0: "high", 1: "high", 2: "normal", 3: "normal"}[bucket]
-        rows = self._control_cypher(
-            "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": job_id}
-        )
-        if not rows:
+        from agent_utilities.orchestration import work_item as _wi
+
+        item_id = _wi.ingest_task_work_item_id(job_id)
+        if _wi.get_work_item(self._work_item_engine, item_id) is None:
             return {"status": "error", "error": f"job {job_id} not found"}
-        self._control_cypher(
-            "MATCH (t:Task {id: $id}) SET t.prio_bucket = $b, t.priority = $p",
-            {"id": job_id, "b": bucket, "p": legacy},
-        )
+        if not _wi.set_work_item_priority(self._work_item_engine, item_id, bucket):
+            return {
+                "status": "error",
+                "error": "WorkItem priority update was rejected",
+            }
         return {
             "status": "success",
             "job_id": job_id,
-            "priority": legacy,
             "prio_bucket": bucket,
-            "task_status": rows[0].get("s"),
+            "task_status": _task_status_from_work_item(
+                _wi.get_work_item(self._work_item_engine, item_id)
+            ),
         }

@@ -144,7 +144,7 @@ def test_store_execute_include_epistemic_carries_engine_envelope(
     Builds its OWN ``EpistemicGraphBackend`` (a fresh tenant graph, distinct
     from ``engine_graph``'s) bound to the SAME running session engine —
     ``engine_graph`` is requested purely to get the per-test engine wiring
-    (``GRAPH_SERVICE_SOCKET``/``_AUTH_SECRET``) re-asserted, per its own
+    (``GRAPH_SERVICE_ENDPOINTS``/``_AUTH_SECRET``) re-asserted, per its own
     docstring's convention.
     """
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (

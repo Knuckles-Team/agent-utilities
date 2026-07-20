@@ -11,10 +11,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+
 from agent_utilities.core import schedule_engine as se
-from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-    EpistemicGraphBackend,
-)
 
 
 def _at(h: int, m: int) -> datetime:
@@ -23,7 +22,8 @@ def _at(h: int, m: int) -> datetime:
 
 class _FakeEngine:
     def __init__(self):
-        self.backend = EpistemicGraphBackend()
+        self.backend = _ScheduleBackend()
+        self.control_backend = self.backend
         self.submitted: list[dict] = []
         self._schedules_seeded = True  # skip yaml seeding in unit tests
         self.ticked: list[str] = []
@@ -31,6 +31,18 @@ class _FakeEngine:
     def submit_task(self, **kw):
         self.submitted.append(kw)
         return kw.get("job_id", "job-x")
+
+    def _ingest_work_item_index(self):
+        return {
+            str(row.get("job_id")): {
+                "status": "ready",
+                "metadata": {
+                    **dict(row.get("extra_meta") or {}),
+                    "type": row.get("task_type") or "scheduled_job",
+                },
+            }
+            for row in self.submitted
+        }
 
     def query_cypher(self, _q, params=None):
         # Emulate the coalesce probe: count un-consumed ticks for a schedule.
@@ -44,8 +56,32 @@ class _FakeEngine:
         )
         return [{"n": n}]
 
-    def _tick_demo(self):
-        self.ticked.append("demo")
+    def _tick_compaction(self):
+        self.ticked.append("compaction")
+
+
+class _ScheduleBackend:
+    """Minimal graph-node store; these scheduler tests do not need a Rust engine."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+
+    def add_node(self, node_id: str, *, node_type: str, **props) -> None:
+        self.nodes[node_id] = {"id": node_id, "node_type": node_type, **props}
+
+    def execute(self, query: str, params=None):
+        if "{id: $id}" in query:
+            row = self.nodes.get((params or {}).get("id"))
+            return [dict(row)] if row is not None else []
+        return [dict(row) for row in self.nodes.values()]
+
+
+def test_scheduler_rejects_missing_control_authority() -> None:
+    class ContentOnlyEngine:
+        backend = _ScheduleBackend()
+
+    with pytest.raises(RuntimeError, match="configured control authority"):
+        se._control_backend(ContentOnlyEngine())
 
 
 def test_cron_matcher_fields() -> None:
@@ -96,7 +132,7 @@ def test_interval_schedule_fires_then_waits() -> None:
         eng,
         se.ScheduleSpec(
             name="ivl",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="interval",
             interval_s=3600.0,
             next_run_unix=0.0,  # due immediately
@@ -117,7 +153,7 @@ def test_tick_coalesces_unconsumed_prior() -> None:
         eng,
         se.ScheduleSpec(
             name="cw",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="cron",
             cron="* * * * *",  # due every minute
         ),
@@ -139,7 +175,7 @@ def test_disabled_schedule_does_not_fire() -> None:
         eng,
         se.ScheduleSpec(
             name="off",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="cron",
             cron="* * * * *",
             enabled=False,
@@ -180,7 +216,7 @@ def test_schedule_defaults_to_scheduled_job_task_type() -> None:
         eng,
         se.ScheduleSpec(
             name="plain",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="cron",
             cron="* * * * *",
         ),
@@ -193,8 +229,8 @@ def test_schedule_defaults_to_scheduled_job_task_type() -> None:
 
 def test_run_scheduled_job_maint_dispatch() -> None:
     eng = _FakeEngine()
-    res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "demo"})
-    assert res["status"] == "ok" and eng.ticked == ["demo"]
+    res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "compaction"})
+    assert res["status"] == "ok" and eng.ticked == ["compaction"]
 
 
 def test_run_scheduled_job_unknown_maint() -> None:
@@ -203,13 +239,44 @@ def test_run_scheduled_job_unknown_maint() -> None:
     assert res["status"] == "skipped"
 
 
+def test_run_scheduled_job_cannot_dispatch_unregistered_private_tick() -> None:
+    class _Host:
+        def _tick_secret(self):
+            raise AssertionError("must never run")
+
+    res = se.run_scheduled_job(_Host(), {"kind": "maint", "ref": "secret"})
+    assert res == {
+        "status": "skipped",
+        "reason": "maintenance_not_allowed",
+        "duration_s": res["duration_s"],
+    }
+
+
+def test_run_scheduled_job_retires_graph_selected_host_scripts() -> None:
+    res = se.run_scheduled_job(
+        _FakeEngine(), {"kind": "script", "ref": "/untrusted/host-script.py"}
+    )
+    assert res["status"] == "skipped"
+    assert res["reason"] == "host_script_execution_retired"
+
+
+def test_run_scheduled_job_rejects_unbounded_or_non_mapping_payloads() -> None:
+    oversized = {"kind": "skill", "task": "x" * (64 * 1024)}
+    assert (
+        se.run_scheduled_job(_FakeEngine(), oversized)["reason"] == "payload_too_large"
+    )
+    assert (
+        se.run_scheduled_job(_FakeEngine(), [])["reason"] == "invalid_payload"  # type: ignore[arg-type]
+    )
+
+
 def test_set_enabled_and_run_now() -> None:
     eng = _FakeEngine()
     se.register_schedule(
         eng,
         se.ScheduleSpec(
             name="ctl",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="cron",
             cron="0 0 1 1 *",  # almost never
         ),
@@ -232,24 +299,33 @@ class _CollapseEngine:
         self.backend = (
             self  # collapse cancels via engine.backend.compare_and_set_node_fields
         )
+        self.control_backend = self.backend
 
-    def query_cypher(self, _q, params=None):
-        st = (params or {}).get("status")
-        # CONCEPT:AU-KG.ontology.capability-card-backfill-lane — collapse now scans per tick TYPE; honor the tkind
-        # filter (a task defaults to scheduled_job) so each tick is counted once.
-        tk = (params or {}).get("tkind", "scheduled_job")
-        return [
-            {"id": t["id"], "schedule": t["schedule"]}
+    def _ingest_work_item_index(self):
+        state = {
+            "pending": "ready",
+            "scheduled": "ready",
+            "blocked": "submitted",
+            "running": "leased",
+            "cancelled": "cancelled",
+        }
+        return {
+            t["id"]: {
+                "status": state[t["status"]],
+                "metadata": {
+                    "schedule": t["schedule"],
+                    "type": t.get("tkind", "scheduled_job"),
+                },
+            }
             for t in self.tasks
-            if t["status"] == st and t.get("tkind", "scheduled_job") == tk
-        ]
+        }
 
-    def compare_and_set_node_fields(self, node_id, _conditions, updates):
+    def cancel_task(self, node_id):
         for t in self.tasks:
             if t["id"] == node_id:
-                t.update(updates)
-                return True
-        return False
+                t["status"] = "cancelled"
+                return {"status": "success"}
+        return {"status": "error"}
 
 
 def _statuses(tasks, name):
@@ -321,8 +397,8 @@ def test_run_scheduled_job_stamps_duration() -> None:
     """Phase-0 daemon telemetry (CONCEPT:AU-OS.observability.no-op-without-metrics) — every dispatch is timed and the
     result carries ``duration_s`` additively; every other key is unchanged."""
     eng = _FakeEngine()
-    res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "demo"})
-    assert res["status"] == "ok" and eng.ticked == ["demo"]
+    res = se.run_scheduled_job(eng, {"kind": "maint", "ref": "compaction"})
+    assert res["status"] == "ok" and eng.ticked == ["compaction"]
     assert "duration_s" in res and res["duration_s"] >= 0.0
 
 
@@ -366,14 +442,12 @@ def test_record_schedule_result_emits_job_metrics(monkeypatch) -> None:
         eng,
         se.ScheduleSpec(
             name="metriced",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="interval",
             interval_s=60.0,
         ),
     )
-    se.record_schedule_result(
-        eng, "metriced", ok=True, duration_s=0.42, status="ok"
-    )
+    se.record_schedule_result(eng, "metriced", ok=True, duration_s=0.42, status="ok")
     assert runs == [("metriced", "ok")]
     assert durations == [("metriced", 0.42)]
 
@@ -388,7 +462,7 @@ def test_record_schedule_result_backoff() -> None:
         eng,
         se.ScheduleSpec(
             name="flaky",
-            payload={"kind": "maint", "ref": "demo"},
+            payload={"kind": "maint", "ref": "compaction"},
             trigger="interval",
             interval_s=60.0,
         ),

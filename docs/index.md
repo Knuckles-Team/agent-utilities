@@ -46,26 +46,32 @@ The **Single Company Brain** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) i
 > [!IMPORTANT]
 > Dive deep into the specific subsystems that power the `agent-utilities` ecosystem.
 
-- **[Concept Galaxy (overview.md)](overview.md)**: High-level map of all unified canonical concepts across the 5 pillars.
+- **[Concept Galaxy](overview.md)**: High-level map of all unified canonical concepts across the 5 pillars.
 - **[Canonical Concept Map](concept_map.md)**: The 1:1 traceability matrix mapping concepts to code modules.
 - **[Architecture Deep-Dive](guides/architecture.md)**: Pillar 1 detailed structural overview.
 - **[Agent OS Architecture](guides/agent-os-architecture.md)**: Pillar 5 kernel and execution boundaries.
 - **[Gateway Service Dashboard](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md)**: The real-time observability cockpit.
 - **[Deployment Configurations](guides/deployment-configurations.md)**: Every deployment shape — zero-infra laptop, shared Postgres state, sharded engines, Kafka ingest workers, queue-driven dispatch fleet.
+- **[Ecosystem Capability and Skill Fleet](ecosystem-capability-fleet.md)**: Generated 65-package coverage for canonical skills, governed source connectors, ontology bundles, live tool-schema pins, and MkDocs.
 
 ### Scale-out & autonomy architecture (deep dives)
 
 | Document | Description |
 |:---------|:------------|
 | **[State Externalization](architecture/state_externalization.md)** | `STATE_DB_URI` shared Postgres state store, SKIP LOCKED queue claims, advisory-lock daemon leadership, paginated fleet queries (AU-OS.state.unified-durable-state-externalization–5.18, AU-KG.ingest.cross-host-safe-kg, AU-ORCH.session.durable-goal-registry-goals) |
-| **[Engine Sharding](architecture/engine_sharding.md)** | Tenant-partitioned engine shards behind client-side HRW routing + shard topology visibility (AU-KG.sharding.tenant-partitioned-sharding-hrw, AU-OS.scaling.shard-topology-visibility-per) |
+| **[Engine Placement & Sharding](architecture/engine_sharding.md)** | Engine-authoritative placement epochs, three-member MultiRaft groups, and governed online movement |
 | **[Event Backbone](architecture/event_backbone_architecture.md)** | Kafka ingest scale-out: fail-loud queue selection, keyed partitions, `kg-ingest` consumer group + lag metrics (KG-2.55–2.57) |
 | **[Agent Dispatch](architecture/agent_dispatch.md)** | Queue-driven agent dispatch: session-keyed `agent_turns` queue + stateless `agent-dispatch-worker` fleet (ORCH-1.45) |
 | **[Fleet Autonomy](architecture/fleet_autonomy.md)** | ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.24–5.27, OS-5.29) |
 | **[Gateway Scaling](architecture/gateway_scaling.md)** | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (AU-OS.observability.no-op-without-metrics) |
 | **[MCP Multiplexer](architecture/mcp_multiplexer.md)** | Dynamic tool gateway: progressive disclosure (`find_tools`/`list_catalog`/`load_tools`), self-cataloging probe, collision-free prefixes, hybrid stdio+http children, lazy mounting (ECO-4.36) |
 | **[Autonomous Evolution](guides/autonomous-evolution.md)** | The governed self-evolution chain: propose-only loops → governance validation → regression gate → policy-gated branch publication (AU-AHE.harness.failure-evolution–3.21) |
+| **[Trace and Outcome Ontology](architecture/trace_outcome_ontology.md)** | Canonical privacy-safe `RunTrace → ToolCall/OutcomeEvaluation` schema, numeric consumer cursor, runtime writers, miners, evaluation, and analytics |
+| **[Mandatory ContextCompiler Boundary](architecture/mandatory-context-compiler.md)** | Session-before-retrieval enforcement, complete privacy-safe cache identity, and one governed evidence path for every model transport |
 | **[Metrics Reference](reference/metrics.md)** | Catalog of every `agent_utilities_*` Prometheus series |
+| **[Production Cell Runbook](operations/production-cell-runbook.md)** | Signed global-control/cell-data topology, workload identity, strict mTLS, queue-driven workers, SLO response, hot swap and rollback |
+| **[Backup & Cross-Cell Recovery](operations/disaster-recovery.md)** | Format-v3 coordinator-aware bundles, continuous restore validation, RPO/RTO and regional cutover invariants |
+| **[Compatibility & Certification](release/compatibility-and-certification.md)** | Exact seven-component release train and executable 24–72 hour scale=1 soak/chaos evidence contract |
 
 ---
 

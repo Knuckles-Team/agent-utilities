@@ -1,8 +1,8 @@
 # Comparative Analysis — open-design → agent-utilities
 
 **Date**: 2026-06-05 · **Mode**: Lightweight (code-vs-code, cross-domain feature extraction)
-**Source**: `nexu-io/open-design` @ `accbd3b` (`/home/apps/workspace/open-source-libraries/open-design`)
-**Target (primary)**: `agent-utilities` (`/home/apps/workspace/agent-packages/agent-utilities`)
+**Source**: `nexu-io/open-design` @ `accbd3b` (`${WORKSPACE_ROOT}/open-source-libraries/open-design`)
+**Target (primary)**: `agent-utilities` (`${WORKSPACE_ROOT}/agent-packages/agent-utilities`)
 **Angle (user-selected)**: cross-domain pattern adaptation — *not* cloning the design domain
 **Depth (user-selected)**: comprehensive sweep
 **Ledger**: [`innovation_ledger_open-design.json`](innovation_ledger_open-design.json) (19 adapted rows · 6 epics · 6 new concepts)

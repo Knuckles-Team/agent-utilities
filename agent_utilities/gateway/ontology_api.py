@@ -155,7 +155,7 @@ async def get_function(name: str) -> OntologyEnvelope:
     if isinstance(listing, list):
         match = next((f for f in listing if f.get("name") == name), None)
     if match is None:
-        raise HTTPException(status_code=404, detail=f"function {name!r}")
+        raise HTTPException(status_code=404, detail="function not found")
     return OntologyEnvelope(result=match)
 
 

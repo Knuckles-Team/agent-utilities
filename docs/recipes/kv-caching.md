@@ -53,7 +53,7 @@ EPISTEMIC_GRAPH_KVCACHE_URL=http://<engine-host>:9130
 ```
 
 For graph-os this goes in its MCP `env` block (deployed stack env, or `mcpServers.graph-os.env`
-in a local `~/.claude.json`).
+in the runtime-discovered Claude Code settings file).
 
 ## Verify
 
@@ -100,7 +100,7 @@ refresh before expiry, one-shot re-mint + retry on 401).
   - `EPISTEMIC_GRAPH_KVCACHE_JWKS_URL` (optional; else derived as
     `<issuer>/protocol/openid-connect/certs`)
 - **Client** — nothing extra: when `MCP_CLIENT_AUTH=oidc-client-credentials` +
-  `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET` are present (as they are for graph-os), the
+  `OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET_REF` are present, the
   connector mints/refreshes the bearer automatically. JWKS keys re-fetch on a `kid`
   miss, so a Keycloak signing-key rotation self-heals without an engine restart.
 
@@ -109,8 +109,8 @@ refresh before expiry, one-shot re-mint + retry on 401).
 When OIDC isn't configured (e.g. a standalone vLLM/LMCache worker), set a shared bearer
 on both sides, sourced from **OpenBao `apps/graph-os`** (never inline in a committed file):
 
-- **Engine**: `EPISTEMIC_GRAPH_KVCACHE_TOKEN=<secret>`
-- **Client**: `EPISTEMIC_GRAPH_KVCACHE_TOKEN=<same secret>`
+- **Engine**: `EPISTEMIC_GRAPH_KVCACHE_TOKEN=vault://platform/kvcache#token`
+- **Client**: use the same secret reference; resolve it independently at runtime
 
 ## Why this is highly recommended
 

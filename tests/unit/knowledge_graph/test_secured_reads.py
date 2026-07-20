@@ -1,6 +1,8 @@
-"""Read-path permission/tenancy/audit enforcement tests (CONCEPT:AU-KG.research.research-pipeline-runner)."""
+"""Fail-closed read-path permission, tenant, and audit tests."""
 
 from __future__ import annotations
+
+import contextvars
 
 import pytest
 
@@ -14,83 +16,160 @@ from agent_utilities.models.company_brain import (
     DataClassification,
     NodeACL,
 )
+from agent_utilities.protocols.source_connectors.base import ExternalAccess
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
+def _actor(*roles: str, tenant: str = "tenant-a") -> ActorContext:
+    return ActorContext(
+        "principal:verified",
+        ActorType.AI_AGENT,
+        roles=roles,
+        tenant_id=tenant,
+        authenticated=True,
+    )
+
+
 @pytest.fixture
-def enforced(monkeypatch):
-    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+def brain():
     reset_company_brain()
     yield get_company_brain()
     reset_company_brain()
 
 
-@pytest.fixture
-def off(monkeypatch):
-    monkeypatch.delenv("KG_BRAIN_ENFORCE", raising=False)
-    reset_company_brain()
-    yield
-    reset_company_brain()
+def _public_acl(node_id: str) -> NodeACL:
+    return NodeACL(node_id=node_id, classification=DataClassification.PUBLIC)
 
 
-def test_permit_is_noop_when_disabled(off):
-    assert sr.permit(["a", "b"]) == ["a", "b"]
+def test_missing_identity_fails_closed():
+    def isolated():
+        with pytest.raises(PermissionError):
+            sr.permit(["node-a"])
+
+    contextvars.Context().run(isolated)
 
 
-def test_confidential_node_filtered_for_unauthorized(enforced):
-    brain = enforced
+def test_missing_acl_is_denied(brain):
+    with use_actor(_actor("reader")):
+        assert sr.permit(["unclassified"]) == []
+
+
+def test_missing_acl_hydrates_once_from_durable_access(monkeypatch, brain):
+    calls: list[list[str]] = []
+
+    def durable(node_ids: list[str]):
+        calls.append(node_ids)
+        return {
+            "trace-1": {
+                "tenant_id": "tenant-a",
+                "classification": "internal",
+                "external_access": {
+                    "is_public": False,
+                    "user_emails": [],
+                    "group_ids": [],
+                    "read_roles": ["kg:read"],
+                    "markings": [],
+                },
+            }
+        }
+
+    monkeypatch.setattr(sr, "_durable_access_rows", durable)
+    with use_actor(_actor("kg:read")):
+        assert sr.permit(["trace-1"]) == ["trace-1"]
+        assert sr.permit(["trace-1"]) == ["trace-1"]
+    assert calls == [["trace-1"]]
+
+
+def test_durable_acl_hydration_rejects_cross_tenant_and_inconsistent_policy(
+    monkeypatch, brain
+):
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "other-tenant": {
+                "tenant_id": "tenant-b",
+                "classification": "public",
+                "external_access": ExternalAccess.public().model_dump(),
+            }
+        },
+    )
+    with use_actor(_actor("kg:read")):
+        assert sr.permit(["other-tenant"]) == []
+
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "inconsistent": {
+                "tenant_id": "tenant-a",
+                "classification": "internal",
+                "external_access": ExternalAccess.public().model_dump(),
+            }
+        },
+    )
+    with use_actor(_actor("kg:read")), pytest.raises(PermissionError):
+        sr.permit(["inconsistent"])
+
+
+def test_confidential_node_filtered_for_unauthorized(brain):
     brain.permissions.set_acl(
         NodeACL(
-            node_id="hr:salary",
+            node_id="salary",
             classification=DataClassification.CONFIDENTIAL,
             read_roles=["hr"],
         )
     )
-    # A marketing actor cannot see the HR node...
-    with use_actor(ActorContext("agent:mk", ActorType.AI_AGENT, roles=("marketing",))):
-        assert sr.permit(["hr:salary", "public:x"]) == ["public:x"]
-    # ...but an HR actor can.
-    with use_actor(ActorContext("agent:hr", ActorType.AI_AGENT, roles=("hr",))):
-        assert set(sr.permit(["hr:salary", "public:x"])) == {"hr:salary", "public:x"}
+    brain.permissions.set_acl(_public_acl("public-node"))
+    with use_actor(_actor("marketing")):
+        assert sr.permit(["salary", "public-node"]) == ["public-node"]
+    with use_actor(_actor("hr")):
+        assert set(sr.permit(["salary", "public-node"])) == {
+            "salary",
+            "public-node",
+        }
 
 
-def test_restricted_read_emits_audit(enforced):
-    brain = enforced
+def test_read_emits_audit(brain):
     before = brain.provenance.read_count
-    with use_actor(ActorContext("agent:x", ActorType.AI_AGENT)):
-        sr.audit_read(["n:1", "n:2"], summary="test")
+    with use_actor(_actor("reader")):
+        sr.audit_read(["node-a"], summary="test")
     assert brain.provenance.read_count == before + 1
 
 
-def test_filter_rows_drops_denied(enforced):
-    brain = enforced
+def test_filter_rows_drops_denied_and_requires_governed_ids(brain):
     brain.permissions.set_acl(
-        NodeACL(node_id="secret:1", classification=DataClassification.RESTRICTED)
+        NodeACL(node_id="secret", classification=DataClassification.RESTRICTED)
     )
-    rows: list[dict] = [{"id": "secret:1", "v": 1}, {"id": "ok:1", "v": 2}, {"v": 3}]
-    with use_actor(ActorContext("agent:mk", ActorType.AI_AGENT, roles=("marketing",))):
-        out = sr.filter_rows(rows)
-    ids = [r.get("id") for r in out]
-    assert "secret:1" not in ids
-    assert "ok:1" in ids
-    assert {"v": 3} in out  # unidentifiable rows are kept
+    brain.permissions.set_acl(_public_acl("public-node"))
+    with use_actor(_actor("marketing")):
+        assert sr.filter_rows(
+            [{"id": "secret", "value": 1}, {"id": "public-node", "value": 2}]
+        ) == [{"id": "public-node", "value": 2}]
+        with pytest.raises(PermissionError, match="governed node id"):
+            sr.filter_rows([{"value": 3}])
 
 
-def test_scope_injects_tenant_case_insensitive(enforced):
-    with use_actor(ActorContext("agent:x", ActorType.AI_AGENT, tenant_id="acme")):
-        scoped = sr.scope("match (n) return n")
-    assert "tenant_id = 'acme'" in scoped
-    assert scoped.lower().strip().endswith("return n")
-
-
-def test_scope_rejects_injection(enforced):
-    with use_actor(ActorContext("a", ActorType.AI_AGENT, tenant_id="x' OR '1'='1")):
+def test_scope_injects_verified_tenant(brain):
+    with use_actor(_actor("reader")):
         scoped = sr.scope("MATCH (n) RETURN n")
-    assert "OR '1'='1" not in scoped  # unsafe id neutralized
+    assert "tenant_id = 'tenant-a'" in scoped
 
 
-def test_inherit_inferred_acl_propagates_restriction(enforced):
-    brain = enforced
+def test_tenantless_actor_is_rejected(brain):
+    with use_actor(_actor("reader", tenant="")), pytest.raises(PermissionError):
+        sr.scope("MATCH (n) RETURN n")
+
+
+def test_permission_infrastructure_failure_never_returns_unfiltered(monkeypatch):
+    monkeypatch.setattr(
+        sr, "get_company_brain", lambda: (_ for _ in ()).throw(RuntimeError())
+    )
+    with use_actor(_actor("reader")), pytest.raises(PermissionError):
+        sr.permit(["node-a"])
+
+
+def test_inherit_inferred_acl_propagates_restriction(brain):
     brain.permissions.set_acl(
         NodeACL(node_id="parent", classification=DataClassification.RESTRICTED)
     )

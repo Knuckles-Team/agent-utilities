@@ -31,6 +31,7 @@ from agent_utilities.observability.audit_logger import (
     RESOURCE_TOOL,
     AuditLogger,
 )
+from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.permissions_kernel import (
     AgentIdentity,
     AuthDecision,
@@ -48,7 +49,6 @@ from .registry import ActionRegistry
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.ontology.edits import EditLedger
-    from agent_utilities.security.brain_context import ActorContext
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +92,15 @@ def _actor_fields(actor: ActorContext | AgentIdentity) -> tuple[str, list[str]]:
     """Extract ``(actor_id, capabilities)`` from either actor representation."""
     if isinstance(actor, AgentIdentity):
         return actor.agent_id, list(actor.capabilities)
-    # ActorContext (duck-typed): roles act as the capability set it carries.
-    actor_id = getattr(actor, "actor_id", "system")
-    caps = list(getattr(actor, "roles", ()) or ())
+    actor.ensure_credential_current()
+    actor_id = str(actor.actor_id or "").strip()
+    tenant_id = str(actor.tenant_id or "").strip()
+    if not actor.authenticated or not actor_id or not tenant_id:
+        raise PermissionError(
+            "Ontology actions require verified tenant actor authority"
+        )
+    # ActorContext roles act as the capability set it carries.
+    caps = list(actor.roles)
     extra = getattr(actor, "capabilities", None)
     if extra:
         caps.extend(extra)
@@ -106,8 +112,8 @@ class ActionExecutor:
 
     Args:
         registry: The :class:`ActionRegistry` to resolve actions from.
-        kernel: A :class:`PermissionsKernel` for capability authorization. A
-            fresh kernel (built-in default policies) is created when omitted.
+        kernel: The explicitly injected :class:`PermissionsKernel` for
+            capability authorization. There is no executor-local authority.
         audit: An :class:`AuditLogger`; a fresh in-memory logger is created when
             omitted.
         persist: When ``True`` (default), invocations are persisted to the KG if
@@ -128,7 +134,8 @@ class ActionExecutor:
     def __init__(
         self,
         registry: ActionRegistry,
-        kernel: PermissionsKernel | None = None,
+        *,
+        kernel: PermissionsKernel,
         audit: AuditLogger | None = None,
         persist: bool = True,
         escalation_gate: Any = None,
@@ -136,7 +143,7 @@ class ActionExecutor:
         notifier: Any = None,
     ) -> None:
         self.registry = registry
-        self.kernel = kernel or PermissionsKernel()
+        self.kernel = kernel
         self.audit = audit or AuditLogger()
         self.persist = persist
         if escalation_gate is None:
@@ -171,12 +178,18 @@ class ActionExecutor:
         has_capability = action.required_capability in caps or "admin" in caps
 
         if isinstance(actor, AgentIdentity):
-            decision = self.kernel.authorize_tool(actor, action.name)
+            has_capability = has_capability or actor.role.value == "admin"
+            decision = self.kernel.authorize_tool(
+                actor,
+                action.name,
+                required_capability=action.required_capability,
+            )
             if decision == AuthDecision.DENY:
                 return False
-            # Identity verified + role policy allows; capability still required
-            # unless the policy explicitly granted the verb (ALLOW).
-            return has_capability or decision == AuthDecision.ALLOW
+            # Role policy is an additional boundary, not a substitute for the
+            # action's semantic capability. A broad role wildcard therefore
+            # cannot grant an ontology verb to an unqualified identity.
+            return has_capability
 
         return has_capability
 
@@ -535,7 +548,7 @@ class ActionExecutor:
             return
         try:
             store.execute(
-                "MERGE (n {id: $id}) SET n.type = 'action_invocation', "
+                "MERGE (n {id: $id}) SET n.node_type = 'action_invocation', "
                 "n.action_name = $action_name, n.actor_id = $actor_id, "
                 "n.status = $status, n.result_summary = $summary, "
                 "n.audit_ref = $audit_ref, n.timestamp = $timestamp",

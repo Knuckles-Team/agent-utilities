@@ -71,7 +71,9 @@ def test_default_policy_allows_diagnostics(engine):
 
 def test_unknown_kind_falls_to_approval_default(engine):
     policy = ActionPolicy(engine=engine)
-    decision = policy.decide(ActionRequest(kind="format_disk", target="r820"))
+    decision = policy.decide(
+        ActionRequest(kind="format_disk", target="analysis-node-a")
+    )
     assert decision.decision == "queue_approval"
 
 

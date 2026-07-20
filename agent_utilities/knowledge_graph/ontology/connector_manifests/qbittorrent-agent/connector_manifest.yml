@@ -1,0 +1,135 @@
+connector: qbittorrent-agent
+ontology_source: qbittorrent
+schema_version: '1'
+resources:
+- name: Torrent
+  label: Torrent
+  id_prefix: torrent
+  relations:
+  - name: announcesTo
+    label: announces to
+    target: Tracker
+    lpg_rel_type: ''
+  - name: inCategory
+    label: in category
+    target: TorrentCategory
+    lpg_rel_type: ''
+  - name: producesAsset
+    label: produces asset
+    target: AssetOccurrence
+    lpg_rel_type: ''
+- name: TorrentCategory
+  label: Torrent Category
+  id_prefix: torrentcategory
+  relations: []
+- name: Tracker
+  label: Tracker
+  id_prefix: tracker
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: qbittorrent-torrents.updated
+  resource: torrent
+  description: "Watermark event for 'qbittorrent-torrents' \u2014 advances on added_on (mcp_source_presets.json)."
+identity:
+  id_field:
+    torrent: hash
+  title_field:
+    torrent: name
+  text_field:
+    torrent: name
+  updated_field:
+    torrent: added_on
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Torrent:
+    ontology_class: null
+    fields:
+      infoHash: xsd:string
+      progress: xsd:float
+      savePath: xsd:string
+      shareRatio: xsd:float
+      sizeBytes: xsd:long
+      torrentState: xsd:string
+      trackerStatus: xsd:integer
+      trackerUrl: xsd:string
+  TorrentCategory:
+    ontology_class: null
+    fields:
+      infoHash: xsd:string
+      progress: xsd:float
+      savePath: xsd:string
+      shareRatio: xsd:float
+      sizeBytes: xsd:long
+      torrentState: xsd:string
+      trackerStatus: xsd:integer
+      trackerUrl: xsd:string
+  Tracker:
+    ontology_class: null
+    fields:
+      infoHash: xsd:string
+      progress: xsd:float
+      savePath: xsd:string
+      shareRatio: xsd:float
+      sizeBytes: xsd:long
+      torrentState: xsd:string
+      trackerStatus: xsd:integer
+      trackerUrl: xsd:string
+sync:
+- preset: qbittorrent-torrents
+  server: qbittorrent-agent
+  tool: qbittorrent_torrents
+  action: get_torrent_list
+  records_path: ''
+  id_field: hash
+  title_field: name
+  text_field: name
+  updated_field: added_on
+  pagination: null
+  doc_type: torrent
+  tool_schema_sha256: bd094598a34de2905c09950dd592b562ee460888bab51e1d8ffc402a447844cc
+  raw:
+    server: qbittorrent-agent
+    tool: qbittorrent_torrents
+    action: get_torrent_list
+    records_path: ''
+    id_field: hash
+    title_field: name
+    text_field: name
+    updated_field: added_on
+    doc_type: torrent
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - qbittorrent_agent/connectors/mcp_source_presets.json
+  - qbittorrent_agent/connectors/tool_schema_fingerprints.json
+  - qbittorrent_agent/ontology/qbittorrent.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 276e0e582a3d0e8f5c5d8551a0954984ccb8cef1eece2ae33aa188596a466fb9
+    triple_count: 49
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Yrtd2Gs2glsAwtAM7cnHeysqCHUp6uNFBZfHPS1Yc5vj4nec-HhbGreu6iID7p_NABOi9Y5mcrciMUh0nhP_BQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.Torrent.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TorrentCategory.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Tracker.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

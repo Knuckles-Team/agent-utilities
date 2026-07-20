@@ -30,8 +30,8 @@
 
 :attempts a owl:DatatypeProperty ;
     rdfs:label "attempts" ;
-    rdfs:comment "CONCEPT:KG-2.113 — application-level retry count; at :maxAttempts the Task becomes a :DeadLetterTask." ;
-    rdfs:domain :Task ;
+    rdfs:comment "CONCEPT:KG-2.113 — native WorkItem attempt count; exhaustion transitions status to dead_letter." ;
+    rdfs:domain :WorkItem ;
     rdfs:range xsd:integer .
 
 :automates a owl:ObjectProperty ;
@@ -57,11 +57,11 @@
     rdfs:domain :RunEvent ;
     rdfs:range :RunEvent .
 
-:childTaskOf a owl:ObjectProperty,
+:childWorkItemOf a owl:ObjectProperty,
         owl:TransitiveProperty ;
-    rdfs:label "child task of" ;
-    rdfs:comment "CONCEPT:KG-2.113 — a Task spawned by a Loop stage (transitive across a fan-out tree)." ;
-    rdfs:domain :Task ;
+    rdfs:label "child work item of" ;
+    rdfs:comment "CONCEPT:KG-2.113 — a WorkItem spawned by a Loop stage (transitive across a fan-out tree)." ;
+    rdfs:domain :WorkItem ;
     rdfs:range :Loop .
 
 :commitId a owl:DatatypeProperty ;
@@ -84,8 +84,8 @@
 
 :deadLetters a owl:ObjectProperty ;
     rdfs:label "dead-letters" ;
-    rdfs:comment "CONCEPT:KG-2.113 — links the unified queue to a poison Task parked after exhausting retries." ;
-    rdfs:range :DeadLetterTask .
+    rdfs:comment "CONCEPT:KG-2.113 — links the unified queue to a WorkItem whose native status is dead_letter." ;
+    rdfs:range :WorkItem .
 
 :delegatesTo a owl:ObjectProperty ;
     rdfs:comment "Agent delegates to an external A2A agent." ;
@@ -98,16 +98,16 @@
 
 :dueAt a owl:DatatypeProperty ;
     rdfs:label "due at" ;
-    rdfs:comment """CONCEPT:KG-2.113 — the earliest time a delayed/retrying Task becomes
+    rdfs:comment """CONCEPT:KG-2.113 — the earliest time a delayed/retrying WorkItem becomes
     runnable (eta). A NEW datatype property, deliberately distinct from the object-property
     :scheduledFor (CalendarEvent→Person) which must not be overloaded.""" ;
-    rdfs:domain :Task ;
+    rdfs:domain :WorkItem ;
     rdfs:range xsd:dateTime .
 
 :enqueues a owl:ObjectProperty ;
     rdfs:label "enqueues" ;
-    rdfs:comment "CONCEPT:KG-2.113 — a Schedule or Loop ENQUEUES a Task onto the unified queue." ;
-    rdfs:range :Task ;
+    rdfs:comment "CONCEPT:KG-2.113 — a Schedule or Loop ENQUEUES a WorkItem onto the unified queue." ;
+    rdfs:range :WorkItem ;
     owl:inverseOf :enqueuedBy .
 
 :eventOrdinal a owl:DatatypeProperty ;
@@ -200,7 +200,7 @@
 
 :maxAttempts a owl:DatatypeProperty ;
     rdfs:label "max attempts" ;
-    rdfs:domain :Task ;
+    rdfs:domain :WorkItem ;
     rdfs:range xsd:integer .
 
 :memberOfTeam a owl:ObjectProperty ;
@@ -219,7 +219,7 @@
 
 :prioBucket a owl:DatatypeProperty ;
     rdfs:label "priority bucket" ;
-    rdfs:comment "CONCEPT:KG-2.113 — discrete claim/intake priority 0 (critical) .. 3 (background) for a Task, Schedule, or Loop." ;
+    rdfs:comment "CONCEPT:KG-2.113 — discrete claim/intake priority 0 (critical) .. 3 (background) for a WorkItem, Schedule, or Loop." ;
     rdfs:range xsd:integer .
 
 :proposesCommit a owl:ObjectProperty ;
@@ -258,9 +258,9 @@
 
 :schedules a owl:ObjectProperty ;
     rdfs:label "schedules" ;
-    rdfs:comment "CONCEPT:OS-5.44 — a Schedule SCHEDULES the scheduled_job Task it enqueues when due." ;
+    rdfs:comment "CONCEPT:OS-5.44 — a Schedule SCHEDULES the WorkItem it enqueues when due." ;
     rdfs:domain :Schedule ;
-    rdfs:range :Task ;
+    rdfs:range :WorkItem ;
     owl:inverseOf :scheduledBy .
 
 :snapshotId a owl:DatatypeProperty ;
@@ -319,13 +319,6 @@
     rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
     (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
 
-:DeadLetterTask a owl:Class ;
-    rdfs:label "Dead-Letter Task" ;
-    rdfs:comment """CONCEPT:KG-2.113 — a Task that exhausted its application-level
-    retries (distinct from a crash-requeue failure); parked for triage, never silently
-    dropped.""" ;
-    rdfs:subClassOf :Task .
-
 :Goal a owl:Class ;
     rdfs:label "Goal" .
 
@@ -333,7 +326,7 @@
     rdfs:label "Loop" ;
     rdfs:comment """CONCEPT:KG-2.78 — a long-running objective (research|develop|skill)
     the LoopController advances through one hot path; carries a priority bucket and may
-    enqueue prioritized child Tasks.""" ;
+    enqueue prioritized child WorkItems.""" ;
     rdfs:seeAlso prov:Activity .
 
 :RetainedRunProposal a owl:Class ;
@@ -367,11 +360,11 @@
 
 :enqueuedBy a owl:ObjectProperty ;
     rdfs:label "enqueued by" ;
-    rdfs:domain :Task .
+    rdfs:domain :WorkItem .
 
 :scheduledBy a owl:ObjectProperty ;
     rdfs:label "scheduled by" ;
-    rdfs:domain :Task ;
+    rdfs:domain :WorkItem ;
     rdfs:range :Schedule .
 
 :ContextBlob a owl:Class ;
@@ -388,9 +381,7 @@
     rdfs:label "Schedule" ;
     rdfs:comment """CONCEPT:OS-5.44 — a durable recurring-job specification
     (cron | interval | adaptive) the ONE unified scheduler evaluates; when due it
-    enqueues a scheduled_job Task onto the priority+scheduled queue. Subsumes the
-    former fixed-interval maintenance ticks, the static deploy/schedules.yml cron,
-    the loop-cycle tick, and the legacy MaintenanceCron — one scheduling concept.""" ;
+    enqueues a scheduled_job WorkItem onto the native priority+scheduled queue.""" ;
     rdfs:seeAlso prov:Activity .
 
 :Skill a owl:Class ;
@@ -442,4 +433,3 @@
 :Agent a owl:Class ;
     rdfs:label "Agent" ;
     rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
-

@@ -177,7 +177,7 @@ async def main():
 
     elif args.search:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(graph=pipeline.graph)
+        engine = IntelligenceGraphEngine.get_or_create(graph=pipeline.graph)
         results = engine.search_hybrid(args.search)
         if results:
             for r in results:
@@ -189,7 +189,7 @@ async def main():
 
     elif args.impact:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(graph=pipeline.graph)
+        engine = IntelligenceGraphEngine.get_or_create(graph=pipeline.graph)
         impact = engine.query_impact(args.impact)
         if impact:
             print(f"Impact Set for '{args.impact}':")
@@ -202,7 +202,7 @@ async def main():
 
     elif args.memory:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(graph=pipeline.graph)
+        engine = IntelligenceGraphEngine.get_or_create(graph=pipeline.graph)
         memories = engine.search_hybrid(args.memory)
         # Filter for memory nodes
         memories = [m for m in memories if m.get("type") == "memory"]
@@ -216,7 +216,7 @@ async def main():
 
     elif args.add_memory:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(
+        engine = IntelligenceGraphEngine.get_or_create(
             graph=pipeline.graph, db_path=config.ladybug_path
         )
         mem_id = engine.add_memory(args.add_memory)
@@ -224,7 +224,7 @@ async def main():
 
     elif args.get_memory:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(graph=pipeline.graph)
+        engine = IntelligenceGraphEngine.get_or_create(graph=pipeline.graph)
         memory = engine.get_memory(args.get_memory)
         if memory:
             print(f"ID: {memory['id']}")
@@ -236,7 +236,7 @@ async def main():
 
     elif args.delete_memory:
         await pipeline.run()
-        engine = IntelligenceGraphEngine(
+        engine = IntelligenceGraphEngine.get_or_create(
             graph=pipeline.graph, db_path=config.ladybug_path
         )
         engine.delete_memory(args.delete_memory)
@@ -247,7 +247,7 @@ async def main():
             print("Error: --update-memory requires --id and --content.")
             return
         await pipeline.run()
-        engine = IntelligenceGraphEngine(
+        engine = IntelligenceGraphEngine.get_or_create(
             graph=pipeline.graph, db_path=config.ladybug_path
         )
         engine.update_memory(args.id, description=args.content)

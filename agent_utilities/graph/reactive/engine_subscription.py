@@ -203,7 +203,7 @@ def subscribe(
 ) -> EngineSubscription:
     """Build an :class:`EngineSubscription` over ``source`` for ``label`` changes.
 
-    The one-call front door the reactive consumers use: ``subscribe(engine, "Task",
+    The one-call front door the reactive consumers use: ``subscribe(engine, "WorkItem",
     on_change)``. Returns the subscription; the caller drives it with
     :meth:`EngineSubscription.poll` on its tick (or a blocking ``poll(block_ms=…)``
     in a reactive thread). Always returns an object — when no engine streaming

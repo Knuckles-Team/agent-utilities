@@ -374,7 +374,7 @@ class WorkflowCompiler:
 
         Builds the embedding fn once per compiler (reused across steps) and bounds
         each embed via the same ``bounded_embed`` helper the Loop engine uses, so a
-        slow/down endpoint (e.g. the GB10/vLLM power fault) degrades matching in
+        slow/down model endpoint degrades matching in
         seconds rather than stalling. Returns the vector, or ``None`` when
         embeddings are unavailable (caller falls back to the generic executor).
         """

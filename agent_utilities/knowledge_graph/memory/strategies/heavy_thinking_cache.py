@@ -232,7 +232,7 @@ class MemoryCache(BaseModel):
         )
 
         for i, entry in enumerate(self.trajectories):
-            node_id = f"traj:{uuid.uuid4().hex[:8]}"
+            node_id = f"traj:{uuid.uuid4().hex}"
 
             # Compute EncPI for trajectory position interactions
             enc_pi = encoder.encode_interaction(i, len(self.trajectories))

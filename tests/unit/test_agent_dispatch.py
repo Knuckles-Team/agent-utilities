@@ -1,173 +1,40 @@
-"""Queue-driven agent dispatch (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch).
-
-Covers the envelope contract, the session-first partition-key precedence, the
-inline-default seam (existing behavior byte-for-byte), the queue-mode job
-handle on both enqueue seams (``graph_orchestrate action=dispatch`` and the
-goal machinery), the dispatch worker's claim/execute/writeback cycle with a
-fake queue + fake session store, per-session mutual exclusion, crash-requeue
-via stale-claim-aware re-claims, and the worker heartbeat/topology surface.
-No broker, no Postgres, no engine daemon required.
-"""
+"""Queue-only agent dispatch and WorkItem authority contracts."""
 
 from __future__ import annotations
 
-import json
-import sqlite3
+import re
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
-from agent_utilities.core import sessions as _sessions
-from agent_utilities.models.goal import GoalStatus
 from agent_utilities.orchestration import agent_dispatch
 from agent_utilities.orchestration.agent_dispatch import (
+    AGENT_TURNS_TOPIC,
     KIND_GOAL_LOOP,
-    KIND_ORCHESTRATOR_TASK,
     AgentTurnEnvelope,
-    enqueue_agent_turn,
-    resolve_dispatch_backend,
+)
+from agent_utilities.orchestration.agent_dispatch_worker import (
+    WorkItemLeaseGuard,
+    WorkItemLeaseLost,
+    worker_token,
 )
 
 
-class FakeDispatchQueue:
-    """Minimal QueueBackend-shaped fake (put/get/ack/get_queue_size)."""
-
-    def __init__(self):
-        self.items: list[tuple[int, dict]] = []
-        self.acked: list[int] = []
-        self._counter = 0
-
-    def put(self, item: dict) -> None:
-        self._counter += 1
-        self.items.append((self._counter, item))
-
-    def get(self):
-        for entry in self.items:
-            if entry[0] not in self.acked:
-                return entry
-        return None
-
-    def ack(self, item_id) -> None:
-        self.acked.append(item_id)
-        self.items = [e for e in self.items if e[0] != item_id]
-
-    def get_queue_size(self) -> int:
-        return len(self.items)
-
-
-class _GoalEngine:
-    """Fake KG engine — the goal Loop-node store (CONCEPT:AU-KG.research.these-properties-carry)."""
-
-    def __init__(self):
-        self.nodes: dict[str, dict] = {}
-
-    def add_node(self, nid, ntype, properties=None):
-        cur = self.nodes.get(nid, {})
-        cur.update({"type": ntype, **(properties or {})})
-        self.nodes[nid] = cur
-
-    def _row(self, nid, n):
-        return {
-            "goal_id": nid,
-            "session_id": n.get("session_id", ""),
-            "status": n.get("status", "pending"),
-            "objective": n.get("objective", ""),
-            "owner_host": n.get("owner_host", ""),
-            "summary": n.get("summary", ""),
-            "error": n.get("error", ""),
-            "total_iterations": n.get("total_iterations", 0),
-            "total_duration_ms": n.get("total_duration_ms", 0),
-            "total_tool_calls": n.get("total_tool_calls", 0),
-            "iterations_json": n.get("iterations_json", "[]"),
-            "validation_cmd": n.get("validation_cmd", ""),
-            "max_iterations": n.get("max_iterations", 20),
-            "updated_at": n.get("updated_at", 0),
-        }
-
-    def query_cypher(self, q, params=None):
-        params = params or {}
-        if "c.id = $id" in q:
-            n = self.nodes.get(params.get("id"))
-            return [self._row(params.get("id"), n)] if n else []
-        if "c.loop_kind = 'develop'" in q:
-            return [
-                self._row(i, n)
-                for i, n in self.nodes.items()
-                if n.get("loop_kind") == "develop"
-            ]
-        return []
-
-
-def _goal_node(goal_id: str) -> dict:
-    """The goal's KG Loop node (the durable record), via the patched engine."""
-    return _sessions._goal_engine().nodes.get(goal_id, {})
-
-
-@pytest.fixture
-def dispatch_db(tmp_path, monkeypatch):
-    """Isolated sessions store + the KG goal-node store (the one durable model)."""
-    db = tmp_path / "sessions.db"
-    conn = sqlite3.connect(str(db))
-    conn.executescript(_sessions._SQLITE_DDL)
-    conn.commit()
-    conn.close()
-    eng = _GoalEngine()
-    monkeypatch.setattr(_sessions, "_get_db_path", lambda: db)
-    monkeypatch.setattr(_sessions, "_goal_engine", lambda: eng)
-    monkeypatch.setattr(_sessions, "_rehydrated", False)
-    monkeypatch.setattr(_sessions, "active_goals", {})
-    monkeypatch.setattr(_sessions, "background_goal_runs", {})
-    return db
-
-
-@pytest.fixture
-def fake_queue(monkeypatch):
-    q = FakeDispatchQueue()
-    agent_dispatch.reset_dispatch_queue_for_tests(q)
-    yield q
-    agent_dispatch.reset_dispatch_queue_for_tests(None)
-
-
-class _FakeRequest:
-    def __init__(self, body: dict):
-        self._body = body
-        self.path_params: dict = {}
-        self.query_params: dict = {}
-
-    async def json(self) -> dict:
-        return self._body
-
-
-def _rows(db, table):
-    conn = sqlite3.connect(str(db))
-    conn.row_factory = sqlite3.Row
-    rows = [dict(r) for r in conn.execute(f"SELECT * FROM {table}").fetchall()]  # nosec B608
-    conn.close()
-    return rows
-
-
-# ── envelope contract ─────────────────────────────────────────────────────
-
-
-def test_envelope_round_trip():
-    env = AgentTurnEnvelope(
-        session_id="sess-1",
+def test_envelope_round_trip_carries_references_only() -> None:
+    envelope = AgentTurnEnvelope(
+        session_id="session-ref",
         kind=KIND_GOAL_LOOP,
-        payload_ref="goal-1",
-        tenant="acme",
-        prio_bucket="high",  # legacy string coerced through the one normalizer
-        deadline_unix=123.0,
+        payload_ref="goal-ref",
+        tenant="tenant-ref",
+        prio_bucket=1,
     )
-    item = env.to_item()
-    # session_id rides top-level so the queue can key without decoding bodies.
-    assert item["session_id"] == "sess-1"
-    # The string priority was normalized to the shared 0..3 bucket (high → 1).
-    assert env.prio_bucket == 1
-    assert item["prio_bucket"] == 1
-    restored = AgentTurnEnvelope.from_item(json.loads(json.dumps(item)))
-    assert restored == env
-    assert restored.job_id.startswith("dispatch-")
+    restored = AgentTurnEnvelope.from_item(envelope.to_item())
+    assert restored == envelope
+    assert restored.payload_ref == "goal-ref"
+    assert not hasattr(restored, "payload")
 
 
 def test_envelope_job_id_is_full_width_uuid_not_truncated_hex8():
@@ -181,6 +48,7 @@ def test_envelope_job_id_is_full_width_uuid_not_truncated_hex8():
         suffix = env.job_id[len("dispatch-") :]
         assert len(suffix) == 32, f"expected a full 32-hex-char uuid4, got {suffix!r}"
         int(suffix, 16)  # must be valid hex
+        assert re.fullmatch(r"dispatch-[0-9a-f]{32}", env.job_id)
         seen.add(env.job_id)
     # 200 independently generated full-width ids must all be distinct.
     assert len(seen) == 200
@@ -192,234 +60,154 @@ def test_envelope_carries_references_not_bodies():
     assert env.to_item()["payload_ref"] == "goal-9"
 
 
-def test_envelope_prio_bucket_unified_with_tasks():
-    """Dispatch priority is the SAME 0..3 bucket as a :Task (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
-
-    The string-only path is gone — every spec (legacy string, int, numeric
-    string) is coerced through the single shared normalizer, identical to how
-    submit_task / schedules / loops normalize their bucket.
-    """
-    from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
-
-    # default
-    assert AgentTurnEnvelope(session_id="s").prio_bucket == 2
-    # legacy strings → the same buckets the one normalizer yields
-    for word in ("critical", "high", "normal", "background", "low"):
-        env = AgentTurnEnvelope(session_id="s", prio_bucket=word)  # type: ignore[arg-type]
-        assert env.prio_bucket == _coerce_prio_bucket(word)
-    # int + numeric string, clamped into [0, 3]
-    assert AgentTurnEnvelope(session_id="s", prio_bucket=0).prio_bucket == 0
-    assert AgentTurnEnvelope(session_id="s", prio_bucket="1").prio_bucket == 1  # type: ignore[arg-type]
-    assert AgentTurnEnvelope(session_id="s", prio_bucket=99).prio_bucket == 3
-    # the bucket survives serialization onto the queue item
-    assert (
-        AgentTurnEnvelope(session_id="s", prio_bucket="high").to_item()["prio_bucket"]  # type: ignore[arg-type]
-        == 1
-    )
-
-
-# ── partition key: session beats tenant ──────────────────────────────────
-
-
-def test_partition_key_session_beats_tenant():
-    from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
-        partition_key_for,
-    )
-    from agent_utilities.models.company_brain import ActorType
-    from agent_utilities.security.brain_context import ActorContext, use_actor
-
-    item = AgentTurnEnvelope(session_id="sess-42", tenant="acme").to_item()
-    actor = ActorContext("u1", ActorType.HUMAN, tenant_id="acme")
-    with use_actor(actor):
-        # Per-session serial execution is REQUIRED for turn coherence —
-        # session outranks the ambient tenant (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch).
-        assert partition_key_for(item) == "session:sess-42"
-    # And without the ambient actor too.
-    assert partition_key_for(item) == "session:sess-42"
-
-
-def test_partition_key_ingest_hierarchy_unchanged_without_session():
+def test_session_partition_key_precedes_tenant() -> None:
     from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
         partition_key_for,
     )
 
-    assert (
-        partition_key_for({"job_id": "j", "props": {"full_path": "org/repo"}})
-        == "corpus:org/repo"
-    )
+    first = AgentTurnEnvelope(session_id="session-ref", tenant="tenant-a").to_item()
+    second = AgentTurnEnvelope(session_id="session-ref", tenant="tenant-b").to_item()
+    assert partition_key_for(first) == partition_key_for(second)
 
 
-def test_same_session_turns_share_key_distinct_sessions_spread():
-    from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
-        partition_key_for,
-    )
-
-    a1 = AgentTurnEnvelope(session_id="sess-a").to_item()
-    a2 = AgentTurnEnvelope(session_id="sess-a").to_item()
-    b = AgentTurnEnvelope(session_id="sess-b").to_item()
-    assert partition_key_for(a1) == partition_key_for(a2) != partition_key_for(b)
-
-
-# ── backend selection ─────────────────────────────────────────────────────
-
-
-def test_resolve_dispatch_backend_defaults_inline():
-    assert resolve_dispatch_backend(SimpleNamespace(agent_dispatch_backend=None)) == (
-        "inline"
-    )
-    assert (
-        resolve_dispatch_backend(SimpleNamespace(agent_dispatch_backend=" Queue "))
-        == "queue"
-    )
-
-
-def test_resolve_dispatch_backend_rejects_unknown():
-    with pytest.raises(ValueError, match="AGENT_DISPATCH_BACKEND"):
-        resolve_dispatch_backend(SimpleNamespace(agent_dispatch_backend="celery"))
-
-
-def test_default_config_is_inline():
-    # The live AgentConfig default must preserve current behavior.
-    assert resolve_dispatch_backend() == "inline"
-    assert agent_dispatch.dispatch_queue_enabled() is False
-
-
-def test_create_dispatch_queue_sqlite_default(tmp_path, monkeypatch):
+def test_sqlite_is_queue_transport_not_inline_execution(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        agent_dispatch, "_sqlite_queue_path", lambda: str(tmp_path / "turns.db")
+        agent_dispatch, "_sqlite_queue_path", lambda: str(tmp_path / "dispatch.db")
     )
-    q = agent_dispatch.create_dispatch_queue(
+    queue = agent_dispatch.create_dispatch_queue(
         SimpleNamespace(
-            task_queue_backend=None, queue_backend="sqlite", state_db_uri=None
+            task_queue_backend="sqlite",
+            queue_backend="sqlite",
+            state_db_uri=None,
         )
     )
-    env = AgentTurnEnvelope(session_id="s1")
-    q.put(env.to_item())
-    assert q.get_queue_size() == 1
-    item_id, item = q.get()
-    assert AgentTurnEnvelope.from_item(item).session_id == "s1"
-    q.ack(item_id)
-    assert q.get_queue_size() == 0
+    queue.put(AgentTurnEnvelope(session_id="session-ref").to_item())
+    assert queue.get_queue_size() == 1
 
 
-def test_create_dispatch_queue_kafka_uses_agent_turns_topic(monkeypatch):
+def test_kafka_dispatch_uses_fixed_topic_and_group(monkeypatch) -> None:
     captured: dict = {}
 
-    class _FakeKafka:
-        def __init__(self, **kw):
-            captured.update(kw)
+    class FakeKafkaQueue:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
 
-    import agent_utilities.knowledge_graph.core.kafka_queue_backend as kqb
-
-    monkeypatch.setattr(kqb, "KafkaQueueBackend", _FakeKafka)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.kafka_queue_backend.KafkaQueueBackend",
+        FakeKafkaQueue,
+    )
     agent_dispatch.create_dispatch_queue(
         SimpleNamespace(
             task_queue_backend="kafka",
-            queue_backend="sqlite",
+            queue_backend="kafka",
             state_db_uri=None,
-            kafka_bootstrap_servers="broker:9092",
-            agent_turns_partitions=4,
+            kafka_bootstrap_servers="broker.invalid:9092",
+            agent_turns_partitions=8,
         )
     )
-    assert captured["tasks_topic"] == agent_dispatch.AGENT_TURNS_TOPIC
-    assert captured["consumer_group"] == agent_dispatch.DISPATCH_GROUP
-    assert captured["partitions"] == 4
-    assert captured["fail_loud"] is True  # explicit selection stays fail-loud
+    assert captured["tasks_topic"] == AGENT_TURNS_TOPIC
+    assert captured["consumer_group"] == "agent-dispatch"
+    assert captured["partitions"] == 8
 
 
-# ── enqueue: job handle ───────────────────────────────────────────────────
+def test_worker_identity_is_opaque_and_process_stable() -> None:
+    first = worker_token()
+    assert first == worker_token()
+    assert re.fullmatch(r"worker:[0-9a-f]{32}", first)
+    assert "/" not in first and "\\" not in first and "@" not in first
 
 
-def test_enqueue_agent_turn_returns_handle(fake_queue):
-    env = AgentTurnEnvelope(session_id="sess-7", kind=KIND_ORCHESTRATOR_TASK)
-    handle = enqueue_agent_turn(env)
-    assert handle["dispatch"] == "queued"
-    assert handle["job_id"] == env.job_id
-    assert fake_queue.get_queue_size() == 1
-    _, item = fake_queue.get()
-    assert item["session_id"] == "sess-7"
+def test_dispatch_module_has_no_inline_or_parallel_task_authority() -> None:
+    assert not hasattr(agent_dispatch, "resolve_dispatch_backend")
+    assert not hasattr(agent_dispatch, "dispatch_queue_enabled")
 
 
-# ── goal machinery: inline default unchanged (live path) ─────────────────
+def test_dispatch_lease_defaults_meet_published_rto() -> None:
+    from agent_utilities.core.config import AgentConfig
 
-
-@pytest.mark.asyncio
-async def test_create_goal_inline_mode_unchanged(dispatch_db):
-    """Default config: the goal loop still runs in-process — no queue, no handle."""
-    resp = await _sessions.create_goal(
-        _FakeRequest({"objective": "inline goal", "max_iterations": 1})
+    contract = yaml.safe_load(
+        (Path(__file__).parents[2] / "scripts/scale/workload_contract.yml").read_text()
     )
-    body = json.loads(resp.body)
-    assert body["status"] == "success"
-    assert "dispatch" not in body
-    goal_id = body["goal_id"]
-    run = _sessions.background_goal_runs.get(goal_id)
-    assert run is not None  # in-process asyncio task spawned
-    assert _sessions.active_goals[goal_id]["status"] == GoalStatus.RUNNING
-    sessions = _rows(dispatch_db, "sessions")
-    assert sessions[0]["status"] == "running"
-    run["task"].cancel()
+    config = AgentConfig()
+    assert config.agent_dispatch_renew_interval_s < config.agent_dispatch_claim_ttl_s
+    assert config.agent_dispatch_claim_ttl_s <= contract["availability"]["rto_seconds"]
+
+    guard = WorkItemLeaseGuard(
+        object(),
+        "workitem-ref",
+        {"work_item_id": "workitem-ref"},
+        lease_ttl_s=config.agent_dispatch_claim_ttl_s,
+    )
+    assert guard.heartbeat_interval_s == config.agent_dispatch_renew_interval_s
 
 
-# ── goal machinery: queue mode returns a handle, executes nowhere ────────
+def test_dispatch_depth_probe_fails_closed() -> None:
+    class BrokenQueue:
+        def get_queue_size(self):
+            raise ConnectionError("unavailable")
+
+    with pytest.raises(ConnectionError):
+        agent_dispatch.dispatch_queue_depth(BrokenQueue())
 
 
-@pytest.mark.asyncio
-async def test_create_goal_queue_mode_enqueues_and_returns_handle(
-    dispatch_db, fake_queue, monkeypatch
-):
-    monkeypatch.setattr(agent_dispatch, "dispatch_queue_enabled", lambda *a: True)
-    resp = await _sessions.create_goal(
-        _FakeRequest(
-            {
-                "objective": "queued goal",
-                "max_iterations": 3,
-                "validation_cmd": "true",
-            }
+def test_dispatch_rejects_before_workitem_when_queue_is_full(monkeypatch) -> None:
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.core.queue_backend import MemoryQueueBackend
+
+    queue = MemoryQueueBackend()
+    queue.put({"job_id": "already-queued"})
+    monkeypatch.setattr(config, "agent_dispatch_max_depth", 1)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.resolve_session",
+        lambda **_kwargs: SimpleNamespace(tenant="tenant-ref"),
+    )
+    with pytest.raises(agent_dispatch.DispatchQueueFull):
+        agent_dispatch.enqueue_agent_turn(
+            AgentTurnEnvelope(session_id="session-ref"), queue=queue
         )
+
+
+def test_lease_guard_heartbeats_during_long_execution(monkeypatch) -> None:
+    calls: list[float] = []
+
+    def renew(*_args, **_kwargs):
+        calls.append(time.monotonic())
+        return True
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_dispatch_worker._fence_still_valid",
+        renew,
     )
-    body = json.loads(resp.body)
-    assert body["status"] == "success"
-    assert body["dispatch"]["dispatch"] == "queued"
-    goal_id = body["goal_id"]
-    session_id = body["session_id"]
-
-    # Nothing runs in this process.
-    assert goal_id not in _sessions.background_goal_runs
-    assert _sessions.active_goals[goal_id]["status"] == GoalStatus.PENDING
-
-    # Durable record carries the spec (queue carries only references).
-    sessions = _rows(dispatch_db, "sessions")
-    assert sessions[0]["status"] == "queued"
-    spec = json.loads(sessions[0]["metadata_json"])["goal_spec"]
-    assert spec["objective"] == "queued goal"
-    assert spec["validation_cmd"] == "true"
-    assert spec["max_iterations"] == 3
-
-    node = _goal_node(goal_id)
-    assert node["status"] == "pending"
-    assert node.get("owner_host", "") == ""  # unowned until a worker claims
-
-    # The envelope is session-keyed and references the goal.
-    _, item = fake_queue.get()
-    env = AgentTurnEnvelope.from_item(item)
-    assert env.session_id == session_id
-    assert env.kind == KIND_GOAL_LOOP
-    assert env.payload_ref == goal_id
+    guard = WorkItemLeaseGuard(
+        object(),
+        "workitem-ref",
+        {"work_item_id": "workitem-ref"},
+        lease_ttl_s=0.09,
+        heartbeat_interval_s=0.01,
+    )
+    with guard:
+        time.sleep(0.035)
+    assert len(calls) >= 3
 
 
-@pytest.mark.asyncio
-async def test_create_goal_queue_mode_enqueue_failure_is_loud(dispatch_db, monkeypatch):
-    monkeypatch.setattr(agent_dispatch, "dispatch_queue_enabled", lambda *a: True)
-
-    class _Broken:
-        def put(self, item):
-            raise ConnectionError("broker down")
-
-    agent_dispatch.reset_dispatch_queue_for_tests(_Broken())
+def test_lease_guard_rejects_side_effect_after_fence_loss(monkeypatch) -> None:
+    outcomes = iter((True, False))
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_dispatch_worker._fence_still_valid",
+        lambda *_args, **_kwargs: next(outcomes),
+    )
+    guard = WorkItemLeaseGuard(
+        object(),
+        "workitem-ref",
+        {"work_item_id": "workitem-ref"},
+        lease_ttl_s=10.0,
+    )
+    guard.start()
     try:
-        resp = await _sessions.create_goal(_FakeRequest({"objective": "doomed"}))
+        with pytest.raises(WorkItemLeaseLost):
+            guard.side_effect(lambda: pytest.fail("stale effect executed"))
     finally:
+        guard.close()
         agent_dispatch.reset_dispatch_queue_for_tests(None)
     assert resp.status_code == 503
     nodes = list(_sessions._goal_engine().nodes.values())

@@ -19,9 +19,9 @@ backend ladders pick the highest-fidelity backend whose credential
 always qualify; cookie/official backends light up only when their credential exists.
 
 Storage is **not** reimplemented: descriptors point at secret URIs
-(``vault://``/``env://``/``sqlite://``/plain) resolved through the existing
-:class:`~agent_utilities.security.secrets_client.SecretsClient`, so Vault / SQLite /
-in-memory all work unchanged.
+(``vault://``/``secret://``/``env://``) resolved through the existing
+:class:`~agent_utilities.security.secrets_client.SecretsClient`, so Vault and the
+encrypted engine store share one strict runtime-reference contract.
 
 Descriptor map (declarative, config.json-driven — never bare ``os.environ``)::
 

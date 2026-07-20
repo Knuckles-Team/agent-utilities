@@ -125,7 +125,6 @@ def test_deps_carry_channel_id_from_state():
             "project_root": "",
             "knowledge_engine": None,
             "mcp_toolsets": [],
-            "ssl_verify": True,
             "provider": None,
             "base_url": None,
             "api_key": None,

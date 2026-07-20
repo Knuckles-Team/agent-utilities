@@ -311,7 +311,7 @@ class WorkspaceAttention:
         node_ids: list[str] = []
 
         for proposal in winners:
-            node_id = f"prop:{uuid.uuid4().hex[:8]}"
+            node_id = f"prop:{uuid.uuid4().hex}"
             node = ProposalNode(
                 id=node_id,
                 name=f"Proposal: {proposal.specialist_name}",

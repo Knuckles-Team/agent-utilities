@@ -14,10 +14,11 @@ import logging
 import re
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import UsageLimitExceeded
 from pydantic_graph import End
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.contextual_model import create_context_agent
 
 try:
     from pydantic_graph.step import StepContext
@@ -30,7 +31,6 @@ from agent_utilities.core.config import (
     get_discovery_registry,
     get_relevant_specialists,
     load_mcp_config,
-    load_node_agents_registry,
     load_specialized_prompts,
 )
 
@@ -323,9 +323,9 @@ async def router_step(
                         ctx.state.output_data, dict
                     ):
                         ctx.state.output_data["kg_provenance"] = kg_result.kg_provenance
-                        ctx.state.output_data[
-                            "kg_specialist_configs"
-                        ] = kg_result.specialist_configs
+                        ctx.state.output_data["kg_specialist_configs"] = (
+                            kg_result.specialist_configs
+                        )
 
                     emit_graph_event(
                         deps.event_queue,
@@ -376,19 +376,34 @@ async def router_step(
                 "skipping planner/verifier.",
                 _srv,
             )
+            from agent_utilities.security.tool_guard import (
+                flag_mcp_tool_definitions,
+            )
+
+            _guarded_ts = flag_mcp_tool_definitions(
+                _ts,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                engine=ctx.deps.knowledge_engine,
+            )
             _, _scoped_ts = apply_tool_scope(
-                ctx.state, [], _ts
+                ctx.state, [], _guarded_ts
             )  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
-            _direct_agent = Agent(
+            _skill_prompt = str(deps.tag_prompts.get(str(_srv), "") or "").strip()
+            _direct_agent = create_context_agent(
                 model=deps.agent_model,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                permission_engine=ctx.deps.knowledge_engine,
                 system_prompt=(
-                    f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
+                    (f"{_skill_prompt}\n\n" if _skill_prompt else "")
+                    + f"You are operating the '{_srv}' MCP server. Use its tools to satisfy "
                     f"the user's request directly and return exactly the data requested."
                     f"{invoker_context_section(ctx.state)}"  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
                 ),
                 toolsets=_scoped_ts,
             )
-            _direct_deps = agent_deps_from_graph(deps, _ts, state=ctx.state)
+            _direct_deps = agent_deps_from_graph(deps, _scoped_ts, state=ctx.state)
             _direct_res = await _direct_agent.run(
                 ctx.state.query,
                 deps=_direct_deps,
@@ -413,7 +428,12 @@ async def router_step(
                     },
                 )
             )
-        except Exception as e:  # noqa: BLE001 — fall back to full planning on any failure
+        except (PermissionError, UsageLimitExceeded):
+            # Authority denials and caller-supplied usage limits are terminal
+            # contracts. Falling back to the multi-agent planner would either
+            # bypass the denial or spend beyond the delegated budget.
+            raise
+        except Exception as e:  # noqa: BLE001 — recover from routing/model failures
             logger.warning(
                 "[LAYER:GRAPH:ROUTER] Direct-dispatch failed (%s); "
                 "falling back to full planning.",
@@ -560,7 +580,7 @@ async def router_step(
                 logger.warning(
                     "RLM output was not valid GraphPlan JSON. Running fallback parser."
                 )
-                router_agent = Agent(
+                router_agent = create_context_agent(
                     model=deps.router_model,
                     output_type=GraphPlan,
                     system_prompt="Parse the following text into a valid GraphPlan JSON structure.",
@@ -640,7 +660,7 @@ async def router_step(
                 _super = config.super_chat_model
                 # CONCEPT:AU-ORCH.execution.direct-completion-shape — no hard-coded remote model; an unset super-model falls
                 # back to the local default (``create_model(None)``), never an unreachable
-                # ``o3-mini`` the homelab cannot serve.
+                # a model identifier the configured deployment cannot serve.
                 reasoning_model_id = _super.id if _super else None
                 logger.debug(
                     "Router: pinning reasoning model %s",
@@ -667,7 +687,7 @@ async def router_step(
                 if hasattr(deps.router_model, "model_name"):
                     ctx.state.pinned_model_id = deps.router_model.model_name
 
-            router_agent = Agent(
+            router_agent = create_context_agent(
                 model=adaptive_model,
                 output_type=GraphPlan,
                 system_prompt=system_prompt_str,
@@ -698,13 +718,7 @@ async def router_step(
                 )
                 raise ValueError("LLM planning timed out") from None
 
-            # v1/v2 compat shim: see agent_utilities/graph/executor.py's identical block.
-            usage: Any = stream.usage  # v2: property (was a method in v1)
-            if callable(usage):
-                usage = usage()
-            if asyncio.iscoroutine(usage):
-                usage = await usage
-            ctx.state._update_usage(usage)
+            ctx.state._update_usage(stream.usage)
         ctx.state.plan = plan_output
         ctx.state.step_cursor = 0
 
@@ -744,7 +758,7 @@ async def router_step(
                 unstructured_fallback_prompt,
             )
 
-            fallback_agent = Agent(
+            fallback_agent = create_context_agent(
                 model=adaptive_model,
                 system_prompt=unstructured_fallback_prompt(system_prompt_str),
             )
@@ -1258,6 +1272,34 @@ async def expert_executor_step(
                     "mcp_server_execution", ctx.deps
                 )
 
+                # A delegated skill's native GraphOS toolset is scoped to this
+                # run and is therefore authoritative even when the planner
+                # emits a dynamic node name that does not match a fleet-server
+                # tag. Preserve it through the fallback path and apply the
+                # same signed identity policy used by specialist execution.
+                native_toolsets = [
+                    toolset
+                    for toolset in ctx.deps.mcp_toolsets
+                    if isinstance(
+                        (metadata := getattr(toolset, "metadata", None)), dict
+                    )
+                    and metadata.get("graphos_native") is True
+                ]
+                if native_toolsets:
+                    from agent_utilities.security.tool_guard import (
+                        flag_mcp_tool_definitions,
+                    )
+
+                    domain_toolsets = [
+                        *flag_mcp_tool_definitions(
+                            native_toolsets,
+                            permissions_kernel=ctx.deps.permissions_kernel,
+                            agent_identity=ctx.deps.agent_identity,
+                            engine=ctx.deps.knowledge_engine,
+                        ),
+                        *domain_toolsets,
+                    ]
+
                 # Filter down to the exact tools
                 if tools_to_inject:
                     filtered_tools = [
@@ -1272,8 +1314,11 @@ async def expert_executor_step(
                 ) = apply_tool_scope(  # CONCEPT:AU-ORCH.session.invoker-agent-handoff
                     ctx.state, domain_tools, domain_toolsets
                 )
-                dynamic_agent = Agent(
+                dynamic_agent = create_context_agent(
                     model=ctx.deps.agent_model,
+                    permissions_kernel=ctx.deps.permissions_kernel,
+                    agent_identity=ctx.deps.agent_identity,
+                    permission_engine=ctx.deps.knowledge_engine,
                     system_prompt=system_prompt + invoker_context_section(ctx.state),
                     tools=domain_tools,
                     toolsets=domain_toolsets,
@@ -1460,7 +1505,7 @@ async def mcp_server_step(
                 resource_node = nodes[0]
 
         # Check if there's a matching dynamic MCP agent in the registry
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         matching_agents = [a for a in registry.agents if a.mcp_server == server_name]
 
         if matching_agents:
@@ -1480,11 +1525,26 @@ async def mcp_server_step(
                 if server_id and server_name in str(server_id):
                     matched_toolsets.append(toolset)
 
-            agent = Agent(
+            from agent_utilities.security.tool_guard import (
+                flag_mcp_tool_definitions,
+            )
+
+            guarded_toolsets = flag_mcp_tool_definitions(
+                matched_toolsets,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                engine=ctx.deps.knowledge_engine,
+            )
+            _, scoped_toolsets = apply_tool_scope(ctx.state, [], guarded_toolsets)
+
+            agent = create_context_agent(
                 model=ctx.deps.agent_model,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                permission_engine=ctx.deps.knowledge_engine,
                 system_prompt=system_prompt
                 + invoker_context_section(ctx.state),  # ORCH-1.39
-                toolsets=matched_toolsets,
+                toolsets=scoped_toolsets,
             )
 
             async with agent.run_stream(query, deps=ctx.deps) as stream:
@@ -1496,17 +1556,21 @@ async def mcp_server_step(
                         node="mcp_server_execution",
                     )
                 output = await stream.get_output()
-            # v1/v2 compat shim: see agent_utilities/graph/executor.py's identical block.
-            usage: Any = stream.usage  # v2: property (was a method in v1)
-            if callable(usage):
-                usage = usage()
-            if asyncio.iscoroutine(usage):
-                usage = await usage
-            ctx.state._update_usage(usage)
-            ctx.state.results[server_name] = str(output)
-            ctx.state.results_registry[f"{server_name}_{ctx.state.step_cursor}"] = str(
-                output
-            )
+            ctx.state._update_usage(stream.usage)
+            result_key = f"{server_name}_{ctx.state.step_cursor}"
+            ctx.state.results_registry[result_key] = str(output)
+
+            # Accumulate this MCP server's tool calls for :ToolCall provenance on the
+            # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
+            # block below is gated on ``event_queue`` and skipped for headless
+            # (MCP/telegram) delegations, which is exactly the MCP-execution path a
+            # fleet-server delegation takes.
+            try:
+                from ..orchestration.tool_provenance import extract_tool_calls
+
+                ctx.state.tool_calls.extend(extract_tool_calls(stream))
+            except Exception as _tc_exc:  # noqa: BLE001 — never break a run
+                logger.debug("mcp_server tool-call provenance skipped: %s", _tc_exc)
 
             # Accumulate this MCP server's tool calls for :ToolCall provenance on the
             # graph path (CONCEPT:AU-KG.temporal.message-history-read). Unconditional — the WebUI event
@@ -1556,7 +1620,7 @@ async def mcp_server_step(
             event_type="node_complete",
             id="mcp_server_execution",
             server=server_name,
-            result=str(ctx.state.results.get(server_name, ""))[:500],
+            result=str(ctx.state.results_registry.get(result_key, ""))[:500],
         )
 
         return "execution_joiner"

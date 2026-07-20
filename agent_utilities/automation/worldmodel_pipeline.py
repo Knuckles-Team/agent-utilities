@@ -65,6 +65,7 @@ class WorldModelReport:
     marginal: int = 0
     research: int = 0
     skipped: int = 0
+    failed: int = 0
     domains: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -78,6 +79,8 @@ class WorldModelPipelineRunner:
 
     engine: Any = None
     config: WorldModelConfig = field(default_factory=WorldModelConfig)
+    connector: str = "freshrss"
+    source_instance: str = ""
 
     # ── public entrypoint ────────────────────────────────────────────────────
 
@@ -93,13 +96,13 @@ class WorldModelPipelineRunner:
         for doc in docs:
             try:
                 self._gate_one(doc, taxonomy, report, known_ids)
-            except Exception:  # noqa: BLE001 — one bad item never aborts the sweep
+            except Exception:  # noqa: BLE001 — retain the batch, but never advance its cursor
                 logger.debug(
                     "world-model gate failed for %s",
                     getattr(doc, "id", "?"),
                     exc_info=True,
                 )
-                report.skipped += 1
+                report.failed += 1
         return report
 
     def _gate_one(
@@ -310,6 +313,7 @@ class WorldModelPipelineRunner:
 
             proc = DocumentProcessor(
                 getattr(self.engine, "backend", None),
+                engine=self.engine,
                 chunking=ChunkingConfig(),
                 contextual=True,
             )
@@ -319,15 +323,13 @@ class WorldModelPipelineRunner:
     def _ingest_full(
         self, doc: Any, rec: dict[str, Any], score: float, domains: list[str]
     ) -> None:
-        """Relevance-gated full ingestion of the article body (KG-2.48).
+        """Commit a relevant article and its derived document slice atomically.
 
-        DECOUPLED (CONCEPT:AU-KG.ingest.rss-feed-connector): the heavy chunk + embed + contextual-enrich
-        work is ENQUEUED as a ``feed_ingest`` task and drained by the worker pool,
-        so the sweep (the "review") returns fast while N ingest workers process in
-        parallel — the split that lets reviews scale (CPU + network) independently
-        of ingest, which scales 1→N with the model-concurrency controller
-        (KG-2.143/2.145). The already-fetched text rides on the task (no re-crawl).
-        Falls back to inline processing when no queue is available."""
+        ``DocumentProcessor`` renders Document/Chunk/Section nodes and provenance
+        edges into one native ChangeEnvelope. Optional intelligence projections
+        consume the committed outbox separately; this source path never invokes a
+        second direct-write enrichment seam after acknowledging the document.
+        """
         if self.engine is None:
             return
         url = self._canonical(rec) or getattr(doc, "source_uri", "")
@@ -342,39 +344,15 @@ class WorldModelPipelineRunner:
             "feed": origin.get("title"),
             "published": rec.get("published"),
         }
+        from ..security.persistence_privacy import persistence_reference
+
+        metadata["source_reference"] = persistence_reference(
+            "feed_document_source",
+            url or getattr(doc, "id", ""),
+            namespace=self.connector,
+        )
         title = getattr(doc, "title", "") or doc.id
         text = getattr(doc, "text", "") or ""
-
-        submit = getattr(self.engine, "submit_task", None)
-        if callable(submit):
-            try:
-                submit(
-                    target_path=item_node_id,
-                    is_codebase=False,
-                    provenance={"feed": origin.get("title") or "rss"},
-                    task_type="feed_ingest",
-                    priority=2,
-                    skip_dedupe=True,  # the gate's _is_known already deduped this item
-                    job_id=f"feedjob:{item_node_id}",
-                    extra_meta={
-                        "feed_doc": {
-                            "document_id": item_node_id,
-                            "text": text,
-                            "title": title,
-                            "doc_type": "news_article",
-                            "source": url,
-                            "metadata": metadata,
-                        }
-                    },
-                )
-                self._link_feed_source(item_node_id, doc, rec)
-                return
-            except Exception as exc:  # noqa: BLE001 — fall back to inline ingest
-                logger.warning(
-                    "[KG-2.121] feed_ingest enqueue failed for %s: %s; inline",
-                    doc.id,
-                    exc,
-                )
 
         try:
             self._processor().process(
@@ -382,10 +360,13 @@ class WorldModelPipelineRunner:
                 document_id=item_node_id,
                 title=title,
                 doc_type="news_article",
-                source=url,
+                source="feed-document",
                 metadata=metadata,
+                external_access=getattr(doc, "external_access", None),
+                connector=self.connector,
+                source_instance=self.source_instance,
+                extra_edges=self._feed_edges(item_node_id, doc, rec),
             )
-            self._link_feed_source(item_node_id, doc, rec)
             # Unified always-on intelligence layer (CONCEPT:AU-KG.enrichment.topic-classification-topology):
             # the queue-less inline path skips the central _enrich_text seam the
             # same way the feed_ingest task does — run it here too so a synchronous
@@ -417,12 +398,15 @@ class WorldModelPipelineRunner:
         self, doc: Any, rec: dict[str, Any], score: float, domains: list[str]
     ) -> None:
         """A lightweight ``ArticleNode`` footprint so the item is remembered."""
-        if self.engine is None or getattr(self.engine, "graph", None) is None:
+        if self.engine is None:
             return
         from ..models.knowledge_graph import ArticleNode
 
         article_id = self._node_id("news:freshrss:", doc.id)
-        timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        timestamp = str(
+            getattr(doc, "updated_at", None)
+            or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        )
         body = getattr(doc, "text", "") or ""
         node = ArticleNode(
             id=article_id,
@@ -434,17 +418,24 @@ class WorldModelPipelineRunner:
             timestamp=timestamp,
             tags=domains or [],
         )
-        self.engine.graph.add_node(article_id, **node.model_dump())
-        if getattr(self.engine, "backend", None):
-            try:
-                self.engine._upsert_node(
-                    "Article",
-                    article_id,
-                    self.engine._serialize_node(node, "Article"),
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("[KG-2.116] marginal upsert failed for %s", doc.id)
-        self._link_feed_source(article_id, doc, rec)
+        from ..knowledge_graph.ingestion.change_envelope import ChangeEnvelope
+        from ..knowledge_graph.ingestion.envelope_ingest import ingest_envelope
+
+        record = {"type": "Article", **node.model_dump()}
+        feed_edges = self._feed_edges(article_id, doc, rec)
+        if feed_edges:
+            record["_links"] = feed_edges
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector=self.connector,
+            source_instance=self.source_instance,
+            id_field="id",
+            version_field="timestamp",
+            source_acl=getattr(doc, "external_access", None),
+        )
+        applied = ingest_envelope(self.engine, env)
+        if applied.get("status") not in {"success", "skipped"}:
+            raise RuntimeError("native marginal feed envelope failed")
 
     def _ingest_research(self, doc: Any, rec: dict[str, Any]) -> None:
         """Route a Research/arXiv item to the unified research path (CONCEPT:AU-KG.ingest.worldmodel-gated-ingestion/2.121).
@@ -468,20 +459,15 @@ class WorldModelPipelineRunner:
             "url": url,
             "pdf_url": rec.get("pdf_url", ""),
         }
-        try:
-            grade_and_enqueue_paper(self.engine, paper)
-        except Exception as exc:  # noqa: BLE001 — one item never aborts the sweep
-            logger.warning(
-                "[KG-2.117] research grade/enqueue failed for %s: %s", aid, exc
-            )
+        # Queue admission is the durable hand-off for a full paper.  A failure
+        # must reach ``run_gated_ingest`` so the source cursor is retained and
+        # the item is retried; counting it as research would silently skip it.
+        grade_and_enqueue_paper(self.engine, paper)
 
-    def _link_feed_source(
+    def _feed_edges(
         self, item_node_id: str, doc: Any, rec: dict[str, Any]
-    ) -> None:
-        """Best-effort ``:ingestedFrom`` edge item → its :FeedSource node (KG-2.122)."""
-        engine = self.engine
-        if engine is None or not hasattr(engine, "add_edge"):
-            return
+    ) -> list[dict[str, Any]]:
+        """Return the deterministic item → FeedSource provenance edge."""
         from .feed_sources import _feed_node_id
 
         system = str((getattr(doc, "metadata", None) or {}).get("source_system") or "")
@@ -491,8 +477,5 @@ class WorldModelPipelineRunner:
         elif system == "freshrss":
             feed_id = _feed_node_id("freshrss", "freshrss")
         else:
-            return  # only link where the FeedSource node is deterministically registered
-        try:
-            engine.add_edge(item_node_id, feed_id, "INGESTED_FROM")
-        except Exception:  # noqa: BLE001 — provenance link is best-effort
-            logger.debug("feed-source link failed for %s", item_node_id)
+            return []
+        return [{"source": item_node_id, "target": feed_id, "type": "INGESTED_FROM"}]

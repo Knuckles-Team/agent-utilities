@@ -17,6 +17,8 @@ sends ``msg``), and Alertmanager ``{"alerts": [...]}``.
 from __future__ import annotations
 
 import asyncio
+import hmac
+import ipaddress
 import json
 import logging
 from typing import Any
@@ -27,20 +29,32 @@ from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
+_MAX_BODY_BYTES = 256 * 1024
+_MAX_ALERT_CHARS = 4_000
+_MAX_ALERTS = 100
+_DELIVERY_TIMEOUT_SECONDS = 30
+_MAX_CONCURRENT_DELIVERIES = 16
+
 
 def _extract_text(body: Any) -> str:
     """Pull a human-readable message out of a webhook payload."""
     if isinstance(body, str):
-        return body.strip() or "(empty alert)"
+        return (body.strip() or "(empty alert)")[:_MAX_ALERT_CHARS]
     if isinstance(body, dict):
         for key in ("text", "msg", "message", "content"):
             if body.get(key):
-                return str(body[key])
+                return str(body[key])[:_MAX_ALERT_CHARS]
         if isinstance(body.get("alerts"), list):
             lines = []
-            for a in body["alerts"]:
+            for a in body["alerts"][:_MAX_ALERTS]:
+                if not isinstance(a, dict):
+                    continue
                 ann = a.get("annotations", {}) or {}
                 lab = a.get("labels", {}) or {}
+                if not isinstance(ann, dict):
+                    ann = {}
+                if not isinstance(lab, dict):
+                    lab = {}
                 lines.append(
                     f"[{a.get('status', '?')}] "
                     + (
@@ -50,70 +64,117 @@ def _extract_text(body: Any) -> str:
                     )
                 )
             if lines:
-                return "\n".join(lines)
-    return json.dumps(body)[:1500]
+                return "\n".join(lines)[:_MAX_ALERT_CHARS]
+    return json.dumps(body, ensure_ascii=False, default=str)[:_MAX_ALERT_CHARS]
+
+
+def _loopback_bind(host: str) -> bool:
+    value = str(host or "").strip().lower()
+    if value in {"localhost", "localhost."}:
+        return True
+    try:
+        return ipaddress.ip_address(value.strip("[]").split("%", 1)[0]).is_loopback
+    except ValueError:
+        return False
+
+
+def _bearer_token(request: web.Request) -> str:
+    scheme, separator, credential = request.headers.get("Authorization", "").partition(" ")
+    if separator and scheme.lower() == "bearer":
+        return credential.strip()
+    return ""
 
 
 async def _handle(request: web.Request) -> web.Response:
+    supplied = _bearer_token(request)
+    required = request.app["alert_intake_token"]
+    if not supplied or not hmac.compare_digest(supplied, required):
+        return web.json_response(
+            {"ok": False, "error": "authentication required"}, status=401
+        )
+
+    deliveries: asyncio.Semaphore = request.app["alert_intake_deliveries"]
+    if deliveries.locked():
+        return web.json_response(
+            {"ok": False, "error": "delivery capacity exhausted"}, status=429
+        )
+
     engine = request.app["engine"]
-    try:
-        body: Any = await request.json()
-    except Exception:
-        body = await request.text()
-    text = _extract_text(body)
+    async with deliveries:
+        try:
+            body: Any = await request.json()
+        except Exception:
+            body = await request.text()
+        text = _extract_text(body)
 
-    platform = setting("MESSAGING_DEFAULT_PLATFORM", "telegram")
-    channel = setting("MESSAGING_DEFAULT_CHANNEL", "")
-    if not channel:
-        return web.json_response(
-            {
-                "ok": False,
-                "error": "MESSAGING_DEFAULT_CHANNEL is unset — cannot route the alert",
-            },
-            status=503,
-        )
+        platform = setting("MESSAGING_DEFAULT_PLATFORM", "telegram")
+        channel = setting("MESSAGING_DEFAULT_CHANNEL", "")
+        if not channel:
+            return web.json_response(
+                {"ok": False, "error": "alert destination is unavailable"}, status=503
+            )
 
-    from agent_utilities.messaging.service import MessagingService
+        from agent_utilities.messaging.service import MessagingService
 
-    svc = MessagingService.instance(engine)
-    backend = await svc.get_backend(platform)
-    if backend is None:
-        return web.json_response(
-            {
-                "ok": False,
-                "error": f"no connected messaging backend for platform {platform!r}",
-            },
-            status=503,
-        )
-    try:
-        await backend.send_message(channel, text)
-    except Exception as exc:  # noqa: BLE001 — surface the delivery failure to the caller
-        logger.warning(
-            "alert-intake delivery failed (%s/%s): %s", platform, channel, exc
-        )
-        return web.json_response(
-            {"ok": False, "error": f"delivery failed: {exc}"}, status=502
-        )
-    return web.json_response({"ok": True, "platform": platform, "channel": channel})
+        svc = MessagingService.instance(engine)
+        backend = await svc.get_backend(platform)
+        if backend is None:
+            return web.json_response(
+                {"ok": False, "error": "alert destination is unavailable"}, status=503
+            )
+        try:
+            await asyncio.wait_for(
+                backend.send_message(channel, text),
+                timeout=_DELIVERY_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001 — boundary is fail-closed + generic
+            logger.warning(
+                "alert-intake delivery failed (%s)", type(exc).__name__
+            )
+            return web.json_response(
+                {"ok": False, "error": "alert delivery failed"}, status=502
+            )
+        return web.json_response({"ok": True})
 
 
 async def serve_alert_intake(engine: Any, port: int) -> None:
     """Run the alert-intake HTTP server until cancelled. Never raises into the caller."""
-    app = web.Application()
+    host = str(setting("MESSAGING_ALERT_INTAKE_HOST", "127.0.0.1") or "").strip()
+    allow_remote = str(
+        setting("MESSAGING_ALERT_INTAKE_ALLOW_REMOTE", "False") or "False"
+    ).lower() in {"1", "true", "yes", "on"}
+    if not _loopback_bind(host) and not allow_remote:
+        logger.error("messaging alert-intake disabled: non-loopback bind is not approved")
+        return
+
+    token_ref = str(setting("MESSAGING_ALERT_INTAKE_TOKEN_REF", "") or "").strip()
+    if not token_ref:
+        logger.error("messaging alert-intake disabled: token reference is required")
+        return
+    try:
+        from agent_utilities.security.secrets_client import create_secrets_client
+
+        token = create_secrets_client().resolve_ref(token_ref)
+    except Exception:  # noqa: BLE001 — never disclose provider/ref details
+        token = None
+    if not token:
+        logger.error("messaging alert-intake disabled: token reference is unresolved")
+        return
+
+    app = web.Application(client_max_size=_MAX_BODY_BYTES)
     app["engine"] = engine
+    app["alert_intake_token"] = str(token)
+    app["alert_intake_deliveries"] = asyncio.Semaphore(_MAX_CONCURRENT_DELIVERIES)
     app.router.add_post("/alert", _handle)
     app.router.add_get("/health", lambda r: web.json_response({"ok": True}))
     runner = web.AppRunner(app)
     try:
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
+        site = web.TCPSite(runner, host, port)
         await site.start()
         logger.info(
-            "[CONCEPT:AU-ECO.messaging.alert-intake] messaging alert-intake listening on :%s "
-            "(POST /alert -> %s/%s)",
+            "[CONCEPT:AU-ECO.messaging.alert-intake] messaging alert-intake enabled on port %s",
             port,
-            setting("MESSAGING_DEFAULT_PLATFORM", "telegram"),
-            setting("MESSAGING_DEFAULT_CHANNEL", ""),
         )
         await asyncio.Event().wait()  # run until the task is cancelled
     except asyncio.CancelledError:

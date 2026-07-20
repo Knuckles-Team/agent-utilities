@@ -77,7 +77,7 @@ def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Skill | None:
                     output_modes=["text"],
                 )
     except Exception as e:
-        logger.debug(f"Error parsing skill from {skill_file}: {e}")
+        logger.debug("Error parsing configured skill (%s)", type(e).__name__)
     return None
 
 
@@ -147,7 +147,7 @@ def extract_skill_tags(skill_path: str) -> list[str]:
                     if isinstance(tags, list):
                         return [str(t) for t in tags]
     except Exception as e:
-        logger.debug(f"Error reading tags from {skill_file}: {e}")
+        logger.debug("Error reading configured skill tags (%s)", type(e).__name__)
 
     return []
 

@@ -37,9 +37,8 @@ def client(mock_agent):
 def test_health_check(client):
     response = client.get("/health")
     assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "OK"
-    assert "agent" in data
+    assert response.json() == {"status": "ok"}
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_list_chats(client):
@@ -116,7 +115,7 @@ async def test_reload_mcp_config(client):
             "agent_utilities.mcp.agent_manager.sync_mcp_agents", new_callable=AsyncMock
         ),
         patch(
-            "agent_utilities.graph_orchestration.load_node_agents_registry"
+            "agent_utilities.server.routers.interop.get_discovery_registry"
         ) as mock_reg,
     ):
         mock_reg.return_value.agents = [1, 2]

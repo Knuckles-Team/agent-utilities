@@ -110,7 +110,7 @@ class NormalizedIdentity:
     ``Impersonate-User``/``Impersonate-Group``. ``provider`` is audit metadata.
     """
 
-    subject: str = "jwt"
+    subject: str = ""
     roles: tuple[str, ...] = ()
     groups: tuple[str, ...] = ()
     tenant: str = ""
@@ -132,8 +132,22 @@ def normalize_identity(claims: Mapping[str, Any]) -> NormalizedIdentity:
     * **groups** ← ``groups``/``group`` (Okta default groups claim; Keycloak
       group-membership mapper), path-normalized.
     * **tenant** ← ``tenant_id``/``tenant``/``org_id``/``tid``/``org``.
+
+    A validated identity must carry one non-empty string ``sub``, ``client_id``,
+    or ``azp`` claim. Missing or malformed principals are rejected; this layer
+    never invents a shared synthetic subject.
     """
-    subject = next((str(claims[k]) for k in _SUBJECT_KEYS if claims.get(k)), "jwt")
+    subject = ""
+    for key in _SUBJECT_KEYS:
+        if key not in claims or claims[key] is None:
+            continue
+        raw_subject = claims[key]
+        if not isinstance(raw_subject, str) or not raw_subject.strip():
+            raise ValueError("validated identity has an invalid subject claim")
+        subject = raw_subject.strip()
+        break
+    if not subject:
+        raise ValueError("validated identity is missing a subject claim")
 
     roles: list[str] = []
     for key in _ROLE_KEYS:

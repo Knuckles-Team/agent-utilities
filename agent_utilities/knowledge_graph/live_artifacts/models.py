@@ -136,7 +136,7 @@ class LiveArtifact(BaseModel):
     CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact.
     """
 
-    artifact_id: str = Field(default_factory=lambda: f"artifact:{uuid.uuid4().hex[:8]}")
+    artifact_id: str = Field(default_factory=lambda: f"artifact:{uuid.uuid4().hex}")
     schema_version: str = "live_artifact_v1"
     name: str = ""
     template: str = ""

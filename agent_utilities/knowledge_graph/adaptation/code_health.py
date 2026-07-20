@@ -21,9 +21,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import setting
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_ROOT = Path("/home/apps/workspace/agent-packages")
 _PER_REPO_TIMEOUT_S = 180
 # Per-repo baseline snapshots so each sweep can report *new vs. resolved* dead
 # pathways instead of a bare score — a regression is what matters, not legacy debt.
@@ -147,7 +148,10 @@ def run_code_health_sweep(
 
     baseline_mod = _load_baseline_module(analyzer)
     baseline_backend = _baseline_backend(engine)
-    root = repos_root or _DEFAULT_ROOT
+    configured_root = str(setting("AGENT_PACKAGES_ROOT", "") or "").strip()
+    if repos_root is None and not configured_root:
+        return {"status": "skipped", "reason": "repos_root_unconfigured"}
+    root = repos_root or Path(configured_root)
     if not root.is_dir():
         return {"status": "skipped", "reason": "repos_root_missing"}
     repos = sorted(
@@ -185,7 +189,7 @@ def run_code_health_sweep(
         try:
             engine.add_node(  # type: ignore[attr-defined]
                 f"code_health:{repo.name}",
-                type="CodeHealthReport",
+                node_type="CodeHealthReport",
                 repo=repo.name,
                 score=report.get("score"),
                 grade=report.get("grade"),

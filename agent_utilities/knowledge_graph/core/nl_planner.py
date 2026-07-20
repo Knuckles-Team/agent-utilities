@@ -146,13 +146,12 @@ class AuNlPlanner:
 
     def _default_run(self, prompt: str, system_prompt: str) -> str:
         """Call the AU-configured fleet LLM once and return its raw text output."""
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.event_loop import run_sync_isolated
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role=self._role)
-        agent = Agent(model=model, system_prompt=system_prompt)
+        agent = create_context_agent(model=model, system_prompt=system_prompt)
 
         # ``nl_query`` is a SYNC entrypoint but the MCP/gateway dispatch calls it from
         # inside a running event loop. ``agent.run_sync`` spins its own loop and raises

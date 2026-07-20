@@ -6,7 +6,7 @@ from typing import cast
 
 from pydantic_graph import End
 
-from .client import get_graph_client
+from .client import get_process_graph_backend
 from .models import Policy, ProcessFlow
 from .state import GraphState
 
@@ -27,7 +27,7 @@ async def load_and_execute_process_flow(ctx: StepContext) -> str | End:
     was a ``BaseNode`` subclass registered via ``g.step``, which the builder API does not accept.
     """
     state = cast(GraphState, ctx.state)
-    client = await get_graph_client()
+    client = await get_process_graph_backend()
 
     flow_id = state.current_flow_id
     if not flow_id:
@@ -72,7 +72,7 @@ async def load_and_execute_process_flow(ctx: StepContext) -> str | End:
 
 async def find_best_matching_process_flow_via_kg(goal: str) -> ProcessFlow | None:
     """Search for a ProcessFlow that matches the current goal semantically."""
-    client = await get_graph_client()
+    client = await get_process_graph_backend()
     query = """
     MATCH (f:ProcessFlow)
     WHERE f.goal CONTAINS $goal OR f.name CONTAINS $goal

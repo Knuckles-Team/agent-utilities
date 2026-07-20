@@ -57,8 +57,8 @@ _SYSTEM_PROMPT = (
     "  - cypher: read-only Cypher over the property graph (MATCH ... RETURN ...).\n"
     "  - sql:    read-only SQL over the KG + user tables (SELECT ... FROM nodes / "
     "FROM <table> ...). See the SQL schema note in the prompt for the real "
-    "`nodes`/`edges` columns (label questions filter on `type`, not `label`; "
-    "edges use `src`/`dst`/`rel`, not invented column names).\n"
+    "`nodes`/`edges` columns (label questions filter on `type`/`node_type`, not "
+    "`label`; edges use `src`/`dst`/`rel`, not invented column names).\n"
     "  - sparql: SPARQL 1.1 SELECT/ASK over the RDF projection.\n"
     "Rules: emit ONLY a single query, never a mutation (no CREATE/MERGE/DELETE/"
     "INSERT/DROP/UPDATE). Prefer cypher unless the question is clearly relational "
@@ -78,7 +78,8 @@ def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]
     grounding fix — see ``_SQL_SCHEMA_NOTE``). Every step is best-effort — a cold /
     partial engine yields an empty section, never an error.
 
-    Label probing reads ``n.type``/``n.node_type``/``n.label`` directly rather than the
+    Label probing reads canonical ``n.node_type`` (falling back to ``n.type``/
+    ``n.label`` for older data) directly rather than the
     Cypher ``labels(n)`` function: the engine's Cypher executor does not implement
     ``labels(n)`` as a callable expression (it always evaluates to null), so a query
     built around it silently returns no labels at all. Reading the scalar properties
@@ -90,12 +91,12 @@ def build_schema_context(engine: Any, *, max_labels: int = 60) -> dict[str, Any]
     labels: list[str] = []
     try:
         rows = engine.query_cypher(
-            "MATCH (n) RETURN n.type AS t, n.node_type AS nt, n.label AS lb "
+            "MATCH (n) RETURN n.node_type AS nt, n.type AS t, n.label AS lb "
             f"LIMIT {max(max_labels * 20, 2000)}"
         )
         seen: dict[str, None] = {}
         for row in rows or []:
-            for key in ("t", "nt", "lb"):
+            for key in ("nt", "t", "lb"):
                 val = row.get(key)
                 if isinstance(val, str) and val:
                     seen.setdefault(val, None)
@@ -211,8 +212,7 @@ def nl_to_query(
     Returns ``{question, dialect, generated_query, results, row_count, citations,
     schema}`` — or ``{error: ...}`` on failure.
     """
-    from pydantic_ai import Agent
-
+    from agent_utilities.core.contextual_model import create_context_agent
     from agent_utilities.core.model_factory import create_model
 
     if not question or not question.strip():
@@ -236,7 +236,7 @@ def nl_to_query(
         from agent_utilities.core.event_loop import run_sync_isolated
 
         model = create_model(role="generator")
-        agent = Agent(model=model, system_prompt=_SYSTEM_PROMPT)
+        agent = create_context_agent(model=model, system_prompt=_SYSTEM_PROMPT)
         # BUG-2 (kg-exhaustive-smoke.md): ``agent.run_sync`` spins its own event
         # loop and raises "This event loop is already running" when called (as
         # every real graph_ask/ask_data MCP/REST call is) from inside the

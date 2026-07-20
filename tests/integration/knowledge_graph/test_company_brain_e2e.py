@@ -1,7 +1,7 @@
 """End-to-end Company Brain enforcement (CONCEPT:AU-KG.research.research-pipeline-runner / KG-2.8).
 
 Exercises the layers composing through their public seams with
-``KG_BRAIN_ENFORCE=1`` and the shared runtime brain: write-path trust
+the mandatory shared runtime brain: write-path trust
 arbitration, read-path permissions, the correction→rule→retrieval loop, and
 operating-intelligence capture. Offline (memory backend / fakes).
 """
@@ -37,7 +37,6 @@ from agent_utilities.security.brain_context import (
 
 @pytest.fixture
 def enforced(monkeypatch):
-    monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
     reset_company_brain()
     yield
     reset_company_brain()

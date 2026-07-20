@@ -35,9 +35,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai import Agent
-
 from agent_utilities.core.config import config
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
 from agent_utilities.knowledge_graph.core.engine_breaker import CircuitBreaker
 from agent_utilities.orchestration.resilience import (
@@ -60,6 +59,21 @@ if TYPE_CHECKING:
     from .state import GraphDeps
 
 logger = logging.getLogger(__name__)
+
+
+def _governed_agent_model(model: Any) -> Any:
+    """Resolve an id or wrap an injected model at the mandatory context boundary."""
+
+    if not isinstance(model, str):
+        from ..core.contextual_model import wrap_model_with_context
+
+        return wrap_model_with_context(model)
+    from ..core.model_factory import create_model
+
+    provider, concrete_model = (
+        model.split(":", 1) if ":" in model else (None, model)
+    )
+    return create_model(provider=provider, model_id=concrete_model)
 
 
 # ── Circuit Breaker ─────────────────────────────────────────────────
@@ -803,11 +817,7 @@ class ParallelEngine:
 
         # CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota Context Paging
         if proc and hasattr(proc, "checkpoint_id") and proc.checkpoint_id:
-            logger.info(
-                "Paging context from checkpoint %s for agent %s",
-                proc.checkpoint_id,
-                agent.agent_id,
-            )
+            logger.info("Paging agent context from governed checkpoint")
             try:
                 from ..capabilities.checkpointing import GraphCheckpointStore
 
@@ -816,11 +826,7 @@ class ParallelEngine:
                 if ckpt_data:
                     task = f"{task}\n\n## RESUMED CONTEXT (Paged from KG)\n{ckpt_data}"
             except Exception as e:
-                logger.warning(
-                    "Failed to page context from checkpoint %s: %s",
-                    proc.checkpoint_id,
-                    e,
-                )
+                logger.warning("Failed to page agent context (%s)", type(e).__name__)
 
         # Determine model — SWARM-6: per-agent model_role (heterogeneous swarm / Claw Groups)
         # resolves before the manifest/default fallback so e.g. a "reasoning" agent can run on a
@@ -878,10 +884,10 @@ class ParallelEngine:
             _tool_res = resolve_agent_tools(self.engine, agent.tools)
             if _tool_res.filled or _tool_res.missing:
                 logger.info(
-                    "[CONCEPT:AU-ECO.toolkit.workflow-gap-fill] tool gap-fill for '%s': filled=%s missing=%s",
-                    agent.agent_id,
-                    _tool_res.filled,
-                    _tool_res.missing,
+                    "[CONCEPT:AU-ECO.toolkit.workflow-gap-fill] tool gap-fill "
+                    "filled_count=%d missing_count=%d",
+                    len(_tool_res.filled),
+                    len(_tool_res.missing),
                 )
 
             # Wire up all 8 capabilities natively using factory
@@ -917,10 +923,8 @@ class ParallelEngine:
             output = result.output
 
             logger.debug(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s (%s) completed in %.0fms — "
-                "output=%d chars",
-                agent.agent_id,
-                agent.role,
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
+                "Agent completed in %.0fms — output=%d chars",
                 duration_ms,
                 len(output),
             )
@@ -945,8 +949,8 @@ class ParallelEngine:
         except TimeoutError:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s timed out after %.0fms",
-                agent.agent_id,
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
+                "Agent timed out after %.0fms",
                 duration_ms,
             )
             return AgentExecutionResult(
@@ -961,15 +965,17 @@ class ParallelEngine:
         except Exception as e:
             duration_ms = (time.monotonic() - start_time) * 1000
             logger.warning(
-                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Agent %s failed: %s",
-                agent.agent_id,
-                e,
+                "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] "
+                "Agent failed (%s)",
+                type(e).__name__,
             )
             # Threshold-counted escalation into the failure_gap remediation chain
             try:
                 self._escalate_repeated_failure(agent.agent_id, str(e))
             except Exception as ah_err:
-                logger.debug("Failure escalation skipped: %s", ah_err)
+                logger.debug(
+                    "Failure escalation skipped (%s)", type(ah_err).__name__
+                )
 
             return AgentExecutionResult(
                 agent_id=agent.agent_id,
@@ -1031,12 +1037,12 @@ class ParallelEngine:
         verification never blocks execution in model-less environments. Factored out so tests can
         monkeypatch it without a live LLM.
         """
-        model_id = "openai:gpt-4o-mini"
+        model: Any = "openai:gpt-4o-mini"
         if graph_deps and getattr(graph_deps, "agent_model", None):
-            model_id = str(graph_deps.agent_model)
+            model = graph_deps.agent_model
         try:
-            judge = Agent(
-                model=model_id,
+            judge = create_context_agent(
+                model=_governed_agent_model(model),
                 system_prompt=(
                     "You verify whether an agent output satisfies its success criteria. "
                     "Reply on two lines:\nVERDICT: PASS or FAIL\nFEEDBACK: <specific gap if FAIL>"
@@ -1332,17 +1338,17 @@ class ParallelEngine:
 
         CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
-        model_id = "openai:gpt-4o-mini"
-        if graph_deps:
-            model_id = str(graph_deps.agent_model)
+        model: Any = "openai:gpt-4o-mini"
+        if graph_deps and getattr(graph_deps, "agent_model", None):
+            model = graph_deps.agent_model
 
         combined = "\n\n---\n\n".join(
             f"**{r.role or r.agent_id}**: {r.output}" for r in results
         )
 
         try:
-            synthesizer = Agent(
-                model=model_id,
+            synthesizer = create_context_agent(
+                model=_governed_agent_model(model),
                 system_prompt=(
                     "You are a synthesis agent. Merge the following agent outputs "
                     "into a single coherent response. Preserve key findings, "
@@ -1373,13 +1379,13 @@ class ParallelEngine:
 
         CONCEPT:AU-ORCH.execution.rlm-synthesis-failed-falling — RLM-Native Hierarchical Synthesis
         """
-        model_id = "openai:gpt-4o-mini"
-        if graph_deps:
-            model_id = str(graph_deps.agent_model)
+        model: Any = "openai:gpt-4o-mini"
+        if graph_deps and getattr(graph_deps, "agent_model", None):
+            model = graph_deps.agent_model
 
         try:
-            merger = Agent(
-                model=model_id,
+            merger = create_context_agent(
+                model=_governed_agent_model(model),
                 system_prompt=(
                     "Merge the new agent output into the existing summary. "
                     "Add new information, resolve conflicts, keep it concise."
@@ -1533,7 +1539,7 @@ class ParallelEngine:
         Returns:
             The execution node ID.
         """
-        execution_id = f"pe:{uuid.uuid4().hex[:8]}"
+        execution_id = f"pe:{uuid.uuid4().hex}"
 
         if self.engine is None:
             return execution_id
@@ -1566,7 +1572,7 @@ class ParallelEngine:
             # Persist individual AgentExecutionResult nodes and connect them
             kg_node_map = {}
             for result in all_results:
-                node_uuid = f"agent_exec_res:{uuid.uuid4().hex[:8]}"
+                node_uuid = f"agent_exec_res:{uuid.uuid4().hex}"
                 res_data = {
                     "id": node_uuid,
                     "type": "AgentExecutionResult",

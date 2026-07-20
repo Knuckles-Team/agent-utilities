@@ -25,31 +25,13 @@ Components:
 * Log redaction — :class:`LogRedactor` / :func:`redact_text`
   (:mod:`agent_utilities.http.redaction`).
 
-Retry: which abstraction to use
--------------------------------
-
-Two retry mechanisms exist in agent-utilities; they are **not** redundant
-and serve different layers — pick by what is being retried:
-
-* :class:`~agent_utilities.orchestration.resilience.ResiliencePolicy`
-  (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating) retries an **in-process callable** — for HTTP that
-  means transport failures (connect errors, resets, timeouts) via the
-  ``retry=`` parameter on these clients / the core factory's
-  :func:`~agent_utilities.core.http_client.http_retry_policy`. HTTP 429
-  backoff is handled separately by the client itself (rate-limit aware).
-  **This is the retry abstraction for HTTP clients.**
-* :class:`RetryManager` / :class:`RetryConfig` (CONCEPT:AU-ORCH.execution.execution-budget-caps, from
-  :mod:`agent_utilities.security.execution_stability_engine`) retry a whole
-  **agent execution** verified by shell ``SuccessCheck`` commands, with
-  ``on_failure`` remediation hooks — orchestration-level run-until-green
-  loops, not network calls. They are re-exported here because the
-  consolidation audit found them unexported; do **not** reach for them to
-  retry HTTP requests.
+HTTP transport failures are retried by
+:class:`~agent_utilities.orchestration.resilience.ResiliencePolicy` through
+the clients' ``retry=`` parameter. HTTP 429 backoff remains rate-limit aware
+and is handled by the client itself.
 """
 
 from __future__ import annotations
-
-from typing import Any
 
 from agent_utilities.core.http_client import (
     DEFAULT_HTTP_TIMEOUT_S,
@@ -100,8 +82,6 @@ __all__ = [
     "QueryApiKeyAuth",
     "RateLimitCapture",
     "RateLimitSnapshot",
-    "RetryConfig",
-    "RetryManager",
     "TokenAuth",
     "backoff_seconds",
     "create_async_http_client",
@@ -110,17 +90,3 @@ __all__ = [
     "parse_rate_limit",
     "redact_text",
 ]
-
-
-def __getattr__(name: str) -> Any:
-    # RetryManager/RetryConfig are loaded lazily: they live in the (heavier)
-    # security pillar and are exported here for discoverability only — see
-    # the module docstring for when to use them vs ResiliencePolicy.
-    if name in ("RetryConfig", "RetryManager"):
-        from agent_utilities.security.execution_stability_engine import (
-            RetryConfig,
-            RetryManager,
-        )
-
-        return {"RetryConfig": RetryConfig, "RetryManager": RetryManager}[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -21,8 +21,8 @@ from agent_utilities.rlm.sandboxes.base import (
     SandboxRejected,
     SandboxResult,
 )
-from agent_utilities.rlm.sandboxes.local_backend import LocalSandbox
 from agent_utilities.rlm.sandboxes.router import SandboxRouter
+from agent_utilities.rlm.telemetry import SandboxFatalError
 
 pytestmark = pytest.mark.concept("AU-ORCH.sandbox.tiered-rlm-sandbox")
 
@@ -71,7 +71,7 @@ def test_analyzer_bad_syntax():
 # --- router (capability fakes) ----------------------------------------------
 
 
-def _fake(name, rank, *, host, third, classes, available=True):
+def _fake(name, rank, *, host, third, classes, available=True, isolated=True):
     class _F(Sandbox):
         def is_available(self):
             return available
@@ -86,8 +86,8 @@ def _fake(name, rank, *, host, third, classes, available=True):
         third_party_libs=third,
         classes=classes,
         full_stdlib=(name != "monty"),
-        network=(name == "local"),
-        isolated=(name != "local"),
+        network=False,
+        isolated=isolated,
         preference_rank=rank,
     )
     return f
@@ -99,7 +99,6 @@ def backends():
         "monty": _fake("monty", 0, host=True, third=False, classes=False),
         "wasm": _fake("wasm", 10, host=False, third=False, classes=True),
         "docker": _fake("docker", 20, host=True, third=True, classes=True),
-        "local": LocalSandbox(),
     }
 
 
@@ -111,18 +110,18 @@ def _route(backends_map, code, **kw):
 @pytest.mark.parametrize(
     "code,expected",
     [
-        ("total = sum(range(5))", ["monty", "wasm", "docker", "local"]),  # plain → all
+        ("total = sum(range(5))", ["monty", "wasm", "docker"]),
         (
             "x = await rlm_query('p')",
-            ["monty", "docker", "local"],
+            ["monty", "docker"],
         ),  # helpers → host-capable
-        ("import numpy\nnumpy.array([1])", ["docker", "local"]),  # 3p → docker only
-        ("class P:\n    x = 1", ["wasm", "docker", "local"]),  # classes → no monty
+        ("import numpy\nnumpy.array([1])", ["docker"]),
+        ("class P:\n    x = 1", ["wasm", "docker"]),
         (
             "class P:\n    x = 1\nFINAL_VAR('a', 1)",
-            ["docker", "local"],
+            ["docker"],
         ),  # classes+helpers
-        ("def (:\n", ["local"]),  # bad syntax → floor only
+        ("def (:\n", ["monty", "wasm", "docker"]),
     ],
 )
 def test_router_decisions(backends, code, expected):
@@ -135,64 +134,36 @@ def test_router_skips_unavailable_backend():
             "monty", 0, host=True, third=False, classes=False, available=False
         ),
         "docker": _fake("docker", 20, host=True, third=True, classes=True),
-        "local": LocalSandbox(),
     }
-    assert _route(bk, "total = 1") == ["docker", "local"]
+    assert _route(bk, "total = 1") == ["docker"]
 
 
 def test_router_force_pins_backend(backends):
     assert _route(backends, "import numpy", force="docker") == ["docker"]
 
 
-def test_router_force_unavailable_degrades_to_auto():
+def test_router_force_unavailable_fails_closed():
     bk = {
         "monty": _fake(
             "monty", 0, host=True, third=False, classes=False, available=False
         ),
         "docker": _fake("docker", 20, host=True, third=True, classes=True),
-        "local": LocalSandbox(),
     }
-    # forcing the down monty falls through to normal routing rather than dying
-    assert _route(bk, "total = 1", force="monty") == ["docker", "local"]
+    with pytest.raises(SandboxFatalError, match="unavailable"):
+        _route(bk, "total = 1", force="monty")
 
 
-def test_router_never_empty_and_floor_is_local(backends):
-    # Even a snippet only local can satisfy keeps local at the tail.
-    chain = _route(backends, "import numpy")
-    assert chain[-1] == "local"
-
-
-def test_router_requires_at_least_one_backend():
-    with pytest.raises(ValueError):
-        SandboxRouter([])
-
-
-# --- LocalSandbox (verbatim _execute_local semantics) -----------------------
-
-
-async def test_local_sandbox_runs_and_syncs_seeded_vars():
-    sink = {}
-    env = SandboxEnv(
-        vars={"context": "abc", "depth": 0},
-        helpers={"FINAL_VAR": lambda n, v: sink.__setitem__(n, v)},
+def test_router_excludes_unisolated_backend(backends):
+    unisolated = _fake(
+        "unconfined", 1, host=True, third=True, classes=True, isolated=False
     )
-    res = await LocalSandbox().execute(
-        "y = len(context)\nFINAL_VAR('answer', y)\nprint('ran', y)", env
-    )
-    assert res.error is None
-    assert res.stdout.strip() == "ran 3"
-    assert sink == {"answer": 3}
-    # function-local 'y' is NOT persisted (matches legacy async-wrapped exec); seeds persist.
-    assert "y" not in res.updated_vars
-    assert res.updated_vars["context"] == "abc"
-    # injected helpers are never synced back as state
-    assert "FINAL_VAR" not in res.updated_vars
+    router = SandboxRouter([unisolated, *backends.values()])
+    assert [b.name for b in router.select("import numpy")] == ["docker"]
 
 
-async def test_local_sandbox_captures_in_sandbox_error():
-    res = await LocalSandbox().execute("raise ValueError('boom')", SandboxEnv(vars={}))
-    assert res.error and "boom" in res.error
-    assert "Traceback" in res.stdout  # surfaced to the model, not raised
+def test_router_without_available_isolation_fails_closed():
+    with pytest.raises(SandboxFatalError, match="no approved isolated"):
+        SandboxRouter([]).select("x = 1")
 
 
 # --- config resolution ------------------------------------------------------
@@ -204,15 +175,10 @@ async def test_local_sandbox_captures_in_sandbox_error():
         ({}, "auto"),
         ({"sandbox": "monty"}, "monty"),
         ({"sandbox": "docker"}, "docker"),
-        ({"use_monty": True}, "monty"),
-        ({"use_wasm": True}, "wasm"),
-        ({"use_container": True}, "docker"),
-        ({"use_monty": True, "use_container": True}, "monty"),  # monty wins
-        ({"sandbox": "local", "use_monty": True}, "local"),  # explicit field wins
     ],
 )
-def test_config_resolved_sandbox(kwargs, expected):
-    assert RLMConfig(**kwargs).resolved_sandbox() == expected
+def test_config_sandbox(kwargs, expected):
+    assert RLMConfig(**kwargs).sandbox == expected
 
 
 # --- MontySandbox (real, when importable) -----------------------------------
@@ -292,6 +258,56 @@ def _docker_or_skip(**kw):
     if not sb.is_available():
         pytest.skip("no docker/podman daemon reachable")
     return sb
+
+
+def test_docker_configuration_rejects_argv_injection_and_unbounded_resources():
+    from agent_utilities.rlm.sandboxes.docker_backend import DockerSandbox
+
+    with pytest.raises(ValueError, match="image"):
+        DockerSandbox(image="--privileged")
+    with pytest.raises(ValueError, match="memory"):
+        DockerSandbox(memory="1t")
+    with pytest.raises(ValueError, match="process"):
+        DockerSandbox(pids_limit=1)
+
+
+def test_production_docker_image_requires_digest(monkeypatch):
+    from agent_utilities.rlm.sandboxes.docker_backend import DockerSandbox
+
+    monkeypatch.setenv("APP_PROFILE", "production")
+    with pytest.raises(ValueError, match="immutable"):
+        DockerSandbox(image="python:3.12-slim")
+    sandbox = DockerSandbox(image="registry.example.invalid/sandbox@sha256:" + "a" * 64)
+    assert "@sha256:" in sandbox.image
+
+
+async def test_docker_argv_enforces_read_only_confinement(monkeypatch, tmp_path):
+    import agent_utilities.rlm.sandboxes.docker_backend as docker_backend
+
+    captured = []
+
+    class _Process:
+        async def wait(self):
+            return 0
+
+    async def create(*argv, **_kwargs):
+        captured.extend(argv)
+        return _Process()
+
+    monkeypatch.setattr(
+        docker_backend.asyncio,
+        "create_subprocess_exec",
+        create,
+    )
+    monkeypatch.setattr(
+        docker_backend._bridge,
+        "read_result",
+        lambda _path: ("", None, True),
+    )
+    sandbox = docker_backend.DockerSandbox()
+    await sandbox._run_container("docker", tmp_path, "safeid")  # noqa: SLF001
+    assert {"--network", "--read-only", "--ipc", "--tmpfs", "--ulimit"} <= set(captured)
+    assert "none" in captured
 
 
 @pytest.mark.integration

@@ -201,7 +201,11 @@ class _BatchedBackend:
         return self._bulk is not None
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
-        props: dict[str, Any] = {"label": label, **properties}
+        if "type" in properties:
+            raise ValueError("node property 'type' is retired; use node_type")
+        props: dict[str, Any] = {"node_type": label, **properties}
+        if not props.get("node_type"):
+            raise ValueError("node_type is required")
         # Stamp the source-provenance contract (source_system + domain) on every code
         # node at the one write chokepoint, so partition routing sends it to the right
         # named graph. A caller-set source_system still wins (stamp_source setdefaults).
@@ -222,12 +226,20 @@ class _BatchedBackend:
     def add_edge(
         self, source: str, target: str, rel_type: str = "", **properties: Any
     ) -> None:
+        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
+            properties
+        )
+        if aliases:
+            raise ValueError("edge relationship aliases are retired")
+        relationship = str(properties.get("relationship") or rel_type).strip()
+        if not relationship:
+            raise ValueError("relationship is required")
         self._edges.append(
             {
                 "op": "add_edge",
                 "source": source,
                 "target": target,
-                "properties": {"rel_type": rel_type, **properties},
+                "properties": {**properties, "relationship": relationship},
             }
         )
 
@@ -510,7 +522,7 @@ class EnrichmentPipeline:
             # Code –serves→ Route –servedBy→ Service –deployedOn→ Node.
             route_nodes, serves_edges = extract_routes(all_code)
             for rn in route_nodes:
-                self.backend.add_node(rn.id, type="Route", **rn.props)
+                self.backend.add_node(rn.id, label="Route", **rn.props)
                 summary.routes += 1
             for e in serves_edges:
                 self._write_edge(e.source, e.target, e.rel_type)
@@ -530,7 +542,7 @@ class EnrichmentPipeline:
             if iac_files:
                 resource_nodes, _ = extract_iac(iac_files)
                 for rn in resource_nodes:
-                    self.backend.add_node(rn.id, type="Resource", **rn.props)
+                    self.backend.add_node(rn.id, label="Resource", **rn.props)
                     summary.resources += 1
                 if service_id:
                     for e in link_resources_to_service(resource_nodes, service_id):
@@ -574,7 +586,7 @@ class EnrichmentPipeline:
     def _write_code(self, c: Any, card: CapabilityCard | None = None) -> None:
         self.backend.add_node(
             c.id,
-            type="Code",
+            label="Code",
             name=c.name,
             qualname=c.qualname,
             kind=c.kind,
@@ -617,7 +629,7 @@ class EnrichmentPipeline:
             summary.files_parsed += 1
             self.backend.add_node(
                 doc.id,
-                type="Document",
+                label="Document",
                 name=doc.title,
                 doc_type=doc.doc_type,
                 file_path=doc.file_path,
@@ -655,7 +667,7 @@ class EnrichmentPipeline:
         for c in all_concepts.values():
             self.backend.add_node(
                 c.id,
-                type="Concept",
+                label="Concept",
                 name=c.name,
                 kind=c.kind,
                 summary=c.summary,
@@ -681,12 +693,12 @@ class EnrichmentPipeline:
             for k, v in data.items()
             if v is not None
         }
-        self.backend.add_node(node_id, type=type(node).__name__, **props)
+        self.backend.add_node(node_id, label=type(node).__name__, **props)
 
     def _write_feature(self, f: Any) -> None:
         self.backend.add_node(
             f.id,
-            type="Feature",
+            label="Feature",
             name=f.name,
             summary=f.summary,
             size=f.size,
@@ -697,14 +709,14 @@ class EnrichmentPipeline:
     def _write_capability(self, cap: GraphNode) -> None:
         """Persist a (provisional, code-derived) BusinessCapability node."""
         props = {k: v for k, v in cap.props.items() if v is not None}
-        self.backend.add_node(cap.id, type=cap.type, **props)
+        self.backend.add_node(cap.id, label=cap.type, **props)
 
     def _write_test(self, t: Any) -> bool:
         issues = classify_test(t, self.thresholds)
         needs_work = bool(issues)
         self.backend.add_node(
             t.id,
-            type="Test",
+            label="Test",
             name=t.name,
             file_path=t.file_path,
             line=t.line,
@@ -758,9 +770,8 @@ def make_parse_fn(graph_compute: Any) -> ParseFn:
     return lambda file_path, source: graph_compute.parse_file(file_path, source)
 
 
-def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
-    """Adapt a GraphComputeEngine into a batched ParseFn — or ``None`` if the
-    engine doesn't support the ``ParseFiles`` op (caller falls back to per-file).
+def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn:
+    """Adapt a GraphComputeEngine into the mandatory batched ParseFn.
 
     Files are sent in chunks of ``KG_PARSE_BATCH`` (default 512) so a first ingest
     of a large repo makes few round-trips: the engine's ``parse_files`` parses a
@@ -769,11 +780,6 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     (the dominant parse cost). (CONCEPT:EG-KG.compute.graph-compute-engine)
     """
 
-    try:
-        if not getattr(graph_compute, "supports_batch_parse", False):
-            return None
-    except Exception:  # noqa: BLE001
-        return None
     try:
         chunk = max(1, setting("KG_PARSE_BATCH", 512))
     except ValueError:
@@ -788,18 +794,13 @@ def make_batch_parse_fn(graph_compute: Any) -> BatchParseFn | None:
     return _fn
 
 
-def make_index_fn(graph_compute: Any) -> IndexFn | None:
-    """Adapt a GraphComputeEngine into the cross-file resolver entry point — or
-    ``None`` if the engine doesn't advertise ``IndexRepository`` (caller falls
-    back to parse + Python name-only call resolution).
+def make_index_fn(graph_compute: Any) -> IndexFn:
+    """Adapt a GraphComputeEngine into the mandatory cross-file resolver entry point.
 
     The whole batch is one resolution scope, so it ships in a SINGLE round-trip:
     the engine parses (rayon) and resolves cross-file calls type/scope-aware over
     the whole set, returning one merged ``IndexResult``. (CONCEPT:EG-KG.compute.type-scope-resolved-call)
     """
-    try:
-        if not getattr(graph_compute, "supports_index_repository", False):
-            return None
-    except Exception:  # noqa: BLE001
-        return None
+    if not callable(getattr(graph_compute, "index_repository", None)):
+        raise RuntimeError("current engine is missing mandatory IndexRepository")
     return lambda files: graph_compute.index_repository(files)

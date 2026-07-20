@@ -9,7 +9,7 @@ Engine-only (CONCEPT:AU-KG.enrichment.proposals-live-as): proposals live as ``:W
 THE ONE epistemic-graph engine authority — queryable, beside the graph — with NO
 local ``writeback_proposals.json`` fallback. When no engine backend is supplied
 the queue resolves the active engine backend (the OS-5.63 resolver auto-starts the
-pi-tier engine in prod; the KG-2.238 fixture provides a real ephemeral one in
+mandatory full engine artifact in prod; the KG-2.238 fixture provides a real ephemeral one in
 tests), raising a clear error if the engine is genuinely unreachable.
 """
 

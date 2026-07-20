@@ -14,8 +14,9 @@ Earlier versions of this module derived BOTH the blob id AND the asset node id f
 the content digest. That's wrong: it means the SAME bytes seen in a second message,
 tenant, or legal context silently **collapsed onto ONE node**, overwriting whatever
 source/tenant/ACL/retention/legal-hold the first occurrence had recorded — a real
-provenance loss, not a cache hit. The model now separates *what the bytes are* from
-*how/when/by-whom they occurred*:
+provenance loss, not a cache hit. The identity model now separates *what the bytes
+are* from *how, when, and under which authority they occurred* — content identity
+and occurrence provenance can therefore never collapse onto the same node:
 
 * **``:Blob``** (id ``blob:<digest>``, optionally ``blob:<tenant>:<digest>`` — see
   ``tenant_isolated_blob``) — the ONLY thing that dedups. Content-addressed: the same
@@ -1730,19 +1731,43 @@ class MediaStore:
             props = self._client.nodes.properties(asset_id) or {}
         except Exception as e:  # noqa: BLE001
             logger.warning(
-                "[CONCEPT:AU-KG.ingest.list-durable-media] asset lookup failed (%s): %s",
+                "[CONCEPT:AU-KG.ingest.list-durable-media] occurrence lookup failed (%s): %s",
                 asset_id,
                 e,
             )
+            return None
+        node_type = props.get("node_type") or props.get("type")
+        if node_type != "AssetOccurrence":
             return None
         digest = props.get("content_digest")
         if not digest:
             return None
         return self.fetch_bytes(str(digest))
 
-    # ``fetch_occurrence`` is the AU-P1-4-native name for ``fetch_asset``.
-    fetch_occurrence = fetch_asset
+    def fetch_occurrence(self, occurrence_id: str) -> bytes | None:
+        """Fetch bytes for one canonical ``:AssetOccurrence`` node.
 
+        Stricter than :meth:`fetch_asset`: rejects an id that doesn't carry the
+        canonical ``occurrence:`` prefix before ever calling the client.
+        """
+        if not str(occurrence_id).startswith(_OCCURRENCE_PREFIX):
+            return None
+        try:
+            props = self._client.nodes.properties(occurrence_id) or {}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "[CONCEPT:AU-KG.ingest.list-durable-media] occurrence lookup failed (%s): %s",
+                occurrence_id,
+                e,
+            )
+            return None
+        node_type = props.get("node_type") or props.get("type")
+        if node_type != "AssetOccurrence":
+            return None
+        digest = props.get("content_digest")
+        if not digest:
+            return None
+        return self.fetch_bytes(str(digest))
 
 def _tenant_isolated_blobs_setting() -> bool:
     """Whether ``:Blob`` node ids should be tenant-salted by default (CONCEPT:AU-KG.identity.asset-occurrence).

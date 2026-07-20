@@ -16,8 +16,8 @@ request is the **store** side — writing a fresh prompt's KV blocks into the ti
 cache costs bandwidth/space and, for a one-off prompt that never recurs, is pure
 pollution. vLLM + LMCache expose exactly this lever per request:
 
-* vLLM ``ChatCompletionRequest.kv_transfer_params: dict | None`` (validated in the
-  ``registry.arpa/vllm-lmcache:latest`` image) rides in the OpenAI ``extra_body``
+* vLLM ``ChatCompletionRequest.kv_transfer_params: dict | None`` rides in the
+  OpenAI ``extra_body``
   and is threaded into ``sampling_params.extra_args["kv_transfer_params"]``.
 * LMCache's ``vllm_v1_adapter.extract_request_configs`` copies every ``lmcache.*``
   key out of it into the per-request ``request_configs``, and the save path honours

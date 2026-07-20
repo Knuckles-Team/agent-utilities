@@ -6,7 +6,7 @@
 -- ``app.tenant_id`` (see PostgreSQLBackend.set_request_tenant):
 --
 --   * set to an org id  → that org's rows + commons (tenant_id '' / NULL)
---   * unset or empty     → unrestricted (platform-admin / system / legacy path)
+--   * unset or empty     → no rows (fail closed)
 --
 -- FORCE ROW LEVEL SECURITY is required because the app's DB role usually owns
 -- the tables, and owners otherwise bypass RLS.
@@ -44,11 +44,11 @@ BEGIN
     LOOP
         q := format('%I', t);
         cond := format(
-            '(tenant_id = current_setting(%L, true) '
-            'OR tenant_id IS NULL OR tenant_id = %L '
-            'OR current_setting(%L, true) IS NULL '
-            'OR current_setting(%L, true) = %L)',
-            'app.tenant_id', '', 'app.tenant_id', 'app.tenant_id', ''
+            '(current_setting(%L, true) IS NOT NULL '
+            'AND current_setting(%L, true) <> %L '
+            'AND (tenant_id = current_setting(%L, true) '
+            'OR tenant_id IS NULL OR tenant_id = %L))',
+            'app.tenant_id', 'app.tenant_id', '', 'app.tenant_id', ''
         );
 
         EXECUTE format('ALTER TABLE %s ADD COLUMN IF NOT EXISTS tenant_id TEXT', q);
@@ -66,7 +66,7 @@ BEGIN
     END LOOP;
 END $$;
 
--- Verify (run manually): the platform/admin path sees all, a scoped session
+-- Verify (run manually): an unscoped session sees no rows; a scoped session
 -- sees only its tenant + commons:
---   SET app.tenant_id = '';        -- unrestricted
+--   SET app.tenant_id = '';        -- no rows
 --   SET app.tenant_id = 'acme';    -- acme rows + commons only

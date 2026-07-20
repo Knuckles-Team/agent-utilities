@@ -6,7 +6,7 @@ the other way: enrich records, push inferred relationships, and **create the
 reconciled inventory as CMDB CIs / ERPNext Items+Assets**.
 
 This is the operator runbook. The flow is driven by the
-`agent-utilities-source-integration` skill; LeanIX has its own guide
+`graph-ingestion-and-integration` skill; LeanIX has its own guide
 (`leanix-integration.md`). Both share one mechanism: inbound `source_sync`, outbound
 `graph_writeback`.
 

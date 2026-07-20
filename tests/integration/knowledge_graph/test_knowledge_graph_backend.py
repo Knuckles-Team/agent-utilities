@@ -1,6 +1,7 @@
 """CONCEPT:AU-KG.query.object-graph-mapper"""
 
 import importlib.util
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,7 +53,11 @@ class TestNeo4jBackend:
         "agent_utilities.knowledge_graph.backends.contrib.neo4j_backend.GraphDatabase"
     )
     def test_initialization(self, mock_neo4j):
-        backend = Neo4jBackend(uri="bolt://localhost:7687")
+        backend = Neo4jBackend(
+            uri="bolt://graph.example.test:7687",
+            user="test-user",
+            password="test-secret",
+        )
         assert backend is not None
         mock_neo4j.driver.assert_called_once()
 
@@ -70,7 +75,11 @@ class TestNeo4jBackend:
         mock_driver.session.return_value = mock_session
         mock_neo4j.driver.return_value = mock_driver
 
-        backend = Neo4jBackend()
+        backend = Neo4jBackend(
+            uri="bolt://graph.example.test:7687",
+            user="test-user",
+            password="test-secret",
+        )
         res = backend.execute("MATCH (n) RETURN n")
         assert res == []
 
@@ -120,7 +129,7 @@ class TestBackendFactory:
         """Default backend is the Rust-native EpistemicGraphBackend.
 
         Ladybug/FalkorDB/Neo4j were demoted to opt-in ``contrib`` backends;
-        the primary/default durable tier is epistemic_graph (see AGENTS.md).
+        the primary/default graph authority is epistemic_graph (see AGENTS.md).
         """
         from agent_utilities.knowledge_graph.backends import EpistemicGraphBackend
 
@@ -141,7 +150,12 @@ class TestBackendFactory:
     )
     def test_explicit_neo4j(self, mock_neo4j):
         """Explicitly requesting Neo4j should return Neo4jBackend."""
-        backend = create_backend(backend_type="neo4j")
+        backend = create_backend(
+            backend_type="neo4j",
+            uri="bolt://graph.example.test:7687",
+            user="test-user",
+            password="test-secret",
+        )
         assert isinstance(backend, Neo4jBackend)
 
     @pytest.mark.skipif(not NEO4J_AVAILABLE, reason="Neo4j driver not available")
@@ -176,21 +190,27 @@ class TestBackendFactory:
         backend = create_backend(backend_type="nonexistent_db")
         assert backend is None
 
-    @pytest.mark.skipif(not FALKORDB_AVAILABLE, reason="FalkorDB driver not available")
-    @patch("agent_utilities.knowledge_graph.backends.contrib.falkordb_backend.FalkorDB")
-    def test_env_var_override(self, mock_falkor, monkeypatch):
-        """GRAPH_BACKEND env var should override the default."""
-        monkeypatch.setenv("GRAPH_BACKEND", "falkordb")
-        backend = create_backend()
-        assert isinstance(backend, FalkorDBBackend)
+    def test_retired_env_selector_is_rejected(self, monkeypatch):
+        """A process environment cannot replace the operational authority."""
+        from agent_utilities.core.config import AgentConfig
 
-    def test_env_var_db_path(self, monkeypatch, tmp_path):
-        """GRAPH_DB_PATH env var should be used for LadybugDB."""
+        monkeypatch.setenv("GRAPH_" + "BACKEND", "falkordb")
+        with pytest.raises(ValueError, match="retired durable configuration"):
+            AgentConfig()
+
+    def test_connection_profile_db_path(self, monkeypatch, tmp_path):
+        """The graph connection profile supplies a LadybugDB path."""
         if not LADYBUG_AVAILABLE:
             pytest.skip("LadybugDB not available")
         db_file = tmp_path / "custom_path.db"
-        monkeypatch.setenv("GRAPH_DB_PATH", str(db_file))
-        backend = create_backend(backend_type="ladybug")
+        monkeypatch.setenv(
+            "GRAPH_DB_CONNECTION_PROFILE",
+            json.dumps({"db_path": str(db_file)}),
+        )
+        backend = create_backend(
+            backend_type="ladybug",
+            connection_profile_ref="env://GRAPH_DB_CONNECTION_PROFILE",
+        )
         assert isinstance(backend, LadybugBackend)
         assert backend.db_path == str(db_file)
 

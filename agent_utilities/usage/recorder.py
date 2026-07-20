@@ -78,7 +78,7 @@ class UsageRecorder:
             return True
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "usage record_bundle failed for %s: %s", bundle.session.id, exc
+                "usage_record_bundle_failed error_type=%s", type(exc).__name__
             )
             return False
 
@@ -141,7 +141,7 @@ class UsageRecorder:
             )
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.debug("usage record_run failed for %s: %s", run_id, exc)
+            logger.debug("usage_record_run_failed error_type=%s", type(exc).__name__)
             return False
 
     def record_tool_call(
@@ -175,7 +175,9 @@ class UsageRecorder:
             _bump_call_metric(category, tool_name, skill_name)
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.debug("usage record_tool_call failed: %s", exc)
+            logger.debug(
+                "usage_record_tool_call_failed error_type=%s", type(exc).__name__
+            )
             return False
 
 

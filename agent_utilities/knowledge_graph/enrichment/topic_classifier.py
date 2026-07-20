@@ -213,7 +213,7 @@ Rules:
 def _classifier_agent() -> Any:
     """Lazily build the pydantic-ai classification agent (reasoning OFF by default)."""
     try:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
         from ...core.config import config
         from ...core.model_factory import create_model
@@ -225,10 +225,10 @@ def _classifier_agent() -> Any:
             provider=getattr(chosen, "provider", None) if chosen else None,
             model_id=getattr(chosen, "id", None) if chosen else None,
             base_url=getattr(chosen, "base_url", None) if chosen else None,
-            api_key=getattr(chosen, "api_key", None) if chosen else None,
+            api_key=getattr(chosen, "api_key_ref", None) if chosen else None,
             reasoning_effort="none",
         )
-        return Agent(
+        return create_context_agent(
             model=model, output_type=TopicAssignment, system_prompt=_SYSTEM_PROMPT
         )
     except Exception as exc:  # noqa: BLE001 — classification is best-effort

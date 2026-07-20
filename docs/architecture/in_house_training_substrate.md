@@ -8,7 +8,7 @@
 The framework can fine-tune its own open-weight models end-to-end without leaving
 the ecosystem. The substrate is layered so that everything except the GPU
 fine-tune *runs* is deterministic, CPU-testable, and shippable today; the actual
-runs (Wave D) execute on the **GB10 Grace-Blackwell** box. The design split is
+runs (Wave D) execute on a deployment-selected accelerator. The design split is
 "build now, run later".
 
 ```mermaid
@@ -96,14 +96,15 @@ vLLM.
 | Layer | Status | Where it runs |
 |---|---|---|
 | Reward/data engine | ✅ built | CPU, anywhere |
-| C2 torch trainers | ✅ built, CPU-smoke-tested on toy model | CPU now / GB10 for real fine-tunes |
+| C2 torch trainers | ✅ built, CPU-smoke-tested on toy model | CPU now / configured accelerator for real fine-tunes |
 | C1 Rust kernels | ✅ built, Rust + Python round-trip tested | CPU |
 | Deploy seam | ✅ exists | — |
-| **Wave D fine-tune runs** | ⛔ GPU-gated | **GB10** (pin Blackwell peft/bitsandbytes/vllm) |
+| **Wave D fine-tune runs** | ⛔ accelerator-gated | runtime-selected hardware with compatible trainer pins |
 
 First run is **OpenSeeker SFT** (Qwen2.5-1.5B LoRA) — SFT-only, no rollouts, fast,
-and validates the whole path. See [`WAVE_C_INFRA.md`](../../.specify/specs/research-evolution-20260606/WAVE_C_INFRA.md)
-for per-paper GB10 requirements.
+and validates the whole path. The archived infrastructure plan records the
+per-workload accelerator requirements; deployments should size the runtime from the
+current model and trainer configuration instead of depending on that local plan.
 
 ## Wave D — the end-to-end run pipeline
 
@@ -118,7 +119,7 @@ traces → build SFT corpus → plan → train → reliability-eval (eval_hooks)
 `run_sft_pipeline(config, traces=…, eval_cases=…, registry=…, deploy=DeploymentTarget(role=…))`
 returns a structured report and, when a registry + deploy target are given, binds
 the trained checkpoint to a role so it goes live with no hot-path edit. It is
-CPU-smoke-tested end-to-end on a toy model; on the GB10 the only deltas are real
+CPU-smoke-tested end-to-end on a toy model; on the target accelerator the only deltas are real
 deps, a real base model, and the GPU. See data-science-mcp `docs/training.md` for
 the OpenSeeker recipe.
 
@@ -161,7 +162,7 @@ prepare_corpus → curate/dedup/decontaminate → (train_tokenizer) →
   merge_adapters → final_eval → register_model
 ```
 
-Run it with `graph_orchestrate(action="execute_workflow", name="train_model", task=…)`.
+Run it with `graph_workflows(action="execute", workflow="train_model", task=…)`.
 Install dependencies per capability: see data-science-mcp `docs/installation.md`.
 
 ## Memory → weights distillation (the export path, CONCEPT:AU-KG.memory.memory-weights-distillation-export)
@@ -198,10 +199,10 @@ per *Dependency discipline*) is the EXPORT half:
 ### data-science-mcp hand-off contract (`DATA_SCIENCE_MCP_CONTRACT`)
 
 The `DistillationJob.handoff` is a ready-to-dispatch payload. The **live LoRA
-train is the integration point** (GPU-gated, runs in `data-science-mcp` on GB10):
+train is the integration point** (accelerator-gated, runs in `data-science-mcp`):
 
 - **Preferred — one call drives the whole DAG:**
-  `graph_orchestrate(action="execute_workflow", name="train_model", task=<corpus_ref + spec>)`.
+  `graph_workflows(action="execute", workflow="train_model", task=<corpus_ref + spec>)`.
 - **Or the direct tools:** `build_training_dataset` → `train_sft`/`train_dpo`
   (`execute=true`) → `register_checkpoint`. The trained adapter goes live via the
   deploy seam (`model_registry.resolve_role`) with no hot-path edit.

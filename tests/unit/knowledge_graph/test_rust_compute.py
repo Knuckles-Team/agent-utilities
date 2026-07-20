@@ -5,21 +5,44 @@ Verifies the optimized graph functions using the Tokio-based epistemic-graph dae
 import uuid
 
 import pytest
+from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST_TENANT
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext
+
+
+def _session_for(graph_name: str) -> GraphSession:
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:admin",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin"}),
+        graph=graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
 
 
 @pytest.fixture
 def engine():
     name = f"test_{uuid.uuid4().hex[:8]}"
-    g = GraphComputeEngine(backend_type="rust", graph_name=name)
-    if g._client:
-        try:
-            g._client.create_graph(name)
-        except Exception:
-            pass
-        g._client.clear()
-    return g
+    with use_session(_session_for(name)):
+        g = GraphComputeEngine(backend_type="rust", graph_name=name)
+        if g._client:
+            try:
+                g._client.create_graph(name)
+            except Exception:
+                pass
+            g._client.clear()
+        yield g
 
 
 def test_rust_graph_compute_nodes_and_edges(engine):
@@ -125,18 +148,16 @@ def test_rust_blast_radius(engine):
     assert node_ids == {"B", "C", "D"}
 
 
-def test_rust_repository_ast_parsing(engine, tmp_path):
-    """Verify repository AST ingestion natively on the optimized Tokio-based epistemic_graph service."""
-    p1 = tmp_path / "mod.py"
-    p1.write_text("class MyAgent:\n    pass\ndef my_tool():\n    pass\n")
+def test_rust_repository_ast_parsing(engine):
+    """Index logical source names and bytes without exposing a host path."""
+    source = b"class MyAgent:\n    pass\ndef my_tool():\n    pass\n"
 
-    engine.parse_repository(str(tmp_path))
+    result = engine.index_repository([("mod.py", source)])
 
-    # Verify classes and functions found
-
-    nodes = engine._get_all_nodes()
-    assert any("MyAgent" in n for n in nodes)
-    assert any("my_tool" in n for n in nodes)
+    assert result["files_parsed"] == 1
+    rendered_nodes = repr(result["nodes"])
+    assert "MyAgent" in rendered_nodes
+    assert "my_tool" in rendered_nodes
 
 
 def test_rust_vf2_subgraph_matching(engine):
@@ -150,17 +171,18 @@ def test_rust_vf2_subgraph_matching(engine):
     engine.add_edge("A", "C", {})
 
     pattern_name = f"test_pattern_{uuid.uuid4().hex[:8]}"
-    pattern = GraphComputeEngine(backend_type="rust", graph_name=pattern_name)
-    if pattern._client:
-        try:
-            pattern._client.create_graph(pattern_name)
-        except Exception:
-            pass
-        pattern._client.clear()
+    with use_session(_session_for(pattern_name)):
+        pattern = GraphComputeEngine(backend_type="rust", graph_name=pattern_name)
+        if pattern._client:
+            try:
+                pattern._client.create_graph(pattern_name)
+            except Exception:
+                pass
+            pattern._client.clear()
 
-    pattern.add_node("P1", {"type": "class"})
-    pattern.add_node("P2", {"type": "function"})
-    pattern.add_edge("P1", "P2", {})
+        pattern.add_node("P1", {"type": "class"})
+        pattern.add_node("P2", {"type": "function"})
+        pattern.add_edge("P1", "P2", {})
 
     matches = engine.vf2_subgraph_match(pattern)
     assert len(matches) == 2
@@ -185,29 +207,31 @@ def test_rust_reactive_state_ledger(engine):
 
     # Replay onto another engine
     engine2_name = f"test_{uuid.uuid4().hex[:8]}"
-    engine2 = GraphComputeEngine(backend_type="rust", graph_name=engine2_name)
-    if engine2._client:
-        try:
-            engine2._client.create_graph(engine2_name)
-        except Exception:
-            pass
-        engine2._client.clear()
+    with use_session(_session_for(engine2_name)):
+        engine2 = GraphComputeEngine(backend_type="rust", graph_name=engine2_name)
+        if engine2._client:
+            try:
+                engine2._client.create_graph(engine2_name)
+            except Exception:
+                pass
+            engine2._client.clear()
 
-    engine2.apply_ledger(txs)
-    assert engine2.node_count() == 2
-    assert engine2.has_edge("A", "B")
+        engine2.apply_ledger(txs)
+        assert engine2.node_count() == 2
+        assert engine2.has_edge("A", "B")
 
     # Verify msgpack serialization
     js = engine.to_msgpack()
     engine3_name = f"test_{uuid.uuid4().hex[:8]}"
-    engine3 = GraphComputeEngine(backend_type="rust", graph_name=engine3_name)
-    if engine3._client:
-        try:
-            engine3._client.create_graph(engine3_name)
-        except Exception:
-            pass
-        engine3._client.clear()
+    with use_session(_session_for(engine3_name)):
+        engine3 = GraphComputeEngine(backend_type="rust", graph_name=engine3_name)
+        if engine3._client:
+            try:
+                engine3._client.create_graph(engine3_name)
+            except Exception:
+                pass
+            engine3._client.clear()
 
-    engine3.from_msgpack(js)
-    assert engine3.node_count() == 2
-    assert engine3.has_edge("A", "B")
+        engine3.from_msgpack(js)
+        assert engine3.node_count() == 2
+        assert engine3.has_edge("A", "B")

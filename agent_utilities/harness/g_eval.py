@@ -36,11 +36,23 @@ _NO_THINK = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 def _complete(client: Any, **kw: Any) -> Any:
-    """chat.completions.create with thinking disabled; retry without if rejected."""
+    """Governed completion with thinking disabled; retry without if rejected."""
+    from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
+        compiled_chat_completion,
+    )
+
+    messages = kw.pop("messages", [])
+    prompt = "\n".join(
+        str(message.get("content", ""))
+        for message in messages
+        if isinstance(message, dict)
+    )
     try:
-        return client.chat.completions.create(extra_body=_NO_THINK, **kw)
+        return compiled_chat_completion(
+            prompt, client=client, extra_body=_NO_THINK, **kw
+        )
     except Exception:
-        return client.chat.completions.create(**kw)
+        return compiled_chat_completion(prompt, client=client, **kw)
 
 
 def _live_endpoint() -> tuple[Any, str] | None:
@@ -48,28 +60,13 @@ def _live_endpoint() -> tuple[Any, str] | None:
     endpoint (introspects the pydantic-ai model's provider client). ``None`` if no
     model/endpoint is reachable (callers degrade)."""
     try:
-        import openai
-
-        from agent_utilities.core.model_factory import create_model
-
-        m = create_model()
-        model_name = str(
-            getattr(m, "model_name", None) or getattr(m, "_model_name", "") or ""
+        from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
+            resolve_bundle_chat_client,
         )
-        client = None
-        for prov in (getattr(m, "provider", None), getattr(m, "_provider", None)):
-            c = getattr(prov, "client", None) if prov is not None else None
-            if c is not None and str(getattr(c, "base_url", "")):
-                client = c
-                break
-        if client is None:
-            return None
-        sync = openai.OpenAI(
-            base_url=str(client.base_url), api_key=client.api_key or "EMPTY"
-        )
-        return sync, str(model_name)
+
+        return resolve_bundle_chat_client()
     except Exception as exc:  # pragma: no cover - model optional offline
-        logger.debug("g-eval endpoint unavailable: %s", exc)
+        logger.debug("g-eval endpoint unavailable (%s)", type(exc).__name__)
         return None
 
 

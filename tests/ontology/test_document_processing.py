@@ -21,6 +21,7 @@ from agent_utilities.knowledge_graph.ontology.document_processing import (
     chunk_text,
     process_document,
 )
+from agent_utilities.protocols.source_connectors.base import ExternalAccess
 
 EMBED_DIM = 768
 
@@ -96,15 +97,23 @@ def test_process_materializes_document_and_linked_chunks():
         embed_fn=_fake_embed,
         embedding_dim=EMBED_DIM,
     )
-    result = proc.process(DOC_TEXT, title="Doc Pipeline", source="memory://doc1")
+    access = ExternalAccess.quarantined()
+    result = proc.process(
+        DOC_TEXT,
+        title="Doc Pipeline",
+        source="memory://doc1",
+        external_access=access,
+    )
 
     assert result.persisted is True
+    assert result.access_synced is True
     assert result.chunk_count >= 3
     assert len(result.chunk_nodes) == result.chunk_count
 
     doc_id = result.document_id
     assert result.document_node["type"] == DOCUMENT_NODE_TYPE
     assert result.document_node["chunk_count"] == result.chunk_count
+    assert result.document_node["external_access"] == access.model_dump()
 
     # Every chunk node is correctly typed, positioned monotonically, and carries
     # a 768-dim embedding.
@@ -115,6 +124,7 @@ def test_process_materializes_document_and_linked_chunks():
         assert c["document_id"] == doc_id
         assert len(c["embedding"]) == EMBED_DIM
         assert c["embedding_dim"] == EMBED_DIM
+        assert c["external_access"] == access.model_dump()
 
     # HAS_CHUNK (doc->chunk) and CHUNK_OF (chunk->doc) for every chunk.
     has_chunk = [e for e in result.edges if e["type"] == HAS_CHUNK_EDGE]

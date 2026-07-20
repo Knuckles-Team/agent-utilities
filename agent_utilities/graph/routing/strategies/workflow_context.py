@@ -59,7 +59,7 @@ class WorkflowContextRouter:
         workflow_id = (
             state.get("workflow_id")
             or state.get("goal_id")
-            or f"wf-{uuid.uuid4().hex[:8]}"
+            or f"wf-{uuid.uuid4().hex}"
         )
         top_k = int(state.get("top_k", 3))
         required_caps = state.get("required_caps") or []

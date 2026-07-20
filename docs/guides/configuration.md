@@ -298,7 +298,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
   ],
 
   // ── Workspace & Paths ───────────────────────────────────────────
-  "workspace_path": "/home/apps/workspace",
+  "workspace_path": "${WORKSPACE_ROOT}",
   "agent_utilities_config_dir": "~/.config/agent-utilities"
 }
 ```

@@ -195,7 +195,7 @@ class DerivedProperty(BaseModel):
             "embedding_top_k": self.embedding_top_k,
         }
         blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-        return hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:16]
+        return hashlib.sha256(blob).hexdigest()[:32]
 
 
 class DerivedPropertyResult(BaseModel):

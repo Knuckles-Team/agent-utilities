@@ -55,7 +55,7 @@ TASK_LANES: dict[str, dict] = {
         # connector_drain = ONE paginated page of a chunked full-corpus drain (CONCEPT:AU-KG.ontology.single-source-full-drain):
         # a single ``source_sync(full)`` of a large source (freshrss's ~11k backlog) fans out as a
         # self-continuing chain of these, draining the whole corpus under this lane's background
-        # priority + the GB10 capacity guard so it can't time out or OOM.
+        # priority + the accelerator capacity guard so it cannot time out or OOM.
         "task_types": frozenset({"connector_sync", "feed_sweep", "connector_drain"}),
         "model_role": "lite",
     },
@@ -72,7 +72,7 @@ TASK_LANES: dict[str, dict] = {
     # CONCEPT:AU-KG.ingest.worldview-stream — the WORLDVIEW stream: relevance-gated news/world-event
     # articles (feed_ingest) build the world model. Its OWN lane so it drains in
     # parallel with — and never head-of-line-blocks behind — research-paper fetch
-    # (which feeds agent-utilities-self-evolution) or the heavy codebase backlog. The
+    # (which feeds agent-utilities-evolution) or the heavy codebase backlog. The
     # world-model gate is the router that splits feed items into research vs here.
     "worldview": {
         "task_types": frozenset({"feed_ingest"}),
@@ -205,8 +205,8 @@ _TYPE_TO_LANE: dict[str, str] = {
 #
 # The split is enforced purely at the in-process admission layer
 # (:class:`~.worker_scheduler.AdmissionPolicy`), transport-agnostically, so the
-# executor-swap property of ``TASK_QUEUE_BACKEND`` / ``AGENT_DISPATCH_BACKEND``
-# is preserved: swapping the queue/dispatch backend does not change which lane
+# executor-swap property of ``TASK_QUEUE_BACKEND`` is preserved: swapping the
+# queue backend does not change which lane
 # belongs to which pool or how the two budgets are sized.
 ACQUISITION_POOL = "acquisition"
 MEMORY_GEN_POOL = "memory_gen"

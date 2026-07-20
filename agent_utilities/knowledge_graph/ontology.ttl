@@ -30,40 +30,97 @@ an import edge here; scripts/check_ontology.py enforces both. See
 docs/architecture/ontology_library.md for the full module catalog and roles.""" ;
     owl:imports <http://knuckles.team/kg/a2a>,
         <http://knuckles.team/kg/action>,
+        <http://knuckles.team/kg/ansible>,
         <http://knuckles.team/kg/archimate>,
+        <http://knuckles.team/kg/archivebox>,
+        <http://knuckles.team/kg/aris>,
+        <http://knuckles.team/kg/arr>,
+        <http://knuckles.team/kg/atlassian>,
+        <http://knuckles.team/kg/audio>,
+        <http://knuckles.team/kg/audiobookshelf>,
         <http://knuckles.team/kg/banking>,
+        <http://knuckles.team/kg/caddy>,
         <http://knuckles.team/kg/calendar>,
+        <http://knuckles.team/kg/camunda>,
         <http://knuckles.team/kg/capability>,
+        <http://knuckles.team/kg/ciso>,
+        <http://knuckles.team/kg/clarity>,
         <http://knuckles.team/kg/company>,
         <http://knuckles.team/kg/company_infra>,
         <http://knuckles.team/kg/concepts>,
+        <http://knuckles.team/kg/container>,
         <http://knuckles.team/kg/database>,
+        <http://knuckles.team/kg/datascience>,
+        <http://knuckles.team/kg/dockerhub>,
+        <http://knuckles.team/kg/documentdb>,
         <http://knuckles.team/kg/egeria>,
+        <http://knuckles.team/kg/emerald>,
         <http://knuckles.team/kg/energy_geopolitics>,
         <http://knuckles.team/kg/enterprise>,
         <http://knuckles.team/kg/erpnext>,
+        <http://knuckles.team/kg/fan>,
         <http://knuckles.team/kg/feed>,
+        <http://knuckles.team/kg/firefly>,
+        <http://knuckles.team/kg/genius>,
+        <http://knuckles.team/kg/github>,
+        <http://knuckles.team/kg/gitlab>,
         <http://knuckles.team/kg/government>,
         <http://knuckles.team/kg/grafana>,
+        <http://knuckles.team/kg/gramps>,
         <http://knuckles.team/kg/harness>,
+        <http://knuckles.team/kg/homeassistant>,
         <http://knuckles.team/kg/hr>,
         <http://knuckles.team/kg/identity>,
+        <http://knuckles.team/kg/infrastructure>,
+        <http://knuckles.team/kg/jena>,
+        <http://knuckles.team/kg/kafka>,
+        <http://knuckles.team/kg/keycloak>,
+        <http://knuckles.team/kg/langfuse>,
         <http://knuckles.team/kg/leanix>,
         <http://knuckles.team/kg/legal>,
+        <http://knuckles.team/kg/listmonk>,
+        <http://knuckles.team/kg/mattermost>,
+        <http://knuckles.team/kg/mealie>,
         <http://knuckles.team/kg/media>,
+        <http://knuckles.team/kg/media-downloader>,
         <http://knuckles.team/kg/medical>,
+        <http://knuckles.team/kg/microsoft>,
+        <http://knuckles.team/kg/native_source_connector>,
+        <http://knuckles.team/kg/nextcloud>,
+        <http://knuckles.team/kg/objectstore>,
         <http://knuckles.team/kg/observability>,
+        <http://knuckles.team/kg/okta>,
+        <http://knuckles.team/kg/onetrust>,
+        <http://knuckles.team/kg/openbao>,
         <http://knuckles.team/kg/orchestration>,
+        <http://knuckles.team/kg/owncast>,
+        <http://knuckles.team/kg/paperless>,
         <http://knuckles.team/kg/personal>,
+        <http://knuckles.team/kg/plane>,
+        <http://knuckles.team/kg/portainer>,
+        <http://knuckles.team/kg/pulselink>,
+        <http://knuckles.team/kg/qbittorrent>,
         <http://knuckles.team/kg/quant>,
+        <http://knuckles.team/kg/repository>,
+        <http://knuckles.team/kg/rom>,
+        <http://knuckles.team/kg/salesforce>,
+        <http://knuckles.team/kg/scholarx>,
         <http://knuckles.team/kg/sdd>,
         <http://knuckles.team/kg/sdlc_lifecycle>,
+        <http://knuckles.team/kg/searxng>,
         <http://knuckles.team/kg/servicenow>,
         <http://knuckles.team/kg/social>,
         <http://knuckles.team/kg/software>,
+        <http://knuckles.team/kg/stirlingpdf>,
         <http://knuckles.team/kg/system>,
+        <http://knuckles.team/kg/systems>,
+        <http://knuckles.team/kg/technitium>,
         <http://knuckles.team/kg/trading>,
         <http://knuckles.team/kg/trm>,
+        <http://knuckles.team/kg/tunnel>,
+        <http://knuckles.team/kg/twenty>,
+        <http://knuckles.team/kg/uptimekuma>,
+        <http://knuckles.team/kg/vector>,
         <http://knuckles.team/kg/wellness>,
         <http://knuckles.team/kg/worldview>,
         <https://agent-utilities.dev/ontology/infrastructure> .
@@ -389,11 +446,9 @@ namespace; concepts are :partOf their pillar.""" ;
 
 :aliasOf a owl:ObjectProperty ;
     rdfs:label "alias of" ;
-    rdfs:comment """Links a legacy/alternate concept-id node to its canonical
-concept, so the flat id (EG-321) and the dotted id (EG-0.321) resolve to the
-same node without breakage.""" ;
-    rdfs:domain :Concept ;
-    rdfs:range :Concept .
+    rdfs:comment "Links a secondary resource identifier to its authoritative resource." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
 
 :alignedWith a owl:ObjectProperty,
         owl:SymmetricProperty ;
@@ -442,9 +497,9 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :dependsOn .
 
-:dottedId a owl:DatatypeProperty ;
-    rdfs:label "dotted id" ;
-    rdfs:comment "The canonical 3-level id of a governed concept (NS-pillar.concept.segment)." ;
+:conceptId a owl:DatatypeProperty ;
+    rdfs:label "concept id" ;
+    rdfs:comment "The canonical OKF-CIS identifier of a governed concept." ;
     rdfs:domain :Concept ;
     rdfs:range xsd:string .
 
@@ -456,12 +511,6 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Concept ;
     rdfs:range :Concept ;
     rdfs:subPropertyOf :dependsOn .
-
-:flatId a owl:DatatypeProperty ;
-    rdfs:label "flat id" ;
-    rdfs:comment "The permanently-valid flat alias of a governed concept (e.g. EG-321)." ;
-    rdfs:domain :Concept ;
-    rdfs:range xsd:string .
 
 :hadDerivation a owl:ObjectProperty ;
     rdfs:label "had derivation" ;
@@ -928,4 +977,3 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
-

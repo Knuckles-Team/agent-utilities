@@ -54,7 +54,7 @@ class ContainerConfig(BaseModel):
     for containerized specialist deployment.
 
     Attributes:
-        image: Container image reference (e.g. ``knucklessg1/salesforce-agent:latest``).
+        image: Container image reference (e.g. ``example/salesforce-agent:latest``).
         compose_ref: Path to compose file relative to repo root (e.g. ``compose.yml``).
         ports: Port mappings as ``{host_port: container_port}``.
         env: Environment variables to inject into the container.
@@ -317,7 +317,7 @@ class AgentRegistry:
                     with open(path) as f:
                         packages.append(SpecialistPackage(**json.load(f)))
                 except Exception as e:
-                    logger.warning("Failed to load package %s: %s", filename, e)
+                    logger.warning("Failed to load package (%s)", type(e).__name__)
 
         return packages
 
@@ -337,7 +337,7 @@ class AgentRegistry:
                     with open(path) as f:
                         packages.append(SpecialistPackage(**json.load(f)))
                 except Exception as e:
-                    logger.warning("Failed to load package %s: %s", filename, e)
+                    logger.warning("Failed to load package (%s)", type(e).__name__)
 
         return packages
 

@@ -7,8 +7,8 @@ Engine-only (CONCEPT:AU-KG.memory.time-series-lives-one): time-series points liv
 epistemic-graph engine authority** via its native ``client.timeseries.*`` tsdb
 (eg-tsdb, CONCEPT:AU-KG.retrieval.god-nodes-communities/211) — each series stored as ``(ts_ns, field-vector)``
 points in the engine's durable ``series.redb``, beside the graph. There is NO
-local SQLite fallback: the OS-5.63 resolver auto-starts the pi-tier engine in
-prod and the test fixture (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) provides a real ephemeral one, so an
+local SQLite fallback: the OS-5.63 resolver auto-starts the mandatory full engine
+artifact in prod and the test fixture (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) provides a real ephemeral one, so an
 unreachable engine is a hard error, not a silent degrade to a straggler local DB.
 """
 

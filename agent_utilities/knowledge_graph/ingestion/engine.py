@@ -31,8 +31,10 @@ Supported content types:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from enum import StrEnum
@@ -44,6 +46,84 @@ from pydantic import BaseModel, Field
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
+
+
+class _NativeGraphSliceCapture:
+    """Thread-safe write buffer for one native enrichment graph slice.
+
+    Extractors keep their small ``add_node``/``add_edge`` protocol, but none of
+    those calls reaches a durable backend. The completed slice is handed to
+    ``ingest_graph_slice`` once, preserving ChangeEnvelope atomicity even when
+    concept windows are extracted concurrently.
+    """
+
+    def __init__(self, read_backend: Any) -> None:
+        self._read_backend = read_backend
+        self._nodes: dict[str, dict[str, Any]] = {}
+        self._edges: list[dict[str, Any]] = []
+        self._edge_keys: set[str] = set()
+        self._lock = threading.RLock()
+
+    def add_node(
+        self,
+        node_id: str,
+        label: str = "",
+        **properties: Any,
+    ) -> None:
+        row = dict(properties)
+        if "type" in row:
+            raise ValueError("node property 'type' is retired; use node_type")
+        node_type = str(row.pop("node_type", "") or label or "Entity")
+        row["id"] = str(node_id)
+        row["node_type"] = node_type
+        with self._lock:
+            current = self._nodes.setdefault(str(node_id), {"id": str(node_id)})
+            current.update(row)
+
+    def add_edge(
+        self,
+        source: str,
+        target: str,
+        rel_type: str = "",
+        **properties: Any,
+    ) -> None:
+        row = dict(properties)
+        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
+            row
+        )
+        if aliases:
+            raise ValueError("edge relationship aliases are retired")
+        edge_type = str(row.pop("relationship", "") or rel_type or "RELATED_TO")
+        edge = {
+            "source": str(source),
+            "target": str(target),
+            "relationship": edge_type,
+            **row,
+        }
+        key = json.dumps(edge, sort_keys=True, separators=(",", ":"), default=str)
+        with self._lock:
+            if key not in self._edge_keys:
+                self._edge_keys.add(key)
+                self._edges.append(edge)
+
+    def semantic_search(self, *args: Any, **kwargs: Any) -> Any:
+        search = getattr(self._read_backend, "semantic_search", None)
+        return search(*args, **kwargs) if callable(search) else []
+
+    def snapshot(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        with self._lock:
+            return (
+                [dict(self._nodes[node_id]) for node_id in sorted(self._nodes)],
+                [
+                    dict(row)
+                    for row in sorted(
+                        self._edges,
+                        key=lambda item: json.dumps(
+                            item, sort_keys=True, separators=(",", ":"), default=str
+                        ),
+                    )
+                ],
+            )
 
 
 def _now() -> str:
@@ -163,7 +243,7 @@ class IngestionManifest(BaseModel):
 
     content_type: ContentType
     source_uri: str
-    metadata: dict[str, Any] = {}
+    metadata: dict[str, Any] = Field(default_factory=dict)
     max_depth: int = 3
     force: bool = False
 
@@ -511,8 +591,7 @@ class IngestionEngine:
         gc = getattr(kg_engine, "graph_compute", None)
         self.graph_name = getattr(gc, "graph_name", "__commons__")
         # CONCEPT:AU-KG.ingest.unified-query-routing — cache of write backends bound to a routed content
-        # graph (``code:<repo>`` / ``src:<connector>`` / …). Empty + unused when
-        # KG_INGEST_GRAPH_ROUTING is off (every item routes to ``self.graph_name``).
+        # graph (``code:<repo>`` / ``src:<connector>`` / …).
         self._routed_backends: dict[str, Any] = {}
 
     def _routed_write(
@@ -527,10 +606,9 @@ class IngestionEngine:
         Maps the item to its destination graph via the routing policy and returns a
         backend bound to it, so structural/content writes land on a per-source graph
         that hashes to its own redb shard writer instead of all funnelling into
-        ``__commons__``. When routing is off — or the item routes back to this
-        engine's own graph — returns ``(self.graph_name, self.backend)`` unchanged
-        (byte-for-byte legacy). The routed graph is registered so the read path can
-        fan a unified query across it.
+        ``__commons__``. When an item routes back to this engine's graph, returns
+        ``(self.graph_name, self.backend)`` unchanged. The routed graph is
+        registered so the read path can fan a unified query across it.
         """
         from ..core import ingest_routing
 
@@ -541,9 +619,15 @@ class IngestionEngine:
             return self.graph_name, self.backend
         backend = self._routed_backends.get(routed)
         if backend is None:
-            from ..backends.epistemic_graph_backend import EpistemicGraphBackend
-
-            backend = EpistemicGraphBackend(graph_name=routed)
+            view_factory = getattr(self.backend, "for_graph", None)
+            if not callable(view_factory):
+                authority = getattr(self.backend, "_authority", None)
+                view_factory = getattr(authority, "for_graph", None)
+            if not callable(view_factory):
+                raise RuntimeError(
+                    f"backend {type(self.backend).__name__} has no graph view"
+                )
+            backend = view_factory(routed)
             self._routed_backends[routed] = backend
         ingest_routing.register_content_graph(routed)
         return routed, backend
@@ -552,6 +636,44 @@ class IngestionEngine:
     def history(self) -> list[IngestionResult]:
         """Return the ingestion history for this engine instance."""
         return list(self._history)
+
+    @staticmethod
+    def _privacy_safe_result(
+        result: IngestionResult, *, retain_enrichable: bool
+    ) -> IngestionResult:
+        """Remove runtime locations/PII before a result crosses its boundary."""
+        from ...security.persistence_privacy import (
+            PersistencePrivacyGuard,
+            persistence_reference,
+            sanitize_for_persistence,
+        )
+
+        safe = result.model_copy(deep=True)
+        safe_metadata, _ = sanitize_for_persistence(safe.manifest.metadata)
+        safe.manifest = safe.manifest.model_copy(
+            update={
+                "source_uri": persistence_reference(
+                    "ingestion_source",
+                    safe.manifest.source_uri,
+                    namespace=safe.manifest.content_type.value,
+                ),
+                "metadata": safe_metadata,
+            }
+        )
+        safe.details, _ = sanitize_for_persistence(safe.details)
+        if safe.error:
+            safe.error, _ = PersistencePrivacyGuard().sanitize_text(safe.error)
+        if not retain_enrichable:
+            safe.enrichable = []
+        return safe
+
+    def _record_result(self, result: IngestionResult) -> IngestionResult:
+        """Return a safe result and keep a content-free safe history copy."""
+        safe = self._privacy_safe_result(result, retain_enrichable=True)
+        history_entry = safe.model_copy(deep=True)
+        history_entry.enrichable = []
+        self._history.append(history_entry)
+        return safe
 
     def _content_identity(self, manifest: IngestionManifest) -> tuple[str, str] | None:
         """Return ``(canonical_uri, content_hash)`` for a tracked manifest.
@@ -571,7 +693,14 @@ class IngestionEngine:
         if not h:
             return None
         p = Path(manifest.source_uri)
-        canonical = str(p.resolve()) if p.exists() else manifest.source_uri
+        locator = str(p.resolve()) if p.exists() else manifest.source_uri
+        from ...security.persistence_privacy import persistence_reference
+
+        # The manifest ledger is durable. Store only a keyed reference, never a
+        # URL, endpoint, account-bearing path, or machine-local filesystem path.
+        canonical = persistence_reference(
+            "ingestion_source", locator, namespace=ct.value
+        )
         return canonical, h
 
     async def ingest(
@@ -592,11 +721,7 @@ class IngestionEngine:
         Returns:
             ``IngestionResult`` with status, counts, and timing.
         """
-        logger.info(
-            "[KG-2.7] Ingesting %s from %s",
-            manifest.content_type.value,
-            manifest.source_uri[:80],
-        )
+        logger.info("[KG-2.7] Ingesting %s", manifest.content_type.value)
         start = time.monotonic()
 
         if manifest.content_type not in _ADAPTORS:
@@ -605,8 +730,7 @@ class IngestionEngine:
                 status="failed",
                 error=f"No adaptor registered for {manifest.content_type.value}",
             )
-            self._history.append(result)
-            return result
+            return self._record_result(result)
 
         # Durable delta-skip: if this source's content is unchanged since the
         # last successful ingest, skip before dispatching the adaptor.
@@ -614,9 +738,7 @@ class IngestionEngine:
         try:
             identity = self._content_identity(manifest)
         except Exception:  # noqa: BLE001 — never let hashing break ingestion
-            logger.debug(
-                "content identity failed for %s", manifest.source_uri, exc_info=True
-            )
+            logger.debug("content identity failed", exc_info=True)
         if (
             identity
             and not manifest.force
@@ -630,8 +752,7 @@ class IngestionEngine:
                 duration_ms=(time.monotonic() - start) * 1000,
                 details={"reason": "unchanged", "source": identity[0]},
             )
-            self._history.append(result)
-            return result
+            return self._record_result(result)
 
         try:
             handler = _ADAPTORS[manifest.content_type]
@@ -661,26 +782,24 @@ class IngestionEngine:
                     )
                 except Exception:  # noqa: BLE001
                     logger.debug("manifest record failed", exc_info=True)
-            self._history.append(result)
-            return result
+            return self._record_result(result)
         except Exception as e:
-            logger.exception("[KG-2.7] Ingestion failed for %s", manifest.source_uri)
+            logger.error("[KG-2.7] Ingestion failed (%s)", type(e).__name__)
             result = IngestionResult(
                 manifest=manifest,
                 status="failed",
-                error=str(e),
+                error=f"ingestion failed ({type(e).__name__})",
                 duration_ms=(time.monotonic() - start) * 1000,
             )
-            self._history.append(result)
-            return result
+            return self._record_result(result)
 
     async def _run_inline_enrich(
         self, result: IngestionResult, manifest: IngestionManifest
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Drain a result's ``enrichable`` payloads through ``_enrich_text``.
 
         Factored out of :meth:`ingest` so the SAME enrichment work can run either
-        inline (legacy path) or in a decoupled ENRICH stage (CONCEPT:AU-KG.ingest.staged). The
+        inline or in a decoupled ENRICH stage (CONCEPT:AU-KG.ingest.staged). The
         per-payload work is delegated to :meth:`_enrich_payload`. Best-effort —
         never raises into ingestion. Mutates ``result`` with the enrichment counts
         (matching the original inline behaviour) and returns them.
@@ -851,7 +970,13 @@ class IngestionEngine:
         return processed
 
     def _extract_and_link_concepts(
-        self, source_id: str, text: str, source_type: str, title: str = ""
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+        title: str = "",
+        *,
+        writer: Any | None = None,
     ) -> int:
         """Extract Concept nodes + MENTIONS edges from text and persist them.
 
@@ -876,14 +1001,15 @@ class IngestionEngine:
         except Exception:  # noqa: BLE001
             return 0
 
-        add_node = getattr(self.backend, "add_node", None)
+        write_target = writer if writer is not None else self.backend
+        add_node = getattr(write_target, "add_node", None)
         if not callable(add_node):
             return 0
         for c in concepts:
             try:
                 add_node(
                     c.id,
-                    type="Concept",
+                    label="Concept",
                     name=c.name,
                     kind=c.kind,
                     summary=c.summary,
@@ -891,7 +1017,7 @@ class IngestionEngine:
                 )
             except Exception:  # noqa: BLE001
                 pass
-        add_edge = getattr(self.backend, "add_edge", None)
+        add_edge = getattr(write_target, "add_edge", None)
         if callable(add_edge):
             for e in edges:
                 try:
@@ -903,10 +1029,12 @@ class IngestionEngine:
         # interweaves (RELATES_TO / REALIZES). Best-effort: needs an embedding
         # model + a vector-searchable backend; degrades silently otherwise.
         # Gated by KG_CONCEPT_CODE_LINK (default on). (CONCEPT:AU-KG.ingest.capability-writeback)
-        self._link_concepts_to_code(concepts)
+        self._link_concepts_to_code(concepts, writer=write_target)
         return len(concepts)
 
-    def _link_concepts_to_code(self, concepts: list[Any]) -> int:
+    def _link_concepts_to_code(
+        self, concepts: list[Any], *, writer: Any | None = None
+    ) -> int:
         """Write RELATES_TO/REALIZES edges from concepts to similar Code/Feature.
 
         Returns the number of edges written (0 if disabled/unavailable).
@@ -914,8 +1042,9 @@ class IngestionEngine:
 
         if not concepts or setting("KG_CONCEPT_CODE_LINK", "1") == "0":
             return 0
-        add_edge = getattr(self.backend, "add_edge", None)
-        search = getattr(self.backend, "semantic_search", None)
+        write_target = writer if writer is not None else self.backend
+        add_edge = getattr(write_target, "add_edge", None)
+        search = getattr(write_target, "semantic_search", None)
         if not callable(add_edge) or not callable(search):
             return 0
         try:
@@ -941,7 +1070,7 @@ class IngestionEngine:
                 pass
         return written
 
-    def _fact_store(self) -> Any:
+    def _fact_store(self, writer: Any | None = None) -> Any:
         """A ``persist_facts``-compatible store over the ingest backend.
 
         Maps the ``add_node(key, label=)`` / ``add_edge(s, o, rel_type=, **props)``
@@ -949,11 +1078,11 @@ class IngestionEngine:
         signatures, so canonical-entity facts land as ``Entity`` nodes + typed
         edges that interlink with the Concept/Code graph (KG-2.64 + KG-2.8).
         """
-        backend: Any = self.backend
+        backend: Any = writer if writer is not None else self.backend
 
         class _Store:
             def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
-                backend.add_node(node_id, type="Entity", name=label, **props)
+                backend.add_node(node_id, label="Entity", name=label, **props)
 
             def add_edge(
                 self, source: str, target: str, rel_type: str = "", **props: Any
@@ -967,7 +1096,12 @@ class IngestionEngine:
         return _Store()
 
     async def _extract_facts_into_graph(
-        self, source_id: str, text: str, source_type: str
+        self,
+        source_id: str,
+        text: str,
+        source_type: str,
+        *,
+        writer: Any | None = None,
     ) -> int:
         """Canonical-entity fact extraction → persisted graph edges (KG-2.64).
 
@@ -977,7 +1111,8 @@ class IngestionEngine:
         """
         if not text or not text.strip():
             return 0
-        if not callable(getattr(self.backend, "add_edge", None)):
+        write_target = writer if writer is not None else self.backend
+        if not callable(getattr(write_target, "add_edge", None)):
             return 0
         try:
             from ..extraction.fact_extractor import (
@@ -1024,7 +1159,9 @@ class IngestionEngine:
             grounded = [(f, {}) for f in facts]
         repaired = [f for f, _ in grounded]
         try:
-            written = int(persist_facts(self._fact_store(), repaired).get("edges", 0))
+            written = int(
+                persist_facts(self._fact_store(write_target), repaired).get("edges", 0)
+            )
         except Exception:  # noqa: BLE001
             return 0
         # Annotate the canonical Entity nodes with the grounded OWL class
@@ -1033,7 +1170,7 @@ class IngestionEngine:
         try:
             from ..extraction.fact_extractor import ExtractedFact as _EF
 
-            add_node = self.backend.add_node  # type: ignore[union-attr]  # best-effort; backend present during ingest (try-guarded)
+            add_node = write_target.add_node
             for fact, grounding in grounded:
                 for surface, type_key in (
                     (fact.subject, "subject_type"),
@@ -1043,7 +1180,7 @@ class IngestionEngine:
                     if otype:
                         add_node(
                             _EF.normalize_key(surface),
-                            type="Entity",
+                            label="Entity",
                             ontology_type=otype,
                         )
         except Exception:  # noqa: BLE001 — grounding never breaks ingest
@@ -1092,6 +1229,7 @@ class IngestionEngine:
             structure = "prose"
 
         windows = self._enrichment_windows(text)
+        write_slice = _NativeGraphSliceCapture(self.backend)
 
         # Both enrichment passes fan their windows out with bounded concurrency
         # (CONCEPT:AU-KG.ingest.generalized-cross-lane-parallelization — generalized cross-lane parallelization). vLLM batches
@@ -1123,6 +1261,7 @@ class IngestionEngine:
                         window,
                         source_type,
                         title,
+                        writer=write_slice,
                     )
 
             c_results = await asyncio.gather(
@@ -1143,7 +1282,10 @@ class IngestionEngine:
             async def _facts_for(window: str) -> int:
                 async with sem:
                     return await self._extract_facts_into_graph(
-                        source_id, window, source_type
+                        source_id,
+                        window,
+                        source_type,
+                        writer=write_slice,
                     )
 
             results = await asyncio.gather(
@@ -1162,17 +1304,44 @@ class IngestionEngine:
                 from ..enrichment.topic_classifier import classify_and_link_topics
 
                 topic_result = await classify_and_link_topics(
-                    self.backend, source_id, text, title=title, source_type=source_type
+                    write_slice,
+                    source_id,
+                    text,
+                    title=title,
+                    source_type=source_type,
                 )
                 topics = 1 if topic_result.get("status") == "classified" else 0
             except Exception:  # noqa: BLE001 — topic classification never breaks ingest
                 topics = 0
+
+        persisted = True
+        entities, relationships = write_slice.snapshot()
+        if entities or relationships:
+            try:
+                from .envelope_ingest import ingest_graph_slice
+
+                ingest_graph_slice(
+                    self.kg,
+                    "text-enrichment",
+                    entities,
+                    relationships,
+                    source_instance=source_type,
+                )
+            except Exception:  # noqa: BLE001 — enrichment remains best-effort
+                logger.warning(
+                    "native text-enrichment ChangeEnvelope failed for %s",
+                    source_type,
+                    exc_info=True,
+                )
+                concepts = facts = topics = 0
+                persisted = False
 
         summary: dict[str, Any] = {
             "concepts": concepts,
             "facts": facts,
             "topics": topics,
             "structure": structure,
+            "persisted": persisted,
         }
         return summary
 
@@ -1250,11 +1419,7 @@ class IngestionEngine:
             try:
                 await self._route_classified_artifacts(manifest, source_path, result)
             except Exception:  # noqa: BLE001
-                logger.warning(
-                    "[KG-2.285] artifact classification/routing failed for %s",
-                    source_path,
-                    exc_info=True,
-                )
+                logger.warning("[KG-2.285] artifact classification/routing failed")
         return result
 
     def _run_codebase_structural(
@@ -1289,37 +1454,14 @@ class IngestionEngine:
         if not (hasattr(backend, "add_node") and hasattr(backend, "add_edge")):
             from ..backends.epistemic_graph_backend import EpistemicGraphBackend
 
-            backend = EpistemicGraphBackend()
+            backend = EpistemicGraphBackend().for_graph(write_graph)
             backend._graph = graph_compute
 
-        # Dedicated ingest engine (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, Phase D): route the heavy,
-        # contention-prone compute — stateless PARSE and the throwaway COMMUNITY
-        # tenant — to a private ephemeral engine, isolated from the query engine and
-        # the background daemons (embedding backfill / reconcile / task poll) that
-        # profiling showed dominate a daemon ingest's wall-clock. The durable code/
-        # feature WRITES still go to ``backend`` (the query engine, where queries
-        # read them). Health-gated: if the ingest engine is unset or unreachable,
-        # ``ingest_ep`` is None and everything runs on the query engine as before.
-        from ..core.graph_compute import GraphComputeEngine, resolve_engine_auth
-
-        ingest_ep = None
+        # Heavy parse/community operations use graph-scoped views on the ONE
+        # process transport. The engine's internal lanes/shards provide
+        # isolation; opening a private second socket here defeated request-local
+        # GraphSession authority and doubled resident resources.
         parse_gc = graph_compute
-        try:
-            from agent_utilities.core.config import AgentConfig
-
-            from ..core.ingest_engine import ensure_ingest_engine
-
-            _cfg = AgentConfig()
-            _auth, _insecure = resolve_engine_auth(_cfg)
-            ingest_ep = ensure_ingest_engine(
-                _cfg.kg_ingest_engine_endpoint, _auth, insecure=_insecure
-            )
-            if ingest_ep:
-                parse_gc = GraphComputeEngine(endpoint=ingest_ep)
-                logger.info("[KG-2.58] ingest compute routed to %s", ingest_ep)
-        except Exception:  # noqa: BLE001 — any failure → query engine
-            ingest_ep = None
-            parse_gc = graph_compute
 
         # Features (call-graph communities) are cheap + non-LLM, but use a
         # transient tenant for community detection so the main graph isn't
@@ -1332,15 +1474,10 @@ class IngestionEngine:
         # each job's community-detection tenant so multi-repo ingest is safe.
         import uuid as _uuid
 
-        comm_name = f"{write_graph}__enrich_comm_{_uuid.uuid4().hex[:8]}"
+        comm_name = f"{write_graph}__enrich_comm_{_uuid.uuid4().hex}"
         if manifest.metadata.get("features", True):
             try:
-                # Community tenant lives on the ingest engine when one is active.
-                comm = (
-                    GraphComputeEngine(graph_name=comm_name, endpoint=ingest_ep)
-                    if ingest_ep
-                    else GraphComputeEngine(graph_name=comm_name)
-                )
+                comm = graph_compute.for_graph(comm_name)
                 community_fn = make_community_fn(comm)
             except Exception:  # noqa: BLE001
                 community_fn = None
@@ -1419,7 +1556,7 @@ class IngestionEngine:
 
         # Structural ingest of a whole repo is the heaviest single KG task (parse +
         # community + thousands of writes). Hold the BULK-INGEST gate for its whole
-        # run so every background drain (embedding-backfill, reconcile_durable,
+        # run so every background drain (embedding-backfill, reconcile_mirrors,
         # relevance-sweep, evolution, hygiene) yields instead of contending for the
         # single-writer engine. The bulk-ingest gate (not just the interactive
         # foreground flag, and not the submission-queue depth which drops to 0 the
@@ -1589,7 +1726,7 @@ class IngestionEngine:
             try:
                 add_node(
                     repo_id,
-                    type="Repo",
+                    label="Repo",
                     name=repo_name,
                     file_path=source_path,
                     source_system=code_source_id,
@@ -1618,7 +1755,7 @@ class IngestionEngine:
             try:
                 add_node(
                     sid,
-                    type="Spec",
+                    label="Spec",
                     name=fc.path.name,
                     file_path=str(fc.path),
                     ast_hash=_hashlib.sha256(text.encode()).hexdigest(),
@@ -1638,7 +1775,7 @@ class IngestionEngine:
                         }
                     )
             except Exception:  # noqa: BLE001
-                logger.debug("spec write failed for %s", fc.path, exc_info=True)
+                logger.debug("spec write failed", exc_info=True)
 
         # ── Skill / Prompt → existing adaptors (bounded fan-out) ────────────
         sem = _asyncio.Semaphore(max(1, compute_ingest_worker_count()))
@@ -1654,26 +1791,15 @@ class IngestionEngine:
                 try:
                     return await self.ingest(sub)
                 except Exception:  # noqa: BLE001
-                    logger.debug(
-                        "routed %s ingest failed for %s", ct.value, path, exc_info=True
-                    )
+                    logger.debug("routed %s ingest failed", ct.value)
                     return None
 
-        # ── Documents → batched, enrich-deferred fan-out (CONCEPT:AU-KG.ingest.writes-go) ──
-        # A repo's markdown used to explode into one full ``self.ingest()`` per
-        # file — each its own adaptor-dispatch + per-node engine round-trips + its
-        # own inline central-enrich (concept/fact + embedder) pass. For a docs-heavy
-        # repo that multiplied tasks and embed round-trips faster than they drained.
-        # Instead each doc's structural write goes through a per-doc ``_BatchedBackend``
-        # (its Document + chunk + concept nodes flush as ONE bulk RPC, not N socket
-        # round-trips), and its ``enrichable`` text bubbles up to the PARENT result so
-        # the codebase ingest's SINGLE central seam enriches the whole repo's docs in
-        # one pass (matching the spec/`_ingest_document_dir` pattern) — not N inline
-        # passes. Per-doc delta-skip + manifest-record are preserved so unchanged docs
-        # are still skipped on re-ingest.
-        from ..enrichment.pipeline import _BatchedBackend
-
-        def _ingest_doc_batched(sub: IngestionManifest, path: Path) -> IngestionResult:
+        # ── Documents → governed, enrich-deferred fan-out ──
+        # Every structural write crosses the native ChangeEnvelope seam. Each
+        # document's ``enrichable`` text bubbles up to the parent result so the
+        # codebase ingest's single central seam enriches the repo in one pass.
+        # Per-document delta-skip and manifest recording remain intact.
+        def _ingest_doc(sub: IngestionManifest, path: Path) -> IngestionResult:
             # Delta-skip (the gate ``self.ingest`` would apply) so an unchanged doc
             # is not re-read/re-written/re-embedded on a repo re-ingest.
             identity: tuple[str, str] | None = None
@@ -1691,12 +1817,7 @@ class IngestionEngine:
                 return IngestionResult(
                     manifest=sub, status="skipped", details={"reason": "unchanged"}
                 )
-            bb = _BatchedBackend(self.backend)
-            if bb.bulk_available:
-                res = self._ingest_document_file(sub, path, backend=bb)
-                bb.flush()
-            else:  # engine has no bulk path → unchanged per-item writes
-                res = self._ingest_document_file(sub, path)
+            res = self._ingest_document_file(sub, path)
             if identity and res.status == "success":
                 try:
                     self.manifest.record(
@@ -1718,11 +1839,9 @@ class IngestionEngine:
             )
             async with sem:
                 try:
-                    return await _asyncio.to_thread(_ingest_doc_batched, sub, path)
+                    return await _asyncio.to_thread(_ingest_doc, sub, path)
                 except Exception:  # noqa: BLE001
-                    logger.debug(
-                        "routed document ingest failed for %s", path, exc_info=True
-                    )
+                    logger.debug("routed document ingest failed")
                     return None
 
         sp_jobs: list[tuple[ContentType, Path]] = []
@@ -1885,15 +2004,28 @@ class IngestionEngine:
 
         # Link the roundup page → each ingested paper (MENTIONS).
         page_id = (page_result.details or {}).get("doc_id")
-        add_edge = getattr(self.backend, "add_edge", None)
-        if page_id and callable(add_edge):
-            for r in results:
-                paper_id = (r.details or {}).get("doc_id") if r else None
-                if paper_id:
-                    try:
-                        add_edge(page_id, paper_id, rel_type="MENTIONS")
-                    except Exception:  # noqa: BLE001 — link is best-effort
-                        pass
+        mention_edges = []
+        if page_id:
+            mention_edges = [
+                {
+                    "source": page_id,
+                    "target": paper_id,
+                    "relationship": "MENTIONS",
+                }
+                for result in results
+                if result is not None
+                and (paper_id := (result.details or {}).get("doc_id"))
+            ]
+        if mention_edges:
+            from .envelope_ingest import ingest_graph_slice
+
+            ingest_graph_slice(
+                self.kg,
+                "research-roundup-links",
+                [],
+                mention_edges,
+                source_instance="document",
+            )
 
         ingested = 0
         for r in results:
@@ -2019,38 +2151,54 @@ class IngestionEngine:
 
         A binary-document URL (``.pdf``/``.docx``/``.pptx``/``.xlsx`` — e.g. the
         ServiceNow release-notes PDF) is downloaded as bytes and read by the
-        verbatim reader stack (``read_any``/PyMuPDF), not coerced through the
+        bounded verbatim reader stack (``read_any``/pypdf), not coerced through the
         text/markdown fetch path.
         """
         import tempfile
 
+        from ...security.persistence_privacy import persistence_reference
         from .web_fetch import _UA, resolve_web_fetch
+
+        source_reference = persistence_reference(
+            "document_source", url, namespace="web-document"
+        )
+        abstract_source = f"external-document:{source_reference}"
 
         # Binary document URLs: download bytes → temp file with the right suffix →
         # the canonical unit reads them with the modality reader (CONCEPT:AU-KG.enrichment.multimodal-readers).
         suffix = Path(url.split("?", 1)[0]).suffix.lower()
         if suffix in {".pdf", ".docx", ".doc", ".pptx", ".xlsx", ".epub"}:
             try:
-                import requests
+                from agent_utilities.protocols.source_connectors.http_safety import (
+                    configured_source_http_policy,
+                    safe_get_bytes,
+                )
 
-                resp = requests.get(url, timeout=180, headers={"User-Agent": _UA})
-                resp.raise_for_status()
+                content, _encoding = safe_get_bytes(
+                    url,
+                    timeout=180,
+                    headers={"User-Agent": _UA},
+                    **configured_source_http_policy(),
+                )
                 with tempfile.NamedTemporaryFile(
                     "wb", suffix=suffix, delete=False
                 ) as tmp:
-                    tmp.write(resp.content)
+                    tmp.write(content)
                     bin_path = Path(tmp.name)
             except Exception as e:  # noqa: BLE001
                 return IngestionResult(
-                    manifest=manifest, status="failed", error=f"fetch failed: {e}"
+                    manifest=manifest,
+                    status="failed",
+                    error=f"fetch failed ({type(e).__name__})",
                 )
             sub = IngestionManifest(
                 content_type=manifest.content_type,
-                source_uri=str(bin_path),
+                source_uri=abstract_source,
                 metadata={
                     **manifest.metadata,
-                    "source_url": url,
-                    "fetch_backend": "requests",
+                    "source_reference": source_reference,
+                    "source_kind": "web-document",
+                    "fetch_backend": "bounded-http",
                     "fetched_at": _now(),
                 },
                 force=manifest.force,
@@ -2066,7 +2214,9 @@ class IngestionEngine:
         page = resolve_web_fetch(url)
         if page is None:
             return IngestionResult(
-                manifest=manifest, status="failed", error=f"fetch failed: {url}"
+                manifest=manifest,
+                status="failed",
+                error="configured document fetch failed",
             )
 
         # Write the materialized text to a temp file so the canonical unit (which
@@ -2078,10 +2228,11 @@ class IngestionEngine:
             doc_path = Path(tmp.name)
         sub = IngestionManifest(
             content_type=manifest.content_type,
-            source_uri=str(doc_path),
+            source_uri=abstract_source,
             metadata={
                 **manifest.metadata,
-                "source_url": url,
+                "source_reference": source_reference,
+                "source_kind": "web-document",
                 "fetch_backend": page.backend,
                 "fetched_at": _now(),
             },
@@ -2099,7 +2250,6 @@ class IngestionEngine:
         self,
         manifest: IngestionManifest,
         path_obj: Path,
-        backend: Any | None = None,
     ) -> IngestionResult:
         """Canonical single-document ingest → the standardized contract.
 
@@ -2117,13 +2267,11 @@ class IngestionEngine:
         explicit KNOWLEDGE_BASE/curate_wiki path). Gates (via manifest.metadata):
         ``extract_concepts`` (default on), ``chunk`` (default on).
         """
-        import json as _json
-
         from ..core.ingest_profile import stage as _pstage
         from ..enrichment.extractors.document import extract_document
         from ..extraction.readers import read_any
 
-        # read_any routes the document family to the PyMuPDF-fast read_document_text
+        # read_any routes the document family to bounded read_document_text
         # and every other modality (email/pptx/xlsx/audio/OCR/...) to its registered
         # reader — one universal front door (CONCEPT:AU-KG.enrichment.multimodal-readers).
         with _pstage("read"):  # OS-5.70 per-stage timing
@@ -2146,20 +2294,31 @@ class IngestionEngine:
         else:
             llm = lambda _p: ""  # noqa: E731 — Document node only, no concepts
 
-        # CONCEPT:AU-KG.ingest.writes-go — writes go to ``backend`` (a per-doc ``_BatchedBackend``
-        # when the classified-document router supplies one, so a doc's Document +
-        # chunk + concept nodes flush as ONE bulk RPC instead of a socket round-trip
-        # per node), else the engine's default backend (byte-for-byte legacy).
-        backend = backend if backend is not None else self.backend
-
         with _pstage("extract"):  # OS-5.70 — the LLM concept-extraction stage
             doc, concepts, edges = extract_document(str(path_obj), text, llm)
-        add_node = getattr(backend, "add_node", None)
-        if not callable(add_node):
-            return IngestionResult(
-                manifest=manifest, status="failed", error="backend.add_node unavailable"
-            )
         source_url = manifest.metadata.get("source_url") or doc.file_path
+
+        # A URL fetch is materialized through a temporary file and a local file
+        # contains a machine-specific path. Neither location may become durable
+        # identity or provenance. Turn the transient locator into a keyed,
+        # non-reversible reference and use its digest for the document topology.
+        source_locator = str(source_url or path_obj)
+        source_kind = str(manifest.metadata.get("source_kind") or "") or (
+            "web-document"
+            if source_locator.startswith(("http://", "https://"))
+            else "configured-document"
+        )
+        from ...security.persistence_privacy import persistence_reference
+
+        source_reference = str(manifest.metadata.get("source_reference") or "") or (
+            persistence_reference(
+                "document_source",
+                source_locator,
+                namespace=source_kind,
+            )
+        )
+        source_digest = hashlib.sha256(source_reference.encode("utf-8")).hexdigest()
+        document_id = f"doc:{source_digest[:32]}"
 
         # Provenance (CONCEPT:AU-KG.ingest.enterprise-source-extractor): a URL-fetched document must
         # carry WHICH resolver backend served it (archivebox/crawl4ai/requests) and
@@ -2178,37 +2337,43 @@ class IngestionEngine:
         fetched_at = manifest.metadata.get("fetched_at")
         if fetched_at:
             prov_props["fetched_at"] = fetched_at
-        if str(source_url).startswith(("http://", "https://")):
+        if source_kind == "web-document":
             stamp_source(prov_props, "web")
 
-        add_node(
-            doc.id,
-            type="Document",
-            name=doc.title,
-            doc_type=doc.doc_type,
-            file_path=doc.file_path,
-            ast_hash=doc.content_hash,
-            content=doc.content,
-            source_url=source_url,
-            metadata=_json.dumps(doc.metadata)[:4000],
-            **prov_props,
-        )
+        entities: list[dict[str, Any]] = [
+            {
+                "id": document_id,
+                "node_type": "Document",
+                "name": doc.title,
+                "doc_type": doc.doc_type,
+                "ast_hash": doc.content_hash,
+                "content": doc.content,
+                "source_kind": source_kind,
+                "source_reference": source_reference,
+                "metadata": dict(doc.metadata),
+                **prov_props,
+            }
+        ]
+        relationships: list[dict[str, Any]] = []
         for c in concepts:
-            add_node(
-                c.id,
-                type="Concept",
-                name=c.name,
-                kind=c.kind,
-                summary=c.summary,
-                source_ids=_json.dumps(c.source_ids),
+            entities.append(
+                {
+                    "id": c.id,
+                    "node_type": "Concept",
+                    "name": c.name,
+                    "kind": c.kind,
+                    "summary": c.summary,
+                    "source_ids": [document_id],
+                }
             )
-        add_edge = getattr(backend, "add_edge", None)
-        if callable(add_edge):
-            for e in edges:
-                try:
-                    add_edge(e.source, e.target, rel_type=e.rel_type)
-                except Exception:  # noqa: BLE001
-                    pass
+        relationships.extend(
+            {
+                "source": document_id,
+                "target": edge.target,
+                "relationship": edge.rel_type,
+            }
+            for edge in edges
+        )
 
         # Verbatim chunk substrate: deterministic ids keyed to the Document so a
         # re-ingest overwrites the same chunk nodes instead of duplicating them.
@@ -2218,21 +2383,25 @@ class IngestionEngine:
 
             chunks = chunk_text(text)
             for i, chunk in enumerate(chunks):
-                block_id = f"{doc.id}:chunk:{i}"
-                add_node(
-                    block_id,
-                    type="idea_block",
-                    name=f"{doc.title} §{i + 1}",
-                    description=chunk[:200],
-                    trusted_answer=chunk,
-                    source_document_id=doc.id,
-                    source=source_url,
+                block_id = f"{document_id}:chunk:{i}"
+                entities.append(
+                    {
+                        "id": block_id,
+                        "node_type": "idea_block",
+                        "name": f"{doc.title} §{i + 1}",
+                        "description": chunk[:200],
+                        "trusted_answer": chunk,
+                        "source_document_id": document_id,
+                        "source": source_kind,
+                    }
                 )
-                if callable(add_edge):
-                    try:
-                        add_edge(block_id, doc.id, rel_type="PART_OF")
-                    except Exception:  # noqa: BLE001
-                        pass
+                relationships.append(
+                    {
+                        "source": block_id,
+                        "target": document_id,
+                        "relationship": "PART_OF",
+                    }
+                )
                 chunks_created += 1
 
         # KG-2.48 — opt-in materialization of first-class, embedded ``Chunk``
@@ -2250,7 +2419,7 @@ class IngestionEngine:
                 )
 
                 processor = DocumentProcessor(
-                    backend,
+                    None,
                     chunking=ChunkingConfig(
                         chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                         overlap=int(manifest.metadata.get("overlap", 120)),
@@ -2260,15 +2429,45 @@ class IngestionEngine:
                 )
                 processed = processor.process(
                     text,
-                    document_id=doc.id,
+                    document_id=document_id,
                     title=doc.title,
                     doc_type=doc.doc_type,
-                    source=source_url,
+                    source=source_kind,
+                    persist=False,
                 )
+                entities.extend(
+                    [
+                        *processed.chunk_nodes,
+                        *processed.link_nodes,
+                        *processed.section_nodes,
+                    ]
+                )
+                relationships.extend([*processed.edges, *processed.section_edges])
                 chunk_objects_created = processed.chunk_count
-                chunk_object_edges = len(processed.edges)
+                chunk_object_edges = len(processed.edges) + len(processed.section_edges)
             except Exception as e:  # noqa: BLE001 — opt-in enrichment never blocks
                 logger.warning("[KG-2.48] chunk-object materialization failed: %s", e)
+
+        try:
+            from .envelope_ingest import ingest_graph_slice
+
+            ingest_graph_slice(
+                self.kg,
+                "document",
+                entities,
+                relationships,
+                source_instance=source_kind,
+            )
+        except Exception as exc:  # noqa: BLE001 — never fall back to direct writes
+            logger.warning(
+                "native document ChangeEnvelope failed (%s)",
+                type(exc).__name__,
+            )
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error="native document ChangeEnvelope failed",
+            )
 
         return IngestionResult(
             manifest=manifest,
@@ -2276,7 +2475,7 @@ class IngestionEngine:
             nodes_created=1 + len(concepts) + chunks_created + chunk_objects_created,
             edges_created=len(edges) + chunks_created + chunk_object_edges,
             details={
-                "doc_id": doc.id,
+                "doc_id": document_id,
                 "doc_type": doc.doc_type,
                 "concepts": len(concepts),
                 "chunks": chunks_created,
@@ -2286,7 +2485,7 @@ class IngestionEngine:
             # canonical-fact layer over the same verbatim text (KG-2.64).
             enrichable=[
                 {
-                    "source_id": doc.id,
+                    "source_id": document_id,
                     "text": text,
                     "source_type": "document",
                     "title": doc.title,
@@ -2315,9 +2514,9 @@ class IngestionEngine:
           * ``metadata["contextual"]`` — enrichment toggle (default True here).
           * ``metadata["incremental"]`` — use ``poll`` (default True) vs ``load``.
 
-        Incrementality: the connector's :class:`ConnectorCheckpoint` is persisted
-        in the ``DeltaManifest`` (KG-2.8) under the ``connector_checkpoint``
-        category, so a re-run resumes from the watermark rather than re-fetching.
+        Incrementality: the connector's :class:`ConnectorCheckpoint` is committed
+        as the engine-native typed source cursor only after all records succeed,
+        so a re-run resumes without a split Python-manifest authority.
         """
         import json as _json
 
@@ -2326,8 +2525,8 @@ class IngestionEngine:
             LoadConnector,
             PollConnector,
             build_connector,
-            sync_access,
         )
+        from ...protocols.source_connectors.base import default_external_access
         from ..ontology.document_processing import ChunkingConfig, DocumentProcessor
 
         source_type = manifest.source_uri
@@ -2344,23 +2543,58 @@ class IngestionEngine:
             return IngestionResult(
                 manifest=manifest,
                 status="failed",
-                error=f"connector build failed: {exc}",
+                error=f"connector build failed ({type(exc).__name__})",
             )
 
-        # CONCEPT:AU-KG.ingest.unified-query-routing — route this connector's docs/chunks to a per-source
-        # graph (``src:<source_type>``) when routing is on, so its writes hash to
-        # their own redb shard writer instead of all landing on ``__commons__``.
-        # ``write_graph`` co-keys the checkpoint manifest with the content it tracks.
-        write_graph, backend = self._routed_write(
-            kind="connector", source_type=source_type
-        )
+        # Dry-run is source-safe planning, not persistence. It must remain usable
+        # without resolving a graph authority or reading a durable cursor.
+        plan_fn = getattr(connector, "plan", None)
+        if bool(getattr(connector, "dry_run", False)) and callable(plan_fn):
+            try:
+                plan = plan_fn(ConnectorCheckpoint.from_json(None))
+            except Exception as exc:  # noqa: BLE001 — source-safe connector error
+                return IngestionResult(
+                    manifest=manifest,
+                    status="failed",
+                    error=f"connector dry-run failed ({type(exc).__name__})",
+                )
+            return IngestionResult(
+                manifest=manifest,
+                status="success",
+                details={
+                    "connector": source_type,
+                    "connector_id": connector_id,
+                    "dry_run": True,
+                    "plan": plan,
+                    "checkpoint_advanced": False,
+                },
+            )
 
-        # Resume from the stored checkpoint (ECO-4.26 + KG-2.8).
-        prior_raw = self.manifest.get(write_graph, "connector_checkpoint", connector_id)
+        # Native placement comes from the verified GraphSession/catalog route.
+        # A caller-selected backend view must not override that authority.
+        backend = self.backend
+
+        # Resume from the engine-owned typed cursor. A separate Python manifest
+        # must never advance independently of the graph material it describes.
+        from .envelope_ingest import read_change_cursor
+
+        try:
+            prior_raw = read_change_cursor(
+                self.kg,
+                source_type,
+                source_instance=str(connector_id),
+            )
+        except Exception as exc:  # noqa: BLE001 — no legacy cursor fallback
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"native connector cursor unavailable ({type(exc).__name__})",
+            )
         prior_cp = ConnectorCheckpoint.from_json(prior_raw)
 
         processor = DocumentProcessor(
             backend,
+            engine=self.kg,
             chunking=ChunkingConfig(
                 chunk_size=int(manifest.metadata.get("chunk_size", 800)),
                 overlap=int(manifest.metadata.get("overlap", 120)),
@@ -2392,30 +2626,115 @@ class IngestionEngine:
             return IngestionResult(
                 manifest=manifest,
                 status="failed",
-                error=f"connector drain failed: {exc}",
+                error=f"connector drain failed ({type(exc).__name__})",
             )
 
-        docs_ok = nodes = edges = acl_synced = 0
+        docs_ok = docs_failed = nodes = edges = acl_synced = 0
+        envelope_ok = envelope_failed = 0
+        failed_governed_ids: set[str] = set()
         enrichable: list[dict[str, Any]] = []
+        private_metadata_keys = {
+            "base_url",
+            "endpoint",
+            "file_path",
+            "overlay_source",
+            "path",
+            "server",
+            "source_url",
+            "url",
+        }
+
+        def _safe_connector_metadata(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    key: _safe_connector_metadata(item)
+                    for key, item in value.items()
+                    if str(key).lower() not in private_metadata_keys
+                }
+            if isinstance(value, list):
+                return [_safe_connector_metadata(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(_safe_connector_metadata(item) for item in value)
+            if isinstance(value, str) and (
+                os.path.isabs(value)
+                or value.startswith("file://")
+                or (len(value) > 2 and value[1] == ":" and value[2] in "\\/")
+            ):
+                return "configured-resource"
+            return value
+
+        governed_envelopes = list(getattr(connector, "last_envelopes", []) or [])
+        final_checkpoint = new_cp.to_json() if new_cp is not None else None
+        if governed_envelopes:
+            from dataclasses import replace as _replace
+
+            from .envelope_ingest import ingest_envelope
+
+            for envelope in governed_envelopes:
+                if final_checkpoint is None and getattr(envelope, "checkpoint", None):
+                    final_checkpoint = str(envelope.checkpoint)
+                # Per-record commits cannot advance a batch cursor before every
+                # governed document has succeeded. The final marker below owns
+                # the cursor transition; a crash before it merely replays these
+                # idempotent records.
+                envelope = _replace(envelope, checkpoint=None)
+                governed_id = str(getattr(envelope, "source_object_id", "") or "")
+                try:
+                    envelope_result = ingest_envelope(self, envelope)
+                except Exception:  # noqa: BLE001 — fail this governed record closed
+                    envelope_failed += 1
+                    if governed_id:
+                        failed_governed_ids.add(governed_id)
+                    continue
+                if envelope_result.get("status") not in {"success", "skipped"}:
+                    envelope_failed += 1
+                    if governed_id:
+                        failed_governed_ids.add(governed_id)
+                    continue
+                envelope_ok += 1
+
         for doc in documents:
             if not getattr(doc, "text", "").strip():
                 continue
+            governed_id = str(
+                (getattr(doc, "metadata", None) or {}).get("governed_entity_id") or ""
+            )
+            if governed_id and governed_id in failed_governed_ids:
+                docs_failed += 1
+                continue
+            object_key = hashlib.sha256(str(doc.id).encode("utf-8")).hexdigest()[:24]
             try:
+                access = doc.external_access or default_external_access()
+                # Connector-native identifiers and source URIs may contain a
+                # workstation path or an internal endpoint.  They remain in the
+                # connector/config boundary; persisted graph identity uses an
+                # opaque stable key and an abstract connector URI.
+                safe_metadata = _safe_connector_metadata(dict(doc.metadata or {}))
+                safe_title = _safe_connector_metadata(doc.title) or (
+                    f"{source_type} record {object_key}"
+                )
                 processed = processor.process(
                     doc.text,
-                    document_id=f"doc:{source_type}:{doc.id}",
-                    title=doc.title or doc.id,
+                    document_id=f"doc:{source_type}:{object_key}",
+                    title=safe_title,
                     doc_type=doc.doc_type,
-                    source=doc.source_uri,
+                    source=f"connector://{source_type}/{object_key}",
                     metadata={
-                        **doc.metadata,
+                        **safe_metadata,
                         "connector": source_type,
                         "connector_id": connector_id,
-                        "source_url": doc.source_uri,
                     },
+                    external_access=access,
+                    connector=source_type,
+                    source_instance=str(connector_id),
                 )
             except Exception as exc:  # noqa: BLE001 — one bad doc must not abort the batch
-                logger.warning("[KG-2.7] connector doc %s failed: %s", doc.id, exc)
+                docs_failed += 1
+                logger.warning(
+                    "[KG-2.7] connector record %s failed (%s)",
+                    object_key,
+                    type(exc).__name__,
+                )
                 continue
             docs_ok += 1
             nodes += 1 + processed.chunk_count
@@ -2425,46 +2744,64 @@ class IngestionEngine:
                     "source_id": processed.document_id,
                     "text": doc.text,
                     "source_type": "connector",
-                    "title": doc.title or doc.id,
+                    "title": safe_title,
                 }
             )
-            # ECO-4.28 — mirror the source's ACL onto the doc + its chunks.
-            if doc.external_access is not None:
-                chunk_edges = [
-                    (e["source"], e["target"])
-                    for e in processed.edges
-                    if e.get("type") == "HAS_CHUNK"
-                ]
-                if (
-                    sync_access(processed.document_id, doc.external_access, chunk_edges)
-                    is not None
-                ):
-                    acl_synced += 1
+            # ECO-4.28 — ACL registration is part of DocumentProcessor's
+            # pre-write boundary, so a document cannot persist before its
+            # quarantine/public/restricted decision reaches every chunk.
+            if processed.access_synced:
+                acl_synced += 1
 
-        # Persist the advanced checkpoint so the next run is incremental.
-        if new_cp is not None:
+        # Advance the typed cursor only after every graph record has committed.
+        # The marker and cursor share one native ChangeEnvelope transaction; a
+        # crash before this point causes safe idempotent replay, never data loss.
+        checkpoint_safe = envelope_failed == 0 and docs_failed == 0
+        checkpoint_recorded = False
+        if final_checkpoint is not None and checkpoint_safe:
             try:
-                self.manifest.record(
-                    write_graph,
-                    "connector_checkpoint",
-                    connector_id,
-                    new_cp.to_json(),
+                from .envelope_ingest import ingest_graph_slice
+
+                marker_id = hashlib.sha256(
+                    f"{source_type}\x1f{connector_id}".encode()
+                ).hexdigest()
+                cursor_result = ingest_graph_slice(
+                    self.kg,
+                    source_type,
+                    [
+                        {
+                            "id": f"source-checkpoint:{marker_id}",
+                            "node_type": "SourceCheckpoint",
+                            "source_system": source_type,
+                            "connector_reference": marker_id,
+                        }
+                    ],
+                    source_instance=str(connector_id),
+                    checkpoint=final_checkpoint,
+                    backend=backend,
                 )
-            except Exception:  # noqa: BLE001
-                logger.debug("connector checkpoint record failed", exc_info=True)
+                checkpoint_recorded = bool(
+                    cursor_result.get("watermark_advanced", False)
+                )
+            except Exception:  # noqa: BLE001 — cursor failure is not success
+                checkpoint_safe = False
+                logger.warning("native connector cursor commit failed", exc_info=True)
 
         return IngestionResult(
             manifest=manifest,
-            status="success",
+            status="success" if checkpoint_safe else "partial",
             nodes_created=nodes,
             edges_created=edges,
             details={
                 "connector": source_type,
                 "connector_id": connector_id,
                 "documents": docs_ok,
+                "documents_failed": docs_failed,
                 "acl_synced": acl_synced,
+                "envelopes": envelope_ok,
+                "envelopes_failed": envelope_failed,
                 "contextual": contextual,
-                "checkpoint_advanced": new_cp is not None,
+                "checkpoint_advanced": checkpoint_recorded,
             },
             enrichable=enrichable,
         )
@@ -2519,44 +2856,30 @@ class IngestionEngine:
             source = manifest.metadata.get("source", "chat")
             timestamp = manifest.metadata.get("timestamp")
 
-            if hasattr(self.kg, "ingest_episode"):
-                ep_id = self.kg.ingest_episode(
-                    content=manifest.source_uri,
-                    source=source,
-                    timestamp=timestamp,
-                )
+            ingest_episode = getattr(self.kg, "ingest_episode", None)
+            if not callable(ingest_episode):
                 return IngestionResult(
                     manifest=manifest,
-                    status="success",
-                    nodes_created=1,
-                    details={"episode_id": ep_id},
-                    enrichable=[
-                        {
-                            "source_id": ep_id,
-                            "text": manifest.source_uri,
-                            "source_type": "conversation",
-                        }
-                    ],
+                    status="failed",
+                    error="graph authority does not provide conversation ingestion",
                 )
-
-            # Fallback: create a simple episode node
-            import uuid
-
-            ep_id = f"ep:{uuid.uuid4().hex[:8]}"
-            graph = getattr(self.kg, "graph", None)
-            if graph:
-                graph.add_node(
-                    ep_id,
-                    type="episode",
-                    description=manifest.source_uri,
-                    source=source,
-                    timestamp=timestamp or _now(),
-                )
+            ep_id = ingest_episode(
+                content=manifest.source_uri,
+                source=source,
+                timestamp=timestamp,
+            )
             return IngestionResult(
                 manifest=manifest,
                 status="success",
                 nodes_created=1,
                 details={"episode_id": ep_id},
+                enrichable=[
+                    {
+                        "source_id": ep_id,
+                        "text": manifest.source_uri,
+                        "source_type": "conversation",
+                    }
+                ],
             )
         except Exception as e:
             return IngestionResult(manifest=manifest, status="failed", error=str(e))
@@ -2718,19 +3041,27 @@ class IngestionEngine:
             # Skill/SkillGraph/WorkflowDefinition node (process() writes a Document at
             # its document_id); link the body-doc back to the parent with HAS_BODY.
             body_id = f"{node_id}::body"
-            processor = DocumentProcessor(self.backend, chunking=ChunkingConfig())
+            processor = DocumentProcessor(
+                self.backend,
+                engine=self.kg,
+                chunking=ChunkingConfig(),
+            )
             processed = processor.process(
                 text,
                 document_id=body_id,
                 title=title,
                 doc_type=doc_type,
                 source=source,
+                connector="content-body",
+                source_instance=doc_type,
+                extra_edges=[
+                    {
+                        "source": node_id,
+                        "target": body_id,
+                        "relationship": "HAS_BODY",
+                    }
+                ],
             )
-            if self.backend is not None and hasattr(self.backend, "add_edge"):
-                try:
-                    self.backend.add_edge(node_id, body_id, "HAS_BODY")
-                except Exception:  # noqa: BLE001 — linking is best-effort
-                    pass
             return processed.chunk_count, len(processed.edges)
         except Exception as e:  # noqa: BLE001 — opt-in enrichment never blocks ingest
             logger.warning("[KG-2.48] body chunking failed for %s: %s", node_id, e)
@@ -2772,9 +3103,9 @@ class IngestionEngine:
             if hasattr(self.kg, "ingest_agent_skill"):
                 skill_id = (
                     self.kg.ingest_agent_skill(
-                        skill_file_path=str(skill_md),
                         frontmatter=frontmatter,
                         content=content,
+                        provider="configured-overlay",
                     )
                     or ""
                 )
@@ -2826,17 +3157,29 @@ class IngestionEngine:
             if source.startswith(("http://", "https://")):
                 # A2A agent card from URL
                 if hasattr(self.kg, "ingest_a2a_agent_card"):
-                    import httpx
+                    from agent_utilities.protocols.source_connectors.http_safety import (
+                        configured_source_http_policy,
+                        safe_get_json_async,
+                    )
 
-                    verify_ssl = setting("AGENTS_INSECURE_SSL", "0") != "1"
-                    async with httpx.AsyncClient(
-                        timeout=15.0, verify=verify_ssl
-                    ) as client:
-                        resp = await client.get(source)
-                        resp.raise_for_status()
-                        card = resp.json()
+                    card = await safe_get_json_async(
+                        source,
+                        timeout=15.0,
+                        **configured_source_http_policy(),
+                    )
+                    if not isinstance(card, dict):
+                        raise ValueError("A2A agent card root must be an object")
+                    from ...security.persistence_privacy import (
+                        persistence_reference,
+                        sanitize_for_persistence,
+                    )
+
+                    card, _privacy = sanitize_for_persistence(card)
                     self.kg.ingest_a2a_agent_card(url=source, card=card)
                     card_name = card.get("name", "")
+                    source_reference = persistence_reference(
+                        "a2a_source", source, namespace="mcp-server-ingest"
+                    )
                     card_text = "\n".join(
                         s for s in (card_name, card.get("description", "")) if s
                     )
@@ -2851,7 +3194,7 @@ class IngestionEngine:
                         enrichable=(
                             [
                                 {
-                                    "source_id": f"a2a:{card_name or source}",
+                                    "source_id": f"a2a:{source_reference}",
                                     "text": card_text,
                                     "source_type": "mcp_server",
                                     "title": card_name,
@@ -2863,93 +3206,109 @@ class IngestionEngine:
                     )
             else:
                 # Local MCP config file
-                import json as json_mod
-
                 config_path = Path(source)
                 if config_path.is_dir():
                     config_path = config_path / "mcp_config.json"
 
-                if not config_path.exists():
+                if not config_path.is_file() or config_path.is_symlink():
                     return IngestionResult(
                         manifest=manifest,
                         status="failed",
-                        error=f"Config file not found: {config_path}",
+                        error="MCP configuration source is unavailable",
                     )
 
                 import asyncio as _asyncio
 
-                config_data = json_mod.loads(config_path.read_text(encoding="utf-8"))
+                payload = config_path.read_bytes()
+                if len(payload) > 4 * 1024 * 1024:
+                    raise ValueError("MCP configuration exceeds its boundary")
+                config_data = json.loads(payload)
                 discover = manifest.metadata.get("discover", True)
+                if not isinstance(discover, bool):
+                    raise ValueError("MCP discovery policy is invalid")
                 # Skip self (the KG server) — recursive + heavy to start.
-                self_names = {"graph-os", "graph_os", "mcp-multiplexer"}
+                self_names = {"graph-os", "graph_os"}
 
                 parse = getattr(self.kg, "parse_mcp_config", None)
-                if callable(parse):
-                    entries = parse(config_data)
-                else:
-                    entries = [
-                        {
-                            "name": n,
-                            "command": s.get("command", ""),
-                            "args": s.get("args", []),
-                            "env": s.get("env", {}),
-                        }
-                        for n, s in config_data.get("mcpServers", {}).items()
-                        if not s.get("disabled")
-                    ]
+                if not callable(parse):
+                    raise RuntimeError("Canonical MCP configuration parser unavailable")
+                entries = parse(config_data)
 
                 discover_fn = getattr(self.kg, "discover_mcp_tools", None)
-                sem = _asyncio.Semaphore(
-                    int(manifest.metadata.get("discovery_concurrency", 6))
-                )
-                timeout = float(manifest.metadata.get("discovery_timeout", 15.0))
+                if discover and not callable(discover_fn):
+                    raise RuntimeError("Canonical MCP discovery boundary unavailable")
+                try:
+                    concurrency = int(manifest.metadata.get("discovery_concurrency", 6))
+                    timeout = float(manifest.metadata.get("discovery_timeout", 15.0))
+                except (TypeError, ValueError):
+                    raise ValueError("MCP discovery bounds are invalid") from None
+                if not 1 <= concurrency <= 16 or not 0.001 <= timeout <= 300.0:
+                    raise ValueError("MCP discovery bounds are invalid")
+                sem = _asyncio.Semaphore(concurrency)
 
                 async def _disc(entry):
-                    if (
-                        not discover
-                        or entry["name"] in self_names
-                        or not callable(discover_fn)
-                    ):
-                        return entry, []
+                    if not discover or entry["name"] in self_names:
+                        return entry, [], False
                     async with sem:
                         try:
-                            return entry, await discover_fn(entry, timeout=timeout)
-                        except Exception:  # noqa: BLE001
-                            return entry, []
+                            return (
+                                entry,
+                                await discover_fn(entry, timeout=timeout),
+                                False,
+                            )
+                        except Exception as exc:  # fail one child, not the fleet
+                            logger.warning(
+                                "MCP child discovery unavailable (exception_type=%s)",
+                                type(exc).__name__,
+                            )
+                            return entry, [], True
 
                 results = await _asyncio.gather(*[_disc(e) for e in entries])
                 ingested = 0
                 tools_total = 0
+                unavailable = 0
                 enrichable: list[dict[str, Any]] = []
-                for entry, tools in results:
-                    if hasattr(self.kg, "ingest_mcp_server"):
-                        self.kg.ingest_mcp_server(
-                            name=entry["name"],
-                            url=f"stdio://{entry.get('command', '')}",
-                            tools=tools,
-                            resources={"env": entry.get("env", {})},
+                from ...security.persistence_privacy import sanitize_for_persistence
+                from ..core.engine_ingestion import (
+                    _mcp_persistence_resources,
+                    _neutral_mcp_alias,
+                )
+
+                for entry, tools, failed in results:
+                    if failed:
+                        unavailable += 1
+                        continue
+                    server_name = _neutral_mcp_alias(
+                        config_hash=entry["config_hash"]
+                    )
+                    safe_tools, _privacy = sanitize_for_persistence(tools)
+                    self.kg.ingest_mcp_server(
+                        name=server_name,
+                        url=f"mcp-ref://{entry['config_hash']}",
+                        tools=safe_tools,
+                        resources=_mcp_persistence_resources(
+                            config_path, entry.get("env")
+                        ),
+                    )
+                    ingested += 1
+                    tools_total += len(safe_tools)
+                    tool_text = "\n".join(
+                        f"{t.get('name', '')}: {t.get('description', '')}"
+                        for t in safe_tools
+                        if isinstance(t, dict)
+                    )
+                    server_text = "\n".join(
+                        value for value in (server_name, tool_text) if value
+                    )
+                    if server_text.strip():
+                        enrichable.append(
+                            {
+                                "source_id": f"mcp:{entry['config_hash']}",
+                                "text": server_text,
+                                "source_type": "mcp_server",
+                                "title": server_name,
+                            }
                         )
-                        ingested += 1
-                        tools_total += len(tools)
-                        # The server's name + its tools' descriptions are the NL
-                        # surface to mine for concepts + facts (what the server does).
-                        tool_text = "\n".join(
-                            f"{t.get('name', '')}: {t.get('description', '')}"
-                            for t in tools
-                            if isinstance(t, dict)
-                        )
-                        server_text = "\n".join(
-                            s for s in (entry["name"], tool_text) if s
-                        )
-                        if server_text.strip():
-                            enrichable.append(
-                                {
-                                    "source_id": f"mcp:{entry['name']}",
-                                    "text": server_text,
-                                    "source_type": "mcp_server",
-                                    "title": entry["name"],
-                                }
-                            )
 
                 return IngestionResult(
                     manifest=manifest,
@@ -2960,14 +3319,19 @@ class IngestionEngine:
                         "type": "mcp_config",
                         "servers_ingested": ingested,
                         "tools_discovered": tools_total,
+                        "servers_unavailable": unavailable,
                         "discovery": discover,
                     },
                     enrichable=enrichable,
                 )
 
             return IngestionResult(manifest=manifest, status="skipped")
-        except Exception as e:
-            return IngestionResult(manifest=manifest, status="failed", error=str(e))
+        except Exception as exc:
+            return IngestionResult(
+                manifest=manifest,
+                status="failed",
+                error=f"MCP server ingestion failed ({type(exc).__name__})",
+            )
 
     @adaptor(ContentType.POLICY)
     async def _ingest_policy(self, manifest: IngestionManifest) -> IngestionResult:
@@ -3101,7 +3465,7 @@ class IngestionEngine:
             if graph:
                 graph.add_node(
                     prompt_id,
-                    type="prompt_template",
+                    node_type="prompt_template",
                     name=prompt_path.stem,
                     content=content,
                     file_path=str(prompt_path),

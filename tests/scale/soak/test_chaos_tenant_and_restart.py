@@ -95,7 +95,7 @@ def test_hot_tenant_quota_does_not_starve_other_tenants(loadgen):
 def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
     """Process-local state (locks, worker registry) is gone after a restart; durable
     WorkItem state is not — snapshot/restore models the same guarantee the real
-    tiered engine gives via its L3 durable mirror.
+    engine authority gives through its durable persistence.
     """
     engine = _engine(loadgen)
     wi = loadgen.wi

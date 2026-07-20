@@ -155,6 +155,19 @@ class TestGetStats:
 
 
 class TestPgGraphOperations:
+    def test_availability_checks_only_age(self, mock_backend, monkeypatch):
+        backend, _, _ = mock_backend
+        backend._pggraph_available = None
+        checked: list[str] = []
+        monkeypatch.setattr(
+            backend,
+            "_check_extension",
+            lambda name: checked.append(name) or False,
+        )
+
+        assert backend.pggraph_available is False
+        assert checked == ["age"]
+
     def test_traverse_without_pggraph(self, mock_backend):
         backend, _, _ = mock_backend
         backend._pggraph_available = False
@@ -208,15 +221,16 @@ class TestRowLevelSecurity:
         assert "CREATE POLICY tenant_isolation" in joined
         assert "current_setting('app.tenant_id', true)" in joined
 
-    def test_rls_policy_admits_commons_and_unscoped(self):
+    def test_rls_policy_admits_commons_only_with_nonempty_scope(self):
         policy = next(
             s
             for s in PostgreSQLBackend.rls_statements("kg_edges")
             if "CREATE POLICY" in s
         )
-        # commons rows (empty/NULL tenant) and the unscoped/admin path are allowed.
+        # Commons rows are visible only after a non-empty tenant is established.
         assert "tenant_id IS NULL OR tenant_id = ''" in policy
-        assert "current_setting('app.tenant_id', true) = ''" in policy
+        assert "current_setting('app.tenant_id', true) <> ''" in policy
+        assert "current_setting('app.tenant_id', true) IS NOT NULL" in policy
 
     def test_tenant_guc_sql_scoped(self):
         assert (
@@ -224,9 +238,10 @@ class TestRowLevelSecurity:
             == "SET LOCAL app.tenant_id = 'acme'"
         )
 
-    def test_tenant_guc_sql_unscoped_is_empty(self):
-        assert PostgreSQLBackend.tenant_guc_sql(None) == "SET LOCAL app.tenant_id = ''"
-        assert PostgreSQLBackend.tenant_guc_sql("") == "SET LOCAL app.tenant_id = ''"
+    @pytest.mark.parametrize("tenant", [None, "", "   "])
+    def test_tenant_guc_sql_rejects_unscoped(self, tenant):
+        with pytest.raises(ValueError, match="non-empty"):
+            PostgreSQLBackend.tenant_guc_sql(tenant)
 
     def test_tenant_guc_sql_escapes_quotes(self):
         out = PostgreSQLBackend.tenant_guc_sql("ac'me")

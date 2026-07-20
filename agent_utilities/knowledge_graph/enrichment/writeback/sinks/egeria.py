@@ -74,7 +74,7 @@ class EgeriaSink:
                     qn,
                     name,
                     description=c.get("description", "KG-derived asset."),
-                    additional_properties={"source": "agent-utilities-kg"},
+                    additional_properties={"source": "graph-os"},
                 )
                 if isinstance(res, dict) and res.get("guid"):
                     result.created += 1

@@ -11,7 +11,7 @@ preflight, install, then wire the MCP fleet and any chosen UI components. It
 * the deployment profiles mirror ``agent_utilities.deployment.config_generator.PROFILES``
   and the ``docs/recipes/*`` runbooks;
 * the preflight describes ``agent-utilities-doctor --preflight``;
-* the IDE targets mirror the ``install-skills`` / ``mcp-installer`` tool sets.
+* the IDE targets mirror the ``agent-utilities install`` / ``mcp-installer`` tool sets.
 
 Because it is generated, drift is caught by ``scripts/check_genesis_manifest.py``
 (a CI gate) — never hand-edit ``genesis.yaml``.
@@ -56,7 +56,7 @@ PROFILES_META = {
         # Embedded engine-encrypted __secrets__ graph (CONCEPT:AU-OS.identity.encrypted-secret-store) is the
         # default app-secret store; .env only carries the bootstrap model key +
         # EPISTEMIC_GRAPH_ENCRYPTION_KEY.
-        "secrets": "engine-encrypted-or-dotenv",
+        "secrets": "engine-encrypted-or-runtime-reference",
         "servers": "none",
         "skill": "agent-utilities-deployment",
         # Step 0 run-plan defaults (the operator overrides only the exceptions).
@@ -64,17 +64,14 @@ PROFILES_META = {
         "install_mode": "deploy-baremetal",
         "idp": "none",
         "ontology_host": "local",
-        # The ONE engine authority is AUTO-STARTED on demand by the single
-        # resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) from a prebuilt multi-arch wheel — a Pi
-        # NEVER compiles. It is the pi-max tier binary (lean pure-Rust: graph +
-        # cypher + ann + rdf/sparql/owl + tsdb + blob + streaming + security/
-        # encryption-at-rest; NO DataFusion/C). NOT in-process, NOT a cache: a
-        # detached, redb-authoritative durable engine, reference-counted
+        # The ONE full engine authority is AUTO-STARTED on demand by the single
+        # resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) from
+        # the approved platform wheel. It is not in-process and not a cache: it is
+        # a detached, redb-authoritative durable engine, reference-counted
         # (self-stops ~60s after the last client disconnects; set
         # engine_lifecycle=persistent for a long-living engine). Every entrypoint
         # on the host shares the one engine.
         "engine": "autostart",
-        "engine_tier": "pi-max",
         "engine_lifecycle": "refcounted",
         "engine_idle_shutdown_secs": 60,
     },
@@ -92,34 +89,21 @@ PROFILES_META = {
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "local",
-        # Engine runs as its own multi-arch Docker image (engine-as-a-DB) on the
-        # host — the `node` tier (pi-max + SQL/DataFusion + GraphQL + Tantivy text
-        # + reasoning + wasm-udf + federation). `full` is the size-optimized
-        # all-single-node variant.
+        # The same full engine runs as its own engine-as-a-DB image on the host.
         "engine": "container",
-        "engine_tier": "node",
     },
     "enterprise": {
-        # This homelab's own live topology (the reference deployment genesis
-        # targets by default): RKE2/Kubernetes, ratified + ~complete per
-        # inventory/k8s-migration/ (ROADMAP.md, MIGRATION-PLAN.md,
-        # HANDOFF.md, STAGE1-FINDINGS.md, CUTOVER-LOG.md are the SoR for that
-        # migration's live state — genesis points at them, does not fork them).
+        # Enterprise defaults are portable and contain no operator inventory.
         "summary": "multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak SSO/DNS/ingress/observability + all connectors)",
         "docker": True,
         "secrets": "openbao",
         "servers": "all",
         "skill": "agent-os-genesis",
-        # Enterprises default to Kubernetes (Step 0 note); this homelab's
-        # Swarm->RKE2 cutover (inventory/k8s-migration/) is the reference
-        # migration for that default.
+        # Enterprises default to Kubernetes; Swarm remains selectable.
         "orchestrator": "kubernetes",
         "install_mode": "deploy-container",
-        # Keycloak is the verified, deployed SSO IdP in the reference
-        # environment (homelab realm, in-cluster JWKS at keycloak.arpa;
-        # see feedback-keycloak-sso-must-work). `okta` / `other-oidc` remain
-        # first-class `idp` run_plan options for an operator wiring an
-        # existing external IdP instead (Step 0 "use-existing").
+        # Keycloak is the deployable default. `okta` / `other-oidc` remain
+        # first-class options for wiring an existing external IdP.
         "idp": "keycloak",
         # The engine (epistemic-graph) is the ontology authority/SoR at every
         # scale, including enterprise (see docs/recipes/enterprise.md "Engine"
@@ -129,11 +113,12 @@ PROFILES_META = {
         # valid `ontology_hosts` options for an operator who wants an external
         # triple store instead.
         "ontology_host": "local",
-        # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS; the `cluster`
-        # tier (node + multi-Raft replication + pgwire + distributed Pregel /
-        # cross-shard 2PC) runs as the engine-as-a-DB container; mirrors fan out.
+        # Shared/remote full engine reached via GRAPH_SERVICE_ENDPOINTS; the
+        # `cluster` tier (node + multi-Raft replication + pgwire + distributed
+        # Pregel / cross-shard 2PC) runs as the engine-as-a-DB container —
+        # topology and replication are runtime configuration, not alternate
+        # artifacts; mirrors fan out.
         "engine": "remote",
-        "engine_tier": "cluster",
     },
 }
 
@@ -157,19 +142,11 @@ RUN_PLAN = {
     "secrets_store": ["engine", "vault", "env"],
     "ontology_hosts": ["stardog", "apache-jena", "local"],
     # epistemic-graph is the ONE multi-model store at EVERY scale (not a cache).
-    # Deployment SHAPE: autostart = the resolver auto-starts the pi-tier binary
-    # from a prebuilt wheel (tiny, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); container = the engine-as-a-DB
-    # Docker image (single-node-prod); remote = shared engine via
+    # Deployment SHAPE: autostart = the resolver auto-starts the bundled full
+    # binary (tiny, CONCEPT:AU-OS.deployment.engine-resolver-auto-provision);
+    # container = the engine-as-a-DB image (single-node-prod); remote = shared engine via
     # GRAPH_SERVICE_ENDPOINTS (enterprise).
     "engine": ["autostart", "container", "remote"],
-    # Engine TIER = which prebuilt feature bundle to ship (size grows with features).
-    # pi (~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming, pure-Rust);
-    # pi-max (~6.96MB: pi + tsdb+blob+security/encryption-at-rest, still no DataFusion/C);
-    # node (pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation);
-    # cluster (node + multi-Raft+pgwire+distributed/cross-shard-2PC); full (all single-node).
-    # Multi-arch prebuilt WHEELS (linux x86_64/aarch64, macOS x86_64/arm64, windows) ship
-    # so a Pi `pip install`s and NEVER compiles; engine-as-a-DB Docker image for node/cluster.
-    "engine_tiers": ["pi", "pi-max", "node", "cluster", "full"],
     "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
     # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
     # package's compose.dev.yml source-mounted container (edits live on restart).
@@ -193,8 +170,8 @@ RUN_PLAN = {
     # point each agents/* README references. Reuses the connector catalog + install
     # modes/variants + vault_sync.
     "single_package_deploy": {
-        "invoke": "deploy <package> with agent-os-genesis",
-        "catalog": "universal-skills agent-os-genesis references/connector-catalog.md",
+        "invoke": "deploy <package> with agent-utilities-deployment",
+        "catalog": "agent-utilities-deployment",
     },
     "provisioner_by_orchestrator": {
         "docker-swarm": "swarm-mesh-provisioner",
@@ -227,9 +204,8 @@ COMPONENTS = {
     },
 }
 
-# IDE / agent-tool targets the bootstrap can wire skills + MCP config into
-# (`install-skills --all-detected` / `mcp-installer --all-detected`). Mirrors the
-# union of those installers' TOOL_PATHS.
+# IDE / agent-tool targets the bootstrap can wire skills into. JSON-capable MCP
+# clients use mcp-installer; Codex registration is native via setup-config.
 IDE_TARGETS = [
     "claude",
     "claude-desktop",
@@ -279,8 +255,6 @@ def build() -> dict:
             "ontology_host": meta["ontology_host"],
             # epistemic-graph engine deployment shape (autostart|container|remote).
             "engine": meta["engine"],
-            # Prebuilt engine tier to ship for this profile (pi|pi-max|node|cluster|full).
-            "engine_tier": meta["engine_tier"],
             # Autostarted-engine lifecycle (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): refcounted (shared,
             # auto-stops when idle — tiny default) vs persistent (long-living).
             "engine_lifecycle": meta.get("engine_lifecycle", "refcounted"),
@@ -295,7 +269,7 @@ def build() -> dict:
             "config": "setup-config generate --profile <profile>",
             "verify": "agent-utilities-doctor",
             "single_node_skill": "agent-utilities-deployment",
-            "multi_node_skill": "agent-os-genesis",
+            "multi_node_skill": "agent-utilities-deployment",
         },
         "profiles": profiles,
         "run_plan": RUN_PLAN,
@@ -305,9 +279,9 @@ def build() -> dict:
             "always": [
                 "python>=3.11,<3.15",
                 "uv-or-pip",
-                "epistemic-graph>=1.0.0 — a prebuilt multi-arch WHEEL (linux x86_64/aarch64,"
-                " macOS, windows); a Pi pip-installs the lean pi/pi-max tier and NEVER"
-                " compiles. Rust toolchain only as a build-from-source fallback.",
+                "epistemic-graph[full]>=2.23.1,<3.0.0 — the hard Agent Utilities base"
+                " dependency; install the approved platform wheel with its bundled server"
+                " and folded numeric kernel. Runtime installation never compiles.",
             ],
             "docker_when": "profile != tiny",
         },
@@ -317,22 +291,15 @@ def build() -> dict:
         # time-series + blob + text + multi-Raft + cross-shard 2PC + streaming/CDC +
         # RLS/encryption-at-rest/audit + federation + GraphQL.
         "engine": {
-            "version": "epistemic-graph>=1.0.0",
-            "extra": "pip install 'agent-utilities[engine]'  (bumps to the published wheel)",
+            "version": "epistemic-graph[full]>=2.23.1,<3.0.0",
+            "install": "pip install agent-utilities (the full engine is a hard base dependency)",
             "authority": "redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)",
             "resolver": "CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local -> autostart the"
-            " pi-tier binary; refcounted (auto-stops idle) or persistent lifecycle",
-            "wheels": "prebuilt multi-arch (linux x86_64/aarch64, macOS x86_64/arm64,"
-            " windows) — the Pi tiers never compile",
-            "docker_image": "engine-as-a-DB multi-arch image (linux/amd64+arm64) for"
+            " bundled full binary; refcounted (auto-stops idle) or persistent lifecycle",
+            "wheel": "one approved platform wheel containing the full server and folded"
+            " ABI3 numeric kernel; runtime installation never compiles",
+            "docker_image": "engine-as-a-DB image for"
             " container/remote shapes (single-node-prod, enterprise)",
-            "tiers": {
-                "pi": "~6.46MB lean Pi-3: graph+cypher+ann+rdf/sparql/owl+streaming (pure-Rust, no DataFusion/C)",
-                "pi-max": "~6.96MB: pi + tsdb+blob+security/encryption-at-rest (still pure-Rust, no DataFusion/C)",
-                "node": "pi-max + SQL/DataFusion+GraphQL+Tantivy text+reasoning+wasm-udf+federation",
-                "cluster": "node + multi-Raft replication+pgwire+distributed/cross-shard-2PC (HA)",
-                "full": "all single-node features, size-optimized (no raft/pgwire)",
-            },
             # The embedded app-secret store (CONCEPT:AU-OS.identity.encrypted-secret-store): :Secret nodes in the
             # __secrets__ graph, values sealed by the engine's encryption-at-rest. The
             # encryption key is itself a genesis-provisioned secret (Step 8).
@@ -340,15 +307,16 @@ def build() -> dict:
                 "graph": "__secrets__",
                 "label": "Secret",
                 "encryption_key_env": "EPISTEMIC_GRAPH_ENCRYPTION_KEY",
-                "note": "default embedded secret store (OS-5.66); needs a security-feature"
-                " tier (pi-max/node/cluster/full). Local SQLite caches (registry graph,"
+                "note": "default embedded secret store (OS-5.66) in the full engine."
+                " Local SQLite caches (registry graph,"
                 " card cache, time-series) also route to the engine — no SQLite fallback.",
             },
         },
         "components": COMPONENTS,
         "ide_targets": {
-            "install_skills": "install-skills --all-detected",
+            "install": "agent-utilities install",
             "install_mcp": "mcp-installer --all-detected",
+            "register_codex_mcp": "setup-config codex",
             # CONCEPT:AU-OS.deployment.governance-derived-claude-code — governance-derived Claude Code permission fence.
             "harness_fence": "setup-config harness-fence --target ~/.claude",
             "tools": IDE_TARGETS,

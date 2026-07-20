@@ -12,11 +12,11 @@ and scipy are **fully removed** from agent-utilities: this package **imports num
 nowhere and declares it in no dependency** (``requirements.txt`` / ``pyproject.toml``
 carry neither). The compiled ``epistemic_graph.numeric`` kernel is the **sole numeric
 backend** and is a **hard requirement** — importing this module **raises ``ImportError``
-when the kernel is absent**; there is NO numpy fallback for a missing kernel (the old
-``HAVE_KERNEL``-false path and the ``import numpy as _np`` binding are gone).
+when the kernel is absent**; there is no alternate-module or numpy fallback.
 
 How numpy still functions **without agent-utilities depending on it**: the kernel is a
-**rust-numpy container** — numpy lives INSIDE ``epistemic-graph[numeric]`` as the
+**rust-numpy container** — numpy lives inside the numeric component of the
+``epistemic-graph[full]`` runtime as the
 kernel's own zero-copy interop dependency, and the compiled module re-exports numpy's
 array primitives (``ndarray``, the dtypes, ``newaxis`` / ``pi`` / ``inf`` / ``nan``).
 The kernel's compiled fast-path is deliberately **narrow** — contiguous 1-D/2-D
@@ -75,37 +75,25 @@ NDArray: TypeAlias = Any
 RandomGenerator: TypeAlias = Any
 
 # ---------------------------------------------------------------------------
-# Kernel discovery — REQUIRED. Prefer the engine-shipped ``epistemic_graph.numeric``;
-# also accept a standalone ``numeric`` build (the editable dev / parity wheel). If
-# neither is importable, raise — there is NO numpy fallback for a missing kernel.
+# Kernel loading — REQUIRED. The full epistemic-graph wheel owns the sole module.
 # ---------------------------------------------------------------------------
-_KERNEL: Any = None
-KERNEL_SOURCE: str | None = None
-for _modpath in ("epistemic_graph.numeric", "numeric"):
-    try:
-        _mod = importlib.import_module(_modpath)
-    except Exception:
-        continue
-    if getattr(_mod, "__kernel__", None) == "eg-numeric":
-        _KERNEL = _mod
-        KERNEL_SOURCE = _modpath
-        break
-
-if _KERNEL is None:
+try:
+    _KERNEL: Any = importlib.import_module("epistemic_graph.numeric")
+except ImportError as exc:
     raise ImportError(
-        "epistemic-graph kernel required: pip install epistemic-graph[numeric]>=2.7.0"
-    )
-
-#: The kernel is always live once this module imports (import raises otherwise). Kept as a
-#: public boolean so callers can still introspect ``xp.HAVE_KERNEL`` / ``xp.KERNEL_SOURCE``.
-HAVE_KERNEL: bool = True
+        "epistemic-graph full kernel required: "
+        "pip install 'epistemic-graph[full]>=2.23.1,<3.0.0'"
+    ) from exc
+if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
+    raise ImportError("epistemic_graph.numeric is not the certified eg-numeric kernel")
 
 # numpy is an INTERNAL dependency of the kernel (rust-numpy) — the kernel already imported
 # it, and re-exports ``numpy.ndarray``. Grab that module here so the shim can serve the
 # long-tail array ops the compiled kernel does not expose natively (random Generator API,
 # ``cov`` / ``corrcoef`` / ``save`` / ``load`` / ``atleast_2d`` / ``roll`` / ``triu_indices`` /
 # ``allclose`` / axis norms / N-D element-wise). This is NOT an ``import numpy`` and NOT an
-# agent-utilities dependency — it is the numpy that shipped inside ``epistemic-graph[numeric]``.
+# agent-utilities dependency — it is the numpy shipped inside the
+# ``epistemic-graph[full]`` runtime.
 _knp: Any = sys.modules[_KERNEL.ndarray.__module__]
 
 #: ``numpy.linalg.LinAlgError``-compatible exception. The kernel raises its own
@@ -322,8 +310,6 @@ class _XP:
 
     linalg = _Linalg()
     LinAlgError = LinAlgError
-    HAVE_KERNEL = HAVE_KERNEL
-    KERNEL_SOURCE = KERNEL_SOURCE
 
     def __getattr__(self, name: str) -> Any:
         # Prefer a native kernel export (constructors, dtypes, constants, ``ndarray``,
@@ -598,8 +584,6 @@ xp = _XP()
 
 __all__ = [
     "xp",
-    "HAVE_KERNEL",
-    "KERNEL_SOURCE",
     "LinAlgError",
     "NDArray",
     "RandomGenerator",

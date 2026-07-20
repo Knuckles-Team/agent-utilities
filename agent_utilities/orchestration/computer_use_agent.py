@@ -20,8 +20,7 @@ import asyncio
 import uuid
 from typing import Any
 
-from pydantic_ai import Agent
-
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.core.model_factory import create_model
 from agent_utilities.models import AgentDeps
 from agent_utilities.runtime import create_workspace
@@ -42,14 +41,14 @@ COMPUTER_USE_SYSTEM_PROMPT = (
 
 def build_computer_use_agent(
     model: Any | None = None, *, extra_tools: list[Any] | None = None
-) -> Agent[AgentDeps, str]:
+) -> Any:
     """Assemble the computer-use agent: the GUI tools + a desktop-operator prompt.
 
     ``model`` should be vision-capable (capture_screen returns the screenshot). Pass
     ``None`` to resolve the configured default.
     """
     mdl = model if model is not None else create_model()
-    return Agent(
+    return create_context_agent(
         model=mdl,
         deps_type=AgentDeps,
         system_prompt=COMPUTER_USE_SYSTEM_PROMPT,
@@ -67,7 +66,7 @@ async def run_computer_use_task(
     session_id: str | None = None,
     engine: Any | None = None,
     model: Any | None = None,
-    agent: Agent[AgentDeps, str] | None = None,
+    agent: Any | None = None,
     deps: AgentDeps | None = None,
 ) -> str:
     """Run the computer-use agent on ``task`` against the ``gui-sandbox`` ``container_id``.
@@ -101,7 +100,7 @@ async def run_computer_use_task(
     return str(result.output)
 
 
-DEFAULT_GUI_SANDBOX_IMAGE = "knucklessg1/gui-sandbox:latest"
+DEFAULT_GUI_SANDBOX_IMAGE = "example/gui-sandbox:latest"
 
 
 async def provision_and_run_computer_use(
@@ -129,7 +128,7 @@ async def provision_and_run_computer_use(
         ) from exc
 
     manager = create_manager(manager_type, host=host)
-    name = f"cu-sandbox-{uuid.uuid4().hex[:8]}"
+    name = f"cu-sandbox-{uuid.uuid4().hex}"
     info = await asyncio.to_thread(
         manager.run_container,
         image,

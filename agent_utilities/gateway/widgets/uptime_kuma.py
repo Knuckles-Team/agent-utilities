@@ -26,7 +26,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.OBSERVABILITY
     description = "Service uptime monitoring — monitor status and response times"
     env_prefix = "UPTIME_KUMA"
-    default_url = "https://uptime.local.example.com"
     supports_websocket = True
 
     def get_fields(self) -> list[WidgetField]:
@@ -46,7 +45,7 @@ class Widget(BaseWidget):
         try:
             monitors = client.get_monitors()
         except Exception as e:
-            return WidgetData(status="error", error=str(e))
+            return self._error_data(e)
 
         up = 0
         down = 0

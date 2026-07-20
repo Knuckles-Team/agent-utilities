@@ -95,7 +95,9 @@ async def test_wide_search_joiner_replan(base_state, base_deps):
     ctx = StepContext(state=base_state, deps=base_deps, inputs=None)
 
     # Mock repair agent to return "research" (needs replan)
-    with patch("agent_utilities.graph.verification.Agent") as mock_agent:
+    with patch(
+        "agent_utilities.graph.verification.create_context_agent"
+    ) as mock_agent:
         mock_instance = AsyncMock()
         mock_instance.run.return_value = AsyncMock(
             output="I need more research to find age"
@@ -117,7 +119,9 @@ async def test_wide_search_joiner_success(base_state, base_deps):
     ctx = StepContext(state=base_state, deps=base_deps, inputs=None)
 
     # Mock repair agent to return a normal fix message
-    with patch("agent_utilities.graph.verification.Agent") as mock_agent:
+    with patch(
+        "agent_utilities.graph.verification.create_context_agent"
+    ) as mock_agent:
         mock_instance = AsyncMock()
         mock_instance.run.return_value = AsyncMock(output="I have fixed the schema")
         mock_agent.return_value = mock_instance

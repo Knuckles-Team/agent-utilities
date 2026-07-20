@@ -114,8 +114,8 @@ This ensures SHACL validators can verify that every `Agent` node with more than 
 - **Memory Tiers (KG-2.6)**: Compaction operates on the episodic tier, preserving semantic and procedural memories
 
 ## Implementation Details
-- **Source Code**: [`agent_context.py`](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/knowledge_graph/memory/agent_context.py) (`SemanticCompactor`)
+- **Source Code**: [`agent_context.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/memory/agent_context.py) (`SemanticCompactor`)
 - **Classes**: `SemanticCompactor`
-- **Tests**: [`test_synergies.py`](file:///home/apps/workspace/agent-packages/agent-utilities/tests/unit/knowledge_graph/test_synergies.py)
+- **Tests**: [`test_synergies.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/tests/unit/knowledge_graph/test_synergies.py)
 - **Pillar**: KG
 - **Package Export**: `agent_utilities.knowledge_graph.memory.SemanticCompactor`

@@ -25,6 +25,9 @@ async def _streams_cm(streams):
 def _fake_client(streams, recorder):
     def _client(*args, **kwargs):
         recorder.append({"args": args, "kwargs": kwargs})
+        if errlog := kwargs.get("errlog"):
+            errlog.write("synthetic-child-private-location\n")
+            errlog.flush()
         return _streams_cm(streams)
 
     return _client
@@ -74,11 +77,57 @@ async def test_remote_child_uses_streamable_http(transports, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_stdio_child_still_uses_stdio(transports, tmp_path):
+async def test_stdio_child_still_uses_stdio(transports, tmp_path, capsys):
     mux = MCPMultiplexer(tmp_path / "c.json")
     res = await mux._start_child("graph-os", {"command": "graph-os", "args": []})
     assert res is not None
     assert len(transports["stdio"]) == 1 and not transports["http"]
+    call = transports["stdio"][0]
+    assert set(call["kwargs"]) == {"errlog"}
+    await res[1].aclose()
+    assert call["kwargs"]["errlog"].closed
+    captured = capsys.readouterr()
+    assert "synthetic-child-private-location" not in captured.out
+    assert "synthetic-child-private-location" not in captured.err
+
+
+@pytest.mark.asyncio
+async def test_child_initialization_honors_configured_connect_budget(
+    transports, tmp_path, monkeypatch
+):
+    observed: list[float | None] = []
+    real_wait_for = mod.asyncio.wait_for
+
+    async def recording_wait_for(awaitable, *, timeout):
+        observed.append(timeout)
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    monkeypatch.setattr(mod.asyncio, "wait_for", recording_wait_for)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    async with contextlib.AsyncExitStack() as stack:
+        await mux._open_one_session(
+            "slow-cold-start",
+            {"command": "child", "args": [], "timeout": 91.0},
+            stack,
+        )
+
+    assert observed == [91.0]
+
+
+@pytest.mark.asyncio
+async def test_child_initialization_rejects_unbounded_timeout(transports, tmp_path):
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    async with contextlib.AsyncExitStack() as stack:
+        with pytest.raises(RuntimeError, match="initialization timeout is invalid"):
+            await mux._open_one_session(
+                "invalid-cold-start",
+                {
+                    "command": "child",
+                    "args": [],
+                    "initialization_timeout": 3_601,
+                },
+                stack,
+            )
 
 
 @pytest.mark.asyncio
@@ -126,8 +175,10 @@ async def test_no_command_no_url_is_skipped(transports, tmp_path):
 def _enable_service_auth(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "oidc-client-credentials")
     monkeypatch.setenv("OIDC_CLIENT_ID", "mcp-multiplexer")
-    monkeypatch.setenv("OIDC_CLIENT_SECRET", "s3cr3t")
-    monkeypatch.setenv("OIDC_TOKEN_URL", "http://kc/token")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET_REF", "env://TEST_OIDC_CLIENT_SECRET")
+    monkeypatch.setenv("TEST_OIDC_CLIENT_SECRET", "s3cr3t")
+    monkeypatch.setenv("OIDC_AUDIENCE", "graph-api")
+    monkeypatch.setenv("OIDC_TOKEN_URL", "https://identity.example.test/token")
     import agent_utilities.mcp.client_credentials as cc
 
     importlib.reload(cc)  # reset provider cache under the new env

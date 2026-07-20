@@ -130,7 +130,7 @@ class KnowledgePackExporter:
             path = Path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(yaml_str)
-            logger.info("[KG-2.7] Knowledge Pack exported to %s (YAML)", path)
+            logger.info("[KG-2.7] Knowledge Pack exported format=YAML")
 
         return yaml_str
 
@@ -152,7 +152,7 @@ class KnowledgePackExporter:
             path = Path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json_str)
-            logger.info("[KG-2.7] Knowledge Pack exported to %s (JSON)", path)
+            logger.info("[KG-2.7] Knowledge Pack exported format=JSON")
 
         return json_str
 
@@ -217,10 +217,8 @@ class KnowledgePackHydrator:
                 )
             except Exception as exc:  # noqa: BLE001 — fall back per URL
                 logger.warning(
-                    "[KG-2.7] searxng-mcp fetch failed for %s (%s); "
-                    "falling back to crawl4ai.",
-                    url,
-                    exc,
+                    "[KG-2.7] searxng-mcp fetch failed (%s); falling back to crawl4ai.",
+                    type(exc).__name__,
                 )
                 remaining.append(url)
                 continue
@@ -234,7 +232,7 @@ class KnowledgePackHydrator:
     async def hydrate(bundle: KnowledgePackBundle) -> None:
         """Hydrate nodes with content extracted from their URLs.
 
-        PDFs are converted using pymupdf4llm. Web pages go through the
+        PDFs are read through the bounded pypdf path. Web pages go through the
         searxng-mcp ``mcp_tool`` source when a searxng server is configured
         (KG-2.59 reuse policy), then Crawl4AI as the zero-infra fallback,
         then plain requests as the last resort.
@@ -257,26 +255,35 @@ class KnowledgePackHydrator:
 
             if url.lower().endswith(".pdf"):
                 try:
-                    logger.info("[KG-2.7] Extracting PDF content for %s", url)
+                    logger.info("[KG-2.7] Extracting PDF content")
                     import tempfile
 
-                    import pymupdf4llm
-                    import requests
+                    from agent_utilities.knowledge_graph.extraction.pdf import (
+                        read_pdf_text,
+                    )
+                    from agent_utilities.protocols.source_connectors.http_safety import (
+                        configured_source_http_policy,
+                        safe_get_bytes,
+                    )
 
                     with tempfile.NamedTemporaryFile(
                         suffix=".pdf", delete=False
                     ) as tmp:
-                        resp = requests.get(url, timeout=30)
-                        resp.raise_for_status()
-                        tmp.write(resp.content)
+                        content, _encoding = safe_get_bytes(
+                            url,
+                            timeout=30,
+                            **configured_source_http_policy(),
+                        )
+                        tmp.write(content)
                         tmp_path = tmp.name
-
-                    md_text = pymupdf4llm.to_markdown(tmp_path)
-                    node["content"] = md_text
-
-                    Path(tmp_path).unlink(missing_ok=True)
+                    try:
+                        node["content"] = read_pdf_text(tmp_path)
+                    finally:
+                        Path(tmp_path).unlink(missing_ok=True)
                 except Exception as e:
-                    logger.warning("[KG-2.7] Failed to extract PDF %s: %s", url, e)
+                    logger.warning(
+                        "[KG-2.7] Failed to extract PDF (%s)", type(e).__name__
+                    )
             else:
                 urls_to_crawl.append(url)
 
@@ -292,8 +299,33 @@ class KnowledgePackHydrator:
         if not urls_to_crawl:
             return
 
-        # Final fallback pass: extract web content using crawl4ai (zero-infra)
+        from agent_utilities.core.config import config
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            require_safe_source_url,
+            safe_get_text,
+        )
+
+        policy = configured_source_http_policy()
+        safe_urls: list[str] = []
+        for url in urls_to_crawl:
+            try:
+                require_safe_source_url(
+                    url, allowed_private_hosts=policy["allowed_private_hosts"]
+                )
+                safe_urls.append(url)
+            except Exception as exc:  # noqa: BLE001 - reject one unsafe source
+                logger.warning("[KG-2.7] Rejected web source (%s)", type(exc).__name__)
+        urls_to_crawl = safe_urls
+        if not urls_to_crawl:
+            return
+
+        # Browser rendering is a larger egress/sandbox surface than bounded
+        # HTTP and therefore requires an explicit AgentConfig opt-in.
+        browser_completed: set[str] = set()
         try:
+            if not config.source_http_allow_browser_fetch:
+                raise RuntimeError("browser fetch is not enabled")
             from crawl4ai import (
                 AsyncWebCrawler,
                 BrowserConfig,
@@ -304,7 +336,7 @@ class KnowledgePackHydrator:
             browser_config = BrowserConfig(
                 headless=True,
                 verbose=False,
-                extra_args=["--disable-gpu", "--disable-dev-shm-usage", "--no-sandbox"],
+                extra_args=["--disable-gpu", "--disable-dev-shm-usage"],
             )
             crawl_config = CrawlerRunConfig(
                 cache_mode=CacheMode.BYPASS,
@@ -340,30 +372,31 @@ class KnowledgePackHydrator:
                         target_node = node_map.get(result.url)
                         if target_node:
                             target_node["content"] = md.strip()
+                            browser_completed.add(result.url)
                     else:
-                        logger.warning(
-                            "[KG-2.7] Failed to extract web content for %s: %s",
-                            result.url,
-                            result.error_message,
-                        )
+                        logger.warning("[KG-2.7] Browser extraction failed")
 
         except Exception as e:
-            logger.warning(
-                "[KG-2.7] crawl4ai/Playwright failed or not installed (%s). Falling back to basic requests for web content.",
-                e,
-            )
-            import requests
+            if config.source_http_allow_browser_fetch:
+                logger.warning(
+                    "[KG-2.7] Browser extraction failed (%s); using bounded HTTP",
+                    type(e).__name__,
+                )
 
-            for url in urls_to_crawl:
-                try:
-                    resp = requests.get(url, timeout=15)
-                    resp.raise_for_status()
-                    target_node = node_map.get(url)
-                    if target_node:
-                        # Fallback stores raw HTML if no markdown parser is available
-                        target_node["content"] = resp.text
-                except Exception as ex:
-                    logger.warning("[KG-2.7] Failed to fallback fetch %s: %s", url, ex)
+        for url in urls_to_crawl:
+            if url in browser_completed:
+                continue
+            try:
+                content = safe_get_text(url, timeout=15, **policy)
+                target_node = node_map.get(url)
+                if target_node:
+                    # Fallback stores raw HTML if no markdown parser is available
+                    target_node["content"] = content
+            except Exception as ex:
+                logger.warning(
+                    "[KG-2.7] Bounded web fetch failed (%s)",
+                    type(ex).__name__,
+                )
 
 
 class KnowledgePackImporter:
@@ -434,12 +467,12 @@ class KnowledgePackImporter:
         # Seed Nodes
         for node_data in bundle.nodes:
             try:
-                node_type = node_data.get("type")
+                node_type = node_data.get("node_type")
                 node_id = node_data.get("id")
 
                 if not node_type or not node_id:
                     logger.warning(
-                        "[KG-2.7] Skipping node missing type or id: %s", node_data
+                        "[KG-2.7] Skipping node missing node_type or id: %s", node_data
                     )
                     counts["errors"] += 1
                     continue
@@ -457,11 +490,11 @@ class KnowledgePackImporter:
             try:
                 source = edge_data.get("source")
                 target = edge_data.get("target")
-                edge_type = edge_data.get("type")
+                edge_type = edge_data.get("relationship")
 
                 if not source or not target or not edge_type:
                     logger.warning(
-                        "[KG-2.7] Skipping edge missing source/target/type: %s",
+                        "[KG-2.7] Skipping edge missing source/target/relationship: %s",
                         edge_data,
                     )
                     counts["errors"] += 1

@@ -25,7 +25,7 @@ from agent_utilities.sdd.watcher import (
 
 def test_get_md5():
     content = "Hello, world!"
-    expected_hash = "6cd3556deb0da54bca060b4c39479839"
+    expected_hash = "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3"
     assert _get_md5(content) == expected_hash
 
 
@@ -292,67 +292,6 @@ def test_process_kg_ingest_location(tmp_path):
         task_type="document",
         provenance={"source": "watcher_kg_ingest"},
     )
-
-
-def test_start_sdd_watcher():
-    """Test start_sdd_watcher behaves correctly under various configuration conditions."""
-    from typing import Any
-
-    from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
-
-    class TestEngine(TaskManagerMixin):
-        def __init__(self):
-            self._workers_running = False
-            self._watcher_thread_running = False
-            self.backend: Any = None
-
-        def add_node(
-            self,
-            node_id: str,
-            node_type: str,
-            properties: dict[str, Any] | None = None,
-            ephemeral: bool = False,
-        ) -> Any:
-            return None
-
-        def link_nodes(
-            self,
-            source_id: str,
-            target_id: str,
-            rel_type: str,
-            properties: dict | None = None,
-            ephemeral: bool = False,
-        ) -> None:
-            return None
-
-        def query_cypher(
-            self, cypher: str, params: dict | None = None
-        ) -> list[dict[str, Any]]:
-            return []
-
-    # 1. Test when enable_sdd_watcher is False
-    engine = TestEngine()
-    with (
-        patch("os.environ.get", return_value=""),
-        patch("sys.argv", ["pytest"]),
-        patch("agent_utilities.core.config.config.enable_sdd_watcher", False),
-        patch("threading.Thread") as mock_thread,
-    ):
-        engine.start_sdd_watcher()
-        mock_thread.assert_not_called()
-        assert getattr(engine, "_watcher_thread_running", False) is False
-
-    # 2. start_sdd_watcher() is now a NO-OP even when enabled: the SDD/skills/
-    #    scholarx file-watch runs as the 'file_watch' job inside the consolidated
-    #    maintenance scheduler, NOT a dedicated KGPlanWatcherThread — so it must
-    #    never spawn its own thread (prevents a duplicate watcher). (KG-2.8)
-    engine = TestEngine()
-    with (
-        patch("agent_utilities.core.config.config.enable_sdd_watcher", True),
-        patch("threading.Thread") as mock_thread,
-    ):
-        engine.start_sdd_watcher()
-        mock_thread.assert_not_called()
 
 
 def test_watcher_paused_flag():

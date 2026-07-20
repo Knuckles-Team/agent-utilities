@@ -17,7 +17,7 @@ def __getattr__(name: str) -> Any:
         # ``engine`` pulls the pydantic-ai/pydantic-graph agent runtime (via
         # ``graph.mermaid``/``graph.state`` and the model factory). Import it
         # lazily — like the two exports below — so importing a *lean* sibling
-        # (e.g. ``orchestration.action_policy``) does not drag the ``[agent]``-
+        # (e.g. ``orchestration.action_policy``) does not drag the ``[agent-runtime]``
         # extra deps onto the import path. Keeps the package importable in the
         # lean serving/CI install (Dependency discipline).
         from .engine import AgentOrchestrationEngine

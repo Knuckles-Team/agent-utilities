@@ -18,9 +18,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,63 @@ _DEFAULT_CACHE_DIR = (
     Path.home() / ".local" / "share" / "agent-utilities" / "ontology_cache"
 )
 _DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
+
+# A remote 404/410 is an authoritative absence, but it need not become one
+# network request per fresh OntologyLoader.  Keep the process-local suppression
+# deliberately short and bounded: authentication, policy, TLS, transport, and
+# configuration failures are never entered here, so correcting those conditions
+# takes effect on the next call.
+_REMOTE_ABSENCE_CACHE_TTL_SECONDS = 60.0
+_REMOTE_ABSENCE_CACHE_MAX_ENTRIES = 256
+_REMOTE_ABSENCE_STATUS_CODES = frozenset({404, 410})
+_REMOTE_ABSENCE_CACHE: OrderedDict[str, float] = OrderedDict()
+_REMOTE_ABSENCE_CACHE_LOCK = threading.Lock()
+
+
+def _remote_absence_key(url: str) -> str:
+    """Return a fixed-size, path-free cache key for a possibly sensitive URL."""
+
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def _purge_remote_absence_cache(now: float) -> None:
+    for key, expires_at in tuple(_REMOTE_ABSENCE_CACHE.items()):
+        if expires_at <= now:
+            _REMOTE_ABSENCE_CACHE.pop(key, None)
+
+
+def _remote_absence_is_cached(url: str) -> bool:
+    now = time.monotonic()
+    key = _remote_absence_key(url)
+    with _REMOTE_ABSENCE_CACHE_LOCK:
+        _purge_remote_absence_cache(now)
+        return key in _REMOTE_ABSENCE_CACHE
+
+
+def _remember_remote_absence(url: str) -> None:
+    now = time.monotonic()
+    key = _remote_absence_key(url)
+    with _REMOTE_ABSENCE_CACHE_LOCK:
+        _purge_remote_absence_cache(now)
+        _REMOTE_ABSENCE_CACHE.pop(key, None)
+        _REMOTE_ABSENCE_CACHE[key] = now + _REMOTE_ABSENCE_CACHE_TTL_SECONDS
+        while len(_REMOTE_ABSENCE_CACHE) > _REMOTE_ABSENCE_CACHE_MAX_ENTRIES:
+            _REMOTE_ABSENCE_CACHE.popitem(last=False)
+
+
+def _clear_remote_absence_cache() -> None:
+    with _REMOTE_ABSENCE_CACHE_LOCK:
+        _REMOTE_ABSENCE_CACHE.clear()
+
+
+def _is_registered_federated_iri(uri: str) -> bool:
+    """Return whether ``uri`` is an optional package-owned ontology IRI."""
+
+    try:
+        from .ontology_federation import registered_federated_iris
+    except Exception:  # noqa: BLE001 - optional federation registry unavailable
+        return False
+    return uri in registered_federated_iris()
 
 
 class OntologyLoader:
@@ -84,7 +145,7 @@ class OntologyLoader:
         path = Path(ontology_path)
 
         if not path.exists():
-            logger.error("Ontology file not found: %s", path)
+            logger.error("Configured ontology file was not found")
             return graph
 
         # Parse the main ontology
@@ -140,7 +201,7 @@ class OntologyLoader:
                         "Imported ontology: %s (%d triples)", uri_str, len(temp)
                     )
             except Exception as e:
-                logger.warning("Failed to import ontology %s: %s", uri_str, e)
+                logger.warning("Failed to import ontology (%s)", type(e).__name__)
 
     def _fetch_ontology(self, uri: str, base_dir: Path) -> str | None:
         """Fetch ontology content from a URI.
@@ -160,20 +221,28 @@ class OntologyLoader:
         # Try local file first — map URI to local filename
         local_path = self._uri_to_local_path(uri, base_dir)
         if local_path and local_path.exists():
-            logger.debug("Loading import from local file: %s", local_path)
+            logger.debug("Loading ontology import from local source")
             return local_path.read_text(encoding="utf-8")
+
+        # These IRIs are logical identities for optional wheel-owned modules,
+        # not network locations.  A currently absent provider is an intentional
+        # superset no-op; never turn it into plaintext/public egress or consume a
+        # stale remote cache entry in place of the verified provider source.
+        if _is_registered_federated_iri(uri):
+            logger.debug("Optional federated ontology provider is absent")
+            return None
 
         # Check cache
         cached = self._read_cache(uri)
         if cached is not None:
-            logger.debug("Loading import from cache: %s", uri)
+            logger.debug("Loading ontology import from cache")
             return cached
 
         # HTTP fetch for remote URIs
         if uri.startswith("http://") or uri.startswith("https://"):
             return self._fetch_remote(uri)
 
-        logger.warning("Cannot resolve import URI: %s", uri)
+        logger.warning("Cannot resolve ontology import URI")
         return None
 
     def _uri_to_local_path(self, uri: str, base_dir: Path) -> Path | None:
@@ -193,21 +262,6 @@ class OntologyLoader:
         """
         if uri.startswith("file://"):
             return Path(uri.replace("file://", ""))
-
-        # Legacy `https://agent-utilities.dev/ontology/<x>` IRI (only
-        # ``ontology_infrastructure.ttl`` still uses it) → ``ontology_<x>.ttl`` in
-        # the bundled dir, so a federated module transitively importing the base
-        # ontology (which imports it) resolves locally instead of over the network
-        # (CONCEPT:AU-KG.ontology.federation-resolution).
-        if "agent-utilities.dev/ontology/" in uri:
-            x = uri.split("agent-utilities.dev/ontology/")[1].strip("/")
-            if x:
-                for cand in (
-                    base_dir / f"ontology_{x}.ttl",
-                    Path(__file__).parent.parent / f"ontology_{x}.ttl",
-                ):
-                    if cand.exists():
-                        return cand
 
         # Map http://knuckles.team/kg/X to ontology_X.ttl
         if "knuckles.team/kg" in uri:
@@ -247,11 +301,11 @@ class OntologyLoader:
         (CONCEPT:AU-KG.ontology.federation-resolution).
         """
         try:
-            from .ontology_federation import discover_provider_ontologies
+            from .ontology_federation import resolve_provider_ontologies
         except Exception:  # noqa: BLE001 — federation optional
             return None
         by_name: Path | None = None
-        for _provider, ttl in discover_provider_ontologies():
+        for _provider, ttl in resolve_provider_ontologies():
             if ttl.parent.name == "shapes":
                 continue
             if ttl.stem in (suffix, f"ontology_{suffix}"):
@@ -280,24 +334,41 @@ class OntologyLoader:
         Returns:
             Content string, or None on failure.
         """
-        try:
-            import requests
+        if _remote_absence_is_cached(url):
+            logger.debug("Remote ontology remains absent within the retry bound")
+            return None
 
-            response = requests.get(
-                url,
-                headers={"Accept": "text/turtle, application/rdf+xml"},
-                timeout=15,
+        try:
+            from agent_utilities.core.http_client import create_http_client
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
             )
-            response.raise_for_status()
-            content = response.text
+
+            trust = resolve_configured_tls_profile("ontology")
+            try:
+                with create_http_client(
+                    timeout=15,
+                    headers={"Accept": "text/turtle, application/rdf+xml"},
+                    **trust.httpx_kwargs(),
+                ) as client:
+                    response = client.get(url)
+                    response.raise_for_status()
+                    content = response.text
+            finally:
+                trust.cleanup()
 
             # Write to cache
             self._write_cache(url, content)
 
-            logger.info("Fetched remote ontology: %s (%d bytes)", url, len(content))
+            logger.info("Fetched remote ontology (%d bytes)", len(content))
             return content
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in _REMOTE_ABSENCE_STATUS_CODES:
+                _remember_remote_absence(url)
+            logger.warning("Failed to fetch remote ontology: %s", type(e).__name__)
+            return None
         except Exception as e:
-            logger.warning("Failed to fetch remote ontology %s: %s", url, e)
+            logger.warning("Failed to fetch remote ontology: %s", type(e).__name__)
             return None
 
     def _cache_path(self, uri: str) -> Path:
@@ -313,7 +384,7 @@ class OntologyLoader:
 
         age = time.time() - cache_file.stat().st_mtime
         if age > self._cache_ttl:
-            logger.debug("Cache expired for %s (age: %.0fs)", uri, age)
+            logger.debug("Ontology cache entry expired age_seconds=%.0f", age)
             return None
 
         return cache_file.read_text(encoding="utf-8")
@@ -323,7 +394,7 @@ class OntologyLoader:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         cache_file = self._cache_path(uri)
         cache_file.write_text(content, encoding="utf-8")
-        logger.debug("Cached ontology: %s → %s", uri, cache_file)
+        logger.debug("Cached ontology import")
 
     def clear_cache(self) -> int:
         """Clear all cached ontologies.
@@ -331,6 +402,7 @@ class OntologyLoader:
         Returns:
             Number of cache files removed.
         """
+        _clear_remote_absence_cache()
         if not self._cache_dir.exists():
             return 0
 

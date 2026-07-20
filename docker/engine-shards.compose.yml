@@ -29,7 +29,7 @@ x-shard: &shard
     # ONE shared secret across all shards and all clients (CONCEPT:OS-5.14).
     # Leave it unset and the engine binary itself refuses to start (fail-loud)
     # — there is deliberately no baked-in default value here.
-    - "GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:-}"
+    - "GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET:?set GRAPH_SERVICE_AUTH_SECRET from a secret}"
   logging:
     driver: json-file
     options:
@@ -38,52 +38,106 @@ x-shard: &shard
 
 services:
   engine-shard-1:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     <<: *shard
     container_name: engine-shard-1
     command:
       [
         "epistemic-graph-server",
         "--tcp-addr", "0.0.0.0:9101",
-        "--persist-dir", "/data/shard-1",
+        "--persist-dir", "/var/lib/epistemic-graph/data",
         "--metrics-addr", "0.0.0.0:9111",
       ]
     volumes:
-      - engine-shard-1:/data/shard-1
+      - engine-shard-1:/var/lib/epistemic-graph/data
     ports:
-      - "9101:9101" # RPC (MessagePack)
-      - "9111:9111" # Prometheus /metrics
+      - "127.0.0.1:9101:9101" # RPC (MessagePack)
+      - "127.0.0.1:9111:9111" # Prometheus /metrics
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9101"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   engine-shard-2:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     <<: *shard
     container_name: engine-shard-2
     command:
       [
         "epistemic-graph-server",
         "--tcp-addr", "0.0.0.0:9102",
-        "--persist-dir", "/data/shard-2",
+        "--persist-dir", "/var/lib/epistemic-graph/data",
         "--metrics-addr", "0.0.0.0:9112",
       ]
     volumes:
-      - engine-shard-2:/data/shard-2
+      - engine-shard-2:/var/lib/epistemic-graph/data
     ports:
-      - "9102:9102"
-      - "9112:9112"
+      - "127.0.0.1:9102:9102"
+      - "127.0.0.1:9112:9112"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9102"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   engine-shard-3:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     <<: *shard
     container_name: engine-shard-3
     command:
       [
         "epistemic-graph-server",
         "--tcp-addr", "0.0.0.0:9103",
-        "--persist-dir", "/data/shard-3",
+        "--persist-dir", "/var/lib/epistemic-graph/data",
         "--metrics-addr", "0.0.0.0:9113",
       ]
     volumes:
-      - engine-shard-3:/data/shard-3
+      - engine-shard-3:/var/lib/epistemic-graph/data
     ports:
-      - "9103:9103"
-      - "9113:9113"
+      - "127.0.0.1:9103:9103"
+      - "127.0.0.1:9113:9113"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9103"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   engine-shard-1:

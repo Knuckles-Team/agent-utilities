@@ -8,13 +8,16 @@
 
 - `ChatModelConfig` & `EmbeddingModelConfig` -- one configured model with explicit capability properties (e.g. `intelligence_level`, `supports_json`, `vision`).
 - `AgentConfig` -- Unified XDG system configuration storing `chat_models` and `embedding_models`.
-  - Global `config` object handles hot-reloading via `config.reload()`.
+  - The stable global `config` proxy hot-swaps its validated immutable target via
+    `config.reload()`.
   - Provides dynamic lookups like `config.get_chat_model(intelligence_level="super")`.
 
 **Bootstrap priority** (`resolve_model_registry` via `AgentConfig`)
 
 1. XDG-compliant `~/.config/agent-utilities/config.json`.
-2. Explicit kwargs or environment fallbacks (e.g., `LITE_LLM_MODEL_ID` via `.env`) injected at startup.
+2. Explicit kwargs or process-environment values (for example,
+   `LITE_LLM_MODEL_ID`) injected at startup. AgentConfig does not read a checkout
+   `.env` file.
 
 **Endpoint**
 - `GET /models` returns the models from `AgentConfig`.
@@ -40,7 +43,9 @@
 
 ## Direct Graph Execution
 
-When a `graph_bundle` is present at startup, the AG-UI endpoint (`/ag-ui`) can bypass the outer LLM agent entirely and execute the graph directly. This eliminates one full LLM inference round-trip per request — the LLM no longer needs to decide to call the `run_graph_flow` tool, because the protocol adapter calls it directly.
+When a `graph_bundle` is present at startup, the AG-UI endpoint (`/ag-ui`)
+executes it through the protocol-agnostic graph authority. This removes an outer
+LLM inference round-trip: the protocol adapter invokes graph execution directly.
 
 ### How It Works
 
@@ -76,21 +81,13 @@ The `AGUIGraphEmitter` translates graph events to AG-UI wire format:
 | `8:` | Sideband annotations (graph events, tool calls) |
 | `9:` | Tool call information |
 
-### Configuration
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `GRAPH_DIRECT_EXECUTION` | Enable direct graph dispatch (bypasses LLM tool-call hop) | `true` |
-
-Set to `false` to restore the legacy `Agent → LLM → run_graph_flow → graph` pipeline.
-
 ### Protocol Behavior
 
 | Protocol | Direct Execution? | Details |
 |----------|-------------------|---------|
 | **AG-UI** | ✅ Full bypass | Uses `execute_graph_iter()` + `AGUIGraphEmitter` |
 | **ACP** | ⚡ Optimized | Per-session `agent_factory` with session-aware closures |
-| **A2A** | ❌ LLM-mediated | Retains `run_graph_flow` tool for multi-agent negotiation |
+| **A2A** | ✅ Direct | `PlannerGraphSkill` calls the same execution authority |
 | **SSE** | ✅ Already direct | `/stream` has always called `run_graph_stream()` directly |
 
 ### Capabilities Unlocked by `graph.iter()`
@@ -158,7 +155,7 @@ Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `exec
 - **True Pause-and-Resume**: The graph does NOT terminate on approval requests. It suspends via `asyncio.Future` and resumes when the user responds.
 - **Protocol-Agnostic**: Works identically across AG-UI (web UI), terminal UI, ACP, and SSE protocols.
 - **Persistent Choices**: When using ACP, users can select "Always Allow" / "Always Deny" for specific tools.
-- **Customizable**: Disable with `TOOL_GUARD_MODE=off` or `DISABLE_TOOL_GUARD=True`.
+- **Configurable, never disabled**: `TOOL_GUARD_MODE=on` uses the configured sensitivity patterns; `strict` requires approval for every non-read-only function tool. MCP tools always require a verified identity policy.
 
 **Sensitive Patterns:**
 `delete`, `write`, `execute`, `rm_`, `rmdir`, `drop`, `truncate`, `update`, `patch`, `post`, `put`, `create`, `add`, `upload`, `set`, `reset`, `clear`, `revert`, `replace`, `rename`, `move`, `start`, `stop`, `restart`, `kill`, `terminate`, `reboot`, `shutdown`, `git_*`.
@@ -286,7 +283,7 @@ Successful engineering cycles (e.g., a specific TDD solution for a recurring pro
 
 ## Emergent Architecture (CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
-The Emergent Architecture layer enables dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering. See [emergent-architecture.md](../2_epistemic_knowledge_graph/emergent-architecture.md) for complete documentation.
+The Emergent Architecture layer enables dynamic agent coalition formation, evolutionary variant selection, metacognitive self-modeling, and attention-based output quality filtering. See [emergent-architecture.md](emergent-architecture.md) for complete documentation.
 
 ### 5. KG Object-Graph Mapper (CONCEPT:AU-KG.query.object-graph-mapper)
 Declarative bidirectional mapping between Pydantic `RegistryNode` models and Knowledge Graph nodes. Eliminates manual `_upsert_node()` / `_serialize_node()` patterns.
@@ -305,7 +302,7 @@ Population-based competition for prompts, skills, and configurations using dual-
 
 ### 8. Persistent Self-Model (CONCEPT:AU-KG.memory.tiered-memory-caching)
 Versioned metacognitive self-model that aggregates session outcomes into a persistent KG chain. Integrates with OWL for reasoner-driven capability assessment.
-- **Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`; aliased as `SelfModel` via `knowledge_graph/self_model.py`)
+- **Module**: `agent_utilities/knowledge_graph/retrieval/memory_retriever.py` (`MemoryRetriever`)
 - **Features**: Versioned chain with `CURRENT` pointer, temporal trend analysis, OWL promotion, self-explanation
 
 ### 9. Global Workspace Attention (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
@@ -317,13 +314,13 @@ Always-on attention mechanism that scores specialist outputs by relevance, confi
 
 ## First Principles Architecture (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
-The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](../1_graph_orchestration/first-principles.md) for the complete deep-dive.
+The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete deep-dive.
 
 ### 10. Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with event-driven invalidation. Reduces prompt bloat from 50+ specialist descriptions to only the top-7 relevant per query.
 - **Module**: `agent_utilities/core/config.py`
 - **Features**: Query-keyed caching, 4 invalidation triggers (MCP reload, pipeline, Self-Model, TeamConfig), no TTL risk
-- **Deep-Dive**: [registry-cache.md](../1_graph_orchestration/registry-cache.md)
+- **Deep-Dive**: [registry-cache.md](registry-cache.md)
 
 ### 11. TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
@@ -355,7 +352,7 @@ Both updates trigger **registry cache invalidation** (CONCEPT:AU-ORCH.adapter.ho
 
 ## Process Lifecycle Management
 
-The server ensures all child processes (MCP servers, TUI, background threads) are cleaned up on exit. See [process-lifecycle.md](../5_agent_os_infrastructure/process-lifecycle.md) for the full architecture.
+The server ensures all child processes (MCP servers, TUI, background threads) are cleaned up on exit. See [process-lifecycle.md](process-lifecycle.md) for the full architecture.
 
 - **Handlers**: `atexit`, `SIGTERM`, `SIGINT` registered in `server/__init__.py`
 - **Strategy**: Child-only cleanup via `pgrep -P <pid>` (avoids self-termination)
@@ -379,13 +376,16 @@ The server ensures all child processes (MCP servers, TUI, background threads) ar
 - `CONCEPT:AU-ECO.messaging.native-backend-abstraction` — A2A PlannerGraphSkill (Graph-Native Routing)
 
 
-## Local Secret Storage (Vault, OpenBao, & SQLite)
+## Secret Storage (Encrypted Engine, Vault, and OpenBao)
 
-The `agent-utilities` ecosystem provides a unified `SecretsClient` (CONCEPT:AU-OS.config.secrets-authentication) designed to replace static `.env` files. It supports three backends: `inmemory`, `sqlite` (persistent), and `vault` (supporting HashiCorp Vault & OpenBao via `hvac`).
+The `agent-utilities` ecosystem provides a unified `SecretsClient`
+(CONCEPT:AU-OS.config.secrets-authentication) designed to replace static `.env`
+files. It supports encrypted engine storage (`engine`) and `vault`
+(HashiCorp Vault or OpenBao via `hvac`).
 
 ### Setting Up the Backend
 
-To configure your agent to use your Vault (or OpenBao) or SQLite secret store, export these environment variables:
+To configure your agent to use Vault or OpenBao, export these environment variables:
 
 **For HashiCorp Vault & OpenBao:**
 ```bash
@@ -393,14 +393,12 @@ To configure your agent to use your Vault (or OpenBao) or SQLite secret store, e
 export SECRETS_BACKEND=vault
 export SECRETS_VAULT_URL=https://openbao.example.com  # URL of your OpenBao or HashiCorp Vault server
 export SECRETS_VAULT_MOUNT=secret
-export VAULT_TOKEN=hvs.xxx
 ```
 
-**For Persistent SQLite (Encrypted at rest with Fernet):**
-```bash
-export SECRETS_BACKEND=sqlite
-export SECRETS_SQLITE_PATH=~/.agent-utilities/secrets.db
-```
+Prefer workload identity; otherwise inject `VAULT_TOKEN` at runtime.
+
+The default backend is the encrypted `__secrets__` graph. Local secret database
+files and sibling encryption keys are not runtime inputs.
 
 ### Using Secrets in Agent Code
 
@@ -411,13 +409,15 @@ from agent_utilities.security.secrets_client import create_secrets_client
 
 # Inside a graph node or specialist logic
 if ctx.deps.secrets_client:
-    # Gets from Vault/OpenBao/SQLite, falls back to env var if missing
+    # Gets from Vault/OpenBao or the encrypted engine store, then checks the env var
     token = ctx.deps.secrets_client.get_or_env("gitlab/token", "GITLAB_TOKEN")
 ```
 
 ### Using URI Schemes for Configuration
 
-If you're mapping secrets into an MCP configuration (`mcp_config.json`) or reading strings elsewhere, you can use the `vault://` or `sqlite://` URI schemes to inject secrets directly at runtime without exposing them in plaintext config files:
+If you're mapping secrets into an MCP configuration (`mcp_config.json`) or
+reading strings elsewhere, use a `vault://`, `secret://`, or `env://` runtime
+reference. Literal values and storage-path references are rejected:
 
 ```python
 client = create_secrets_client()
@@ -425,10 +425,7 @@ client = create_secrets_client()
 # Resolves from Vault or OpenBao KV mount
 token = client.resolve_ref("vault://agents/mcp/gitlab/token")
 
-# Resolves from SQLite db
-token = client.resolve_ref("sqlite://gitlab/token")
-
-# Resolves from environment variable (legacy fallback)
+# Resolves from an explicitly named runtime environment variable
 token = client.resolve_ref("env://GITLAB_TOKEN")
 ```
 
@@ -458,15 +455,15 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Self-Improving (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Execution memory persisted natively to the Knowledge Graph after each run. Past failure patterns automatically inform future routing decisions via the Self-Model (CONCEPT:AU-KG.memory.tiered-memory-caching).
 - **Agentic Engineering Patterns (CONCEPT:AU-AHE.harness.evolutionary-aggregation)**: Out-of-the-box support for **TDD Cycles** (Red-Green-Refactor), **First Run Tests** (baseline establishment), **Agentic Manual Testing** (exploratory verification), **Code Walkthroughs** (linear documentation), and **Interactive Explanations** (HTML/JS artifacts).
 - **Observability (CONCEPT:AU-OS.config.secrets-authentication)**: Real-time **Graph Streaming** (SSE) and lifecycle events. Per-step state snapshots via `graph.iter()`. Native **Langfuse Tracing** with continuous learning loop evaluators, alongside OTEL/logfire gates.
-- **Direct Graph Execution (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)**: Protocol adapters (AG-UI, ACP) can bypass the outer LLM agent and invoke `graph.iter()` directly, eliminating one full inference round-trip per request. Controlled via `GRAPH_DIRECT_EXECUTION` env var.
+- **Direct Graph Execution (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)**: Protocol adapters invoke the protocol-agnostic graph authority directly, eliminating an outer inference round-trip.
 - **Specialist Discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Automated discovery of domain specialists directly from the **Knowledge Graph**.
 - **Agent Server (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Built-in FastAPI server with standardized `/mcp`, `/a2a`, `/acp` (Standardized Protocol), and **`/docs` (Swagger UI)** endpoints.
 - **Automatic Documentation (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Runtime generation of OpenAPI specifications for all agent server APIs.
 - **Workspace Management (CONCEPT:AU-OS.safety.doom-loop-detection)**: Automated management of agent state through standardized structures. (Note: Legacy files like `IDENTITY.md` and `USER.md` have been migrated to the Knowledge Graph and `main_agent.json` templates).
 - **Spec-Driven Development (SDD) (CONCEPT:AU-ORCH.planning.spec-driven-pipeline)**: High-fidelity orchestration pipeline that decomposes goals into structured Specifications (`Spec`), Implementation Plans, and dependency-aware Tasks. Ensures technical precision and parallel execution safety.
 - **Unified Intelligence Graph (CONCEPT:AU-ORCH.execution.inject-signal-board-observations)**: A unified Knowledge Graph powered by **graph-os MCP native ingestion**. Enables deep structural codebase awareness, cross-repository symbol mapping, and long-term agent memory. Includes a **Hybrid OWL Reasoning Sidecar** for deterministic transitive inference and a **Graph Integrity Validator** for post-ingestion validation.
-- **Unified Memory Architecture**: Features Memento Context Management, Multi-Timescale dynamics, and Cross-Agent Observational Bridges. See [Memory Architecture](docs/pillars/memory_architecture.md) for full details.
-- **Graph Database Abstraction (CONCEPT:AU-KG.query.object-graph-mapper)**: Single `GraphBackend` interface (`knowledge_graph/backends/`) fronting the **one database** — the Rust **epistemic-graph** engine (`epistemic_graph_backend.py`), the authority for all reads and writes. With `GRAPH_BACKEND=fanout`, committed writes fan out asynchronously and losslessly (durable outbox, replay-on-reconnect) to optional **mirrors** for interop/BI/DR — **pg-age/PostgreSQL** (`postgresql_backend.py`), **LadybugDB**, **FalkorDB**, **Neo4j** — none of which is the authority or on the read path.
+- **Unified Memory Architecture**: Features Memento Context Management, Multi-Timescale dynamics, and Cross-Agent Observational Bridges. See [Memory Architecture](../pillars/memory_architecture.md) for full details.
+- **Graph Database Abstraction (CONCEPT:AU-KG.query.object-graph-mapper)**: Single `GraphBackend` interface (`knowledge_graph/backends/`) fronting the **one database** — the Rust **epistemic-graph** engine (`epistemic_graph_backend.py`), the authority for all reads and writes. Declared mirrors receive committed writes asynchronously and losslessly (durable outbox, replay-on-reconnect) for interop/BI/DR — **pg-age/PostgreSQL** (`postgresql_backend.py`), **LadybugDB**, **FalkorDB**, **Neo4j** — none can become the authority or enter the read path.
 - **Automated Graph Maintenance (CONCEPT:AU-KG.query.object-graph-mapper)**: A single consolidated `_maintenance_scheduler_loop` (`knowledge_graph/core/engine_tasks.py`) runs the former analysis/compaction/evolution/enrichment daemons as `_tick_*` jobs behind one background-throttle gate. Handles vector embedding enrichment, scheduled log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
 - **Confidence-Gated & Adaptive Model Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also leverages ACO pheromone trails to actively down-weight specialists with historically low success rates.
 - **Evolutionary Aggregation (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
@@ -502,7 +499,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Audit Logger (CONCEPT:AU-OS.config.secrets-authentication)**: Append-only compliance audit trail with 30+ action constants, never-raise semantics, FIFO eviction, configurable retention, and query filtering. Ported from MATE's `audit_service.py`. OWL-promoted as `audit_log` nodes.
 - **Guardrail Callback Engine (CONCEPT:AU-OS.config.secrets-authentication)**: Push-based input/output guardrail interception with block/redact/warn/log actions, regex and keyword pattern matching, and `PolicyEngine` adapter for unified evaluation. Ported from MATE's `guardrail_callback.py`. OWL-promoted as `guardrail_trigger` nodes.
 - **Agent Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)**: Immutable configuration snapshots with sequential versioning, forward-only rollback, structured diffs, and SUPERSEDES edge chains. Ported from MATE's `AgentConfigVersion` model. OWL-promoted as `agent_config_version` nodes.
-- **Research Intelligence Pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (full KG + SQLite for relevant papers ≥3.0, abstract-only for marginal ≥1.0) → OWL Enrichment → Digest Generation. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
+- **Research Intelligence Pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (native Article + Document/Chunk graph slices for relevant papers ≥3.0, native abstract-only Article slices for marginal ≥1.0) → OWL Enrichment → Digest Generation. Paper/source/author edges commit atomically through `ChangeEnvelope`; author identities are non-reversible references and local PDF paths are not persisted. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
 - **KG Source Resolver (CONCEPT:AU-KG.research.research-pipeline-runner)**: Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Enables `--kg-query` flag in `discover_projects.py` for KG-backed source resolution. Optional — gracefully returns empty when no KG is available.
 - **Cross-Session Chat Recall (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose's `ChatHistorySearch`. Provides `search_chat_history()` with relevance scoring and date filtering.
 - **Topological Analogy Engine (CONCEPT:AU-KG.compute.spectral-cluster-navigator)**: Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
@@ -535,9 +532,8 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Ontological State Checkpointing (CONCEPT:AU-KG.research.research-pipeline-runner)**: Persists Pydantic Graph active states as ExecutionStateNodes, enabling zero-latency resume and background agent handoffs.
 - **Adaptive Tool Provisioning (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AU-AHE.evaluation.backtest-harness)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
-- **Terminal Agent Launcher (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: `launch_agent_in_terminal()` (`agent_utilities/core/agent_launcher.py`) spawns CLI agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions with configurable prompt and override flags. Default agent configurable via `DEFAULT_TERMINAL_AGENT` in XDG config.
 - **Native Innovation Discovery Engine (CONCEPT:AU-KG.query.object-graph-mapper)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through the `graph_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.
-- **Native LLM Analysis via FastMCP Sampling (CONCEPT:AU-KG.query.object-graph-mapper)**: `graph_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Supports 3-layer pipeline: L1 vector discovery → L2 LLM synthesis (feature recommendations) → L3 deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
+- **Native LLM Analysis via FastMCP Sampling (CONCEPT:AU-KG.query.object-graph-mapper)**: `graph_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Its pipeline combines native vector discovery, LLM synthesis, and deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
 - **Background Concept Research Daemon (CONCEPT:AU-KG.research.research-pipeline-runner)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `graph_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
 - **Multi-IDE Conversation Log Ingestion (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `graph_ingest(target_path='conversations')` or filtered with `graph_ingest(target_path='conversations:antigravity,windsurf')`.
 - **Disk-Aware DB Backup (CONCEPT:AU-KG.query.object-graph-mapper)**: Self-healing database management with disk-space-aware backups (skips if <1GB free), non-destructive WAL corruption recovery (preserves main DB, only cleans transient WAL/journal files), and configurable backup retention via `DEFAULT_KG_BACKUPS`.

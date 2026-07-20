@@ -128,7 +128,7 @@ class LLMCodeSynthesizer:
             out = self._fn()(prompt)
         except Exception as exc:  # noqa: BLE001 — a generator failure ⇒ prose fallback
             logger.warning(
-                "[AHE-3.22] code synthesis LLM failed for %s: %s", target_path, exc
+                "[AHE-3.22] code synthesis LLM failed (%s)", type(exc).__name__
             )
             return None
         revised = _strip_code_fence(str(out or ""))
@@ -177,5 +177,5 @@ def synthesize_code(
     # Never branch a no-op: an empty or unchanged generation falls back to prose.
     if not revised or revised.strip("\n") == current.strip("\n"):
         return None
-    logger.info("[AHE-3.22] synthesized a single-file code edit for %s", rel)
+    logger.info("[AHE-3.22] synthesized a single-file code edit")
     return [FileChange(path=rel, content=revised)]

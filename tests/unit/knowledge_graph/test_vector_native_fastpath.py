@@ -3,8 +3,8 @@
 CONCEPT:AU-KG.compute.kg-2 — the hand-orchestrated hybrid retriever's vector arm is
 collapsed onto the engine. The vector neighbourhood comes from ONE cross-modal
 unified plan (`graph.query_unified`, the engine sequencing filter + vector `Rank`
-in one costed round-trip); on a lean engine built without the `query` feature it
-falls to the engine's native `semantic_search` ANN primitive — still the engine's
+in one costed round-trip); when unified planning is unavailable it falls to the
+engine's native `semantic_search` ANN primitive — still the engine's
 vector index, still O(log N). There is NO O(N) Python `cosine_similarity` fallback
 and NO `backend.execute` brute-force scan. (The real-engine end-to-end proof lives
 in `test_unified_plan_retrieval.py`.)
@@ -42,17 +42,15 @@ class _UnifiedGraph:
         return dict(self._props.get(nid, {}))
 
 
-class _LeanGraph:
-    """Lean engine (no `query` feature): unified plan errors, native ANN serves."""
+class _UnifiedUnavailableGraph:
+    """Full engine with unavailable unified planning; native ANN still serves."""
 
     def __init__(self) -> None:
         self.semantic_calls = 0
         self._props = {"n1": {"name": "Foo"}, "n2": {"name": "Bar"}}
 
     def query_unified(self, _plan: list[dict[str, Any]], **_k: Any) -> Any:
-        raise RuntimeError(
-            "unknown variant `UnifiedQuery` (engine built without query)"
-        )
+        raise RuntimeError("unified planning unavailable")
 
     def semantic_search(self, _emb: list[float], _n: int = 5) -> list[Any]:
         self.semantic_calls += 1
@@ -114,13 +112,13 @@ def test_vector_search_respects_target_paths() -> None:
     assert [d["id"] for d in out] == ["n1"]  # only the /a/ path survives
 
 
-def test_lean_engine_falls_to_native_ann_not_python_cosine() -> None:
-    """No `query` feature ⇒ the engine's native ANN, NOT an O(N) Python scan."""
-    graph = _LeanGraph()
+def test_unified_unavailable_falls_to_native_ann_not_python_cosine() -> None:
+    """Unavailable unified planning uses native ANN, not an O(N) Python scan."""
+    graph = _UnifiedUnavailableGraph()
     r = _retriever(graph)
 
-    # Even with a label, a build without `query` errors on the unified plan and
-    # degrades to the native ANN primitive — never a Python cosine scan.
+    # Even with a label, a rejected unified plan degrades to the native ANN
+    # primitive — never a Python cosine scan.
     out = r._engine_vector_search([0.1, 0.2, 0.3], top_k=5, threshold=0.0, label="Doc")
 
     assert [d["id"] for d in out] == ["n1", "n2"]

@@ -29,11 +29,12 @@ from ....security import ard_signing
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
+from ..http_safety import require_safe_source_url, safe_get_text
 from ..registry import register_source
 
 FetchFn = Callable[[str], str]
@@ -50,28 +51,6 @@ ARD_PRESETS: dict[str, dict[str, Any]] = {
         "media_types": ["application/ai-skill", "application/mcp-server+json"],
     },
 }
-
-
-def _default_fetch(url: str) -> str:
-    """Fetch a URL with lazy ``httpx`` (clear error if unavailable)."""
-    try:
-        import httpx
-    except ImportError as exc:  # pragma: no cover - environment without httpx
-        raise RuntimeError(
-            "ArdRegistryConnector needs 'httpx' to fetch a catalog. "
-            "Install it, or pass a fetch_fn for offline use."
-        ) from exc
-    resp = httpx.get(
-        url,
-        timeout=_FETCH_TIMEOUT_S,
-        follow_redirects=True,
-        headers={
-            "User-Agent": "agent-utilities-ard/1.0",
-            "Accept": "application/json",
-        },
-    )
-    resp.raise_for_status()
-    return resp.text
 
 
 def _catalog_url(base: str) -> str:
@@ -106,6 +85,9 @@ class ArdRegistryConnector(LoadConnector, PollConnector):
         media_types: list[str] | None = None,
         verify: bool = True,
         fetch_fn: FetchFn | None = None,
+        allowed_private_hosts: list[str] | None = None,
+        allowed_redirect_hosts: list[str] | None = None,
+        max_response_bytes: int = 10 * 1024 * 1024,
         **_: object,
     ) -> None:
         cfg = dict(ARD_PRESETS.get(preset, {})) if preset else {}
@@ -115,6 +97,12 @@ class ArdRegistryConnector(LoadConnector, PollConnector):
                 "ArdRegistryConnector requires 'catalog_url' or a known 'preset'"
             )
         self.catalog_url = _catalog_url(catalog_url)
+        private_hosts = list(allowed_private_hosts or [])
+        require_safe_source_url(
+            self.catalog_url,
+            allowed_private_hosts=private_hosts,
+            resolve_dns=False,
+        )
         host = urlparse(self.catalog_url).hostname or ""
         self.registry_name = (
             registry_name or str(cfg.get("registry_name", "")) or host or "ard"
@@ -123,7 +111,26 @@ class ArdRegistryConnector(LoadConnector, PollConnector):
         self.media_types = media_types or cfg.get("media_types") or None
         self.verify = bool(verify)
         self.require_signature = bool(setting("ARD_REQUIRE_SIGNATURE", default=False))
-        self._fetch: FetchFn = fetch_fn or _default_fetch
+        self.external_access = default_external_access()
+        if fetch_fn is not None:
+            self._fetch = fetch_fn
+        else:
+            redirect_hosts = list(allowed_redirect_hosts or [])
+
+            def _safe_fetch(url: str) -> str:
+                return safe_get_text(
+                    url,
+                    timeout=_FETCH_TIMEOUT_S,
+                    headers={
+                        "User-Agent": "agent-utilities-ard/1.0",
+                        "Accept": "application/json",
+                    },
+                    max_bytes=max_response_bytes,
+                    allowed_private_hosts=private_hosts,
+                    allowed_redirect_hosts=redirect_hosts,
+                )
+
+            self._fetch = _safe_fetch
         #: Set by :meth:`_entries` so the sync handler can surface verification drops.
         self.verify_failures = 0
 
@@ -147,12 +154,19 @@ class ArdRegistryConnector(LoadConnector, PollConnector):
             return True
         # Domain-anchored identity: the entry's publisher domain must match the host
         # we fetched the catalog from (an entry claiming another domain is rejected).
-        domain = str((entry.get("publisher") or {}).get("domain", "")).strip()
-        if domain and self.publisher_host and domain != self.publisher_host:
-            # Allow subdomain/host matches but reject a mismatched apex domain.
+        domain = (
+            str((entry.get("publisher") or {}).get("domain", ""))
+            .strip()
+            .lower()
+            .rstrip(".")
+        )
+        publisher_host = self.publisher_host.lower().rstrip(".")
+        if domain and publisher_host and domain != publisher_host:
+            # Allow a true DNS subdomain/parent relationship. Plain suffix
+            # matching would accept an attacker-controlled lookalike domain.
             if not (
-                self.publisher_host.endswith(domain)
-                or domain.endswith(self.publisher_host)
+                publisher_host.endswith(f".{domain}")
+                or domain.endswith(f".{publisher_host}")
             ):
                 self.verify_failures += 1
                 return False
@@ -207,7 +221,7 @@ class ArdRegistryConnector(LoadConnector, PollConnector):
                         "publisher": manifest.get("publisher") or {},
                         "verified": bool(entry.get("signature")) and self.verify,
                     },
-                    external_access=ExternalAccess.public(),
+                    external_access=self.external_access.model_copy(deep=True),
                 )
             )
         return out

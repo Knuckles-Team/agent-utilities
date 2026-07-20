@@ -215,7 +215,7 @@ class ResearchOrchestrator:
             OrchestrationReport with full cycle details.
         """
         start_time = time.time()
-        cycle_id = f"orch_{uuid.uuid4().hex[:8]}"
+        cycle_id = f"orch_{uuid.uuid4().hex}"
         report = OrchestrationReport(
             cycle_id=cycle_id,
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

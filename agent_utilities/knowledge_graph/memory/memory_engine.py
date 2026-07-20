@@ -14,7 +14,7 @@ Subsystems coordinated:
     - ``StartupContextBuilder``: Initial context assembly
     - ``ContextCompactor``: Active window management (3 strategies)
     - ``MementoCompressor``: LLM-based state compression
-    - ``ConsolidationEngine``: Episode → Preference/Principle promotion
+    - ``ConsolidationEngine``: RunTrace → Preference/Principle promotion
     - ``SemanticCompactor``: Trace compaction (prevents graph explosion)
     - ``MemoryRetriever``: KG-based semantic recall
 
@@ -31,7 +31,7 @@ Usage::
     # Long session: compress state to dense memento
     memento = mgr.compress_to_memento(messages, source="agent_runner")
 
-    # Post-session: promote episodes to long-term knowledge
+    # Post-session: promote successful traces to long-term knowledge
     await mgr.consolidate()
 
     # Recall: retrieve relevant memories for a new query
@@ -203,7 +203,7 @@ class MemoryEngine:
 
         Args:
             messages: The block of raw messages to compress.
-            source: The source agent or component name.
+            source: Runtime source key; converted to an opaque durable reference on persistence.
             dry_run: If True, generate memento but don't persist to KG.
 
         Returns:
@@ -229,7 +229,7 @@ class MemoryEngine:
         """Retrieve the most recent mementos for a given source.
 
         Args:
-            source: The source agent name.
+            source: Runtime source key; queried through its opaque durable reference.
             limit: Maximum number of mementos to retrieve.
 
         Returns:
@@ -249,9 +249,9 @@ class MemoryEngine:
         *,
         dry_run: bool = True,
     ) -> list[Any]:
-        """Promote episodes to preferences and principles.
+        """Promote canonical traces to preferences and decisions to principles.
 
-        Runs the ``ConsolidationEngine`` to identify episode clusters
+        Runs the ``ConsolidationEngine`` to identify execution-trace clusters
         that should be promoted to higher-tier knowledge structures
         in the Knowledge Graph.
 
@@ -304,9 +304,7 @@ class MemoryEngine:
         from .hygiene import MemoryHygiene
 
         logger.debug(
-            "compact_traces(agent=%s, threshold=%s) → KG-2.17 hygiene pass",
-            agent_id,
-            threshold,
+            "compact_traces(threshold=%s) → KG-2.17 hygiene pass", threshold
         )
         report = MemoryHygiene(self.engine).run()
         return int(report.get("archived", 0)) + int(report.get("merged", 0))
@@ -451,7 +449,7 @@ class MemoryMaterializer:
 
         self._save_cursor(
             {
-                name: hashlib.md5(p.read_bytes(), usedforsecurity=False).hexdigest()
+                name: hashlib.sha256(p.read_bytes()).hexdigest()
                 for name, p in paths.items()
             }
         )
@@ -470,9 +468,7 @@ class MemoryMaterializer:
             path = self.base_dir / name
             if not path.exists():
                 continue
-            if hashlib.md5(
-                path.read_bytes(), usedforsecurity=False
-            ).hexdigest() != cursor.get(name, ""):
+            if hashlib.sha256(path.read_bytes()).hexdigest() != cursor.get(name, ""):
                 edited.append(name)
         return edited
 
@@ -689,7 +685,7 @@ class MemoryMaterializer:
         ):
             v = m.group(1).strip()
             if v and not v.startswith("*"):
-                pid = f"pref_{hashlib.md5(v.encode(), usedforsecurity=False).hexdigest()[:8]}"
+                pid = f"pref_{hashlib.sha256(v.encode()).hexdigest()[:32]}"
                 self.engine.add_node(
                     pid,
                     "preference",
@@ -711,7 +707,7 @@ class MemoryMaterializer:
         ):
             t = m.group(1).strip()
             if t and not t.startswith("*"):
-                rid = f"ref_{hashlib.md5(t.encode(), usedforsecurity=False).hexdigest()[:8]}"
+                rid = f"ref_{hashlib.sha256(t.encode()).hexdigest()[:32]}"
                 self.engine.add_node(
                     rid,
                     "reflection",
@@ -740,7 +736,7 @@ class MemoryMaterializer:
             if om and current_date:
                 t = om.group(1).strip()
                 if t and not t.startswith("*"):
-                    oid = f"obs_{hashlib.md5(t.encode(), usedforsecurity=False).hexdigest()[:8]}"
+                    oid = f"obs_{hashlib.sha256(t.encode()).hexdigest()[:32]}"
                     priority = (
                         "critical"
                         if "\U0001f534" in line
@@ -1286,7 +1282,7 @@ class EvolvingMemoryAPI:
     ) -> str:
         import uuid
 
-        node_id = f"fact_{user_id}_{uuid.uuid4().hex[:8]}"
+        node_id = f"fact_{user_id}_{uuid.uuid4().hex}"
 
         now = int(time.time())
         props = {
@@ -1312,7 +1308,8 @@ class EvolvingMemoryAPI:
             results = self.engine.search_hybrid(query, top_k=top_k)
         except Exception:
             results = self.engine.query_cypher(
-                f"MATCH (n:fact {{user_id: '{user_id}'}}) RETURN n"
+                "MATCH (n:fact {user_id: $user_id}) RETURN n",
+                {"user_id": user_id},
             )
 
         now = int(time.time())

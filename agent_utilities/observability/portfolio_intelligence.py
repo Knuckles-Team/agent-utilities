@@ -38,11 +38,12 @@ module never models regulations itself, only walks the shape): the candidate's
 evaluated by a named ``:ComplianceGate`` (``:evaluatesRequirement``), are the
 REQUIRED units; a candidate satisfies one via a declared
 ``certifications``/``attestations`` entry or an ``:attestsTo``-style edge
-naming the gate/requirement/regulation. Plus EOL and gov-ATO gates. A failed
-REQUIRED gate is an immediate ``reject`` — no score can buy it back. Only
-gate-passing candidates reach the WEIGHTED SCORE tier. With NO ``:Regulation``
-nodes in the graph at all (substrate not ingested/federated), the gate
-degrades to a pass but logs a warning — distinct from "evaluated and passed."
+(the legacy ``governedBy``/``satisfiesCompliance``/``conformsToStandard``
+synonyms are also recognized) naming the gate/requirement/regulation. Plus
+EOL and gov-ATO gates. A failed REQUIRED gate is an immediate ``reject`` —
+no score can buy it back. Only gate-passing candidates reach the WEIGHTED
+SCORE tier. With NO ``:Regulation`` nodes in the graph at all (substrate not
+ingested/federated), the required gate fails closed.
 
 Report-only + engine-guarded throughout: with no reachable engine every entry
 point degrades to a safe no-op/empty result rather than raising, matching
@@ -161,7 +162,12 @@ class CriterionScore:
 
 def _rel(props: Any) -> str:
     if isinstance(props, dict):
-        return str(props.get("rel_type") or props.get("type") or "")
+        return str(
+            props.get("relationship")
+            or props.get("rel_type")
+            or props.get("type")
+            or ""
+        )
     return ""
 
 
@@ -503,15 +509,14 @@ def _check_compliance_gates(
     if not substrate_present:
         logger.warning(
             "portfolio: compliance substrate unavailable (no :Regulation nodes in "
-            "the graph) — compliance_gate for candidate %s degraded to pass; "
-            "confirm the legal-peripherals-mcp ontology is ingested/federated",
+            "the graph) — compliance_gate for candidate %s failed closed",
             candidate_id,
         )
         return GateCheck(
             "compliance_gate",
+            False,
             True,
-            True,
-            "compliance substrate unavailable (no :Regulation nodes) — gate not evaluated",
+            "compliance substrate unavailable (no :Regulation nodes)",
         )
     required = [u for u in units if u["required"]]
     if not required:

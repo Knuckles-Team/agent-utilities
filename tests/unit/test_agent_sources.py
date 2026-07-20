@@ -68,17 +68,18 @@ def _write_claude_log(path):
 
 
 def test_claude_parser_real_shape(tmp_path):
-    proj = tmp_path / "-home-apps-foo"
+    proj = tmp_path / "-workspace-project"
     proj.mkdir()
     log = proj / "sess-abc.jsonl"
     _write_claude_log(log)
-    src = get_source("claude")
     ensure_parsers_loaded()
+    src = get_source("claude")
+    assert src is not None
     bundles = list(claude_parse(log, src))
     assert len(bundles) == 1
     b = bundles[0]
     assert b.session.id == "sess-abc"
-    assert b.session.project == "/home/apps/foo"
+    assert b.session.project == "/workspace/project"
     assert b.session.message_count == 2
     assert b.session.user_message_count == 1
     assert b.messages[1].has_tool_use is True

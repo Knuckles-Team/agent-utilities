@@ -15,6 +15,41 @@ import pytest
 from agent_utilities.knowledge_graph.core import source_sync as ss
 
 
+@pytest.fixture(autouse=True)
+def _capture_native_envelope_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    def cursor_key(connector, source_instance):
+        return f"sync:{connector}:{source_instance or connector}"
+
+    def read_cursor(engine, connector, *, source_instance=""):
+        return engine.backend.watermarks.get(cursor_key(connector, source_instance))
+
+    def capture(engine, envelope):
+        row = envelope.to_entity_dict()
+        relationships = row.pop("_links", [])
+        auxiliary = row.pop("_nodes", [])
+        engine.ingest_external_batch(
+            envelope.connector, [row, *auxiliary], relationships
+        )
+        if envelope.checkpoint:
+            engine.backend.watermarks[
+                cursor_key(envelope.connector, envelope.source_instance)
+            ] = str(envelope.checkpoint)
+        return {"status": "success", "watermark_advanced": bool(envelope.checkpoint)}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.read_change_cursor",
+        read_cursor,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        capture,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
+
+
 class _Doc(SimpleNamespace):
     """A minimal SourceDocument-shaped object."""
 
@@ -136,7 +171,10 @@ def test_plane_multi_instance_loops_both_servers(monkeypatch):
     engine = _FakeEngine()
 
     out = ss.sync_source(engine, "plane", mode="delta")
-    assert {r["instance"] for r in out["instances"]} == {"primary", "secondary"}
+    assert {r["instance"] for r in out["details"]["instances"]} == {
+        "primary",
+        "secondary",
+    }
     # one ingest_external_batch call per entity (issue + project) per instance
     assert len(engine.batches) == 4
     ids = {e["id"] for _, ents, _ in engine.batches for e in ents}

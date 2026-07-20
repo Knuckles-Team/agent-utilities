@@ -23,7 +23,7 @@ Design:
   surface reports.
 
 Engine gap (documented, not worked around — eg-rdf is owned by another agent):
-the engine RDF surface exposes ``add_triples`` (load) and ``get_triples`` /
+the engine RDF surface exposes ``add_triples`` (load) and ``get_rdf`` /
 ``sparql`` (read) but **no remove-triples / drop-named-graph op**, so ``delete``
 deactivates an ontology and drops it from the hosted registry but cannot
 physically retract its axioms from the engine's RDF dataset until the engine

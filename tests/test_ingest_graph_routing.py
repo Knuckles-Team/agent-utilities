@@ -2,8 +2,8 @@
 
 Two layers:
 
-* **Unit** — the routing policy (:func:`route_graph`) is deterministic, honours the
-  ``KG_INGEST_GRAPH_ROUTING`` gate, and spreads a realistic source set across many
+* **Unit** — the routing policy (:func:`route_graph`) is deterministic and spreads
+  a realistic source set across many
   graph names (so the engine's ``FNV-1a(name) % K`` redb shard writers, EG-026,
   parallelise instead of all funnelling into ``__commons__``).
 
@@ -24,9 +24,8 @@ from agent_utilities.core.config import AgentConfig
 from agent_utilities.knowledge_graph.core import ingest_routing
 
 
-def _cfg(routing: bool) -> AgentConfig:
-    # Set via the alias — AgentConfig fields are alias-only (populate_by_name off).
-    return AgentConfig(KG_INGEST_GRAPH_ROUTING=routing)
+def _cfg() -> AgentConfig:
+    return AgentConfig()
 
 
 # ── FNV-1a (the engine's EG-026 shard key) — replicated to assert spread ──────
@@ -42,19 +41,9 @@ def _shard(name: str, k: int) -> int:
     return _fnv1a(name) % k
 
 
-# ── Routing policy: deterministic + gated ─────────────────────────────────────
-def test_routing_disabled_is_legacy_commons() -> None:
-    c = _cfg(False)
-    assert ingest_routing.route_graph(repo="agent-utilities", config=c) == "__commons__"
-    assert (
-        ingest_routing.route_graph(kind="connector", source_type="servicenow", config=c)
-        == "__commons__"
-    )
-
-
-def test_routing_disabled_still_honours_tenant() -> None:
-    c = _cfg(False)
-    # Tenant routing (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) is independent of the new flag.
+# ── Routing policy: deterministic ──────────────────────────────────────────────
+def test_routing_honours_tenant() -> None:
+    c = _cfg()
     assert (
         ingest_routing.route_graph(tenant="acme", config=c)
         == "tenant__acme____commons__"
@@ -62,7 +51,7 @@ def test_routing_disabled_still_honours_tenant() -> None:
 
 
 def test_route_graph_per_source_names() -> None:
-    c = _cfg(True)
+    c = _cfg()
     assert (
         ingest_routing.route_graph(repo="agent-utilities", config=c)
         == "code:agent-utilities"
@@ -92,26 +81,18 @@ def test_route_graph_per_source_names() -> None:
     assert ingest_routing.route_graph(config=c) == "__commons__"
 
 
-def _cfg_fanout(routing: bool, fanout: bool) -> AgentConfig:
-    return AgentConfig(
-        KG_INGEST_GRAPH_ROUTING=routing, KG_INGEST_SHARD_FANOUT=fanout
-    )
+def _cfg_fanout(fanout: bool) -> AgentConfig:
+    return AgentConfig(KG_INGEST_SHARD_FANOUT=fanout)
 
 
 # ── Per-shard content-keyed fanout (CONCEPT:AU-KG.ingest.batched-cross-graph-writer) ──
 def test_shard_fanout_off_is_one_graph_per_source() -> None:
     """Fanout OFF (default): a source stays on ONE graph regardless of content_key."""
-    c = _cfg_fanout(routing=True, fanout=False)
+    c = _cfg_fanout(fanout=False)
     assert not ingest_routing.shard_fanout_enabled(c)
     g1 = ingest_routing.route_graph(source_type="freshrss", content_key="a", config=c)
     g2 = ingest_routing.route_graph(source_type="freshrss", content_key="b", config=c)
     assert g1 == g2 == "src:freshrss"
-
-
-def test_shard_fanout_requires_routing() -> None:
-    # Fanout without routing is inert (routing is the prerequisite).
-    c = _cfg_fanout(routing=False, fanout=True)
-    assert not ingest_routing.shard_fanout_enabled(c)
 
 
 def test_shard_fanout_spreads_a_single_source_across_k() -> None:
@@ -120,7 +101,7 @@ def test_shard_fanout_spreads_a_single_source_across_k() -> None:
     pinning one. All sub-graphs keep the ``src:`` prefix (still content graphs)."""
     from unittest import mock
 
-    c = _cfg_fanout(routing=True, fanout=True)
+    c = _cfg_fanout(fanout=True)
     assert ingest_routing.shard_fanout_enabled(c)
     with mock.patch(
         "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
@@ -143,7 +124,7 @@ def test_shard_fanout_spreads_a_single_source_across_k() -> None:
 def test_shard_fanout_is_deterministic_per_content_key() -> None:
     from unittest import mock
 
-    c = _cfg_fanout(routing=True, fanout=True)
+    c = _cfg_fanout(fanout=True)
     with mock.patch(
         "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
         return_value=4,
@@ -163,7 +144,7 @@ def test_shard_fanout_leaves_codebase_and_tenant_whole() -> None:
     is fanned out even with a content_key."""
     from unittest import mock
 
-    c = _cfg_fanout(routing=True, fanout=True)
+    c = _cfg_fanout(fanout=True)
     with mock.patch(
         "agent_utilities.knowledge_graph.core.worker_scheduler.durable_shard_writers",
         return_value=4,
@@ -179,14 +160,14 @@ def test_shard_fanout_leaves_codebase_and_tenant_whole() -> None:
 
 
 def test_route_graph_deterministic() -> None:
-    c = _cfg(True)
+    c = _cfg()
     a = ingest_routing.route_graph(kind="connector", source_type="gitlab", config=c)
     b = ingest_routing.route_graph(kind="connector", source_type="gitlab", config=c)
     assert a == b == "src:gitlab"
 
 
 def test_empty_slug_falls_back_to_default() -> None:
-    c = _cfg(True)
+    c = _cfg()
     # A slug that sanitises to empty must not emit a degenerate ``code:`` name.
     assert ingest_routing.route_graph(repo="///", config=c) == "__commons__"
 
@@ -204,7 +185,7 @@ def test_routing_spreads_across_shards() -> None:
     The whole point of CONCEPT:AU-KG.ingest.unified-query-routing: distinct graph names hash to distinct
     shards, so K cores commit in parallel rather than 1.
     """
-    c = _cfg(True)
+    c = _cfg()
     repos = [
         "agent-utilities",
         "epistemic-graph",
@@ -226,19 +207,17 @@ def test_routing_spreads_across_shards() -> None:
         assert len(buckets) > 1, f"K={k}: names collapsed onto one shard {buckets}"
 
 
-def test_read_graph_targets_gating() -> None:
+def test_read_graph_targets() -> None:
     ingest_routing._reset_for_tests()
-    # Disabled → single default graph (legacy fast path).
-    assert ingest_routing.read_graph_targets(_cfg(False)) == ["__commons__"]
-    # Enabled but nothing routed yet → still single default (no needless fan-out).
-    assert ingest_routing.read_graph_targets(_cfg(True)) == ["__commons__"]
+    # Nothing routed yet → single default (no needless fan-out).
+    assert ingest_routing.read_graph_targets(_cfg()) == ["__commons__"]
     # After content is registered → default first, then the content graphs.
     ingest_routing.register_content_graph("code:foo")
     ingest_routing.register_content_graph("src:bar")
     ingest_routing.register_content_graph(
         "__commons__"
     )  # ignored (not a content graph)
-    targets = ingest_routing.read_graph_targets(_cfg(True))
+    targets = ingest_routing.read_graph_targets(_cfg())
     assert targets[0] == "__commons__"
     assert set(targets) == {"__commons__", "code:foo", "src:bar"}
     ingest_routing._reset_for_tests()
@@ -256,7 +235,6 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         EpistemicGraphBackend,
     )
 
-    monkeypatch.setenv("KG_INGEST_GRAPH_ROUTING", "true")
     ingest_routing._reset_for_tests()
 
     # Write a uniquely-identifiable node into a routed CONTENT graph.
@@ -306,7 +284,7 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
 # The unified read fans an implicit-default query across the active content graphs
 # and merges. Two bugs the merge must not have: (1) an AGGREGATION row (count/sum)
 # has no node id, so the legacy id-dedup leaves one copy of every group row PER
-# graph — the live evidence was a Task count repeated ~24×; (2) the fan-out must
+# graph — the live evidence was an aggregate row repeated ~24×; (2) the fan-out must
 # never query the SAME backend twice (the default ``__commons__`` showing up once
 # per graph). Driven through the real ``graph_query`` tool + ``_resolve_read_engines``.
 
@@ -340,12 +318,14 @@ def test_is_aggregation_cypher_detection() -> None:
     from agent_utilities.mcp.tools.query_tools import is_aggregation_cypher
 
     # Aggregates collapse rows → must be detected.
-    assert is_aggregation_cypher("MATCH (t:Task) RETURN t.lane AS lane, count(*) AS n")
+    assert is_aggregation_cypher(
+        "MATCH (r:Record) RETURN r.category AS category, count(*) AS n"
+    )
     assert is_aggregation_cypher("MATCH (n) RETURN sum(n.cost) AS total")
     assert is_aggregation_cypher("MATCH (n) RETURN avg(n.score), max(n.score)")
     assert is_aggregation_cypher("MATCH (n) RETURN collect(n.id)")
     # Plain row queries are NOT aggregations.
-    assert not is_aggregation_cypher("MATCH (n:Task) RETURN n.id AS id")
+    assert not is_aggregation_cypher("MATCH (n:Record) RETURN n.id AS id")
     assert not is_aggregation_cypher("MATCH (f:Function {name:'probe'}) RETURN f")
     # False-positive guards: a property whose name contains an agg word, and an
     # aggregate word inside a string literal, must NOT trip detection.
@@ -372,7 +352,6 @@ def test_resolve_read_engines_dedups_duplicate_backends(monkeypatch) -> None:
     by_name = {"code:dupcommons": dup, "code:real": real}
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: default_engine)
-    monkeypatch.setattr(ir, "routing_enabled", lambda *a, **k: True)
     monkeypatch.setattr(
         ir,
         "read_graph_targets",
@@ -389,7 +368,7 @@ def test_resolve_read_engines_dedups_duplicate_backends(monkeypatch) -> None:
 
 
 async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
-    """The live-evidence bug: a Task count fanned across ~24 graphs returned the
+    """The live-evidence bug: an aggregate fanned across ~24 graphs returned the
     same aggregate row 24×. It must now return ONE row per (lane,status)."""
     import agent_utilities.mcp.kg_server as kg_server
 
@@ -409,7 +388,7 @@ async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
 
     out = await kg_server._execute_tool(
         "graph_query",
-        cypher="MATCH (t:Task) RETURN t.lane AS lane, t.status AS status, count(*) AS n",
+        cypher="MATCH (r:Record) RETURN r.lane AS lane, r.status AS status, count(*) AS n",
         target="",
     )
     rows = json.loads(out)

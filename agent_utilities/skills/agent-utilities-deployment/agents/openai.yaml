@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Utilities Deployment"
+  short_description: "Provision and verify agent-utilities installations"
+  default_prompt: "Use $agent-utilities-deployment to plan this installation change, apply only authorized steps, and verify the user-visible path."

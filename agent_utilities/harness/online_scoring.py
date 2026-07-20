@@ -23,6 +23,8 @@ used for offline eval — prod monitoring and regression assertions share one pa
 
 import logging
 import random
+import re
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -34,6 +36,7 @@ from agent_utilities.models.knowledge_graph import (
     OnlineScoreNode,
     RegistryEdgeType,
 )
+from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,12 @@ class AutomationRule:
     dimension: str
     criteria: str
 
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", self.dimension):
+            raise ValueError("automation-rule dimension must be a bounded identifier")
+        if not 1 <= len(self.criteria) <= 16_384:
+            raise ValueError("automation-rule criteria exceeds the configured limit")
+
 
 @dataclass
 class Metric:
@@ -56,16 +65,74 @@ class Metric:
     name: str
     source: str
 
+    def __post_init__(self) -> None:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", self.name):
+            raise ValueError("metric name must be a bounded identifier")
+        if not 1 <= len(self.source.encode("utf-8")) <= 64 * 1024:
+            raise ValueError("metric source exceeds the configured limit")
 
-def _run_metric_source(source: str, trace: dict[str, Any]) -> float:
-    """Module-level (picklable) sandbox entry: compile user ``source``, call its
-    ``metric(trace)``, return a clamped float. Runs INSIDE the sandbox subprocess."""
-    ns: dict[str, Any] = {}
-    exec(source, ns)  # nosec B102  # noqa: S102 - executed only inside the resource-bounded sandbox
-    fn = ns.get("metric")
-    if not callable(fn):
-        raise ValueError("metric source must define a callable `metric(trace)`")
-    return max(0.0, min(1.0, float(fn(trace))))
+
+async def _run_metric_isolated(source: str, trace: dict[str, Any]) -> float:
+    """Execute one metric only across approved isolated RLM backends."""
+    import json
+    import math
+
+    from agent_utilities.rlm.sandboxes.base import (
+        SandboxEnv,
+        SandboxRejected,
+    )
+    from agent_utilities.rlm.sandboxes.registry import default_sandboxes
+    from agent_utilities.rlm.sandboxes.router import SandboxRouter
+    from agent_utilities.rlm.telemetry import SandboxFatalError
+
+    encoded_trace = json.dumps(trace, separators=(",", ":")).encode("utf-8")
+    if len(encoded_trace) > 2 * 1024 * 1024:
+        raise ValueError("metric trace view exceeds the configured limit")
+    captured: dict[str, Any] = {}
+
+    def final_var(name: str, value: Any) -> None:
+        if name != "__metric_score__":
+            raise ValueError("metric attempted to set an unknown output")
+        captured[name] = value
+
+    code = f"{source}\nFINAL_VAR('__metric_score__', metric(trace))"
+    router = SandboxRouter(default_sandboxes())
+    chain = router.select(code)
+    env = SandboxEnv(
+        vars={"trace": trace}, helpers={"FINAL_VAR": final_var}
+    )
+    last_rejection = False
+    for backend in chain:
+        try:
+            result = await backend.execute(code, env)
+        except SandboxRejected:
+            last_rejection = True
+            continue
+        if result.error:
+            raise ValueError("metric execution failed")
+        value = float(captured.get("__metric_score__"))
+        if not math.isfinite(value):
+            raise ValueError("metric returned a non-finite score")
+        return max(0.0, min(1.0, value))
+    raise SandboxFatalError(
+        "no approved isolated backend accepted the metric"
+        if last_rejection
+        else "no approved isolated metric backend is available"
+    )
+
+
+def _run_metric_sync(source: str, trace: dict[str, Any]) -> float:
+    """Run the isolated async metric path from sync scoring code."""
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(_run_metric_isolated(source, trace))
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(
+            lambda: asyncio.run(_run_metric_isolated(source, trace))
+        ).result()
 
 
 @dataclass
@@ -84,6 +151,13 @@ class OnlineScoringSampler:
     #: Auto-use the agentic tool-judge for traces over the size threshold (AHE-3.66).
     tool_judge: bool = True
     _pool: ThreadPoolExecutor | None = field(default=None, repr=False)
+    _pending: threading.BoundedSemaphore = field(
+        default_factory=lambda: threading.BoundedSemaphore(128), repr=False
+    )
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.sample_rate <= 1.0:
+            raise ValueError("online-scoring sample_rate must be between 0 and 1")
 
     def install(self) -> OnlineScoringSampler:
         """Wire this sampler to the backend's root-trace-complete hook (non-blocking)."""
@@ -99,7 +173,21 @@ class OnlineScoringSampler:
             return
         pool = self._pool
         if pool is not None:
-            pool.submit(self._safe_score, trace_id)
+            if not self._pending.acquire(blocking=False):
+                logger.warning("online scoring queue is full; dropping a sample")
+                return
+
+            def run_and_release() -> None:
+                try:
+                    self._safe_score(trace_id)
+                finally:
+                    self._pending.release()
+
+            try:
+                pool.submit(run_and_release)
+            except Exception:
+                self._pending.release()
+                logger.debug("online scoring submission failed")
         else:  # no pool (test/no-install) — run inline
             self._safe_score(trace_id)
 
@@ -107,7 +195,9 @@ class OnlineScoringSampler:
         try:
             self.score_trace(trace_id)
         except Exception as exc:  # pragma: no cover - scoring must never crash the host
-            logger.debug("online score_trace failed for %s: %s", trace_id, exc)
+            logger.debug(
+                "online score_trace failed (%s)", type(exc).__name__
+            )
 
     def score_trace(self, trace_id: str) -> list[Any]:
         """Score one trace: automation rules + matching regression assertions.
@@ -116,6 +206,11 @@ class OnlineScoringSampler:
         """
         entry = self.backend.get_trace(trace_id)
         if entry is None:
+            return []
+        privacy = PersistencePrivacyGuard()
+        _, trace_id_report = privacy.sanitize_text(str(trace_id))
+        if trace_id_report.changed:
+            logger.debug("online scoring skipped an unsafe trace identifier")
             return []
         trace = entry["trace"]
         if self.filter_fn is not None and not self.filter_fn(trace):
@@ -192,29 +287,31 @@ class OnlineScoringSampler:
                 # The failing (prod) trace becomes/refreshes a regression case so the same
                 # break is caught from now on (CONCEPT:AU-AHE.harness.receives-trace-id-must closes with AHE-3.61).
                 try:
+                    clean_feedback, _ = privacy.sanitize(
+                        {
+                            "query": query or trace_id,
+                            "expected_output": actual,
+                            "reason": f"online assertion failed: {assertion}",
+                            "assertion": assertion,
+                            "metadata": {"source_trace_id": trace_id},
+                        }
+                    )
                     self.eval_corpus.add_case(
-                        query=query or trace_id,
-                        expected_output=actual,
+                        query=clean_feedback["query"],
+                        expected_output=clean_feedback["expected_output"],
                         tags=["regression", "online_failure"],
-                        reason=f"online assertion failed: {assertion}",
-                        assertion=assertion,
-                        metadata={"source_trace_id": trace_id},
+                        reason=clean_feedback["reason"],
+                        assertion=clean_feedback["assertion"],
+                        metadata=clean_feedback["metadata"],
                     )
                 except Exception as exc:  # pragma: no cover
-                    logger.debug("add_case feedback failed: %s", exc)
+                    logger.debug(
+                        "add_case feedback failed (%s)", type(exc).__name__
+                    )
         return written
 
     def _run_metric(self, metric: Metric, entry: dict[str, Any]) -> tuple[float, str]:
         """Run a user metric over a serialized trace view inside a bounded sandbox."""
-        from agent_utilities.security.sandboxed_executor import (
-            SandboxedExecutor,
-            SandboxLimits,
-        )
-
-        # The wall-clock limit must cover subprocess startup (spawn re-imports the
-        # package), not just the metric body — the metric itself is trivial.
-        limits = SandboxLimits(max_cpu_time_sec=30.0, max_memory_mb=256)
-
         trace = entry["trace"]
         view = {
             "input": getattr(trace, "input", ""),
@@ -230,12 +327,11 @@ class OnlineScoringSampler:
                 for g in entry.get("generations", [])
             ],
         }
-        res = SandboxedExecutor(limits=limits).execute(
-            _run_metric_source, metric.source, view
-        )
-        if res.success:
-            return float(res.output or 0.0), f"metric:{metric.name} ok"
-        return 0.0, f"metric:{metric.name} error: {res.error}"
+        try:
+            score = _run_metric_sync(metric.source, view)
+        except Exception as exc:  # noqa: BLE001 - scoring failure is contained
+            return 0.0, f"metric:{metric.name} error:{type(exc).__name__}"
+        return score, f"metric:{metric.name} ok"
 
     def _matching_cases(self, trace: Any) -> list[Any]:
         """Regression cases whose tags intersect the trace's tags (or untagged = all)."""
@@ -261,13 +357,18 @@ class OnlineScoringSampler:
         try:
             props = node.model_dump()
             props.pop("id", None)
-            props["type"] = str(props.get("type", ""))
-            be.add_node(node.id, **props)
+            props["node_type"] = str(props.pop("type", ""))
+            clean_props, _ = PersistencePrivacyGuard().sanitize(props)
+            if not isinstance(clean_props, dict):
+                return
+            be.add_node(node.id, **clean_props)
             link = getattr(be, "link_nodes", None)
             if callable(link):
                 link(trace_id, node.id, RegistryEdgeType.SCORED_BY)
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug("online-score persist failed: %s", exc)
+            logger.debug(
+                "online-score persist failed (%s)", type(exc).__name__
+            )
 
 
 __all__ = ["AutomationRule", "Metric", "OnlineScoringSampler"]

@@ -24,8 +24,8 @@ from .base import (
     SourceDocument,
 )
 from .checkpoint import CheckpointedBatch, ConnectorCheckpoint
-from .permission_sync import sync_access
 from .registry import (
+    ConnectorGovernanceError,
     build_connector,
     discover,
     get_connector_class,
@@ -35,6 +35,7 @@ from .registry import (
 
 __all__ = [
     "BaseSourceConnector",
+    "ConnectorGovernanceError",
     "LoadConnector",
     "PollConnector",
     "SlimConnector",
@@ -51,3 +52,18 @@ __all__ = [
     "discover",
     "sync_access",
 ]
+
+
+def __getattr__(name: str):
+    """Keep the low-level HTTP/connector package import kernel-independent.
+
+    Permission synchronization reaches the ontology/session stack and therefore
+    the full native numeric kernel. Import it only when a caller actually asks
+    for that high-level operation; HTTP safety and connector schemas must remain
+    usable in lean bootstrap, doctor, and security-test environments.
+    """
+    if name == "sync_access":
+        from .permission_sync import sync_access
+
+        return sync_access
+    raise AttributeError(name)

@@ -50,10 +50,9 @@ grep ``kg_ingest`` in either package), this module:
 merges anything. Turning a proposal into action is the SAME enablement path
 those modules document: ``graph_loops(action="submit", kind="develop",
 entry_node=<proposal id>)`` scoped to the failing branch, gated by an operator
-un-suspending the CronJob
-(``inventory/k8s-migration/cutover/apptier/ci-recycle.yaml``) once satisfied
-with the report-only output — see that manifest's header comment for the exact
-enablement steps.
+enabling the deployment's configured CI-recycle schedule after reviewing the
+report-only output. Authorization and rollout details belong to the external
+deployment configuration, not this package.
 
 Best-effort + engine-guarded: a missing engine degrades every entry point to
 an empty/no-op result rather than raising. Run over one failed pipeline via
@@ -156,7 +155,7 @@ class _GraphReader:
 
 def _signature(pipeline_id: str, failure_class: str, attempt: int) -> str:
     raw = f"{pipeline_id}|{failure_class}|{attempt}"
-    return hashlib.sha1(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _class_key(repo: str, failure_class: str) -> dict[str, Any]:

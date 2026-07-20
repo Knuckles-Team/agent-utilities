@@ -5,7 +5,7 @@ This reference is grounded directly in the epistemic-graph engine's implementati
 `file:line` in `epistemic-graph/crates/eg-plan/src/uql/{lexer,parser,mod}.rs` (the
 parser/AST) and `epistemic-graph/crates/eg-plan/src/exec.rs` (the executor) that
 implements it. Repo root for all citations below:
-`/home/apps/workspace/agent-packages/epistemic-graph`. Anything that appears in a
+`${WORKSPACE_ROOT}/agent-packages/epistemic-graph`. Anything that appears in a
 prior doc or system prompt but is **not** in the parser/executor is filed under
 [§4 Known gaps](#4-known-gaps--bug-candidates-documented-but-not-implemented-at-the-uql-text-surface) as a
 bug candidate, not the main grammar.

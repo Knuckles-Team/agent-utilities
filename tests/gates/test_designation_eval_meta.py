@@ -30,7 +30,7 @@ def _numeric_kernel_available() -> bool:
 # lean CI). These pass/trip assertions only hold when the gate can actually run.
 _needs_numeric_kernel = pytest.mark.skipif(
     not _numeric_kernel_available(),
-    reason="designation-eval gate requires the epistemic-graph[numeric] kernel "
+    reason="designation-eval gate requires the epistemic-graph[full] kernel "
     "(its trip/pass assertions do not apply without it)",
 )
 

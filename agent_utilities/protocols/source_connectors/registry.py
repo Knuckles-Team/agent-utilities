@@ -28,6 +28,7 @@ from .base import BaseSourceConnector
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ConnectorGovernanceError",
     "register_source",
     "build_connector",
     "get_connector_class",
@@ -39,6 +40,58 @@ _SOURCE_REGISTRY: dict[str, type[BaseSourceConnector]] = {}
 _DISCOVERED = False
 
 C = TypeVar("C", bound=type[BaseSourceConnector])
+
+
+class ConnectorGovernanceError(PermissionError):
+    """A connector activation lacks a valid signed capability bundle."""
+
+
+def _development_governance_bypass() -> bool:
+    """Permit isolated unit fixtures only; production can never bypass the gate."""
+
+    from agent_utilities.base_utilities import to_boolean
+    from agent_utilities.core.config import setting
+    from agent_utilities.core.profile_guard import is_production_profile
+
+    return not is_production_profile() and to_boolean(
+        setting("AGENT_UTILITIES_TESTING", False)
+    )
+
+
+def _governance_source(source_type: str, config: dict[str, Any]) -> str:
+    """Resolve a transport connector to the package whose bundle owns it."""
+
+    if source_type == "mcp_tool":
+        from .connectors.mcp_tool import get_tool_preset, preset_provider
+
+        preset = str(config.get("preset") or "").strip()
+        provider = preset_provider(preset) if preset else None
+        preset_config = get_tool_preset(preset) if preset else {}
+        return str(
+            provider
+            or config.get("server")
+            or preset_config.get("server")
+            or source_type
+        )
+    if source_type == "mcp":
+        return str(config.get("package") or config.get("server") or source_type)
+    return source_type
+
+
+def _require_certified_bundle(source_type: str, config: dict[str, Any]) -> None:
+    if _development_governance_bypass():
+        return
+    from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (
+        precheck_source,
+    )
+
+    governed_source = _governance_source(source_type, config)
+    result = precheck_source(governed_source)
+    if not result.get("checked") or not result.get("ok"):
+        raise ConnectorGovernanceError(
+            "connector activation refused: a signed, provider-verified capability "
+            "bundle is required"
+        )
 
 
 def register_source(source_type: str) -> Callable[[C], C]:
@@ -132,4 +185,6 @@ def build_connector(
             f"No source connector registered for {source_type!r}. "
             f"Available: {', '.join(list_sources()) or '(none)'}"
         )
-    return cls(**(config or {}))
+    resolved_config = dict(config or {})
+    _require_certified_bundle(source_type, resolved_config)
+    return cls(**resolved_config)

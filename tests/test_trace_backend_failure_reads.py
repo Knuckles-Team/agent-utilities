@@ -28,10 +28,18 @@ class _FakeApi:
     def __init__(self):
         self.calls = {}
 
-    def legacy_observations_v1_get_many(self, **kwargs):
-        self.calls["legacy_observations_v1_get_many"] = kwargs
+    def observations_get_many(self, **kwargs):
+        self.calls["observations_get_many"] = kwargs
         return {
-            "data": [{"id": "o1", "traceId": "t1", "name": "loop", "level": "ERROR"}]
+            "data": [
+                {
+                    "id": "o1",
+                    "traceId": "t1",
+                    "name": "loop contact@example.test",
+                    "statusMessage": "failed at /home/example/private/input.md",
+                    "level": "ERROR",
+                }
+            ]
         }
 
     def scores_get_many(self, **kwargs):
@@ -51,6 +59,10 @@ class _FakeApi:
             ]
         }
 
+    def trace_list(self, **kwargs):
+        self.calls["trace_list"] = kwargs
+        return {"data": []}
+
 
 def _backend_with_fake():
     b = LangfuseTraceBackend()
@@ -59,13 +71,36 @@ def _backend_with_fake():
 
 
 class TestLangfuseFailureReads:
-    def test_error_observations_uses_legacy_endpoint_with_level(self):
+    def test_health_check_performs_authenticated_api_read(self):
+        b = _backend_with_fake()
+
+        assert asyncio.run(b.health_check()) is True
+        assert b._api.calls["trace_list"] == {
+            "page": 1,
+            "limit": 1,
+            "fields": "core",
+        }
+
+    def test_health_check_rejects_api_failures(self):
+        class _Rejected:
+            def trace_list(self, **_kwargs):
+                raise RuntimeError("rejected")
+
+        b = LangfuseTraceBackend()
+        b._api = _Rejected()
+
+        assert asyncio.run(b.health_check()) is False
+
+    def test_error_observations_uses_current_endpoint_with_level(self):
         b = _backend_with_fake()
         rows = asyncio.run(b.get_error_observations(since="2026-01-01T00:00:00Z"))
-        call = b._api.calls["legacy_observations_v1_get_many"]
+        call = b._api.calls["observations_get_many"]
+        assert call["fields"] == "core,basic,time"
         assert call["level"] == "ERROR"
         assert call["from_start_time"] == "2026-01-01T00:00:00Z"
         assert rows and rows[0]["traceId"] == "t1"
+        assert "example.test" not in rows[0]["name"]
+        assert "/home/example" not in rows[0]["statusMessage"]
 
     def test_low_score_traces_filters_below_threshold(self):
         b = _backend_with_fake()
@@ -91,7 +126,7 @@ class TestLangfuseFailureReads:
 
     def test_api_failure_degrades_to_empty(self):
         class _Boom:
-            def legacy_observations_v1_get_many(self, **k):
+            def observations_get_many(self, **k):
                 raise RuntimeError("down")
 
         b = LangfuseTraceBackend()

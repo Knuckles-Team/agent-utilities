@@ -216,15 +216,7 @@ async def link_knowledge_nodes(
     if not engine.graph.has_node(source_id) or not engine.graph.has_node(target_id):
         return f"Error: One or both node IDs ({source_id}, {target_id}) not found in graph."
 
-    engine.graph.add_edge(source_id, target_id, {"type": relationship})
-
-    if engine.backend:
-        engine.backend.execute(
-            "MATCH (a {id: $source}), (b {id: $target}) MERGE (a)-[r:"
-            + relationship.upper()
-            + "]->(b)",
-            {"source": source_id, "target": target_id},
-        )
+    engine.link_nodes(source_id, target_id, relationship)
 
     return f"Successfully established {relationship} link between {source_id} and {target_id}."
 
@@ -312,12 +304,10 @@ async def log_heartbeat(
     if not engine:
         return "Knowledge Graph not available."
 
-    hb_id = f"hb:{uuid.uuid4().hex[:8]}"
+    hb_id = f"hb:{uuid.uuid4().hex}"
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     props = {
-        "id": hb_id,
-        "type": "heartbeat",
         "agent_name": agent_name,
         "timestamp": timestamp,
         "status": status,
@@ -326,16 +316,10 @@ async def log_heartbeat(
     }
 
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:Heartbeat {id: $id}) SET n += $props",
-            {"id": hb_id, "props": props},
-        )
-        engine.backend.execute(
-            "MERGE (a:Agent {id: $agent_id}) "
-            "WITH a MATCH (h:Heartbeat {id: $hb_id}) "
-            "MERGE (h)-[:HEARTBEAT_OF]->(a)",
-            {"agent_id": f"agent:{agent_name}", "hb_id": hb_id},
-        )
+        agent_id = f"agent:{agent_name}"
+        engine.add_node(hb_id, "Heartbeat", props)
+        engine.add_node(agent_id, "Agent")
+        engine.link_nodes(hb_id, agent_id, "HEARTBEAT_OF")
         return f"Heartbeat logged with ID: {hb_id}"
     return "Failed to log heartbeat."
 
@@ -350,18 +334,10 @@ async def create_client(
     if not engine:
         return "Knowledge Graph not available."
 
-    client_id = f"client:{uuid.uuid4().hex[:8]}"
-    props = {
-        "id": client_id,
-        "type": "client",
-        "name": name,
-        "description": description,
-    }
+    client_id = f"client:{uuid.uuid4().hex}"
+    props = {"name": name, "description": description}
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:Client {id: $id}) SET n += $props",
-            {"id": client_id, "props": props},
-        )
+        engine.add_node(client_id, "Client", props)
         return f"Client created with ID: {client_id}"
     return "Failed to create client."
 
@@ -379,17 +355,12 @@ async def create_user(
     if not engine:
         return "Knowledge Graph not available."
 
-    user_id = f"user:{uuid.uuid4().hex[:8]}"
-    props = {"id": user_id, "type": "user", "name": name, "role": role}
+    user_id = f"user:{uuid.uuid4().hex}"
+    props = {"name": name, "role": role}
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:User {id: $id}) SET n += $props", {"id": user_id, "props": props}
-        )
+        engine.add_node(user_id, "User", props)
         if client_id:
-            engine.backend.execute(
-                "MATCH (u:User {id: $u_id}), (c:Client {id: $c_id}) MERGE (u)-[:BELONGS_TO]->(c)",
-                {"u_id": user_id, "c_id": client_id},
-            )
+            engine.link_nodes(user_id, client_id, "BELONGS_TO")
         return f"User created with ID: {user_id}"
     return "Failed to create user."
 
@@ -404,17 +375,11 @@ async def save_preference(
     if not engine:
         return "Knowledge Graph not available."
 
-    pref_id = f"pref:{uuid.uuid4().hex[:8]}"
-    props = {"id": pref_id, "type": "preference", "category": category, "value": value}
+    pref_id = f"pref:{uuid.uuid4().hex}"
+    props = {"category": category, "value": value}
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:Preference {id: $id}) SET n += $props",
-            {"id": pref_id, "props": props},
-        )
-        engine.backend.execute(
-            "MATCH (u:User {id: $u_id}), (p:Preference {id: $p_id}) MERGE (u)-[:PREFERS]->(p)",
-            {"u_id": user_id, "p_id": pref_id},
-        )
+        engine.add_node(pref_id, "Preference", props)
+        engine.link_nodes(user_id, pref_id, "PREFERS")
         return f"Preference saved with ID: {pref_id}"
     return "Failed to save preference."
 
@@ -429,28 +394,19 @@ async def save_chat_message(
     if not engine:
         return "Knowledge Graph not available."
 
-    msg_id = f"msg:{uuid.uuid4().hex[:8]}"
+    msg_id = f"msg:{uuid.uuid4().hex}"
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     props = {
-        "id": msg_id,
-        "type": "message",
         "role": role,
         "content": content,
         "timestamp": timestamp,
     }
 
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:Message {id: $id}) SET n += $props",
-            {"id": msg_id, "props": props},
-        )
-        engine.backend.execute(
-            "MERGE (t:Thread {id: $t_id}) "
-            "WITH t MATCH (m:Message {id: $m_id}) "
-            "MERGE (m)-[:PART_OF]->(t)",
-            {"t_id": thread_id, "m_id": msg_id},
-        )
+        engine.add_node(msg_id, "Message", props)
+        engine.add_node(thread_id, "Thread")
+        engine.link_nodes(msg_id, thread_id, "PART_OF")
         # Note: Embedding logic (LM Studio) will be handled in a background task or specific pipeline phase.
         return f"Message saved with ID: {msg_id}"
     return "Failed to save message."
@@ -466,27 +422,19 @@ async def log_cron_execution(
     if not engine:
         return "Knowledge Graph not available."
 
-    log_id = f"log:{uuid.uuid4().hex[:8]}"
+    log_id = f"log:{uuid.uuid4().hex}"
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     props = {
-        "id": log_id,
-        "type": "log",
         "timestamp": timestamp,
         "status": status,
         "output": output,
     }
 
     if engine.backend:
-        engine.backend.execute(
-            "MERGE (n:Log {id: $id}) SET n += $props", {"id": log_id, "props": props}
-        )
-        engine.backend.execute(
-            "MERGE (j:Job {id: $j_id}) "
-            "WITH j MATCH (l:Log {id: $l_id}) "
-            "MERGE (l)-[:EXECUTED_BY]->(j)",
-            {"j_id": job_id, "l_id": log_id},
-        )
+        engine.add_node(log_id, "Log", props)
+        engine.add_node(job_id, "Job")
+        engine.link_nodes(log_id, job_id, "EXECUTED_BY")
         return f"Cron execution logged with ID: {log_id}"
     return "Failed to log cron execution."
 
@@ -851,90 +799,6 @@ async def archive_knowledge_base(
         return f"❌ Archive error: {e}"
 
 
-@trace(name="export_knowledge_base", trace_type="TOOL")
-@tool_version("1.0.0")
-async def export_knowledge_base(
-    ctx: RunContext[AgentDeps],
-    kb_id: str,
-    output_dir: str,
-) -> str:
-    """Export a knowledge base as a directory of Markdown files.
-
-    Creates Obsidian-compatible markdown files with YAML frontmatter,
-    internal [[wiki-links]], and a table of contents index file.
-    This allows viewing the KB in any Markdown editor (Obsidian, VS Code, etc.)
-
-    Args:
-        kb_id: The KB to export (e.g., "kb:pydantic-ai-docs").
-        output_dir: Directory path where markdown files will be written.
-
-    Returns:
-        Export summary with file count and output path.
-    """
-    try:
-        from pathlib import Path
-
-        engine = get_knowledge_engine(ctx)
-        if not engine:
-            return "Knowledge engine not available."
-
-        if not engine.graph.has_node(kb_id):
-            return f"KB not found: {kb_id}"
-
-        kb_data = engine.graph._get_node_properties(kb_id)
-        kb_name = kb_data.get("name", kb_id)
-        out_path = Path(output_dir)
-        out_path.mkdir(parents=True, exist_ok=True)
-
-        from ...models.knowledge_graph import RegistryNodeType
-
-        articles_exported = 0
-        index_lines = [f"# {kb_name} Knowledge Base\n\n"]
-
-        # Find articles linked to this KB via incoming edges
-        for n in engine.graph.get_neighbors(kb_id):
-            node_data = engine.graph._get_node_properties(n)
-            if node_data.get("type") != RegistryNodeType.ARTICLE:
-                continue
-
-            title = node_data.get("name", n) or n
-            summary = node_data.get("description", "")
-            content = node_data.get("content", summary) or ""
-            tags = node_data.get("tags", [])
-
-            # Build Obsidian-compatible frontmatter
-            frontmatter = (
-                f"---\n"
-                f'title: "{title}"\n'
-                f'kb: "{kb_id}"\n'
-                f"tags: [{', '.join(tags)}]\n"
-                f"importance: {node_data.get('importance_score', 0.5):.2f}\n"
-                f"---\n\n"
-            )
-
-            # Sanitize filename
-            safe_name = "".join(
-                c if c.isalnum() or c in "-_ " else "_" for c in str(title)
-            )[:80]
-            file_path = out_path / f"{safe_name}.md"
-            file_path.write_text(frontmatter + str(content), encoding="utf-8")
-            articles_exported += 1
-            index_lines.append(f"- [[{safe_name}]]: {summary[:100]}")
-
-        # Write index file
-        index_path = out_path / "INDEX.md"
-        index_path.write_text("\n".join(index_lines), encoding="utf-8")
-
-        return (
-            f"✅ Exported KB '{kb_name}' to: {output_dir}\n"
-            f"   Articles: {articles_exported}\n"
-            f"   Index: {index_path}"
-        )
-    except Exception as e:
-        logger.error(f"export_knowledge_base failed: {e}")
-        return f"❌ Export error: {e}"
-
-
 KB_TOOLS = [
     ingest_knowledge_base,
     list_knowledge_bases,
@@ -943,5 +807,4 @@ KB_TOOLS = [
     update_knowledge_base,
     run_kb_health_check,
     archive_knowledge_base,
-    export_knowledge_base,
 ]

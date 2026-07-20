@@ -132,7 +132,10 @@ class _FakeCompute:
 def _session(tenant: str = "acme") -> GraphSession:
     return GraphSession(
         actor=ActorContext(
-            actor_id="user:1", actor_type=ActorType.HUMAN, tenant_id=tenant
+            actor_id="user:1",
+            actor_type=ActorType.HUMAN,
+            tenant_id=tenant,
+            authenticated=True,
         ),
         tenant=tenant,
     )

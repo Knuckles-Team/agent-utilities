@@ -186,7 +186,7 @@ class ImprovementLedger:
 
             try:
                 self.engine.add_node(
-                    f"improvement_velocity:{uuid.uuid4().hex[:12]}",
+                    f"improvement_velocity:{uuid.uuid4().hex}",
                     "ImprovementVelocity",
                     properties={
                         "verdict": v.verdict,

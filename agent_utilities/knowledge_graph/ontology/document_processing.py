@@ -35,10 +35,11 @@ processor — never a stub:
     single-file path); PDFs use ``pypdf``/``pdfminer`` when importable and degrade
     to a *clear, explicit* error path otherwise (never a silent empty stub).
     Embeddings come from :func:`create_embedding_model` (768-dim default).
-    Materialization writes through the **live graph write path** (the facade
-    store's ``add_node`` / ``add_edge``, exactly as ``ingestion/engine.py`` does)
-    and returns the ``{document_node, chunk_nodes, edges}`` structure even when
-    offline (no backend) so the pipeline is testable + usable without a daemon.
+    Runtime materialization commits the complete document/chunk/section slice
+    through one engine-native ``ChangeEnvelope``. The historical facade
+    ``add_node`` / ``add_edge`` writer remains only for offline construction and
+    explicitly enabled test fixtures; the returned structure is available even
+    when persistence is disabled.
 
 Reuses the existing fabric — nothing reinvented:
   - Text extraction: ``kb/parser.py`` (:class:`KBDocumentParser`) and
@@ -47,8 +48,8 @@ Reuses the existing fabric — nothing reinvented:
   - Embeddings: ``core.embedding_utilities.create_embedding_model`` (the single
     ``EmbeddingFactory``) via ``get_text_embedding_batch`` — same call the
     enrichment ``make_embed_fn`` uses.
-  - Write path: the facade store backend ``add_node(node_id, label, **props)`` /
-    ``add_edge(source, target, rel_type, **props)`` contract.
+  - Write path: engine-native ``ApplyChangeEnvelope`` for runtime persistence;
+    the facade store protocol is an offline/test compatibility surface only.
   - Ontology property types: the ``embedding`` / ``vector`` :class:`PropertyType`
     (KG-2.47, 768-dim default) is the declared type of the per-chunk vector — the
     integrator can promote the Chunk object type's ``embedding`` property to it.
@@ -353,6 +354,7 @@ class ProcessedDocument(BaseModel):
     document_id: str = ""
     chunk_count: int = 0
     persisted: bool = False
+    access_synced: bool = False
     # Section-tree slice (CONCEPT:AU-KG.retrieval.section-tree) — populated only
     # when ``process(section_tree=True)``; empty otherwise so the existing
     # chunk-only pipeline stays byte-identical. ``section_roots`` is the nested
@@ -413,6 +415,7 @@ class DocumentProcessor:
         self,
         graph: Any = None,
         *,
+        engine: Any = None,
         chunking: ChunkingConfig | None = None,
         embed_fn: EmbedFn | None = None,
         embedding_dim: int = DEFAULT_EMBEDDING_DIM,
@@ -421,6 +424,7 @@ class DocumentProcessor:
         extract_links: bool = False,
     ) -> None:
         self.graph = graph
+        self.engine = engine
         self.chunking = chunking or ChunkingConfig()
         self.embedding_dim = embedding_dim
         self._embed_fn = embed_fn
@@ -447,14 +451,19 @@ class DocumentProcessor:
         text: str | None = None,
         source: str = "",
         metadata: dict[str, Any] | None = None,
+        external_access: Any = None,
         persist: bool = True,
         section_tree: bool | SectionTreeConfig = False,
+        connector: str = "document",
+        source_instance: str = "",
+        checkpoint: str | None = None,
+        extra_edges: list[dict[str, Any]] | None = None,
     ) -> ProcessedDocument:
         """Run the full pipeline and materialize Document + Chunk objects.
 
         CONCEPT:AU-KG.ingest.chunk-overlap-stage — ``media → extract/OCR → chunk(overlap) → explode →
-        embed → materialize``. Writes through the live graph write path when a
-        backend is reachable and ``persist`` is True; always returns the
+        embed → materialize``. Commits through the native ChangeEnvelope authority
+        when ``engine`` is configured and ``persist`` is True; always returns the
         ``{document_node, chunk_nodes, edges}`` structure (via
         :class:`ProcessedDocument`).
 
@@ -473,6 +482,9 @@ class DocumentProcessor:
                 PDF on a host without pypdf). When given, extraction is skipped.
             source: Human-readable source label (path/URL) for provenance.
             metadata: Extra metadata merged onto the Document node.
+            external_access: Connector access descriptor. A missing descriptor
+                is quarantined; the same descriptor is stamped on the Document
+                and every Chunk and registered before any graph write.
             persist: When True and a live backend exists, commit the slice.
 
         Raises:
@@ -494,6 +506,19 @@ class DocumentProcessor:
         doc_id = document_id or self._document_id(src_label, content_hash)
         final_title = title or derived_title or (src_label or doc_id)
         final_type = doc_type or detected_type or "document"
+
+        from ...protocols.source_connectors.base import ExternalAccess
+
+        if external_access is None:
+            access = ExternalAccess.quarantined()
+        elif isinstance(external_access, ExternalAccess):
+            access = external_access
+        else:
+            access = ExternalAccess.model_validate(external_access)
+        governance = {
+            "external_access": access.model_dump(),
+            "classification": "public" if access.is_public else "internal",
+        }
 
         spans = chunk_text(raw_text, self.chunking)
 
@@ -538,15 +563,19 @@ class DocumentProcessor:
             content_hash=content_hash,
             chunk_count=len(chunks),
             char_count=len(raw_text),
-            extra=metadata,
+            extra={**(metadata or {}), **governance},
         )
         chunk_nodes = [self._build_chunk_node(c) for c in chunks]
+        for chunk_node in chunk_nodes:
+            chunk_node.update(governance)
         edges = self._build_edges(doc_id, chunks)
 
         link_nodes: list[dict[str, Any]] = []
         if self.extract_links:
             link_nodes, link_edges = self._build_link_edges(doc_id, raw_text)
             edges.extend(link_edges)
+        if extra_edges:
+            edges.extend(dict(edge) for edge in extra_edges)
 
         result = ProcessedDocument(
             document_node=document_node,
@@ -580,14 +609,35 @@ class DocumentProcessor:
             result.section_roots = roots
             result.section_nodes = sec_nodes
             result.section_edges = sec_edges
+            for section_node in result.section_nodes:
+                section_node.update(governance)
 
         if persist:
-            result.persisted = self._persist(
-                document_node, chunk_nodes + link_nodes, edges
-            )
-            if result.section_nodes:
-                # Best-effort: section slice failures never abort the chunk slice.
-                self._persist_sections(result.section_nodes, result.section_edges)
+            if self.engine is not None:
+                result.persisted = self._persist_native(
+                    result,
+                    connector=connector,
+                    source_instance=source_instance,
+                    checkpoint=checkpoint,
+                    access=access,
+                )
+                result.access_synced = result.persisted
+            else:
+                from ...protocols.source_connectors.permission_sync import sync_access
+
+                access_edges = [
+                    (edge["source"], edge["target"])
+                    for edge in [*edges, *result.section_edges]
+                    if edge.get("relationship")
+                    in {HAS_CHUNK_EDGE, HAS_SECTION_EDGE, HAS_SUBSECTION_EDGE}
+                ]
+                sync_access(doc_id, access, access_edges)
+                result.access_synced = True
+                result.persisted = self._persist(
+                    document_node, chunk_nodes + link_nodes, edges
+                )
+                if result.section_nodes:
+                    self._persist_sections(result.section_nodes, result.section_edges)
         return result
 
     # ── text extraction ──────────────────────────────────────────────────
@@ -676,12 +726,12 @@ class DocumentProcessor:
                 if joined:
                     return joined
         except Exception as exc:  # noqa: BLE001 — fall through to lighter reader
-            logger.debug("KBDocumentParser failed for %s: %s", path, exc)
+            logger.debug("KBDocumentParser failed (%s)", type(exc).__name__)
 
         try:
             return read_document_text(str(path))
         except Exception as exc:  # noqa: BLE001
-            logger.debug("read_document_text failed for %s: %s", path, exc)
+            logger.debug("read_document_text failed (%s)", type(exc).__name__)
             return ""
 
     @staticmethod
@@ -820,7 +870,7 @@ class DocumentProcessor:
     ) -> dict[str, Any]:
         node: dict[str, Any] = {
             "id": doc_id,
-            "type": DOCUMENT_NODE_TYPE,
+            "node_type": DOCUMENT_NODE_TYPE,
             "name": title,
             "doc_type": doc_type,
             "source": source,
@@ -839,7 +889,7 @@ class DocumentProcessor:
     def _build_chunk_node(self, chunk: DocumentChunk) -> dict[str, Any]:
         node: dict[str, Any] = {
             "id": chunk.id,
-            "type": CHUNK_NODE_TYPE,
+            "node_type": CHUNK_NODE_TYPE,
             "name": f"{chunk.document_id}#{chunk.position}",
             "document_id": chunk.document_id,
             "position": chunk.position,
@@ -869,7 +919,7 @@ class DocumentProcessor:
                 {
                     "source": doc_id,
                     "target": c.id,
-                    "type": HAS_CHUNK_EDGE,
+                    "relationship": HAS_CHUNK_EDGE,
                     "position": c.position,
                 }
             )
@@ -877,7 +927,7 @@ class DocumentProcessor:
                 {
                     "source": c.id,
                     "target": doc_id,
-                    "type": CHUNK_OF_EDGE,
+                    "relationship": CHUNK_OF_EDGE,
                     "position": c.position,
                 }
             )
@@ -901,7 +951,7 @@ class DocumentProcessor:
             link_nodes.append(
                 {
                     "id": tid,
-                    "type": DOCUMENT_NODE_TYPE,
+                    "node_type": DOCUMENT_NODE_TYPE,
                     "name": label or target,
                     "dangling": True,
                     "external": is_external,
@@ -913,7 +963,7 @@ class DocumentProcessor:
                 {
                     "source": doc_id,
                     "target": tid,
-                    "type": LINKS_TO_EDGE,
+                    "relationship": LINKS_TO_EDGE,
                     "label": label,
                     "href": target,
                 }
@@ -921,6 +971,47 @@ class DocumentProcessor:
         return link_nodes, link_edges
 
     # ── live graph write path ────────────────────────────────────────────
+
+    def _persist_native(
+        self,
+        result: ProcessedDocument,
+        *,
+        connector: str,
+        source_instance: str,
+        checkpoint: str | None,
+        access: Any,
+    ) -> bool:
+        """Commit the complete document/chunk/section slice atomically."""
+        from ..ingestion.change_envelope import ChangeEnvelope
+        from ..ingestion.envelope_ingest import ingest_envelope
+
+        record = dict(result.document_node)
+        auxiliary = [
+            *result.chunk_nodes,
+            *result.link_nodes,
+            *result.section_nodes,
+        ]
+        if auxiliary:
+            record["_nodes"] = [dict(node) for node in auxiliary]
+        links = [*result.edges, *result.section_edges]
+        if links:
+            record["_links"] = [dict(edge) for edge in links]
+        env = ChangeEnvelope.from_connector_record(
+            record,
+            connector=connector,
+            source_instance=source_instance,
+            id_field="id",
+            version_field="content_hash",
+            checkpoint=checkpoint,
+            source_acl=access,
+        )
+        applied = ingest_envelope(self.engine, env)
+        if applied.get("status") not in {"success", "skipped"}:
+            raise RuntimeError(
+                "native document ChangeEnvelope failed: "
+                f"{applied.get('error') or applied.get('status')}"
+            )
+        return True
 
     def _resolve_writer(self) -> Any:
         """Return an object exposing ``add_node`` / ``add_edge``, or ``None``.
@@ -969,15 +1060,19 @@ class DocumentProcessor:
         batched = _BatchedBackend(writer)
         if batched.bulk_available:
             for node in (document_node, *chunk_nodes):
-                props = {k: v for k, v in node.items() if k not in ("id", "type")}
-                batched.add_node(
-                    node["id"], label=node["type"], type=node["type"], **props
-                )
+                props = {
+                    k: v for k, v in node.items() if k not in ("id", "node_type")
+                }
+                batched.add_node(node["id"], label=node["node_type"], **props)
             for e in edges:
                 props = {
-                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                    k: v
+                    for k, v in e.items()
+                    if k not in ("source", "target", "relationship")
                 }
-                batched.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
+                batched.add_edge(
+                    e["source"], e["target"], rel_type=e["relationship"], **props
+                )
             try:
                 batched.flush()
                 return True
@@ -991,9 +1086,13 @@ class DocumentProcessor:
         for e in edges:
             try:
                 props = {
-                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                    k: v
+                    for k, v in e.items()
+                    if k not in ("source", "target", "relationship")
                 }
-                writer.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
+                writer.add_edge(
+                    e["source"], e["target"], rel_type=e["relationship"], **props
+                )
                 ok = True
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
@@ -1024,9 +1123,13 @@ class DocumentProcessor:
         for e in section_edges:
             try:
                 props = {
-                    k: v for k, v in e.items() if k not in ("source", "target", "type")
+                    k: v
+                    for k, v in e.items()
+                    if k not in ("source", "target", "relationship")
                 }
-                writer.add_edge(e["source"], e["target"], rel_type=e["type"], **props)
+                writer.add_edge(
+                    e["source"], e["target"], rel_type=e["relationship"], **props
+                )
                 ok = True
             except Exception as exc:  # noqa: BLE001
                 logger.debug(
@@ -1040,20 +1143,11 @@ class DocumentProcessor:
     @staticmethod
     def _write_node(writer: Any, node: dict[str, Any]) -> bool:
         try:
-            props = {k: v for k, v in node.items() if k not in ("id", "type")}
-            writer.add_node(node["id"], label=node["type"], type=node["type"], **props)
+            props = {
+                k: v for k, v in node.items() if k not in ("id", "node_type")
+            }
+            writer.add_node(node["id"], label=node["node_type"], **props)
             return True
-        except TypeError:
-            # Backend without a ``label`` kwarg — retry with ``type`` only.
-            try:
-                props = {k: v for k, v in node.items() if k != "id"}
-                writer.add_node(node["id"], **props)
-                return True
-            except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "[KG-2.48] add_node failed for %s: %s", node.get("id"), exc
-                )
-                return False
         except Exception as exc:  # noqa: BLE001
             logger.debug("[KG-2.48] add_node failed for %s: %s", node.get("id"), exc)
             return False
@@ -1651,7 +1745,7 @@ def section_nodes_and_edges(
         full_id = f"{document_id}::section::{section.node_id}"
         node: dict[str, Any] = {
             "id": full_id,
-            "type": SECTION_NODE_TYPE,
+            "node_type": SECTION_NODE_TYPE,
             "name": section.title,
             "document_id": document_id,
             # ``tree_node_id`` (not ``node_id``) so the property never collides
@@ -1678,19 +1772,23 @@ def section_nodes_and_edges(
             {
                 "source": document_id,
                 "target": full_id,
-                "type": HAS_SECTION_EDGE,
+                "relationship": HAS_SECTION_EDGE,
                 "tree_node_id": section.node_id,
             }
         )
         edges.append(
-            {"source": full_id, "target": document_id, "type": SECTION_OF_EDGE}
+            {
+                "source": full_id,
+                "target": document_id,
+                "relationship": SECTION_OF_EDGE,
+            }
         )
         if parent_full_id:
             edges.append(
                 {
                     "source": parent_full_id,
                     "target": full_id,
-                    "type": HAS_SUBSECTION_EDGE,
+                    "relationship": HAS_SUBSECTION_EDGE,
                 }
             )
         for child in section.children:

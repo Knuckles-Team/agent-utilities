@@ -113,7 +113,7 @@ class PerspectiveInquiry:
         entities: list[dict[str, Any]] = [
             {
                 "id": root,
-                "type": "research_inquiry",
+                "node_type": "research_inquiry",
                 "name": f"Perspectival inquiry: {self.topic_name}",
                 "domain": "research",
                 "addressesTopic": self.topic_id,
@@ -124,7 +124,7 @@ class PerspectiveInquiry:
             entities.append(
                 {
                     "id": p.id,
-                    "type": "perspective",
+                    "node_type": "perspective",
                     "name": p.lens,
                     "rationale": p.rationale,
                     "sourceCount": len(p.source_node_ids),
@@ -135,7 +135,7 @@ class PerspectiveInquiry:
                 {
                     "source": p.id,
                     "target": root,
-                    "type": "part_of",
+                    "relationship": "part_of",
                     "domain": "research",
                 }
             )
@@ -144,7 +144,7 @@ class PerspectiveInquiry:
                     {
                         "source": p.id,
                         "target": sid,
-                        "type": "asks_from",
+                        "relationship": "asks_from",
                         "domain": "research",
                     }
                 )
@@ -154,7 +154,7 @@ class PerspectiveInquiry:
             entities.append(
                 {
                     "id": agree_id,
-                    "type": "agreement",
+                    "node_type": "agreement",
                     "name": f"{len(cm.agreements)} corroborated sources",
                     "domain": "research",
                 }
@@ -163,7 +163,7 @@ class PerspectiveInquiry:
                 {
                     "source": agree_id,
                     "target": root,
-                    "type": "part_of",
+                    "relationship": "part_of",
                     "domain": "research",
                 }
             )
@@ -172,7 +172,7 @@ class PerspectiveInquiry:
                     {
                         "source": agree_id,
                         "target": sid,
-                        "type": "agrees_with",
+                        "relationship": "agrees_with",
                         "domain": "research",
                     }
                 )
@@ -181,7 +181,7 @@ class PerspectiveInquiry:
             entities.append(
                 {
                     "id": blind_id,
-                    "type": "blind_spot",
+                    "node_type": "blind_spot",
                     "name": "Uncovered: " + ", ".join(cm.blind_spot[:6]),
                     "domain": "research",
                 }
@@ -190,7 +190,7 @@ class PerspectiveInquiry:
                 {
                     "source": blind_id,
                     "target": root,
-                    "type": "part_of",
+                    "relationship": "part_of",
                     "domain": "research",
                 }
             )
@@ -198,7 +198,7 @@ class PerspectiveInquiry:
             entities.append(
                 {
                     "id": f"{root}:divergence:{a}:{b}",
-                    "type": "contradiction",
+                    "node_type": "contradiction",
                     "name": f"{a} vs {b}: non-overlapping evidence",
                     "domain": "research",
                 }
@@ -208,7 +208,7 @@ class PerspectiveInquiry:
         entities.append(
             {
                 "id": review_id,
-                "type": "peer_review",
+                "node_type": "peer_review",
                 "name": "Self-critique",
                 "dominantLens": pr.dominant_lens or "",
                 "missingPerspective": pr.missing_perspective or "",
@@ -220,7 +220,7 @@ class PerspectiveInquiry:
             {
                 "source": review_id,
                 "target": root,
-                "type": "reviews",
+                "relationship": "reviews",
                 "domain": "research",
             }
         )
@@ -420,7 +420,9 @@ class PerspectiveEngine:
             return {"materialized": False}
         entities, rels = inquiry.to_entities()
         try:
-            engine.ingest_external_batch("research", entities, rels)
+            from ..ingestion.envelope_ingest import ingest_graph_slice
+
+            ingest_graph_slice(engine, "research", entities, rels)
         except Exception as exc:  # noqa: BLE001 — materialize is best-effort
             logger.debug("perspective materialize failed: %s", exc)
             return {"materialized": False, "error": str(exc)}

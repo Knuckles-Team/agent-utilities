@@ -54,9 +54,6 @@ def _default_scan_root() -> Path:
     for parent in REPO_ROOT.parents:
         if parent.name == "agent-packages":
             return parent
-    canonical = Path("/home/apps/workspace/agent-packages")
-    if canonical.exists():
-        return canonical
     return REPO_ROOT.parent
 
 

@@ -53,18 +53,20 @@ new source is declarative config, never bespoke push/pull code.
 
 ## One ingestion contract (KG-2.9)
 
-There are two ingestion code paths for good reasons — `ingest_external_batch` (dict entities,
-UNWIND batching; LeanIX-delta + hydration) and `registry.write_batch` (typed `ExtractionBatch`;
-the materialize/extractor family, also reused by internal finance/synthesize facts). They are
-**not merged** (write-batch has legitimate non-source callers), but they **converge on one
-contract** so downstream stores treat every connector identically:
+External connector ingestion has one durable path: connector-specific dicts or
+typed `ExtractionBatch` values are normalized into a graph slice and committed
+through native `ApplyChangeEnvelope`. Hydration implementations may still call
+the compact `ingest_external_batch` protocol, but `HydrationManager` gives them
+a native proxy; materialize extractors convert `ExtractionBatch` directly into
+the same envelope. `registry.write_batch` remains an internal/offline writer for
+legitimate non-source finance/synthesis construction and the explicit test-only
+adapter; it is not a production connector authority.
 
-- **Metadata** — `enrichment/provenance.py::stamp_source(props, source)` stamps *both*
+- **Metadata** — envelope rendering stamps *both*
   `source_system` (provenance / named-graph routing) and `domain` (the federation key the
-  write-back resolver queries). Both paths call it; internal-fact writes pass no source and
-  stay untagged.
-- **Representation** — `ingest_external_batch` MERGEs on the **real** node type / edge rel
-  (group-by-type UNWIND), matching `write_batch`. `:DomainEntity` / `:EXTERNAL_LINK` remain
+  write-back resolver queries). Internal-fact writes pass no source and stay untagged.
+- **Representation** — native graph-slice envelopes preserve the **real** node type / edge rel.
+  `:DomainEntity` / `:EXTERNAL_LINK` remain
   only as the no-type fallback. (Safe: nothing queries `:DomainEntity`; real types are
   `rdfs:subClassOf :DomainEntity`, so OWL reasoning is unaffected — and a SPARQL mirror now
   types every node by its real `rdf:type`.)

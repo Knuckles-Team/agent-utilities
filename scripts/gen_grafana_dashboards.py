@@ -29,11 +29,6 @@ from pathlib import Path
 PROM = {"type": "prometheus", "uid": "prometheus"}
 LOKI = {"type": "loki", "uid": "loki"}
 
-_DEFAULT_OUT = Path(
-    "/home/apps/workspace/services/lgtm/grafana/provisioning/dashboards/json"
-)
-
-
 def _target(expr: str, legend: str = "", instant: bool = False) -> dict:
     return {
         "datasource": PROM,
@@ -663,7 +658,7 @@ def agent_bus() -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, default=_DEFAULT_OUT)
+    ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     for name, builder in (

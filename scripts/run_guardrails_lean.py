@@ -3,11 +3,13 @@
 
 **Why this exists — closing the "passes-local / fails-CI" class.** The CI
 ``Guardrails`` workflow (``.github/workflows/guardrails.yml``) deliberately
-installs a *lean* environment: ``pip install -e .`` plus only
-``numpy pyyaml pytest rdflib pyshacl owlrl`` — it does **not** install the
-``[agent]`` / ``[all]`` extras (which pull a circular ``universal-skills`` dep and
-the heavy agent runtime). A full local dev install, by contrast, has everything.
-So a guardrail gate that transitively imports an ``[agent]``-extra dependency
+creates a *lean*, lock-backed environment with ``uv sync --frozen`` while
+excluding sibling workspace-only runtime packages. This is explicitly a static
+source-contract lane, not an installed GraphOS certification lane: the published
+wheel pipeline separately installs the wheel with ``epistemic-graph[full]`` and
+executes its native server/numeric contract. It does **not** install the heavy agent
+runtime. A full local dev install, by contrast, has everything.
+So a guardrail gate that transitively imports an ``[agent-runtime]`` dependency
 (e.g. ``pydantic_ai`` via ``agent_utilities.graph.__init__``) **passes locally but
 dies in CI** with ``ModuleNotFoundError`` — exactly the failure mode the
 Eval-corpus gate hit.
@@ -39,6 +41,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -75,30 +78,26 @@ def _steps(workflow: dict) -> list[dict]:
     return list(guardrails.get("steps") or [])
 
 
-def _parse_install_targets(steps: list[dict]) -> list[str]:
-    """Extract the ``pip install`` targets from the install step.
+def _parse_sync_command(steps: list[dict]) -> list[str]:
+    """Extract the one lock-backed ``uv sync`` command without re-resolving it."""
 
-    Mirrors guardrails.yml's lean install EXACTLY (``-e .`` + the gate deps);
-    skips the ``pip install --upgrade pip`` bootstrap line.
-    """
-    targets: list[str] = []
     for step in steps:
         run = step.get("run") or ""
-        if "pip install" not in run:
+        if "uv sync" not in run:
             continue
-        for line in run.splitlines():
-            line = line.strip()
-            if line.startswith("#") or not line.startswith("pip install"):
-                continue
-            args = line[len("pip install") :].split()
-            if args == ["--upgrade", "pip"]:
-                continue
-            targets.extend(a for a in args if a != "--upgrade")
-        if targets:
-            break
-    if not targets:
-        sys.exit("ERROR: could not parse lean install targets from guardrails.yml")
-    return targets
+        logical = run.replace("\\\n", " ")
+        command = next(
+            (
+                line.strip()
+                for line in logical.splitlines()
+                if line.strip().startswith("uv sync")
+            ),
+            "",
+        )
+        parsed = shlex.split(command)
+        if parsed[:2] == ["uv", "sync"] and "--frozen" in parsed:
+            return parsed
+    sys.exit("ERROR: could not parse frozen uv sync from guardrails.yml")
 
 
 def _parse_gates(steps: list[dict]) -> list[Gate]:
@@ -106,9 +105,12 @@ def _parse_gates(steps: list[dict]) -> list[Gate]:
     gates: list[Gate] = []
     for step in steps:
         run = (step.get("run") or "").strip()
-        if not run or "pip install" in run:
+        if not run or "uv sync" in run:
             continue
-        if not re.search(r"scripts/check_\w+\.py|-m pytest", run):
+        if not re.search(
+            r"(?:python3?|python)\s+(?:-m\s+pytest|scripts/[A-Za-z0-9_./-]+\.py)",
+            run,
+        ):
             continue
         gates.append(
             Gate(
@@ -120,23 +122,26 @@ def _parse_gates(steps: list[dict]) -> list[Gate]:
     return gates
 
 
-def _build_lean_venv(venv_dir: Path, targets: list[str]) -> Path:
+def _build_lean_venv(venv_dir: Path, sync_command: list[str]) -> Path:
     uv = shutil.which("uv")
     if not uv:
         sys.exit("ERROR: `uv` is required on PATH to build the lean venv.")
-    print(f"[lean] creating venv at {venv_dir} (python {_PY_VERSION})", flush=True)
+    environment = dict(os.environ)
+    environment["UV_PROJECT_ENVIRONMENT"] = str(venv_dir)
+    print(
+        f"[lean] syncing at {venv_dir} (python {_PY_VERSION}): "
+        f"{' '.join(sync_command)}",
+        flush=True,
+    )
     subprocess.run(
-        [uv, "venv", "--python", _PY_VERSION, str(venv_dir)],
+        [uv, *sync_command[1:]],
         check=True,
         cwd=_REPO_ROOT,
+        env=environment,
     )
     py = venv_dir / "bin" / "python"
-    print(f"[lean] installing (mirrors guardrails.yml): {' '.join(targets)}", flush=True)
-    subprocess.run(
-        [uv, "pip", "install", "--python", str(py), *targets],
-        check=True,
-        cwd=_REPO_ROOT,
-    )
+    if not py.is_file():
+        sys.exit("ERROR: frozen uv sync did not create the expected interpreter")
     return py
 
 
@@ -146,31 +151,12 @@ def _gate_env(venv_dir: Path) -> dict[str, str]:
     env["PATH"] = f"{venv_dir / 'bin'}{os.pathsep}{env.get('PATH', '')}"
     # Drop any inherited interpreter pin so `python3` resolves to the lean venv.
     env.pop("PYTHONHOME", None)
-    # Reproduce CI's kernel-ABSENCE. CI installs the package WITHOUT the
-    # per-platform-compiled `epistemic-graph[numeric]` kernel (it is not on PyPI),
-    # but a dev box's `pip install -e .` can resolve a locally-built kernel from the
-    # uv cache — leaking it into the "lean" venv and HIDING the exact
-    # `epistemic-graph kernel required` failures the guardrail gates (retrieval /
-    # eval-corpus / reliability-corpus / designation-eval / CPD) hit in CI. Block it
-    # so the harness is a faithful CI mirror: those gates skip cleanly and their
-    # pytest meta-tests skip in lockstep. Without this the pre-push hook is blind to
-    # the whole kernel-required class (which is how it slipped to CI once already).
-    block_dir = venv_dir / "_kernel_block"
-    block_dir.mkdir(exist_ok=True)
-    (block_dir / "sitecustomize.py").write_text(
-        "import sys, importlib.abc\n"
-        "class _KernelAbsent(importlib.abc.MetaPathFinder):\n"
-        "    def find_spec(self, name, path, target=None):\n"
-        "        if name == 'agent_utilities.numeric' or name.startswith('agent_utilities.numeric.'):\n"
-        "            raise ImportError('epistemic-graph kernel required: pip install epistemic-graph[numeric]>=2.7.0 (lean-parity mirror: CI has no compiled kernel)')\n"
-        "        return None\n"
-        "sys.meta_path.insert(0, _KernelAbsent())\n",
-        encoding="utf-8",
-    )
-    existing = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = (
-        f"{block_dir}{os.pathsep}{existing}" if existing else str(block_dir)
-    )
+    # Never synthesize a missing numeric kernel. The workflow's frozen sync command
+    # deliberately omits the sibling engine (`--no-install-package epistemic-graph`,
+    # parsed verbatim from guardrails.yml above) in this source-only lane, while the
+    # publication lane installs and exercises the declared [full] dependency. This
+    # keeps the lean venv a faithful CI mirror without a second, redundant blocking
+    # mechanism that could itself drift from the real extras name.
     return env
 
 
@@ -196,11 +182,11 @@ def main() -> int:
 
     workflow = _load_workflow()
     steps = _steps(workflow)
-    targets = _parse_install_targets(steps)
+    sync_command = _parse_sync_command(steps)
     gates = _parse_gates(steps)
 
     if args.list:
-        print("lean install targets:", " ".join(targets))
+        print("lean sync command:", " ".join(sync_command))
         print("gates (derived from guardrails.yml):")
         for g in gates:
             print(f"  - {'[advisory] ' if g.advisory else ''}{g.name}")
@@ -215,7 +201,7 @@ def main() -> int:
 
     failures: list[str] = []
     try:
-        _build_lean_venv(venv_dir, targets)
+        _build_lean_venv(venv_dir, sync_command)
         env = _gate_env(venv_dir)
         print(f"\n[lean] running {len(gates)} guardrail gate(s) in the lean env\n", flush=True)
         for gate in gates:
@@ -243,7 +229,7 @@ def main() -> int:
         print(f"LEAN PARITY FAILED — {len(failures)} blocking gate(s) red in the lean env:")
         for name in failures:
             print(f"  - {name}")
-        print("These would fail CI's Guardrails job. Make the heavy/agent-extra import")
+        print("These would fail CI's Guardrails job. Make the agent-runtime import")
         print("lazy + guarded (Dependency discipline) so the gate imports clean lean.")
         return 1
     print("LEAN PARITY OK — every blocking guardrail gate passes in the lean CI env.")

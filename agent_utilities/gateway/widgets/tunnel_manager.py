@@ -40,8 +40,8 @@ class Widget(BaseWidget):
             hosts = client.list_hosts() or []
             sessions = client.list_sessions() or []
         except Exception as e:
-            logger.debug("Tunnel Manager fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Tunnel Manager fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

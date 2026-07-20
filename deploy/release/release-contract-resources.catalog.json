@@ -1,0 +1,137 @@
+{
+  "resources": [
+    {
+      "path": "deploy/release/certification-campaign.schema.json",
+      "sha256": "9b7c70750ea37762dda330a69c09d23eb593cd855a237585b0d3aba1648b5b26"
+    },
+    {
+      "path": "deploy/release/certification-campaign.yml",
+      "sha256": "1c46be52c13a7c997dc5164a978d89a98419ef1158940925ee673ae7263db837"
+    },
+    {
+      "path": "deploy/release/compatibility-matrix.schema.json",
+      "sha256": "e16317dc96ee624a2c326e966ff83edcaa418059413f34f5696d83d8b11e9b7c"
+    },
+    {
+      "path": "deploy/release/compatibility-matrix.yml",
+      "sha256": "3a23cf9dd002d0e15b082f0d156dd6d37e09385a33fbc072b4658a90d6a7a571"
+    },
+    {
+      "path": "deploy/release/component-provenance.schema.json",
+      "sha256": "d2cf5f4336cef9927ff5f91596d8a13cb7f4ad61a52c4ee35a43e8b16b96efcf"
+    },
+    {
+      "path": "deploy/release/component-signature-bundle.schema.json",
+      "sha256": "842ed1791ab22c59d34ace51823445371426c88d1f9b4344952cacf9de03e630"
+    },
+    {
+      "path": "deploy/release/component-source-evidence.schema.json",
+      "sha256": "43d791defe12111b4b95ffb1c2cbdb8dcba1ecd9266beaab4058a6242ae62770"
+    },
+    {
+      "path": "deploy/release/connector-bundle-catalog.schema.json",
+      "sha256": "9fc42d08415cb124271785f5611cf55426bbea542b9cc2b0b79033d08fc72d79"
+    },
+    {
+      "path": "deploy/release/connector-bundles.catalog.json",
+      "sha256": "a160f757167d13ca848273afe7b99e18ec8646f873f233b9203b7e9c89ea6576"
+    },
+    {
+      "path": "deploy/release/connector-live-certification-ledger.schema.json",
+      "sha256": "de28db08084dcd31bf6ae699b69ca4324c179b755e91f5ca72e10553a00c8c3d"
+    },
+    {
+      "path": "deploy/release/exact-artifact-closure-evidence.schema.json",
+      "sha256": "ecf82d26bdb7f3b9676ba0c282087902f46e7fe05454e92883279eea3f0d0b0f"
+    },
+    {
+      "path": "deploy/release/exact-local-gates-manifest.schema.json",
+      "sha256": "945372caf33b94e1c18db4ca1386b4c556c26342cea3d4c26de9dc1b6d01e335"
+    },
+    {
+      "path": "deploy/release/exact-local-release-evidence.schema.json",
+      "sha256": "7b165548f16ea46fee0c133ad4ae1b4e7e55213acb0e2156bd919af6eea3085d"
+    },
+    {
+      "path": "deploy/release/exact-local-release-spec.schema.json",
+      "sha256": "6b231aedac733e3cfc16b065569bb7123080f1aa0ada7cdf63e446b9cc9e778a"
+    },
+    {
+      "path": "deploy/release/index-migration-catalog.schema.json",
+      "sha256": "216318940c85cbea76f25a39fefcb29554440e0df13cffe74343fc0944ed981a"
+    },
+    {
+      "path": "deploy/release/index-migrations.catalog.json",
+      "sha256": "4a72bd00a7b345725723d91d01bea3853fe74f8060245e75830477a786071823"
+    },
+    {
+      "path": "deploy/release/oci-scanner-attestation.schema.json",
+      "sha256": "b8edad9ae1c9feffbf0a1f11f2c372473f9264bf34829c4af4650a6cabff7d5c"
+    },
+    {
+      "path": "deploy/release/oci-vulnerability-database-attestation.schema.json",
+      "sha256": "284a1e5760674d5022c89313f0d1caab7969cc40e1dad38ee5683a822028db02"
+    },
+    {
+      "path": "deploy/release/oci-vulnerability-scan-evidence.schema.json",
+      "sha256": "ee1fa299dee88f1943674a6f8aafa295b829a3b9f9d56671a2662ce72a0450a8"
+    },
+    {
+      "path": "deploy/release/operational-evidence.schema.json",
+      "sha256": "1a771cd6fb8727d2b8f2ca2bf078d4712b4bd400aae1cd3ab6bc624ff4010cb5"
+    },
+    {
+      "path": "deploy/release/prebundled-skill-catalog.schema.json",
+      "sha256": "b59055cabcaa6a2d1a7c7fecd5775404a4577702f51382d1a7b743170801246b"
+    },
+    {
+      "path": "deploy/release/prebundled-skill-validation-evidence.schema.json",
+      "sha256": "55f0669f453c90d25cf303bd5614f8355feb3321193fd92a0a96e46929b9ffc7"
+    },
+    {
+      "path": "deploy/release/prebundled-skills.catalog.json",
+      "sha256": "014b53469958453b6ebca8bb3bc07c2ce71920cfb3b429c1c45347574a9f1455"
+    },
+    {
+      "path": "deploy/release/release-assembly.schema.json",
+      "sha256": "2d98835262bca27fcc1ff544a90cc26194c4263f1f8039d0927892527d1055b4"
+    },
+    {
+      "path": "deploy/release/release-configuration.schema.json",
+      "sha256": "abbb4c6085022724a43b596e09b404f752e0e9ea511a16be07d7c151d1e600cf"
+    },
+    {
+      "path": "deploy/release/release-manifest.schema.json",
+      "sha256": "add4e4f62b3c4227416d44af56d4978a1ac617761c7b2f71640fc01ee22200f9"
+    },
+    {
+      "path": "deploy/release/release-migration-plan.schema.json",
+      "sha256": "1f685e81c10e0d5fc9c7d6e754e62fa3942ed8128c4719578dfd16e18bd60222"
+    },
+    {
+      "path": "deploy/release/skill-validation-deployment-evidence.schema.json",
+      "sha256": "1a24f65b13f8e8415448acc291c2a95fde54bfdddcf1e20b1b8c99722137474a"
+    },
+    {
+      "path": "deploy/release/skill-validation-deployment.schema.json",
+      "sha256": "0a443f127b0372fe9f0d6606ac8d68a85b51165c9acbc7efacda5a81b2fb3e4b"
+    },
+    {
+      "path": "deploy/release/source-freeze-evidence.schema.json",
+      "sha256": "9d016791cc50a8ca45cf84917ceb12ba882db260daa23bb4029156f65d8b1151"
+    },
+    {
+      "path": "deploy/release/source-freeze-gates.json",
+      "sha256": "ec025ae174e5e334499a9b6344d9b33aaa1c349efd204e49f6d83c6c5be1fc4d"
+    },
+    {
+      "path": "deploy/release/source-freeze-gates.schema.json",
+      "sha256": "b06e9efa36d16e6b8d94a981c3ed1d9826f3fa3e9e458adc6d3de4118f98adfd"
+    },
+    {
+      "path": "scripts/scale/workload_contract.yml",
+      "sha256": "e4d6c6c1cd137112816a944eb69484d9e14fa8c519c958dba71fc41b6387f47a"
+    }
+  ],
+  "schema": "release-contract-resources/1"
+}

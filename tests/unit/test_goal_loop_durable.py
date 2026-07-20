@@ -1,11 +1,7 @@
-"""Goal loop durable-effect wiring (CONCEPT:AU-OS.state.unified-durable-state-externalization).
+"""Goal loop durability through the sole engine-native WorkItem.
 
-The ORCH-5.0 goal loop wraps each iteration's validation command in a durable
-action keyed by ``{goal_id}:{iteration}``. A crash-and-resume — or simply a
-redelivery of the same goal turn — must NOT re-run a validation that already
-ran. These are live-path tests: they drive the real ``run_goal_loop`` and assert
-the side effect (a marker file the validation command appends to) happens at
-most once per iteration even across a replay.
+These live-path tests drive ``run_goal_loop`` and prove that a terminal native
+WorkItem prevents a redelivered goal from re-running its completed iterations.
 """
 
 from __future__ import annotations
@@ -48,17 +44,12 @@ def loop_env(tmp_path, monkeypatch):
     monkeypatch.setattr(_sessions, "active_goals", {})
     monkeypatch.setattr(_sessions, "background_goal_runs", {})
     # Pin sqlite state regardless of an ambient STATE_DB_URI (a dev checkout's
-    # .env may externalize state to Postgres, which would bypass the sqlite
-    # monkeypatching above). Both sessions._connect_db and durable _select_store
-    # gate on postgres_state_enabled().
+    # .env may externalize session metadata to Postgres, which would bypass the
+    # sqlite monkeypatching above).
     monkeypatch.delenv("STATE_DB_URI", raising=False)
     monkeypatch.setattr(
         "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
     )
-    # Isolate the durable-execution store to this test's tmp dir.
-    durable_db = tmp_path / "durable.db"
-    monkeypatch.setenv("DURABLE_EXECUTION_DB", str(durable_db))
-
     # The loop sleeps 2s between failing iterations; fast-forward it so the
     # exactly-once assertions don't pay real wall-clock. (Subprocess execution
     # does not depend on asyncio.sleep.) Only collapse the loop's SHORT retry
@@ -77,7 +68,7 @@ def loop_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-async def test_goal_loop_replay_does_not_rerun_validation(loop_env):
+async def test_terminal_work_item_replay_does_not_rerun_validation(loop_env):
     marker = loop_env / "marker.txt"
     # Always-failing command (exit 1) so the loop runs all iterations; each run
     # appends one byte to the marker — the observable side effect.

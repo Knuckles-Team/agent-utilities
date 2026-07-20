@@ -1,19 +1,21 @@
 #!/usr/bin/python
-"""Developer Utilities Tools Module.
+"""Read-only developer discovery tools and knowledge-graph utilities.
 
 CONCEPT:AU-ECO.messaging.native-backend-abstraction
 
-This module provides high-level tools for code search, file manipulation,
-and shell command execution with diagnostics and error handling.
+Code mutations and command execution belong to the governed DevWorkspace tool
+surface. This module deliberately exposes only bounded workspace search plus
+the shared knowledge tools used by general-purpose agents.
 """
 
+from __future__ import annotations
+
 import asyncio
-import difflib
 import logging
 import os
-import subprocess
+import signal
+from pathlib import Path
 
-from pydantic import BaseModel
 from pydantic_ai import RunContext
 
 from agent_utilities.harness.tracing import trace
@@ -34,287 +36,132 @@ from .versioning import tool_version
 logger = logging.getLogger(__name__)
 
 
-class ShellCommandOutput(BaseModel):
-    """Structured output from a shell command execution."""
-
-    stdout: str
-    stderr: str
-    exit_code: int
-    duration_ms: float
+class WorkspaceBoundaryError(ValueError):
+    """A developer read attempted to leave its assigned workspace."""
 
 
-def _get_diff(old_content: str, new_content: str, filename: str) -> str:
-    """Generate a unified diff between two strings.
+def _workspace_root(ctx: RunContext[AgentDeps]) -> Path:
+    configured = getattr(ctx.deps, "workspace_path", None)
+    if not configured:
+        raise WorkspaceBoundaryError("no developer workspace is assigned")
+    try:
+        root = Path(configured).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        raise WorkspaceBoundaryError("developer workspace is unavailable") from None
+    if not root.is_dir():
+        raise WorkspaceBoundaryError("developer workspace is unavailable")
+    return root
 
-    Args:
-        old_content: The original file content.
-        new_content: The modified file content.
-        filename: The name of the file being diffed.
 
-    Returns:
-        A unified diff string.
-
-    """
-    return "".join(
-        difflib.unified_diff(
-            old_content.splitlines(keepends=True),
-            new_content.splitlines(keepends=True),
-            fromfile=f"a/{filename}",
-            tofile=f"b/{filename}",
-            n=3,
-        )
-    )
+def _workspace_path(
+    ctx: RunContext[AgentDeps], path: str, *, must_exist: bool = False
+) -> Path:
+    root = _workspace_root(ctx)
+    supplied = Path(str(path or "."))
+    candidate = supplied if supplied.is_absolute() else root / supplied
+    try:
+        resolved = candidate.resolve(strict=must_exist)
+        resolved.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        raise WorkspaceBoundaryError("path is outside the assigned workspace") from None
+    return resolved
 
 
 @trace(name="project_search", trace_type="TOOL")
-@tool_version("1.0.0")
+@tool_version("2.0.0")
 async def project_search(
     ctx: RunContext[AgentDeps], query: str, path: str = "."
 ) -> str:
-    """Perform an optimized grep/ripgrep search across the codebase.
-
-    Searches for literal strings and returns matching lines prefixed with
-    filenames and line numbers.
-
-    Args:
-        ctx: The agent run context.
-        query: The string to search for.
-        path: The directory or file to search within.
-
-    Returns:
-        A string containing the search results or a 'no matches' message.
-
-    """
+    """Search for a bounded literal string within the assigned workspace."""
+    if not isinstance(query, str) or not query or len(query.encode("utf-8")) > 4_096:
+        return "Error during search: query is empty or exceeds the input limit."
     try:
-        # Prefer ripgrep if available
-        cmd = [
-            "rg",
-            "--line-number",
-            "--column",
-            "--no-heading",
-            "--fixed-strings",
-            query,
-            path,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if result.returncode == 0:
-            return result.stdout or "No matches found."
+        from agent_utilities.core.config import setting
 
-        # Fallback to grep
-        cmd = ["grep", "-rni", query, path]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        return result.stdout or "No matches found."
-    except Exception as e:
-        return f"Error during search: {e}"
+        root = _workspace_root(ctx)
+        search_path = _workspace_path(ctx, path, must_exist=True)
+        target = search_path.relative_to(root).as_posix() or "."
+        max_output = int(setting("DEVELOPER_TOOL_MAX_OUTPUT_BYTES", 65_536) or 65_536)
+        max_output = max(1_024, min(max_output, 4 * 1024 * 1024))
 
+        async def _run(command: list[str]) -> tuple[int, str]:
+            options: dict[str, object] = {}
+            if os.name == "posix":
+                options["start_new_session"] = True
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=str(root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env={
+                    name: value
+                    for name, value in os.environ.items()
+                    if name
+                    in {
+                        "PATH",
+                        "PATHEXT",
+                        "SYSTEMROOT",
+                        "WINDIR",
+                        "LANG",
+                        "LC_ALL",
+                    }
+                },
+                **options,
+            )
+            retained = bytearray()
 
-@trace(name="replace_in_file", trace_type="TOOL")
-@tool_version("1.0.0")
-async def replace_in_file(
-    ctx: RunContext[AgentDeps], path: str, old_str: str, new_str: str
-) -> str:
-    """Perform a find-and-replace operation on a file with diff validation.
+            async def _drain() -> None:
+                if process.stdout is None:
+                    return
+                while chunk := await process.stdout.read(8_192):
+                    if len(retained) < max_output:
+                        retained.extend(chunk[: max_output - len(retained)])
 
-    Replaces the first occurrence of a specified string and provides
-    a unified diff of the changes.
+            drain = asyncio.create_task(_drain())
+            try:
+                await asyncio.wait_for(process.wait(), timeout=30)
+                await asyncio.wait_for(drain, timeout=5)
+            except TimeoutError:
+                if os.name == "posix":
+                    with __import__("contextlib").suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
+                await process.wait()
+                drain.cancel()
+                with __import__("contextlib").suppress(asyncio.CancelledError):
+                    await drain
+                return -1, ""
+            return process.returncode or 0, retained.decode(errors="replace")
 
-    Args:
-        ctx: The agent run context.
-        path: Relative or absolute path to the target file.
-        old_str: The exact character sequence to replace.
-        new_str: The replacement character sequence.
+        import shutil
 
-    Returns:
-        A status message and a unified diff of the changes.
-
-    """
-    abs_path = os.path.abspath(path)
-    if not os.path.exists(abs_path):
-        return f"Error: File '{path}' not found."
-
-    try:
-        with open(abs_path, encoding="utf-8") as f:
-            content = f.read()
-
-        if old_str not in content:
-            return f"Error: Search string not found in '{path}'."
-
-        new_content = content.replace(old_str, new_str, 1)
-        diff = _get_diff(content, new_content, os.path.basename(path))
-
-        with open(abs_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
-
-        return f"Successfully updated {path}.\n\nDiff:\n{diff}"
-    except Exception as e:
-        return f"Error updating file: {e}"
-
-
-@trace(name="apply_edits", trace_type="TOOL")
-@tool_version("1.0.0")
-async def apply_edits(
-    ctx: RunContext[AgentDeps], edits: str, root: str = ".", fmt: str = "auto"
-) -> str:
-    """Apply multi-file code edits with fuzzy matching (ORCH-1.49).
-
-    Unlike ``replace_in_file`` (single exact match), this parses one or more
-    SEARCH/REPLACE blocks or a unified diff and applies them with a graduated
-    matching ladder (exact → leading-whitespace-flexible → closest-window), so
-    edits still land when whitespace drifts. Failures come back with did-you-mean
-    hints rather than silently doing nothing.
-
-    Args:
-        ctx: The agent run context.
-        edits: Model output containing SEARCH/REPLACE blocks or a unified diff.
-        root: Base directory edit paths resolve against (default current dir).
-        fmt: ``"auto"`` (detect), ``"search-replace"``, or ``"unified-diff"``.
-
-    Returns:
-        A status report listing applied edits (with diffs) and any failures
-        (with the nearest matching lines as a hint).
-
-    """
-    from agent_utilities.harness.edit_engine import apply_edits as _apply
-    from agent_utilities.harness.edit_engine import parse_edits
-
-    try:
-        parsed = parse_edits(edits, fmt=fmt)
-    except ValueError as exc:
-        return f"Malformed edit block: {exc}"
-    if not parsed:
-        return "No edit blocks found in the supplied text."
-
-    result = _apply(parsed, root=root)
-    lines: list[str] = []
-    for outcome in result.outcomes:
-        if outcome.applied:
-            lines.append(
-                f"✓ {outcome.path} (matched via {outcome.strategy})\n{outcome.diff}"
+        if shutil.which("rg"):
+            status, output = await _run(
+                [
+                    "rg",
+                    "--line-number",
+                    "--column",
+                    "--no-heading",
+                    "--fixed-strings",
+                    "--",
+                    query,
+                    target,
+                ]
             )
         else:
-            hint = f"\n  hint: {outcome.hint}" if outcome.hint else ""
-            lines.append(f"✗ {outcome.path}: {outcome.reason}{hint}")
-    header = (
-        f"Applied {len(result.files_changed)} file(s); "
-        f"{len(result.failures)} edit(s) failed."
-    )
-    return header + "\n\n" + "\n\n".join(lines)
+            status, output = await _run(["grep", "-rni", "--", query, target])
+        if status in {0, 1}:
+            return output or "No matches found."
+        return "Error during search."
+    except WorkspaceBoundaryError as exc:
+        return f"Error during search: {exc}"
+    except Exception:
+        return "Error during search."
 
 
-@trace(name="run_shell_with_diagnostics", trace_type="TOOL")
-@tool_version("1.0.0")
-async def run_shell_with_diagnostics(
-    ctx: RunContext[AgentDeps], command: str, cwd: str = ".", timeout: int = 120
-) -> ShellCommandOutput:
-    """Execute a shell command with real-time diagnostics and timeouts.
-
-    Args:
-        ctx: The agent run context.
-        command: The shell command string to execute.
-        cwd: Current working directory for the command.
-        timeout: Maximum execution time in seconds.
-
-    Returns:
-        A ShellCommandOutput object containing stdout, stderr, and exit code.
-
-    """
-    import time
-
-    start_time = time.time()
-
-    try:
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
-
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=timeout
-            )
-        except TimeoutError:
-            process.kill()
-            stdout, stderr = await process.communicate()
-            return ShellCommandOutput(
-                stdout=stdout.decode(),
-                stderr=stderr.decode() + "\n[Command timed out]",
-                exit_code=-1,
-                duration_ms=(time.time() - start_time) * 1000,
-            )
-
-        return ShellCommandOutput(
-            stdout=stdout.decode(),
-            stderr=stderr.decode(),
-            exit_code=process.returncode or 0,
-            duration_ms=(time.time() - start_time) * 1000,
-        )
-    except Exception as e:
-        return ShellCommandOutput(
-            stdout="",
-            stderr=str(e),
-            exit_code=1,
-            duration_ms=(time.time() - start_time) * 1000,
-        )
-
-
-# Ported from code_puppy: create_file, delete_file, delete_snippet
-@trace(name="create_file", trace_type="TOOL")
-@tool_version("1.0.0")
-async def create_file(ctx: RunContext[AgentDeps], path: str, content: str) -> str:
-    """Create a new file in the workspace, creating parent directories if needed.
-
-    Args:
-        ctx: The agent run context.
-        path: Target path for the new file.
-        content: The text content to write to the file.
-
-    Returns:
-        A confirmation message or an error description.
-
-    """
-    abs_path = os.path.abspath(path)
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    try:
-        with open(abs_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        return f"Created file: {path}"
-    except Exception as e:
-        return f"Error creating file: {e}"
-
-
-@trace(name="delete_file", trace_type="TOOL")
-@tool_version("1.0.0")
-async def delete_file(ctx: RunContext[AgentDeps], path: str) -> str:
-    """Permanently delete a file from the local workspace.
-
-    Args:
-        ctx: The agent run context.
-        path: The path to the file to be deleted.
-
-    Returns:
-        A confirmation message or an error description.
-
-    """
-    abs_path = os.path.abspath(path)
-    try:
-        if os.path.exists(abs_path):
-            os.remove(abs_path)
-            return f"Deleted file: {path}"
-        return f"File '{path}' does not exist."
-    except Exception as e:
-        return f"Error deleting file: {e}"
-
-
-# Tool grouping for registration
 developer_tools = [
     project_search,
-    replace_in_file,
-    apply_edits,
-    run_shell_with_diagnostics,
-    create_file,
-    delete_file,
     search_knowledge_graph,
     add_knowledge_memory,
     get_knowledge_memory,

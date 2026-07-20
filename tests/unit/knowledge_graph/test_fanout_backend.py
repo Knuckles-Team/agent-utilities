@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import threading
 import time
+from inspect import signature
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 import agent_utilities.knowledge_graph.backends.fanout_backend as fanout_module
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
@@ -72,12 +75,25 @@ class RecordingBackend(GraphBackend):
             return sum(1 for op, _ in self.writes if op == "execute")
 
 
+@pytest.fixture(autouse=True)
+def _inert_epistemic_authority(monkeypatch):
+    """Replace the fixed native authority with an inert contract test double."""
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: RecordingBackend("authority"),
+    )
+
+
 def _make(tmp_path: Path, mirrors: dict[str, RecordingBackend]) -> FanOutBackend:
     return FanOutBackend(
-        RecordingBackend("authority"),
         mirrors,
         outbox_path=str(tmp_path / "outbox.db"),
     )
+
+
+def test_public_constructor_has_no_authority_selector():
+    assert "authority" not in signature(FanOutBackend).parameters
 
 
 def _stop_drainers(fan: FanOutBackend) -> None:
@@ -175,7 +191,7 @@ def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
     monkeypatch.setattr(fanout_module, "_auto_handoff_capacity", lambda: 4)
     m = RecordingBackend("m")
     fan = fanout_module.FanOutBackend(
-        RecordingBackend("auth"), {"m": m}, outbox_path=str(tmp_path / "ob.db")
+        {"m": m}, outbox_path=str(tmp_path / "ob.db")
     )
     try:
         # Stop the persister + drainers so the ring cannot drain — forces overflow.
@@ -345,12 +361,16 @@ class _AuthorityWithGraph(RecordingBackend):
         return _GraphStub()
 
 
-def test_reconcile_repairs_each_mirror(tmp_path):
-    """reconcile() delegates to the tiered re-sync for every mirror, fast and
+def test_reconcile_repairs_each_mirror(tmp_path, monkeypatch):
+    """reconcile() repairs every mirror from the authority, fast and
     without spinning — proves the authority→mirror drift-repair wrapper."""
     mirror = RecordingBackend("m")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: _AuthorityWithGraph("auth"),
+    )
     fan = FanOutBackend(
-        _AuthorityWithGraph("auth"),
         {"m": mirror},
         outbox_path=str(tmp_path / "ob.db"),
     )
@@ -388,7 +408,6 @@ def test_edge_write_replays_structurally_per_dialect(tmp_path):
     Ladybug edge props)."""
     lady, neo = LadybugBackend("lady"), Neo4jBackend("neo")
     fan = FanOutBackend(
-        RecordingBackend("authority"),
         {"lady": lady, "neo": neo},
         outbox_path=str(tmp_path / "ob.db"),
     )

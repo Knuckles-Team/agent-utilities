@@ -20,7 +20,7 @@ ORIGIN_RUNTIME = "runtime"
 class UsageSession(BaseModel):
     id: str
     project: str = ""
-    machine: str = "local"
+    machine: str = "unattributed"
     agent: str = "claude"
     first_message: str = ""
     started_at: str | None = None

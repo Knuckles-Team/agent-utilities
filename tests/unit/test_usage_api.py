@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway.usage_api import usage_router
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 from agent_utilities.usage import backends as usage_backends
 from agent_utilities.usage.models import (
     ParsedSessionBundle,
@@ -25,6 +27,7 @@ from agent_utilities.usage.recorder import get_usage_recorder
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("USAGE_DB_PATH", str(tmp_path / "usage.db"))
+    monkeypatch.setenv("USAGE_CONTENT_RETENTION", "sanitized")
     usage_backends.reset_usage_backend_for_tests()
     # Reset the recorder/service singletons so they pick up the temp backend.
     import agent_utilities.usage.recorder as rec_mod
@@ -39,8 +42,7 @@ def client(tmp_path, monkeypatch):
     usage_backends.reset_usage_backend_for_tests()
 
 
-def _seed():
-    sid = "s1"
+def _seed(*, sid: str = "s1", tenant_id: str = ""):
     get_usage_recorder().record_bundle(
         ParsedSessionBundle(
             session=UsageSession(
@@ -51,6 +53,7 @@ def _seed():
                 message_count=2,
                 health_grade="A",
                 outcome="success",
+                tenant_id=tenant_id,
             ),
             messages=[
                 UsageMessage(
@@ -101,16 +104,17 @@ def test_summary_and_breakdowns(client):
 def test_sessions_and_detail(client):
     _seed()
     rows = client.get("/api/observability/sessions").json()
-    assert rows[0]["id"] == "s1"
-    detail = client.get("/api/observability/sessions/s1").json()
-    assert detail["session"]["id"] == "s1"
+    run_ref = rows[0]["id"]
+    assert run_ref.startswith("pref_run_")
+    detail = client.get(f"/api/observability/sessions/{run_ref}").json()
+    assert detail["session"]["id"] == run_ref
     assert len(detail["messages"]) == 1
 
 
 def test_search_and_activity(client):
     _seed()
     hits = client.get("/api/observability/search", params={"q": "parser"}).json()
-    assert hits and hits[0]["session_id"] == "s1"
+    assert hits and hits[0]["session_id"].startswith("pref_run_")
     cells = client.get("/api/observability/analytics/activity").json()
     assert cells[0]["day_of_week"] == 2  # 2026-06-10 is a Wednesday
 
@@ -141,10 +145,36 @@ def test_upload_transport(client):
     rows = client.get(
         "/api/observability/sessions", params={"tenant_id": "acme"}
     ).json()
-    assert any(r["id"] == "up1" for r in rows)
+    assert any(r["id"].startswith("pref_run_") for r in rows)
 
 
 def test_traces_gated_off_by_default(client):
     out = client.get("/api/observability/traces").json()
     assert out["enabled"] in (False, True)  # shape stable regardless
     assert "traces" in out
+    assert "host" not in out
+
+
+def test_served_usage_queries_bind_to_verified_tenant(client, monkeypatch):
+    _seed(sid="same", tenant_id="tenant-a")
+    _seed(sid="same", tenant_id="tenant-b")
+    actor = ActorContext(
+        actor_id="subject-ref",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("usage:read",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    with use_actor(actor):
+        rows = client.get("/api/observability/sessions").json()
+        denied = client.get(
+            "/api/observability/sessions", params={"tenant_id": "tenant-b"}
+        )
+    assert len(rows) == 1
+    assert rows[0]["id"].startswith("pref_run_")
+    assert denied.status_code == 403
+
+
+def test_served_usage_rejects_missing_verified_identity(client, monkeypatch):
+    response = client.get("/api/observability/summary")
+    assert response.status_code == 401

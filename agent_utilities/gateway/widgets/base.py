@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.gateway.models import (
@@ -18,6 +21,10 @@ from agent_utilities.gateway.models import (
     ServiceConfig,
     WidgetData,
     WidgetField,
+)
+from agent_utilities.security.error_surface import (
+    PUBLIC_ERROR_MESSAGES,
+    public_error_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +40,6 @@ class BaseWidget(ABC):
         - category: ServiceCategory
         - description: str
         - env_prefix: str — for auto-resolving credentials from env vars
-        - default_url: str — default service URL for auto-discovery
         - get_fields() -> list[WidgetField]
         - fetch_data(config) -> WidgetData
     """
@@ -44,7 +50,6 @@ class BaseWidget(ABC):
     category: ServiceCategory = ServiceCategory.CUSTOM
     description: str = ""
     env_prefix: str = ""
-    default_url: str = ""
     supports_websocket: bool = False
 
     @abstractmethod
@@ -70,7 +75,7 @@ class BaseWidget(ABC):
     def _resolve_env(self, config: ServiceConfig, key: str, default: str = "") -> str:
         """Resolve a configuration value from config or environment variables.
 
-        Priority: config attribute -> env var -> default
+        Priority: ephemeral config attribute -> secret reference -> env var -> default
 
         Args:
             config: ServiceConfig instance
@@ -81,6 +86,18 @@ class BaseWidget(ABC):
         config_val = getattr(config, key, "")
         if config_val:
             return config_val
+
+        # Durable configuration stores references, never credential material.
+        # Resolution happens at the last possible runtime boundary so neither
+        # API responses nor YAML serialization can expose the resolved value.
+        reference = config.credential_refs.get(key.lower())
+        if reference:
+            from agent_utilities.security.secrets_client import create_secrets_client
+
+            resolved = create_secrets_client().resolve_ref(reference)
+            if not resolved:
+                raise RuntimeError("configured credential reference did not resolve")
+            return resolved
 
         # Build env var name from prefix: PORTAINER_URL, PORTAINER_TOKEN, etc.
         prefix = config.env_prefix or self.env_prefix
@@ -94,7 +111,10 @@ class BaseWidget(ABC):
 
     def _resolve_url(self, config: ServiceConfig) -> str:
         """Resolve the service URL from config or env vars."""
-        return self._resolve_env(config, "url", self.default_url)
+        url = self._resolve_env(config, "url")
+        if not url:
+            raise RuntimeError("service URL is not configured")
+        return url
 
     def _resolve_token(self, config: ServiceConfig) -> str:
         """Resolve the API token/key from config or env vars."""
@@ -104,24 +124,74 @@ class BaseWidget(ABC):
             or ""
         )
 
+    def _error_data(
+        self, exc: BaseException, *, code: str = "dependency_unavailable"
+    ) -> WidgetData:
+        """Return a correlation-safe widget failure without transport details."""
+
+        payload = public_error_payload(exc, logger=logger, code=code)
+        operation_error = payload["error"]
+        return WidgetData(
+            status="error",
+            error=PUBLIC_ERROR_MESSAGES[operation_error["code"]],
+            raw=payload,
+        )
+
+    def _resolve_tls_profile(self, config: ServiceConfig) -> Any:
+        """Resolve this widget's runtime-only trust policy through AgentConfig."""
+
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        profile_ref = config.credential_refs.get(
+            "tls_profile_ref"
+        ) or config.credential_refs.get("tls_profile")
+        return resolve_configured_tls_profile(
+            self.env_prefix or self.service_type,
+            profile_ref=profile_ref,
+        )
+
+    @contextmanager
+    def _http_client(
+        self,
+        config: ServiceConfig,
+        *,
+        timeout: float = 5.0,
+        headers: dict[str, str] | None = None,
+    ) -> Iterator[Any]:
+        """Yield the canonical HTTPX client with this widget's TLS profile."""
+
+        from agent_utilities.core.http_client import create_http_client
+
+        trust = self._resolve_tls_profile(config)
+        try:
+            with create_http_client(
+                timeout=timeout,
+                headers=headers,
+                **trust.httpx_kwargs(),
+            ) as client:
+                yield client
+        finally:
+            trust.cleanup()
+
+    def _requests_tls_verify(self, config: ServiceConfig) -> bool | str:
+        """Return verified Requests-style trust for a fleet connector client.
+
+        Runtime-materialized CA files remain live for the connector client's
+        process lifetime and are removed by the transport-security cleanup hook.
+        """
+        trust = self._resolve_tls_profile(config)
+        return trust.requests_kwargs()["verify"]
+
     def _safe_fetch(self, config: ServiceConfig) -> WidgetData:
         """Wrap fetch_data with error handling."""
         try:
             return self.fetch_data(config)
-        except ImportError as e:
-            logger.warning("Widget %s: missing dependency — %s", self.service_type, e)
-            return WidgetData(
-                status="error",
-                error=f"Missing dependency: {e}",
-            )
-        except Exception as e:
-            logger.error(
-                "Widget %s: fetch failed — %s", self.service_type, e, exc_info=True
-            )
-            return WidgetData(
-                status="error",
-                error=str(e),
-            )
+        except ImportError as exc:
+            return self._error_data(exc)
+        except Exception as exc:
+            return self._error_data(exc)
 
     def check_health(self, config: ServiceConfig) -> bool:
         """Quick health check — try to reach the service.
@@ -129,12 +199,11 @@ class BaseWidget(ABC):
         Returns True if the service responds, False otherwise.
         """
         try:
-            import httpx
-
             url = self._resolve_url(config)
             if not url:
                 return False
-            resp = httpx.get(url, timeout=5.0, verify=False)  # nosec B501
+            with self._http_client(config, timeout=5.0) as client:
+                resp = client.get(url)
             return resp.status_code < 500
         except Exception:
             return False

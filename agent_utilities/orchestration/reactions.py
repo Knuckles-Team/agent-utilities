@@ -213,13 +213,12 @@ _REACTION_SYSTEM = (
 
 def _reactions_enabled() -> bool:
     """Opt-out switch (``REACTIONS=0``). Default ON — reactions are a native turn output."""
-    # ``MESSAGING_REACTIONS`` kept as a recognized alias so the prior messaging opt-out still
-    # disables them after the capability moved to core (No-Legacy: one behavior, two readers
-    # only because the var name was the operator-facing contract).
-    for key in ("REACTIONS", "MESSAGING_REACTIONS"):
-        if str(setting(key, "1")).strip().lower() in ("0", "false", "no", "off"):
-            return False
-    return True
+    return str(setting("REACTIONS", "1")).strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 async def decide_reaction(
@@ -242,11 +241,10 @@ async def decide_reaction(
         return None
     reg = registry or EmoteRegistry.instance()
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
-        agent = Agent(create_model(), system_prompt=_REACTION_SYSTEM)
+        agent = create_context_agent(create_model(), system_prompt=_REACTION_SYSTEM)
         result = await asyncio.wait_for(agent.run(content), timeout=10.0)
         out = str(getattr(result, "output", result)).strip()
     except Exception as exc:  # noqa: BLE001 — cosmetic; never propagate

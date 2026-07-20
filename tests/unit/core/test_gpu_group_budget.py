@@ -29,9 +29,9 @@ class _EmbedModel:
 
 
 class _FakeConfig:
-    """Minimal config: chat ``qwen`` + embed ``bge-m3`` share GPU ``gb10``."""
+    """Minimal config: chat and embedding models share ``accelerator-a``."""
 
-    def __init__(self, *, group="gb10", chat_cap=8, embed_cap=4):
+    def __init__(self, *, group="accelerator-a", chat_cap=8, embed_cap=4):
         self._chat = _ChatModel("qwen3.5-9b", "http://vllm.arpa/v1", group)
         self._embed = _EmbedModel("bge-m3", "http://vllm-embed.arpa/v1", group)
         self.chat_models = [self._chat]
@@ -88,11 +88,11 @@ def _isolate(monkeypatch):
 
 
 def test_gpu_group_explicit_tag_wins_over_base_url(monkeypatch):
-    cfg = _FakeConfig(group="gb10")
+    cfg = _FakeConfig(group="accelerator-a")
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    # both models tagged gb10 → same group despite different endpoints
-    assert cfg.gpu_group("qwen3.5-9b") == "gb10"
-    assert cfg.gpu_group("bge-m3") == "gb10"
+    # both models tagged accelerator-a → same group despite different endpoints
+    assert cfg.gpu_group("qwen3.5-9b") == "accelerator-a"
+    assert cfg.gpu_group("bge-m3") == "accelerator-a"
 
 
 def test_gpu_group_defaults_to_base_url_host_when_untagged(monkeypatch):
@@ -126,9 +126,9 @@ def _busy(_url):
 
 def test_budget_caps_sum_priority_keeps_floor_embedding_squeezed(monkeypatch):
     # GPU budget 10: chat floor 4 (priority), embed floor 4 (best-effort).
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 10}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 10}')
 
     # Both ramp hard. Chat (priority) should be allowed to grow; embedding is capped
     # so chat's reserved floor (4) is always subtracted from embedding's allowance.
@@ -149,9 +149,9 @@ def test_budget_caps_sum_priority_keeps_floor_embedding_squeezed(monkeypatch):
 
 
 def test_chat_idle_lets_embedding_reclaim_up_to_budget(monkeypatch):
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 12}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 12}')
 
     # Chat registered (member) but idle at its floor; embedding ramps hard.
     mod.adaptive_capacity("qwen3.5-9b", 4, fetcher=lambda _u: "")  # register, idle
@@ -166,7 +166,7 @@ def test_chat_idle_lets_embedding_reclaim_up_to_budget(monkeypatch):
 
 
 def test_no_budget_configured_is_per_model_unchanged(monkeypatch):
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
     monkeypatch.delenv("GPU_CONCURRENCY_BUDGETS", raising=False)
 
@@ -180,7 +180,7 @@ def test_no_budget_configured_is_per_model_unchanged(monkeypatch):
     assert embed_cap + chat_cap > 8
 
     snap = mod.get_utilization("bge-m3")
-    assert snap["gpu_group"] == "gb10"
+    assert snap["gpu_group"] == "accelerator-a"
     assert snap["group_budget"] is None  # no budget → fields are None
 
 
@@ -188,14 +188,14 @@ def test_no_budget_configured_is_per_model_unchanged(monkeypatch):
 
 
 def test_utilization_exposes_group_fields(monkeypatch):
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 10}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 10}')
 
     _ramp("qwen3.5-9b", 4, _busy)
     _ramp("bge-m3", 4, _busy)
     snap = mod.get_utilization("bge-m3")
-    assert snap["gpu_group"] == "gb10"
+    assert snap["gpu_group"] == "accelerator-a"
     assert snap["group_budget"] == 10
     assert isinstance(snap["group_used"], int)
     assert isinstance(snap["group_allowed_for_this_model"], int)
@@ -244,14 +244,14 @@ def test_idle_priority_peer_reserved_from_config(monkeypatch):
     chat was never registered as a member. The fix proactively registers all configured
     peers, so chat's floor (4) is reserved even with no live chat controller.
     """
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 8}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 8}')
 
     # Touch ONLY embedding — chat is never called (idle, no controller/target).
     snap = mod.get_utilization("bge-m3")
     # chat is registered as a member purely from config enumeration.
-    assert mod._key("qwen3.5-9b") in gb._budgets["gb10"].members
+    assert mod._key("qwen3.5-9b") in gb._budgets["accelerator-a"].members
     # The target outcome: embedding's allowed share == budget − chat_floor == 4,
     # EVEN WHEN CHAT IS IDLE.
     assert snap["group_allowed_for_this_model"] == 4
@@ -265,9 +265,9 @@ def test_chat_idle_then_active_no_double_count(monkeypatch):
     embedding stays floored at budget − chat_floor; chat keeps at least its floor; the
     sum of resolved targets never exceeds the budget.
     """
-    cfg = _FakeConfig(group="gb10", chat_cap=4, embed_cap=4)
+    cfg = _FakeConfig(group="accelerator-a", chat_cap=4, embed_cap=4)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 8}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 8}')
 
     # Idle: embedding allowed == 4 already.
     assert mod.get_utilization("bge-m3")["group_allowed_for_this_model"] == 4
@@ -291,7 +291,7 @@ def test_chat_idle_then_active_no_double_count(monkeypatch):
 
 
 def test_generic_arbitrary_group_name(monkeypatch):
-    """Pure config enumeration — works for ANY group name, not just 'gb10'."""
+    """Pure config enumeration works for any configured group name."""
     cfg = _FakeConfig(group="h100-node2", chat_cap=3, embed_cap=2)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
     monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"h100-node2": 7}')
@@ -309,11 +309,11 @@ def test_multiple_groups_isolated(monkeypatch):
     class _MultiConfig(_FakeConfig):
         def __init__(self):
             super().__init__()
-            # gb10: chatA + embedA ; gb200: chatB + embedB
-            self._chatA = _ChatModel("chatA", "http://a/v1", "gb10")
-            self._embedA = _EmbedModel("embedA", "http://a-e/v1", "gb10")
-            self._chatB = _ChatModel("chatB", "http://b/v1", "gb200")
-            self._embedB = _EmbedModel("embedB", "http://b-e/v1", "gb200")
+            # accelerator-a: chatA + embedA ; accelerator-b: chatB + embedB
+            self._chatA = _ChatModel("chatA", "http://a/v1", "accelerator-a")
+            self._embedA = _EmbedModel("embedA", "http://a-e/v1", "accelerator-a")
+            self._chatB = _ChatModel("chatB", "http://b/v1", "accelerator-b")
+            self._embedB = _EmbedModel("embedB", "http://b-e/v1", "accelerator-b")
             self.chat_models = [self._chatA, self._chatB]
             self.embedding_models = [self._embedA, self._embedB]
 
@@ -328,19 +328,22 @@ def test_multiple_groups_isolated(monkeypatch):
 
     cfg = _MultiConfig()
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 10, "gb200": 8}')
+    monkeypatch.setenv(
+        "GPU_CONCURRENCY_BUDGETS",
+        '{"accelerator-a": 10, "accelerator-b": 8}',
+    )
 
     snap_a = mod.get_utilization("embedA")  # touch only embedA (chatA idle)
     snap_b = mod.get_utilization("embedB")  # touch only embedB (chatB idle)
-    # gb10 only sees gb10 peers: budget 10 − chatA floor 4 == 6.
+    # accelerator-a sees only its peers: budget 10 − chatA floor 4 == 6.
     assert snap_a["group_allowed_for_this_model"] == 6
-    # gb200 only sees gb200 peers: budget 8 − chatB floor 3 == 5.
+    # accelerator-b sees only its peers: budget 8 − chatB floor 3 == 5.
     assert snap_b["group_allowed_for_this_model"] == 5
-    assert set(gb._budgets["gb10"].members) == {
+    assert set(gb._budgets["accelerator-a"].members) == {
         mod._key("chatA"),
         mod._key("embedA"),
     }
-    assert set(gb._budgets["gb200"].members) == {
+    assert set(gb._budgets["accelerator-b"].members) == {
         mod._key("chatB"),
         mod._key("embedB"),
     }
@@ -362,7 +365,7 @@ def test_no_group_no_budget_unchanged_with_proactive(monkeypatch):
 def test_enumeration_failure_falls_back_to_active_only(monkeypatch):
     """If config peer-enumeration raises, fall back to active-only (no raise)."""
 
-    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"gb10": 8}')
+    monkeypatch.setenv("GPU_CONCURRENCY_BUDGETS", '{"accelerator-a": 8}')
 
     class _BoomConfig:
         """Config whose peer enumeration explodes."""
@@ -380,7 +383,10 @@ def test_enumeration_failure_falls_back_to_active_only(monkeypatch):
     )
 
     # The real, internally fail-safe function must NOT raise and must register nothing.
-    mod._register_gpu_group_peers("gb10")  # must not raise
+    mod._register_gpu_group_peers("accelerator-a")  # must not raise
     # No peers registered (enumeration failed) → falls back to active-only behaviour;
     # the single active model still registers itself via _register_gpu_member elsewhere.
-    assert "gb10" not in gb._budgets or gb._budgets["gb10"].members == {}
+    assert (
+        "accelerator-a" not in gb._budgets
+        or gb._budgets["accelerator-a"].members == {}
+    )

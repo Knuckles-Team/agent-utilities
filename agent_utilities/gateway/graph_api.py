@@ -52,7 +52,7 @@ def _get_sparql_bridge() -> Any:
             backend=getattr(engine, "backend", None),
         )
     except Exception as exc:  # pragma: no cover - SPARQL is best-effort
-        logger.warning("Local SPARQL bridge unavailable: %s", exc)
+        logger.warning("Local SPARQL bridge unavailable (%s)", type(exc).__name__)
         return None
     return _SPARQL_BRIDGE
 
@@ -63,6 +63,9 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
     from starlette.responses import JSONResponse
 
     async def sparql_endpoint(request: Request) -> JSONResponse:
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        resolve_session(required_scope="kg:read")
         # Query from ?query= (GET) or JSON body {"query": ...} / raw body (POST).
         query = request.query_params.get("query")
         if not query and request.method == "POST":
@@ -95,16 +98,17 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
                     "results": {"bindings": bindings},
                 }
             )
-        except Exception as exc:
+        except Exception:
             return JSONResponse(
-                {"status": "error", "message": str(exc)}, status_code=500
+                {"status": "error", "message": "SPARQL query failed"},
+                status_code=500,
             )
 
     path = f"{prefix}/sparql"
     # Starlette-style add_route (works on FastAPI too): raw Request→Response with
     # no FastAPI body/param validation, matching the other kg_server endpoints.
     app.add_route(path, sparql_endpoint, methods=["GET", "POST"])
-    logger.info("Mounted local SPARQL endpoint at %s", path)
+    logger.info("Mounted local SPARQL endpoint")
 
 
 def register_graph_routes(app, prefix: str = "/api") -> None:
@@ -115,24 +119,15 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
         prefix: Path prefix for every route (default ``/api`` → e.g.
             ``/api/graph/query``, ``/api/sessions``).
 
-    Registers all KG tools (so the handlers can dispatch via ``REGISTERED_TOOLS``)
-    and adds the lock-bypassing ``POST /cypher`` fast-path middleware
-    (``CentralizedCypherMiddleware``) which routes raw Cypher straight to the
-    active engine with backpressure + a short read cache.
+    Registers all KG tools so handlers dispatch through ``REGISTERED_TOOLS``.
+    Graph queries use the typed ``/api/graph/query`` action surface; there is no
+    second raw query route.
     """
     from agent_utilities.mcp import kg_server
 
     # Populate REGISTERED_TOOLS without starting the MCP server's own engine
     # bootstrap — the gateway owns the engine/daemon lifecycle.
     kg_server.ensure_tools_registered()
-
-    # Lock-bypassing direct-Cypher fast path (POST /cypher). Added as ASGI
-    # middleware so it short-circuits before route matching; it passes through
-    # every non-/cypher request untouched.
-    try:
-        app.add_middleware(kg_server.CentralizedCypherMiddleware)
-    except Exception as exc:  # pragma: no cover - best-effort, never fatal
-        logger.warning("Could not attach CentralizedCypherMiddleware: %s", exc)
 
     # Per-tenant token-bucket rate limiting (CONCEPT:AU-OS.observability.no-op-without-metrics). Added BEFORE
     # the identity middleware so it sits INSIDE it (Starlette: last added =
@@ -146,25 +141,18 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
         app.add_middleware(GatewayRateLimitMiddleware)
 
-    # Server-minted JWT identity (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). Added AFTER the cypher
-    # middleware so it sits OUTSIDE it — the lock-bypassing ``POST /cypher``
-    # fast path is identity-scoped too. Validates ``Authorization: Bearer`` via
+    # Server-minted JWT identity (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
+    # Validates ``Authorization: Bearer`` via
     # the existing JWKS machinery, scopes the request to an authenticated
-    # ActorContext, and (with KG_AUTH_REQUIRED) rejects unauthenticated
-    # requests with 401.
-    from agent_utilities.security.request_identity import (
-        ActorIdentityMiddleware,
-        warn_unauthenticated_identity_once,
-    )
+    # ActorContext + GraphSession, and rejects unauthenticated requests with 401.
+    from agent_utilities.security.request_identity import ActorIdentityMiddleware
 
     app.add_middleware(ActorIdentityMiddleware)
-    if not config.kg_auth_required:
-        warn_unauthenticated_identity_once()
 
     # Python-tier Prometheus metrics (CONCEPT:AU-OS.observability.no-op-without-metrics). Added LAST so the
     # metrics middleware is OUTERMOST — auth rejections (401) and rate-limit
-    # rejections (429) are counted too. GET /metrics is exempt from the
-    # identity middleware (scrapers cannot mint JWTs). Both the gateway and
+    # rejections (429) are counted too. GET /metrics remains behind the
+    # identity middleware when KG authentication is required. Both the gateway and
     # the agent-webui backend mount through here, so both get the same
     # instrumentation. With prometheus_client absent (optional ``metrics``
     # extra) everything degrades to a no-op.

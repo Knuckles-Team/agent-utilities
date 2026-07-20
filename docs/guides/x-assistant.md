@@ -20,7 +20,7 @@ graph TD
     E --> F["JSON Response\n(answer + citations)"]
     F --> G{auto_ingest?}
     G -->|Yes| H["XIngestionBridge"]
-    H --> I["UniversalKnowledgeClassifier\nLM Studio @ vllm.arpa"]
+    H --> I["UniversalKnowledgeClassifier\nconfigured model service"]
     I --> J{Content Tier}
     J -->|ephemeral| K["SocialPost node\n(decays via GraphMaintainer)"]
     J -->|high_value| L["SocialPost node\n(permanent, concepts linked)"]
@@ -47,21 +47,21 @@ The X integration uses the xAI OAuth system, which counts against your
 | Auth Endpoint | `https://auth.x.ai/oauth2/authorize` |
 | Token Endpoint | `https://auth.x.ai/oauth2/token` |
 | Callback | `http://127.0.0.1:56121/callback` |
-| Token Storage | `~/.agent-utilities/secrets.db` |
+| Token Storage | Configured encrypted secrets backend |
 
 **Resolution chain:**
 
 ```
 XaiAuthManager.resolve_credentials(auto_login=True)
-  1. Check XAI_API_KEY env var / secrets.db
-  2. If no API key → load cached OAuth tokens from secrets.db
+  1. Check `XAI_API_KEY` or the configured secret reference
+  2. If no API key → resolve cached OAuth tokens from the secrets backend
   3. If tokens expired → refresh via token endpoint
   4. If no tokens → interactive browser OAuth PKCE on 127.0.0.1:56121
   5. Return: Bearer access_token
 ```
 
-**Implementation:** [xai_auth.py](../../../agent_utilities/security/xai_auth.py)
-extends [BaseBrowserAuthManager](../../../agent_utilities/security/browser_auth.py).
+**Implementation:** [xai_auth.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/xai_auth.py)
+extends [BaseBrowserAuthManager](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/browser_auth.py).
 
 ---
 
@@ -117,7 +117,8 @@ async def browse_x_post(
 - `https://twitter.com/username/status/12345`
 - `https://x.com/i/status/12345`
 
-**Implementation:** [x_search_tool.py](../../../agent_utilities/tools/x_search_tool.py)
+**Implementation:** the provider-contributed X tools are registered through the
+[tool registry](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/tools/tool_registry.py).
 
 ---
 
@@ -152,7 +153,7 @@ class KnowledgeClassification(BaseModel):
 | `standard` | 0.4–0.7 | Persisted but may decay | Product launches, dev threads, perspectives |
 | `ephemeral` | ≤ 0.3 | Decays via GraphMaintainer | Memes, promo, engagement bait |
 
-**Implementation:** [knowledge_classifier.py](../../../agent_utilities/knowledge_graph/kb/knowledge_classifier.py)
+**Implementation:** [knowledge_classifier.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/kb/knowledge_classifier.py)
 
 ### SocialPost Node Type
 
@@ -193,7 +194,7 @@ result = await engine.ingest(IngestionManifest(
 # result.details: {action: "ingest_and_evolve", node_id: "social:x:2057129225593741768", ...}
 ```
 
-**Implementation:** [x_ingestion.py](../../../agent_utilities/knowledge_graph/kb/x_ingestion.py)
+**Implementation:** [x_ingestion.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/kb/x_ingestion.py)
 
 ---
 
@@ -233,8 +234,8 @@ All classification and extraction runs through the local LLM:
 
 ```
 AgentConfig.default_chat_model
-  → model_id: "qwen/qwen3.6-27b"
-  → base_url: "http://vllm.arpa/v1"
+  → model_id: "chat-model"
+  → base_url: "https://model-api.example.test/v1"
   → UniversalKnowledgeClassifier._get_agent()
   → Pydantic AI Agent(model=..., output_type=KnowledgeClassification)
   → Structured JSON output validated by Pydantic

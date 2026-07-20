@@ -24,11 +24,11 @@ incremental, and local.
 
 | Layer | What | Engine | Cost lever |
 |---|---|---|---|
-| L0 Structural | parse → typed entities + structural edges | epistemic‑graph (Rust AST) | fast; offload to Rust |
-| L1 Vector | embeddings for every entity | vllm‑embed (bge‑m3) | **batch** (193ms→6.6ms, 29×) |
-| L2 Semantic | NL "capability cards" (summary, responsibilities, patterns) | LLM (vllm) map‑reduce | **cache by `content_hash`/`ast_hash`**; hierarchical |
-| L3 Relationships | intra‑ + cross‑category typed edges w/ evidence | LLM + embedding + VF2 | candidate‑gen by embedding, LLM only confirms |
-| L4 Inference | derived facts (transitive, subclass, rules) | OWL/datalog (Rust) | run once at end, incremental |
+| Structure | parse → typed entities + structural edges | epistemic‑graph (Rust AST) | fast; offload to Rust |
+| Vectors | embeddings for every entity | vllm‑embed (bge‑m3) | **batch** (193ms→6.6ms, 29×) |
+| Semantics | NL "capability cards" (summary, responsibilities, patterns) | LLM (vllm) map‑reduce | **cache by `content_hash`/`ast_hash`**; hierarchical |
+| Relationships | intra‑ + cross‑category typed edges w/ evidence | LLM + embedding + VF2 | candidate‑gen by embedding, LLM only confirms |
+| Inference | derived facts (transitive, subclass, rules) | OWL/datalog (Rust) | run once at end, incremental |
 
 Principle: **structure is cheap (Rust), meaning is expensive (LLM)** — so spend
 LLM only where embeddings/structure can't decide, and never recompute an
@@ -43,7 +43,7 @@ split into explicit planes (one daemon, multiple tenants):
 
 - **Coordination plane — `__bus__`**: agent‑to‑agent comms, events, the task
   queue, live shared signals. Keep as designed. Low‑volume, latency‑sensitive.
-- **Knowledge plane — `kg` tenant (+ pggraph L3 durable)**: the enriched
+- **Knowledge plane — `kg` tenant (with an optional pggraph mirror)**: the enriched
   entity/relationship graph. The durable product. (Recommend migrating durable
   knowledge OFF `__bus__` into a dedicated `kg` tenant so comms churn never bloats
   the knowledge graph and vice‑versa.)
@@ -102,7 +102,8 @@ transitive/derived facts.
    concurrently, hierarchically (leaf→root map‑reduce).
 4. **Offload structure to Rust** — community/centrality/PageRank/VF2/datalog run in
    epistemic‑graph, not Python (verified primitives exist).
-5. **Decouple enrichment from ingestion** — L0/L1 inline (fast); L2–L4 as an async
+5. **Decouple enrichment from ingestion** — structure/vectors inline (fast);
+   semantics/relationships/inference as an async
    enrichment queue so ingestion stays quick and enrichment fills in.
 6. **Bulk‑ingest profile + daemon gating** (done — `KG_INGEST_PROFILE=structural`,
    `KG_BULK_INGEST`).

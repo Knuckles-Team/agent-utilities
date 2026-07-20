@@ -1,69 +1,126 @@
-"""
+"""Governed PDF extraction is killable and bounded outside GraphOS."""
 
-CONCEPT:EG-KG.storage.nonblocking-checkpoint
-Tests for PDF-reader selection in document ingestion.
+from __future__ import annotations
 
-The default LlamaIndex ``SimpleDirectoryReader`` PDF reader (pypdf) is pure-Python
-and can stall for minutes on a single pathological PDF, holding the GIL and
-starving every other KGTaskWorker on the host. We force PyMuPDF (a GIL-releasing C
-extension) for ``.pdf`` instead, with a graceful fallback to the default reader if
-PyMuPDF isn't installed.
-"""
-
-import sys
-from unittest.mock import patch
+from pathlib import Path
 
 from agent_utilities.knowledge_graph.core import engine_tasks
+from agent_utilities.knowledge_graph.extraction.pdf import read_pdf_text
 
 
-class TestPdfFileExtractor:
-    """``engine_tasks._pdf_file_extractor`` picks PyMuPDF, degrades gracefully."""
+def _fake_pypdf(
+    root: Path,
+    monkeypatch,
+    implementation: str,
+) -> None:
+    package = root / "pypdf"
+    package.mkdir()
+    (package / "__init__.py").write_text(implementation, encoding="utf-8")
+    monkeypatch.syspath_prepend(str(root))
 
-    def test_returns_pymupdf_reader_for_pdf(self):
-        """When the PyMuPDF reader is importable, it is mapped to ``.pdf``."""
-        ext = engine_tasks._pdf_file_extractor()
-        assert ".pdf" in ext, "PyMuPDF reader should be installed in the test env"
-        # The reader is the PyMuPDF one, not the default pypdf-backed reader.
-        assert type(ext[".pdf"]).__name__ == "PyMuPDFReader"
 
-    def test_empty_mapping_when_reader_missing(self):
-        """Missing optional dep → empty mapping (default reader), never raises.
+def test_engine_reader_always_selects_bounded_pypdf() -> None:
+    reader = engine_tasks._pdf_file_extractor()[".pdf"]
+    assert type(reader).__name__ == "_BoundedPypdfReader"
 
-        An empty ``file_extractor`` dict is merged with SimpleDirectoryReader's
-        built-in defaults, so it behaves identically to the prior default path.
+
+def test_worker_extracts_and_caps_text(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
         """
-        # Simulate the import failing inside the helper.
-        real_import = __import__
+class Page:
+    def __init__(self, text): self.text = text
+    def extract_text(self): return self.text
+class PdfReader:
+    is_encrypted = False
+    def __init__(self, *args, **kwargs): self.pages = [Page('first'), Page('second')]
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, max_chars=8, timeout_seconds=5) == "first\nse"
 
-        def fake_import(name, *args, **kwargs):
-            if name == "llama_index.readers.file":
-                raise ImportError("simulated missing optional dependency")
-            return real_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=fake_import):
-            ext = engine_tasks._pdf_file_extractor()
-        assert ext == {}
+def test_hung_worker_is_killed_at_wall_deadline(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+import time
+class PdfReader:
+    def __init__(self, *args, **kwargs): time.sleep(60)
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, timeout_seconds=0.5) == ""
 
-    def test_pymupdf_extracts_faster_than_default(self, tmp_path):
-        """Smoke: the selected reader actually extracts text from a real PDF."""
-        fitz = sys.modules.get("fitz")
-        if fitz is None:
-            import importlib
 
-            try:
-                fitz = importlib.import_module("fitz")
-            except ImportError:
-                import pytest
+def test_worker_parser_failure_is_detail_free(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+class PdfReader:
+    def __init__(self, *args, **kwargs): raise RuntimeError('parser detail')
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, timeout_seconds=5) == ""
 
-                pytest.skip("PyMuPDF not installed")
-        pdf = tmp_path / "sample.pdf"
-        doc = fitz.open()
-        page = doc.new_page()
-        page.insert_text((72, 72), "hello knowledge graph")
-        doc.save(str(pdf))
-        doc.close()
 
-        reader = engine_tasks._pdf_file_extractor()[".pdf"]
-        docs = reader.load_data(file_path=str(pdf))
-        text = "\n".join(d.text for d in docs)
-        assert "hello knowledge graph" in text
+def test_worker_rejects_oversized_page_count(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+class Page:
+    def extract_text(self): return 'text'
+class PdfReader:
+    is_encrypted = False
+    def __init__(self, *args, **kwargs): self.pages = [Page(), Page()]
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, max_pages=1, timeout_seconds=5) == ""
+
+
+def test_parent_rejects_oversized_file_before_worker(tmp_path) -> None:
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, max_bytes=4) == ""
+
+
+def test_worker_rejects_oversized_ipc_output(tmp_path, monkeypatch) -> None:
+    _fake_pypdf(
+        tmp_path,
+        monkeypatch,
+        """
+class Page:
+    def extract_text(self): return 'abcdefghij'
+class PdfReader:
+    is_encrypted = False
+    def __init__(self, *args, **kwargs): self.pages = [Page()]
+""",
+    )
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert (
+        read_pdf_text(
+            pdf,
+            max_chars=10,
+            max_output_bytes=4,
+            timeout_seconds=5,
+        )
+        == ""
+    )
+
+
+def test_invalid_or_excessive_limit_request_fails_closed(tmp_path) -> None:
+    pdf = tmp_path / "document.pdf"
+    pdf.write_bytes(b"%PDF fixture")
+    assert read_pdf_text(pdf, timeout_seconds=float("inf")) == ""
+    assert read_pdf_text(pdf, max_pages=5_001) == ""

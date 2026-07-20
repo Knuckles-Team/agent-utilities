@@ -18,8 +18,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from pydantic_ai import Agent
-
 from agent_utilities.core.config import emit_graph_event
 
 from ..models import MCPServerHealth
@@ -127,7 +125,7 @@ async def on_exit_specialist(
 
 
 async def run_orthogonal_regions(
-    agent: Agent,
+    agent: Any,
     queries: list[str],
     deps: Any = None,
     timeout: float = 120.0,

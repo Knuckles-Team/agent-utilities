@@ -26,7 +26,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.INFRASTRUCTURE
     description = "Container management — Docker environments, stacks, and services"
     env_prefix = "PORTAINER"
-    default_url = "https://portainer.local.example.com"
     supports_websocket = True
 
     def get_fields(self) -> list[WidgetField]:
@@ -49,7 +48,11 @@ class Widget(BaseWidget):
         url = self._resolve_url(config)
         token = self._resolve_token(config)
 
-        client = PortainerApi(base_url=url, token=token, verify=False)
+        client = PortainerApi(
+            base_url=url,
+            token=token,
+            verify=self._requests_tls_verify(config),
+        )
 
         # Fetch endpoints (environments)
         try:
@@ -76,7 +79,7 @@ class Widget(BaseWidget):
                 volumes_count = docker_info.get("volumes", 0)
                 images_count = docker_info.get("images", {}).get("total", 0)
         except Exception as e:
-            logger.debug("Portainer dashboard fetch: %s", e)
+            logger.debug("Portainer dashboard fetch: %s", type(e).__name__)
             # Fallback: try listing containers directly
             try:
                 containers_list = client.docker_list_containers(

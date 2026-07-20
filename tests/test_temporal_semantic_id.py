@@ -148,14 +148,14 @@ def test_engine_query_imports_clean_without_numeric_kernel():
     ``agent_utilities.numeric`` cached in ``sys.modules``) so this is a true
     cold-import check. The kernel modules are poisoned to ``None`` in
     ``sys.modules`` before the import, which forces Python's import system to
-    raise ``ImportError`` for them — simulating a kernel-absent (lean/headless)
-    environment, matching the ``agent-utilities-messaging`` deployment that
-    runs BAKED agent-utilities without ``epistemic-graph[numeric]``.
+    raise ``ImportError`` for them — a fault-injection boundary used to verify
+    deterministic failure behavior. This is not a supported installation profile;
+    supported deployments install ``epistemic-graph[full]``.
     """
     probe = (
         "import sys, json\n"
         # Poison the kernel modules so any import of them raises ImportError,
-        # regardless of whether epistemic-graph[numeric] is actually installed
+        # regardless of whether epistemic-graph[full] is actually installed
         # in this dev environment.
         "sys.modules['epistemic_graph.numeric'] = None\n"
         "sys.modules['numeric'] = None\n"

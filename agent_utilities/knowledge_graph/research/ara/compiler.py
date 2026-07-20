@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""ARA Compiler — legacy paper/repo → OWL-native ARA, ecosystem-grounded (KG-2.80).
+"""ARA Compiler — paper/repo input → OWL-native ARA, ecosystem-grounded (KG-2.80).
 
 The paper's ARA Compiler turns narrative research into the 4-layer artifact via
 semantic-deconstruct → cognitive-map → physical-ground → exploration-extract. We
@@ -99,11 +99,20 @@ class ARACompiler:
         if gen is None:
             return ResearchArtifact(article_id=article_id, title=article_id)
         try:
-            legacy = gen.generate_paper_artifact(article_id, target_codebase)
+            extracted = gen.generate_paper_artifact(article_id, target_codebase)
         except Exception as e:  # noqa: BLE001 — extraction is best-effort
             logger.debug("ARA deconstruct failed for %s: %s", article_id, e)
             return ResearchArtifact(article_id=article_id, title=article_id)
-        return ResearchArtifact.from_research_artifact(legacy)
+        return ResearchArtifact.from_extracted(
+            str(extracted.article_id),
+            str(extracted.title),
+            claims=list(extracted.key_contributions),
+            evidence=list(extracted.methods),
+            code_specs=list(extracted.potential_applications),
+            summary=str(extracted.summary),
+            authors=list(extracted.authors),
+            source_url=str(extracted.source_url),
+        )
 
     def _ground(self, artifact: ResearchArtifact) -> dict[str, list[str]]:
         """Ground each claim to the ecosystem Concepts/code it touches.

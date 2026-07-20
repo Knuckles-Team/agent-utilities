@@ -57,8 +57,13 @@ class FakeRetriever:
 
 
 def _session() -> GraphSession:
-    actor = ActorContext(actor_id="agent:test", actor_type=ActorType.AI_AGENT)
-    return GraphSession(actor=actor, policy_version="v1")
+    actor = ActorContext(
+        actor_id="principal:test",
+        actor_type=ActorType.AI_AGENT,
+        tenant_id="tenant-test",
+        authenticated=True,
+    )
+    return GraphSession(actor=actor, tenant="tenant-test", policy_version="v1")
 
 
 _NODES_A = [
@@ -221,16 +226,15 @@ def test_bundle_chat_completion_two_calls_same_bundle_share_stable_prefix():
     assert calls[0]["messages"][1] != calls[1]["messages"][1]  # varying suffix
 
 
-def test_resolve_bundle_chat_client_falls_back_to_vllm_arpa(monkeypatch):
+def test_resolve_bundle_chat_client_requires_configured_endpoint(monkeypatch):
     from agent_utilities.core import config as config_module
 
     monkeypatch.setattr(
         type(config_module.config), "default_chat_model", property(lambda self: None)
     )
 
-    client, model_id = resolve_bundle_chat_client()
-    assert str(client.base_url).rstrip("/") == "http://vllm.arpa/v1"
-    assert model_id == "default"
+    with pytest.raises(RuntimeError, match="configured chat-model base URL"):
+        resolve_bundle_chat_client()
 
 
 def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
@@ -239,7 +243,11 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
     class _FakeChatModelConfig:
         id = "qwen/qwen3.6-27b"
         base_url = "http://vllm.arpa/v1"
-        api_key = "s3cr3t"
+        api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
+        headers_ref = None
+        oauth2 = None
+
+    monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
 
     monkeypatch.setattr(
         type(config_module.config),
@@ -250,7 +258,32 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
     client, model_id = resolve_bundle_chat_client()
     assert model_id == "qwen/qwen3.6-27b"
     assert str(client.base_url).rstrip("/") == "http://vllm.arpa/v1"
-    assert client.api_key == "s3cr3t"
+    assert client.api_key == "synthetic-runtime-material"
+
+
+def test_resolve_bundle_chat_client_resolves_configured_lite_tier(monkeypatch):
+    from agent_utilities.core import config as config_module
+
+    class _FakeChatModelConfig:
+        id = "synthetic-lite-model"
+        base_url = "http://lite-model.example.test/v1"
+        api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
+        headers_ref = None
+        oauth2 = None
+
+    lite = _FakeChatModelConfig()
+    monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
+    monkeypatch.setattr(
+        type(config_module.config),
+        "resolve_chat_model_config",
+        lambda self, model=None: lite if model == "lite" else None,
+    )
+
+    client, model_id = resolve_bundle_chat_client(model="lite")
+
+    assert model_id == "synthetic-lite-model"
+    assert str(client.base_url).rstrip("/") == "http://lite-model.example.test/v1"
+    assert client.api_key == "synthetic-runtime-material"
 
 
 def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
@@ -259,7 +292,11 @@ def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
     class _FakeChatModelConfig:
         id = "some-other-model"
         base_url = "http://other.arpa/v1"
-        api_key = "x"
+        api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
+        headers_ref = None
+        oauth2 = None
+
+    monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
 
     monkeypatch.setattr(
         type(config_module.config),

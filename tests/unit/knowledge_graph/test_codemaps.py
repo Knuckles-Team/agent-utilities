@@ -89,7 +89,10 @@ async def test_codemap_generator_create(mock_kg):
             artifact = await generator.create(prompt="test prompt", mode="fast")
 
             assert isinstance(artifact, CodemapArtifact)
-            assert artifact.prompt == "test prompt"
+            assert artifact.prompt_ref.startswith("pref_codemap_prompt_")
+            assert artifact.workspace_ref.startswith("pref_codemap_workspace_")
+            assert "test prompt" not in artifact.to_json()
+            assert "/mock/root" not in artifact.to_json()
             assert len(artifact.nodes) == 2
             assert len(artifact.hierarchy) == 1
             assert artifact.hierarchy[0].title == "Section 1"

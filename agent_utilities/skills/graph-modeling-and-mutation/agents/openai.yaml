@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Modeling and Mutation"
+  short_description: "Canonical ontology models and governed Graph-OS changes"
+  default_prompt: "Use $graph-modeling-and-mutation to model this canonical change, preview its impact, apply it only if authorized, and verify the result."

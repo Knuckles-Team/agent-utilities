@@ -7,19 +7,33 @@
 #   GRAPH_BACKEND=neo4j
 #   GRAPH_DB_URI=bolt://localhost:7687
 #   GRAPH_DB_USER=neo4j
-#   GRAPH_DB_PASSWORD=password
+#   GRAPH_DB_PASSWORD is supplied by the deployment secret provider.
 
 services:
   neo4j-db:
-    image: neo4j:latest
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
+    image: ${NEO4J_IMAGE:?set-NEO4J_IMAGE-to-image@sha256-digest}
     container_name: agent-neo4j
     environment:
-      - NEO4J_AUTH=neo4j/password
+      - NEO4J_AUTH=${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:?set NEO4J_PASSWORD from a secret}
+      - NEO4J_USERNAME=${NEO4J_USERNAME:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:?set NEO4J_PASSWORD from a secret}
       - NEO4J_PLUGINS=["apoc"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u '$${NEO4J_USERNAME:-neo4j}' -p '$${NEO4J_PASSWORD}' 'RETURN 1' >/dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
 volumes:

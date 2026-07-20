@@ -159,14 +159,5 @@ async def test_decide_reaction_disabled(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_decide_reaction_messaging_alias_disable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The legacy MESSAGING_REACTIONS opt-out still disables the now-core decision."""
-    monkeypatch.setenv("MESSAGING_REACTIONS", "0")
-    assert await decide_reaction("great job!") is None
-
-
-@pytest.mark.asyncio
 async def test_decide_reaction_empty_content(fake_model: None) -> None:
     assert await decide_reaction("") is None

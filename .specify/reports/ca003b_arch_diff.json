@@ -1,8 +1,8 @@
 {
   "domain": "CA-003b",
   "domain_name": "Architecture Differential",
-  "source": "/home/apps/workspace/open-source-libraries/hermes-agent",
-  "target": "/home/apps/workspace/agent-packages/agent-utilities",
+  "source": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent",
+  "target": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
   "component_topology_diff": {
     "source_only": [
       "ACP Clients",

@@ -2,7 +2,7 @@
 
 The durable Kafka ingest queue (KG-2.55–2.57) fans work out *across hosts*; this
 scheduler governs the **one** scarce resource a host actually contends on — its
-single GPU inference slot (the GB10/GR1080 vLLM endpoint). Only one extraction
+configured accelerator inference slot. Only one extraction
 job may hold the slot at a time, so a fresh foreground submission must be able to
 **preempt** the running job, which is checkpointed and **auto-resumes from where
 it left off** when the slot frees.

@@ -223,7 +223,7 @@ def compute_fingerprint(file_path: str) -> StructuralFingerprint | None:
     try:
         content = Path(file_path).read_text(encoding="utf-8", errors="replace")
     except (OSError, PermissionError) as e:
-        logger.debug("Cannot read file %s: %s", file_path, e)
+        logger.debug("Cannot read fingerprint source (%s)", type(e).__name__)
         return None
 
     content_hash = hashlib.sha256(content.encode()).hexdigest()

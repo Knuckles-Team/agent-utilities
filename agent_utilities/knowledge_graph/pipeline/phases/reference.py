@@ -16,16 +16,16 @@ async def execute_reference(
     # Map of symbol name to node ID
     symbol_map = {}
     for node, data in graph.nodes(data=True):
-        if data.get("type") == "symbol":
+        if data.get("node_type") == "symbol":
             symbol_map[data.get("name")] = node
-        elif data.get("type") in ("Function", "Method", "Class"):
+        elif data.get("node_type") in ("Function", "Method", "Class"):
             symbol_map[data.get("name")] = node
 
     ref_count = 0
     edges_to_fix = []
 
     for u, v, data in graph.edges(data=True):
-        if data.get("type") == "calls_raw" and "raw" in data:
+        if data.get("relationship") == "calls_raw" and "raw" in data:
             raw_target = data["raw"]
             # Handle method calls like self.my_method -> my_method
             name = raw_target.split(".")[-1]
@@ -36,7 +36,7 @@ async def execute_reference(
     for u, old_v, new_v, data in edges_to_fix:
         if graph.has_edge(u, old_v):
             graph.remove_edge(u, old_v)
-        graph.add_edge(u, new_v, type="calls")
+        graph.add_edge(u, new_v, relationship="calls")
         ref_count += 1
 
     return {"resolved_references": ref_count}

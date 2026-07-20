@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.MEDIA
     description = "Media server — movies, TV shows, music, and live TV"
     env_prefix = "JELLYFIN"
-    default_url = "https://jellyfin.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -47,7 +46,7 @@ class Widget(BaseWidget):
             sessions = client.get_sessions()
             active = sum(1 for s in (sessions or []) if s.get("NowPlayingItem"))
         except Exception as e:
-            logger.debug("Jellyfin fetch: %s", e)
+            logger.debug("Jellyfin fetch: %s", type(e).__name__)
             counts = {}
             active = 0
 

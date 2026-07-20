@@ -42,7 +42,12 @@ def test_ingest_health_trend_writes_typed_node_and_edge(monkeypatch):
         "window_s": 3600,
     }
     out = hi.ingest_health_trend(
-        "sys:host:r510", "Host", "os", "cpu_temp_c", trend, host="r510"
+        "sys:host:storage-node-a",
+        "Host",
+        "os",
+        "cpu_temp_c",
+        trend,
+        host="storage-node-a",
     )
     assert out == {"nodes": 2, "edges": 1}
     assert len(cap.calls) == 1
@@ -51,9 +56,13 @@ def test_ingest_health_trend_writes_typed_node_and_edge(monkeypatch):
     assert call["domain"] == "os"
 
     scaffold, trend_node = call["entities"]
-    assert scaffold == {"id": "sys:host:r510", "type": "Host", "name": "sys:host:r510"}
+    assert scaffold == {
+        "id": "sys:host:storage-node-a",
+        "type": "Host",
+        "name": "sys:host:storage-node-a",
+    }
     assert trend_node["type"] == "HealthTrend"
-    assert trend_node["entity"] == "sys:host:r510"
+    assert trend_node["entity"] == "sys:host:storage-node-a"
     assert trend_node["signal"] == "cpu_temp_c"
     assert trend_node["layer"] == "os"
     assert (
@@ -63,11 +72,11 @@ def test_ingest_health_trend_writes_typed_node_and_edge(monkeypatch):
     )
     assert trend_node["avgControl"] == 30.0
     assert trend_node["samples"] == 120 and trend_node["windowS"] == 3600
-    assert trend_node["host"] == "r510"
+    assert trend_node["host"] == "storage-node-a"
 
     rel = call["relationships"][0]
     assert rel["source"] == trend_node["id"]
-    assert rel["target"] == "sys:host:r510"
+    assert rel["target"] == "sys:host:storage-node-a"
     assert rel["type"] == "affectsEntity"
 
 
@@ -84,10 +93,12 @@ def test_ingest_health_baseline_one_per_entity_signal(monkeypatch):
         "inertia": 0.4,
         "windows": 8,
     }
-    hi.ingest_health_baseline("cm:node:r820", "load1", baseline, entity_type="Node")
+    hi.ingest_health_baseline(
+        "cm:node:analysis-node-a", "load1", baseline, entity_type="Node"
+    )
     call = cap.calls[0]
     _, node = call["entities"]
-    assert node["id"] == "health:baseline:cm:node:r820:load1"
+    assert node["id"] == "health:baseline:cm:node:analysis-node-a:load1"
     assert node["type"] == "HealthBaseline"
     assert node["p50"] == 55.0 and node["p95"] == 62.0
     assert node["minEnv"] == 45.0 and node["maxEnv"] == 60.0
@@ -96,7 +107,9 @@ def test_ingest_health_baseline_one_per_entity_signal(monkeypatch):
     # re-ingesting the SAME entity+signal yields the SAME node id (overwrite semantics)
     cap2 = _Capture()
     monkeypatch.setattr(native_ingest, "ingest_entities", cap2)
-    hi.ingest_health_baseline("cm:node:r820", "load1", baseline, entity_type="Node")
+    hi.ingest_health_baseline(
+        "cm:node:analysis-node-a", "load1", baseline, entity_type="Node"
+    )
     assert cap2.calls[0]["entities"][1]["id"] == node["id"]
 
 
@@ -110,14 +123,17 @@ def test_ingest_health_anomaly_linked_affects_entity(monkeypatch):
         "observed": 80.0,
         "expected": 55.0,
     }
-    hi.ingest_health_anomaly("cm:node:r820", "load1", anomaly, entity_type="Node")
+    hi.ingest_health_anomaly(
+        "cm:node:analysis-node-a", "load1", anomaly, entity_type="Node"
+    )
     call = cap.calls[0]
     _, node = call["entities"]
     assert node["type"] == "HealthAnomaly"
     assert node["kind"] == "above-baseline"
     assert node["zscore"] == 4.2
     rel = call["relationships"][0]
-    assert rel["type"] == "affectsEntity" and rel["target"] == "cm:node:r820"
+    assert rel["type"] == "affectsEntity"
+    assert rel["target"] == "cm:node:analysis-node-a"
 
 
 def test_ingest_incident_links_every_entity(monkeypatch):
@@ -126,13 +142,19 @@ def test_ingest_incident_links_every_entity(monkeypatch):
 
     incident = {
         "kind": "thermal-and-load-stress",
-        "summary": "r820 under thermal/compute stress",
-        "entities": ["fan:host:r820", "cm:node:r820", "cm:pod:r820-1"],
+        "summary": "analysis-node-a under thermal/compute stress",
+        "entities": [
+            "fan:host:analysis-node-a",
+            "cm:node:analysis-node-a",
+            "cm:pod:analysis-node-a-1",
+        ],
     }
     hi.ingest_incident(incident)
     call = cap.calls[0]
     assert call["entities"][0]["type"] == "Incident"
-    assert call["entities"][0]["summary"] == "r820 under thermal/compute stress"
+    assert call["entities"][0]["summary"] == (
+        "analysis-node-a under thermal/compute stress"
+    )
     targets = {rel["target"] for rel in call["relationships"]}
     assert targets == set(incident["entities"])
     assert all(rel["type"] == "affectsEntity" for rel in call["relationships"])
@@ -145,10 +167,12 @@ def test_ingest_incident_carries_rich_correlation_fields_and_anomaly_edges(monke
     monkeypatch.setattr(native_ingest, "ingest_entities", cap)
 
     incident = {
-        "id": "health:incident:r820:sig1",
-        "summary": "r820 under thermal/compute stress",
-        "entities": ["fan:host:r820", "cm:node:r820"],
-        "anomalies": ["health:anomaly:fan:host:r820:cpu_temp_c:t1"],
+        "id": "health:incident:analysis-node-a:sig1",
+        "summary": "analysis-node-a under thermal/compute stress",
+        "entities": ["fan:host:analysis-node-a", "cm:node:analysis-node-a"],
+        "anomalies": [
+            "health:anomaly:fan:host:analysis-node-a:cpu_temp_c:t1"
+        ],
         "layers": ["hardware", "orchestration"],
         "signals": ["cpu_temp_c", "restart_count"],
         "severity": "critical",
@@ -171,9 +195,12 @@ def test_ingest_incident_carries_rich_correlation_fields_and_anomaly_edges(monke
     by_type = {}
     for rel in call["relationships"]:
         by_type.setdefault(rel["type"], set()).add(rel["target"])
-    assert by_type["affectsEntity"] == {"fan:host:r820", "cm:node:r820"}
+    assert by_type["affectsEntity"] == {
+        "fan:host:analysis-node-a",
+        "cm:node:analysis-node-a",
+    }
     assert by_type["correlatesAnomaly"] == {
-        "health:anomaly:fan:host:r820:cpu_temp_c:t1"
+        "health:anomaly:fan:host:analysis-node-a:cpu_temp_c:t1"
     }
 
 

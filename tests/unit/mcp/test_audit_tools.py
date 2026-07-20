@@ -110,7 +110,8 @@ def test_verify_degrades_cleanly_when_engine_build_lacks_support(monkeypatch):
     tool = _register(monkeypatch, engine)
     out = json.loads(tool(action="verify", target_id=""))
     assert out["available"] is False
-    assert "epistemic-graph" in out["error"]
+    assert out["error"]["code"] == "dependency_unavailable"
+    assert "no such method" not in out["error"]
 
 
 def test_verify_no_active_engine(monkeypatch):

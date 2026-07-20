@@ -14,26 +14,26 @@ Design mirrors the Langfuse exporter (:mod:`langfuse_exporter`):
 * **Opt-in, default-off.** Nothing happens unless ``AGENT_UTILITIES_SELF_INGEST``
   is truthy AND ``EPISTEMIC_GRAPH_OBS_ADDR`` is set. When disabled every method
   is a clean no-op, so the live path is never affected.
-* **Non-blocking.** :meth:`SelfIngestSink.emit` only enqueues (``put_nowait``);
-  a background daemon thread batches and ships records. The hot path never
-  blocks on network I/O.
+* **Write-ahead, never network-blocking.** :meth:`SelfIngestSink.emit`
+  synchronously appends a sanitized record to the local WAL before it becomes
+  eligible to send; a background daemon thread batches network delivery. The
+  hot path never blocks on network I/O, and an emitted record is not removed
+  until the destination acknowledges its batch.
 * **Durable + non-lossy once enabled.** CONCEPT:AU-OS.observability.durable-telemetry-pipeline — durable, non-lossy telemetry via bounded-retry requeue, durable spill-buffer backpressure, and per-tenant stamping.
-  A failed drain is **requeued** (bounded retries, per-record attempt count)
-  rather than dropped. When the in-process queue is under backpressure (full)
-  or a record exhausts its retries, it **spills to a durable, crash-safe sqlite
-  (WAL) buffer** (:class:`SpillBuffer`, mirroring the
+  Every record first enters a durable, crash-safe SQLite WAL
+  (:class:`SpillBuffer`, mirroring the
   :class:`~agent_utilities.knowledge_graph.backends.outbox.GraphOutbox`
-  pattern) instead of vanishing — the background worker opportunistically
-  redeems that backlog once the endpoint recovers. The **only** remaining loss
+  pattern). In-process queueing is only a delivery accelerator; backpressure or
+  exhausted retries leave the WAL row pending for replay. The **only** loss
   path is the durable buffer itself being unavailable or at its own bound; that
   case is counted (``dropped``) and logged at ``ERROR`` — loss is never silent.
 * **Graceful degradation.** A missing/unreachable endpoint never raises: sends
   are wrapped, and repeated failures trip a cool-down so we stop hammering
   (the backoff half of "bounded retry + backoff").
-* **Per-tenant.** Every record is stamped with the ambient actor's
-  ``tenant.id`` / ``actor.id`` (:mod:`agent_utilities.security.brain_context`)
-  at the single :meth:`SelfIngestSink.emit` choke-point, so log records,
-  ``RunTrace``, and ``:ToolCall`` events are all attributable per tenant.
+* **Per-tenant without persisted identity.** Every record is stamped with
+  opaque ``tenant.ref`` / ``actor.ref`` values derived from the ambient actor;
+  raw identity, endpoints, machine names, and filesystem paths are sanitized
+  at the single :meth:`SelfIngestSink.emit` persistence choke-point.
 * **Zero new dependency.** Uses ``requests`` (already a core dependency),
   imported lazily, plus the stdlib ``sqlite3`` for the durable spill buffer.
   A transport callable can be injected for tests.
@@ -62,8 +62,22 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.persistence_privacy import (
+    PersistencePrivacyGuard,
+    persistence_reference,
+)
 
 logger = logging.getLogger(__name__)
+
+# Internal delivery failures must never re-enter the root self-ingest handler.
+# This deliberately isolated stderr channel emits only bounded, non-sensitive
+# event codes/counts (never endpoints, paths, payloads, or exception reprs).
+_emergency_logger = logging.getLogger(f"{__name__}.emergency")
+_emergency_logger.propagate = False
+if not _emergency_logger.handlers:
+    _emergency_handler = logging.StreamHandler()
+    _emergency_handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    _emergency_logger.addHandler(_emergency_handler)
 
 # Transport: called with (url, payload_dict) → True on success, False otherwise.
 Transport = Callable[[str, dict[str, Any]], bool]
@@ -167,21 +181,35 @@ class SelfIngestConfig:
 
 
 def _default_transport(timeout: float, headers: dict[str, str]) -> Transport:
-    """Build a ``requests``-backed transport. Never raises; returns success bool."""
+    """Build an AgentConfig/TLS-profile-backed transport."""
 
-    def _send(url: str, payload: dict[str, Any]) -> bool:
+    client: Any | None = None
+    try:
+        from agent_utilities.core.http_client import create_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        trust = resolve_configured_tls_profile("observability-self-ingest")
         try:
-            import requests  # lazy: core dep, but import off the hot path
-
-            resp = requests.post(
-                url,
-                json=payload,
+            client = create_http_client(
                 timeout=timeout,
                 headers={"Content-Type": "application/json", **headers},
+                **trust.httpx_kwargs(),
             )
+        finally:
+            trust.cleanup()
+    except Exception:  # noqa: BLE001 — telemetry setup must not crash a run
+        _emergency_logger.debug("self-ingest transport_initialization_failure")
+
+    def _send(url: str, payload: dict[str, Any]) -> bool:
+        if client is None:
+            return False
+        try:
+            resp = client.post(url, json=payload)
             return 200 <= resp.status_code < 300
-        except Exception as exc:  # noqa: BLE001 — telemetry must never crash a run
-            logger.debug("self-ingest send failed (%s): %s", url, exc)
+        except Exception:  # noqa: BLE001 — telemetry must never crash a run
+            _emergency_logger.debug("self-ingest transport_failure")
             return False
 
     return _send
@@ -189,20 +217,26 @@ def _default_transport(timeout: float, headers: dict[str, str]) -> Transport:
 
 def _default_spill_path() -> str:
     """Default durable spill-buffer location: the XDG data dir (overridable)."""
-    try:
-        from agent_utilities.core.paths import data_dir
+    from agent_utilities.core.paths import data_dir
 
-        return str(data_dir() / "observability" / "self_ingest_spill.db")
-    except Exception:  # noqa: BLE001 — fall back to a relative path if paths is unavailable
-        return "self_ingest_spill.db"
+    return str(data_dir() / "observability" / "self_ingest_spill.db")
 
 
 @dataclass
 class _QueuedRecord:
-    """A telemetry record plus its in-process retry attempt count."""
+    """A write-ahead telemetry record plus its retry attempt count."""
 
     record: dict[str, Any]
+    durable_id: int
     attempts: int = 0
+
+
+@dataclass(frozen=True)
+class SpillRecord:
+    """One unacknowledged durable telemetry row."""
+
+    durable_id: int
+    record: dict[str, Any]
 
 
 class SpillBuffer:
@@ -218,7 +252,7 @@ class SpillBuffer:
 
     Bounded by ``max_records`` so a permanently-down endpoint cannot grow the
     buffer without limit. Once that bound is hit, :meth:`append` returns
-    ``False`` — the *one* remaining true-loss case, which the caller counts
+    ``None`` — the *one* remaining true-loss case, which the caller counts
     (``SelfIngestSink.dropped``) and logs loudly. A sqlite/disk failure at
     construction time degrades the same way (``available`` is ``False``) so a
     bad path never raises into the emit hot path.
@@ -238,7 +272,10 @@ class SpillBuffer:
             )
             with self._lock:
                 conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
+                # FULL is intentional: enqueue success is the write-ahead
+                # durability boundary for telemetry that may otherwise exist
+                # only in this process.
+                conn.execute("PRAGMA synchronous=FULL")
                 conn.execute(
                     "CREATE TABLE IF NOT EXISTS spill ("
                     "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -247,37 +284,40 @@ class SpillBuffer:
                     ")"
                 )
             self._conn = conn
-        except Exception as exc:  # noqa: BLE001 — spill buffer must never crash the caller
-            logger.error(
-                "self-ingest durable spill buffer unavailable at %s: %s", path, exc
-            )
+        except Exception:  # noqa: BLE001 — spill buffer must never crash the caller
+            _emergency_logger.error("self-ingest spill_unavailable")
             self._conn = None
 
     @property
     def available(self) -> bool:
         return self._conn is not None
 
-    def append(self, record: dict[str, Any]) -> bool:
-        """Durably persist one record. ``False`` only on true, final loss."""
+    def append(self, record: dict[str, Any]) -> int | None:
+        """Durably persist one record and return its acknowledgment id.
+
+        ``None`` is returned only on true, final loss. The row stays present
+        until :meth:`ack` is called after a successful network send.
+        """
         conn = self._conn
         if conn is None:
-            return False
+            return None
         try:
             with self._lock:
                 row = conn.execute("SELECT COUNT(*) FROM spill").fetchone()
                 if row and row[0] >= self._max_records:
-                    return False
-                conn.execute(
+                    return None
+                cursor = conn.execute(
                     "INSERT INTO spill (payload, created_at) VALUES (?, ?)",
                     (json.dumps(record, default=str), time.time()),
                 )
-            return True
-        except Exception as exc:  # noqa: BLE001 — never raise into the emit hot path
-            logger.error("self-ingest spill append failed: %s", exc)
-            return False
+                durable_id = int(cursor.lastrowid)
+            return durable_id
+        except Exception:  # noqa: BLE001 — never raise into the emit hot path
+            _emergency_logger.error("self-ingest spill_append_failed")
+            return None
 
-    def pop_batch(self, limit: int) -> list[dict[str, Any]]:
-        """Remove and return up to ``limit`` of the oldest durable records."""
+    def peek_batch(self, limit: int) -> list[SpillRecord]:
+        """Read oldest unacknowledged records without deleting them."""
         conn = self._conn
         if conn is None or limit <= 0:
             return []
@@ -288,15 +328,30 @@ class SpillBuffer:
                 ).fetchall()
                 if not rows:
                     return []
-                ids = [r[0] for r in rows]
-                conn.execute(
+            return [
+                SpillRecord(durable_id=int(row[0]), record=json.loads(row[1]))
+                for row in rows
+            ]
+        except Exception:  # noqa: BLE001 — durable-backlog redemption is best-effort
+            _emergency_logger.error("self-ingest spill_read_failed")
+            return []
+
+    def ack(self, durable_ids: list[int] | tuple[int, ...]) -> int:
+        """Delete rows only after the destination acknowledged their batch."""
+        conn = self._conn
+        ids = [int(value) for value in durable_ids if int(value) > 0]
+        if conn is None or not ids:
+            return 0
+        try:
+            with self._lock:
+                cursor = conn.execute(
                     f"DELETE FROM spill WHERE id IN ({','.join('?' for _ in ids)})",
                     ids,
                 )
-            return [json.loads(r[1]) for r in rows]
-        except Exception as exc:  # noqa: BLE001 — durable-backlog redemption is best-effort
-            logger.error("self-ingest spill drain failed: %s", exc)
-            return []
+            return max(0, int(cursor.rowcount))
+        except Exception:  # noqa: BLE001 — failed ack safely causes replay
+            _emergency_logger.error("self-ingest spill_ack_failed")
+            return 0
 
     def count(self) -> int:
         conn = self._conn
@@ -316,7 +371,7 @@ class SpillBuffer:
                 with self._lock:
                     conn.close()
             except Exception:  # noqa: BLE001 — best-effort teardown
-                logger.debug("self-ingest spill buffer close failed", exc_info=True)
+                _emergency_logger.debug("self-ingest spill_close_failed")
 
 
 class SelfIngestSink:
@@ -356,6 +411,7 @@ class SelfIngestSink:
         # unavailable/full — always logged loudly alongside the counter bump.
         self.requeued = 0
         self.spilled = 0
+        self.persisted = 0
         # Backoff: after N consecutive failures, cool down before retrying.
         self._consecutive_failures = 0
         self._cooldown_until = 0.0
@@ -412,62 +468,95 @@ class SelfIngestSink:
         if self._spill is not None:
             self._spill.close()
 
-    # ── identity stamping (per-tenant, CONCEPT:AU-OS.identity.authenticated-identity-enforcement) ──
+    # ── privacy/identity persistence boundary ─────────────────────────
     @staticmethod
     def _stamp_identity(record: dict[str, Any]) -> dict[str, Any]:
-        """Stamp ``tenant.id`` / ``actor.id`` from the ambient actor onto a record.
+        """Stamp only opaque tenant/actor references onto a record.
 
-        Applied at the single :meth:`emit` choke-point every record flows
-        through (log handler, :func:`emit_run_trace`, :func:`emit_tool_call`),
-        so every telemetry record — not just logs — is attributable per tenant.
-        Best-effort: identity is optional context, never a reason to drop or
-        block telemetry.
+        Raw ambient identity never crosses the persistence boundary. Existing
+        caller-supplied ``tenant.id``/``actor.id`` values are removed rather
+        than trusted.
         """
         attrs = dict(record.get("attributes") or {})
+        attrs.pop("tenant.id", None)
+        attrs.pop("actor.id", None)
+        attrs.pop("tenant_id", None)
+        attrs.pop("actor_id", None)
         try:
             from agent_utilities.security.brain_context import current_actor
 
             actor = current_actor()
-            attrs.setdefault("tenant.id", actor.tenant_id or "")
-            attrs.setdefault("actor.id", actor.actor_id or "")
+            if actor.tenant_id:
+                attrs["tenant.ref"] = persistence_reference(
+                    "tenant", actor.tenant_id, namespace="self-ingest"
+                )
+            if actor.actor_id:
+                attrs["actor.ref"] = persistence_reference(
+                    "actor", actor.actor_id, namespace="self-ingest"
+                )
         except Exception:  # noqa: BLE001 — identity is best-effort context
             pass
         stamped = dict(record)
         stamped["attributes"] = attrs
         return stamped
 
+    @staticmethod
+    def _sanitize_record(record: dict[str, Any]) -> dict[str, Any]:
+        """Remove PII, secrets, endpoints, names, and local paths before WAL.
+
+        Free-form log bodies are never retained. Pattern redaction cannot prove
+        that an arbitrary person's name is absent, so the WAL stores only a
+        keyed opaque body reference and its length alongside a generic event
+        marker. Production requires the persistence HMAC key reference.
+        """
+
+        raw_body = str(record.get("body") or "")
+        clean, report = PersistencePrivacyGuard().sanitize(record)
+        assert isinstance(clean, dict)
+        attrs = dict(clean.get("attributes") or {})
+        event_type = str(clean.get("event_type") or "log")[:64]
+        if raw_body:
+            attrs["message.ref"] = persistence_reference(
+                "telemetry_message", raw_body, namespace=event_type
+            )
+            attrs["message.length"] = len(raw_body)
+        attrs["privacy.schema"] = "persistence-privacy-v1"
+        attrs["privacy.redactions"] = report.redactions
+        attrs["content.retention"] = "metadata"
+        clean["body"] = f"event:{event_type}"
+        clean["attributes"] = attrs
+        return clean
+
     # ── emit (hot path — never blocks) ────────────────────────────────
     def emit(self, record: dict[str, Any]) -> None:
         """Enqueue one telemetry record. Non-blocking.
 
-        Durability (CONCEPT:AU-OS.observability.durable-telemetry-pipeline): a full
-        in-process queue is backpressure, not a reason to lose the record — it
-        spills to the durable buffer instead. A record is only ever counted
-        ``dropped`` (and logged at ERROR) when the durable buffer itself is
-        unavailable or at its own bound.
+        Durability (CONCEPT:AU-OS.observability.durable-telemetry-pipeline): the
+        sanitized record is written to the WAL before this method returns. The
+        queue is only a delivery accelerator; if it is full, the durable row is
+        left pending for replay. A record is counted ``dropped`` only when the
+        WAL itself is unavailable or at its bound.
         """
         if not self.enabled:
             return
         self.emitted += 1
-        record = self._stamp_identity(record)
+        record = self._sanitize_record(self._stamp_identity(record))
+        durable_id = self._spill_buffer.append(record)
+        if durable_id is None:
+            self.dropped += 1
+            _emergency_logger.error(
+                "self-ingest write_ahead_rejected event_type=%s",
+                str(record.get("event_type") or "unknown")[:32],
+            )
+            return
+        self.persisted += 1
         try:
-            self._queue.put_nowait(_QueuedRecord(record=record))
+            self._queue.put_nowait(_QueuedRecord(record=record, durable_id=durable_id))
         except queue.Full:
-            if self._spill_buffer.append(record):
-                self.spilled += 1
-                logger.warning(
-                    "self-ingest queue at capacity (%d) — spilled record to "
-                    "durable buffer instead of dropping",
-                    self._config.queue_max,
-                )
-            else:
-                self.dropped += 1
-                logger.error(
-                    "SELF-INGEST TELEMETRY DROPPED: queue full AND durable spill "
-                    "buffer unavailable/at capacity — event_type=%s body=%r",
-                    record.get("event_type"),
-                    record.get("body"),
-                )
+            self.spilled += 1
+            _emergency_logger.warning(
+                "self-ingest queue_saturated durable_replay_pending"
+            )
 
     def emit_log(
         self,
@@ -557,13 +646,12 @@ class SelfIngestSink:
         return batch
 
     def _handle_failed(self, items: list[_QueuedRecord]) -> None:
-        """Requeue a failed batch (bounded retries), spilling on exhaustion.
+        """Requeue a failed batch while retaining its write-ahead rows.
 
         CONCEPT:AU-OS.observability.durable-telemetry-pipeline — the core durability fix: a
-        failed drain is never simply dropped. Each record gets up to
-        ``max_retries`` in-process resends; once exhausted (or the in-process
-        queue itself is full) it moves to the durable spill buffer, which the
-        worker redeems once the endpoint recovers (:meth:`_redeem_spill`).
+        failed drain is never simply dropped. Each record gets bounded fast
+        retries; once exhausted (or the queue is full), its existing WAL row is
+        left for :meth:`_redeem_spill`.
         """
         for item in items:
             item.attempts += 1
@@ -573,21 +661,17 @@ class SelfIngestSink:
                     self.requeued += 1
                     continue
                 except queue.Full:
-                    pass  # queue saturated — fall through to the durable spill
-            if self._spill_buffer.append(item.record):
-                self.spilled += 1
-            else:
-                self.dropped += 1
-                logger.error(
-                    "SELF-INGEST TELEMETRY DROPPED: exhausted %d retries AND "
-                    "durable spill buffer unavailable/at capacity — "
-                    "event_type=%s body=%r",
-                    item.attempts,
-                    item.record.get("event_type"),
-                    item.record.get("body"),
-                )
+                    pass  # row remains in the WAL for later redemption
+            # The row was persisted before first send. Exhausting the fast
+            # in-process retry leaves it pending for durable redemption.
+            self.spilled += 1
 
-    def _send_batch(self, items: list[_QueuedRecord]) -> bool:
+    def _send_batch(
+        self,
+        items: list[_QueuedRecord],
+        *,
+        requeue_on_failure: bool = True,
+    ) -> bool:
         """Format + ship a batch, tracking counters and backoff. Never raises.
 
         On failure the batch is handed to :meth:`_handle_failed` (requeue /
@@ -599,12 +683,22 @@ class SelfIngestSink:
         ok = False
         try:
             ok = self._transport(self._config.url, payload)
-        except Exception as exc:  # noqa: BLE001 — defensive: transport may misbehave
-            logger.debug("self-ingest transport raised: %s", exc)
+        except Exception:  # noqa: BLE001 — defensive: transport may misbehave
+            _emergency_logger.debug("self-ingest transport_exception")
             ok = False
         if ok:
             self.sent += len(items)
             self._consecutive_failures = 0
+            durable_ids = [item.durable_id for item in items]
+            # Ack-after-send: a failed local delete is safe because it leaves
+            # rows available for at-least-once replay.
+            acknowledged = self._spill_buffer.ack(durable_ids)
+            if acknowledged != len(durable_ids):
+                _emergency_logger.error(
+                    "self-ingest local_ack_incomplete count=%d",
+                    len(durable_ids) - acknowledged,
+                )
+                return False
         else:
             self.failures += 1
             self._consecutive_failures += 1
@@ -615,7 +709,8 @@ class SelfIngestSink:
                     60.0, self._config.flush_interval * 2**self._consecutive_failures
                 )
                 self._cooldown_until = time.monotonic() + backoff
-            self._handle_failed(items)
+            if requeue_on_failure:
+                self._handle_failed(items)
         return ok
 
     def flush(self) -> int:
@@ -635,22 +730,33 @@ class SelfIngestSink:
                 break
             if self._send_batch(batch):
                 sent += len(batch)
+        # Rows that could not enter the accelerator queue, or that exhausted
+        # its retry budget, remain in the WAL. Drain them only after queued
+        # records have settled so no row can be sent down both paths at once.
+        while self.spill_depth() > 0:
+            redeemed = self._redeem_spill(self._config.batch_size)
+            if redeemed <= 0:
+                break
+            sent += redeemed
         return sent
 
-    def _redeem_spill(self, limit: int) -> None:
+    def _redeem_spill(self, limit: int) -> int:
         """Opportunistically resend durable backlog once the endpoint is healthy.
 
-        Gives the durable buffer priority over fresh traffic so it drains back
-        down after an outage instead of growing forever. Records pulled here
-        get a fresh attempt count — :meth:`_handle_failed` will re-spill them
-        on failure, so this can never lose what it just popped.
+        Rows are read without deletion. A successful network batch is followed
+        by a local acknowledgment/delete; any failure leaves the original rows
+        in place for at-least-once replay.
         """
         if self._spill is None:
-            return
-        records = self._spill.pop_batch(limit)
+            return 0
+        records = self._spill.peek_batch(limit)
         if not records:
-            return
-        self._send_batch([_QueuedRecord(record=r) for r in records])
+            return 0
+        items = [
+            _QueuedRecord(record=row.record, durable_id=row.durable_id)
+            for row in records
+        ]
+        return len(items) if self._send_batch(items, requeue_on_failure=False) else 0
 
     def _run(self) -> None:
         """Background loop: batch on interval / size, honoring the cool-down."""
@@ -662,6 +768,8 @@ class SelfIngestSink:
             batch = self._drain(self._config.batch_size)
             if batch:
                 self._send_batch(batch)
+            else:
+                self._redeem_spill(self._config.batch_size)
 
 
 # ── logging handler ───────────────────────────────────────────────────────────
@@ -682,9 +790,10 @@ class SelfIngestLogHandler(logging.Handler):
         try:
             attrs: dict[str, Any] = {
                 "logger.name": record.name,
-                "code.filepath": record.pathname,
+                # Never export a machine-local absolute source path. The
+                # import namespace is stable and repo-neutral.
+                "code.namespace": record.name,
                 "code.lineno": record.lineno,
-                "thread.name": record.threadName or "",
             }
             try:
                 from agent_utilities.observability.correlation import (
@@ -764,11 +873,7 @@ def install_self_ingest_logging(logger_obj: logging.Logger | None = None) -> boo
     target.addHandler(handler)
     sink.start()
     _HANDLER = handler
-    logger.info(
-        "self-ingest telemetry active → %s (mode=%s)",
-        sink.config.url,
-        sink.config.mode,
-    )
+    logger.info("self-ingest telemetry active (mode=%s)", sink.config.mode)
     return True
 
 
@@ -787,16 +892,25 @@ def emit_run_trace(
     sink = get_self_ingest_sink()
     if sink is None:
         return False
+    from agent_utilities.observability.trace_ontology import trace_id
+    from agent_utilities.security.persistence_privacy import (
+        PersistencePrivacyGuard,
+        persistence_reference,
+    )
+
     attrs: dict[str, Any] = {
-        "run.id": run_id,
+        "run.ref": trace_id(run_id),
         "run.status": status,
-        "agent.id": agent_id,
+        "agent.ref": persistence_reference(
+            "agent", agent_id, namespace="external-observability"
+        ),
         "duration_ms": duration_ms,
     }
     if attributes:
         attrs.update(attributes)
+    attrs, _ = PersistencePrivacyGuard().sanitize(attrs)
     sink.emit_log(
-        body=f"run_trace:{run_id} status={status}",
+        body=f"run_trace status={status}",
         level="ERROR" if status in {"error", "failed"} else "INFO",
         attributes=attrs,
         event_type="run_trace",
@@ -816,16 +930,25 @@ def emit_tool_call(
     sink = get_self_ingest_sink()
     if sink is None:
         return False
+    from agent_utilities.observability.trace_ontology import trace_id
+    from agent_utilities.security.persistence_privacy import (
+        PersistencePrivacyGuard,
+        persistence_reference,
+    )
+
     attrs: dict[str, Any] = {
-        "run.id": run_id,
-        "tool.name": tool_name,
+        "run.ref": trace_id(run_id),
+        "tool.ref": persistence_reference(
+            "tool", tool_name, namespace="external-observability"
+        ),
         "tool.status": status,
         "duration_ms": duration_ms,
     }
     if attributes:
         attrs.update(attributes)
+    attrs, _ = PersistencePrivacyGuard().sanitize(attrs)
     sink.emit_log(
-        body=f"tool_call:{tool_name} status={status}",
+        body=f"tool_call status={status}",
         level="ERROR" if status in {"error", "failed"} else "INFO",
         attributes=attrs,
         event_type="tool_call",

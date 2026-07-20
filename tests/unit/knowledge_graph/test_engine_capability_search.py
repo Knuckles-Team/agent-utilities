@@ -123,7 +123,8 @@ def test_falls_to_native_ann_when_unified_plan_unavailable():
 
 
 def test_returns_none_when_no_engine_vector_surface_at_all():
-    """No ``graph`` at all -> None (signal: fall back to the bounded in-process cache)."""
+    """No ``graph`` at all -> None (the vector authority is unavailable; signal
+    to fall back to the bounded in-process cache)."""
     engine = types.SimpleNamespace()
     assert engine_filtered_search(engine, [1.0], k=1) is None
 
@@ -169,3 +170,25 @@ def test_native_ann_bounded_post_filter_excludes_non_matching_candidate():
         engine, [1.0], k=5, required_caps=["arithmetic"]
     )
     assert out == [("tool:has_cap", 0.9)]
+
+
+def test_default_hierarchy_post_filters_for_declared_subtype():
+    """Omitting an injected hierarchy still applies the bundled current ontology."""
+
+    class _HierarchyAwareGraph:
+        def query_unified(self, plan):
+            return [{"id": "tool:mtls", "score": 0.95}]
+
+        def _get_node_properties(self, nid):
+            assert nid == "tool:mtls"
+            return {"capabilities": ["EncryptedTransport"]}
+
+    engine = types.SimpleNamespace(graph=_HierarchyAwareGraph())
+    out = engine_filtered_search(
+        engine,
+        [1.0],
+        k=5,
+        required_caps=["TransportCapability"],
+    )
+
+    assert out == [("tool:mtls", 0.95)]

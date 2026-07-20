@@ -33,6 +33,8 @@ resource) — the resolver never invents access.
 
 from collections.abc import Iterable
 
+from .brain_context import ActorContext, current_actor
+
 # Capabilities that grant every resource in every namespace (the identity ceiling
 # already caps this; these are just the "see everything I'm allowed to" tokens).
 DEFAULT_SUPER_CAPS: frozenset[str] = frozenset({"admin", "system"})
@@ -136,7 +138,7 @@ def identity_scoped_resources(
     namespace: str,
     available: Iterable[str],
     *,
-    actor: object | None = None,
+    actor: ActorContext | None = None,
     super_caps: Iterable[str] = DEFAULT_SUPER_CAPS,
 ) -> tuple[str, ...]:
     """The one call an ``agents/*`` MCP server makes to auto-load by identity.
@@ -147,16 +149,17 @@ def identity_scoped_resources(
     capability set (roles ∪ scopes ∪ group-derived capabilities), so this is a
     thin wrapper over :func:`entitled_resources`.
 
-    Back-compat / fail-safe: the ambient ``SYSTEM_ACTOR`` (unauthenticated local
-    callers) holds the ``admin``/``system`` super-capability, so it is entitled
-    to ALL ``available`` resources — a server behaves exactly as today until a
-    real authenticated identity with specific groups scopes it down. This is the
-    native, default-on path: no flag, no opt-in, and every server that lists its
-    resources through this call inherits identity-scoped auto-loading for free.
+    The actor must be authenticated and tenant-bound. Missing or caller-supplied
+    identity fails closed before any resource catalog is exposed.
     """
-    from .brain_context import current_actor
-
     ctx = actor if actor is not None else current_actor()
+    ctx.ensure_credential_current()
+    actor_id = str(getattr(ctx, "actor_id", "") or "").strip()
+    tenant_id = str(getattr(ctx, "tenant_id", "") or "").strip()
+    if not getattr(ctx, "authenticated", False) or not actor_id or not tenant_id:
+        raise PermissionError(
+            "Identity-scoped resource loading requires verified tenant authority"
+        )
     capabilities = getattr(ctx, "roles", ()) or ()
     return entitled_resources(capabilities, namespace, available, super_caps=super_caps)
 

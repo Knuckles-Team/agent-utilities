@@ -22,6 +22,7 @@ from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
     SessionVisibilityMiddleware,
     _register_meta_tools,
+    _session_key,
 )
 
 
@@ -58,6 +59,12 @@ def _mux_with_local_gated(tmp_path, mcp: FastMCP, gated_tags: dict[str, set[str]
 
 async def _visible_names(mcp: FastMCP) -> set[str]:
     return {t.name for t in await mcp.list_tools()}
+
+
+def _loaded_tools(mux: MCPMultiplexer) -> set[str]:
+    """Inspect the current verified transport/session visibility bucket."""
+
+    return mux.session_loaded(_session_key())
 
 
 @pytest.mark.asyncio
@@ -105,12 +112,12 @@ async def test_unload_by_whole_server_name_retracts_every_local_gated_tool(tmp_p
     )
     load = await mcp.get_tool("load_tools")
     await load.fn(tools=["graph_query", "graph_write"])
-    assert {"graph_query", "graph_write"} <= mux.session_loaded("__default__")
+    assert {"graph_query", "graph_write"} <= _loaded_tools(mux)
 
     unload = await mcp.get_tool("unload_tools")
     result = await unload.fn(servers=["graph-os"])
     assert set(result.structured_content["unloaded"]) == {"graph_query", "graph_write"}
-    assert not ({"graph_query", "graph_write"} & mux.session_loaded("__default__"))
+    assert not ({"graph_query", "graph_write"} & _loaded_tools(mux))
 
     names = await _visible_names(mcp)
     assert "graph_query" not in names
@@ -131,7 +138,7 @@ async def test_unload_by_toolset_tag_retracts_only_matching_tools(tmp_path):
     unload = await mcp.get_tool("unload_tools")
     result = await unload.fn(toolsets=["query"])
     assert result.structured_content["unloaded"] == ["graph_query"]
-    loaded = mux.session_loaded("__default__")
+    loaded = _loaded_tools(mux)
     assert "graph_query" not in loaded
     assert "graph_write" in loaded  # untouched — different toolset tag
 
@@ -159,10 +166,10 @@ async def test_auto_unload_retracts_the_tool_after_its_next_call(tmp_path):
         assert "graph_query" not in tools_after_use
 
     # It is NOT gone forever — load_tools brings it straight back.
-    assert "graph_query" not in mux.session_loaded("__default__")
+    assert "graph_query" not in _loaded_tools(mux)
     load = await mcp.get_tool("load_tools")
     await load.fn(tools=["graph_query"])
-    assert "graph_query" in mux.session_loaded("__default__")
+    assert "graph_query" in _loaded_tools(mux)
 
 
 @pytest.mark.asyncio
@@ -175,17 +182,31 @@ async def test_manage_verb_lifecycle_action_loads_and_unloads(tmp_path):
     mux = _mux_with_local_gated(tmp_path, mcp, {"graph_query": {"query", "gated"}})
     mcp._fleet_mux = mux
 
+    load_hints = {"action": "load", "tools": ["graph_query"]}
+    load_preview = await intent_tools._manage_lifecycle(mcp, load_hints)
+    assert load_preview["executed"] is False
+    assert "graph_query" not in _loaded_tools(mux)
+
     loaded = await intent_tools._manage_lifecycle(
-        mcp, {"action": "load", "tools": ["graph_query"]}
+        mcp,
+        {**load_hints, "plan_ref": load_preview["plan"]["plan_ref"]},
+        execute=True,
     )
-    assert "graph_query" in mux.session_loaded("__default__")
+    assert "graph_query" in _loaded_tools(mux)
     assert "graph_query" in loaded["newly_exposed"]
 
+    unload_hints = {"action": "unload", "tools": ["graph_query"]}
+    unload_preview = await intent_tools._manage_lifecycle(mcp, unload_hints)
+    assert unload_preview["executed"] is False
+    assert "graph_query" in _loaded_tools(mux)
+
     unloaded = await intent_tools._manage_lifecycle(
-        mcp, {"action": "unload", "tools": ["graph_query"]}
+        mcp,
+        {**unload_hints, "plan_ref": unload_preview["plan"]["plan_ref"]},
+        execute=True,
     )
     assert unloaded["unloaded"] == ["graph_query"]
-    assert "graph_query" not in mux.session_loaded("__default__")
+    assert "graph_query" not in _loaded_tools(mux)
 
     # Not a lifecycle action -> returns None so the caller falls through to the
     # normal capability resolver.

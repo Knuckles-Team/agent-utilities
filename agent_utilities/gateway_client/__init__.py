@@ -20,7 +20,7 @@ Example::
 
     from agent_utilities.gateway_client import GatewayClient
 
-    async with GatewayClient("http://gateway.arpa:9000", token=jwt) as gw:
+    async with GatewayClient("https://gateway.example.test", token=jwt) as gw:
         agents = await gw.list_agents()
         async for event in gw.stream("Summarize the payments service"):
             print(event.get("type"), event.get("content", ""))

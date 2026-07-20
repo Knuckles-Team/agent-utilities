@@ -94,11 +94,10 @@ class ToolEnabledJudge:
             )
 
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.model_factory import create_model
 
-            agent = Agent(
+            agent = create_context_agent(
                 create_model(),
                 tools=[list_spans, span_detail, trace_io],
                 system_prompt=(

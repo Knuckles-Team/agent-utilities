@@ -1,4 +1,16 @@
 include LICENSE
 include README.md
 include requirements.txt
-recursive-include agent_utilities *.py *.json *.md *.ttl *.owl *.yaml *.yml
+include build_backend.py
+include deploy/__init__.py
+include deploy/release/__init__.py
+include scripts/__init__.py
+include agent_utilities/dependency-license-catalog.json
+include agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+recursive-include agent_utilities *.py *.json *.md *.ttl *.yaml *.yml
+recursive-include deploy/release *.json *.yml
+recursive-include scripts/certification *.py
+recursive-include scripts/release *.py
+recursive-include scripts/scale *.py *.yml
+prune agent_utilities/.agent_data
+prune agent_utilities/harness/memorydata/tests

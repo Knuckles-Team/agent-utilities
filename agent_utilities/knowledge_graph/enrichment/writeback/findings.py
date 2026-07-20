@@ -22,7 +22,7 @@ def collect_risk_findings(backend: Any, *, limit: int = 1000) -> list[dict[str, 
     try:
         rows = (
             backend.execute(
-                "MATCH (n) WHERE n.type = 'TechnologyRisk' "
+                "MATCH (n) WHERE n.node_type = 'TechnologyRisk' "
                 "RETURN n.id AS id, n.name AS name, n.riskRating AS rating, "
                 "n.endOfLifeDate AS eol LIMIT $limit",
                 {"limit": limit},

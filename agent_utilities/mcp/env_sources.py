@@ -9,8 +9,8 @@ belongs in an **MCP-server** config's ``env`` block:
 
     (package code-read vars ∪ derived ``<TAG>TOOL`` toggles)
       − inherited agent-utilities infra (transport/telemetry/governance/outbound-auth)
-      − agent-only vars (the ``[agent]`` runtime + companion tool suites)
-      + ``MCP_TOOL_MODE`` (always — it selects the condensed/verbose/both surface)
+      − agent-only vars (the ``[agent-runtime]`` environment + companion tool suites)
+      + ``MCP_TOOL_MODE`` (always — it selects intent/condensed/verbose/both)
 
 Inherited infra (OTEL/EUNOMIA/OIDC/DEBUG) is documented in the env-var table's *Inherited*
 section, not repeated in every example block. Agent-only vars (``AGENT_DESCRIPTION``,
@@ -37,7 +37,7 @@ from agent_utilities.mcp.check_env_var_drift import (
 )
 from agent_utilities.mcp.readme_env_vars import INHERITED_ENV, parse_env_example
 
-# Vars that belong to the ``[agent]`` runtime, not the MCP server. They are legitimately
+# Vars that belong to the ``[agent-runtime]`` environment, not the MCP server. They are legitimately
 # read by agent-utilities core (and so appear in ``FRAMEWORK_EXTRA``) and may sit in a
 # package's ``.env.example`` — but placing them in an *MCP-server* ``mcp_config.json``
 # ``env`` block or README MCP example is drift.
@@ -87,7 +87,9 @@ def example_env_pairs(root: Path) -> list[tuple[str, str]]:
     """Canonical ``(name, value)`` pairs for an MCP-server config ``env`` block.
 
     ``MCP_TOOL_MODE`` is always first. Values come from the package's ``.env.example``
-    (so examples show real defaults), falling back to the inherited default, else empty.
+    (so examples show real defaults and commented runtime references). Variables with no
+    example are omitted rather than projected as empty values that shadow runtime
+    injection.
     """
     env_example = root / ".env.example"
     values: dict[str, str] = {}
@@ -101,5 +103,6 @@ def example_env_pairs(root: Path) -> list[tuple[str, str]]:
         value = values.get(var) or (
             INHERITED_ENV[var][0] if var in INHERITED_ENV else ""
         )
-        pairs.append((var, value))
+        if value:
+            pairs.append((var, value))
     return pairs

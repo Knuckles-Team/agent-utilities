@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import threading
+
+import anyio
 import pytest
 
 from agent_utilities.mcp.action_dispatch import (
     DISCOVERY_ACTIONS,
     canonicalize,
     dispatch,
+    dispatch_async,
+    is_destructive_action,
+    parse_json_object,
     public_actions,
     resolve_action,
     suggest,
@@ -30,6 +36,28 @@ def test_public_actions_excludes_private():
     actions = public_actions(_Client())
     assert "get_movie" in actions and "add_movie" in actions
     assert "_private" not in actions
+
+
+@pytest.mark.parametrize("value", [None, "", "   ", b"", bytearray()])
+def test_parse_json_object_accepts_empty_values(value):
+    assert parse_json_object(value) == {}
+
+
+def test_parse_json_object_returns_object():
+    assert parse_json_object('{"page": 2}') == {"page": 2}
+
+
+@pytest.mark.parametrize("value", ['{"token": "private"', '["private"]'])
+def test_parse_json_object_rejects_invalid_shape_without_echo(value):
+    with pytest.raises(ValueError) as exc:
+        parse_json_object(value)
+
+    assert "private" not in str(exc.value)
+
+
+def test_parse_json_object_rejects_oversized_input_before_parsing():
+    with pytest.raises(ValueError, match="input limit"):
+        parse_json_object("{" + " " * (64 * 1024) + "}")
 
 
 def test_suggest_finds_close_match():
@@ -107,9 +135,96 @@ def test_dispatch_folds_flat_fields_into_body_param():
 
     c = _JiraLike()
     # LLM's flat fields folded into the single `payload` body param
-    res = dispatch(
-        c, "create_issue", {"fields": {"summary": "S"}}, service="jira"
-    )
+    res = dispatch(c, "create_issue", {"fields": {"summary": "S"}}, service="jira")
     assert res == {"update_history": None, "payload": {"fields": {"summary": "S"}}}
     # read path (no body param) is a strict no-op
     assert dispatch(c, "get_all_projects", {}, service="jira") == ["AU", "KAN"]
+
+
+def test_dispatch_async_offloads_sync_method():
+    main_thread = threading.get_ident()
+
+    class _SyncClient:
+        def get_record(self):
+            return {"thread": threading.get_ident()}
+
+    result = anyio.run(dispatch_async, _SyncClient(), "get_record")
+
+    assert result["thread"] != main_thread
+
+
+def test_dispatch_async_awaits_native_method_and_async_coercer():
+    class _AsyncClient:
+        async def get_record(self, *, record_id):
+            return {"record_id": record_id}
+
+    async def _coerce(result):
+        return {"coerced": result}
+
+    async def _run():
+        return await dispatch_async(
+            _AsyncClient(),
+            "get_record",
+            {"record_id": "abc"},
+            result_coercer=_coerce,
+        )
+
+    result = anyio.run(_run)
+
+    assert result == {"coerced": {"record_id": "abc"}}
+
+
+@pytest.mark.parametrize("action", ["delete_record", "projects_delete"])
+def test_is_destructive_action_matches_exact_tokens(action):
+    assert is_destructive_action(action) is True
+
+
+def test_is_destructive_action_prefers_operation_metadata():
+    assert is_destructive_action("undelete_record") is False
+    assert is_destructive_action("get_record", {"http": "DELETE"}) is True
+    assert is_destructive_action("delete_record", {"destructive": False}) is False
+
+
+class _ElicitResult:
+    action = "decline"
+    data = True
+
+
+class _DecliningContext:
+    def __init__(self):
+        self.asked = []
+
+    async def elicit(self, message, response_type=bool):
+        self.asked.append(message)
+        return _ElicitResult()
+
+
+def test_dispatch_async_requires_confirmation_before_destructive_invocation():
+    class _TrackedClient:
+        def __init__(self):
+            self.called = []
+
+        async def delete_record(self):
+            self.called.append("delete_record")
+
+    client = _TrackedClient()
+    ctx = _DecliningContext()
+
+    async def _run():
+        return await dispatch_async(client, "delete_record", ctx=ctx)
+
+    result = anyio.run(_run)
+
+    assert result == {"cancelled": True, "operation": "delete_record"}
+    assert client.called == []
+    assert len(ctx.asked) == 1
+
+
+def test_dispatch_async_denies_headless_destructive_invocation():
+    class _DeleteClient:
+        async def delete_record(self):
+            raise AssertionError("destructive method must not run")
+
+    result = anyio.run(dispatch_async, _DeleteClient(), "delete_record")
+
+    assert result == {"cancelled": True, "operation": "delete_record"}

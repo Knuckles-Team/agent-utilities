@@ -141,7 +141,7 @@ def send_webhook(spec: WebhookSpec, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         import httpx  # type: ignore
     except Exception:  # noqa: BLE001 — httpx optional; record instead of dropping
-        logger.debug("httpx unavailable — recording webhook to %s", spec.url)
+        logger.debug("httpx unavailable — recording configured webhook")
         return {**base, "delivered": False, "transport": "recorded"}
     try:
         resp = httpx.request(
@@ -158,5 +158,5 @@ def send_webhook(spec: WebhookSpec, payload: dict[str, Any]) -> dict[str, Any]:
             "status_code": resp.status_code,
         }
     except Exception as exc:  # noqa: BLE001 — network failure is captured, not raised
-        logger.warning("Webhook POST to %s failed: %s", spec.url, exc)
+        logger.warning("Webhook POST failed (%s)", type(exc).__name__)
         return {**base, "delivered": False, "transport": "httpx", "error": str(exc)}

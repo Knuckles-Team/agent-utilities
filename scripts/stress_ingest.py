@@ -10,8 +10,8 @@ incremental ``progress.json`` is written so a watcher can report live %.
 
 Runs against the engine authority with a pg-age mirror (fanout). Example::
 
-    GRAPH_BACKEND=fanout \\
-    GRAPH_DB_URI=postgresql://postgres:postgres@pggraph.arpa:5432/pggraph \\
+    GRAPH_MIRROR_TARGETS='["age"]' \\
+    GRAPH_DB_CONNECTION_PROFILE_REF="env://GRAPH_DB_CONNECTION_PROFILE" \\
     KG_BULK_INGEST=1 \\
     .venv/bin/python scripts/stress_ingest.py --limit 3        # quick validation
     .venv/bin/python scripts/stress_ingest.py                  # full run
@@ -33,19 +33,21 @@ from typing import Any
 
 import psutil
 
-WORKSPACE = Path("/home/apps/workspace")
-AGENT_PACKAGES = WORKSPACE / "agent-packages"
-OSS = WORKSPACE / "open-source-libraries"
+WORKSPACE = Path(os.environ.get("WORKSPACE_PATH", Path.cwd()))
+AGENT_PACKAGES = Path(
+    os.environ.get("AGENT_PACKAGES_ROOT", WORKSPACE / "agent-packages")
+)
+OSS = Path(
+    os.environ.get("OPEN_SOURCE_LIBRARIES_ROOT", WORKSPACE / "open-source-libraries")
+)
 SKILLS_ROOT = AGENT_PACKAGES / "skills" / "universal-skills" / "universal_skills"
-XDG_CONFIG = Path.home() / ".config" / "agent-utilities" / "config.json"
-MCP_CONFIG = WORKSPACE / "mcp_config.json"
 
 # All documents are ingested uniformly (single light document path). Add roots
 # here — scholarx papers, workspace prompt/plan docs, any document corpus.
 DOCUMENT_ROOTS = [
-    Path.home() / ".local" / "share" / "scholarx" / "papers",
-    Path.home() / ".scholarx" / "papers",
-    WORKSPACE / "prompts",
+    Path(value)
+    for value in os.environ.get("INGEST_DOCUMENT_ROOTS", "").split(os.pathsep)
+    if value
 ]
 DOCUMENT_EXTS = {".md", ".txt", ".rst", ".pdf"}
 
@@ -131,7 +133,12 @@ def _pg_db_size() -> int:
     try:
         import psycopg
 
-        dsn = os.environ.get("GRAPH_DB_URI", "")
+        from agent_utilities.knowledge_graph.backends import (
+            _resolve_connection_profile,
+        )
+
+        profile_ref = os.environ.get("GRAPH_DB_CONNECTION_PROFILE_REF", "")
+        dsn = str(_resolve_connection_profile(profile_ref).get("uri") or "")
         if not dsn:
             return 0
         with psycopg.connect(dsn, connect_timeout=5, autocommit=True) as c:
@@ -160,12 +167,6 @@ def _manifests(cat: str, limit: int | None) -> list[dict[str, Any]]:
     def cap(xs):
         return xs[:limit] if limit else xs
 
-    if cat == "config":
-        return (
-            [{"content_type": "config", "source_uri": str(XDG_CONFIG)}]
-            if XDG_CONFIG.exists()
-            else []
-        )
     if cat == "prompts":
         d = AGENT_PACKAGES / "agent-utilities" / "agent_utilities" / "prompts"
         return [
@@ -211,20 +212,6 @@ def _manifests(cat: str, limit: int | None) -> list[dict[str, Any]]:
             }
             for p in cap(repos)
         ]
-    if cat == "mcp_servers":
-        return (
-            [
-                {
-                    "content_type": "mcp_server",
-                    "source_uri": str(MCP_CONFIG),
-                    "metadata": {"discovery_concurrency": 16, "discovery_timeout": 20},
-                }
-            ]
-            if MCP_CONFIG.exists()
-            else []
-        )
-    if cat == "chats":
-        return [{"content_type": "conversation", "source_uri": "chats"}]
     return []
 
 
@@ -306,11 +293,16 @@ async def _amain(cats: list[str], limit: int | None, rdir: Path) -> int:
             json.dumps({"partial": True, "categories": results}, indent=2)
         )
 
-    # Durability backstop: reflect L1 → pggraph.
+    # Explicit mirror-repair backstop.
     try:
-        if hasattr(engine.backend, "reconcile_to_durable"):
+        from agent_utilities.knowledge_graph.backends.fanout_backend import (
+            FanOutBackend,
+        )
+
+        backend = getattr(engine.backend, "inner", engine.backend)
+        if isinstance(backend, FanOutBackend):
             _write_progress(phase="reconcile")
-            results["_reconcile"] = engine.backend.reconcile_to_durable()
+            results["_reconcile"] = backend.reconcile()
     except Exception as e:  # noqa: BLE001
         results["_reconcile_error"] = str(e)[:200]
 
@@ -341,12 +333,9 @@ def main() -> int:
     args = ap.parse_args()
 
     all_cats = [
-        "config",
         "prompts",
-        "mcp_servers",
         "skills",
         "documents",
-        "chats",
         "codebases",
     ]
     cats = all_cats if args.categories == "all" else args.categories.split(",")

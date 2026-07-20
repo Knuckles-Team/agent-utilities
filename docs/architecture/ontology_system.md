@@ -136,26 +136,26 @@ flowchart TB
     FACADE --> OntologySystem
 
     subgraph Substrate ["KnowledgeGraph layers"]
-        L0["engine authority<br/>Rust epistemic-graph (UDS/MessagePack) — compute + cache + semantic + durable store"]
+        AUTH["engine authority<br/>Rust epistemic-graph (UDS/MessagePack) — compute + cache + semantic + durable store"]
         MIRROR["optional mirrors<br/>Postgres / pg-age (write-only fan-out)"]
-        L2["semantic layer<br/>owl_bridge + SHACL validator"]
+        SEM["semantic layer<br/>owl_bridge + SHACL validator"]
         RET["retrieval<br/>CapabilityIndex (HNSW)"]
     end
 
-    VT --> L2
-    IF --> L2
-    DP --> L2
+    VT --> SEM
+    IF --> SEM
+    DP --> SEM
     DP --> RET
-    FN --> L0
-    OS --> L0
-    ED --> L0
+    FN --> AUTH
+    OS --> AUTH
+    ED --> AUTH
     IX --> RET
-    PM --> L2
+    PM --> SEM
     DOC --> RET
     ACT --> FN
     ACT --> ED
-    L2 --> L0
-    L0 --> MIRROR
+    SEM --> AUTH
+    AUTH --> MIRROR
 ```
 
 ## 6. Live-path invariants (Wire-First)

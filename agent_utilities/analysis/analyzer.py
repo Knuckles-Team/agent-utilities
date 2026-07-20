@@ -46,10 +46,10 @@ def _extract_result_text(result: Any) -> str:
     return text
 
 
-async def _run_l2_synthesis(
+async def _run_synthesis(
     ctx: Any, engine: Any, query: str, enriched: list[dict]
 ) -> dict[str, Any]:
-    """Layer 2: Freeform LLM synthesis — no strict JSON schema required.
+    """Run freeform LLM synthesis without a strict JSON schema.
 
     Uses natural language output from the LLM and returns the raw text
     as the synthesis result. This avoids Pydantic output_type failures
@@ -57,7 +57,7 @@ async def _run_l2_synthesis(
     """
     import asyncio
 
-    # Build synthesis prompt from L1 results
+    # Build the synthesis prompt from native retrieval results.
     match_lines = []
     for r in enriched[:15]:
         score = r.get("score", 0)
@@ -91,12 +91,11 @@ async def _run_l2_synthesis(
     )
 
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         analysis_model = _get_analysis_model_id()
-        agent = Agent(
+        agent = create_context_agent(
             model=create_model(model_id=analysis_model),
             system_prompt=system_prompt,
         )
@@ -104,25 +103,25 @@ async def _run_l2_synthesis(
         synthesis_text = _extract_result_text(result)
 
         return {
-            "layer": 2,
+            "stage": "synthesis",
             "synthesis": synthesis_text,
             "items_analyzed": len(enriched),
         }
     except Exception as e:
-        logger.warning("L2 synthesis failed: %s", e)
-        # Fallback: return raw L1 match summaries as the synthesis
+        logger.warning("Synthesis failed: %s", e)
+        # Preserve the native match summaries when synthesis is unavailable.
         return {
-            "layer": 2,
+            "stage": "synthesis",
             "synthesis": "\n".join(match_lines) if match_lines else "No matches found.",
             "items_analyzed": len(enriched),
-            "note": f"LLM synthesis unavailable ({e}), returning L1 summaries.",
+            "note": f"LLM synthesis unavailable ({e}), returning native summaries.",
         }
 
 
-async def _run_l3_extraction(
+async def _run_deep_extraction(
     ctx: Any, engine: Any, query: str, enriched: list[dict]
 ) -> dict[str, Any]:
-    """Layer 3: Freeform deep extraction — no strict JSON schema required.
+    """Run freeform deep extraction without a strict JSON schema.
 
     Filters high-weight matches and asks the LLM for deep technical
     analysis in natural language markdown format.
@@ -138,7 +137,7 @@ async def _run_l3_extraction(
 
     if not high_weight:
         return {
-            "layer": 3,
+            "stage": "deep_extraction",
             "papers_analyzed": 0,
             "extraction": "No high-weight matches for deep extraction.",
         }
@@ -180,12 +179,11 @@ async def _run_l3_extraction(
     )
 
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         analysis_model = _get_analysis_model_id()
-        agent = Agent(
+        agent = create_context_agent(
             model=create_model(model_id=analysis_model),
             system_prompt=system_prompt,
         )
@@ -193,15 +191,15 @@ async def _run_l3_extraction(
         extraction_text = _extract_result_text(result)
 
         return {
-            "layer": 3,
+            "stage": "deep_extraction",
             "papers_analyzed": len(high_weight),
             "extraction": extraction_text,
         }
     except Exception as e:
-        logger.warning("L3 deep extraction failed: %s", e)
+        logger.warning("Deep extraction failed: %s", e)
         # Fallback: return raw match summaries
         return {
-            "layer": 3,
+            "stage": "deep_extraction",
             "extraction": "\n".join(match_sections)
             if match_sections
             else "No matches.",
@@ -239,29 +237,29 @@ class GraphAnalyzer:
         results = self.engine.search_hybrid(query=query, top_k=top_k)
         if not results:
             return {"error": f"No results found for {query}"}
-        return await _run_l2_synthesis(None, self.engine, query, results)
+        return await _run_synthesis(None, self.engine, query, results)
 
     async def deep_extract(self, query: str) -> dict[str, Any]:
         results = self.engine.search_hybrid(query=query, top_k=20)
         if not results:
             return {"error": f"No results found for {query}"}
-        return await _run_l3_extraction(None, self.engine, query, results)
+        return await _run_deep_extraction(None, self.engine, query, results)
 
     async def background_research(self, query: str) -> dict[str, Any]:
-        """Runs the complete L1 -> L2 -> L3 -> OWL pipeline."""
+        """Run retrieval, synthesis, deep extraction, and OWL reasoning."""
         results = self.engine.search_hybrid(query=query, top_k=15)
         if not results:
             return {"error": f"No results found for {query}"}
 
-        l2 = await _run_l2_synthesis(None, self.engine, query, results)
-        l3 = await _run_l3_extraction(None, self.engine, query, results)
+        synthesis = await _run_synthesis(None, self.engine, query, results)
+        extraction = await _run_deep_extraction(None, self.engine, query, results)
         owl = _run_owl_cycle(self.engine)
 
         return {
             "status": "completed",
             "query": query,
-            "l2_synthesis": l2,
-            "l3_extraction": l3,
+            "synthesis": synthesis,
+            "deep_extraction": extraction,
             "owl_reasoning": owl,
         }
 
@@ -271,11 +269,11 @@ class GraphAnalyzer:
         if not results:
             return {"error": f"No results found for {query}"}
 
-        l2 = await _run_l2_synthesis(None, self.engine, query, results)
+        synthesis = await _run_synthesis(None, self.engine, query, results)
         return {
             "status": "sweep_completed",
             "query": query,
             "items_analyzed": len(results),
-            "synthesis": l2.get("synthesis", ""),
-            "note": l2.get("note", ""),
+            "synthesis": synthesis.get("synthesis", ""),
+            "note": synthesis.get("note", ""),
         }

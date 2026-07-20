@@ -3,8 +3,8 @@
 
 **The gap this closes.** ``reports/surpass-6mo/04-five-intersections.md`` §1
 found that per-fleet-agent ``a2a.json`` manifests are thin, generic
-templates — e.g. ``agents/scholarx/a2a.json`` advertises exactly one
-boilerplate ``run_graph_flow`` capability, with no epistemic descriptor —
+templates — e.g. an agent manifest may advertise only the current
+``execute_graph`` capability, with no epistemic descriptor —
 even though ``agent_utilities/server/app.py`` (CONCEPT:AU-KB-CURRENCY, commit
 ``389d7f19``) already advertises a real ``epistemic-answer`` skill on every
 LIVE ``AgentCard`` served by ``agent_to_a2a``. The static ``a2a.json`` files

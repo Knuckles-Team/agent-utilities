@@ -27,9 +27,8 @@ Required / standard fields:
 - `type` — must be `"prompt"`.
 - `source` — provenance / KG namespace (`"agent-utilities:base"` for these; a
   package name like `"gitlab-api"` for fleet-contributed prompts).
-- **Body → `instructions.core_directive`** — this is the ONE canonical body
-  location. (The legacy flat `content` / `input` keys are migration-only and are
-  read by `resolve_body()` for back-compat, never authored in new prompts.)
+- **Body → `instructions.core_directive`** — this is the one accepted body
+  location. Retired flat body keys are rejected at every runtime boundary.
 
 Optional but standardized: `metadata` (description/topic/tone/style/audience),
 `identity` (role/goal/personality), the rest of `instructions`
@@ -76,9 +75,9 @@ inherit one of these base prompts at render time. See
 ## Maintenance
 
 - **Add a specialist** — author it with `prompt-builder`; validate with
-  `validate_prompt.py --strict`; the `check_prompt_schema` gate enforces conformance.
+  `validate_prompt.py`; the `check_prompt_schema` gate enforces conformance.
 - **Optimization** — use the `self_improvement_tools` to evolve these prompts based
   on textual gradients and outcome rewards.
-- **One-time migration** — `scripts/migrate_prompts.py` canonicalizes legacy
-  blueprints (moves `content`/`input` → `instructions.core_directive`, stamps
+- **One-time migration** — `scripts/migrate_prompts.py` canonicalizes retired
+  persisted blueprints (moves old flat body values into `instructions.core_directive`, stamps
   `schema_version`/`source`).

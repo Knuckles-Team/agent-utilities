@@ -1,0 +1,142 @@
+connector: objectstore-mcp
+ontology_source: objectstore
+schema_version: '1'
+resources:
+- name: Bucket
+  label: Bucket
+  id_prefix: bucket
+  relations:
+  - name: inStore
+    label: in store
+    target: ObjectStore
+    lpg_rel_type: ''
+- name: Object
+  label: Object
+  id_prefix: object
+  relations:
+  - name: hasBlob
+    label: has blob
+    target: Blob
+    lpg_rel_type: ''
+  - name: inBucket
+    label: in bucket
+    target: Bucket
+    lpg_rel_type: ''
+- name: ObjectStore
+  label: Object Store
+  id_prefix: objectstore
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: objectstore-objects.updated
+  resource: objectstore_object
+  description: "Watermark event for 'objectstore-objects' \u2014 advances on last_modified (mcp_source_presets.json)."
+identity:
+  id_field:
+    objectstore_object: key
+  title_field:
+    objectstore_object: key
+  text_field:
+    objectstore_object: content_type
+  updated_field:
+    objectstore_object: last_modified
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Bucket:
+    ontology_class: null
+    fields:
+      backendType: xsd:string
+      byteSize: xsd:integer
+      contentType: xsd:string
+      endpoint: xsd:string
+      etag: xsd:string
+      lastModified: xsd:string
+      location: xsd:string
+      objectKey: xsd:string
+      storageClass: xsd:string
+  Object:
+    ontology_class: null
+    fields:
+      backendType: xsd:string
+      byteSize: xsd:integer
+      contentType: xsd:string
+      endpoint: xsd:string
+      etag: xsd:string
+      lastModified: xsd:string
+      location: xsd:string
+      objectKey: xsd:string
+      storageClass: xsd:string
+  ObjectStore:
+    ontology_class: null
+    fields:
+      backendType: xsd:string
+      byteSize: xsd:integer
+      contentType: xsd:string
+      endpoint: xsd:string
+      etag: xsd:string
+      lastModified: xsd:string
+      location: xsd:string
+      objectKey: xsd:string
+      storageClass: xsd:string
+sync:
+- preset: objectstore-objects
+  server: objectstore-mcp
+  tool: objects
+  action: list
+  records_path: objects
+  id_field: key
+  title_field: key
+  text_field: content_type
+  updated_field: last_modified
+  pagination: null
+  doc_type: objectstore_object
+  tool_schema_sha256: aaddc19a0d95c42630e13878e7ee35410890d60ba795278242162c340516fe18
+  raw:
+    server: objectstore-mcp
+    tool: objects
+    action: list
+    params:
+      action: list
+    records_path: objects
+    id_field: key
+    title_field: key
+    text_field: content_type
+    updated_field: last_modified
+    doc_type: objectstore_object
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - objectstore_mcp/connectors/mcp_source_presets.json
+  - objectstore_mcp/connectors/tool_schema_fingerprints.json
+  - objectstore_mcp/ontology/objectstore.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 291cff7e1b5c3b2b0a08e66089821e2633c489fb72896cf1cdadb7f7baf8f25f
+    triple_count: 52
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: S2mcSVEAFqfJq6Vodal96cO1yEUD_PA5gelCe1-FF7AKrUhBAIzsxaR8yQC_8H7Z1JtjDfqWIwOVXJrf0iE3Bw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'ownedBy' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Bucket.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Object.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ObjectStore.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

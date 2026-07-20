@@ -1,7 +1,7 @@
 {
   "domain": "CA-003",
   "domain_name": "Architecture",
-  "project": "/home/apps/workspace/agent-packages/agent-utilities",
+  "project": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
   "protocols": {
     "mcp_config.json": true,
     "MCP": true,

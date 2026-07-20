@@ -242,7 +242,8 @@ def test_uql_rank_text_embedder_unavailable_fails_loud(monkeypatch):
             )
         )
     assert "error" in out
-    assert "embedder" in out["error"].lower()
+    assert out["error"]["code"] == "dependency_unavailable"
+    assert "no embedder configured" not in str(out).lower()
     assert calls == []  # never reached the engine client with the raw ~"text"
 
 

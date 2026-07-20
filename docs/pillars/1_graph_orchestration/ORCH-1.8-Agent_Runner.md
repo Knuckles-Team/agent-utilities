@@ -13,7 +13,7 @@
 
 ## Overview
 
-The **Agent Runner** bridges the `graph_orchestrate(action='execute_agent')` MCP tool
+The **Agent Runner** bridges the `graph_orchestrate` MCP tool
 to the pydantic-graph execution infrastructure. It provides deep KG integration
 rather than a simple passthrough — resolving agents from the Knowledge Graph,
 dynamically binding MCP toolsets, and recording execution provenance.
@@ -83,7 +83,6 @@ MERGE (t)-[:EXECUTED_ON]->(s:Server {id: 'srv:portainer-agent'})
 
 ```
 graph_orchestrate(
-    action='execute_agent',
     agent_name='portainer-agent',
     task='List all running containers',
     max_steps=30

@@ -23,7 +23,6 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
-    _decode_metadata,
     _encode_metadata,
     compute_ingest_worker_count,
 )
@@ -51,24 +50,25 @@ def _cfg(**overrides):
 
 
 def test_resolve_auto_defaults_to_sqlite():
-    assert resolve_task_queue_backend(_cfg()) == ("sqlite", False)
+    assert resolve_task_queue_backend(_cfg()) == "sqlite"
 
 
 def test_resolve_auto_prefers_postgres_with_state_db_uri():
     cfg = _cfg(state_db_uri="postgresql://x/y")
-    assert resolve_task_queue_backend(cfg) == ("postgres", False)
+    assert resolve_task_queue_backend(cfg) == "postgres"
 
 
 def test_resolve_explicit_wins_over_state_db_uri():
     cfg = _cfg(task_queue_backend="sqlite", state_db_uri="postgresql://x/y")
-    assert resolve_task_queue_backend(cfg) == ("sqlite", True)
+    assert resolve_task_queue_backend(cfg) == "sqlite"
 
 
 @pytest.mark.parametrize("value", ["kafka", "postgres", "sqlite", " Kafka "])
 def test_resolve_explicit_values(value):
-    choice, explicit = resolve_task_queue_backend(_cfg(task_queue_backend=value))
-    assert choice == value.strip().lower()
-    assert explicit is True
+    assert (
+        resolve_task_queue_backend(_cfg(task_queue_backend=value))
+        == value.strip().lower()
+    )
 
 
 def test_resolve_rejects_unknown_value():
@@ -83,8 +83,8 @@ def test_create_task_queue_auto_sqlite(tmp_path):
     assert queue.get_queue_size() == 1
 
 
-def test_create_task_queue_auto_postgres_degrades_gracefully(tmp_path, monkeypatch):
-    """Auto mode (STATE_DB_URI set, unreachable) keeps the SQLite fallback."""
+def test_create_task_queue_auto_postgres_fails_closed(tmp_path, monkeypatch):
+    """A configured external authority never switches to a local queue."""
     from agent_utilities.knowledge_graph.core import postgres_queue_backend
 
     class _Boom:
@@ -93,8 +93,9 @@ def test_create_task_queue_auto_postgres_degrades_gracefully(tmp_path, monkeypat
 
     monkeypatch.setattr(postgres_queue_backend, "PostgresTaskQueue", _Boom)
     cfg = _cfg(state_db_uri="postgresql://down/now")
-    queue, name = create_task_queue(cfg, str(tmp_path / "q.db"))
-    assert name == "sqlite"
+    with pytest.raises(TaskQueueUnavailable) as exc_info:
+        create_task_queue(cfg, str(tmp_path / "q.db"))
+    assert "postgresql://down/now" not in str(exc_info.value)
 
 
 def test_create_task_queue_explicit_postgres_fails_loud(tmp_path, monkeypatch):
@@ -106,8 +107,9 @@ def test_create_task_queue_explicit_postgres_fails_loud(tmp_path, monkeypatch):
 
     monkeypatch.setattr(postgres_queue_backend, "PostgresTaskQueue", _Boom)
     cfg = _cfg(task_queue_backend="postgres", state_db_uri="postgresql://down/now")
-    with pytest.raises(TaskQueueUnavailable, match="postgresql://down/now"):
+    with pytest.raises(TaskQueueUnavailable) as exc_info:
         create_task_queue(cfg, str(tmp_path / "q.db"))
+    assert "postgresql://down/now" not in str(exc_info.value)
 
 
 # ── confluent_kafka test double (no install / no broker needed) ────────────────
@@ -166,11 +168,19 @@ class _FakeAdmin:
 class _FakeProducer:
     def __init__(self):
         self.messages: list[tuple[str, bytes, bytes]] = []
+        self.callbacks: list = []
+        self.flush_calls = 0
 
-    def produce(self, topic, value=None, key=None):
+    def produce(self, topic, value=None, key=None, on_delivery=None):
         self.messages.append((topic, value, key))
+        if on_delivery is not None:
+            self.callbacks.append(on_delivery)
 
     def flush(self, timeout=None):
+        self.flush_calls += 1
+        callbacks, self.callbacks = self.callbacks, []
+        for callback in callbacks:
+            callback(None, SimpleNamespace())
         return 0
 
 
@@ -227,23 +237,12 @@ def _kafka_backend(admin, producer=None, **kw):
 # ── KG-2.55: fail-loud vs graceful Kafka startup ─────────────────────────
 
 
-def test_explicit_kafka_unreachable_raises_actionable(confluent_stub):
+def test_kafka_unreachable_fails_without_exposing_endpoint(confluent_stub):
     with pytest.raises(TaskQueueUnavailable) as exc:
-        _kafka_backend(_FakeAdmin(down=True), fail_loud=True)
+        _kafka_backend(_FakeAdmin(down=True))
     msg = str(exc.value)
-    assert "broker.test:9092" in msg  # names the broker
-    assert "TASK_QUEUE_BACKEND" in msg  # says how to fall back
-    assert "sqlite" in msg
-
-
-def test_legacy_kafka_unreachable_falls_back_to_sqlite(confluent_stub, tmp_path):
-    backend = _kafka_backend(
-        _FakeAdmin(down=True),
-        fail_loud=False,
-        fallback_db_path=str(tmp_path / "fb.db"),
-    )
-    backend.put({"job_id": "j1", "props": {}})
-    assert backend.get_queue_size() == 1  # served by the SQLite fallback
+    assert "broker.test:9092" not in msg
+    assert "sqlite" not in msg.casefold()
 
 
 def test_create_task_queue_explicit_kafka_fail_loud(
@@ -258,8 +257,9 @@ def test_create_task_queue_explicit_kafka_fail_loud(
 
     monkeypatch.setattr(kqb, "KafkaQueueBackend", _DeadAdminBackend)
     cfg = _cfg(task_queue_backend="kafka", kafka_bootstrap_servers="broker.test:9092")
-    with pytest.raises(TaskQueueUnavailable, match="broker.test:9092"):
+    with pytest.raises(TaskQueueUnavailable) as exc_info:
         create_task_queue(cfg, str(tmp_path / "q.db"))
+    assert "broker.test:9092" not in str(exc_info.value)
 
 
 # ── KG-2.56: idempotent topic provisioning (grow-only) ──────────────────
@@ -307,31 +307,46 @@ def test_partition_key_tenant_wins():
     env = _envelope(full_path="org/repo", target="/x/y.py")
     actor = ActorContext("u1", ActorType.HUMAN, tenant_id="acme")
     with use_actor(actor):
-        assert partition_key_for(env) == "tenant:acme"
+        key = partition_key_for(env)
+    assert key.startswith("tenant:pref_tenant_")
+    assert "acme" not in key
 
 
-def test_partition_key_repo_provenance_then_corpus_then_type():
+def test_partition_key_repo_provenance_then_corpus_then_type(monkeypatch):
     from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
         partition_key_for,
     )
+    from agent_utilities.security import brain_context
 
-    assert (
-        partition_key_for(_envelope(full_path="group/repo", target="/a/b/c.py"))
-        == "corpus:group/repo"
+    monkeypatch.setattr(
+        brain_context, "current_actor", lambda: SimpleNamespace(tenant_id="")
     )
+
+    provenance_key = partition_key_for(
+        _envelope(full_path="group/repo", target="/a/b/c.py")
+    )
+    assert provenance_key.startswith("corpus:pref_corpus_")
+    assert "group/repo" not in provenance_key
     key = partition_key_for(
-        _envelope(target="/home/apps/workspace/agent-packages/egeria-mcp/src/a.py")
+        _envelope(
+            target="/home/agent-user/workspace/agent-packages/egeria-mcp/src/a.py"
+        )
     )
-    assert key == "corpus:home/apps/workspace/agent-packages/egeria-mcp"
-    assert (
-        partition_key_for(_envelope(task_type="relevance_sweep"))
-        == "type:relevance_sweep"
-    )
+    assert key.startswith("corpus:pref_corpus_")
+    assert "egeria-mcp" not in key
+    type_key = partition_key_for(_envelope(task_type="relevance_sweep"))
+    assert type_key.startswith("type:pref_task_type_")
+    assert "relevance_sweep" not in type_key
 
 
-def test_partition_key_same_repo_files_share_key():
+def test_partition_key_same_repo_files_share_key(monkeypatch):
     from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
         partition_key_for,
+    )
+    from agent_utilities.security import brain_context
+
+    monkeypatch.setattr(
+        brain_context, "current_actor", lambda: SimpleNamespace(tenant_id="")
     )
 
     k1 = partition_key_for(_envelope(target="/work/agent-packages/repo-a/src/one.py"))
@@ -348,8 +363,44 @@ def test_put_produces_keyed_message(confluent_stub):
     backend.put(_envelope(full_path="org/repo"))
     (topic, value, key) = producer.messages[0]
     assert topic == "kg_tasks"
-    assert key == b"corpus:org/repo"
+    assert key.startswith(b"corpus:pref_corpus_")
+    assert b"org/repo" not in key
     assert json.loads(value)["job_id"] == "job-1"
+
+
+def test_put_many_uses_one_delivery_confirmed_flush(confluent_stub):
+    producer = _FakeProducer()
+    backend = _kafka_backend(
+        _FakeAdmin({"kg_tasks": 6, "kg_staging": 1}), producer=producer
+    )
+    backend.put_many([_envelope(f"job-{index}") for index in range(3)])
+    assert len(producer.messages) == 3
+    assert producer.flush_calls == 1
+
+
+def test_concurrent_puts_coalesce_behind_one_flush(confluent_stub, monkeypatch):
+    from agent_utilities.knowledge_graph.core import kafka_queue_backend as kqb
+
+    monkeypatch.setattr(kqb, "_PRODUCER_BATCH_LINGER_S", 0.1)
+    producer = _FakeProducer()
+    backend = _kafka_backend(
+        _FakeAdmin({"kg_tasks": 6, "kg_staging": 1}), producer=producer
+    )
+    barrier = threading.Barrier(2)
+
+    def publish(index: int) -> None:
+        barrier.wait()
+        backend.put(_envelope(f"job-{index}"))
+
+    threads = [threading.Thread(target=publish, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2.0)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(producer.messages) == 2
+    assert producer.flush_calls == 1
 
 
 # ── consumer lag / queue depth ───────────────────────────────────────────
@@ -380,76 +431,164 @@ def test_consumer_lag_sums_partitions(confluent_stub):
     assert backend.get_queue_size() == 11
 
 
+def test_kafka_admission_rejects_at_lag_bound(confluent_stub):
+    producer = _FakeProducer()
+    backend = _kafka_backend(
+        _FakeAdmin({"kg_tasks": 1, "kg_staging": 1}),
+        producer=producer,
+        consumer_factory=lambda **kw: _FakeLagProbe({0: 0}, {0: 5}),
+    )
+    assert not backend.put_if_below(_envelope("rejected"), 5)
+    assert producer.messages == []
+    assert backend.put_if_below(_envelope("accepted"), 6)
+    assert len(producer.messages) == 1
+
+
 # ── KG-2.57: idempotent claim + consumer loop ────────────────────────────
 
 
 class _FakeEngine:
-    """Just enough TaskManagerMixin surface for the worker path."""
+    """Native WorkItem surface for the decoupled worker path."""
 
     def __init__(self):
         self.nodes: dict[str, dict] = {}
         self.executed: list[tuple] = []
         self.failed: dict[str, dict] = {}
+        self.claims: dict[str, dict] = {}
+        self._work_item_engine = self
 
     def query_cypher(self, q, params=None):
         node = self.nodes.get((params or {}).get("id"))
-        return [{"s": node["status"]}] if node else []
+        if not node:
+            return []
+        from agent_utilities.orchestration import work_item as wi
+
+        return [
+            {
+                "id": (params or {})["id"],
+                **{field: node.get(field) for field in wi._FIELDS},
+            }
+        ]
 
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = dict(properties or {})
 
     def _get_host_token(self):
-        return "testhost:1:1"
+        return "worker-opaque"
+
+    def claim_work_item(self, request):
+        item_id = request.work_item_id
+        node = self.nodes.get(item_id)
+        if not node or node.get("status") != "ready":
+            return {
+                "schema_version": "1",
+                "claimed": False,
+                "reason": "empty",
+                "work_item_id": None,
+                "kind": None,
+                "payload_ref": None,
+                "lease_holder_ref": None,
+                "lease_epoch": None,
+                "fencing_token": None,
+                "lease_expires_at_ms": None,
+                "attempt": None,
+                "max_attempts": None,
+                "tenant_in_flight": 0,
+                "changed_work_item_ids": [],
+            }
+        node.update(
+            status="leased",
+            lease_owner=request.worker_ref,
+            lease_epoch=1,
+            fencing_token=1,
+        )
+        return {
+            "schema_version": "1",
+            "claimed": True,
+            "reason": "claimed",
+            "work_item_id": item_id,
+            "kind": node.get("kind"),
+            "payload_ref": node["payload_ref"],
+            "lease_holder_ref": request.worker_ref,
+            "lease_epoch": 1,
+            "fencing_token": 1,
+            "lease_expires_at_ms": request.now_ms + request.lease_ms,
+            "attempt": 1,
+            "max_attempts": 3,
+            "tenant_in_flight": 1,
+            "changed_work_item_ids": [item_id],
+        }
+
+    def _ingest_task_metadata(self, job_id):
+        return dict(self.nodes[f"workitem:ingest_task:{job_id}"]["metadata"])
+
+    def _remember_work_item_claim(self, job_id, claim):
+        self.claims[job_id] = dict(claim)
 
     def _update_task_status(self, job_id, status, meta=None):
-        self.nodes.setdefault(job_id, {})["status"] = status
+        self.nodes[f"workitem:ingest_task:{job_id}"]["status"] = status
         if status == "failed":
             self.failed[job_id] = meta or {}
 
     def _execute_claimed_task(self, job_id, target, is_codebase, task_type):
         self.executed.append((job_id, target, is_codebase, task_type))
-        self.nodes[job_id]["status"] = "completed"
+        self.nodes[f"workitem:ingest_task:{job_id}"]["status"] = "completed"
+
+
+def _seed_work_item(
+    engine, job_id="job-1", *, target=None, task_type="document", status="ready"
+):
+    engine.nodes[f"workitem:ingest_task:{job_id}"] = {
+        "status": status,
+        "kind": "ingest_task",
+        "queue": "ingest_task",
+        "tenant": "tenant-a",
+        "payload_ref": job_id,
+        "resource_class": "ingestion",
+        "prio_bucket": 2,
+        "max_attempts": 3,
+        "metadata": {"target": target, "type": task_type},
+    }
 
 
 def test_claim_marks_running_with_ownership_stamp():
     from agent_utilities.knowledge_graph.ingest_worker import claim_task_envelope
 
     engine = _FakeEngine()
-    claimed = claim_task_envelope(
-        engine, _envelope(target="/repo/file.py", task_type="codebase")
-    )
-    assert claimed == ("job-1", Path("/repo/file.py"), True, "codebase")
-    node = engine.nodes["job-1"]
-    assert node["status"] == "running"
-    meta = _decode_metadata(node["metadata"])
-    assert meta["claimed_by"] == "testhost:1:1"
-    assert meta["claim_unix"] > 0
+    _seed_work_item(engine, target="repo/file.py", task_type="codebase")
+    claimed = claim_task_envelope(engine, {"job_id": "job-1"})
+    assert claimed == ("job-1", Path("repo/file.py"), True, "codebase")
+    assert engine.nodes["workitem:ingest_task:job-1"]["status"] == "leased"
+    assert engine.claims["job-1"]["fencing_token"] == 1
 
 
-@pytest.mark.parametrize("status", ["running", "completed", "failed", "cancelled"])
+@pytest.mark.parametrize(
+    "status", ["leased", "running", "succeeded", "failed", "cancelled"]
+)
 def test_claim_skips_duplicate_delivery(status):
     from agent_utilities.knowledge_graph.ingest_worker import claim_task_envelope
 
     engine = _FakeEngine()
-    engine.nodes["job-1"] = {"status": status}
-    assert claim_task_envelope(engine, _envelope(target="/x.py")) is None
-    assert engine.nodes["job-1"]["status"] == status  # untouched
+    _seed_work_item(engine, target="x.py", status=status)
+    assert claim_task_envelope(engine, {"job_id": "job-1"}) is None
+    assert engine.nodes["workitem:ingest_task:job-1"]["status"] == status
 
 
 def test_claim_reclaims_reaper_requeued_pending():
     from agent_utilities.knowledge_graph.ingest_worker import claim_task_envelope
 
     engine = _FakeEngine()
-    engine.nodes["job-1"] = {"status": "pending"}
-    assert claim_task_envelope(engine, _envelope(target="/x.py")) is not None
+    _seed_work_item(engine, target="x.py")
+    assert claim_task_envelope(engine, {"job_id": "job-1"}) is not None
 
 
 def test_claim_missing_target_fails_task():
     from agent_utilities.knowledge_graph.ingest_worker import claim_task_envelope
 
     engine = _FakeEngine()
-    assert claim_task_envelope(engine, {"job_id": "j2", "props": {}}) is None
-    assert engine.nodes["j2"]["status"] == "failed"
+    _seed_work_item(engine, "j2")
+    assert claim_task_envelope(engine, {"job_id": "j2"}) is None
+    assert engine.nodes["workitem:ingest_task:j2"]["status"] == "failed"
 
 
 class _FakeMsg:
@@ -484,12 +623,51 @@ class _FakeConsumer:
         self.closed = True
 
 
+def test_backend_consumer_is_owned_per_worker_thread(confluent_stub):
+    stop = threading.Event()
+    consumers: list[_FakeConsumer] = []
+    factory_lock = threading.Lock()
+
+    def factory(**_kwargs):
+        with factory_lock:
+            index = len(consumers)
+            consumer = _FakeConsumer([_FakeMsg({"job_id": f"thread-{index}"})], stop)
+            consumers.append(consumer)
+            return consumer
+
+    backend = _kafka_backend(
+        _FakeAdmin({"kg_tasks": 2, "kg_staging": 1}),
+        consumer_factory=factory,
+    )
+    barrier = threading.Barrier(2)
+    payloads: list[str] = []
+
+    def consume() -> None:
+        barrier.wait()
+        item = backend.get()
+        assert item is not None
+        receipt, payload = item
+        payloads.append(payload["job_id"])
+        backend.ack(receipt)
+
+    threads = [threading.Thread(target=consume) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2.0)
+
+    assert sorted(payloads) == ["thread-0", "thread-1"]
+    assert len(consumers) == 2
+    assert all(len(consumer.commits) == 1 for consumer in consumers)
+
+
 def test_consumer_loop_processes_and_commits_after():
     from agent_utilities.knowledge_graph.ingest_worker import run_ingest_consumer_loop
 
     engine = _FakeEngine()
+    _seed_work_item(engine, "job-A", target="a.py")
     stop = threading.Event()
-    msgs = [_FakeMsg(_envelope("job-A", target="/a.py"))]
+    msgs = [_FakeMsg({"job_id": "job-A"})]
     consumer = _FakeConsumer(msgs, stop)
     run_ingest_consumer_loop(engine, consumer, stop)
     assert [e[0] for e in engine.executed] == ["job-A"]
@@ -500,30 +678,36 @@ def test_consumer_loop_marks_failed_and_still_commits():
     from agent_utilities.knowledge_graph.ingest_worker import run_ingest_consumer_loop
 
     engine = _FakeEngine()
+    _seed_work_item(engine, "job-B", target="b.py")
 
     def _boom(job_id, *a):
         raise RuntimeError("parse exploded")
 
     engine._execute_claimed_task = _boom
     stop = threading.Event()
-    consumer = _FakeConsumer([_FakeMsg(_envelope("job-B", target="/b.py"))], stop)
+    consumer = _FakeConsumer([_FakeMsg({"job_id": "job-B"})], stop)
     run_ingest_consumer_loop(engine, consumer, stop)
-    assert engine.nodes["job-B"]["status"] == "failed"
+    assert engine.nodes["workitem:ingest_task:job-B"]["status"] == "failed"
     assert "parse exploded" in engine.failed["job-B"]["error"]
     assert len(consumer.commits) == 1  # poison message is not redelivered forever
 
 
 def test_consumer_pool_spreads_messages_and_closes():
+    from agent_utilities.knowledge_graph.core.session import GraphSession
     from agent_utilities.knowledge_graph.ingest_worker import (
         start_ingest_consumer_pool,
     )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
 
     engine = _FakeEngine()
+    _seed_work_item(engine, "job-1", target="1.py")
+    _seed_work_item(engine, "job-2", target="2.py")
     stop = threading.Event()
     consumers: list[_FakeConsumer] = []
     batches = [
-        [_FakeMsg(_envelope("job-1", target="/1.py"))],
-        [_FakeMsg(_envelope("job-2", target="/2.py"))],
+        [_FakeMsg({"job_id": "job-1"})],
+        [_FakeMsg({"job_id": "job-2"})],
     ]
 
     def _maybe_stop():
@@ -537,8 +721,26 @@ def test_consumer_pool_spreads_messages_and_closes():
         consumers.append(c)
         return c
 
+    actor = ActorContext(
+        actor_id="test-worker",
+        actor_type=ActorType.SYSTEM,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="test-runtime",
+    )
     threads = start_ingest_consumer_pool(
-        engine, worker_count=2, stop_event=stop, consumer_factory=factory
+        engine,
+        worker_count=2,
+        stop_event=stop,
+        consumer_factory=factory,
+        background_session=session,
     )
     for t in threads:
         t.join(timeout=5.0)
@@ -567,18 +769,15 @@ class _DepthHarness:
         self._submission_queue = SimpleNamespace(get_queue_size=lambda: qsize)
         self._rows = task_rows
 
-    def query_cypher(self, q, params=None):
-        return self._rows
-
-    # The :Task count now reads the isolated control plane (CONCEPT:AU-KG.backend.schedule-on-control-graph);
-    # here it shares the same fake rows.
-    def _control_cypher(self, q, params=None):
-        return self._rows
+    def _ingest_work_item_index(self):
+        return {
+            f"job-{index}": {"status": "ready"} for index, _row in enumerate(self._rows)
+        }
 
 
-def test_ingest_queue_depth_combines_queue_and_tasks():
-    h = _DepthHarness(qsize=4, task_rows=[{"c": 3}])
-    assert h.ingest_queue_depth() == 7
+def test_ingest_queue_depth_counts_authoritative_workitems_once():
+    h = _DepthHarness(qsize=4, task_rows=[{}, {}, {}])
+    assert h.ingest_queue_depth() == 3
 
 
 def test_batch_orchestrator_prefers_uniform_depth():
@@ -589,9 +788,7 @@ def test_batch_orchestrator_prefers_uniform_depth():
     engine = SimpleNamespace(ingest_queue_depth=lambda: 42)
     assert _inflight_count(engine) == 42
 
-    # Engines without the method fall back to the :Task count query.
-    legacy = SimpleNamespace(query_cypher=lambda q: [{"c": 5}])
-    assert _inflight_count(legacy) == 5
+    assert _inflight_count(SimpleNamespace()) is None
 
 
 # ── OS-5.23 metrics surface ──────────────────────────────────────────────
@@ -649,7 +846,7 @@ def test_live_kafka_roundtrip():
     )
 
     servers = os.environ["AGENT_UTILITIES_KAFKA_LIVE"]
-    backend = KafkaQueueBackend(bootstrap_servers=servers, fail_loud=True, partitions=2)
+    backend = KafkaQueueBackend(bootstrap_servers=servers, partitions=2)
     job_id = f"live-{int(time.time())}"
     backend.put(_envelope(job_id, target="/tmp/live.txt"))
     deadline = time.time() + 30

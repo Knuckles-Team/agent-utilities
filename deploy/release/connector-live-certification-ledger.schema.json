@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/connector-live-certification-ledger-v1.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "subjectDigest", "bundleDigest", "signerIdentityDigest", "value", "verifierEnv"],
+      "properties": {
+        "scheme": {"type": "string", "pattern": "^[a-z0-9][a-z0-9+._-]{1,63}$"},
+        "subjectDigest": {"$ref": "#/$defs/digest"},
+        "bundleDigest": {"$ref": "#/$defs/digest"},
+        "signerIdentityDigest": {"$ref": "#/$defs/digest"},
+        "value": {"type": "string", "pattern": "^[A-Za-z0-9+/_=-]{16,16384}$"},
+        "verifierEnv": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "ledgerVersion", "entryCount", "entries", "signature"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "ConnectorLiveCertificationLedger"},
+    "ledgerVersion": {"const": 1},
+    "entryCount": {"const": 65},
+    "entries": {
+      "type": "array",
+      "minItems": 65,
+      "maxItems": 65,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["connector", "certifiedAt", "recordDigest", "bundleDigest"],
+        "properties": {
+          "connector": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,127}$"},
+          "certifiedAt": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+          "recordDigest": {"$ref": "#/$defs/digest"},
+          "bundleDigest": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "signature": {"$ref": "#/$defs/signature"}
+  }
+}

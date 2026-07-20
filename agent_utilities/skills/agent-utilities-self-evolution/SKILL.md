@@ -221,7 +221,7 @@ Delegate to the `research-scanner` skill:
 4. Score papers using `dynamic_scorer.py` from the research-scanner skill:
 
 ```bash
-python /home/apps/workspace/agent-packages/skills/universal-skills/universal_skills/research/research-scanner/scripts/dynamic_scorer.py \
+python ${WORKSPACE_ROOT}/agent-packages/skills/universal-skills/universal_skills/research/research-scanner/scripts/dynamic_scorer.py \
     --papers papers.json \
     --min-score 3.0 \
     --output top_papers.json
@@ -398,7 +398,7 @@ Execute the sweep:
 
 ```bash
 python /path/to/agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py \
-    /home/apps/workspace/agent-packages/agent-utilities \
+    ${WORKSPACE_ROOT}/agent-packages/agent-utilities \
     --output /tmp/wiring_sweep_report.md
 ```
 

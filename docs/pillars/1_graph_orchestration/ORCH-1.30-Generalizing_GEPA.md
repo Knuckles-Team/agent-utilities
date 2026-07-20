@@ -1,31 +1,17 @@
-# Generalizing GEPA (CONCEPT:AU-ORCH.optimization.selection-on-unseen-data)
+# Held-out generalization for native program optimization
 
-## Overview
+Generalization is enforced by the native program contract rather than a Python
+prompt optimizer. Training examples carry explicit train/validation/test splits,
+opaque evidence loci, modality labels, and bounded scores. Candidate evaluations
+remain separate from the training corpus and promotion can require every observed
+modality to meet a non-regression threshold.
 
-Makes GEPA-optimized skills **transfer** off the optimization split — the AppWorld RLM-GEPA result
-(the +7.2 pp SGC that held on held-out test). Adds the GEPA paper's held-out feedback/Pareto split,
-predict-rlm's `AgentSpec` anti-overfit grounding, and held-out candidate selection. Extends **AU-ORCH.optimization.optimize-skill-prompt-gepa**.
+The Agent Utilities boundary keeps raw examples ephemeral and sends only opaque
+references and numeric evaluation coordinates. The Rust compiler validates split,
+policy, evidence, modality, budget, and promotion invariants before producing a
+candidate or plan. This makes held-out selection consistent across text, document,
+image, audio, video, graph, table, time-series, vector, spatial, tensor, code, trace,
+and binary evidence.
 
-## How it works
-
-- **Held-out split** (`split_dataset`) — `D_train → D_feedback` (propose on) + `D_pareto` (held-out
-  select on). With `dev_fraction > 0`, `GEPAOptimizer.optimize` proposes/evaluates on the feedback set
-  and **selects the final candidate by held-out score** (`select_best_on_heldout` over
-  `_score_candidate_on`), so a candidate that merely memorized the minibatch does not win.
-- **`AgentSpec` grounding** — `use_cases` + `runtime_grounding` + `scoring_rule` + `counterfactual_axis`
-  are prepended (`as_prompt()`) to the reflective-mutation prompt, steering the proposer toward a
-  general standard-operating-procedure rather than rules that overfit the examples.
-- **Patch-merge selection** — `select_best_on_heldout` picks the winning instruction graft on the
-  held-out set (ties → earlier/simpler generation).
-
-## Key files / API
-
-| Piece | Location |
-|---|---|
-| Generalization core | `rlm/gepa.py` (`AgentSpec`, `split_dataset`, `select_best_on_heldout`, `GEPAOptimizer.optimize(dev_fraction=...)`, `_score_candidate_on`) |
-
-## Wiring (≤3 hops)
-`graph_orchestrate(action="rlm_optimize")` → `optimize_rlm_skill` → `GEPAOptimizer.optimize` (≤3 hops).
-
-## Research provenance
-GEPA paper (Agrawal et al., ICLR 2026 — `D_feedback`/`D_pareto` split, Algorithm 1); predict-rlm `src/rlm_gepa/schema.py` (`AgentSpec`) — verified.
+See `docs/architecture/evolvable_surface.md` and
+`epistemic-graph/crates/eg-program/src/optimizer.rs` for the current contract.

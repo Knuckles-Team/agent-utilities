@@ -12,7 +12,6 @@ class AgentDeps:
     knowledge_engine: Any | None = None
     user_id: str | None = None
     session_id: str | None = None
-    ssl_verify: bool = True
     auth_token: str | None = None
     elicitation_queue: asyncio.Queue | None = None
     graph_event_queue: asyncio.Queue | None = None
@@ -24,7 +23,7 @@ class AgentDeps:
     api_key: str | None = None
     mcp_toolsets: list[Any] = field(default_factory=list)
     patterns: Any | None = None
-    external_ontologies: list[str] = field(default_factory=list)
+    external_ontologies: list[dict[str, str]] = field(default_factory=list)
     # CONCEPT:AU-ORCH.session.session-anchored-collections-native — the invoker↔spawned message channel this agent may talk back on.
     message_channel_id: str | None = None
     # CONCEPT:AU-ORCH.execution.developer-workspace-runtime — the developer-workspace runtime (OS-5.33) the SWE agent acts in.
@@ -42,11 +41,12 @@ class AgentDeps:
 
                 engine = IntelligenceGraphEngine.get_active()
                 if engine and hasattr(engine, "register_external_ontology"):
-                    for ext in self.external_ontologies:
-                        parts = ext.split("|", 1)
-                        uri = parts[0].strip()
-                        endpoint = parts[1].strip() if len(parts) > 1 else None
-                        engine.register_external_ontology(uri, endpoint)
+                    for declaration in self.external_ontologies:
+                        engine.register_external_ontology(
+                            reference_id=declaration.get("reference_id", ""),
+                            ontology_ref=declaration.get("ontology_ref", ""),
+                            connection=declaration.get("connection", ""),
+                        )
             except ImportError:
                 pass
 

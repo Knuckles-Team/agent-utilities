@@ -1,9 +1,9 @@
 """Live-path test for the agent-hardening loop (CONCEPT:AU-AHE.harness.hardening-transparency-surface/3.72/3.73).
 
-The closed cycle, end-to-end for ONE agent and offline-deterministic (no LM):
+The closed cycle, end-to-end for ONE agent with a deterministic native-job fake:
 
-    synthetic action_outcomes → per-agent trainset → optimize → candidate prompt
-    → evaluate vs baseline on the agent's eval slice → gated apply → audit trail.
+    synthetic action_outcomes → governed references → native candidate → ephemeral
+    execution render → gated reference-only apply → metadata-only audit trail.
 
 Asserts a better prompt is produced and **written under the gate**, held in shadow when
 the gate is off, and rejected when it does not beat baseline — leaving a queryable
@@ -19,7 +19,13 @@ import pytest
 
 from agent_utilities.harness.eval_corpus import EvalCorpus
 from agent_utilities.harness.evolve_agent import EvolveAgent
+from agent_utilities.harness.manifest import (
+    ChangeManifest,
+    ComponentEdit,
+    ComponentType,
+)
 from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
+from agent_utilities.prompting.structured import StructuredPrompt
 
 pytestmark = pytest.mark.asyncio
 
@@ -39,6 +45,43 @@ _OUTCOMES = [
         "query pg_stat_activity and confirm replication lag is under one second",
     ),
 ]
+
+
+class _NativeProgramEngine:
+    def optimize_program(self, request):
+        examples = request["corpus"]["examples"]
+        reference = "eg:candidate:" + "a" * 64
+        return {
+            "status": "proposed",
+            "result": {
+                "rows": [
+                    {
+                        "id": reference,
+                        "kind": "program_candidate",
+                        "confidence": 1.0,
+                        "program_ref": request["program"]["program_ref"],
+                        "optimizer": request["optimizer"],
+                        "execution": "native_kernel",
+                        "candidate_role": "proposal",
+                        "demonstration_refs": [
+                            example["example_ref"] for example in examples
+                        ],
+                        "artifact_refs": [],
+                        "composition_refs": [],
+                        "instruction_ref": request["program"]["signature"][
+                            "instruction_ref"
+                        ],
+                        "model_profile_ref": None,
+                        "evidence_refs": request["baseline"]["evidence_refs"],
+                        "source_refs": [request["corpus"]["corpus_ref"]],
+                        "proof_ids": [],
+                        "contradiction_ids": [],
+                        "modalities": ["text"],
+                        "selected": True,
+                    }
+                ]
+            },
+        }
 
 
 def _seed_agent_outcomes(fb: FeedbackService, agent_id: str) -> None:
@@ -71,7 +114,11 @@ def _make_evolver(tmp_path: Path) -> tuple[EvolveAgent, FeedbackService]:
     subprocess.run(["git", "config", "user.email", "t@t"], cwd=tmp_path, check=False)
     subprocess.run(["git", "config", "user.name", "t"], cwd=tmp_path, check=False)
     fb = FeedbackService(backend=None, eval_corpus=EvalCorpus(backend=None))
-    evolver = EvolveAgent(workspace_path=str(tmp_path), feedback_service=fb)
+    evolver = EvolveAgent(
+        workspace_path=str(tmp_path),
+        feedback_service=fb,
+        knowledge_engine=_NativeProgramEngine(),
+    )
     return evolver, fb
 
 
@@ -86,7 +133,49 @@ async def test_per_agent_trainset_pools_only_that_agents_outcomes(tmp_path):
     )
     train = fb.build_agent_trainset("deploy-agent")
     assert len(train) == len(_OUTCOMES)  # scoped to THIS agent, not the other
+    assert all(row["example_ref"].startswith("eg:example:") for row in train)
+    assert all(
+        "deploy-agent" not in repr(case.tags) for case in fb.eval_corpus.load_cases()
+    )
     assert fb.build_agent_trainset("nobody") == []
+    assert fb.resolve_program_demonstrations(["eg:trace:" + "f" * 64]) == []
+
+
+async def test_durable_manifest_projection_contains_references_not_raw_content():
+    manifest = ChangeManifest()
+    manifest.add_edit(
+        ComponentEdit(
+            component_type=ComponentType.SYSTEM_PROMPT,
+            file_path=r"C:\Users\agent-user\private_prompt.json",
+            edit_summary="contact person@example.invalid about the raw prompt",
+            diff_content="raw demonstration content",
+            predicted_fixes=["environment-task-name"],
+            evidence_references=["environment-trace-name"],
+            metadata={
+                "raw_prompt": "raw demonstration content",
+                "workspace_path": r"C:\Users\agent-user\Workspace",
+            },
+        )
+    )
+
+    payload = EvolveAgent._manifest_persistence_payload(manifest)
+    serialized = json.dumps(payload)
+
+    assert "file_path" not in serialized
+    assert "sample_account" not in serialized
+    assert "person@example.invalid" not in serialized
+    assert "raw demonstration content" not in serialized
+    assert payload["edits"][0]["component_ref"].startswith("eg:component:")
+    assert payload["edits"][0]["predicted_fix_refs"][0].startswith("eg:task:")
+
+
+async def test_component_resolution_rejects_workspace_escape(tmp_path):
+    evolver, _ = _make_evolver(tmp_path)
+
+    with pytest.raises(ValueError, match="escapes workspace"):
+        evolver._resolve_component_path("../outside.json")
+    with pytest.raises(ValueError, match="component path is invalid"):
+        evolver._resolve_component_path("/absolute/outside.json")
 
 
 # ── G1/G8/G2: optimize → better prompt → WRITTEN under the auto-apply gate ───
@@ -108,19 +197,27 @@ async def test_cycle_applies_better_prompt_when_gate_on(tmp_path):
     assert outcome.status == "applied" and outcome.applied is True
     assert outcome.trainset_size == len(_OUTCOMES)
 
-    # the optimized body was actually written to source via StructuredPrompt.save()
+    # Source contains only compiled refs; raw outcomes are resolved for execution.
     written = json.loads(prompt_path.read_text(encoding="utf-8"))
-    body = written["instructions"]["core_directive"]
-    assert "LEARNED EXEMPLARS" in body
-    assert "kubectl apply" in body  # a real outcome folded in
+    assert "few_shot_examples" not in written
+    assert written["program_compiled_state"]["demonstration_refs"]
+    assert "kubectl apply" not in json.dumps(written)
     assert written["prompt_version"] == "0.1.1"  # version bumped
+    execution_body = StructuredPrompt.load(prompt_path).render_for_execution(
+        fb.resolve_program_demonstrations
+    )
+    assert "GOVERNED EXECUTION EXEMPLARS" in execution_body
+    assert "kubectl apply" in execution_body
 
     # audit trail: a ProposedPromptChange record exists with before/after + decision
     proposals = list((tmp_path / ".specify" / "proposals").glob("*.json"))
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
-    assert rec["status"] == "applied" and rec["applied"] is True
-    assert rec["delta"] > 0 and rec["agent_id"] == "deploy-agent"
+    assert rec["status"] == "applied" and rec["applied"] is True and rec["delta"] > 0
+    assert "agent_id" not in rec and "file_path" not in rec
+    assert "candidate_blueprint" not in rec
+    assert "deploy-agent" not in json.dumps(rec)
+    assert "kubectl apply" not in json.dumps(rec)
 
 
 # ── transparency: gate OFF ⇒ propose-only / shadow, live prompt untouched ────
@@ -142,21 +239,45 @@ async def test_cycle_is_shadow_when_gate_off(tmp_path):
     # the live prompt is NOT modified — a rewrite is never silent
     assert prompt_path.read_text(encoding="utf-8") == before
 
-    # but the candidate is queryable + approvable in the audit record
+    # The reference-only candidate is queryable + approvable in the audit record.
     proposals = list((tmp_path / ".specify" / "proposals").glob("*.json"))
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
     assert rec["status"] == "proposed"
-    assert (
-        "LEARNED EXEMPLARS"
-        in rec["candidate_blueprint"]["instructions"]["core_directive"]
-    )
+    assert rec["program_compiled_state"]["demonstration_refs"]
+    assert "kubectl apply" not in json.dumps(rec)
 
     # ...and approval applies it on demand (steerable, not auto)
     approved = evolver.approve_proposed_change(rec["id"])
     assert approved["approved"] is True
     written = json.loads(prompt_path.read_text(encoding="utf-8"))
-    assert "LEARNED EXEMPLARS" in written["instructions"]["core_directive"]
+    assert written["program_compiled_state"]["demonstration_refs"]
+    assert "kubectl apply" not in json.dumps(written)
+    execution_body = StructuredPrompt.load(prompt_path).render_for_execution(
+        fb.resolve_program_demonstrations
+    )
+    assert "kubectl apply" in execution_body
+
+
+async def test_shadow_proposal_tampering_fails_integrity_check(tmp_path):
+    evolver, fb = _make_evolver(tmp_path)
+    _seed_agent_outcomes(fb, "deploy-agent")
+    prompt_path = tmp_path / "deploy_agent.json"
+    _write_baseline_prompt(prompt_path, core_directive="You are a deploy assistant.")
+    before = prompt_path.read_text(encoding="utf-8")
+
+    outcome = await evolver.harden_agent_prompt(
+        "deploy-agent", "deploy_agent.json", auto_apply=False
+    )
+    proposal_path = next((tmp_path / ".specify" / "proposals").glob("*.json"))
+    record = json.loads(proposal_path.read_text(encoding="utf-8"))
+    record["candidate_score"] = 0.0
+    proposal_path.write_text(json.dumps(record), encoding="utf-8")
+
+    approval = evolver.approve_proposed_change(outcome.detail)
+
+    assert approval == {"approved": False, "error": "proposal_integrity_mismatch"}
+    assert prompt_path.read_text(encoding="utf-8") == before
 
 
 # ── promotion gate: a candidate that doesn't beat baseline is rejected ───────

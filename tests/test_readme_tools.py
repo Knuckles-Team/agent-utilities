@@ -7,6 +7,7 @@ from fastmcp import FastMCP
 from agent_utilities.mcp.readme_tools import (
     END,
     START,
+    _toggle_env,
     render_tools_table,
     sync_readme,
 )
@@ -30,10 +31,21 @@ def _server() -> FastMCP:
     return mcp
 
 
+def test_toggle_env_ignores_structural_only_tags():
+    assert _toggle_env(set()) == "—"
+    assert _toggle_env({"verbose"}) == "—"
+    assert _toggle_env({"gated", "granular", "verbose"}) == "—"
+
+
+def test_toggle_env_selects_domain_among_structural_tags():
+    assert _toggle_env({"series", "gated", "granular"}) == "`SERIESTOOL`"
+    assert _toggle_env({"podcasts", "granular", "verbose"}) == "`PODCASTSTOOL`"
+
+
 def test_render_includes_condensed_and_verbose_sections():
     table = render_tools_table(_server())
     assert START in table and END in table
-    # condensed action-routed tools render in the default section
+    # The generator catalogs the explicit condensed action-routed surface.
     assert "Condensed action-routed tools" in table
     assert "| `svc_cmdb` | `CMDBTOOL` |" in table
     assert "| `svc_incidents` | `INCIDENTSTOOL` |" in table
@@ -42,7 +54,8 @@ def test_render_includes_condensed_and_verbose_sections():
     assert "<details>" in table
     assert "| `svc_get_cmdb_instance` |" in table
     # summary distinguishes the two surfaces
-    assert "2 action-routed tool(s) (default) · 1 verbose 1:1 tool(s)" in table
+    assert "2 action-routed tool(s) · 1 verbose 1:1 tool(s)" in table
+    assert "`intent` default" in table
 
 
 def test_render_omits_verbose_section_when_none():
@@ -55,7 +68,8 @@ def test_render_omits_verbose_section_when_none():
     table = render_tools_table(mcp)
     assert "Condensed action-routed tools" in table
     assert "Verbose 1:1 API-mapped tools" not in table  # no verbose -> no section
-    assert "1 action-routed tool(s) (default) · 0 verbose 1:1 tool(s)" in table
+    assert "1 action-routed tool(s) · 0 verbose 1:1 tool(s)" in table
+    assert "`intent` default" in table
 
 
 def test_sync_inserts_under_heading_and_is_idempotent(tmp_path):

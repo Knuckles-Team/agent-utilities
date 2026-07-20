@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/release-configuration-v1.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"}
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "releaseId", "compatibilityMatrixDigest", "runtime", "features", "security"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "ReleaseConfiguration"},
+    "releaseId": {"type": "string", "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"},
+    "compatibilityMatrixDigest": {"$ref": "#/$defs/digest"},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pythonVersion", "baseImage", "pythonDependencyMode", "offlineTargets", "activationMode", "mcpToolMode"],
+      "properties": {
+        "pythonVersion": {"const": "3.12"},
+        "baseImage": {"type": "string", "pattern": "^python:3\\.12-slim@sha256:(?!0{64}$)[a-f0-9]{64}$"},
+        "pythonDependencyMode": {"const": "offline-hash-locked-wheelhouse"},
+        "offlineTargets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["epistemic-graph", "agent-utilities", "langfuse-agent"],
+          "properties": {
+            "epistemic-graph": {"const": "release-local"},
+            "agent-utilities": {"const": "agent-local"},
+            "langfuse-agent": {"const": "mcp-local"}
+          }
+        },
+        "activationMode": {"const": "atomic-exact-release"},
+        "mcpToolMode": {"const": "intent"}
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nativeProgramEvolution", "langfuseEvolution"],
+      "properties": {
+        "nativeProgramEvolution": {"const": true},
+        "langfuseEvolution": {"const": true}
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentConfigRequired", "identityRequired", "tlsVerificationRequired", "referenceBackedSecretsOnly", "metadataOnlyEvidence"],
+      "properties": {
+        "agentConfigRequired": {"const": true},
+        "identityRequired": {"const": true},
+        "tlsVerificationRequired": {"const": true},
+        "referenceBackedSecretsOnly": {"const": true},
+        "metadataOnlyEvidence": {"const": true}
+      }
+    }
+  }
+}

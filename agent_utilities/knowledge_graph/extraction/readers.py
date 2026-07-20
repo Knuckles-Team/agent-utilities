@@ -21,7 +21,7 @@ decorator + ``pkgutil`` discovery pattern
   and **falls back to the existing**
   :func:`agent_utilities.knowledge_graph.enrichment.extractors.document.read_document_text`
   for ``.pdf`` / ``.md`` / ``.txt`` / ``.rst`` / ``.json`` / ``.eml`` so the
-  battle-tested (PyMuPDF-fast) path stays the source of truth for those.
+  bounded pypdf path stays the source of truth for those.
 
 A handful of built-in readers are registered **inline** below (csv/tsv, html,
 pptx, xlsx, audio, image-OCR). ``.txt`` / ``.md`` / ``.pdf`` need no registration
@@ -66,7 +66,7 @@ _DISCOVERED = False
 R = TypeVar("R", bound=Reader)
 
 # Extensions whose canonical reader is the existing ``read_document_text`` fast
-# path (PyMuPDF for PDF, direct decode for the text family). We do NOT register
+# path (bounded pypdf for PDF, direct decode for the text family). We do NOT register
 # these — ``read_any`` routes them to the fallback so there is one source of
 # truth for the document path.
 _FALLBACK_EXTS = frozenset({".pdf", ".md", ".txt", ".rst", ".json", ".eml"})
@@ -198,7 +198,7 @@ def read_any(path: str, *, mime: str | None = None) -> str:
 
     1. The existing :func:`read_document_text` fast path for the document family
        (``.pdf`` / ``.md`` / ``.txt`` / ``.rst`` / ``.json`` / ``.eml``) — one
-       source of truth, PyMuPDF-fast.
+       source of truth, bounded by file, page, and output size.
     2. A registered reader matched by the file extension (then by ``mime`` /
        :pyfunc:`mimetypes.guess_type` when the path has no useful suffix).
     3. The :func:`read_document_text` fallback for anything else (it returns
@@ -230,7 +230,11 @@ def read_any(path: str, *, mime: str | None = None) -> str:
         try:
             return reader(path) or ""
         except Exception as exc:  # noqa: BLE001 — reader failure → empty (skipped)
-            logger.warning("[KG-2.66] reader for %r failed on %s: %s", ext, path, exc)
+            logger.warning(
+                "[KG-2.66] reader failed type=%s error_type=%s",
+                ext,
+                type(exc).__name__,
+            )
             return ""
 
     # 3) Unknown modality → let the document reader try (returns "" if it can't).
@@ -244,7 +248,7 @@ def _fallback_read(path: str) -> str:
 
         return read_document_text(path)
     except Exception as exc:  # noqa: BLE001 — best-effort
-        logger.debug("[KG-2.66] fallback read failed for %s: %s", path, exc)
+        logger.debug("[KG-2.66] fallback read failed (%s)", type(exc).__name__)
         return ""
 
 
@@ -338,7 +342,7 @@ def read_pptx(path: str) -> str:
     try:
         prs = Presentation(path)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[KG-2.66] python-pptx failed on %s: %s", path, exc)
+        logger.warning("[KG-2.66] python-pptx failed (%s)", type(exc).__name__)
         return ""
     out: list[str] = []
     for idx, slide in enumerate(prs.slides, start=1):
@@ -370,7 +374,7 @@ def read_xlsx(path: str) -> str:
     try:
         wb = load_workbook(path, read_only=True, data_only=True)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[KG-2.66] openpyxl failed on %s: %s", path, exc)
+        logger.warning("[KG-2.66] openpyxl failed (%s)", type(exc).__name__)
         return ""
     out: list[str] = []
     try:
@@ -405,7 +409,7 @@ def read_audio(path: str) -> str:
         segments, _info = model.transcribe(path)
         return " ".join(seg.text.strip() for seg in segments if seg.text.strip())
     except Exception as exc:  # noqa: BLE001
-        logger.warning("[KG-2.66] faster-whisper failed on %s: %s", path, exc)
+        logger.warning("[KG-2.66] faster-whisper failed (%s)", type(exc).__name__)
         return ""
 
 
@@ -428,5 +432,5 @@ def read_image_ocr(path: str) -> str:
         with Image.open(path) as img:
             return (pytesseract.image_to_string(img) or "").strip()
     except Exception as exc:  # noqa: BLE001 — missing tesseract binary, bad image, …
-        logger.warning("[KG-2.66] pytesseract failed on %s: %s", path, exc)
+        logger.warning("[KG-2.66] pytesseract failed (%s)", type(exc).__name__)
         return ""

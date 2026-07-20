@@ -13,7 +13,6 @@ Tests the full tracing pipeline:
 
 import logging
 import os
-from pathlib import Path
 
 import pytest
 
@@ -25,8 +24,6 @@ from agent_utilities.observability.custom_observability import (
     setup_otel,
     verify_otel_pipeline,
 )
-
-WORKSPACE_DIR = Path("/home/apps/workspace")
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +46,6 @@ def engine(tmp_path_factory):
 def otel_setup():
     """Initialize OTel pipeline for the test module."""
     os.environ.setdefault("LLM_PROVIDER", "openai")
-    os.environ.setdefault("LLM_BASE_URL", "http://vllm.arpa/v1")
     os.environ.setdefault("LITE_LLM_MODEL_ID", "qwen/qwen3.5-9b")
 
     config.reload()
@@ -68,11 +64,7 @@ class TestOTelPipelineSetup:
     def test_otel_endpoint_configured(self, otel_setup):
         """CONCEPT:AU-OS.config.secrets-authentication — OTLP endpoint is set."""
         report = verify_otel_pipeline()
-        assert report["endpoint"], "OTLP endpoint should be configured"
-        assert (
-            "langfuse" in report["endpoint"].lower()
-            or "otel" in report["endpoint"].lower()
-        )
+        assert report["endpoint_configured"], "OTLP endpoint should be configured"
 
     def test_otel_headers_generated(self, otel_setup):
         """CONCEPT:AU-OS.config.secrets-authentication — Auth headers are generated from Langfuse keys."""
@@ -177,7 +169,7 @@ class TestTracingDecorator:
 
     def test_trace_disabled_without_keys(self, otel_setup, monkeypatch):
         """CONCEPT:AU-OS.config.secrets-authentication — Tracing is no-op without Langfuse keys."""
-        monkeypatch.setattr(config, "langfuse_secret_key", None)
+        monkeypatch.setattr(config, "langfuse_secret_key_ref", None)
 
         from agent_utilities.harness.tracing import trace
 

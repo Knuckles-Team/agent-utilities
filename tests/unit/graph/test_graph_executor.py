@@ -83,7 +83,7 @@ async def test_execute_domain_logic_agent_found():
     stream = MagicMock()
     stream.stream_messages.side_effect = lambda: async_iter([])
     stream.get_output = AsyncMock(return_value="result")
-    stream.usage.return_value = UsageStatistics()
+    stream.usage = UsageStatistics()
 
     # run_stream is an async context manager
     mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=stream)
@@ -92,7 +92,7 @@ async def test_execute_domain_logic_agent_found():
     deps.sub_agents = {"test_domain": mock_agent}
 
     await executor._execute_domain_logic(ctx, "test_domain")
-    assert state.results["test_domain"] == "result"
+    assert state.results_registry["test_domain_0"] == "result"
 
 
 @pytest.mark.asyncio
@@ -107,7 +107,7 @@ async def test_execute_domain_logic_error():
     deps.sub_agents = {"test_domain": "legacy_string"}
 
     await executor._execute_domain_logic(ctx, "test_domain")
-    assert "Legacy delegation" in state.results["test_domain"]
+    assert "Delegation Error" in state.results_registry["test_domain_0"]
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,7 @@ async def test_execute_specialized_step():
         ["chunk"] if delta else ["chunk"]
     )
     stream.get_output = AsyncMock(return_value="specialized result")
-    stream.usage.return_value = UsageStatistics()
+    stream.usage = UsageStatistics()
     stream.all_messages = AsyncMock(return_value=[])
 
     mock_agent.run_stream.return_value.__aenter__ = AsyncMock(return_value=stream)
@@ -174,7 +174,10 @@ async def test_execute_specialized_step():
             new_callable=AsyncMock,
             return_value=([], []),
         ),
-        patch("agent_utilities.graph.executor.Agent", return_value=mock_agent),
+        patch(
+            "agent_utilities.graph.executor.create_context_agent",
+            return_value=mock_agent,
+        ),
         patch(
             "agent_utilities.graph.executor.on_enter_specialist", new_callable=AsyncMock
         ),
@@ -185,7 +188,7 @@ async def test_execute_specialized_step():
     ):
         result = await executor._execute_specialized_step(ctx, "qa")
         assert result == "execution_joiner"
-        assert state.results["qa"] == "specialized result"
+        assert state.results_registry["qa_0"] == "specialized result"
 
 
 @pytest.mark.asyncio
@@ -196,7 +199,6 @@ async def test_execute_agent_package_logic_remote_a2a():
         tag_env_vars={},
         mcp_toolsets=[],
         approval_timeout=300,
-        ssl_verify=True,
     )
     ctx = MockCtx(state, deps)
     meta = {"type": "remote_a2a", "url": "http://peer"}
@@ -214,7 +216,7 @@ async def test_execute_agent_package_logic_remote_a2a():
 
         result = await executor._execute_agent_package_logic(ctx, "peer_agent", meta)
         assert result == "execution_joiner"
-        assert state.results["peer_agent"] == "a2a result"
+        assert state.results_registry["peer_agent_0"] == "a2a result"
 
 
 @pytest.mark.asyncio
@@ -234,7 +236,7 @@ async def test_execute_agent_package_logic_local():
 
     with (
         patch(
-            "agent_utilities.graph.executor.load_node_agents_registry",
+            "agent_utilities.graph.executor.get_discovery_registry",
             return_value=registry,
         ),
         patch(

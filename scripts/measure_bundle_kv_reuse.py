@@ -6,7 +6,7 @@ documented, runnable proof for the serving-layer wire added in
 ``agent_utilities.knowledge_graph.retrieval.context_compiler_serving``: build a
 real :class:`ContextBundle`, render it via
 :meth:`ContextBundle.as_prompt_messages` (the bundle's ``as_text()`` as a
-byte-stable system prefix), and send it to the LIVE ``vllm.arpa`` endpoint
+byte-stable system prefix), and send it to a configured live model endpoint
 several times through :func:`bundle_chat_completion` — the same wire a real
 caller would use — while reading vLLM's own ``/metrics``
 ``vllm:prefix_cache_hits_total`` / ``vllm:prefix_cache_queries_total`` counters
@@ -14,7 +14,7 @@ caller would use — while reading vLLM's own ``/metrics``
 
 Calls made (kept intentionally SHORT — ``max_tokens`` is tiny and there are
 only 6 live requests total across THREE independent bundles, each with a
-bounded timeout/retry, per the GB10-power-fault discipline — this must never
+bounded timeout/retry — this must never
 be a load test). For each of bundle A / B / C, in order:
 
   1. COLD  — turn 1.  First time this bundle's text is ever sent. Since each
@@ -33,7 +33,7 @@ from the response, and the delta of vLLM's ``prefix_cache_hits_total`` /
 ``prefix_cache_queries_total`` counters (in tokens) scraped from ``/metrics``
 immediately before and after the call. Run with::
 
-    python3 scripts/measure_bundle_kv_reuse.py [--base-url http://vllm.arpa]
+    python3 scripts/measure_bundle_kv_reuse.py --base-url MODEL_BASE_URL
 
 Never fabricates numbers — if ``/metrics`` is unreachable it still reports the
 latency-based signal and says so explicitly.
@@ -42,25 +42,28 @@ latency-based signal and says so explicitly.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import os
 import re
+import ssl
 import sys
 import time
-import urllib.error
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 # A fresh nonce per invocation so every run's bundles are GENUINELY novel to
 # vLLM's persistent prefix cache (blocks from a prior run of this same script
 # would otherwise still be warm server-side and make "cold" mislabeled) —
 # without a nonce, only the FIRST-ever run of this script would show a true
 # cold baseline; every subsequent run would already be warm from the last one.
-_RUN_NONCE = uuid.uuid4().hex[:12]
+_RUN_NONCE = uuid.uuid4().hex
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from agent_utilities.core.http_client import create_http_client
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     ContextCompiler,
 )
@@ -72,6 +75,13 @@ _METRIC_RE = re.compile(
     r"^vllm:(prefix_cache_hits_total|prefix_cache_queries_total)\{[^}]*\}\s+([0-9.eE+]+)",
     re.MULTILINE,
 )
+_MAX_METRICS_BYTES = 2 * 1024 * 1024
+
+
+def _tls_context() -> ssl.SSLContext:
+    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
+    capath = os.environ.get("SSL_CERT_DIR")
+    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
 
 
 class FakeRetriever:
@@ -204,12 +214,47 @@ class CallResult:
 
 
 def _scrape_metrics(
-    metrics_url: str, timeout_s: float = 5.0
+    metrics_url: str, base_url: str, timeout_s: float = 5.0
 ) -> dict[str, float] | None:
     try:
-        with urllib.request.urlopen(metrics_url, timeout=timeout_s) as resp:
-            text = resp.read().decode("utf-8", errors="replace")
-    except (urllib.error.URLError, TimeoutError, OSError):
+        metrics = urlsplit(metrics_url)
+        base = urlsplit(base_url)
+        host = (metrics.hostname or "").lower().rstrip(".")
+        if (
+            metrics.scheme not in {"http", "https"}
+            or host != (base.hostname or "").lower().rstrip(".")
+            or metrics.username is not None
+            or metrics.password is not None
+            or metrics.fragment
+        ):
+            return None
+        if metrics.scheme == "http":
+            try:
+                loopback = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                loopback = host == "localhost"
+            if not loopback:
+                return None
+        with create_http_client(
+            timeout=timeout_s,
+            verify=_tls_context(),
+            pin_egress=True,
+            allowed_private_hosts={host},
+            allow_loopback=True,
+            follow_redirects=False,
+            trust_env=False,
+        ) as client:
+            with client.stream("GET", metrics_url) as response:
+                response.raise_for_status()
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in response.iter_bytes():
+                    size += len(chunk)
+                    if size > _MAX_METRICS_BYTES:
+                        return None
+                    chunks.append(chunk)
+                text = b"".join(chunks).decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 - optional metric signal degrades to None
         return None
     out: dict[str, float] = {}
     for name, value in _METRIC_RE.findall(text):
@@ -226,7 +271,7 @@ def _run_call(
     metrics_url: str | None,
     max_tokens: int = 8,
 ) -> CallResult:
-    before = _scrape_metrics(metrics_url) if metrics_url else None
+    before = _scrape_metrics(metrics_url, base_url) if metrics_url else None
     start = time.monotonic()
     error = None
     prompt_tokens = None
@@ -247,7 +292,7 @@ def _run_call(
     except Exception as exc:  # noqa: BLE001 — report, don't crash the measurement
         error = f"{type(exc).__name__}: {exc}"
     latency = time.monotonic() - start
-    after = _scrape_metrics(metrics_url) if metrics_url else None
+    after = _scrape_metrics(metrics_url, base_url) if metrics_url else None
     return CallResult(
         label=label,
         latency_s=latency,
@@ -261,7 +306,7 @@ def _run_call(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--base-url", default="http://vllm.arpa/v1")
+    ap.add_argument("--base-url", required=True)
     ap.add_argument(
         "--metrics-url",
         default=None,

@@ -7,8 +7,8 @@ import pytest
 
 from agent_utilities.core.config import (
     emit_graph_event,
+    get_discovery_registry,
     load_mcp_config,
-    load_node_agents_registry,
 )
 from agent_utilities.graph.hierarchical_planner import fetch_epistemic_context
 from agent_utilities.graph.lifecycle import _emit_node_lifecycle
@@ -64,5 +64,5 @@ async def test_load_config_fallbacks():
         config = load_mcp_config()
         assert isinstance(config, MCPConfigModel)
 
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         assert isinstance(registry, MCPAgentRegistryModel)

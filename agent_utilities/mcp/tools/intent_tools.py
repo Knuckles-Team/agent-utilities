@@ -1,60 +1,24 @@
-"""The graph-os **intent surface** — Seam 8, Phases 2-5 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
+"""The graph-os intent surface (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
 
-graph-os's condensed action-routed surface is already ~95 tools — past the point
-where more tools *lowers* LLM tool-selection accuracy (worst for small/cheap
-models). This module adds a SMALL, additional set of **intent verbs**
-(``ask``/``find``/``write``/``act``/``manage``/``why``) that collapse the whole
-granular surface behind six tiny schemas: the caller states an intent (natural
-language, optionally with structured ``hints``), a resolver ranks the matching
-granular capability, dispatches it through the **same** ``_execute_tool`` core
-every condensed tool uses, and returns the result **with the routing
-justification attached** — proof-carrying capability dispatch, not an opaque
-choice.
+Six intent verbs (``ask``/``find``/``write``/``act``/``manage``/``why``) are
+the default model-facing GraphOS API. The packaged Capability Power Descriptor
+(CPD) set is the required routing and operation-safety authority. Missing CPDs
+fail closed so a newly registered capability cannot silently bypass verb,
+scope, effect, or approval classification.
 
-**Nothing is removed.** Every granular tool + its REST twin still exists exactly
-as before; the intent verbs are an ADDITIONAL surface, registered only under
-``MCP_TOOL_MODE=intent`` (see ``mcp/verbose_tools.py``), where the granular
-tools are also tagged :data:`~agent_utilities.mcp.verbose_tools.GATED_TAG` and
-held back from the default session view — ``load_tools`` (or pinning
-``hints={"tool": "..."}``) always reaches the exact tool.
+Dispatch is proof-carrying. Every response includes the ranked evidence,
+effective operation, policy classification, preview plan, and result
+provenance. ``ask`` is read-only; a tool pin cannot change that policy.
+Non-read verbs preview by default, ambiguous mutations do not execute, and
+destructive operations must be called through their exact dynamically loaded
+tool so its client approval policy remains in force.
 
-**Resolver — CPD-backed, with a graceful pre-CPD lexical fallback.** The
-Capability Power Descriptor (CPD — the per-capability ``does``/``examples``/
-``intent_verbs``/``eligibility`` record generated to
-``docs/capabilities-power.json``, see ``capability_power_descriptor.py``) has
-landed (Seam 8 Phase 1, ``feat/au-cpd``). This resolver now ranks each
-capability against its OWN CPD text (``one_line`` + ``examples`` + ``does[]``
-action names) when a CPD exists for that tool — a richer, drift-gated signal
-than a bare docstring — via the SAME dependency-free lexical scorer (still no
-embeddings, no new heavy dependency). A tool with no CPD entry (a brand-new
-tool ahead of the next ``gen_capability_power.py --write``, or the CPD JSON
-being entirely absent — e.g. a lean/headless install that doesn't ship
-``docs/``) falls back per-capability to the original local candidate table
-(:data:`TOOL_VERBS` + live ``REGISTERED_TOOLS`` docstrings +
-``_graphos_action_manifest``) — never an error, never a gap. The
-``CapabilityCandidate``/``resolve_intent`` contract is unchanged, exactly as
-this module's original design intended.
-
-**Calibrated-outcomes learning loop.** Every :func:`dispatch_intent` call
-feeds its success/failure back into the SAME durable-bandit reward-EMA
-mechanism the rest of the platform already uses for outcome-learned routing
-(:class:`~agent_utilities.orchestration.outcome_router.OutcomeRouter`, itself a
-thin wrapper over :class:`~agent_utilities.knowledge_graph.retrieval.
-capability_index.CapabilityIndex`'s ``record_outcome``/``reward_of`` — no
-second learner). :func:`resolve_intent` blends each candidate's learned
-reward EMA (keyed ``verb:tool``) into its lexical score, so a capability that
-keeps failing under a verb quietly sinks in the ranking and one that keeps
-succeeding rises — real calibrated-outcomes routing, not merely the static
-(always-empty at generation time) ``calibrated_outcomes`` field baked into the
-checked-in CPD JSON.
-
-**Resolution caching.** Ranked (non-pinned) resolutions are cached in a small
-bounded in-process LRU keyed by ``(verb, normalized intent, hints, top_k)``
-PLUS two monotonic generation counters — the candidate-table generation (bumps
-whenever the CPD/tool surface is rebuilt) and the reward epoch (bumps on every
-outcome recorded) — so a repeated intent is served straight from the cache
-until the routing policy it was ranked under actually changes, and a learned
-outcome invalidates exactly the entries whose ranking it could have altered.
+Outcome learning accepts only the observed result of an unpinned,
+unambiguous, policy-authorized execution. Caller-supplied feedback is rejected.
+Both reward keys and resolution-cache keys are partitioned by an opaque digest
+of the verified tenant and policy revision, preventing cross-tenant or stale-
+policy influence. The shared :class:`OutcomeRouter` remains the sole reward-EMA
+mechanism; no second learner is introduced.
 """
 
 from __future__ import annotations
@@ -70,6 +34,10 @@ from pydantic import Field
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
+from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS
+from agent_utilities.security.error_surface import public_error_payload
+from agent_utilities.security.persistence_privacy import persistence_reference
+from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
 logger = logging.getLogger(__name__)
 
@@ -81,116 +49,6 @@ __all__ = [
     "dispatch_intent",
     "register_intent_tools",
 ]
-
-#: The six intent verbs (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse). ``find`` is unfiltered (ranks
-#: across every verb — it is capability DISCOVERY, not one category of work).
-INTENT_VERBS: tuple[str, ...] = ("ask", "find", "write", "act", "manage", "why")
-
-#: Every granular tool's home verb(s) — first entry is primary. Built by hand
-#: from the design doc's verb table (program-design-2026-07-11) plus the live
-#: ``graph-os`` tool inventory (95 ``REGISTERED_TOOLS`` as of Seam 8 kickoff);
-#: a tool absent here still resolves (falls back to ``("ask",)``) so a NEW
-#: granular tool is never silently unroutable — only unranked-by-name until
-#: this table (or the future CPD) is extended.
-TOOL_VERBS: dict[str, tuple[str, ...]] = {
-    # ── reads / NL / search / analysis ──
-    "ask_data": ("ask",),
-    "nl_query": ("ask",),
-    "graph_query": ("ask",),
-    "graph_ask": ("ask",),
-    "graph_search": ("ask",),
-    "graph_search_synthesis": ("ask",),
-    "graph_analyze": ("ask", "why"),
-    "graph_context": ("ask",),
-    "graph_document_tree": ("ask", "write"),
-    "graph_table": ("ask", "write"),
-    "graph_promql": ("ask",),
-    "graph_federated_search": ("ask",),
-    "graph_code": ("ask",),
-    "graph_code_nav": ("ask",),
-    "graph_reach": ("act",),
-    "graph_gis": ("ask",),
-    "usage_query": ("ask",),
-    "concept_registry": ("find", "ask"),
-    "object_index": ("ask", "find"),
-    "object_set": ("ask", "write"),
-    "research_artifact": ("ask", "write"),
-    "quant": ("ask", "act"),
-    "engine_query": ("ask",),
-    "engine_analytics": ("ask",),
-    "engine_datascience": ("ask",),
-    "engine_mining": ("ask",),
-    "engine_graph": ("ask", "write"),
-    "graph_mine": ("ask",),
-    "graph_mine_deep": ("act", "ask"),
-    "graph_learn": ("act", "ask"),
-    "graph_ops_causal": ("why", "ask"),
-    "graph_traces": ("ask", "why"),
-    # ── writes / ingest / persist ──
-    "graph_write": ("write",),
-    "graph_ingest": ("write",),
-    "graph_writeback": ("write",),
-    "graph_etl": ("write",),
-    "source_sync": ("write",),
-    "source_connector": ("manage", "write"),
-    "source_drain": ("write",),
-    "ingest_sessions": ("write",),
-    "object_edits": ("write",),
-    "ontology_derive": ("write",),
-    "ontology_link_materialize": ("write",),
-    "ontology_leanix_sync": ("write",),
-    "document_process": ("write",),
-    "spec_ticket": ("write", "ask"),
-    "engine_nodes": ("write", "ask"),
-    "engine_edges": ("write",),
-    "engine_blob": ("write",),
-    "engine_rdf": ("write", "ask"),
-    "engine_timeseries": ("write", "ask"),
-    "graph_share": ("write", "manage"),
-    "graph_feedback": ("why", "write"),
-    "ontology_function": ("act", "write"),
-    # ── act / orchestrate / execute / schedule ──
-    "graph_orchestrate": ("act",),
-    "graph_loops": ("act",),
-    "graph_goals": ("act",),
-    "graph_sandbox": ("act",),
-    "graph_runvcs": ("act",),
-    "graph_fork": ("act",),
-    "graph_bus": ("act",),
-    "graph_broker": ("act",),
-    "graph_message": ("act",),
-    "graph_feeds": ("act", "ask"),
-    "graph_research": ("ask", "act"),
-    "engine_txn": ("act",),
-    "engine_consensus": ("act",),
-    "engine_channels": ("act",),
-    "engine_streaming": ("act",),
-    "engine_ledger": ("write", "act"),
-    # ── manage / configure / admin ──
-    "graph_configure": ("manage",),
-    "graph_secret": ("manage",),
-    "graph_sessions": ("manage", "ask"),
-    "graph_kvcache": ("manage",),
-    "graph_hydrate": ("manage", "write"),
-    "graph_schedules": ("manage", "act"),
-    "graph_ontology": ("write", "ask", "manage"),
-    "ontology_property_types": ("manage", "ask"),
-    "ontology_value_types": ("manage", "ask"),
-    "ontology_interface": ("manage", "ask"),
-    "ontology_sampling_profile": ("manage", "ask"),
-    "object_permissioning": ("manage",),
-    "engine_tenants": ("manage",),
-    "engine_lifecycle": ("manage", "act"),
-    "engine_resharding": ("manage",),
-    "engine_rbac": ("manage",),
-    "engine_admin": ("manage",),
-    # ── why / explain / evaluate / observe ──
-    "graph_explain": ("why",),
-    "graph_evaluate": ("why",),
-    "graph_observe": ("why", "ask"),
-    "graph_memory": ("write", "ask"),
-    "engine_reasoning": ("why",),
-}
 
 #: Tools whose primary argument is a single free-text NL string — the resolver
 #: seeds it from the caller's raw ``intent`` when the caller supplied no
@@ -215,6 +73,40 @@ _PRIMARY_TEXT_PARAM: dict[str, str] = {
 #: structured params the caller didn't supply — the engine's own NL planner
 #: (CONCEPT:AU-KG.query.ask-gateway-rest-twin) always accepts raw text.
 _ASK_FALLBACK_TOOL = "nl_query"
+
+_DISPATCH_VERBS = frozenset({"ask", "write", "act", "manage", "why"})
+_READ_ONLY_VERBS = frozenset({"ask", "why"})
+_NON_READ_VERBS = frozenset({"write", "act", "manage"})
+_AMBIGUITY_MARGIN = 0.05
+_CALLER_OUTCOME_FIELDS = frozenset(
+    {
+        "calibrated_outcome_reward",
+        "dispatch_outcome",
+        "outcome_reward",
+        "routing_feedback",
+        "routing_reward",
+    }
+)
+_CONTROL_HINT_FIELDS = frozenset({"tool", "_tool", "action", "plan_ref"})
+_DESTRUCTIVE_TERMS = frozenset(
+    {
+        "clear",
+        "deactivate",
+        "delete",
+        "destroy",
+        "drop",
+        "evict",
+        "invalidate",
+        "prune",
+        "purge",
+        "remove",
+        "revoke",
+        "terminate",
+        "uninstall",
+        "unref",
+        "wipe",
+    }
+)
 
 _STOPWORDS = frozenset(
     "a an the of for to in on with and or is are was were be do does what how "
@@ -264,9 +156,9 @@ _REWARD_EPOCH: int = 0
 #: Bounded LRU of ranked (non-pinned) resolutions (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache) — see
 #: :func:`_cache_key`. A pinned (``hints={"tool": ...}``) resolution is O(1)
 #: already and is never cached.
-_RESOLUTION_CACHE: OrderedDict[
-    tuple[Any, ...], list[CapabilityCandidate]
-] = OrderedDict()
+_RESOLUTION_CACHE: OrderedDict[tuple[Any, ...], list[CapabilityCandidate]] = (
+    OrderedDict()
+)
 _RESOLUTION_CACHE_MAX = 256
 
 #: Soft weight of the learned reward-EMA blend into the lexical score (mirrors
@@ -276,25 +168,8 @@ _RESOLUTION_CACHE_MAX = 256
 #: sinks with its real success rate under that verb.
 _LEARNED_REWARD_WEIGHT = 0.2
 
-#: Lazily-constructed shared learner (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) — ``None`` until first
-#: touched so importing this module never pays ``OutcomeRouter``'s (numeric
-#: package) import cost; degrades to a no-op neutral fallback if that optional
-#: dependency is unavailable (lean/headless install), never breaking routing.
+#: Lazily constructed shared learner (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning).
 _OUTCOME_ROUTER: Any = None
-
-
-class _NullOutcomeRouter:
-    """No-op stand-in when the durable-bandit learner is unavailable.
-
-    Every candidate reads back the neutral 0.5 prior and ``record`` is a
-    no-op — the learning loop degrades to "off", never to a crash.
-    """
-
-    def reward_of(self, _task_class: str, _choice: str) -> float:
-        return 0.5
-
-    def record(self, _task_class: str, _choice: str, _reward: float) -> None:
-        return None
 
 
 def _outcome_router() -> Any:
@@ -303,26 +178,54 @@ def _outcome_router() -> Any:
     CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning. ONE learner, reused — the same
     durable-bandit mechanism (``CapabilityIndex.record_outcome``/``reward_of``)
     every other outcome-learned choice in this codebase already shares
-    (``ReasonerRouter``, ``variant_pool.evolve_profile``), keyed
-    ``intent_surface:<verb>:<capability_id>`` so it never collides with
-    another router's namespace.
+    (``ReasonerRouter``, ``variant_pool.evolve_profile``). The task class is
+    an opaque tenant+policy reference followed by the verb; raw identity and
+    policy values never enter the learner.
     """
     global _OUTCOME_ROUTER
     if _OUTCOME_ROUTER is None:
-        try:
-            from agent_utilities.orchestration.outcome_router import OutcomeRouter
+        from agent_utilities.orchestration.outcome_router import OutcomeRouter
 
-            _OUTCOME_ROUTER = OutcomeRouter(namespace="intent_surface")
-        except Exception as e:  # noqa: BLE001 — learning is best-effort, never load-bearing
-            logger.debug(
-                "[Seam 8] outcome router unavailable, learning disabled: %s", e
-            )
-            _OUTCOME_ROUTER = _NullOutcomeRouter()
+        _OUTCOME_ROUTER = OutcomeRouter(namespace="intent_surface")
     return _OUTCOME_ROUTER
 
 
-def _record_dispatch_outcome(verb: str, tool: str, *, success: bool) -> None:
-    """Feed one dispatch's success/failure back into the shared reward-EMA.
+def _outcome_scope_ref() -> str | None:
+    """Return an opaque verified authority partition for routing state.
+
+    An absent ambient :class:`GraphSession` means there is no verified
+    authority from which to derive a learning partition. Resolution remains
+    available at the neutral prior, but no outcome may be learned.
+    """
+
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    session = current_session()
+    if session is None:
+        return None
+    tenant_ref = persistence_reference("tenant", session.tenant)
+    authority_policy = json.dumps(
+        {
+            "policy_version": str(session.policy_version),
+            "audience": str(session.audience),
+            "scopes": sorted(str(scope) for scope in session.scopes),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return persistence_reference(
+        "intent_policy", authority_policy, namespace=tenant_ref
+    )
+
+
+def _reward_task_class(verb: str, scope_ref: str) -> str:
+    return f"{scope_ref}:{verb}"
+
+
+def _record_dispatch_outcome(
+    scope_ref: str, verb: str, tool: str, *, success: bool
+) -> None:
+    """Record one trusted execution result in its tenant/policy partition.
 
     CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning. Bumps :data:`_REWARD_EPOCH` so any
     cached resolution that could have used this outcome is invalidated on its
@@ -330,7 +233,9 @@ def _record_dispatch_outcome(verb: str, tool: str, *, success: bool) -> None:
     """
     global _REWARD_EPOCH
     try:
-        _outcome_router().record(verb, tool, 1.0 if success else 0.0)
+        _outcome_router().record(
+            _reward_task_class(verb, scope_ref), tool, 1.0 if success else 0.0
+        )
     finally:
         _REWARD_EPOCH += 1
 
@@ -341,41 +246,39 @@ def _normalize_intent(intent: str) -> str:
 
 
 def _cache_key(
-    verb: str | None, intent: str, hints: dict[str, Any], top_k: int
+    verb: str | None,
+    intent: str,
+    hints: dict[str, Any],
+    top_k: int,
+    outcome_scope_ref: str | None,
 ) -> tuple[Any, ...]:
     """The resolution-cache key (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache).
 
-    Normalized intent + verb + a stable ``hints`` projection + ``top_k``, PLUS
-    the two monotonic generation counters — so the SAME intent under the SAME
-    routing policy hits the cache, and either the tool surface/CPD changing or
-    a fresh outcome being recorded naturally busts exactly the entries that
-    could be affected (their key simply no longer matches).
+    Intent and hints are represented by non-reversible references so the LRU
+    never retains prompt text, credentials, personal data, endpoints, or local
+    paths. The opaque tenant+policy partition prevents a cached ranking from
+    crossing an authorization-policy boundary.
     """
-    hints_key = tuple(sorted((str(k), str(v)) for k, v in (hints or {}).items()))
+    normalized = _normalize_intent(intent)
+    hints_json = json.dumps(hints or {}, sort_keys=True, default=str, separators=(",", ":"))
     return (
         verb,
-        _normalize_intent(intent),
-        hints_key,
+        persistence_reference("intent", normalized),
+        persistence_reference("intent_hints", hints_json),
+        outcome_scope_ref or "unverified",
         int(top_k),
         _CANDIDATES_GENERATION,
         _REWARD_EPOCH,
     )
 
 
-def _load_cpds_safe() -> dict[str, dict[str, Any]]:
-    """``{tool: cpd_dict}`` from ``docs/capabilities-power.json``, or ``{}``.
+def _load_cpds_required() -> dict[str, dict[str, Any]]:
+    """Return the packaged current CPD authority or fail closed."""
 
-    :func:`~agent_utilities.knowledge_graph.retrieval.capability_context.load_cpds`
-    already degrades to ``{}`` when the file is absent (lean/headless install,
-    or ahead of the next ``--write``); this wraps it in a defensive
-    ``try/except`` too so an unexpected read/parse error can never take down
-    the resolver — it just falls back to the pre-CPD lexical candidate table.
-    """
-    try:
-        return load_cpds()
-    except Exception as e:  # noqa: BLE001 — CPD is an enrichment, never load-bearing
-        logger.debug("[Seam 8] CPD load failed, using lexical fallback: %s", e)
-        return {}
+    cpds = load_cpds()
+    if not cpds:
+        raise RuntimeError("GraphOS capability descriptors are unavailable")
+    return cpds
 
 
 def _actions_by_tool() -> dict[str, list[str]]:
@@ -383,39 +286,24 @@ def _actions_by_tool() -> dict[str, list[str]]:
     if _ACTIONS_BY_TOOL_CACHE is not None:
         return _ACTIONS_BY_TOOL_CACHE
     out: dict[str, list[str]] = {}
-    try:
-        from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
+    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
 
-        for op in GRAPHOS_ACTIONS:
-            action = op.get("action")
-            if action is None:
-                continue
-            out.setdefault(op["tool"], []).append(action)
-    except Exception:  # noqa: BLE001 — manifest is a generated convenience, never load-bearing
-        pass
+    for op in GRAPHOS_ACTIONS:
+        action = op.get("action")
+        if action is None:
+            continue
+        out.setdefault(op["tool"], []).append(action)
     _ACTIONS_BY_TOOL_CACHE = out
     return out
 
 
-def _tool_doc(tool: str) -> str:
-    fn = kg_server.REGISTERED_TOOLS.get(tool)
-    doc = getattr(fn, "__doc__", None) or ""
-    return " ".join(doc.split())[:400]
-
-
 def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
-    """One :class:`CapabilityCandidate` per live ``REGISTERED_TOOLS`` entry.
+    """Build one CPD-backed candidate per live granular tool.
 
-    CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking. For a tool with a generated CPD entry
-    (``docs/capabilities-power.json``), the candidate's ``doc`` text is built
-    from the CPD's OWN ``one_line`` + ``examples`` + ``does[]`` action names
-    (richer than a bare docstring) and its ``verbs`` are the UNION of the
-    hand-curated :data:`TOOL_VERBS` entry (if any) with the CPD's own
-    ``intent_verbs`` — union, never narrower, so switching to the CPD can only
-    ADD routing surface, never silently drop a verb a real skill already
-    documents. A tool absent from the CPD set (new tool, or the CPD JSON
-    missing entirely) falls back per-capability to the original lexical
-    candidate (:data:`TOOL_VERBS` + live docstring) — never an error.
+    CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking. The packaged CPD set is
+    mandatory: a registered tool without a descriptor fails closed instead of
+    inheriting a guessed verb or effect policy. Candidate text comes from its
+    current ``one_line``/``examples``/``does`` descriptor fields.
 
     Cached process-wide (tool registration happens once at server build); pass
     ``force=True`` in tests after monkeypatching ``REGISTERED_TOOLS``. Bumps
@@ -426,26 +314,66 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
         return _CANDIDATES_CACHE
     kg_server.ensure_tools_registered()
     actions_by_tool = _actions_by_tool()
-    cpds = _load_cpds_safe()
+    cpds = _load_cpds_required()
+    live_tools = sorted(set(kg_server.REGISTERED_TOOLS) - set(INTENT_VERBS))
+    missing_cpds = sorted(set(live_tools) - set(cpds))
+    if missing_cpds:
+        raise RuntimeError(
+            "GraphOS capability descriptors are missing for registered tools: "
+            + ", ".join(missing_cpds)
+        )
+    missing_authority = sorted(set(live_tools) - set(TOOL_VERBS))
+    if missing_authority:
+        raise RuntimeError(
+            "GraphOS intent-verb authority is missing registered tools: "
+            + ", ".join(missing_authority)
+        )
     out: list[CapabilityCandidate] = []
-    for tool in sorted(kg_server.REGISTERED_TOOLS):
-        hand_verbs = TOOL_VERBS.get(tool)
-        cpd = cpds.get(tool)
-        if cpd is not None:
-            cpd_verbs = tuple(str(v) for v in (cpd.get("intent_verbs") or ()))
-            verbs = tuple(sorted(set(hand_verbs or ()) | set(cpd_verbs))) or ("ask",)
-            examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
-            does_text = " ".join(
-                str(d.get("action", "")) for d in (cpd.get("does") or ())
+    # Intent verbs have CPDs because they are first-class MCP/REST entry points,
+    # but they can never be resolver targets: selecting ``ask`` from inside
+    # ``ask`` would recursively dispatch intent routing instead of a capability.
+    for tool in live_tools:
+        authority_verbs = TOOL_VERBS[tool]
+        if (
+            not authority_verbs
+            or len(set(authority_verbs)) != len(authority_verbs)
+            or not set(authority_verbs) <= set(INTENT_VERBS)
+        ):
+            raise RuntimeError(
+                f"GraphOS intent-verb authority is invalid for {tool}: "
+                f"{authority_verbs!r}"
             )
-            doc = (
-                f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
-                f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+        cpd = cpds[tool]
+        packaged_verbs = cpd.get("intent_verbs")
+        if not isinstance(packaged_verbs, list) or not all(
+            isinstance(verb, str) for verb in packaged_verbs
+        ):
+            raise RuntimeError(
+                "GraphOS capability descriptor has an invalid intent_verbs "
+                f"field for {tool}"
             )
-        else:
-            verbs = hand_verbs or ("ask",)
-            doc = f"{tool} {' '.join(actions_by_tool.get(tool, []))} {_tool_doc(tool)}"
-        out.append(CapabilityCandidate(tool=tool, action=None, verbs=verbs, doc=doc))
+        if tuple(packaged_verbs) != authority_verbs:
+            raise RuntimeError(
+                "GraphOS capability descriptor intent-verb drift for "
+                f"{tool}: expected {list(authority_verbs)!r}, "
+                f"packaged {packaged_verbs!r}"
+            )
+        examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
+        does_text = " ".join(
+            str(d.get("action", "")) for d in (cpd.get("does") or ())
+        )
+        doc = (
+            f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
+            f"{cpd.get('one_line', '')} {examples_text} {does_text}"
+        )
+        out.append(
+            CapabilityCandidate(
+                tool=tool,
+                action=None,
+                verbs=authority_verbs,
+                doc=doc,
+            )
+        )
     _CANDIDATES_CACHE = out
     _CANDIDATES_GENERATION += 1
     return out
@@ -454,7 +382,7 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
 def _score(
     intent_tokens: Counter, candidate: CapabilityCandidate
 ) -> tuple[float, list[str]]:
-    """Dependency-free lexical overlap score (see module docstring — pre-CPD fallback).
+    """Dependency-free lexical overlap score over current CPD evidence.
 
     Weighted count-overlap normalized by intent length, with a name-token bonus
     (a match on the tool's OWN name/action words counts double — those are the
@@ -496,10 +424,9 @@ def resolve_intent(
 ) -> list[CapabilityCandidate]:
     """Rank candidate capabilities for ``intent`` under ``verb`` (``None`` = all verbs).
 
-    An explicit ``hints["tool"]`` (or ``hints["_tool"]``) pins the resolution to
-    that exact tool (score ``1.0``, ``matched_terms=["explicit tool hint"]``) —
-    the structured escape hatch alongside ``load_tools`` (never cached — it's
-    already O(1) and the hint is caller-specific).
+    An explicit ``hints["tool"]`` (or ``hints["_tool"]``) pins resolution only
+    when that tool is authorized for the requested verb. A pin can remove
+    ranking ambiguity; it cannot elevate ``ask`` into a mutation policy.
 
     A ranked (non-pinned) resolution is served from the bounded resolution
     cache (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache) when the SAME
@@ -509,12 +436,15 @@ def resolve_intent(
     outcome reward-EMA (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) into its lexical score
     before caching the result.
     """
+    if verb is not None and verb not in INTENT_VERBS:
+        return []
+    top_k = max(1, min(int(top_k), 20))
     hints = hints or {}
     pinned = hints.get("tool") or hints.get("_tool")
     candidates = _build_candidates()
     if pinned:
         for c in candidates:
-            if c.tool == pinned:
+            if c.tool == pinned and (verb is None or verb in c.verbs):
                 return [
                     CapabilityCandidate(
                         tool=c.tool,
@@ -527,7 +457,8 @@ def resolve_intent(
                 ]
         return []
 
-    cache_key = _cache_key(verb, intent, hints, top_k)
+    outcome_scope_ref = _outcome_scope_ref()
+    cache_key = _cache_key(verb, intent, hints, top_k, outcome_scope_ref)
     cached = _RESOLUTION_CACHE.get(cache_key)
     if cached is not None:
         _RESOLUTION_CACHE.move_to_end(cache_key)
@@ -535,12 +466,18 @@ def resolve_intent(
 
     intent_tokens = _tokenize(intent)
     pool = candidates if verb is None else [c for c in candidates if verb in c.verbs]
-    router = _outcome_router()
+    router = _outcome_router() if outcome_scope_ref is not None else None
     ranked: list[CapabilityCandidate] = []
     for c in pool:
         score, matched = _score(intent_tokens, c)
-        task_class = verb if verb is not None else (c.verbs[0] if c.verbs else "ask")
-        reward = router.reward_of(task_class, c.capability_id)
+        task_verb = verb if verb is not None else c.verbs[0]
+        reward = (
+            router.reward_of(
+                _reward_task_class(task_verb, outcome_scope_ref), c.capability_id
+            )
+            if router is not None and outcome_scope_ref is not None
+            else 0.5
+        )
         if reward != 0.5:
             score += _LEARNED_REWARD_WEIGHT * (reward - 0.5)
         ranked.append(
@@ -563,13 +500,14 @@ def resolve_intent(
     return list(result)
 
 
-def _pick_action(tool: str, intent: str) -> str | None:
-    """Best-matching action for a multi-action tool, when the caller pinned none."""
+def _rank_actions(tool: str, intent: str) -> list[tuple[str, float]]:
+    """Return actions ranked by current lexical intent evidence."""
+
     actions = _actions_by_tool().get(tool)
     if not actions:
-        return None
+        return []
     intent_tokens = _tokenize(intent)
-    best, best_score = None, -1.0
+    ranked: list[tuple[str, float]] = []
     for action in actions:
         score, _ = _score(
             intent_tokens,
@@ -577,9 +515,295 @@ def _pick_action(tool: str, intent: str) -> str | None:
                 tool=tool, action=action, verbs=(), doc=action.replace("_", " ")
             ),
         )
-        if score > best_score:
-            best, best_score = action, score
-    return best
+        ranked.append((action, score))
+    return sorted(ranked, key=lambda item: (item[1], item[0]), reverse=True)
+
+
+def _literal_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized == "true":
+        return True
+    if normalized == "false":
+        return False
+    return None
+
+
+def _operation_record(cpd: dict[str, Any], action: str | None) -> dict[str, Any] | None:
+    operations = [op for op in cpd.get("does", ()) if isinstance(op, dict)]
+    if action is not None:
+        return next((op for op in operations if op.get("action") == action), None)
+    if len(operations) == 1:
+        return operations[0]
+    return None
+
+
+def _operation_is_destructive(tool: str, action: str | None) -> bool:
+    words = set(_WORD_RE.findall(f"{tool} {action or ''}".lower()))
+    return not words.isdisjoint(_DESTRUCTIVE_TERMS)
+
+
+def _operation_plan(
+    verb: str,
+    tool: str,
+    action: str | None,
+    call_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a value-free preview from the current CPD operation authority."""
+
+    cpd = _load_cpds_required()[tool]
+    operation = _operation_record(cpd, action)
+    declared_mutation = _literal_bool(
+        operation.get("mutates") if operation is not None else None
+    )
+    destructive = _operation_is_destructive(tool, action)
+
+    read_prefixes = frozenset(
+        {
+            "check",
+            "count",
+            "describe",
+            "discover",
+            "doctor",
+            "explain",
+            "export",
+            "fetch",
+            "find",
+            "get",
+            "has",
+            "history",
+            "inspect",
+            "list",
+            "lookup",
+            "metrics",
+            "preflight",
+            "profile",
+            "query",
+            "read",
+            "recall",
+            "report",
+            "search",
+            "show",
+            "status",
+            "validate",
+            "view",
+        }
+    )
+    action_prefix = str(action or "").split("_", 1)[0]
+    tool_has_non_read_policy = bool(set(TOOL_VERBS.get(tool, ())) & _NON_READ_VERBS)
+    if declared_mutation is not None:
+        mutates: bool | None = declared_mutation
+    elif destructive:
+        mutates = True
+    elif action_prefix in read_prefixes:
+        mutates = False
+    elif verb in _READ_ONLY_VERBS and not tool_has_non_read_policy:
+        mutates = False
+    elif verb in _NON_READ_VERBS:
+        mutates = True
+    else:
+        mutates = None
+
+    declared_idempotency = _literal_bool(
+        operation.get("idempotent") if operation is not None else None
+    )
+    if declared_idempotency is None and mutates is False:
+        declared_idempotency = True
+
+    policy = cpd.get("policy") if isinstance(cpd.get("policy"), dict) else {}
+    approval_class = str(policy.get("approval_class") or "unclassified")
+    approval_required = destructive or approval_class != "auto"
+    cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
+    latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
+    scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
+    durability = (
+        str(operation.get("durability") or "") if operation is not None else ""
+    )
+    transaction = (
+        str(operation.get("txn_participation") or "")
+        if operation is not None
+        else ""
+    )
+
+    if destructive:
+        execution_class = "destructive"
+        impact_summary = "May remove or irreversibly invalidate governed state."
+    elif mutates is True:
+        execution_class = "mutation"
+        impact_summary = "Changes governed state within the selected capability scope."
+    elif mutates is False:
+        execution_class = "read_only"
+        impact_summary = "Reads or computes without a declared state mutation."
+    else:
+        execution_class = "unclassified"
+        impact_summary = "Effect metadata is insufficient; execution fails closed."
+
+    return {
+        "tool": tool,
+        "action": action,
+        "execution_class": execution_class,
+        "mutates": mutates,
+        "destructive": destructive,
+        "idempotent": declared_idempotency,
+        "preview_required": verb in _NON_READ_VERBS,
+        "approval": {
+            "class": approval_class,
+            "required": approval_required,
+            "route": "exact_tool" if approval_required else "intent_policy",
+        },
+        "impact": {
+            "summary": impact_summary,
+            "scopes": scopes,
+            "durability": durability or "unclassified",
+            "transaction": transaction or "unclassified",
+        },
+        "cost": cost or {"estimate": "not_available"},
+        "latency": latency or {"estimate": "not_available"},
+        "forwarded_fields": sorted(call_kwargs),
+    }
+
+
+def _plan_ref(
+    verb: str, tool: str, action: str | None, call_kwargs: dict[str, Any]
+) -> str:
+    """Bind a non-read preview to its exact operation and value digest."""
+
+    payload = json.dumps(
+        {
+            "verb": verb,
+            "tool": tool,
+            "action": action,
+            "arguments": call_kwargs,
+        },
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return persistence_reference("intent_plan", payload)
+
+
+def _ambiguity_evidence(
+    candidates: list[CapabilityCandidate], *, explicit: bool
+) -> dict[str, Any]:
+    top_score = candidates[0].score if candidates else 0.0
+    second_score = candidates[1].score if len(candidates) > 1 else None
+    margin = top_score - second_score if second_score is not None else None
+    ambiguous = not explicit and (
+        top_score <= 0.0
+        or (
+            second_score is not None
+            and second_score > 0.0
+            and margin is not None
+            and margin < _AMBIGUITY_MARGIN
+        )
+    )
+    return {
+        "ambiguous": ambiguous,
+        "explicit": explicit,
+        "top_score": round(top_score, 4),
+        "runner_up_score": (
+            round(second_score, 4) if second_score is not None else None
+        ),
+        "margin": round(margin, 4) if margin is not None else None,
+        "required_margin": _AMBIGUITY_MARGIN,
+    }
+
+
+def _action_ambiguity_evidence(
+    ranked_actions: list[tuple[str, float]], *, explicit: bool
+) -> dict[str, Any]:
+    if not ranked_actions:
+        return {
+            "ambiguous": False,
+            "explicit": explicit,
+            "candidates": [],
+        }
+    top_score = ranked_actions[0][1]
+    second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
+    margin = top_score - second_score if second_score is not None else None
+    ambiguous = not explicit and len(ranked_actions) > 1 and (
+        top_score <= 0.0
+        or (
+            second_score is not None
+            and second_score > 0.0
+            and margin is not None
+            and margin < _AMBIGUITY_MARGIN
+        )
+    )
+    return {
+        "ambiguous": ambiguous,
+        "explicit": explicit,
+        "top_score": round(top_score, 4),
+        "runner_up_score": (
+            round(second_score, 4) if second_score is not None else None
+        ),
+        "margin": round(margin, 4) if margin is not None else None,
+        "required_margin": _AMBIGUITY_MARGIN,
+        "candidates": [
+            {"action": action, "score": round(score, 4)}
+            for action, score in ranked_actions[:5]
+        ],
+    }
+
+
+def _intent_security_failure(
+    intent: str, hints: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Reject prompt/command injection without echoing untrusted content."""
+
+    serialized_hints = json.dumps(
+        hints or {}, sort_keys=True, default=str, separators=(",", ":")
+    )
+    scan = PromptInjectionScanner().scan_text(f"{intent}\n{serialized_hints}")
+    if not scan.is_malicious:
+        return None
+    return {
+        "error": "Intent rejected by the prompt-injection policy.",
+        "executed": False,
+        "security": {
+            "decision": "deny",
+            "confidence": round(scan.confidence, 4),
+            "finding_ref": scan.finding_id,
+            "patterns": sorted(
+                {
+                    str(match.get("pattern_name") or "")
+                    for match in scan.matches
+                    if match.get("pattern_name")
+                }
+            ),
+        },
+    }
+
+
+def _execution_succeeded(result: Any) -> bool:
+    """Classify only the observed tool result; caller feedback is never read."""
+
+    if isinstance(result, dict):
+        if result.get("error") or result.get("ok") is False:
+            return False
+        if result.get("success") is False or result.get("executed") is False:
+            return False
+        if str(result.get("status") or "").strip().lower() in {
+            "cancelled",
+            "denied",
+            "error",
+            "failed",
+            "forbidden",
+        }:
+            return False
+        return True
+    if isinstance(result, str):
+        stripped = result.strip()
+        if not stripped:
+            return False
+        try:
+            decoded = json.loads(stripped)
+        except (TypeError, ValueError):
+            lowered = stripped.lower()
+            return not lowered.startswith(("error", "failed", "forbidden", "denied"))
+        return _execution_succeeded(decoded)
+    return result is not None
 
 
 async def dispatch_intent(
@@ -587,37 +811,89 @@ async def dispatch_intent(
     intent: str,
     *,
     hints: dict[str, Any] | None = None,
-    execute: bool = True,
+    execute: bool | None = None,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    """Resolve ``intent`` under ``verb`` and dispatch the winner via ``_execute_tool``.
+    """Resolve, preview, policy-check, and optionally dispatch one intent.
 
-    Returns ``{"result", "routing", "executed"}`` (or ``{"error", "routing"}`` on
-    a dispatch failure) — the SAME shape whichever of the six verbs called it, so
-    a caller never needs verb-specific parsing. ``routing`` carries the "why"
-    (a CPD-backed justification when the winning tool has a generated CPD
-    entry, else the pre-CPD lexical one) PLUS ``calibrated_outcome_reward``
-    (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) — the learned reward-EMA for THIS
-    ``verb:tool`` pairing at the moment of ranking. Every execution attempt
-    (success or failure) feeds its outcome back into that same EMA so a later
-    resolution under the same verb reflects real performance.
+    ``ask``/``why`` execute by default and remain read-only. Non-read verbs
+    preview by default; execution requires the opaque ``plan_ref`` returned by
+    that exact preview. Destructive plans are never nested-dispatched because
+    doing so would bypass the dynamically loaded exact tool's approval policy.
+    Outcome learning consumes only the verified tool result of an unpinned,
+    unambiguous execution in the current tenant/policy partition.
     """
     raw_hints = dict(hints or {})
+    if verb not in _DISPATCH_VERBS:
+        return {
+            "error": "Unsupported GraphOS intent verb.",
+            "executed": False,
+            "routing": {"verb": verb, "candidates": []},
+        }
+    security_failure = _intent_security_failure(intent, raw_hints)
+    if security_failure is not None:
+        return security_failure
+    supplied_outcomes = sorted(set(raw_hints) & _CALLER_OUTCOME_FIELDS)
+    if supplied_outcomes:
+        return {
+            "error": "Caller-supplied routing outcomes are forbidden.",
+            "executed": False,
+            "security": {
+                "decision": "deny",
+                "fields": supplied_outcomes,
+                "reason": "Only verified execution results update routing rewards.",
+            },
+        }
+
+    should_execute = verb in _READ_ONLY_VERBS if execute is None else bool(execute)
+    explicit_tool = bool(raw_hints.get("tool") or raw_hints.get("_tool"))
     explicit_action = raw_hints.get("action")
+    supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
     call_kwargs = {
-        k: v for k, v in raw_hints.items() if k not in ("tool", "_tool", "action")
+        k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS
     }
 
-    candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=top_k)
+    candidates = resolve_intent(
+        verb, intent, hints=raw_hints, top_k=max(2, int(top_k))
+    )
     if not candidates:
         return {
-            "error": f"No graph-os capability matched verb={verb!r}.",
-            "routing": {"verb": verb, "intent": intent, "candidates": []},
+            "error": (
+                "Pinned capability is not allowed for this intent verb."
+                if explicit_tool
+                else "No GraphOS capability matched the requested intent verb."
+            ),
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "intent_ref": persistence_reference("intent", intent),
+                "candidates": [],
+            },
         }
 
     top = candidates[0]
     chosen_tool = top.tool
-    chosen_action = explicit_action or top.action or _pick_action(chosen_tool, intent)
+    available_actions = _actions_by_tool().get(chosen_tool, [])
+    if (
+        explicit_action is not None
+        and available_actions
+        and explicit_action not in available_actions
+    ):
+        return {
+            "error": "Requested action is not declared for the pinned capability.",
+            "executed": False,
+            "routing": {
+                "verb": verb,
+                "chosen_tool": chosen_tool,
+                "declared_actions": sorted(available_actions),
+            },
+        }
+    ranked_actions = _rank_actions(chosen_tool, intent)
+    chosen_action = (
+        explicit_action
+        or top.action
+        or (ranked_actions[0][0] if ranked_actions else None)
+    )
 
     text_param = _PRIMARY_TEXT_PARAM.get(chosen_tool)
     fell_back = False
@@ -634,32 +910,56 @@ async def dispatch_intent(
         # No structured hints AND the winning tool has no known free-text param:
         # fall back to the NL planner rather than dispatch a call we know is
         # missing required args (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
-        # BUT an EXPLICIT tool pin (hints.tool) or an explicit action means the
-        # caller deliberately chose this tool — always dispatch it, never fall back
-        # to nl_query (that silently ignored the pin, e.g. graph_incident/compliance).
+        # An explicit pin/action never falls back because that would silently
+        # replace the caller's declared route.
         fell_back = True
         chosen_tool = _ASK_FALLBACK_TOOL
         chosen_action = None
         call_kwargs = {_PRIMARY_TEXT_PARAM[_ASK_FALLBACK_TOOL]: intent}
+        ranked_actions = []
 
     if chosen_action is not None:
         call_kwargs.setdefault("action", chosen_action)
 
+    candidate_ambiguity = _ambiguity_evidence(candidates, explicit=explicit_tool)
+    action_ambiguity = _action_ambiguity_evidence(
+        ranked_actions, explicit=explicit_action is not None
+    )
+    plan = _operation_plan(verb, chosen_tool, chosen_action, call_kwargs)
+    plan_ref = _plan_ref(verb, chosen_tool, chosen_action, call_kwargs)
+    plan["plan_ref"] = plan_ref
+
+    outcome_scope_ref = _outcome_scope_ref()
+    reward = (
+        _outcome_router().reward_of(
+            _reward_task_class(verb, outcome_scope_ref), chosen_tool
+        )
+        if outcome_scope_ref is not None
+        else 0.5
+    )
+    learning_eligible = bool(
+        outcome_scope_ref
+        and not explicit_tool
+        and not candidate_ambiguity["ambiguous"]
+        and not action_ambiguity["ambiguous"]
+    )
     routing: dict[str, Any] = {
         "verb": verb,
-        "intent": intent,
+        "intent_ref": persistence_reference("intent", intent),
         "chosen_tool": chosen_tool,
         "action": chosen_action,
         "score": round(top.score, 4),
         "matched_terms": top.matched_terms,
         "fell_back_to_nl_planner": fell_back,
         "why": (
-            f"'{top.tool}' best matched the {verb!r} intent on terms {top.matched_terms!r}"
+            f"'{top.tool}' best matched the {verb!r} intent on descriptor terms "
+            f"{top.matched_terms!r}"
             if top.matched_terms
-            else f"'{top.tool}' is the only/first candidate registered for verb {verb!r}"
+            else f"'{top.tool}' is the highest-ranked capability for verb {verb!r}"
         )
         + (
-            f"; dispatched via '{_ASK_FALLBACK_TOOL}' (NL planner) — no structured hints for '{top.tool}'."
+            f"; routed through '{_ASK_FALLBACK_TOOL}' because the selected "
+            f"capability requires structured arguments."
             if fell_back
             else "."
         ),
@@ -667,27 +967,111 @@ async def dispatch_intent(
             {"tool": c.tool, "action": c.action, "score": round(c.score, 4)}
             for c in candidates[1:]
         ],
-        "capability_source": (
-            "graph-os Capability Power Descriptor (docs/capabilities-power.json — "
-            "does/examples/intent_verbs ranking, CONCEPT:AU-ECO.mcp.intent-surface-cpd-ranking)"
-            if chosen_tool in _load_cpds_safe()
-            else "graph-os local capability index (pre-CPD lexical fallback for "
-            f"{chosen_tool!r} — no generated CPD entry yet)"
-        ),
-        "calibrated_outcome_reward": round(
-            _outcome_router().reward_of(verb, chosen_tool), 4
-        ),
+        "capability_source": "packaged_graphos_cpd",
+        "calibrated_outcome_reward": round(reward, 4),
+        "ambiguity": {
+            "capability": candidate_ambiguity,
+            "action": action_ambiguity,
+        },
+        "plan": plan,
+        "decision_trace": {
+            "evidence": {
+                "matched_terms": top.matched_terms,
+                "candidate_count": len(candidates),
+                "capability_source": "packaged_graphos_cpd",
+            },
+            "policy": {
+                "verb_class": (
+                    "read_only" if verb in _READ_ONLY_VERBS else "non_read"
+                ),
+                "read_only_enforced": verb in _READ_ONLY_VERBS,
+                "preview_required": plan["preview_required"],
+                "approval": plan["approval"],
+            },
+            "route": {
+                "tool": chosen_tool,
+                "action": chosen_action,
+                "fallback": fell_back,
+            },
+            "result_provenance": {
+                "execution_core": "graphos_verified_execute_tool",
+                "status": "preview",
+            },
+        },
+        "learning": {
+            "eligible": learning_eligible,
+            "partition_ref": outcome_scope_ref or "unverified",
+            "source": "verified_execution_result_only",
+        },
     }
 
-    if not execute:
+    read_policy_violation = verb in _READ_ONLY_VERBS and plan["mutates"] is not False
+    if not should_execute:
         return {"routing": routing, "executed": False}
+
+    if read_policy_violation:
+        return {
+            "error": "Read-only intent policy rejected a mutating or unclassified route.",
+            "routing": routing,
+            "executed": False,
+        }
+    if plan["execution_class"] == "unclassified":
+        return {
+            "error": "Operation effect metadata is unclassified; execution denied.",
+            "routing": routing,
+            "executed": False,
+        }
+    if verb in _NON_READ_VERBS and (
+        candidate_ambiguity["ambiguous"] or action_ambiguity["ambiguous"]
+    ):
+        return {
+            "error": "Ambiguous non-read intent requires an explicit tool and action.",
+            "routing": routing,
+            "executed": False,
+        }
+    if verb in _NON_READ_VERBS and supplied_plan_ref != plan_ref:
+        return {
+            "error": (
+                "Preview required: call with execute=false, review the plan, then "
+                "resubmit its plan_ref with execute=true."
+            ),
+            "routing": routing,
+            "executed": False,
+        }
+    if plan["approval"]["required"]:
+        return {
+            "error": (
+                "Operation requires the exact dynamically loaded tool and its "
+                "approval policy."
+            ),
+            "routing": routing,
+            "executed": False,
+            "approval_required": True,
+        }
 
     try:
         result = await kg_server._execute_tool(chosen_tool, **call_kwargs)
     except Exception as e:  # noqa: BLE001 — surface as a structured routing failure, not a 500
-        _record_dispatch_outcome(verb, chosen_tool, success=False)
-        return {"routing": routing, "executed": False, "error": str(e)}
-    _record_dispatch_outcome(verb, chosen_tool, success=True)
+        if learning_eligible and outcome_scope_ref is not None:
+            _record_dispatch_outcome(
+                outcome_scope_ref, verb, chosen_tool, success=False
+            )
+        routing["decision_trace"]["result_provenance"]["status"] = "failed"
+        routing["learning"]["recorded"] = learning_eligible
+        return {
+            "routing": routing,
+            "executed": False,
+            **public_error_payload(e, logger=logger),
+        }
+    observed_success = _execution_succeeded(result)
+    if learning_eligible and outcome_scope_ref is not None:
+        _record_dispatch_outcome(
+            outcome_scope_ref, verb, chosen_tool, success=observed_success
+        )
+    routing["decision_trace"]["result_provenance"]["status"] = (
+        "succeeded" if observed_success else "failed"
+    )
+    routing["learning"]["recorded"] = learning_eligible
     return {"result": result, "routing": routing, "executed": True}
 
 
@@ -701,9 +1085,12 @@ async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, A
     second multiplexer instance. Absent (embedded/headless builds) it degrades
     to local-only results — never an error.
     """
+    security_failure = _intent_security_failure(intent)
+    if security_failure is not None:
+        return security_failure
     local = resolve_intent(None, intent, top_k=top_k)
     payload: dict[str, Any] = {
-        "query": intent,
+        "query_ref": persistence_reference("intent", intent),
         "count": len(local),
         "results": [
             {
@@ -730,7 +1117,7 @@ async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, A
             discovery = await mux.discover_tools(intent, top_k=top_k, loaded=loaded)
             payload["fleet_results"] = discovery.get("results", [])
             payload["fleet_unavailable"] = discovery.get("unavailable", {})
-    except Exception:  # noqa: BLE001 — fleet search is best-effort; local results always stand
+    except Exception:  # noqa: BLE001 — remote discovery health is reported elsewhere
         pass
     return payload
 
@@ -742,7 +1129,9 @@ async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, A
 _RECLAIM_ACTIONS = frozenset({"unload", "reclaim", "load"})
 
 
-async def _manage_lifecycle(mcp: Any, hints: dict[str, Any]) -> dict[str, Any] | None:
+async def _manage_lifecycle(
+    mcp: Any, hints: dict[str, Any], *, execute: bool = False
+) -> dict[str, Any] | None:
     """Handle a ``manage`` lifecycle action (load/unload/reclaim) directly.
 
     Returns ``None`` when ``hints`` carries no lifecycle action — the caller
@@ -754,6 +1143,37 @@ async def _manage_lifecycle(mcp: Any, hints: dict[str, Any]) -> dict[str, Any] |
     action = str(hints.get("action") or "").strip().lower()
     if action not in _RECLAIM_ACTIONS:
         return None
+    plan_hints = {k: v for k, v in hints.items() if k != "plan_ref"}
+    plan_ref = persistence_reference(
+        "intent_plan",
+        json.dumps(
+            {"verb": "manage", "lifecycle": plan_hints},
+            sort_keys=True,
+            default=str,
+            separators=(",", ":"),
+        ),
+    )
+    plan = {
+        "action": action,
+        "execution_class": "session_visibility",
+        "mutates": False,
+        "destructive": False,
+        "idempotent": True,
+        "preview_required": True,
+        "plan_ref": plan_ref,
+        "approval": {"required": False, "route": "dynamic_tool_policy"},
+    }
+    if not execute:
+        return {"executed": False, "plan": plan}
+    if str(hints.get("plan_ref") or "") != plan_ref:
+        return {
+            "executed": False,
+            "error": (
+                "Preview required: review the lifecycle plan and resubmit its "
+                "plan_ref with execute=true."
+            ),
+            "plan": plan,
+        }
     mux = getattr(mcp, "_fleet_mux", None)
     if mux is None:
         return {
@@ -781,9 +1201,8 @@ async def _manage_lifecycle(mcp: Any, hints: dict[str, Any]) -> dict[str, Any] |
 def register_intent_tools(mcp: Any) -> list[str]:
     """Register the six intent-verb tools (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
 
-    Called by ``kg_server._build_server`` only when ``MCP_TOOL_MODE=="intent"``
-    (the intent verbs are an ADDITIONAL surface, opt-in via that profile — the
-    default ``condensed`` mode is completely unaffected). Each tool is a thin
+    Called by ``kg_server._build_server`` when the default
+    ``MCP_TOOL_MODE=="intent"`` profile is active. Each tool is a thin
     wrapper over :func:`dispatch_intent`/:func:`_find_capability`; every one of
     them also gets a REST twin (see ``kg_server.ACTION_TOOL_ROUTES``) and a
     ``REGISTERED_TOOLS`` entry so ``_execute_tool`` — the same core the
@@ -799,17 +1218,24 @@ def register_intent_tools(mcp: Any) -> list[str]:
                 description=(
                     "Optional JSON object of structured args forwarded to the "
                     'resolved tool (e.g. {"node_id": "..."} for a write, or '
-                    '{"tool": "graph_write"} to pin the exact tool).'
+                    '{"tool": "graph_write"} to pin the exact tool). For a '
+                    "non-read execution, resubmit the preview's plan_ref here."
                 ),
             ),
             execute: bool = Field(
-                default=True,
-                description="When false, return only the routing decision (preview/dry-run).",
+                default=verb in _READ_ONLY_VERBS,
+                description=(
+                    "Execute a read-only plan immediately. Non-read verbs default "
+                    "to preview and require the returned plan_ref before execution."
+                ),
             ),
         ) -> str:
             hints = json.loads(hints_json) if hints_json else {}
             if verb == "manage":
-                lifecycle = await _manage_lifecycle(mcp, hints)
+                security_failure = _intent_security_failure(intent, hints)
+                if security_failure is not None:
+                    return json.dumps(security_failure, default=str)
+                lifecycle = await _manage_lifecycle(mcp, hints, execute=execute)
                 if lifecycle is not None:
                     return json.dumps({"lifecycle": lifecycle}, default=str)
             result = await dispatch_intent(verb, intent, hints=hints, execute=execute)
@@ -832,25 +1258,25 @@ def register_intent_tools(mcp: Any) -> list[str]:
             "one (load_tools, or the matching intent verb pinned to that tool)."
         ),
         "write": (
-            "Perform a natural-language WRITE/ingest intent. Resolves to add/write/ingest/"
-            "writeback/etl/source_sync/... Structured fields (node ids, props, connector "
-            "config, ...) go in hints_json — the resolver picks WHICH tool, hints_json supplies "
-            "what that tool needs, exactly as calling it directly would."
+            "Preview or perform a natural-language WRITE/ingest intent. Structured fields "
+            "go in hints_json. Preview returns effect, cost/impact, idempotency, ambiguity, "
+            "approval classification, and a plan_ref required for execution."
         ),
         "act": (
-            "Perform a natural-language ACT/execute intent. Resolves to orchestrate/loops/"
-            "goals/execute_agent/workflow/schedule/... Put the agent/workflow name, args, etc. "
-            "in hints_json."
+            "Preview or perform a natural-language ACT/execute intent. The resolver returns "
+            "a governed plan first; review it and resubmit its plan_ref to execute. Ambiguous "
+            "or unclassified operations fail closed."
         ),
         "manage": (
-            "Perform a natural-language MANAGE/configure intent. Resolves to configure/"
-            "tenants/lifecycle/resharding/secret/schedules/permissions/... Put the config key, "
-            "scope, etc. in hints_json. RESPONSIBLE TOOL USAGE (CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle): "
+            "Preview or perform a natural-language MANAGE/configure intent. Review and "
+            "resubmit the returned plan_ref before execution. RESPONSIBLE TOOL USAGE "
+            "(CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle): "
             'pass hints_json={"action": "unload", "tools": [...]} (or "servers"/'
             '"toolsets") to reclaim context from previously loaded granular tools, or '
             '{"action": "load", "tools": [...], "auto_unload": true} to pull one in '
             "for a single one-shot use — it auto-retracts after its next call so long "
-            "sessions don't accumulate tool schemas. Nothing is lost; load again anytime."
+            "sessions don't accumulate tool schemas. Dynamically loaded exact tools retain "
+            "their own authority and approval policy."
         ),
         "why": (
             "Ask WHY — explain a belief/decision/change. Resolves to explain/evaluate/observe/"

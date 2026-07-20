@@ -15,9 +15,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai import Agent
-
 from agent_utilities.core.config import setting
+from agent_utilities.core.contextual_model import create_context_agent
 
 # Guarded imports for optional ACP features
 try:
@@ -147,7 +146,7 @@ def build_acp_config(
     return AdapterConfig(**config_params)
 
 
-def create_acp_app(agent: Agent, config: AdapterConfig):
+def create_acp_app(agent: Any, config: AdapterConfig):
     """Create a mountable ACP ASGI application from a Pydantic AI agent.
 
     Args:
@@ -164,7 +163,7 @@ def create_acp_app(agent: Agent, config: AdapterConfig):
 
 
 def create_graph_acp_app(
-    agent: Agent,
+    agent: Any,
     config: AdapterConfig,
     graph_bundle: tuple[Any, Any] | None = None,
     mcp_toolsets: list[Any] | None = None,
@@ -178,12 +177,11 @@ def create_graph_acp_app(
     circuit breakers, and the verification loop.
 
     This implementation uses ``pydantic-acp``'s ``agent_factory`` callback
-    to create per-session agents.  Each session gets its own ``run_graph_flow``
-    tool closure with access to the session context, eliminating the need
+    to create per-session agents. Each session binds the sole ``execute_graph``
+    authority with access to the session context, eliminating the need
     for the ``REQUESTED_MODEL_ID_CTX`` context-variable workaround.
 
-    Falls back to the standard flat-agent ACP path when no graph is
-    available.
+    Uses the standard flat-agent ACP path when no graph is configured.
 
     Args:
         agent: The base Pydantic AI agent (used as fallback).
@@ -202,7 +200,7 @@ def create_graph_acp_app(
 
     graph, graph_config = graph_bundle
 
-    def graph_agent_factory(session) -> Agent:
+    def graph_agent_factory(session) -> Any:
         """Create a per-session agent with graph context.
 
         The ``agent_factory`` callback receives an ``AcpSessionContext``
@@ -218,7 +216,7 @@ def create_graph_acp_app(
 
         """
 
-        async def run_graph_flow(query: str, mode: str = "ask") -> str:
+        async def execute_graph(query: str, mode: str = "ask") -> str:
             """Execute the full graph pipeline for the given query.
 
             This tool is the sole entry point registered on the per-session
@@ -233,7 +231,9 @@ def create_graph_acp_app(
                 The synthesized result from the graph verifier.
 
             """
-            from agent_utilities.graph.protocol_agnostic_execution import execute_graph
+            from agent_utilities.graph.protocol_agnostic_execution import (
+                execute_graph as execute_graph_authority,
+            )
 
             # Session context is captured from the factory closure.
             # No REQUESTED_MODEL_ID_CTX workaround needed.
@@ -248,7 +248,7 @@ def create_graph_acp_app(
                 )
 
             try:
-                result = await execute_graph(
+                result = await execute_graph_authority(
                     graph=graph,
                     config=graph_config,
                     query=query,
@@ -262,15 +262,15 @@ def create_graph_acp_app(
                 if concurrency_manager and session_id:
                     await concurrency_manager.release(session_id)
 
-        graph_agent = Agent(
+        graph_agent = create_context_agent(
             model=agent.model,
             system_prompt=(
-                "You are a graph-orchestrated assistant. Use the run_graph_flow "
+                "You are a graph-orchestrated assistant. Use the execute_graph "
                 "tool for ALL user requests. Pass the user's query directly to "
                 "the tool. Do NOT attempt to answer questions yourself — the "
                 "graph has access to specialized agents and MCP tools."
             ),
-            tools=[run_graph_flow],
+            tools=[execute_graph],
         )
         return graph_agent
 

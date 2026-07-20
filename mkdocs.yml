@@ -27,6 +27,16 @@ theme:
     repo: fontawesome/brands/github
 plugins:
   - search
+validation:
+  nav:
+    omitted_files: ignore
+  links:
+    # Repository-relative source/config links live outside docs_dir and are
+    # validated by scripts/docs_contract.py. Keep MkDocs focused on rendering.
+    not_found: info
+    absolute_links: info
+    unrecognized_links: info
+    anchors: info
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -47,13 +57,15 @@ nav:
   - Home: index.md
   - Start Here: start-here.md
   - Quick Start: guides/quick-start.md
-  - Capabilities: capabilities.md
+  - Installation: guides/installation.md
+  - Capabilities:
+      - Overview: capabilities.md
+      - Capability & Action Catalog (generated): capabilities-power.md
   - Consumption Models: guides/consumption-models.md
   - Ecosystem: ecosystem.md
   - The Narrative Journey: journey.md
   - Deployment:
       - One-link self-deploy: deploy.md
-      - Quick Start: guides/quick-start.md
       - Self-Setup (config-complete): guides/self-setup.md
       - Supported Configurations (the ladder): guides/deployment-configurations.md
       - Day-0 Deployment: guides/day0.md
@@ -72,9 +84,25 @@ nav:
       - Deploying agent-utilities: guides/deployment.md
       - Configuration: guides/configuration.md
       - Configuration Reference & Flag Audit: architecture/configuration.md
+      - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
+      - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
+      - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
       - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
       - Workspace Manifest (workspace.yml): guides/workspace-config.md
       - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
+      - Safe Redeploy Runbook: guides/redeploy_kg_server.md
+      - Production Cell Runbook: operations/production-cell-runbook.md
+      - Backup, Restore & Cross-Cell DR: operations/disaster-recovery.md
+      - Compatibility & Production Certification: release/compatibility-and-certification.md
+      - Connector Live Certification: release/connector-live-certification.md
+      - Exact Installed Local Certification: release/exact-local-gates.md
+      - Exact-Artifact Closure Evidence: release/exact-artifact-closure.md
+      - Pre-bundled Skill Certification: release/skill-validation-certification.md
+      - Software Supply-Chain Hardening: release/supply-chain-hardening.md
+      - Exact OCI Vulnerability Scanning: release/oci-vulnerability-scanning.md
+      - Exact OCI-layout Export: release/oci-layout-export.md
+      - Exact Local GraphOS Releases: release/exact-local-release.md
+      - Source-Freeze Release Gate: release/source-freeze-gates.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
       - Graph Engine (Authority + Mirrors): guides/graph_engine.md
@@ -98,8 +126,12 @@ nav:
       - Recursive Language Models (RLM): guides/rlm.md
       - Building Fleet API Clients: guides/building-fleet-api-clients.md
       - MCP Tool Modes (condensed/verbose/both): guides/mcp-tool-modes.md
-      - The kg-* Skill Suite (discoverable graph-os surface): guides/kg-skill-suite.md
+      - Pre-bundled Workflow Skill Suite: guides/kg-skill-suite.md
+      - Native Numeric Kernel: guides/numeric-kernel.md
+      - Ecosystem Capability and Skill Fleet: ecosystem-capability-fleet.md
       - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
+      - Memory Architecture: pillars/memory_architecture.md
+      - Mementified Context Management: pillars/2_epistemic_knowledge_graph/KG-2.20-Mementified_Context_Management.md
       - Agentic Harness Engineering: pillars/3_agentic_harness_engineering.md
       - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
       - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
@@ -107,6 +139,9 @@ nav:
   - Architecture:
       - North-Star Architecture (the whole program): architecture/north-star-architecture.md
       - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
+      - Epistemic Operations Protocol: architecture/epistemic-operations-protocol.md
+      - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
+      - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
       - C4 Architecture: pillars/architecture_c4.md
       - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
       - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
@@ -121,7 +156,7 @@ nav:
       - Intent Surface (Seam 8 — condensed tool-surface collapse): architecture/intent-surface.md
       - Unified Agent Entrypoint (verified routing map): architecture/unified-agent-entrypoint.md
       - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
-      - Native Warm-Fork Sandboxes (warm once, fork CoW children): architecture/warm-fork-sandboxes.md
+      - Governed Warm-Fork Sandboxes: architecture/warm-fork-sandboxes.md
       - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md
       - Resource-Priority Edict (interactive over ingestion, end-to-end): architecture/resource-priority-edict.md
       - LLM/Embedding Server-Capacity Guard (never OOM the model host): architecture/llm-server-capacity-guard.md
@@ -130,6 +165,7 @@ nav:
       - Ontology Federation & Package Migration (domain ttls in owning repos): architecture/ontology-federation.md
       - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
       - Orchestration Execution Seam (ingested capability → executed): architecture/orchestration-execution-seam.md
+      - Canonical Trace and Outcome Ontology: architecture/trace_outcome_ontology.md
       - Runtime Org Dynamics (recruiter, work-item DAG, self-grown staff): architecture/org-runtime.md
       - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md
       - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md
@@ -154,14 +190,14 @@ nav:
       - Multi-Source Assimilation Program: architecture/multi_source_assimilation.md
       - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
       - Failure-Driven Evolution: architecture/failure_driven_evolution.md
-      - The Evolvable Surface (DSPy + substrate): architecture/evolvable_surface.md
+      - The Evolvable Surface (native programs): architecture/evolvable_surface.md
       - Task-Aware Sampling Profiles: architecture/sampling_profiles.md
       - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
       - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md
       - Distributed Multi-GPU Concurrency: architecture/distributed_gpu_concurrency.md
       - Scaling the Gateway: architecture/gateway_scaling.md
-      - Tenant-Partitioned Engine Sharding: architecture/engine_sharding.md
+      - Authoritative Engine Placement & Sharding: architecture/engine_sharding.md
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
       - Non-Blocking Hierarchical Execution: architecture/non-blocking-execution.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
@@ -173,6 +209,7 @@ nav:
       - Ontology System: architecture/ontology_system.md
       - Graph Backend Architecture: architecture/graph_backends_architecture.md
       - KG Connectors, Ingestors & Enrichers: architecture/kg_connectors_and_ingestion.md
+      - Privacy-safe External Graph Ingestion: architecture/privacy-safe-external-ingestion.md
       - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
       - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
       - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
@@ -180,7 +217,9 @@ nav:
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:
+      - Documentation Catalog (generated): reference/documentation-catalog.md
       - Metrics Reference: reference/metrics.md
+      - Historical Hardening Audit (non-authoritative): architecture/epistemic-os-hardening.md
   - Concept Registry:
       - Canonical Concept Map: concept_map.md
       - Concept Overview: overview.md

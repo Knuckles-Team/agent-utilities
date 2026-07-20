@@ -7,12 +7,15 @@ CONCEPT:AU-KG.retrieval.capability-power-descriptor (Seam 8 Phase 1 —
 Mirrors ``scripts/gen_docs.py --check`` / ``scripts/check_surface_parity.py``:
 regenerates the CPD set from the live tool registry + EG ledger (or its
 vendored cache) and fails if the checked-in ``docs/capabilities-power.md`` /
-``.json`` differ, so a CPD can never quietly rot relative to its sources.
-Also asserts two structural invariants no textual diff alone would catch as
-cleanly:
+``.json`` (and the packaged ``agent_utilities/knowledge_graph/retrieval/
+capabilities-power.json`` catalog) differ, so a CPD can never quietly rot
+relative to its sources. Also asserts two structural invariants no textual
+diff alone would catch as cleanly:
 
 1. **Coverage** — every tool in ``kg_server.REGISTERED_TOOLS`` has exactly one
    CPD, and every CPD id names a real registered tool (no orphan/phantom CPD).
+   The packaged catalog is universal so an enabled runtime feature can never
+   appear without routing authority.
 2. **No fabrication** — every CPD's ``cost``/``latency``/``reliability`` is
    either empty or sourced from :data:`MEASURED_LATENCY_MS`/a live engine read
    (never a bare non-empty numeric literal with no ``source``/``kind`` marker),
@@ -50,9 +53,13 @@ def _check_drift() -> tuple[list[str], list]:
     md = gcp.render_markdown(cpds, generated_at=generated_at)
     js = gcp.render_json(cpds, generated_at=generated_at)
 
-    if not gcp.MD_PATH.exists() or not gcp.JSON_PATH.exists():
+    if (
+        not gcp.MD_PATH.exists()
+        or not gcp.JSON_PATH.exists()
+        or not gcp.PACKAGE_JSON_PATH.exists()
+    ):
         errors.append(
-            f"{gcp.MD_PATH.name}/{gcp.JSON_PATH.name} missing — run "
+            "one or more capability catalog outputs are missing — run "
             "`python scripts/gen_capability_power.py --write`."
         )
         return errors, cpds
@@ -69,6 +76,19 @@ def _check_drift() -> tuple[list[str], list]:
         errors.append(
             f"{gcp.JSON_PATH} is stale relative to the live tool registry + EG "
             "ledger — run `python scripts/gen_capability_power.py --write`."
+        )
+    if strip_generation_timestamp(
+        gcp.PACKAGE_JSON_PATH.read_text(encoding="utf-8")
+    ) != strip_generation_timestamp(js):
+        errors.append(
+            f"{gcp.PACKAGE_JSON_PATH} is stale relative to the live tool "
+            "registry + EG ledger — run "
+            "`python scripts/gen_capability_power.py --write`."
+        )
+    if gcp.JSON_PATH.read_bytes() != gcp.PACKAGE_JSON_PATH.read_bytes():
+        errors.append(
+            f"{gcp.PACKAGE_JSON_PATH} is not byte-identical to {gcp.JSON_PATH} — "
+            "run `python scripts/gen_capability_power.py --write`."
         )
     return errors, cpds
 

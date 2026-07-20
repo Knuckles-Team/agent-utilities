@@ -30,7 +30,7 @@ flowchart TB
             S3[loop_cycle] --- S4[research_feed RSS\nKG-2.114]
         end
 
-        subgraph QUEUE["Unified priority+scheduled queue — :Task (AU-KG.ingest.hardened-priority-scheduled-task)"]
+        subgraph QUEUE["Unified native WorkItem queue"]
             direction LR
             Q0[bucket 0\ncritical] --> Q1[bucket 1\nhigh] --> Q2[bucket 2\nnormal] --> Q3[bucket 3\nbackground]
             QS[scheduled\neta/backoff] -.promote.-> Q2
@@ -51,8 +51,8 @@ flowchart TB
     end
 
     subgraph SVC["Separate served processes"]
-        MCPOS[graph-os MCP server\nsse 127.0.0.1:8100\ngraph_orchestrate / graph_search / graph_reach]
-        MUX[mcp-multiplexer\ndynamic find_tools/load_tools → fleet]
+        MCPOS[graph-os MCP server\nstreamable-http 127.0.0.1:8100\ngraph_orchestrate / graph_search / graph_reach]
+        FLEET[GraphOS embedded fleet gateway\ndynamic find_tools/load_tools]
         ENG[(epistemic-graph engine\nUDS /tmp/epistemic-graph.sock)]
     end
 
@@ -73,7 +73,7 @@ flowchart TB
     AGENT --> ENG
     ING --> ENG
     MCPOS --> ENG
-    MUX --> MCPOS
+    MCPOS --- FLEET
     ENG --> SNAP
     B1 -->|poll/getUpdates + send| TG((User on Telegram))
 
@@ -95,13 +95,13 @@ flowchart TB
 - **Durable `:Schedule` registry (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)** — the ONE place recurring work is
   declared. Seeded from `deploy/schedules.yml` and from the former fixed-interval
   maintenance ticks (`analysis`, `enrichment`, `evolution`, `sai_factory`, `failure_ingest`,
-  `anomaly_consumer`, `fuseki_publish`, `compaction`, `reconcile_durable`, `usage_*`,
+  `anomaly_consumer`, `fuseki_publish`, `compaction`, `reconcile_mirrors`, `usage_*`,
   `file_watch`, `hygiene`, `tenant_gc`, the fleet ticks), plus **`loop_cycle`** and the
   **`research_feed`** ScholarX RSS loop (AU-KG.research.scholarx-rss-research-feed). Triggers are `cron | interval | adaptive`;
   each node carries live last-run / next-run / failure-backoff and is editable at runtime
   via `graph_schedules` (MCP) and `/graph/schedules` (REST).
 - **Unified priority+scheduled queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)** — every recurring job and every
-  loop stage's fan-out becomes a `:Task`. Workers claim by discrete priority bucket
+  loop stage's fan-out becomes a WorkItem. Workers claim by discrete priority bucket
   (0 critical → 3 background); `scheduled` tasks carry an eta (delayed execution + retry
   backoff), `blocked` tasks carry `depends_on`, and an app-failure that exhausts its retries
   becomes a `dead_letter` (distinct from the reaper's crash-requeue).
@@ -109,9 +109,9 @@ flowchart TB
   connects every configured backend, ingests chat to the KG, and routes to the dedicated
   messaging agent, which **delegates** heavy work to graph-os (ECO-4.59).
 - **REST API** — the gateway HTTP surface (`/graph/*`, `/daemon/*`, `/fleet/*`, `/metrics`).
-- **Separate served processes** — the graph-os **MCP server** (sse :8100), the
-  **mcp-multiplexer** (dynamic fleet tools), and the Rust **epistemic-graph engine** (the
-  daemon connects to it over UDS; the engine is not in-process).
+- **Separate served processes** — the GraphOS **MCP server** (including dynamic
+  fleet tools) and the Rust **epistemic-graph engine** (the daemon connects to it
+  over UDS; the engine is not in-process).
 - **State & queues** — Postgres backs the task queue + externalized state; the engine
   persists snapshots to its persist-dir.
 

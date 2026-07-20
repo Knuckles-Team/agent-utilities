@@ -1,8 +1,7 @@
 """PostgreSQL durable backend serves the *unanchored* relationship count.
 
 ``MATCH ()-[r]->() RETURN count(r)`` has no node anchor for the Cypher
-transpiler to plan from, so it would transpile to UNKNOWN/[]. The tiered backend
-routes unanchored relationship reads to the durable tier, so PostgreSQLBackend
+transpiler to plan from, so it would transpile to UNKNOWN/[]. PostgreSQLBackend
 answers the global edge metric directly from ``kg_edges`` — and defers (so the
 transpiler still handles them) the moment the pattern constrains its endpoints.
 (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1)
@@ -51,7 +50,8 @@ def backend(monkeypatch) -> PostgreSQLBackend:
     cur = _FakeCursor(count=42)
 
     @contextlib.contextmanager
-    def _fake_conn():
+    def _fake_conn(*, read_only: bool = False):
+        b._last_read_only = read_only  # type: ignore[attr-defined]
         yield _FakeConn(cur)
 
     monkeypatch.setattr(b, "_conn", _fake_conn)
@@ -82,6 +82,12 @@ def test_rel_type_filter_adds_where_clause(backend):
     assert rows == [{"c": 42}]
     sql, params = backend._last_cur.executed
     assert "rel_type = %s" in sql and params == ("KNOWS",)
+
+
+def test_execute_read_uses_read_only_connection(backend):
+    rows = backend.execute_read("MATCH ()-[r]->() RETURN count(r) AS edges")
+    assert rows == [{"edges": 42}]
+    assert backend._last_read_only is True
 
 
 @pytest.mark.parametrize(

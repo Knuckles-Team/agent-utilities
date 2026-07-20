@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:epistemic-operations:v1:work-item",
+  "title": "WorkItem",
+  "description": "Durable dependency, lease, retry, and artifact contract for delegated work.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-python-model": "WorkItem",
+  "x-rust-type": "WorkItem",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "work_item_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context": {
+      "$ref": "request-context.schema.json"
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "enum": [
+        "submitted",
+        "ready",
+        "leased",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "dead_letter"
+      ]
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "input_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "output_artifact_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "lease_holder_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "Opaque worker identity; never a personal display name."
+    },
+    "lease_expires_at_ms": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated_at_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "schema_version",
+    "work_item_id",
+    "context",
+    "kind",
+    "state",
+    "priority",
+    "depends_on",
+    "input_artifact_refs",
+    "output_artifact_refs",
+    "lease_holder_id",
+    "lease_expires_at_ms",
+    "attempt",
+    "max_attempts",
+    "created_at_ms",
+    "updated_at_ms",
+    "idempotency_key"
+  ]
+}

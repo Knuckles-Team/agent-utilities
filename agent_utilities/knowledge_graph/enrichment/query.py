@@ -93,7 +93,7 @@ def enrichment_coverage(backend: Any, graph_name: str | None = None) -> dict[str
     The gauge for "how enriched is the graph by category": structural ingest
     lands nodes immediately while the background daemon backfills LLM cards, so
     each category reports totals plus a ``coverage`` ratio in ``[0, 1]`` for its
-    LLM-enriched dimension. Counts are computed client-side (the L1 Cypher
+    LLM-enriched dimension. Counts are computed client-side (the native Cypher
     subset can't ``GROUP BY``), so this works on every backend. ``graph_name``
     is accepted for API symmetry; the backend already targets a single graph.
     """

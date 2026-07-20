@@ -15,7 +15,7 @@ graph TD
     WebUI -- ACP Protocol /acp --> Backend
     TUI -- AG-UI /ag-ui --> Backend
     TUI -- ACP Protocol /acp --> Backend
-    External -- Legacy Protocol /ag-ui --> Backend
+    External -- AG-UI /ag-ui --> Backend
 
     subgraph AgentUtilities [agent-utilities]
         Backend --> UnifiedExec["Unified Execution Layer<br/>(graph/protocol_agnostic_execution.py)"]
@@ -88,37 +88,47 @@ The framework provides three canonical protocol adapters:
 
 1. **ACP (Agent Communication Protocol)**: Primary protocol for standardized sessions, planning, and streaming
 2. **A2A (Agent-to-Agent)**: Peer-to-peer agent communication and coordination
-3. **AG-UI**: Legacy streaming interface for backward compatibility with native Pydantic AI clients
+3. **AG-UI**: Current streaming interface for native Pydantic AI clients
 
 All protocol adapters are centralized in `agent_utilities/protocols/`:
+
 - `acp_adapter.py`: ACP envelope formatting, session management, per-session `agent_factory`
 - `a2a.py`: A2A peer discovery, JSON-RPC client, registry management
+- `a2a_epistemic.py`: durable task/context state, idempotent dispatch recovery,
+  delivery leases, and execution fencing
 - `agui_emitter.py`: AG-UI wire format translator for direct graph execution events
 - Server endpoints: `/acp` (MOUNT), `/a2a` (MOUNT), `/ag-ui` (POST)
 
 ### Direct Graph Execution (Fast Path)
 
-When a `graph_bundle` is present and `GRAPH_DIRECT_EXECUTION=true` (default), the **AG-UI endpoint** bypasses the outer LLM agent entirely:
+When a `graph_bundle` is present, the **AG-UI endpoint** invokes the
+protocol-agnostic execution authority directly:
 
 ```
-# Legacy (Agent-mediated):
-User Query → /ag-ui → Agent.run() → LLM → "call run_graph_flow" → graph.run()
-
-# Direct (Fast Path):
 User Query → /ag-ui → graph.iter() → [step events] → AGUIGraphEmitter → wire format
 ```
 
 This eliminates one full LLM inference round-trip per request. The fast path uses `graph.iter()` (pydantic-graph beta API) for step-by-step execution, yielding per-node events that are translated to AG-UI wire format by `AGUIGraphEmitter`.
 
-The fast path is gated on:
-1. `graph_bundle` containing a real Graph object with `.iter()` support
-2. `GRAPH_DIRECT_EXECUTION` env var set to `true` (default)
+The graph bundle must contain a real Graph object with `.iter()` support. There
+is no alternate graph execution flag or model-mediated graph path.
 
 The **ACP adapter** uses pydantic-acp's `agent_factory` callback for per-session agent creation, binding graph context directly to each session's closure.
 
-The **A2A path** now supports two modes:
-1. **Graph-native (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: When a `graph_bundle` is present, `PlannerGraphSkill` is registered as an A2A skill, enabling direct graph-backed planning without LLM orchestration overhead.
-2. **LLM-mediated (fallback)**: For multi-agent negotiation scenarios, the legacy `run_graph_flow` tool call path is retained.
+The **A2A path** is graph-native
+(CONCEPT:AU-ECO.messaging.native-backend-abstraction): when a `graph_bundle` is
+present, `PlannerGraphSkill` is registered as an A2A skill and calls the same
+execution authority without an outer LLM orchestration hop.
+
+The `/a2a` server uses one native epistemic-graph persistence contract. A task is
+stored before its operation is idempotently published; a bounded background scan
+repairs the persist/publish crash window. Workers heartbeat the engine-owned
+visibility lease and acknowledge by the current delivery tag plus consumer.
+Task and context updates carry revision and tenant-keyed digest fences, while
+cancellation and completion race through durable compare-and-set transitions.
+Only one terminal outcome can commit, and terminal context plus task output land
+atomically. Payloads are bounded before projection and permit opaque governed
+content references instead of inline file data or deployment-specific locations.
 
 ### 3-Stage Hybrid Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation, CONCEPT:AU-AHE.evaluation.interpretability-tests, CONCEPT:AU-KG.memory.tiered-memory-caching)
 
@@ -142,7 +152,7 @@ This strategy means the system progressively learns: the more queries it handles
 
 ### Authentication Passthrough (`custom_headers`)
 
-`create_agent_server()` and `create_graph_agent_server()` accept a generic `custom_headers: dict[str, Any] | None = None` kwarg that is propagated verbatim to the LLM HTTP client as request headers. agent-utilities itself is **auth-agnostic** -- it does not ship provider-specific auth code (OIDC, client-credentials flows, bearer-token fetchers, etc.) and has no opinion about where those headers come from. Downstream packages are free to populate the dict from any source: environment variables, a token-fetching library, static config, a secret manager, or a callable that refreshes on every run. The same kwarg is reused by `ssl_verify` for self-signed gateways. See `agents/repository-manager/repository_manager/agent_server.py` for a reference implementation that builds the dict from `LLM_CUSTOM_HEADERS` / `LLM_HEADER_*` environment variables without pulling any provider-specific dependency into this core package.
+`create_agent_server()` and `create_graph_agent_server()` accept a generic `custom_headers: dict[str, Any] | None = None` kwarg that is propagated verbatim to the LLM HTTP client as request headers. agent-utilities itself is **auth-agnostic** -- it does not ship provider-specific auth code (OIDC, client-credentials flows, bearer-token fetchers, etc.) and has no opinion about where those headers come from. Downstream packages are free to populate the dict from any source: environment variables, a token-fetching library, static config, a secret manager, or a callable that refreshes on every run. TLS trust is selected independently through mandatory-verification runtime profiles.
 
 ## Graph Orchestration Architecture
 
@@ -427,7 +437,7 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 
 | Endpoint | Method | Tag | Description |
 |---|---|---|---|
-| `/health` | GET | Core | Health check and server metadata |
+| `/health` | GET | Core | Status-only, non-fingerprinting liveness probe |
 | `/ag-ui` | POST | Agent UI | AG-UI streaming endpoint with sideband graph events |
 | `/stream` | POST | Agent UI | Generic SSE stream endpoint for graph agent execution |
 | `/acp` | MOUNT | ACP | Agent Communication Protocol (pydantic-acp) |
@@ -452,7 +462,7 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 
 ### Phase 1: Ingress & Protocol Handling
 1. **Entry**: A user query (text + optional images) arrives via any supported protocol: AG-UI (`/ag-ui`), ACP (`/acp`), SSE (`/stream`), or REST (`/api/chat`).
-2. **Direct Dispatch Check**: If a `graph_bundle` is present and `GRAPH_DIRECT_EXECUTION=true`, AG-UI routes directly to `execute_graph_iter()` — bypassing the outer LLM agent.
+2. **Direct Dispatch Check**: If a `graph_bundle` is present, AG-UI routes directly to `execute_graph_iter()`.
 3. **Unified Execution**: All protocols funnel through the same graph engine via `graph/protocol_agnostic_execution.py`. The `execute_graph_iter()` entry point uses `graph.iter()` for step-by-step control.
 4. **State Initialization**: A fresh `GraphState` is initialized with the synthesized `query_parts`.
 

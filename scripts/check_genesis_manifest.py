@@ -38,6 +38,32 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    manifest = gen.build()
+    if "engine_tiers" in manifest or "engine_tier" in actual:
+        print(
+            "FAIL: genesis must select only an engine deployment shape; alternate "
+            "engine artifacts are forbidden.",
+            file=sys.stderr,
+        )
+        return 1
+    profiles = manifest.get("profiles", {})
+    if not profiles or any(
+        profile.get("engine") not in {"autostart", "container", "remote"}
+        for profile in profiles.values()
+    ):
+        print(
+            "FAIL: every genesis profile must select a supported full-engine deployment shape.",
+            file=sys.stderr,
+        )
+        return 1
+    engine = manifest.get("engine", {})
+    if engine.get("version") != "epistemic-graph[full]>=2.23.1,<3.0.0":
+        print("FAIL: genesis does not require the approved full engine.", file=sys.stderr)
+        return 1
+    forbidden = ("agent-utilities[engine]", "pi-tier", "pi-max", "lean tier")
+    if any(token in actual for token in forbidden):
+        print("FAIL: genesis contains a retired engine artifact contract.", file=sys.stderr)
+        return 1
     print("OK: genesis.yaml is in sync with gen_genesis_manifest.py.")
     return 0
 

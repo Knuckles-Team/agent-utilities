@@ -1,0 +1,179 @@
+connector: genius-agent
+ontology_source: genius
+schema_version: '1'
+resources:
+- name: OrchestrationPlan
+  label: Orchestration plan
+  id_prefix: orchestrationplan
+  relations: []
+- name: OrchestratorAgent
+  label: Orchestrator agent
+  id_prefix: orchestratoragent
+  relations: []
+- name: SearchProvider
+  label: Search Provider
+  id_prefix: searchprovider
+  relations: []
+- name: SearchQuery
+  label: Search Query
+  id_prefix: searchquery
+  relations:
+  - name: answeredBy
+    label: answered by
+    target: SearchProvider
+    lpg_rel_type: ''
+  - name: hasResult
+    label: has result
+    target: SearchResult
+    lpg_rel_type: ''
+- name: SearchResult
+  label: Search Result
+  id_prefix: searchresult
+  relations:
+  - name: pointsToPage
+    label: points to page
+    target: WebPage
+    lpg_rel_type: ''
+- name: WebPage
+  label: Web Page
+  id_prefix: webpage
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: genius-search-results.updated
+  resource: SearchResult
+  description: "Watermark event for 'genius-search-results' \u2014 advances on created_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    SearchResult: sourceUrl
+  title_field:
+    SearchResult: title
+  text_field:
+    SearchResult: snippet
+  updated_field:
+    SearchResult: created_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  OrchestrationPlan:
+    ontology_class: Document
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+  OrchestratorAgent:
+    ontology_class: Agent
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+  SearchProvider:
+    ontology_class: null
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+  SearchQuery:
+    ontology_class: null
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+  SearchResult:
+    ontology_class: null
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+  WebPage:
+    ontology_class: Document
+    fields:
+      planStatus: xsd:string
+      providerName: xsd:string
+      queryText: xsd:string
+      rank: xsd:integer
+      snippet: xsd:string
+      sourceUrl: xsd:string
+sync:
+- preset: genius-search-results
+  server: genius-agent
+  tool: genius_ingest_search
+  action: search
+  records_path: ingested
+  id_field: sourceUrl
+  title_field: title
+  text_field: snippet
+  updated_field: created_at
+  pagination: null
+  doc_type: SearchResult
+  tool_schema_sha256: 19bd9308bd27c1b0d790ce82d571e0b3bdf257c4fd4b55e1f726ead06e52a982
+  raw:
+    server: genius-agent
+    tool: genius_ingest_search
+    action: search
+    records_path: ingested
+    id_field: sourceUrl
+    title_field: title
+    text_field: snippet
+    url_field: sourceUrl
+    updated_field: created_at
+    doc_type: SearchResult
+    domain: genius
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T15:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - genius_agent/connectors/mcp_source_presets.json
+  - genius_agent/connectors/tool_schema_fingerprints.json
+  - genius_agent/ontology/genius.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: b1f9430d15488478142d9bfe5b40fdac5ad368e1d1aa3ec9b240ed479c26154a
+    triple_count: 55
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: T1Oue_CFu3brP95BADuVV0roQhIvHYGGF5er0HhG4tNqXU22rt9UzREmasQNWWTKcGiDph-jqGvPxG4KeQJFCg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'hasContent' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.OrchestrationPlan.ontology_class = 'Document' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.OrchestratorAgent.ontology_class = 'Agent' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchProvider.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchQuery.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchResult.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.WebPage.ontology_class = 'Document' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."

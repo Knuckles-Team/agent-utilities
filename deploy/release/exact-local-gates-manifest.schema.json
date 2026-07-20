@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/exact-local-gates-manifest-v1.json",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_schema_version",
+    "release_id",
+    "promotion_evidence_sha256",
+    "release_spec_sha256",
+    "agent_utilities_sha256",
+    "distribution_closure_sha256",
+    "release_python_sha256",
+    "graphos_sha256",
+    "engine_sha256",
+    "harness_sha256",
+    "test_catalog_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "evidence_schema_version": {"const": 1},
+    "release_id": {
+      "type": "string",
+      "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"
+    },
+    "promotion_evidence_sha256": {"$ref": "#/$defs/digest"},
+    "release_spec_sha256": {"$ref": "#/$defs/digest"},
+    "agent_utilities_sha256": {"$ref": "#/$defs/digest"},
+    "distribution_closure_sha256": {"$ref": "#/$defs/digest"},
+    "release_python_sha256": {"$ref": "#/$defs/digest"},
+    "graphos_sha256": {"$ref": "#/$defs/digest"},
+    "engine_sha256": {"$ref": "#/$defs/digest"},
+    "harness_sha256": {"$ref": "#/$defs/digest"},
+    "test_catalog_sha256": {"$ref": "#/$defs/digest"}
+  }
+}

@@ -62,7 +62,7 @@ def test_run_etl_inbound_only_calls_sync_source():
     with (
         patch(
             "agent_utilities.knowledge_graph.core.source_sync.sync_source",
-            return_value={"status": "ok", "nodes_hydrated": 7},
+            return_value={"status": "ok", "counts": {"nodes": 7}},
         ) as sync,
         patch(
             "agent_utilities.knowledge_graph.etl.lineage.record_etl_run",
@@ -85,7 +85,10 @@ def test_run_etl_outbound_to_sparql_backend_pushes():
     with (
         patch(
             "agent_utilities.knowledge_graph.integrations.stardog_sync.push_to_stardog",
-            return_value={"status": "ok", "nodes": 3, "edges": 1},
+            return_value={
+                "status": "ok",
+                "counts": {"nodes": 3, "edges": 1},
+            },
         ) as push,
         patch(
             "agent_utilities.knowledge_graph.etl.lineage.record_etl_run",
@@ -98,7 +101,7 @@ def test_run_etl_outbound_to_sparql_backend_pushes():
     ):
         out = run_etl(eng, sink="stardog", sink_backend=_SparqlBE(), sources=["leanix"])
     push.assert_called_once()
-    assert out["outbound"]["nodes"] == 3
+    assert out["outbound"]["counts"]["nodes"] == 3
     assert out["lineage"]["direction"] == "outbound"
 
 
@@ -112,7 +115,10 @@ def test_run_etl_outbound_to_writeback_sink():
         ),
         patch(
             "agent_utilities.knowledge_graph.enrichment.writeback.core.run_writeback",
-            return_value={"status": "completed", "created": 2},
+            return_value={
+                "status": "completed",
+                "counts": {"nodes": 2},
+            },
         ) as wb,
         patch(
             "agent_utilities.knowledge_graph.etl.lineage.record_etl_run",
@@ -121,7 +127,7 @@ def test_run_etl_outbound_to_writeback_sink():
     ):
         out = run_etl(eng, sink="leanix", dry_run=True, ops={"creations": []})
     wb.assert_called_once()
-    assert out["outbound"]["created"] == 2
+    assert out["outbound"]["counts"]["nodes"] == 2
 
 
 def test_run_etl_through_records_through_lineage():
@@ -129,7 +135,7 @@ def test_run_etl_through_records_through_lineage():
     with (
         patch(
             "agent_utilities.knowledge_graph.core.source_sync.sync_source",
-            return_value={"status": "ok", "nodes": 1},
+            return_value={"status": "ok", "counts": {"nodes": 1}},
         ),
         patch(
             "agent_utilities.knowledge_graph.enrichment.writeback.core.get_sink",

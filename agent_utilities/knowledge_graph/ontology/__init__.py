@@ -34,153 +34,216 @@ implementers, two built-in link types, two released built-in functions, and
 three built-in derived properties).
 """
 
-from typing import Any
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
-# Import for its registration side-effect: research-intelligence interfaces +
-# typed links are populated into the default registries so kg.ontology discovers
-# them by default (CONCEPT:AU-KG.ontology.kg-2).
-# Same: finance microstructure / Kyle-surveillance interfaces + typed links
-# (CONCEPT:AU-KG.ontology.kyle-insider-stealth-surveillance).
-from . import (
-    finance_objects,  # noqa: E402,F401
-    research_objects,  # noqa: E402,F401
-)
-from .derived_properties import (
-    DEFAULT_DERIVED_ENGINE,
-    DEFAULT_DERIVED_REGISTRY,
-    DerivedBacking,
-    DerivedProperty,
-    DerivedPropertyEngine,
-    DerivedPropertyRegistry,
-    DerivedPropertyResult,
-    EmbeddingDerivation,
-    compute_all_derived,
-    compute_derived,
-)
-from .document_processing import (
-    CHUNK_NODE_TYPE,
-    CHUNK_OF_EDGE,
-    DEFAULT_EMBEDDING_DIM,
-    DOCUMENT_NODE_TYPE,
-    HAS_CHUNK_EDGE,
-    ChunkingConfig,
-    ChunkSpan,
-    DocumentChunk,
-    DocumentExtractionError,
-    DocumentProcessor,
-    ProcessedDocument,
-    chunk_text,
-    process_document,
-)
-from .edits import (
-    EDIT_NODE_TYPE,
-    Edit,
-    EditLedger,
-    EditSink,
-    EditType,
-    JsonlEditSink,
-    WriteBackRouter,
-    invert_edit,
-    object_type_of,
-    revert_edit,
-    revert_edits,
-    revert_object,
-)
-from .functions import (
-    DEFAULT_FUNCTION_REGISTRY,
-    DEFAULT_FUNCTION_RUNTIME,
-    FunctionKind,
-    FunctionParameter,
-    FunctionRegistry,
-    FunctionResult,
-    FunctionRuntime,
-    FunctionSpec,
-    ObjectFunctionContext,
-)
-from .indexing import (
-    DataRestriction,
-    FunnelDelta,
-    ObjectIndexFunnel,
-    ObjectVersion,
-    StalenessLedger,
-    StalenessReport,
-    SyncResult,
-    content_hash,
-)
-from .interfaces import (
-    DEFAULT_INTERFACE_REGISTRY,
-    ImplementationReport,
-    Interface,
-    InterfaceLinkConstraint,
-    InterfaceProperty,
-    InterfaceRegistry,
-    register_builtin_interfaces,
-    target_object_types,
-)
-from .links import (
-    DEFAULT_LINK_REGISTRY,
-    JunctionLinkType,
-    LinkCardinality,
-    LinkType,
-    LinkTypeRegistry,
-    endpoints_of,
-    is_junction_node,
-    junctions_for,
-    neighbors_via,
-    register_builtin_links,
-)
-from .object_set import (
-    DEFAULT_SEARCH_AROUND_CAP,
-    AggregationResult,
-    GraphView,
-    ObjectSet,
-    ObjectSetKind,
-    PivotResult,
-    Predicate,
-    PropertyFilter,
-    dynamic_object_set,
-    object_set_from_ids,
-    object_set_of_type,
-)
-from .permissioning import (
-    MARKING_REGISTRY,
-    MASK_TOKEN,
-    Marking,
-    apply_marking,
-    build_acl,
-    enforce,
-    markings_for,
-    propagate_markings,
-    propagate_over_edges,
-    redact_object,
-    restricted_view,
-)
-from .property_types import (
-    DEFAULT_VECTOR_DIM,
-    PROPERTY_TYPES,
-    PropertyType,
-    coerce_value,
-    column_type_for,
-    get_property_type,
-    list_property_types,
-    parse_type_ref,
-    validate_value,
-)
-from .value_types import (
-    SHAPES_PREFIXES,
-    VALUE_TYPE_NS,
-    VALUE_TYPES,
-    ValueConstraints,
-    ValueType,
-    coerce_value_type,
-    get_value_type,
-    list_value_types,
-    register_value_type,
-    validate_value_type,
-    value_types_owl_ttl,
-    value_types_shapes_ttl,
-    write_value_shapes_ttl,
-)
+if TYPE_CHECKING:
+    from .derived_properties import (
+        DerivedPropertyEngine,
+        DerivedPropertyRegistry,
+        DerivedPropertyResult,
+    )
+    from .edits import Edit
+    from .functions import FunctionRegistry, FunctionResult, FunctionRuntime
+    from .interfaces import InterfaceRegistry
+    from .links import LinkTypeRegistry
+    from .object_set import ObjectSet
+    from .property_types import PropertyType
+    from .value_types import ValueType
+
+# Importing a leaf schema such as ``ontology.connector_manifest`` must not boot
+# the live graph/session/observability/numeric stack.  Preserve the package's
+# public re-export contract while loading each runtime family on first access.
+_LAZY_EXPORTS: dict[str, str] = {
+    **{
+        name: "document_processing"
+        for name in (
+            "CHUNK_NODE_TYPE",
+            "CHUNK_OF_EDGE",
+            "DEFAULT_EMBEDDING_DIM",
+            "DOCUMENT_NODE_TYPE",
+            "HAS_CHUNK_EDGE",
+            "ChunkingConfig",
+            "ChunkSpan",
+            "DocumentChunk",
+            "DocumentExtractionError",
+            "DocumentProcessor",
+            "ProcessedDocument",
+            "chunk_text",
+            "process_document",
+        )
+    },
+    **{
+        name: "edits"
+        for name in (
+            "EDIT_NODE_TYPE",
+            "Edit",
+            "EditLedger",
+            "EditSink",
+            "EditType",
+            "JsonlEditSink",
+            "WriteBackRouter",
+            "invert_edit",
+            "object_type_of",
+            "revert_edit",
+            "revert_edits",
+            "revert_object",
+        )
+    },
+    **{
+        name: "functions"
+        for name in (
+            "DEFAULT_FUNCTION_REGISTRY",
+            "DEFAULT_FUNCTION_RUNTIME",
+            "FunctionKind",
+            "FunctionParameter",
+            "FunctionRegistry",
+            "FunctionResult",
+            "FunctionRuntime",
+            "FunctionSpec",
+            "ObjectFunctionContext",
+        )
+    },
+    **{
+        name: "indexing"
+        for name in (
+            "DataRestriction",
+            "FunnelDelta",
+            "ObjectIndexFunnel",
+            "ObjectVersion",
+            "StalenessLedger",
+            "StalenessReport",
+            "SyncResult",
+            "content_hash",
+        )
+    },
+    **{
+        name: "interfaces"
+        for name in (
+            "DEFAULT_INTERFACE_REGISTRY",
+            "ImplementationReport",
+            "Interface",
+            "InterfaceLinkConstraint",
+            "InterfaceProperty",
+            "InterfaceRegistry",
+            "register_builtin_interfaces",
+            "target_object_types",
+        )
+    },
+    **{
+        name: "links"
+        for name in (
+            "DEFAULT_LINK_REGISTRY",
+            "JunctionLinkType",
+            "LinkCardinality",
+            "LinkType",
+            "LinkTypeRegistry",
+            "endpoints_of",
+            "is_junction_node",
+            "junctions_for",
+            "neighbors_via",
+            "register_builtin_links",
+        )
+    },
+    **{
+        name: "object_set"
+        for name in (
+            "DEFAULT_SEARCH_AROUND_CAP",
+            "AggregationResult",
+            "GraphView",
+            "ObjectSet",
+            "ObjectSetKind",
+            "PivotResult",
+            "Predicate",
+            "PropertyFilter",
+            "dynamic_object_set",
+            "object_set_from_ids",
+            "object_set_of_type",
+        )
+    },
+    **{
+        name: "permissioning"
+        for name in (
+            "MARKING_REGISTRY",
+            "MASK_TOKEN",
+            "Marking",
+            "apply_marking",
+            "build_acl",
+            "enforce",
+            "markings_for",
+            "propagate_markings",
+            "propagate_over_edges",
+            "redact_object",
+            "restricted_view",
+        )
+    },
+    **{
+        name: "property_types"
+        for name in (
+            "DEFAULT_VECTOR_DIM",
+            "PROPERTY_TYPES",
+            "PropertyType",
+            "coerce_value",
+            "column_type_for",
+            "get_property_type",
+            "list_property_types",
+            "parse_type_ref",
+            "validate_value",
+        )
+    },
+    **{
+        name: "value_types"
+        for name in (
+            "SHAPES_PREFIXES",
+            "VALUE_TYPE_NS",
+            "VALUE_TYPES",
+            "ValueConstraints",
+            "ValueType",
+            "coerce_value_type",
+            "get_value_type",
+            "list_value_types",
+            "register_value_type",
+            "validate_value_type",
+            "value_types_owl_ttl",
+            "value_types_shapes_ttl",
+            "write_value_shapes_ttl",
+        )
+    },
+    **{
+        name: "derived_properties"
+        for name in (
+            "DEFAULT_DERIVED_ENGINE",
+            "DEFAULT_DERIVED_REGISTRY",
+            "DerivedBacking",
+            "DerivedProperty",
+            "DerivedPropertyEngine",
+            "DerivedPropertyRegistry",
+            "DerivedPropertyResult",
+            "EmbeddingDerivation",
+            "compute_all_derived",
+            "compute_derived",
+        )
+    },
+    **{
+        name: "lifecycle"
+        for name in ("OntologyError", "OntologyLifecycle", "summarize", "validate_graph")
+    },
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(name)
+    if module_name in {"interfaces", "links"}:
+        # Domain modules populate the shared registries as before, but only for
+        # callers that actually request the live ontology surface.
+        import_module(f"{__name__}.finance_objects")
+        import_module(f"{__name__}.research_objects")
+    module = import_module(f"{__name__}.{module_name}")
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
 
 class OntologySystem:
@@ -204,6 +267,27 @@ class OntologySystem:
     """
 
     def __init__(self, graph: Any = None) -> None:
+        from . import finance_objects as _finance_objects
+        from . import research_objects as _research_objects
+        from .derived_properties import (
+            DEFAULT_DERIVED_ENGINE,
+            DEFAULT_DERIVED_REGISTRY,
+        )
+        from .edits import EditLedger
+        from .functions import (
+            DEFAULT_FUNCTION_REGISTRY,
+            DEFAULT_FUNCTION_RUNTIME,
+            FunctionRuntime,
+        )
+        from .indexing import ObjectIndexFunnel
+        from .interfaces import DEFAULT_INTERFACE_REGISTRY
+        from .links import DEFAULT_LINK_REGISTRY
+        from .property_types import PROPERTY_TYPES
+        from .value_types import VALUE_TYPES
+
+        # Imports above populate the shared finance/research registries.
+        del _finance_objects, _research_objects
+
         self._graph = graph
         # Shared import-populated registries (the live discovery surfaces).
         self.property_types: dict[str, PropertyType] = PROPERTY_TYPES
@@ -240,22 +324,32 @@ class OntologySystem:
     # ── Property / value type validation (write-path coercion) ───────────────
     def column_type_for(self, type_ref: str) -> str:
         """Map an ontology property type ref to a node-table column-type string."""
+        from .property_types import column_type_for
+
         return column_type_for(type_ref)
 
     def coerce_property(self, type_ref: str, value: Any) -> Any:
         """Coerce ``value`` to the property type named by ``type_ref``."""
+        from .property_types import coerce_value
+
         return coerce_value(type_ref, value)
 
     def validate_property(self, type_ref: str, value: Any) -> bool:
         """Whether ``value`` is valid for the property type ``type_ref``."""
+        from .property_types import validate_value
+
         return validate_value(type_ref, value)
 
     def validate_value(self, value_type_name: str, value: Any) -> bool:
         """Whether ``value`` satisfies the named constrained value type."""
+        from .value_types import validate_value_type
+
         return validate_value_type(value_type_name, value)
 
     def coerce_value(self, value_type_name: str, value: Any) -> Any:
         """Coerce + constrain ``value`` through the named value type."""
+        from .value_types import coerce_value_type
+
         return coerce_value_type(value_type_name, value)
 
     # ── Functions ────────────────────────────────────────────────────────────
@@ -280,6 +374,8 @@ class OntologySystem:
         actor_id: str = "system",
     ) -> DerivedPropertyResult:
         """Compute one derived property for ``obj`` against the bound graph."""
+        from .derived_properties import compute_derived
+
         return compute_derived(
             obj, name, self._graph, object_type=object_type, actor_id=actor_id
         )
@@ -292,6 +388,8 @@ class OntologySystem:
         actor_id: str = "system",
     ) -> dict[str, Any]:
         """Compute all derived properties applicable to ``obj``'s type."""
+        from .derived_properties import compute_all_derived
+
         return compute_all_derived(
             obj, self._graph, object_type=object_type, actor_id=actor_id
         )
@@ -353,6 +451,8 @@ class OntologySystem:
         Raises:
             KeyError: if ``link_name`` is not a registered junction link type.
         """
+        from .links import JunctionLinkType
+
         link = self.links.get(link_name)
         if link is None or not isinstance(link, JunctionLinkType):
             raise KeyError(f"no junction link type registered as {link_name!r}")
@@ -391,26 +491,36 @@ class OntologySystem:
 
     def revert_edit(self, edit_id: str, *, actor: str = "system") -> Edit:
         """Undo a recorded edit, recording a durable compensating edit."""
+        from .edits import revert_edit
+
         return revert_edit(self.edits, edit_id, actor=actor)
 
     # ── Object sets (CONCEPT:AU-KG.ontology.link-type-pivot / KG-2.38) ──────────────────────────────
     def object_set(self, ids: Any) -> ObjectSet:
         """A STATIC object set over fixed ids, bound to the live graph."""
+        from .object_set import object_set_from_ids
+
         return object_set_from_ids(self._graph, ids)
 
     def object_set_of_type(self, type_or_interface: str) -> ObjectSet:
         """A DYNAMIC object set of all live objects of a type/interface."""
+        from .object_set import object_set_of_type
+
         return object_set_of_type(self._graph, type_or_interface)
 
     def dynamic_object_set(
         self, predicate: Any = None, *, filters: Any = None
     ) -> ObjectSet:
         """A DYNAMIC object set from a predicate / typed filters."""
+        from .object_set import dynamic_object_set
+
         return dynamic_object_set(self._graph, predicate, filters=filters)
 
     # ── Document processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage) ────────────────────────────────
     def process_document(self, document: Any, **kwargs: Any) -> dict[str, Any]:
         """Process a document into Document + Chunk objects through the graph."""
+        from .document_processing import process_document
+
         return process_document(document, self._graph, **kwargs)
 
     def list_connectors(self) -> list[str]:
@@ -440,8 +550,8 @@ class OntologySystem:
 
         Args:
             source_type: A registered connector key (``filesystem``/``web``/
-                ``rest``/``database``/``mcp:<package>``/``mcp_tool`` — the
-                KG-2.59 universal MCP-tool source).
+                ``rest``/``database``/``graphql_document``/``mcp:<package>``/
+                ``mcp_tool`` — the KG-2.59 universal MCP-tool source).
             config: Connector configuration.
             connector_id: Stable id for incremental checkpoint storage.
             contextual: Enable contextual-retrieval enrichment (default True).
@@ -494,13 +604,6 @@ def build_ontology_system(graph: Any = None) -> OntologySystem:
     """Construct an :class:`OntologySystem` bound to an optional live graph facade."""
     return OntologySystem(graph=graph)
 
-
-from .lifecycle import (  # noqa: E402
-    OntologyError,
-    OntologyLifecycle,
-    summarize,
-    validate_graph,
-)
 
 __all__ = [
     # System facade

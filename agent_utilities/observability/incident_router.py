@@ -172,8 +172,11 @@ class ServiceNowAdapter:
             from servicenow_api.auth import get_client
 
             return get_client()
-        except Exception:  # noqa: BLE001 — connector absent/unconfigured
-            logger.debug("servicenow incident client unavailable", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 — connector absent/unconfigured
+            logger.debug(
+                "incident client unavailable (exception_type=%s)",
+                type(exc).__name__,
+            )
             return None
 
     def create_ticket(self, incident: dict[str, Any]) -> dict[str, Any]:
@@ -199,7 +202,10 @@ class ServiceNowAdapter:
                 "status": "created",
             }
         except Exception as e:  # noqa: BLE001 — a broken client must not break the pass
-            logger.debug("servicenow create_incident failed: %s", e)
+            logger.debug(
+                "incident creation failed (exception_type=%s)",
+                type(e).__name__,
+            )
             return _proposed(incident, status="failed")
 
     def update_ticket(self, ref: str, status: str) -> dict[str, Any]:
@@ -214,7 +220,10 @@ class ServiceNowAdapter:
                     data={"state": _sn_state(status)},
                 )
             except Exception as e:  # noqa: BLE001
-                logger.debug("servicenow incident update failed: %s", e)
+                logger.debug(
+                    "incident update failed (exception_type=%s)",
+                    type(e).__name__,
+                )
         return {"ticket_id": ref, "status": status}
 
 
@@ -230,8 +239,11 @@ class ErpNextAdapter:
             from erpnext_agent.auth import get_client
 
             return get_client()
-        except Exception:  # noqa: BLE001 — connector absent/unconfigured
-            logger.debug("erpnext ticket client unavailable", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 — connector absent/unconfigured
+            logger.debug(
+                "ticket client unavailable (exception_type=%s)",
+                type(exc).__name__,
+            )
             return None
 
     def create_ticket(self, incident: dict[str, Any]) -> dict[str, Any]:
@@ -251,7 +263,10 @@ class ErpNextAdapter:
             name = (doc or {}).get("name") or incident.get("id")
             return {"ticket_id": str(name), "url": "", "status": "created"}
         except Exception as e:  # noqa: BLE001
-            logger.debug("erpnext create_document (Issue) failed: %s", e)
+            logger.debug(
+                "ticket creation failed (exception_type=%s)",
+                type(e).__name__,
+            )
             return _proposed(incident, status="failed")
 
     def update_ticket(self, ref: str, status: str) -> dict[str, Any]:
@@ -262,7 +277,10 @@ class ErpNextAdapter:
             try:
                 client.update_document("Issue", ref, {"status": status})
             except Exception as e:  # noqa: BLE001
-                logger.debug("erpnext Issue update failed: %s", e)
+                logger.debug(
+                    "ticket update failed (exception_type=%s)",
+                    type(e).__name__,
+                )
         return {"ticket_id": ref, "status": status}
 
 
@@ -304,7 +322,11 @@ def route_incident(
     try:
         ticket = adapter.create_ticket(incident)
     except Exception as e:  # noqa: BLE001 — a broken adapter must not break correlation
-        logger.warning("incident ticket routing failed (%s): %s", adapter.name, e)
+        logger.warning(
+            "incident ticket routing failed (backend=%s, exception_type=%s)",
+            adapter.name,
+            type(e).__name__,
+        )
         ticket = _proposed(incident, status="failed")
 
     out = {
@@ -333,7 +355,11 @@ def close_ticket(
     try:
         result = adapter.update_ticket(ticket_ref, status)
     except Exception as e:  # noqa: BLE001
-        logger.warning("incident ticket update failed (%s): %s", adapter.name, e)
+        logger.warning(
+            "incident ticket update failed (backend=%s, exception_type=%s)",
+            adapter.name,
+            type(e).__name__,
+        )
         result = {"ticket_id": ticket_ref, "status": "failed"}
 
     out = {

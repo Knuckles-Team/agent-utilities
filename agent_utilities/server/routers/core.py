@@ -1,15 +1,14 @@
 import logging
-from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from agent_utilities.base_utilities import __version__
 from agent_utilities.core.chat_persistence import (
     get_chat_from_disk,
     list_chats_from_disk,
 )
+from agent_utilities.security.error_surface import public_error_payload
 
 from ..models import CodemapRequest
 
@@ -35,32 +34,11 @@ async def list_configured_models(request: Request) -> dict[str, Any]:
 
 @router.get("/health", summary="Health Check")
 async def health_check(request: Request):
-    """Returns the current status of the agent server."""
-    name = getattr(request.app.state, "agent_name", "agent")
-    graph_bundle = getattr(request.app.state, "graph_bundle", None)
-
-    health_info: dict[str, Any] = {
-        "status": "OK",
-        "agent": name,
-        "version": __version__,
-    }
-    # Add graph info if available
-    if graph_bundle:
-        with suppress(Exception):
-            from ...core.config import get_discovery_registry
-
-            registry = get_discovery_registry()
-            skill_agents = [a for a in registry.agents if a.agent_type == "prompt"]
-            mcp_agents = [a for a in registry.agents if a.agent_type == "mcp"]
-            a2a_agents = [a for a in registry.agents if a.agent_type == "a2a"]
-
-            health_info["graph"] = {
-                "skill_agents": len(skill_agents),
-                "mcp_agents": len(mcp_agents),
-                "a2a_agents": len(a2a_agents),
-                "mcp_tools": sum(len(a.tools) for a in registry.agents),
-            }
-    return health_info
+    """Return non-fingerprinting liveness for unauthenticated probes."""
+    return JSONResponse(
+        {"status": "ok"},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/chats", summary="List Chat History")
@@ -89,11 +67,11 @@ async def list_tools():
 
     # Query for Tools
     tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS descriptionription, t.mcp_server AS source_name, 'tool' AS type"
-    tools = kg.backend.execute(tool_query) or []
+    tools = kg.query_cypher(tool_query) or []
 
     # Query for Skills
     skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS descriptionription, s.category AS source_name, 'skill' AS type"
-    skills = kg.backend.execute(skill_query) or []
+    skills = kg.query_cypher(skill_query) or []
 
     return tools + skills
 
@@ -125,9 +103,8 @@ async def generate_codemap_endpoint(payload: CodemapRequest):
             "codemap_id": artifact.id,
             "artifact": artifact.model_dump(),
         }
-    except Exception as e:
-        logger.exception("Failed to generate codemap")
+    except Exception as exc:
         return JSONResponse(
-            {"status": "error", "message": str(e)},
+            public_error_payload(exc, logger=logger),
             status_code=500,
         )

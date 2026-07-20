@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agent-utilities:source-freeze-evidence:1",
+  "title": "Agent Utilities source-freeze evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "manifest_sha256",
+    "source_digest_before",
+    "source_digest_after",
+    "tools",
+    "repositories",
+    "commands",
+    "gates"
+  ],
+  "properties": {
+    "schema": {"const": "source-freeze-evidence/1"},
+    "status": {"enum": ["passed", "failed"]},
+    "manifest_sha256": {"$ref": "#/$defs/digest"},
+    "source_digest_before": {"$ref": "#/$defs/digest"},
+    "source_digest_after": {"$ref": "#/$defs/digest"},
+    "tools": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "sha256"],
+          "properties": {
+            "id": {"const": "git"},
+            "sha256": {"$ref": "#/$defs/digest"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "sha256"],
+          "properties": {
+            "id": {"const": "rg"},
+            "sha256": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ],
+      "items": false
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sha256_before", "sha256_after"],
+        "properties": {
+          "id": {"$ref": "#/$defs/identifier"},
+          "sha256_before": {"$ref": "#/$defs/digest"},
+          "sha256_after": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "exit_code",
+          "termination",
+          "source_digest_before",
+          "source_digest_after"
+        ],
+        "properties": {
+          "id": {"$ref": "#/$defs/identifier"},
+          "status": {"enum": ["passed", "failed"]},
+          "exit_code": {"type": "integer"},
+          "termination": {
+            "enum": ["exited", "timeout", "output-limit", "launch-error", "source-changed"]
+          },
+          "source_digest_before": {"$ref": "#/$defs/digest"},
+          "source_digest_after": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 39,
+      "maxItems": 39,
+      "prefixItems": [
+        {"properties": {"id": {"const": "G-01"}}},
+        {"properties": {"id": {"const": "G-02"}}},
+        {"properties": {"id": {"const": "G-03"}}},
+        {"properties": {"id": {"const": "G-04"}}},
+        {"properties": {"id": {"const": "G-05"}}},
+        {"properties": {"id": {"const": "G-06"}}},
+        {"properties": {"id": {"const": "G-07"}}},
+        {"properties": {"id": {"const": "G-08"}}},
+        {"properties": {"id": {"const": "G-09"}}},
+        {"properties": {"id": {"const": "G-10"}}},
+        {"properties": {"id": {"const": "G-11"}}},
+        {"properties": {"id": {"const": "G-12"}}},
+        {"properties": {"id": {"const": "G-13"}}},
+        {"properties": {"id": {"const": "G-14"}}},
+        {"properties": {"id": {"const": "G-15"}}},
+        {"properties": {"id": {"const": "G-16"}}},
+        {"properties": {"id": {"const": "G-17"}}},
+        {"properties": {"id": {"const": "G-18"}}},
+        {"properties": {"id": {"const": "G-19"}}},
+        {"properties": {"id": {"const": "G-20"}}},
+        {"properties": {"id": {"const": "G-21"}}},
+        {"properties": {"id": {"const": "G-22"}}},
+        {"properties": {"id": {"const": "G-23"}}},
+        {"properties": {"id": {"const": "G-24"}}},
+        {"properties": {"id": {"const": "G-25"}}},
+        {"properties": {"id": {"const": "G-26"}}},
+        {"properties": {"id": {"const": "G-27"}}},
+        {"properties": {"id": {"const": "G-28"}}},
+        {"properties": {"id": {"const": "G-29"}}},
+        {"properties": {"id": {"const": "G-30"}}},
+        {"properties": {"id": {"const": "G-31"}}},
+        {"properties": {"id": {"const": "G-32"}}},
+        {"properties": {"id": {"const": "G-33"}}},
+        {"properties": {"id": {"const": "G-34"}}},
+        {"properties": {"id": {"const": "G-35"}}},
+        {"properties": {"id": {"const": "G-36"}}},
+        {"properties": {"id": {"const": "G-37"}}},
+        {"properties": {"id": {"const": "G-38"}}},
+        {"properties": {"id": {"const": "G-39"}}}
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "required_evidence", "source_status", "remaining_evidence"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^G-(?:0[1-9]|[12][0-9]|3[0-9])$"},
+          "required_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["local-source", "exact-artifact", "external", "terminal"]
+            }
+          },
+          "source_status": {"enum": ["passed", "failed", "not-applicable"]},
+          "remaining_evidence": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"enum": ["exact-artifact", "external", "terminal"]}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{2,63}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

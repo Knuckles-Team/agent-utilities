@@ -411,7 +411,7 @@ class AnalyticsJobRegistry:
         """
         try:
             claim_rows = engine.query_cypher(
-                "MATCH (c) WHERE c.type = $ctype AND c.job_id IS NOT NULL "
+                "MATCH (c) WHERE c.node_type = $ctype AND c.job_id IS NOT NULL "
                 "RETURN c LIMIT $limit",
                 {"ctype": "Claim", "limit": limit},
             )
@@ -420,7 +420,7 @@ class AnalyticsJobRegistry:
             claim_rows = []
         try:
             evidence_rows = engine.query_cypher(
-                "MATCH (e) WHERE e.type = $etype AND e.job_id IS NOT NULL "
+                "MATCH (e) WHERE e.node_type = $etype AND e.job_id IS NOT NULL "
                 "RETURN e LIMIT $limit",
                 {"etype": "Evidence", "limit": limit},
             )

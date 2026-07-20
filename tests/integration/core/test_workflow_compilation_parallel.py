@@ -24,7 +24,7 @@ def get_skills_root() -> Path:
     """Find the universal-skills folder from the workspace."""
     # The path structure is agent-packages/skills/universal-skills/universal_skills/workflows/
     root = Path(
-        "/home/apps/workspace/agent-packages/skills/universal-skills/universal_skills/workflows"
+        "/home/agent-user/workspace/agent-packages/skills/universal-skills/universal_skills/workflows"
     )
     if not root.exists():
         raise FileNotFoundError(f"Skills directory not found at {root}")

@@ -330,8 +330,9 @@ class GoalResult(BaseModel):
 class GoalCheckpoint(BaseModel):
     """Durable checkpoint for crash-recovering an in-progress goal.
 
-    Stored in the KG via ``DurableExecutionManager`` / ``StateCheckpointer``
-    so that a goal loop can be resumed after a process restart.
+    Projected from the engine-native Loop WorkItem checkpoint so that a goal
+    loop can be inspected after a process restart. The WorkItem remains the
+    sole writable lifecycle and checkpoint authority.
 
     Attributes:
         goal_spec: The full goal specification.
@@ -361,7 +362,7 @@ class GoalKGIntegration:
 
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine()
+        engine = IntelligenceGraphEngine.get_or_create()
         kg = GoalKGIntegration(engine)
 
         spec = GoalSpec.parse_goal_input("fix failing tests until pytest passes")
@@ -541,27 +542,35 @@ class GoalKGIntegration:
         return spec.id
 
     def update_goal_status(self, goal_id: str, status: str, summary: str = "") -> None:
-        """Update the status of a persisted goal.
+        """Transition a goal's WorkItem, then refresh its Goal projection.
 
         Args:
             goal_id: The GoalNode ID.
             status: New status value.
             summary: Optional completion summary.
         """
-        if (
-            not self.engine
-            or not hasattr(self.engine, "backend")
-            or not self.engine.backend
-        ):
+        if not self.engine:
             return
 
         try:
-            self.engine.backend.execute(
-                """
-                MATCH (g:GoalNode {id: $id})
-                SET g.status = $status, g.summary = $summary
-                """,
-                {"id": goal_id, "status": status, "summary": summary},
+            from agent_utilities.knowledge_graph.research.loops import (
+                mark_loop_status,
             )
+
+            transitioned = mark_loop_status(
+                self.engine,
+                goal_id,
+                status,
+                output=summary,
+                source="goal_kg_integration",
+            )
+            if transitioned and getattr(self.engine, "backend", None):
+                self.engine.backend.execute(
+                    "MATCH (g:GoalNode {id: $id}) "
+                    "SET g.status = $status, g.summary = $summary",
+                    {"id": goal_id, "status": status, "summary": summary},
+                )
         except Exception:
+            # A caller without the WorkItem claim must not mutate the Goal
+            # projection as a substitute for owning the lifecycle transition.
             pass  # nosec B110

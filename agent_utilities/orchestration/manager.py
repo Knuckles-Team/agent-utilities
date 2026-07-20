@@ -4,7 +4,17 @@ from typing import Any
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
+from agent_utilities.observability.trace_ontology import (
+    TRACE_USED_TOOL_EDGE,
+)
+from agent_utilities.observability.trace_ontology import (
+    trace_id as canonical_trace_id,
+)
 from agent_utilities.orchestration.agent_runner import run_agent
+from agent_utilities.orchestration.response_format import (
+    ResponseFormat,
+    validate_response_format,
+)
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 
 logger = logging.getLogger(__name__)
@@ -40,47 +50,55 @@ class Orchestrator:
     async def dispatch_task(
         self, task: str, dependencies: list[str] | None = None
     ) -> str:
-        """Dispatch an asynchronous task for execution."""
+        """Submit an orchestrator assignment to the sole WorkItem authority."""
         self._scan_task(task)
-        job_id = f"orch-{uuid.uuid4().hex[:8]}"
-        self.engine.add_node(
+        job_id = f"orch-{uuid.uuid4().hex}"
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+        from agent_utilities.orchestration.work_item import (
+            submit_orchestrator_work_item,
+        )
+
+        session = resolve_session(required_scope="kg:write")
+        submit_orchestrator_work_item(
+            getattr(self.engine, "_work_item_engine", self.engine),
             job_id,
-            "Task",
-            properties={
-                "status": "pending",
-                "description": task,
-                "dependencies": dependencies or [],
-            },
+            tenant=session.tenant,
+            description=task,
+            depends_on=dependencies or [],
         )
         logger.info(f"Dispatched task {job_id}")
         return job_id
 
     def get_task_status(self, job_id: str) -> dict[str, Any]:
-        """Get the status of a dispatched task."""
-        if job_id not in self.engine.graph.nodes:
+        """Read the authoritative WorkItem for a dispatched assignment."""
+        from agent_utilities.orchestration import work_item as _wi
+
+        view = getattr(self.engine, "_work_item_engine", self.engine)
+        item = _wi.get_work_item(view, _wi.orchestrator_work_item_id(job_id))
+        if item is None:
             return {"status": "not_found", "error": f"Job {job_id} not found"}
-        return self.engine.graph.nodes[job_id]
+        return item
 
     def get_run_trace(self, run_id: str) -> dict[str, Any]:
         """Fetch the REAL ``:RunTrace`` + its ``:ToolCall`` provenance for a delegated run.
 
-        CONCEPT:AU-ORCH.execution.run-trace-status-tool — ``graph_orchestrate(action="status")``
-        previously only read ``:Task`` nodes written by :meth:`dispatch_task`. A delegated
-        ``execute_agent``/``execute_workflow`` run's provenance is instead a ``:RunTrace``
+        CONCEPT:AU-ORCH.execution.run-trace-status-tool — a delegated
+        ``execute_agent``/``execute_workflow`` run's provenance is a ``:RunTrace``
         node (``agent_runner._record_execution_trace``, ORCH-1.21) plus ``:ToolCall``
-        children linked by ``MADE_TOOL_CALL`` (``agent_runner._persist_tool_calls``,
-        KG-2.296) — a completely different id namespace (``trace:run:<hex>``) that
+        children linked by the canonical ``USED_TOOL`` edge
+        (``agent_runner._persist_tool_calls``,
+        KG-2.296) — a privacy-safe id namespace (``trace:pref_run_<digest>``) that
         :meth:`get_task_status` never looked at. So a caller holding the ``run_id`` the
         MCP ``execute_agent``/``execute_workflow`` response hands back (ORCH-1.97's
         ``run_id``/``session_id`` handle) had NO way to query what that run actually
         did: ``status`` reported ``not_found`` for a run that really executed, with
         real output and tool calls already sitting in the graph. This reads the
-        RunTrace node directly (by ``run_id`` or its ``trace:<run_id>`` node id) and
+        RunTrace node directly (by ``run_id`` or its opaque canonical trace id) and
         every ``ToolCall`` it made, in call order, so the caller sees the run's true
         status/output/duration AND each tool call's name/args/result/status — not an
         empty shell.
         """
-        trace_id = run_id if run_id.startswith("trace:") else f"trace:{run_id}"
+        trace_id = canonical_trace_id(run_id)
         backend = getattr(self.engine, "backend", None)
         if backend is None:
             return {
@@ -91,10 +109,13 @@ class Orchestrator:
         try:
             rows = backend.execute(
                 "MATCH (t:RunTrace {id: $tid}) RETURN t.status AS status, "
-                "t.agent_name AS agent_name, t.task AS task, t.timestamp AS timestamp, "
+                "t.attribution_ref AS attribution_ref, t.task AS task, t.timestamp AS timestamp, "
                 "t.duration_ms AS duration_ms, t.result_preview AS result_preview, "
-                "t.error AS error, t.skill_used AS skill_used, "
-                "t.bound_server AS bound_server",
+                "t.error AS error, t.skill_ref AS skill_ref, "
+                "t.server_ref AS server_ref, t.model_ref AS model_ref, "
+                "t.model_class AS model_class, "
+                "t.skill_instruction_digest AS skill_instruction_digest, "
+                "t.event_sequence AS event_sequence",
                 {"tid": trace_id},
             )
         except Exception as exc:  # noqa: BLE001
@@ -116,9 +137,9 @@ class Orchestrator:
                 # bound-but-unused variable name matches correctly. Verified live; this
                 # bit a pre-existing query in ``agent_digital_twin.py`` too (fixed
                 # alongside this one).
-                "MATCH (t:RunTrace {id: $tid})-[:MADE_TOOL_CALL]->(tc:ToolCall) "
+                f"MATCH (t:RunTrace {{id: $tid}})-[:{TRACE_USED_TOOL_EDGE}]->(tc:ToolCall) "
                 "RETURN tc.sequence AS sequence, tc.tool_name AS tool_name, "
-                "tc.args AS args, tc.result_preview AS result_preview, "
+                "tc.args AS args, tc.result AS result_preview, "
                 "tc.status AS status, tc.error AS error "
                 "ORDER BY tc.sequence ASC",
                 {"tid": trace_id},
@@ -201,9 +222,17 @@ class Orchestrator:
         workflow's ``run_id`` (its ``session_id``) can see every step's real trace + tool
         calls, not just a top-level "completed"/"failed" flag.
         """
-        sid = (
-            session_id if session_id.startswith("session:") else f"session:{session_id}"
+        from agent_utilities.security.persistence_privacy import persistence_reference
+
+        session_value = session_id.removeprefix("session:")
+        session_ref = (
+            session_value
+            if session_value.startswith("pref_session_")
+            else persistence_reference(
+                "session", session_value, namespace="session-continuity"
+            )
         )
+        sid = f"session:{session_ref}"
         backend = getattr(self.engine, "backend", None)
         if backend is None:
             return {
@@ -254,6 +283,8 @@ class Orchestrator:
         memento_source: str | None = None,
         execution_profile: str | None = None,
         reasoning_effort: str | None = None,
+        model_class: str = "standard",
+        response_format: ResponseFormat = "text",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -269,6 +300,7 @@ class Orchestrator:
         seconds (not 300 s) so a slow/degraded backend fails fast inside the chat budget;
         the messaging reply path passes ``"chat"``.
         """
+        response_format = validate_response_format(response_format)
         self._scan_task(task)
         logger.info(f"Executing agent {agent_name} for task: {task[:50]}...")
         result = await run_agent(
@@ -287,6 +319,8 @@ class Orchestrator:
             memento_source=memento_source,
             execution_profile=execution_profile,
             reasoning_effort=reasoning_effort,
+            model_class=model_class,
+            response_format=response_format,
         )
         return result
 
@@ -318,7 +352,7 @@ class Orchestrator:
         It now routes to the real :class:`WorkflowRunner` (ORCH-1.24), which
         ``load_workflow(name)`` → builds dependency waves → runs each step on the
         local LLM. The SHACL+ACL ontology gate (ORCH-1.42) still runs upstream in
-        the ``graph_orchestrate`` handler before this is called, so governance stays
+        the ``graph_workflows`` handler before this is called, so governance stays
         in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
         handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
         """

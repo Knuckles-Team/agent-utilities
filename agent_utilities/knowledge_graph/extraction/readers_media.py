@@ -100,8 +100,11 @@ def read_media(file_path: str, max_chars: int = 8_000_000) -> str:
         return ""
     try:
         text = fn(file_path)
-    except Exception:  # never break ingest on a bad/corrupt media file
-        logger.warning("media reader failed for %s", file_path, exc_info=True)
+    except Exception as exc:  # never break ingest on a bad/corrupt media file
+        logger.warning(
+            "media reader failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         return ""
     return (text or "")[:max_chars]
 
@@ -144,12 +147,11 @@ def _get_asr_model() -> object | None:
     try:
         # int8 on CPU keeps the model light; auto device picks GPU if present.
         _ASR_MODEL = WhisperModel(size, device="auto", compute_type="int8")
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "audio reader: failed to load faster-whisper model %r — audio ingest "
-            "is a no-op",
-            size,
-            exc_info=True,
+            "audio reader initialization failed; audio ingest is a no-op "
+            "(exception_type=%s)",
+            type(exc).__name__,
         )
         _ASR_MODEL = None
     return _ASR_MODEL
@@ -168,8 +170,11 @@ def read_audio_transcript(file_path: str) -> str:
     try:
         segments, _info = model.transcribe(file_path)  # type: ignore[attr-defined]  # faster-whisper untyped model
         return " ".join(seg.text.strip() for seg in segments if seg.text).strip()
-    except Exception:
-        logger.warning("audio transcription failed for %s", file_path, exc_info=True)
+    except Exception as exc:
+        logger.warning(
+            "audio transcription failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         return ""
 
 
@@ -189,13 +194,13 @@ def _ocr_with_pytesseract(file_path: str) -> str | None:
     try:
         with Image.open(file_path) as img:
             return pytesseract.image_to_string(img) or ""
-    except Exception:
+    except Exception as exc:
         # pytesseract raises TesseractNotFoundError when the system binary is
         # missing — treat as "engine unavailable" so we fall back to rapidocr.
         logger.info(
-            "image reader: pytesseract present but unusable for %s (binary "
-            "missing?) — trying rapidocr",
-            file_path,
+            "image reader backend unavailable; trying fallback "
+            "(exception_type=%s)",
+            type(exc).__name__,
         )
         return None
 
@@ -213,8 +218,11 @@ def _get_rapidocr_engine() -> object | None:
         return None
     try:
         _OCR_ENGINE = RapidOCR()
-    except Exception:
-        logger.warning("image reader: failed to init rapidocr", exc_info=True)
+    except Exception as exc:
+        logger.warning(
+            "image reader initialization failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         _OCR_ENGINE = None
     return _OCR_ENGINE
 
@@ -230,8 +238,11 @@ def _ocr_with_rapidocr(file_path: str) -> str | None:
             return ""
         # result rows are [box, text, score]; join recognised text lines.
         return "\n".join(row[1] for row in result if len(row) > 1 and row[1]).strip()
-    except Exception:
-        logger.warning("rapidocr OCR failed for %s", file_path, exc_info=True)
+    except Exception as exc:
+        logger.warning(
+            "image OCR failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         return None
 
 

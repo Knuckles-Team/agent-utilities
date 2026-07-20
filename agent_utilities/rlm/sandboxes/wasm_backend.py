@@ -49,10 +49,10 @@ logger = logging.getLogger(__name__)
 _JSONABLE = (str, int, float, bool, type(None), list, dict)
 
 # In-WASI runner: seed vars, exec the snippet at module level (no host helpers ⇒ no ``await``
-# needed), capture stdout, write the result. Mirrors LocalSandbox's "report, don't raise" on
-# in-sandbox errors; plain-local assignments are not synced back (output is via stdout).
+# needed), capture stdout, and write the result. In-sandbox errors are returned as data;
+# plain-local assignments are not synced back (output is via stdout).
 _WASM_RUNNER = r"""
-import io, json, sys, traceback
+import io, json, sys
 
 def main():
     ctx = json.load(open("/data/context.json"))
@@ -66,8 +66,8 @@ def main():
     try:
         exec(code, ns)
     except Exception as e:
-        traceback.print_exc(file=buf)
-        error = str(e)
+        error = "execution_error:" + type(e).__name__
+        buf.write("\n" + error)
     finally:
         sys.stdout = old
     json.dump({"stdout": buf.getvalue(), "error": error}, open("/data/result.json", "w"))
@@ -81,8 +81,8 @@ def _resolve_payload() -> Path | None:
 
     A **Wizer-preinitialized** payload (CONCEPT:AU-ORCH.sandbox.wasm-backend, ``python-warm*.wasm``) is preferred
     when present: Wizer snapshots the CPython-WASI heap *after* the heavy imports run, so
-    instantiating it skips the per-run ``import`` cost — the build-time analogue of the
-    ``forkserver`` rung's runtime warm-fork, and it works on any platform incl. ARM. Build one
+    instantiating it skips the per-run ``import`` cost — a build-time snapshot optimization
+    that works on any platform incl. ARM. Build one
     with ``scripts/build_wasm_warm_payload.sh``. Falls back to a cold ``python-*.wasm``/
     ``python.wasm``. Returns ``None`` (backend unavailable) if nothing is provisioned.
     """
@@ -227,9 +227,9 @@ class WasmSandbox(Sandbox):
                 instance.define_wasi()
                 inst = instance.instantiate(store, module)
                 start = inst.exports(store)["_start"]
-                assert isinstance(
-                    start, wasmtime.Func
-                ), f"expected the '_start' export to be a Func, got {type(start)!r}"
+                assert isinstance(start, wasmtime.Func), (
+                    f"expected the '_start' export to be a Func, got {type(start)!r}"
+                )
                 try:
                     start(store)
                 except wasmtime.ExitTrap as e:

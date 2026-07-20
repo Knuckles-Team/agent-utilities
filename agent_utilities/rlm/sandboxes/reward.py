@@ -2,7 +2,7 @@
 
 The deterministic router (``router.py``) picks the cheapest *capable* backend by
 ``preference_rank``. That is right until a rung starts *failing* on this host (a wedged docker
-daemon, a forkserver that can't boot) — pure rank order keeps sending work to it, and because a
+daemon or an unavailable microVM controller) — pure rank order keeps sending work to it, and because a
 ``SandboxFatalError`` fast-fails the whole run (no escalation), a broken preferred rung is
 catastrophic. This tracker records each rung's success/failure as an exponential-moving-average
 reward (the same shape as ``CapabilityIndex.record_outcome`` — the sanctioned reward-EMA

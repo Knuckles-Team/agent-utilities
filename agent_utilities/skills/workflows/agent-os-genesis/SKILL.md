@@ -1000,7 +1000,7 @@ which flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE drift across `.env.example`,
   the deployed image must include the `[mcp]` extra's `kubernetes` client (publish
   `>=2.1.1` to PyPI, or build the image from local source — the Dockerfile installs from
   PyPI, which can lag the k8s code on git); a kubeconfig mounted at
-  `/home/genius/.kube/config` → `/root/.kube/config:ro`; and the `K8S*TOOL` toggles set
+  `${HOME}/.kube/config` → `/root/.kube/config:ro`; and the `K8S*TOOL` toggles set
   **explicitly** to `True` in `.env` (an unset `${K8SWORKLOADSTOOL}`-style var interpolates
   empty = disabled). Since CM-MCP is a standalone Swarm service graph-os reaches over
   `http://container-manager-mcp.arpa/mcp`, no graph-os restart is needed after fixing/

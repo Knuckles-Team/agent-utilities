@@ -1,8 +1,8 @@
 """Live cross-backend convergence for the fan-out mirror (CONCEPT:AU-KG.backend.mirror-health-repair).
 
-Runs under ``pytest -m live`` against throwaway Postgres-AGE (authority) + Neo4j
-and FalkorDB (mirrors) containers. Proves the two contract guarantees against
-REAL stores:
+Runs under ``pytest -m live`` against the real ephemeral epistemic-graph
+authority and a throwaway Neo4j projection. Proves the two contract guarantees
+against real stores:
 
 1. **Steady-state convergence** — every write reaches every mirror; all stores
    hold identical node counts after the outbox drains.
@@ -74,34 +74,28 @@ def _count(backend: GraphBackend, label: str) -> int:
 @pytest.fixture
 def fanout_pair(
     ephemeral_neo4j: dict[str, Any],
-    ephemeral_falkordb: dict[str, Any],
+    engine_graph,
 ):
-    """Authority = FalkorDB; mirror = Neo4j — two real, heterogeneous,
-    full-openCypher engines on official images (no custom extension needed).
+    """Fixed epistemic-graph authority + Neo4j external projection.
 
     Neo4j is the mirror we assert convergence on because it is the more faithful
     counter for rapid distinct ``CREATE``\\ s; the point under test is that the
-    fan-out outbox *delivers* every authority write to the mirror and replays
+    fan-out outbox *delivers* every authoritative write to the mirror and replays
     after an outage. The unit suite (``test_fanout_backend.py``) proves the
     N≥2-mirror fan-out + replay logic with fakes; this exercises the same path
-    across two different real engines.
+    across the fixed native authority and one real external projection.
     """
-    authority = create_backend(
-        "falkordb",
-        host=ephemeral_falkordb["host"],
-        port=ephemeral_falkordb["port"],
-        db_name=ephemeral_falkordb["db_name"],
-    )
+    del engine_graph
     neo4j = create_backend(
         "neo4j",
         uri=ephemeral_neo4j["uri"],
         user=ephemeral_neo4j["user"],
         password=ephemeral_neo4j["password"],
     )
-    if not (authority and neo4j):
-        pytest.skip("one or more live backends unavailable")
-    yield authority, _FlakyMirror(neo4j)
-    for b in (authority, neo4j):
+    if neo4j is None:
+        pytest.skip("live Neo4j projection unavailable")
+    yield _FlakyMirror(neo4j)
+    for b in (neo4j,):
         try:
             b.close()
         except Exception:
@@ -109,9 +103,8 @@ def fanout_pair(
 
 
 def test_steady_state_convergence(tmp_path, fanout_pair):
-    authority, neo4j = fanout_pair
+    neo4j = fanout_pair
     fan = FanOutBackend(
-        authority,
         {"neo4j": neo4j},
         outbox_path=str(tmp_path / "ob.db"),
     )
@@ -129,9 +122,8 @@ def test_steady_state_convergence(tmp_path, fanout_pair):
 
 
 def test_no_loss_across_mirror_outage(tmp_path, fanout_pair):
-    authority, neo4j = fanout_pair
+    neo4j = fanout_pair
     fan = FanOutBackend(
-        authority,
         {"neo4j": neo4j},
         outbox_path=str(tmp_path / "ob.db"),
     )

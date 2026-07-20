@@ -6,17 +6,16 @@ backend type for data ops. That abstraction only holds if each backend honours
 the **same bounded Cypher subset** the engine actually emits. When a backend
 silently ignores a query (the in-memory backend used to ignore the query string;
 the pggraph transpiler returns ``UNKNOWN`` → ``[]``), ingestion breaks in ways
-unit tests for individual backends never catch — e.g. Task status SET becoming a
-no-op (infinite re-claim) or ``MERGE`` node upserts vanishing.
+unit tests for individual backends never catch — e.g. a generic record update
+becoming a no-op or ``MERGE`` node upserts vanishing.
 
 This module pins that contract:
 
-* ``CONTRACT_QUERIES`` is the canonical list of operational query shapes the
-  engine emits (graph-writer/sync node upserts, TaskManager lifecycle, dedupe,
-  hydration). Keep it in sync with ``core/engine_tasks.py`` + ``pipeline/phases``.
+* ``CONTRACT_QUERIES`` is the canonical list of generic query shapes the
+  graph-writer emits (node upsert/read/update/delete and traversal).
 * In-process backends (memory/epistemic_graph, and ladybug when installed) run
   the queries and must produce identical *semantics*.
-* For the pggraph/PostgreSQL durable tier (no live DB in unit CI), we assert the
+* For pggraph/PostgreSQL (no live DB in unit CI), we assert the
   Cypher→SQL transpiler recognises every contract query — i.e. never silently
   degrades to ``UNKNOWN``.
 
@@ -50,19 +49,19 @@ CONTRACT_QUERIES: list[tuple[str, str, dict]] = [
         {"id": "c1", "props_file_path": "/a.py", "props_type": "symbol"},
     ),
     (
-        "task_status_set",
-        "MATCH (t:Task {id: $id}) SET t.status = $status, t.metadata = $meta",
-        {"id": "j1", "status": "completed", "meta": _enc({})},
+        "record_status_set",
+        "MATCH (r:Record {id: $id}) SET r.status = $status, r.metadata = $meta",
+        {"id": "r1", "status": "completed", "meta": _enc({})},
     ),
     (
-        "task_status_read",
-        "MATCH (t:Task {id: $id}) RETURN t.status as status, t.metadata as meta",
-        {"id": "j1"},
+        "record_status_read",
+        "MATCH (r:Record {id: $id}) RETURN r.status as status, r.metadata as meta",
+        {"id": "r1"},
     ),
     (
-        "task_terminal_delete",
-        "MATCH (t:Task {id: $id}) DETACH DELETE t",
-        {"id": "j1"},
+        "record_delete",
+        "MATCH (r:Record {id: $id}) DETACH DELETE r",
+        {"id": "r1"},
     ),
     # Single-hop traversal — the engine relies on this for concept↔code/feature
     # interweaving, golden-loop intake, and orchestration. A backend that
@@ -86,7 +85,7 @@ CONTRACT_QUERIES: list[tuple[str, str, dict]] = [
 ]
 
 # Tables the durable transpiler must know about for the contract to resolve.
-KNOWN_TABLES = {"Code", "Task", "Article", "Skill", "Agent", "MCPServer", "Concept"}
+KNOWN_TABLES = {"Code", "Record", "Article", "Skill", "Agent", "MCPServer", "Concept"}
 
 
 @pytest.mark.parametrize(
@@ -95,17 +94,17 @@ KNOWN_TABLES = {"Code", "Task", "Article", "Skill", "Agent", "MCPServer", "Conce
     ids=lambda v: v if isinstance(v, str) else "",
 )
 def test_durable_transpiler_recognises_contract(name, cypher, params):
-    """pggraph durable tier: no contract query may degrade to UNKNOWN."""
+    """No pggraph contract query may degrade to UNKNOWN."""
     if not isinstance(name, str):  # pragma: no cover - param id artifact
         return
-    tq = transpile(cypher, params, KNOWN_TABLES)
+    tq = transpile(cypher, params, KNOWN_TABLES, node_tables=KNOWN_TABLES)
     assert tq.query_type != QueryType.UNKNOWN, (
         f"Transpiler silently drops contract query '{name}': {cypher!r}. "
         "pggraph would no-op this ingestion write."
     )
     assert tq.sql, f"Empty SQL for contract query '{name}'"
-    # A dangling/empty WHERE is as bad as UNKNOWN: ``DELETE FROM "Task" WHERE``
-    # is a syntax error (swallowed L3 mirror failure → durable row never removed).
+    # A dangling/empty WHERE is as bad as UNKNOWN: ``DELETE FROM "Record" WHERE``
+    # is a syntax error (swallowed mirror failure → durable row never removed).
     # Guards the inline-``{id:$id}`` filter being dropped on deletes. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     assert not re.search(r"\bWHERE\s*$", tq.sql), (
         f"Contract query '{name}' transpiled to a dangling empty WHERE: {tq.sql!r}"
@@ -165,7 +164,7 @@ def _inprocess_backends():
     ids=lambda v: v if isinstance(v, str) else "",
 )
 def test_inprocess_backend_honours_lifecycle_contract(label, backend):
-    """Every in-process backend must honour the Task/node lifecycle semantics."""
+    """Every in-process backend must honour generic node mutation semantics."""
     if not isinstance(label, str):  # pragma: no cover - param id artifact
         return
 
@@ -179,18 +178,18 @@ def test_inprocess_backend_honours_lifecycle_contract(label, backend):
     )
     assert rows and rows[0].get("fp") == "/a/b.py", f"{label}: MERGE node upsert lost"
 
-    # 2) Task lifecycle: create (pending) → claim (SET running) must mutate.
+    # 2) Generic record lifecycle: create then update must mutate.
     backend.execute(
-        "MERGE (n:Task {id: $id}) SET n.status = $props_status",
-        {"id": "job-1", "props_status": "pending"},
+        "MERGE (n:Record {id: $id}) SET n.status = $props_status",
+        {"id": "record-1", "props_status": "pending"},
     )
     backend.execute(
-        "MATCH (t:Task {id: $id}) SET t.status = $status",
-        {"id": "job-1", "status": "running"},
+        "MATCH (r:Record {id: $id}) SET r.status = $status",
+        {"id": "record-1", "status": "running"},
     )
     st = backend.execute(
-        "MATCH (t:Task {id: $id}) RETURN t.status as s", {"id": "job-1"}
+        "MATCH (r:Record {id: $id}) RETURN r.status as s", {"id": "record-1"}
     )
     assert st and st[0].get("s") == "running", (
-        f"{label}: Task status SET was a no-op — would cause infinite re-claim"
+        f"{label}: record status SET was a no-op"
     )

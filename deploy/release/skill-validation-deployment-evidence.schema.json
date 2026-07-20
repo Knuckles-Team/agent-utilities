@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/skill-validation-lifecycle-evidence-v2.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "processCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["before", "running", "after"],
+      "properties": {
+        "before": {"type": "integer", "minimum": 0},
+        "running": {"type": "integer", "minimum": 0},
+        "after": {"type": "integer", "minimum": 0}
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "signature", "subjectDigest"],
+      "properties": {
+        "algorithm": {"enum": ["ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"]},
+        "keyId": {"type": "string", "pattern": "^key:[a-f0-9]{64}$"},
+        "signature": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43,4096}$"},
+        "subjectDigest": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "evidenceVersion", "release", "runtime", "identityAuthority", "modelTransportProof", "processGate", "validation", "result", "errorCode", "privacy", "signature"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v2"},
+    "kind": {"const": "SkillValidationLifecycleEvidence"},
+    "evidenceVersion": {"const": 2},
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "specificationDigest", "promotionEvidenceDigest", "agentUtilitiesSha256", "agentUtilitiesFileCount", "distributionClosureSha256", "releasePythonSha256", "graphOsDigest", "engineDigest"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"},
+        "specificationDigest": {"$ref": "#/$defs/digest"},
+        "promotionEvidenceDigest": {"$ref": "#/$defs/digest"},
+        "agentUtilitiesSha256": {"$ref": "#/$defs/digest"},
+        "agentUtilitiesFileCount": {"type": "integer", "minimum": 10},
+        "distributionClosureSha256": {"$ref": "#/$defs/digest"},
+        "releasePythonSha256": {"$ref": "#/$defs/digest"},
+        "graphOsDigest": {"$ref": "#/$defs/digest"},
+        "engineDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configurationDigest", "profileDigest", "modelRegistryDigest"],
+      "properties": {
+        "configurationDigest": {"$ref": "#/$defs/digest"},
+        "profileDigest": {"$ref": "#/$defs/digest"},
+        "modelRegistryDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "identityAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "lifecycleCounts", "tlsVerified", "renewableCredentialsProven", "tokenMintCount", "reaped"],
+      "properties": {
+        "mode": {"const": "ephemeral-https-loopback"},
+        "lifecycleCounts": {"$ref": "#/$defs/processCounts"},
+        "tlsVerified": {"type": "boolean"},
+        "renewableCredentialsProven": {"type": "boolean"},
+        "tokenMintCount": {"type": "integer", "minimum": 0, "maximum": 256},
+        "reaped": {"type": "boolean"}
+      }
+    },
+    "modelTransportProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelCount", "literalPrivateModelCount", "privateDnsModelCount", "privateDnsUniqueResolutionProven", "privateBoundaryProven", "dnsRebindingGuarded"],
+      "properties": {
+        "modelCount": {"const": 2},
+        "literalPrivateModelCount": {"type": "integer", "minimum": 0, "maximum": 2},
+        "privateDnsModelCount": {"type": "integer", "minimum": 0, "maximum": 2},
+        "privateDnsUniqueResolutionProven": {"type": "boolean"},
+        "privateBoundaryProven": {"type": "boolean"},
+        "dnsRebindingGuarded": {"type": "boolean"}
+      }
+    },
+    "processGate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["globalGraphOs", "candidateGraphOs", "candidateEngine", "terminalProcessCounts", "engineExecutableDigest", "installedReleaseAttested", "reaped"],
+      "properties": {
+        "globalGraphOs": {"$ref": "#/$defs/processCounts"},
+        "candidateGraphOs": {"$ref": "#/$defs/processCounts"},
+        "candidateEngine": {"$ref": "#/$defs/processCounts"},
+        "terminalProcessCounts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["langfuseMcpChildren", "loopbackOidcFixtures"],
+          "properties": {
+            "langfuseMcpChildren": {"type": "integer", "minimum": 0},
+            "loopbackOidcFixtures": {"type": "integer", "minimum": 0}
+          }
+        },
+        "engineExecutableDigest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "installedReleaseAttested": {"type": "boolean"},
+        "reaped": {"type": "boolean"}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitCode", "evidenceDigest", "caseCount"],
+      "properties": {
+        "exitCode": {"type": ["integer", "null"], "minimum": -255, "maximum": 255},
+        "evidenceDigest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "caseCount": {"type": "integer", "minimum": 0, "maximum": 20}
+      }
+    },
+    "result": {"enum": ["pass", "fail"]},
+    "errorCode": {"type": ["string", "null"], "pattern": "^[a-z][a-z0-9_]{0,95}$"},
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["containsEndpoints", "containsCredentials", "containsProfiles", "containsFilesystemLocations", "containsIdentities", "containsContent"],
+      "properties": {
+        "containsEndpoints": {"const": false},
+        "containsCredentials": {"const": false},
+        "containsProfiles": {"const": false},
+        "containsFilesystemLocations": {"const": false},
+        "containsIdentities": {"const": false},
+        "containsContent": {"const": false}
+      }
+    },
+    "signature": {"$ref": "#/$defs/signature"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"result": {"const": "pass"}}, "required": ["result"]},
+      "then": {
+        "properties": {
+          "processGate": {
+            "properties": {
+              "globalGraphOs": {"properties": {"before": {"const": 0}, "running": {"const": 1}, "after": {"const": 0}}},
+              "candidateGraphOs": {"properties": {"before": {"const": 0}, "running": {"const": 1}, "after": {"const": 0}}},
+              "candidateEngine": {"properties": {"before": {"const": 0}, "running": {"const": 1}, "after": {"const": 0}}},
+              "terminalProcessCounts": {"properties": {"langfuseMcpChildren": {"const": 0}, "loopbackOidcFixtures": {"const": 0}}},
+              "engineExecutableDigest": {"$ref": "#/$defs/digest"},
+              "installedReleaseAttested": {"const": true},
+              "reaped": {"const": true}
+            }
+          },
+          "identityAuthority": {
+            "properties": {
+              "lifecycleCounts": {"properties": {"before": {"const": 0}, "running": {"const": 1}, "after": {"const": 0}}},
+              "tlsVerified": {"const": true},
+              "renewableCredentialsProven": {"const": true},
+              "tokenMintCount": {"minimum": 2},
+              "reaped": {"const": true}
+            }
+          },
+          "modelTransportProof": {
+            "properties": {
+              "privateDnsUniqueResolutionProven": {"const": true},
+              "privateBoundaryProven": {"const": true},
+              "dnsRebindingGuarded": {"const": true}
+            }
+          },
+          "validation": {"properties": {"exitCode": {"const": 0}, "evidenceDigest": {"$ref": "#/$defs/digest"}, "caseCount": {"const": 20}}},
+          "errorCode": {"const": null}
+        }
+      }
+    }
+  ]
+}

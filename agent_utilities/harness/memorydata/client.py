@@ -176,8 +176,7 @@ class GraphOSRestClient(MemoryBackendClient):
     * ``ingest_memory`` → ``POST /graph/ingest_sessions`` (memory add),
     * ``reset`` → ``POST /graph/ingest_sessions`` with ``action=reset``.
 
-    Base URL and bearer token come from ``GRAPHOS_BASE_URL`` (default
-    ``http://127.0.0.1:8000``) and ``GRAPHOS_TOKEN``. Any connection error is re-raised as
+    Base URL and bearer token come from runtime configuration. Any connection error is re-raised as
     :class:`BackendUnavailable` so the sweep degrades gracefully instead of crashing.
     """
 
@@ -190,9 +189,11 @@ class GraphOSRestClient(MemoryBackendClient):
     ) -> None:
         from agent_utilities.core.config import setting
 
-        self.base_url = (
-            base_url or setting("GRAPHOS_BASE_URL", "http://127.0.0.1:8000")
-        ).rstrip("/")
+        self.base_url = str(base_url or setting("GRAPHOS_BASE_URL", "") or "").rstrip(
+            "/"
+        )
+        if not self.base_url:
+            raise ValueError("graph-os REST endpoint is not configured")
         self.token = (
             token if token is not None else setting("GRAPHOS_TOKEN", "")
         ) or None
@@ -202,16 +203,24 @@ class GraphOSRestClient(MemoryBackendClient):
 
     def _http(self) -> Any:
         if self._client is None:
-            try:
-                import httpx
-            except ImportError as exc:  # pragma: no cover - httpx is a declared dep
-                raise BackendUnavailable(f"httpx not available: {exc}") from exc
+            from agent_utilities.core.http_client import create_http_client
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
+
             headers = {"Content-Type": "application/json"}
             if self.token:
                 headers["Authorization"] = f"Bearer {self.token}"
-            self._client = httpx.Client(
-                base_url=self.base_url, headers=headers, timeout=self.timeout
-            )
+            trust = resolve_configured_tls_profile("graph-os")
+            try:
+                self._client = create_http_client(
+                    base_url=self.base_url,
+                    headers=headers,
+                    timeout=self.timeout,
+                    **trust.httpx_kwargs(),
+                )
+            finally:
+                trust.cleanup()
         return self._client
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:

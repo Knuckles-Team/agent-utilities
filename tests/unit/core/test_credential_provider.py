@@ -115,9 +115,25 @@ def test_cookie_session_from_cookie_string() -> None:
     assert cred.materialize().cookies == {"reddit_session": "abc", "token": "xyz"}
 
 
-def test_cookie_session_inline() -> None:
-    cred = build_credential({"type": "cookie_session", "cookies": {"a": "1"}}, None)
-    assert cred.materialize().cookies == {"a": "1"}
+def test_cookie_session_rejects_inline_secret_material() -> None:
+    with pytest.raises(ValueError, match="inline cookie material is unsupported"):
+        build_credential({"type": "cookie_session", "cookies": {"a": "1"}}, None)
+
+
+@pytest.mark.parametrize("reference", ["plain-secret", "sqlite://legacy/key"])
+def test_source_credentials_reject_non_current_secret_refs(reference: str) -> None:
+    with pytest.raises(
+        ValueError, match="source credential must use a runtime secret reference"
+    ):
+        build_credential({"type": "api_key", "secret": reference}, None)
+
+
+def test_oauth_descriptor_rejects_inline_refresh_token() -> None:
+    with pytest.raises(ValueError, match="inline refresh-token material is unsupported"):
+        build_credential(
+            {"type": "oauth2", "secret": "env://ACCESS_TOKEN", "refresh_token": "x"},
+            None,
+        )
 
 
 def test_basic_auth(secrets: SecretsClient) -> None:
@@ -150,14 +166,22 @@ def test_oauth2_refreshes_when_expired(monkeypatch: pytest.MonkeyPatch) -> None:
         def json(self) -> dict[str, object]:
             return {"access_token": "fresh", "expires_in": 3600}
 
-    def _fake_post(url: str, **kw: object) -> _Resp:
-        posted["url"] = url
-        posted["data"] = kw.get("data")
-        return _Resp()
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
 
-    import requests
+        def __exit__(self, *_args: object) -> None:
+            return None
 
-    monkeypatch.setattr(requests, "post", _fake_post)
+        def post(self, url: str, **kw: object) -> _Resp:
+            posted["url"] = url
+            posted["data"] = kw.get("data")
+            return _Resp()
+
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.create_http_client",
+        lambda **_kwargs: _Client(),
+    )
 
     cred = OAuth2Credential(
         access_token=None,
@@ -176,12 +200,20 @@ def test_oauth2_refreshes_when_expired(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_oauth2_failed_refresh_degrades_to_no_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def _boom(*a: object, **k: object) -> object:
-        raise RuntimeError("idp down")
+    class _Client:
+        def __enter__(self) -> _Client:
+            return self
 
-    import requests
+        def __exit__(self, *_args: object) -> None:
+            return None
 
-    monkeypatch.setattr(requests, "post", _boom)
+        def post(self, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("idp down")
+
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.create_http_client",
+        lambda **_kwargs: _Client(),
+    )
     cred = OAuth2Credential(
         access_token=None,
         refresh_token="rt",

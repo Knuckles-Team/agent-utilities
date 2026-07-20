@@ -52,7 +52,7 @@ def test_stamp_valid_time_uses_explicit_as_of():
 def test_stamp_external_id_carries_bitemporal_stamp_onto_the_node():
     engine = _FakeEngine()
     ctx = WritebackContext(engine=engine, as_of="2026-02-02T00:00:00+00:00")
-    ok = ctx.stamp_external_id("host:r510", "servicenow", "SYS-1")
+    ok = ctx.stamp_external_id("host:storage-node-a", "servicenow", "SYS-1")
     assert ok is True
     _node_id, _label, props = engine.calls[0]
     assert props["servicenow_ci_id"] == "SYS-1"
@@ -66,7 +66,7 @@ def test_stamp_external_id_carries_bitemporal_stamp_onto_the_node():
 def test_stamp_external_id_defaults_as_of_to_now_when_context_has_none():
     engine = _FakeEngine()
     ctx = WritebackContext(engine=engine)  # as_of=None -> "now"
-    ctx.stamp_external_id("host:r710", "servicenow", "SYS-2")
+    ctx.stamp_external_id("host:compute-node-b", "servicenow", "SYS-2")
     _node_id, _label, props = engine.calls[0]
     assert props["valid_from"] == props["storage_time"]
     assert props["valid_to"] is None

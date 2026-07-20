@@ -13,11 +13,11 @@ import argparse
 import json
 import sys
 
+from .codex_registration import CodexRegistrationError, register_codex_graphos
 from .config_generator import (
     PROFILES,
     config_doctor,
     config_reference,
-    generate_mcp_config,
     write_config,
 )
 
@@ -34,11 +34,6 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument(
         "--out", default=None, help="Output path (default: XDG config.json)."
     )
-    g.add_argument(
-        "--with-secrets",
-        action="store_true",
-        help="Do NOT blank secret-like keys (use with care).",
-    )
 
     d = sub.add_parser("doctor", help="Validate config completeness/health.")
     d.add_argument("--profile", choices=list(PROFILES), default=None)
@@ -48,23 +43,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("reference", help="Print every option grouped by subsystem (JSON).")
 
-    m = sub.add_parser(
-        "mcp",
-        help="Print the minimal mcp_config.json (a single graph-os entry) to register.",
-    )
-    m.add_argument("--profile", choices=list(PROFILES), default="tiny")
-    m.add_argument(
-        "--fleet",
-        dest="fleet",
-        action="store_true",
-        default=True,
-        help="Give graph-os the MCP_CONFIG fleet pointer so it can load other MCP servers on demand. Default.",
-    )
-    m.add_argument(
-        "--no-fleet",
-        dest="fleet",
-        action="store_false",
-        help="Emit graph-os with no fleet pointer (a single, self-contained KG).",
+    sub.add_parser(
+        "codex",
+        help="Register the portable GraphOS stdio launcher through `codex mcp`.",
     )
 
     hf = sub.add_parser(
@@ -88,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "generate":
-        res = write_config(args.profile, args.out, redact_secrets=not args.with_secrets)
+        res = write_config(args.profile, args.out)
         print(json.dumps(res, indent=2))
         return 0
     if args.command == "doctor":
@@ -98,8 +79,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "reference":
         print(json.dumps(config_reference(), indent=2, default=str))
         return 0
-    if args.command == "mcp":
-        print(json.dumps(generate_mcp_config(args.profile, fleet=args.fleet), indent=2))
+    if args.command == "codex":
+        try:
+            result = register_codex_graphos()
+        except CodexRegistrationError as exc:
+            print(json.dumps({"status": "error", "message": str(exc)}))
+            return 1
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "harness-fence":
         from pathlib import Path

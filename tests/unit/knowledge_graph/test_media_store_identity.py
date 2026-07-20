@@ -139,9 +139,13 @@ class _FakeCompute:
         self.graph_name = graph_name
 
     def nodes(self, data: bool = False):
-        """Fallback node-enumeration surface ``iter_nodes_by_types`` uses when a
-        graph exposes no ``get_nodes_by_label`` (this fake has none) — exercises
-        that local/test-graph path for :meth:`MediaStore.migrate_legacy_assets_bulk`."""
+        """Return the fake graph's nodes, optionally with properties.
+
+        Also serves as the fallback node-enumeration surface
+        ``iter_nodes_by_types`` uses when a graph exposes no
+        ``get_nodes_by_label`` (this fake has none) — exercises that
+        local/test-graph path for :meth:`MediaStore.migrate_legacy_assets_bulk`.
+        """
         items = list(self._client.txn.nodes.items())
         return items if data else [nid for nid, _ in items]
 
@@ -149,7 +153,10 @@ class _FakeCompute:
 def _session(tenant: str, actor_id: str = "user:1") -> GraphSession:
     return GraphSession(
         actor=ActorContext(
-            actor_id=actor_id, actor_type=ActorType.HUMAN, tenant_id=tenant
+            actor_id=actor_id,
+            actor_type=ActorType.HUMAN,
+            tenant_id=tenant,
+            authenticated=True,
         ),
         tenant=tenant,
     )
@@ -570,7 +577,7 @@ def test_migrate_legacy_assets_bulk_empty_graph_is_a_noop():
 # --------------------------------------------------------------------------- #
 
 
-def test_fetch_bytes_and_fetch_asset_roundtrip():
+def test_fetch_bytes_and_fetch_occurrence_roundtrip():
     client = _FakeClient()
     store = MediaStore(_FakeCompute(client))
     res = store.store_media(IMG, session=_session("acme"))

@@ -1,73 +1,96 @@
-# Redeploying the KG Server (exposing new MCP actions)
+# Safely Redeploying graph-os
 
-> When new `graph_orchestrate` / `graph_analyze` actions are added (e.g. the
-> `assimilate` action), the **running** kg server must restart to expose them.
-> `graph_orchestrate(action="assimilate")` returning *"Unknown orchestration action"*
-> means the live build predates the code. CONCEPT:AU-KG.query.vendor-agnostic-traversal / OS-5.5.
+Redeploy graph-os when a new MCP action, REST route, registry entry, or runtime
+dependency must become visible to a running service. An "unknown action" response
+from a valid action commonly means the served artifact predates the checked-out
+code; verify the published capability catalog before assuming the action is wired.
 
-## No rebuild needed — the package is editable
+This runbook is deployment-neutral. It discovers the checkout at runtime, keeps
+configuration under XDG, resolves credentials through the configured secret store,
+and delegates process lifecycle to the active supervisor.
 
-`agent-utilities` is installed **editable** in the venv
-(`/home/apps/workspace/.venv/.../agent_utilities` → the repo). Code changes are
-already on the import path; redeploy = **restart the processes**, no `pip install`.
+## Redeploy contract
 
-## The two live processes
-
-| Process | Command (verbatim from the live host) |
-|---|---|
-| Compute daemon | `epistemic-graph-server --socket-path /tmp/epistemic-graph.sock` |
-| Gateway/KG daemon (serves MCP) | `python -m agent_utilities.gateway.daemon` with the env below |
-
-Live env (from the running daemon):
-
-```bash
-GRAPH_BACKEND=fanout GRAPH_MIRROR_TARGETS=postgresql \
-GRAPH_DB_URI="postgresql://agent:agent@pg-age.arpa:5432/agent_kg" \
-GRAPH_SERVICE_SOCKET=/tmp/epistemic-graph.sock \
-AGENT_UTILITIES_CONFIG_DIR=/home/genius/.config/agent-utilities \
-WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000
+```mermaid
+flowchart LR
+    Source[Verified source revision] --> Gates[Tests + documentation gates]
+    Gates --> Artifact[Build or editable runtime]
+    Artifact --> Supervisor[Deployment supervisor]
+    Supervisor --> Health[Health and capability probes]
+    Health -->|healthy| Observe[Observe traces and queue drain]
+    Health -->|unhealthy| Rollback[Supervisor rollback]
 ```
 
-## Restart procedure
+The engine is the graph authority. Restarting the graph-os gateway should not
+replace, delete, or relocate engine state. A deployment that couples gateway and
+engine lifecycle must checkpoint the engine before rollout and prove recovery in
+its environment-specific playbook.
 
-1. **Pre-flight** — tests/gates green for the new code (this session's VUs).
-2. **Graceful stop** of the gateway daemon (keep `epistemic-graph-server` running so
-   the graph state persists — the gateway reconnects to the same socket):
-   ```bash
-   pkill -f "agent_utilities.gateway.daemon"
-   ```
-3. **Restart** with the same env (reuses the live socket; backfill off for a fast
-   start):
-   ```bash
-   cd /home/apps/workspace/agent-packages/agent-utilities
-   GRAPH_BACKEND=fanout GRAPH_MIRROR_TARGETS=postgresql \
-   GRAPH_DB_URI="postgresql://agent:agent@pg-age.arpa:5432/agent_kg" \
-   GRAPH_SERVICE_SOCKET=/tmp/epistemic-graph.sock \
-   AGENT_UTILITIES_CONFIG_DIR=/home/genius/.config/agent-utilities \
-   WORKSPACE_PATH=/home/apps/workspace KG_FILE_WATCH=0 KG_EMBED_BACKFILL_BATCH=1000 \
-   nohup /home/apps/workspace/.venv/bin/python -m agent_utilities.gateway.daemon \
-     > /home/apps/workspace/reports/host-daemon.log 2>&1 &
-   ```
-4. **Verify the new action is live** (via the MCP multiplexer or directly):
-   ```
-   graph_orchestrate(action="assimilate")        # no longer "Unknown action"
-   graph_orchestrate(action="assimilate", task="synthesize")
-   ```
-   Expect a JSON report (`skipped`/`duplicates_superseded`/`open_gaps`/…).
-5. **Enable the autonomous loop** (optional) — restart with the golden-loop + breadth
-   envs so the daemon tick runs the assimilation pipeline each cycle:
-   ```bash
-   KG_LOOP=1 KG_LOOP_BREADTH=1 \
-   KG_BREADTH_LIBRARY_ROOTS=/home/apps/workspace/open-source-libraries \
-   KG_BREADTH_REPO_ROOTS=/home/apps/workspace/agent-packages
-   ```
+## 1. Discover and verify the source
 
-## Notes
-- Restarting the gateway is **reversible** and does not drop graph state (that lives
-  in the `epistemic-graph-server` engine — the authority; the pg-age mirror is an
-  async copy). Only in-flight gateway requests are interrupted.
-- If running in Portainer/swarm instead of bare host, redeploy the stack/service
-  rather than `pkill` (the image picks up the editable mount on restart).
-- Monitoring: after restart, each cycle persists an `EvolutionCycle`
-  (`orchestration_cycle`) node — query `c.error_count` / `c.stage_ms` to confirm
-  health.
+Run from anywhere inside the checkout:
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+git -C "$REPO_ROOT" status --short
+git -C "$REPO_ROOT" pull --ff-only
+uv --directory "$REPO_ROOT" sync --locked
+uv --directory "$REPO_ROOT" run pre-commit run --all-files
+uv --directory "$REPO_ROOT" run python scripts/docs_contract.py --check
+```
+
+Do not continue with a dirty checkout, a non-fast-forward update, a stale generated
+catalog, or a failing privacy/link gate. Production should deploy a versioned image
+or package built by CI. An editable source mount is suitable only for an explicitly
+managed development environment.
+
+## 2. Resolve runtime configuration
+
+Use `setup-config generate` to create the XDG configuration and
+`agent-utilities-doctor` to validate it. Do not paste DSNs, tokens, endpoints, home
+directories, or host identities into a command or runbook.
+
+```bash
+uv --directory "$REPO_ROOT" run agent-utilities-doctor
+uv --directory "$REPO_ROOT" run setup-config doctor
+```
+
+The supervisor should inject only config/secret references. Endpoint values come
+from deployment configuration such as `GRAPH_SERVICE_ENDPOINTS`, auth issuer/JWKS
+settings, and the fleet registry. Secret values remain in the configured secret
+backend.
+
+## 3. Ask the active supervisor to roll out
+
+Use exactly one lifecycle path:
+
+- User service: `systemctl --user restart graph-os-daemon.service`
+- Container service: `docker service update --force "${STACK_NAME}_${SERVICE_NAME}"`
+- Kubernetes: `kubectl rollout restart deployment/graph-os --namespace "$NAMESPACE"`
+
+For immutable deployments, update the pinned artifact digest first and let the
+orchestrator perform its normal health-gated rollout. Do not use process-name kills,
+background `nohup` commands, or a copied environment dump; those bypass lifecycle,
+audit, and rollback controls.
+
+## 4. Verify the served revision
+
+Probe the configured health URL without embedding it in the repository:
+
+```bash
+curl --fail --silent --show-error "${GRAPH_OS_HEALTH_URL:?configure health URL}/health"
+uv --directory "$REPO_ROOT" run agent-utilities-doctor
+```
+
+Then verify the action through the same authenticated MCP or REST entrypoint used by
+clients. Compare the result with the generated
+[Capability & Action Catalog](../capabilities-power.md); the tool/action pair must
+exist there before deployment.
+
+## 5. Observe or roll back
+
+Confirm that request traces, engine connectivity, queue depth, and worker heartbeats
+remain healthy for the deployment watch window. If a probe fails, roll back to the
+previous pinned artifact through the same supervisor and preserve the failed rollout
+trace for diagnosis. Never repair a failed deployment by committing a local endpoint,
+credential, workspace path, or host-specific override.

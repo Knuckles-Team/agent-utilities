@@ -52,8 +52,8 @@ The `QueueBackend` class abstracts the underlying messaging provider, isolating 
 During epistemic ingestion and agent execution, cyclic dependency analysis, topological sorting, shortest-path discovery, repository AST parsing, subgraph matching, and state synchronization are bottleneck operations.
 `GraphComputeEngine` delegates these operations to the compiled Rust `epistemic-graph`
 engine over an out-of-process client (`epistemic_graph.client`):
-- **Compiled Rust Engine (`epistemic-graph`)**: A native compiled Rust service providing lightning-fast AST parsing of Python directories (`parse_repository`/`parse_file`), highly optimized VF2 subgraph isomorphism matching (`vf2_subgraph_match`), topological sorting (`topological_sort`), cycle detection (`find_cycle`), and a Reactive State Ledger with transaction log serialization (`get_ledger`/`clear_ledger`).
-- **Transport**: Python talks to the engine **only** through the out-of-process MessagePack/UDS (or TCP) client — there is **no PyO3 binding** in the primary path. An in-process embedded mode exists solely as a fallback when the service is unavailable and `GRAPH_COMPUTE_FALLBACK=embedded` is set.
+- **Compiled Rust Engine (`epistemic-graph`)**: A native compiled Rust service providing lightning-fast AST parsing from portable logical-name/source-byte inputs (`parse_file`, `parse_files`, and cross-file `index_repository`), highly optimized VF2 subgraph isomorphism matching (`vf2_subgraph_match`), topological sorting (`topological_sort`), cycle detection (`find_cycle`), and a Reactive State Ledger with transaction log serialization (`get_ledger`/`clear_ledger`).
+- **Transport**: Python talks to the engine **only** through the out-of-process MessagePack/UDS (or TCP) client. There is no PyO3 or in-process graph-authority fallback; an unavailable engine fails closed.
 These native backends achieve large traversal speedups and a much smaller memory footprint than pure Python implementations, ensuring seamless scale under heavy concurrent load.
 
 ### 3. WASM Micro-Agent Sandbox (`AU-ORCH.sandbox.compiled-orchestration-kernel`)
@@ -126,8 +126,10 @@ from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngin
 # over the out-of-process client by default)
 engine = GraphComputeEngine(graph_name="__bus__")
 
-# Parse entire Python repositories asynchronously and map as graph nodes instantly
-engine.parse_repository("/home/apps/workspace/agent-packages/agent-utilities")
+# A policy-approved caller supplies portable logical names and bytes; the engine
+# never receives a workstation or container-host path.
+source_files = [("package/module.py", b"def run():\n    return 1\n")]
+index = engine.index_repository(source_files)
 
 # Detect dependency cycles (e.g., deadlock prevention)
 cycle = engine.find_cycle()

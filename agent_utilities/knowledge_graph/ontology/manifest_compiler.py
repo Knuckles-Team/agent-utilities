@@ -198,6 +198,7 @@ def apply_manifest(
     ttl_path: str | Path,
     dry_run: bool = False,
     trusted_signers: tuple[str, ...] = ontology_integrity.DEFAULT_TRUSTED_SIGNERS,
+    trusted_public_keys: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """Generalized ``apply_leanix_metamodel``: verify, anti-sprawl-check, then emit.
 
@@ -222,16 +223,21 @@ def apply_manifest(
             f"{manifest.provenance.integrity.hash} — the manifest was hand-edited "
             "after signing, or the compiler is non-deterministic. Regenerate."
         )
-    if not ontology_integrity.verify(
-        manifest.provenance.integrity.hash,
+    if (
+        manifest.provenance.signer not in trusted_signers
+        or not ontology_integrity.verify_release_signature(
+        ontology_integrity.canonical_manifest_hash(manifest),
         manifest.provenance.signature,
         signer_id=manifest.provenance.signer,
-        allowlist=trusted_signers,
+        algorithm=manifest.provenance.signature_algorithm,
+        public_key=manifest.provenance.signing_public_key,
+        trusted_public_keys=trusted_public_keys,
+        )
     ):
         raise SignatureVerificationError(
             f"{manifest.connector}: provenance.signature failed verification "
-            f"(signer={manifest.provenance.signer!r}) against the trusted-signer "
-            f"allowlist {trusted_signers!r} — refusing to emit ontology output."
+            "against the trusted Ed25519 release signer — refusing to emit "
+            "ontology output."
         )
 
     # ── anti-sprawl: extend an existing wired module, never sprawl a new one ──

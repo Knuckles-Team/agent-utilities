@@ -31,6 +31,9 @@ def test_path_overrides(monkeypatch):
         monkeypatch.setenv("AGENT_UTILITIES_LOG_DIR", str(tmp_path / "log"))
 
         assert paths.config_dir() == tmp_path / "config"
+        assert paths.runtime_secrets_path() == (
+            tmp_path / "config" / "runtime-secrets.json"
+        )
         assert paths.data_dir() == tmp_path / "data"
         assert paths.cache_dir() == tmp_path / "cache"
         assert paths.log_dir() == tmp_path / "log"
@@ -66,19 +69,6 @@ def test_kg_db_path_resolution(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "data"))
-        monkeypatch.delenv("GRAPH_DB_PATH", raising=False)
-
         # Should resolve to standard XDG data directory structure
         db_path = paths.kg_db_path()
         assert db_path == tmp_path / "data" / "kg" / "knowledge_graph.db"
-
-
-@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
-def test_kg_db_path_explicit_override(monkeypatch):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "custom_db.db"))
-
-        # Explicit override takes priority
-        db_path = paths.kg_db_path()
-        assert db_path == tmp_path / "custom_db.db"

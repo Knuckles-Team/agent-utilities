@@ -98,8 +98,8 @@ async def test_kg_native_reasoning_escalation():
 
     import agent_utilities.graph._router_impl
 
-    original_agent = agent_utilities.graph._router_impl.Agent
-    agent_utilities.graph._router_impl.Agent = MockAgent  # type: ignore
+    original_agent_factory = agent_utilities.graph._router_impl.create_context_agent
+    agent_utilities.graph._router_impl.create_context_agent = MockAgent  # type: ignore
 
     import agent_utilities.core.model_factory
 
@@ -127,7 +127,9 @@ async def test_kg_native_reasoning_escalation():
     try:
         await router_step(ctx)
     finally:
-        agent_utilities.graph._router_impl.Agent = original_agent  # type: ignore
+        agent_utilities.graph._router_impl.create_context_agent = (  # type: ignore
+            original_agent_factory
+        )
         agent_utilities.rlm.config.RLMConfig = original_rlm_config  # type: ignore
         agent_utilities.core.model_factory.create_model = original_create_model  # type: ignore
         if original_build_kg:
@@ -192,8 +194,8 @@ async def test_kg_native_complex_task_escalation():
 
     import agent_utilities.graph._router_impl
 
-    original_agent = agent_utilities.graph._router_impl.Agent
-    agent_utilities.graph._router_impl.Agent = MockAgent  # type: ignore
+    original_agent_factory = agent_utilities.graph._router_impl.create_context_agent
+    agent_utilities.graph._router_impl.create_context_agent = MockAgent  # type: ignore
 
     import agent_utilities.core.model_factory
 
@@ -214,7 +216,9 @@ async def test_kg_native_complex_task_escalation():
     try:
         await router_step(ctx)
     finally:
-        agent_utilities.graph._router_impl.Agent = original_agent  # type: ignore
+        agent_utilities.graph._router_impl.create_context_agent = (  # type: ignore
+            original_agent_factory
+        )
         agent_utilities.rlm.config.RLMConfig = original_rlm_config  # type: ignore
         agent_utilities.core.model_factory.create_model = original_create_model  # type: ignore
         if original_build_kg2:

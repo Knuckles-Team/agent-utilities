@@ -47,7 +47,7 @@ Domain-agnostic risk assessment with `RiskAssessmentNode`, `RiskFactorNode`, `Ri
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
-# [Vectorized Context-Window Filtering](pillars/2_epistemic_knowledge_graph/KG-2.50-Vectorized_Context-Window_Filtering.md) (CONCEPT:AU-KG.research.research-pipeline-runner)
+# Vectorized Context-Window Filtering (CONCEPT:AU-KG.research.research-pipeline-runner)
 
 ## Overview
 Semantically prunes non-relevant subgraph context before swapping models on token overflow. Implemented as ``prune_context_by_semantic_distance()``.
@@ -58,3 +58,6 @@ Semantically prunes non-relevant subgraph context before swapping models on toke
 
 ## Documentation Coverage
 *This is an auto-generated dedicated concept page to ensure 100% documentation coverage across the ecosystem.*
+
+See the [Epistemic Knowledge Graph pillar](../2_epistemic_knowledge_graph.md)
+for the canonical capability inventory.

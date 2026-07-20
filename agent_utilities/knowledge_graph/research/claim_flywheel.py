@@ -359,7 +359,7 @@ class ClaimFlywheel:
             if durable_reward is None
             else max(0.0, min(1.0, float(durable_reward)))
         )
-        outcome_id = f"claim_outcome:{claim_id}:{uuid.uuid4().hex[:10]}"
+        outcome_id = f"claim_outcome:{claim_id}:{uuid.uuid4().hex}"
         try:
             self.engine.add_node(
                 outcome_id,
@@ -475,7 +475,7 @@ class ClaimFlywheel:
         )
         try:
             self.engine.add_node(
-                f"claim_lifecycle:{claim_id}:{uuid.uuid4().hex[:12]}",
+                f"claim_lifecycle:{claim_id}:{uuid.uuid4().hex}",
                 "ClaimLifecycleEvent",
                 properties=record.to_dict(),
             )

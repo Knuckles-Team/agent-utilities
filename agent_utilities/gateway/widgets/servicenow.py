@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.BUSINESS
     description = "ITSM — incidents, changes, and service requests"
     env_prefix = "SERVICENOW"
-    default_url = "https://instance.service-now.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -53,8 +52,8 @@ class Widget(BaseWidget):
                 changes.get("total", 0) if isinstance(changes, dict) else len(changes)
             )
         except Exception as e:
-            logger.debug("ServiceNow fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("ServiceNow fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

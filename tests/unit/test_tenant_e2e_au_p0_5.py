@@ -15,6 +15,8 @@ Covers the three gaps closed by this workstream:
 
 from __future__ import annotations
 
+import contextvars
+import json
 from contextlib import contextmanager
 from typing import Any
 from unittest.mock import MagicMock
@@ -26,17 +28,31 @@ from agent_utilities.knowledge_graph.backends.postgresql_backend import (
     PostgreSQLBackend,
     _SingleConnPool,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    SessionRequiredError,
+    use_session,
+)
 from agent_utilities.knowledge_graph.ontology import permissioning as pm
 from agent_utilities.knowledge_graph.ontology.derived_properties import (
     DerivedBacking,
     DerivedProperty,
     DerivedPropertyEngine,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.models.company_brain import ActorType, DataClassification
 from agent_utilities.security.brain_context import ActorContext
 
 pytestmark = pytest.mark.concept("AU-P0-5")
+
+
+def _session(tenant: str) -> GraphSession:
+    actor = ActorContext(
+        actor_id=f"principal:{tenant}",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        tenant_id=tenant,
+        authenticated=True,
+    )
+    return GraphSession(actor=actor, tenant=tenant)
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +89,8 @@ def test_derived_property_cache_isolates_tenants(tenant_prop):
     graph = _TenantAwareGraph()
     obj = {"id": "shared-object-id"}  # SAME object id for both tenants
 
-    session_a = GraphSession(tenant="acme")
-    session_b = GraphSession(tenant="globex")
+    session_a = _session("acme")
+    session_b = _session("globex")
 
     with use_session(session_a):
         res_a = engine.compute(obj, tenant_prop, graph, session=session_a)
@@ -96,18 +112,17 @@ def test_derived_property_cache_isolates_tenants(tenant_prop):
     assert res_a2.value == "secret-for-acme"
 
 
-def test_derived_property_cache_unscoped_caller_unaffected(tenant_prop):
-    """Additive/back-compat: an unscoped caller (no session) behaves exactly
-    like before this fix — one shared cache bucket, still a cache hit."""
+def test_derived_property_cache_unscoped_caller_fails_closed(tenant_prop):
+    """An explicitly unscoped caller cannot create a shared cache bucket."""
     engine = DerivedPropertyEngine()
     graph = _TenantAwareGraph()
     obj = {"id": "unscoped-object"}
 
-    res1 = engine.compute(obj, tenant_prop, graph)
-    res2 = engine.compute(obj, tenant_prop, graph)
-    assert res1.cached is False
-    assert res2.cached is True
-    assert res1.value == res2.value == "secret-for-unscoped"
+    def isolated():
+        with pytest.raises(SessionRequiredError):
+            engine.compute(obj, tenant_prop, graph)
+
+    contextvars.Context().run(isolated)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +132,15 @@ def test_derived_property_cache_unscoped_caller_unaffected(tenant_prop):
 
 @pytest.fixture(autouse=True)
 def _clean_markings():
+    class _Store:
+        def execute(self, query, params):
+            if query.startswith("MATCH"):
+                return []
+            json.loads(params["marks"])
+            return []
+
     pm.clear_markings()
+    pm.set_marking_store(_Store())
     yield
     pm.clear_markings()
 
@@ -130,14 +153,16 @@ def test_marking_cache_isolates_tenants_with_same_node_id():
 
     assert pm.markings_for("doc:shared", tenant="acme") == {"secret"}
     assert pm.markings_for("doc:shared", tenant="globex") == set()
-    assert pm.markings_for("doc:shared", tenant="") == set()
+    with pytest.raises(PermissionError):
+        pm.markings_for("doc:shared", tenant="")
 
 
-def test_marking_cache_unscoped_caller_unaffected():
-    """No explicit tenant + no ambient actor/session -> the same single ""
-    bucket as before markings were tenant-keyed."""
-    pm.apply_marking("doc:legacy", pm.Marking("pii"))
-    assert pm.markings_for("doc:legacy") == {"pii"}
+def test_marking_cache_requires_verified_tenant_scope():
+    def isolated():
+        with pytest.raises(PermissionError):
+            pm.apply_marking("doc:legacy", pm.Marking("pii"))
+
+    contextvars.Context().run(isolated)
 
 
 # ---------------------------------------------------------------------------
@@ -146,14 +171,22 @@ def test_marking_cache_unscoped_caller_unaffected():
 
 
 def _actor(tenant_id: str, actor_id: str) -> ActorContext:
-    return ActorContext(actor_id=actor_id, actor_type=ActorType.AI_AGENT, tenant_id=tenant_id)
+    return ActorContext(
+        actor_id=actor_id,
+        actor_type=ActorType.AI_AGENT,
+        tenant_id=tenant_id,
+        authenticated=True,
+    )
 
 
 def test_restricted_view_marking_is_tenant_scoped():
     pm.apply_marking("doc:shared", pm.Marking("secret"), tenant="acme")
+    pm.build_acl("doc:shared", DataClassification.PUBLIC)
 
     acme_actor = _actor("acme", "alice")  # no marking:secret role -> denied
-    globex_actor = _actor("globex", "bob")  # same node id, different tenant -> unmarked there
+    globex_actor = _actor(
+        "globex", "bob"
+    )  # same node id, different tenant -> unmarked there
 
     objs = [{"id": "doc:shared", "v": 1}]
     assert pm.restricted_view(objs, acme_actor) == []
@@ -162,11 +195,13 @@ def test_restricted_view_marking_is_tenant_scoped():
 
 def test_restricted_view_marking_clears_for_holder_of_the_role():
     pm.apply_marking("doc:shared", pm.Marking("secret"), tenant="acme")
+    pm.build_acl("doc:shared", DataClassification.PUBLIC)
     cleared_actor = ActorContext(
         actor_id="carol",
         actor_type=ActorType.AI_AGENT,
         tenant_id="acme",
         roles=("marking:secret",),
+        authenticated=True,
     )
     objs = [{"id": "doc:shared", "v": 1}]
     assert pm.restricted_view(objs, cleared_actor) == objs
@@ -202,24 +237,24 @@ def pg_backend():
 
 def test_pg_backend_conn_checkout_sets_tenant_guc(pg_backend):
     backend, mock_cur = pg_backend
-    session = GraphSession(tenant="acme")
+    session = _session("acme")
     with use_session(session):
         with backend._conn():
             pass
     executed = [c.args[0] for c in mock_cur.execute.call_args_list]
-    assert any(
-        "app.tenant_id" in sql and "acme" in sql for sql in executed
-    ), executed
+    assert any("app.tenant_id" in sql and "acme" in sql for sql in executed), executed
 
 
-def test_pg_backend_conn_checkout_unscoped_sets_empty_guc(pg_backend):
-    """No ambient session/actor -> GUC still runs, scoped to "" (unrestricted,
-    the historical/system path) — additive/back-compat, not a silent no-op."""
+def test_pg_backend_conn_checkout_unscoped_fails_closed(pg_backend):
     backend, mock_cur = pg_backend
-    with backend._conn():
-        pass
-    executed = [c.args[0] for c in mock_cur.execute.call_args_list]
-    assert any("app.tenant_id" in sql for sql in executed), executed
+
+    def isolated():
+        with pytest.raises(PermissionError):
+            with backend._conn():
+                pass
+
+    contextvars.Context().run(isolated)
+    mock_cur.execute.assert_not_called()
 
 
 def test_pg_backend_conn_checkout_raises_when_real_tenant_set_fails(pg_backend):
@@ -229,7 +264,7 @@ def test_pg_backend_conn_checkout_raises_when_real_tenant_set_fails(pg_backend):
     leak). The caller body must never run."""
     backend, mock_cur = pg_backend
     mock_cur.execute.side_effect = RuntimeError("SET app.tenant_id failed")
-    session = GraphSession(tenant="acme")
+    session = _session("acme")
     ran = False
     with use_session(session):
         with pytest.raises(RuntimeError):
@@ -238,15 +273,16 @@ def test_pg_backend_conn_checkout_raises_when_real_tenant_set_fails(pg_backend):
     assert ran is False
 
 
-def test_pg_backend_conn_checkout_unscoped_tolerates_set_failure(pg_backend):
-    """Fail-OPEN only for the empty/system baseline: a failed SET with NO
-    tenant to leak into stays best-effort — the checkout still yields."""
+def test_pg_backend_conn_checkout_unscoped_never_attempts_set(pg_backend):
     backend, mock_cur = pg_backend
     mock_cur.execute.side_effect = RuntimeError("SET app.tenant_id failed")
-    ran = False
-    with backend._conn():  # no ambient tenant -> "" -> best-effort
-        ran = True
-    assert ran is True
+
+    def isolated():
+        with pytest.raises(PermissionError):
+            with backend._conn():
+                pass
+
+    contextvars.Context().run(isolated)
 
 
 # -- state-store (sessions/turns/usage/...) shared pool --------------------
@@ -324,7 +360,7 @@ def pg_state_pool(monkeypatch):
 
 
 def test_state_store_connection_checkout_sets_tenant_guc(pg_state_pool):
-    session = GraphSession(tenant="acme")
+    session = _session("acme")
     with use_session(session):
         conn = state_store.open_state_connection("test", lambda: "/nonexistent")
     calls = [sql for sql, _ in pg_state_pool.conn.calls]
@@ -333,7 +369,11 @@ def test_state_store_connection_checkout_sets_tenant_guc(pg_state_pool):
 
 
 def test_state_store_connection_checkout_unscoped_is_empty_guc(pg_state_pool):
-    conn = state_store.open_state_connection("test", lambda: "/nonexistent")
+    conn = contextvars.Context().run(
+        state_store.open_state_connection,
+        "test",
+        lambda: "/nonexistent",
+    )
     calls = [sql for sql, _ in pg_state_pool.conn.calls]
     assert any("app.tenant_id" in sql for sql in calls), calls
     conn.close()
@@ -348,7 +388,7 @@ def test_state_store_checkout_raises_when_real_tenant_set_fails(pg_state_pool):
         raise RuntimeError("SET app.tenant_id failed")
 
     pg_state_pool.conn.execute = _boom  # type: ignore[method-assign]
-    session = GraphSession(tenant="acme")
+    session = _session("acme")
     with use_session(session):
         with pytest.raises(RuntimeError):
             state_store.open_state_connection("test", lambda: "/nonexistent")
@@ -364,6 +404,10 @@ def test_state_store_checkout_unscoped_tolerates_set_failure(pg_state_pool):
         raise RuntimeError("SET app.tenant_id failed")
 
     pg_state_pool.conn.execute = _boom  # type: ignore[method-assign]
-    conn = state_store.open_state_connection("test", lambda: "/nonexistent")
+    conn = contextvars.Context().run(
+        state_store.open_state_connection,
+        "test",
+        lambda: "/nonexistent",
+    )
     assert conn.dialect == "postgres"
     conn.close()

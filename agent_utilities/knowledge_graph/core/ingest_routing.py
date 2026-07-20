@@ -29,12 +29,8 @@ tenant list) and the read tools fan a default/implicit-target query across
 ``{default + active content graphs}`` and merge — so split content stays
 queryable as one KG. See ``mcp/tools/query_tools.py``.
 
-**Opt-in.** Gated by ``KG_INGEST_GRAPH_ROUTING`` (default OFF). When OFF every
-path is byte-for-byte today's behaviour: ingestion writes ``__commons__`` (or the
-ambient tenant graph) and reads hit the single default graph. Existing
-``__commons__`` content is never moved — flipping the flag only changes where NEW
-data lands; the EG-030 shard-migration tool handles relocating old data if ever
-wanted.
+Existing ``__commons__`` content remains part of the unified read target while
+new content is routed deterministically.
 """
 
 from __future__ import annotations
@@ -56,7 +52,6 @@ __all__ = [
     "read_graph_targets",
     "register_content_graph",
     "route_graph",
-    "routing_enabled",
     "safe_engine_for_graph",
     "shard_bucket_for",
     "shard_fanout_enabled",
@@ -95,16 +90,11 @@ def _slug(value: Any) -> str:
     return _SLUG_RE.sub("-", str(value).strip()).strip("-_.").lower()
 
 
-def routing_enabled(config: Any = None) -> bool:
-    """Whether per-source ingestion graph routing is active (``KG_INGEST_GRAPH_ROUTING``)."""
-    return bool(getattr(_config(config), "kg_ingest_graph_routing", False))
-
-
 def shard_fanout_enabled(config: Any = None) -> bool:
     """Whether per-shard content-keyed sub-graph fanout is active
-    (``KG_INGEST_SHARD_FANOUT``; requires routing; CONCEPT:AU-KG.ingest.batched-cross-graph-writer)."""
+    (``KG_INGEST_SHARD_FANOUT``; CONCEPT:AU-KG.ingest.batched-cross-graph-writer)."""
     cfg = _config(config)
-    return bool(getattr(cfg, "kg_ingest_shard_fanout", False)) and routing_enabled(cfg)
+    return bool(getattr(cfg, "kg_ingest_shard_fanout", False))
 
 
 def _fnv1a(text: str) -> int:
@@ -144,15 +134,13 @@ def route_graph(
 
     The single routing policy. Resolution order:
 
-    1. **routing disabled** → the tenant graph (if a tenant is in scope) else the
-       configured default graph — byte-for-byte today's behaviour.
-    2. **tenant in scope** → the per-tenant graph (a tenant stays wholly on one
+    1. **tenant in scope** → the per-tenant graph (a tenant stays wholly on one
        graph, as today; CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
-    3. **codebase** (``kind="code"`` or a ``repo``) → ``code:<repo>``.
-    4. **chat** (``kind="chat"``) → ``chat:<agent>``.
-    5. **research** (``kind="research"``) → ``research:<source_type|repo>``.
-    6. **connector / external source** (a ``source_type``) → ``src:<source_type>``.
-    7. otherwise → the configured default graph.
+    2. **codebase** (``kind="code"`` or a ``repo``) → ``code:<repo>``.
+    3. **chat** (``kind="chat"``) → ``chat:<agent>``.
+    4. **research** (``kind="research"``) → ``research:<source_type|repo>``.
+    5. **connector / external source** (a ``source_type``) → ``src:<source_type>``.
+    6. otherwise → the configured default graph.
 
     A slug that comes out empty falls through to the default graph rather than
     emitting a degenerate ``code:`` name.
@@ -170,9 +158,6 @@ def route_graph(
     """
     cfg = _config(config)
     default = default_graph_name(cfg)
-
-    if not routing_enabled(cfg):
-        return tenant_graph_name(tenant, base=default) if tenant else default
 
     # A tenant owns its whole graph regardless of source kind (never fanned out).
     if tenant:
@@ -215,7 +200,8 @@ _active_lock = threading.RLock()
 _active_graphs: set[str] = set()
 _seeded = False
 
-# One cached read engine per content graph (built lazily). Keyed by graph name.
+# One cached *view* per content graph. Views share the process engine transport;
+# this cache never owns a socket, event-loop thread, or worker.
 _engine_cache_lock = threading.RLock()
 _engine_cache: dict[str, Any] = {}
 
@@ -271,17 +257,14 @@ def active_content_graphs(*, seed: bool = True) -> list[str]:
 def read_graph_targets(config: Any = None) -> list[str]:
     """The graphs a unified default read must union over: default + content graphs.
 
-    Returns ``[default]`` (single, legacy) when routing is disabled or nothing has
-    been routed yet, so the read path stays on the fast single-graph path until
-    content is actually spread.
+    Returns ``[default]`` when nothing has been routed yet, so the read path stays
+    on the fast single-graph path until content is actually spread.
     """
     default = default_graph_name(_config(config))
-    if not routing_enabled(config):
-        return [default]
     graphs = active_content_graphs()
     if not graphs:
         return [default]
-    # Default first (legacy __commons__ content + control plane), then the
+    # Default first (control-plane and existing content), then the
     # routed content graphs; de-duplicated, order-stable.
     out = [default]
     out.extend(g for g in graphs if g != default)
@@ -289,23 +272,14 @@ def read_graph_targets(config: Any = None) -> list[str]:
 
 
 def engine_for_graph(name: str) -> Any:
-    """A cached read engine bound to content graph ``name``.
-
-    Builds an ``IntelligenceGraphEngine`` over an ``EpistemicGraphBackend`` bound
-    to ``name`` (CONCEPT:AU-KG.backend.schedule-on-control-graph) so the standard query/search surface runs
-    against that one graph. Cached per graph — connections are reused across
-    fan-out reads.
-    """
+    """A cached named-graph view over the one process engine client."""
     with _engine_cache_lock:
         eng = _engine_cache.get(name)
         if eng is not None:
             return eng
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    engine = IntelligenceGraphEngine(backend=EpistemicGraphBackend(graph_name=name))
+    engine = IntelligenceGraphEngine.get_or_create().for_graph(name)
     with _engine_cache_lock:
         existing = _engine_cache.get(name)
         if existing is not None:

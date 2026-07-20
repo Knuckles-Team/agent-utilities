@@ -23,6 +23,14 @@ class TestDeltaManifest:
     def _mk(self, tmp_path):
         return DeltaManifest(backend=None, db_path=str(tmp_path / "m.db"))
 
+    def test_creates_missing_sqlite_parent(self, tmp_path):
+        db_path = tmp_path / "fresh" / "nested" / "manifest.db"
+
+        manifest = DeltaManifest(backend=None, db_path=str(db_path))
+
+        assert manifest.mode == "sqlite"
+        assert db_path.is_file()
+
     def test_record_seen_get_roundtrip(self, tmp_path):
         m = self._mk(tmp_path)
         g, c, s = "__commons__", "codebase", "/x/y.py"

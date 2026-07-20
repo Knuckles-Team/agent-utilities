@@ -9,12 +9,12 @@ default (no live calls); and a guarded/no-engine pass is a clean no-op.
 from __future__ import annotations
 
 from agent_utilities.knowledge_graph.enrichment.writeback import core, run_writeback
+from agent_utilities.knowledge_graph.enrichment.writeback import inventory as inv
 from agent_utilities.knowledge_graph.enrichment.writeback.core import (
     WritebackContext,
     WritebackResult,
     register_sink,
 )
-from agent_utilities.knowledge_graph.enrichment.writeback import inventory as inv
 from agent_utilities.knowledge_graph.enrichment.writeback.inventory import (
     INVENTORY_TYPES,
     ci_id_key,
@@ -41,7 +41,7 @@ class FakeBackend:
                 if f"n.{key} IS NOT NULL" in query:
                     return [{"id": i} for i in ids]
             return []
-        if "n.type AS type" in query:
+        if "n.type AS type" in query or "n.node_type AS type" in query:
             return [dict(c) for c in self._candidates]
         return []
 
@@ -111,20 +111,32 @@ def test_inventory_types_include_real_emitted_types():
 def test_collect_includes_widened_types():
     backend = FakeBackend(
         [
-            {"type": "Host", "name": "r510", "id": "host:r510"},
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "id": "host:storage-node-a",
+            },
             {"type": "Pod", "name": "graph-os-0", "id": "pod:graph-os-0"},
             {"type": "ContainerImage", "name": "kg:latest", "id": "img:kg"},
             {"type": "Person", "name": "alice", "id": "person:alice"},  # excluded
         ]
     )
     names = {c["name"] for c in collect_inventory_creations(backend, "servicenow")}
-    assert names == {"r510", "graph-os-0", "kg:latest"}
+    assert names == {"storage-node-a", "graph-os-0", "kg:latest"}
 
 
 # ── 2. sys_id round-trip stamp → idempotent ───────────────────────────────────
 def test_creation_stamps_sys_id_back(monkeypatch):
     monkeypatch.setattr(core, "setting", lambda k, d=None, cast=None: True)
-    backend = FakeBackend([{"type": "Host", "name": "r510", "id": "host:r510"}])
+    backend = FakeBackend(
+        [
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "id": "host:storage-node-a",
+            }
+        ]
+    )
     engine = FakeEngine(backend)
     client = FakeSnowClient()
     out = run_writeback(
@@ -133,25 +145,39 @@ def test_creation_stamps_sys_id_back(monkeypatch):
         engine=engine,
         client=client,
         dry_run=False,
-        creations=[{"type": "Host", "name": "r510", "node": "host:r510"}],
+        creations=[
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "node": "host:storage-node-a",
+            }
+        ],
     )
     assert out["created"] == 1
-    assert client.created == [("cmdb_ci_server", "r510")]
+    assert client.created == [("cmdb_ci_server", "storage-node-a")]
     # the returned sys_id was stamped back onto the source node
     assert engine.calls
     node_id, _label, props = engine.calls[0]
-    assert node_id == "host:r510"
-    assert props["servicenow_ci_id"] == "SYS-r510"
-    assert props["externalToolId"] == "SYS-r510"
+    assert node_id == "host:storage-node-a"
+    assert props["servicenow_ci_id"] == "SYS-storage-node-a"
+    assert props["externalToolId"] == "SYS-storage-node-a"
     assert props["domain"] == "servicenow"
     # the stamp is now visible to the dedupe query
-    assert "host:r510" in backend.stamped[ci_id_key("servicenow")]
+    assert "host:storage-node-a" in backend.stamped[ci_id_key("servicenow")]
 
 
 def test_second_push_is_noop_after_stamp():
-    backend = FakeBackend([{"type": "Host", "name": "r510", "id": "host:r510"}])
+    backend = FakeBackend(
+        [
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "id": "host:storage-node-a",
+            }
+        ]
+    )
     # first pass would create it; simulate that it already round-tripped its sys_id:
-    backend.stamped[ci_id_key("servicenow")] = {"host:r510"}
+    backend.stamped[ci_id_key("servicenow")] = {"host:storage-node-a"}
     creations = collect_inventory_creations(backend, "servicenow")
     assert creations == []  # already represented → skipped, never re-created
     out = push_inventory("servicenow", backend=backend, dry_run=True)
@@ -164,15 +190,23 @@ def test_mirror_fans_out_to_every_enabled_sink():
     a, b = RecordingSink("fake_a"), RecordingSink("fake_b")
     register_sink(a)
     register_sink(b)
-    backend = FakeBackend([{"type": "Host", "name": "r510", "id": "host:r510"}])
+    backend = FakeBackend(
+        [
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "id": "host:storage-node-a",
+            }
+        ]
+    )
     out = run_asset_mirror(backend=backend, targets=["fake_a", "fake_b"], dry_run=True)
     assert out["status"] == "completed"
     assert out["targets"] == ["fake_a", "fake_b"]
     assert set(out["sinks"]) == {"fake_a", "fake_b"}
     # every enabled sink was invoked with the collected creation
     assert a.runs and b.runs
-    assert a.runs[0][0][0]["name"] == "r510"
-    assert b.runs[0][0][0]["name"] == "r510"
+    assert a.runs[0][0][0]["name"] == "storage-node-a"
+    assert b.runs[0][0][0]["name"] == "storage-node-a"
 
 
 def test_mirror_selects_targets_from_env(monkeypatch):
@@ -196,7 +230,15 @@ def test_mirror_empty_by_default(monkeypatch):
 def test_dry_run_default_emits_proposals_without_live_calls():
     sink = RecordingSink("fake_dry")
     register_sink(sink)
-    backend = FakeBackend([{"type": "Host", "name": "r510", "id": "host:r510"}])
+    backend = FakeBackend(
+        [
+            {
+                "type": "Host",
+                "name": "storage-node-a",
+                "id": "host:storage-node-a",
+            }
+        ]
+    )
     out = run_asset_mirror(backend=backend, targets=["fake_dry"])  # dry_run defaults True
     assert out["dry_run"] is True
     assert sink.runs[0][1] is True  # ran in dry-run mode
@@ -207,10 +249,12 @@ def test_dry_run_default_emits_proposals_without_live_calls():
 # ── 5. guarded / no-engine no-op ──────────────────────────────────────────────
 def test_stamp_no_engine_is_noop():
     ctx = WritebackContext(backend=None, engine=None)
-    assert ctx.stamp_external_id("host:r510", "servicenow", "SYS-1") is False
+    assert (
+        ctx.stamp_external_id("host:storage-node-a", "servicenow", "SYS-1") is False
+    )
     # missing id / external id also no-op, never raising
     assert ctx.stamp_external_id(None, "servicenow", "SYS-1") is False
-    assert ctx.stamp_external_id("host:r510", "servicenow", None) is False
+    assert ctx.stamp_external_id("host:storage-node-a", "servicenow", None) is False
 
 
 def test_mirror_no_backend_no_engine_clean_noop():

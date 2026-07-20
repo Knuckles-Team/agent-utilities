@@ -2,8 +2,8 @@
 
 The headline guarantee: agent-utilities + epistemic-graph cold-boot and *serve*
 the Knowledge Graph + local OWL over the gateway with **no external services** —
-no Kafka, no Postgres, no remote SPARQL/OWL server — using the in-process
-epistemic-graph L1 + embedded LadybugDB L2 and a local owlready2 reasoner.
+no Kafka, no Postgres, no remote SPARQL/OWL server — using the self-contained
+epistemic-graph authority and a local owlready2 reasoner.
 
 This module is deliberately **not** ``@pytest.mark.live`` — it must pass in the
 default PR suite as the continuously-enforced zero-dep contract. (The KG/engine
@@ -44,18 +44,15 @@ _FORBIDDEN_DRIVERS = (
 @pytest.fixture(autouse=True)
 def _tiny_profile_env(monkeypatch, tmp_path):
     """Pin the process to the tiny (zero-dep) deployment profile for this module."""
-    monkeypatch.setenv("GRAPH_BACKEND", "epistemic_graph")
     # The engine is the whole database for tiny; pin the host role for parity with
     # the singleton-host daemon path.
     monkeypatch.setenv("KG_DAEMON_ROLE", "host")
-    monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "tiny_kg.db"))
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "agent-data"))
     monkeypatch.setenv("OWL_BACKEND", "owlready2")
     monkeypatch.setenv("TASK_QUEUE_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENT_DISPATCH_BACKEND", "inline")
     for ext in (
-        "GRAPH_DB_URI",
+        "GRAPH_DB_CONNECTION_PROFILE_REF",
         "STATE_DB_URI",
-        "PGGRAPH_DSN",
         "KAFKA_BOOTSTRAP_SERVERS",
     ):
         monkeypatch.delenv(ext, raising=False)
@@ -72,8 +69,7 @@ def test_cold_import_pulls_no_external_service_drivers():
     """
     probe = (
         "import os, sys, json\n"
-        "os.environ['GRAPH_BACKEND'] = 'epistemic_graph'\n"
-        "os.environ.pop('GRAPH_DB_URI', None)\n"
+        "os.environ.pop('GRAPH_DB_CONNECTION_PROFILE_REF', None)\n"
         "os.environ.pop('STATE_DB_URI', None)\n"
         "os.environ.pop('KAFKA_BOOTSTRAP_SERVERS', None)\n"
         # Import the served surface: the gateway route layer + the MCP/engine entry.
@@ -117,9 +113,9 @@ def test_local_owl_reasoner_runs_in_process():
 
 def test_tiny_profile_serves_kg_over_gateway_with_zero_containers():
     """Write + read the KG through the local gateway REST surface, no containers."""
-    if not os.environ.get("GRAPH_SERVICE_SOCKET"):
+    if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
         pytest.skip(
-            "local epistemic-graph engine not running (GRAPH_SERVICE_SOCKET unset)"
+            "local epistemic-graph engine not running (GRAPH_SERVICE_ENDPOINTS unset)"
         )
 
     from fastapi import FastAPI

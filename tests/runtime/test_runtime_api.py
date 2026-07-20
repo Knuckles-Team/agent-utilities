@@ -10,7 +10,19 @@ from agent_utilities.server.routers import runtime as runtime_router
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
+    from agent_utilities.core.config import config
+    from agent_utilities.runtime import LocalWorkspace
+
+    class _IsolatedTestWorkspace(LocalWorkspace):
+        name = "docker"
+
+        def __init__(self, *, run_id, image, network):
+            del run_id, image, network
+            super().__init__()
+
+    monkeypatch.setattr(runtime_router, "DockerWorkspace", _IsolatedTestWorkspace)
+    monkeypatch.setattr(config, "runtime_workspace_images", ["test-image"])
     app = FastAPI()
     app.include_router(runtime_router.router)
     runtime_router._SESSIONS.clear()
@@ -18,11 +30,14 @@ def client():
 
 
 def test_session_lifecycle_and_act(client):
-    # local backend (no docker daemon needed in CI)
-    resp = client.post("/api/runtime/sessions", json={"prefer_docker": False})
+    # isolated backend contract, using an in-process fake in this unit test
+    resp = client.post(
+        "/api/runtime/sessions",
+        json={"prefer_docker": True, "image": "test-image"},
+    )
     assert resp.status_code == 200
     sid = resp.json()["session_id"]
-    assert resp.json()["backend"] == "local"
+    assert resp.json()["backend"] == "docker"
 
     # a shell action
     act = client.post(
@@ -54,9 +69,10 @@ def test_session_lifecycle_and_act(client):
 
 
 def test_invalid_action_is_422(client):
-    sid = client.post("/api/runtime/sessions", json={"prefer_docker": False}).json()[
-        "session_id"
-    ]
+    sid = client.post(
+        "/api/runtime/sessions",
+        json={"prefer_docker": True, "image": "test-image"},
+    ).json()["session_id"]
     bad = client.post(f"/api/runtime/sessions/{sid}/act", json={"kind": "nonsense"})
     assert bad.status_code == 422
     client.delete(f"/api/runtime/sessions/{sid}")
@@ -82,9 +98,9 @@ def test_provenance_panel_data(client, monkeypatch):
                     "id": "wsaction:r:1",
                     "kind": "file_edit",
                     "step": 1,
-                    "summary": "file_edit m.py",
+                    "payload_ref": "pref_workspace_payload_" + "0" * 64,
                     "obs_kind": "file_edit_ok",
-                    "obs_summary": "file_edit_ok",
+                    "obs_payload_ref": "pref_workspace_payload_" + "1" * 64,
                 }
             ]
 
@@ -96,8 +112,13 @@ def test_provenance_panel_data(client, monkeypatch):
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", classmethod(lambda cls: _Engine())
     )
-    resp = client.get("/api/runtime/sessions/r/provenance")
+    sid = client.post(
+        "/api/runtime/sessions",
+        json={"prefer_docker": True, "image": "test-image"},
+    ).json()["session_id"]
+    resp = client.get(f"/api/runtime/sessions/{sid}/provenance")
     assert resp.status_code == 200
     data = resp.json()
     assert data["actions"][0]["kind"] == "file_edit"
     assert data["mutated"][0]["symbol_id"] == "Code:m.py::foo"
+    client.delete(f"/api/runtime/sessions/{sid}")

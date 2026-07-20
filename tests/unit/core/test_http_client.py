@@ -13,11 +13,27 @@ import pytest
 
 from agent_utilities.core.http_client import (
     DEFAULT_HTTP_TIMEOUT_S,
+    AirgapViolation,
+    PinnedEgressViolation,
     create_async_http_client,
     create_http_client,
+    create_requests_session,
     http_retry_policy,
     standard_headers,
 )
+
+
+class _Peer:
+    def __init__(self, ip: str) -> None:
+        self.ip = ip
+
+    def get_extra_info(self, name: str):
+        return (self.ip, 443) if name == "server_addr" else None
+
+
+def _dns_answer(ip: str):
+    return [(2, 1, 6, "", (ip, 443))]
+
 
 # --------------------------------------------------------------------------- #
 # unified defaults
@@ -50,6 +66,11 @@ def test_verify_defaults_true(monkeypatch):
     assert captured["verify"] is True
 
 
+def test_explicit_tls_disable_is_rejected():
+    with pytest.raises(ValueError, match="cannot be disabled"):
+        create_http_client(verify=False)
+
+
 def test_timeout_accepts_httpx_timeout_object():
     with create_http_client(timeout=httpx.Timeout(120.0)) as client:
         assert client.timeout == httpx.Timeout(120.0)
@@ -64,12 +85,143 @@ def test_standard_headers_applied_and_caller_wins():
         assert c.headers["x-extra"] == "y"
 
 
+def test_requests_sdk_bridge_applies_governed_defaults():
+    with create_requests_session(headers={"X-Extra": "y"}) as session:
+        assert session.verify is True
+        assert session.headers["User-Agent"].startswith("agent-utilities/")
+        assert session.headers["X-Extra"] == "y"
+
+
+def test_requests_sdk_bridge_rejects_disabled_verification(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client._airgap_enabled", lambda: False
+    )
+    with create_requests_session() as session:
+        session.verify = False
+        with pytest.raises(ValueError, match="cannot be disabled"):
+            session.get("https://example.test/")
+
+
+def test_requests_sdk_bridge_enforces_airgap_before_network(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client._airgap_enabled", lambda: True
+    )
+    with create_requests_session() as session:
+        with pytest.raises(AirgapViolation, match="air-gap mode"):
+            session.get("https://example.test/")
+
+
 def test_httpx_kwargs_passthrough_limits_and_transport():
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": 1}))
     limits = httpx.Limits(max_connections=7)
     with create_http_client(transport=transport, limits=limits) as client:
         resp = client.get("http://unit.test/")
         assert resp.json() == {"ok": 1}
+
+
+def test_pinned_egress_preserves_authority_and_verifies_peer(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("93.184.216.34"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "93.184.216.34"
+        assert request.headers["host"] == "model.example"
+        assert request.extensions["sni_hostname"] == "model.example"
+        return httpx.Response(
+            200,
+            json={"ok": True},
+            extensions={"network_stream": _Peer("93.184.216.34")},
+        )
+
+    with create_http_client(
+        transport=httpx.MockTransport(handler), pin_egress=True
+    ) as client:
+        assert client.get("https://model.example/v1").json() == {"ok": True}
+
+
+def test_pinned_egress_denies_unlisted_private_and_public_plaintext(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("10.0.0.8"),
+    )
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200))
+    with create_http_client(
+        transport=transport,
+        pin_egress=True,
+        verify_pinned_peer=False,
+        allow_loopback=False,
+    ) as client:
+        with pytest.raises(PinnedEgressViolation):
+            client.get("https://private.example/v1")
+
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("93.184.216.34"),
+    )
+    with create_http_client(
+        transport=transport,
+        pin_egress=True,
+        verify_pinned_peer=False,
+    ) as client:
+        with pytest.raises(PinnedEgressViolation):
+            client.get("http://public.example/v1")
+
+
+def test_pinned_egress_allows_exact_configured_private_host(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("10.0.0.9"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "10.0.0.9"
+        assert request.headers["host"] == "model.internal:9000"
+        return httpx.Response(
+            200,
+            extensions={"network_stream": _Peer("10.0.0.9")},
+        )
+
+    with create_http_client(
+        transport=httpx.MockTransport(handler),
+        pin_egress=True,
+        allowed_private_hosts=["model.internal"],
+        allow_loopback=False,
+    ) as client:
+        assert client.get("http://model.internal:9000/v1").status_code == 200
+
+
+def test_pinned_private_host_rejects_public_dns_rebinding(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("93.184.216.34"),
+    )
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200))
+    with create_http_client(
+        transport=transport,
+        pin_egress=True,
+        verify_pinned_peer=False,
+        allowed_private_hosts=["model.internal"],
+    ) as client:
+        with pytest.raises(PinnedEgressViolation):
+            client.get("https://model.internal/v1")
+
+
+def test_pinned_egress_rejects_peer_mismatch(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.core.http_client.socket.getaddrinfo",
+        lambda *_args, **_kwargs: _dns_answer("93.184.216.34"),
+    )
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(
+            200,
+            extensions={"network_stream": _Peer("93.184.216.35")},
+        )
+    )
+    with create_http_client(transport=transport, pin_egress=True) as client:
+        with pytest.raises(PinnedEgressViolation):
+            client.get("https://model.example/v1")
 
 
 # --------------------------------------------------------------------------- #

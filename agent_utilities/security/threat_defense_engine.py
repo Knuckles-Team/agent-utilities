@@ -471,7 +471,7 @@ class ScanResult(BaseModel):
     explanation: str = "No security threats detected"
     scanned: bool = True
     matches: list[dict[str, Any]] = Field(default_factory=list)
-    finding_id: str = Field(default_factory=lambda: f"SEC-{uuid.uuid4().hex[:12]}")
+    finding_id: str = Field(default_factory=lambda: f"SEC-{uuid.uuid4().hex}")
 
 
 # ---------------------------------------------------------------------------
@@ -489,7 +489,7 @@ class SecurityFindingNode(BaseModel):
     track cascading risk across agents and sessions.
     """
 
-    id: str = Field(default_factory=lambda: f"sec_finding:{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"sec_finding:{uuid.uuid4().hex}")
     type: str = "security_finding"
     finding_id: str = ""
     tool_name: str = ""

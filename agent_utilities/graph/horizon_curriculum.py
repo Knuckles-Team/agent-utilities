@@ -98,7 +98,7 @@ class MacroAction(BaseModel):
         success_rate: Historical success rate for this macro.
     """
 
-    id: str = Field(default_factory=lambda: f"macro_{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"macro_{uuid.uuid4().hex}")
     name: str
     atomic_steps: list[str]
     step_count: int = 0
@@ -131,7 +131,7 @@ class SubgoalCheckpoint(BaseModel):
         reward: Step-level reward for reaching this checkpoint.
     """
 
-    id: str = Field(default_factory=lambda: f"sg_{uuid.uuid4().hex[:8]}")
+    id: str = Field(default_factory=lambda: f"sg_{uuid.uuid4().hex}")
     description: str
     verification_fn: str = ""
     order: int = 0

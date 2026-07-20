@@ -61,6 +61,61 @@ def test_invalid_identifier_rejected():
         table_ingest.ensure_table(eng, "bad name; DROP TABLE x", ["id"])
 
 
+def test_column_type_is_allowlisted():
+    eng = _FakeEngine()
+
+    with pytest.raises(ValueError, match="invalid SQL column type"):
+        table_ingest.ensure_table(
+            eng,
+            "safe_table",
+            ["id"],
+            col_type="VARCHAR); DROP TABLE safe_table; --",
+        )
+
+    assert eng.graph_compute.statements == []
+
+
+@pytest.mark.parametrize("batch_size", [0, -1, 1_001])
+def test_insert_rows_rejects_unbounded_batch_size(batch_size):
+    eng = _FakeEngine()
+
+    with pytest.raises(ValueError, match="batch size"):
+        table_ingest.insert_rows(
+            eng,
+            "safe_table",
+            [{"id": "one"}],
+            ["id"],
+            batch_size=batch_size,
+        )
+
+
+def test_insert_rows_rejects_non_finite_numbers():
+    eng = _FakeEngine()
+
+    with pytest.raises(ValueError, match="non-finite"):
+        table_ingest.insert_rows(
+            eng,
+            "safe_table",
+            [{"value": float("nan")}],
+            ["value"],
+        )
+
+
+def test_insert_rows_splits_statements_at_byte_limit(monkeypatch):
+    eng = _FakeEngine()
+    monkeypatch.setattr(table_ingest, "_MAX_STATEMENT_BYTES", 75)
+
+    written = table_ingest.insert_rows(
+        eng,
+        "safe_table",
+        [{"value": "a" * 20}, {"value": "b" * 20}],
+        ["value"],
+    )
+
+    assert written == 2
+    assert len(eng.graph_compute.statements) == 2
+
+
 def test_ingest_connector_to_table_mirrors_documents(monkeypatch):
     class _Doc:
         def __init__(self, i):

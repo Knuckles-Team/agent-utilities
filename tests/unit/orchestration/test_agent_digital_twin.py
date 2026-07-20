@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_utilities.observability.trace_ontology import trace_id
 from agent_utilities.orchestration.action_policy import ActionDecision, ActionRequest
 from agent_utilities.orchestration.agent_digital_twin import (
     AgentDigitalTwin,
@@ -308,7 +309,7 @@ class _FakeEngine:
         self, cypher: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         params = params or {}
-        if "MADE_TOOL_CALL" in cypher:
+        if "USED_TOOL" in cypher:
             tid = params["tid"]
             return [
                 dict(row, id=nid)
@@ -336,10 +337,10 @@ def test_capture_twin_from_kg_hydrates_tool_calls_and_work_items():
         "toolcall:hydrate-me:0",
         "ToolCall",
         properties={
-            "_trace_id": "trace:run:hydrate-me",
+            "_trace_id": trace_id("run:hydrate-me"),
             "tool_name": "kg_query",
             "args": "{}",
-            "result_preview": "ok",
+            "result": "ok",
             "error": "",
             "sequence": 0,
         },
@@ -379,7 +380,7 @@ def test_persist_twin_writes_node_and_reference_edges():
     assert node_id == twin.twin_id
     assert engine.nodes[node_id]["label"] == "AgentDigitalTwin"
     assert engine.nodes[node_id]["run_id"] == "run:x8-demo"
-    assert (node_id, "trace:run:x8-demo", "TWIN_OF") in engine.edges
+    assert (node_id, trace_id("run:x8-demo"), "TWIN_OF") in engine.edges
     assert (node_id, "workitem:aaa111", "REFERENCES") in engine.edges
     assert (node_id, twin.tool_call_ids[0], "REFERENCES") in engine.edges
     assert (node_id, "action_decision:sample-1", "REFERENCES") in engine.edges

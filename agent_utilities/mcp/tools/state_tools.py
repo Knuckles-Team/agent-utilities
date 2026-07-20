@@ -12,6 +12,10 @@ from pydantic import Field
 from starlette.responses import JSONResponse
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import (
+    public_error_json,
+    public_error_payload,
+)
 
 
 def register_state_tools(mcp):
@@ -74,7 +78,7 @@ def register_state_tools(mcp):
                 return json.dumps(json.loads(body_bytes.decode("utf-8")))
             return str(resp)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_sessions"] = graph_sessions
 
@@ -141,7 +145,7 @@ def register_state_tools(mcp):
                 return json.dumps(json.loads(body_bytes.decode("utf-8")))
             return str(resp)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_goals"] = graph_goals
 
@@ -195,10 +199,11 @@ def register_state_tools(mcp):
         ),
         max_topics: int = Field(default=5, description="Loops to advance per run."),
         limit: int = Field(default=10, description="Max rows (list)."),
-        priority: str = Field(
-            default="normal",
-            description="Priority bucket 0-3 or critical|high|normal|background "
-            "(submit/prioritize).",
+        priority_bucket: int = Field(
+            default=2,
+            ge=0,
+            le=3,
+            description="Integer WorkItem claim bucket 0-3 (submit/prioritize).",
         ),
         spec_id: str = Field(
             default="", description="SpecProposal id (review action)."
@@ -260,7 +265,7 @@ def register_state_tools(mcp):
                     end_state=end_state,
                     skill_ref=skill_ref,
                     loop_id=loop_id,
-                    prio_bucket=_coerce_prio_bucket(priority),
+                    prio_bucket=_coerce_prio_bucket(priority_bucket),
                 )
                 return _json.dumps({"action": "submit", "loop": loop}, default=str)
             if action == "list":
@@ -298,7 +303,7 @@ def register_state_tools(mcp):
             if action == "prioritize":
                 if not loop_id:
                     return _json.dumps({"error": "prioritize needs a loop_id"})
-                bucket = _coerce_prio_bucket(priority)
+                bucket = _coerce_prio_bucket(priority_bucket)
                 ok = prioritize_loop(engine, loop_id, bucket)
                 return _json.dumps(
                     {
@@ -380,7 +385,7 @@ def register_state_tools(mcp):
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_loops"] = graph_loops
 
@@ -404,9 +409,11 @@ def register_state_tools(mcp):
             description="list|enable|disable|prioritize|set_interval|run_now",
         ),
         name: str = Field(default="", description="Schedule name (all but list)."),
-        priority: str = Field(
-            default="normal",
-            description="Bucket 0-3 or critical|high|normal|background (prioritize).",
+        priority: int = Field(
+            default=2,
+            ge=0,
+            le=3,
+            description="Integer claim bucket 0-3 (prioritize).",
         ),
         interval_s: float = Field(
             default=0.0, description="New interval seconds (set_interval)."
@@ -438,7 +445,7 @@ def register_state_tools(mcp):
                 return _json.dumps(_se.run_now(engine, name))
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_schedules"] = graph_schedules
 
@@ -447,8 +454,9 @@ def register_state_tools(mcp):
         description=(
             "Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface). "
             "The RLM code-execution tier boots a runtime warm once and forks children from "
-            "copy-on-write state (forkserver/os.fork, Wizer-warmed wasm, warm container pool, "
-            "firecracker microVM) instead of cold-booting per snippet. action in 'status' "
+            "copy-on-write state only where the boundary also confines filesystem, "
+            "credentials, processes, and network (for example a firecracker microVM). "
+            "action in 'status' "
             "(per-rung availability + pooled warm-parent count + per-rung reward EMA), 'reap' "
             "(close idle warm parents now + idle dev-workspaces), 'warm' (pre-pay a rung's "
             "start-up so the next fan-out forks cheaply — name it with rung). Code execution "
@@ -459,7 +467,7 @@ def register_state_tools(mcp):
     async def graph_sandbox(
         action: str = Field(default="status", description="status|reap|warm"),
         rung: str = Field(
-            default="", description="Rung to warm (warm): forkserver|container_fork|..."
+            default="", description="Approved confined warm-fork rung to warm."
         ),
     ) -> str:
         """Status / reap / warm the warm-fork sandbox rungs (CONCEPT:AU-ORCH.sandbox.graph-sandbox-surface, CONCEPT:AU-OS.host.so-they-are-idle)."""
@@ -499,22 +507,24 @@ def register_state_tools(mcp):
                 return _json.dumps(
                     {
                         "action": "reap",
-                        "reaped_parents": reaped,
-                        "reaped_workspaces": workspaces,
+                        "reaped_parent_count": len(reaped),
+                        "reaped_workspace_count": len(workspaces),
                         "pool": WarmParentRegistry.get().stats(),
                     }
                 )
 
             if action == "warm":
                 if not rung:
-                    return _json.dumps({"error": "warm needs a rung name"})
+                    return _json.dumps({"error": "warm requires an approved rung"})
                 from agent_utilities.rlm.sandboxes.base import ForkableSandbox
                 from agent_utilities.rlm.sandboxes.registry import default_sandboxes
 
                 backend = next((b for b in default_sandboxes() if b.name == rung), None)
                 if backend is None or not isinstance(backend, ForkableSandbox):
                     return _json.dumps(
-                        {"error": f"{rung!r} is not a warm-fork rung on this host"}
+                        {
+                            "error": "requested rung is not an available confined warm-fork"
+                        }
                     )
                 registry = WarmParentRegistry.get()
                 spec = backend.warm_spec()
@@ -533,9 +543,9 @@ def register_state_tools(mcp):
                     }
                 )
 
-            return _json.dumps({"error": f"unknown action {action!r}"})
+            return _json.dumps({"error": "unknown sandbox action"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_sandbox"] = graph_sandbox
 
@@ -800,7 +810,7 @@ def register_state_tools(mcp):
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_runvcs"] = graph_runvcs
 
@@ -890,7 +900,7 @@ def register_state_tools(mcp):
                         )
                         results.append({"url": u, "id": nid})
                     except Exception as e:  # noqa: BLE001 — one bad feed never aborts the batch
-                        results.append({"url": u, "error": str(e)})
+                        results.append(public_error_payload(e))
                 added = [r for r in results if "id" in r]
                 return _json.dumps(
                     {
@@ -912,7 +922,7 @@ def register_state_tools(mcp):
                         ok = remove_feed_source(engine, key=u, source_system="rss")
                         results.append({"url": u, "ok": bool(ok)})
                     except Exception as e:  # noqa: BLE001
-                        results.append({"url": u, "error": str(e)})
+                        results.append(public_error_payload(e))
                 return _json.dumps(
                     {
                         "action": "remove",
@@ -958,7 +968,7 @@ def register_state_tools(mcp):
                 )
             return _json.dumps({"error": f"unknown action {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return _json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_feeds"] = graph_feeds
 
@@ -1026,35 +1036,9 @@ def register_state_tools(mcp):
             )
             return json.dumps(result, default=str)
         except Exception as e:
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["research_artifact"] = research_artifact
-
-    @mcp.tool(
-        name="graph_hydrate",
-        description="Hydrate the Knowledge Graph from configured external sources. ALIAS of `source_sync` (mode='full') kept for back-compat — `source_sync` is the canonical tool (it adds delta/reconcile modes and the same source='all' fleet sweep). source=<connector> hydrates one; source='all' sweeps every configured connector.",
-        tags=["graph-os", "hydration"],
-    )
-    async def graph_hydrate(
-        source: str = Field(
-            default="all",
-            description="The source connector to hydrate (any registered source), or 'all' to sweep every configured source.",
-        ),
-    ) -> str:
-        """Hydrate the KG from external sources (thin alias of source_sync, mode=full)."""
-
-        from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-        try:
-            engine = kg_server._get_engine()
-            # Delegate to the one unified core so there is no divergent hydration
-            # logic; 'all' fans out to the fleet sweep (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
-            res = sync_source(engine, source, mode="full")
-            return json.dumps(res, default=str)
-        except Exception as e:
-            return json.dumps({"status": "error", "error": str(e)})
-
-    kg_server.REGISTERED_TOOLS["graph_hydrate"] = graph_hydrate
 
     # ══════════════════════════════════════════════════════════════════
     # Ontology System — Palantir Foundry parity (type/link/function layer)

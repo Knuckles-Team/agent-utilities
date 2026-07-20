@@ -122,8 +122,8 @@ Ingest MCP server configs and skill directories into the KG.
 2. **Collect all discovered config paths** into a JSON array. Example:
    ```json
    [
-     "/home/genius/.gemini/antigravity/mcp_config.json",
-     "/home/genius/.gemini/antigravity/mcp_config_source.json"
+     "${HOME}/.gemini/antigravity/mcp_config.json",
+     "${HOME}/.gemini/antigravity/mcp_config_source.json"
    ]
    ```
 
@@ -144,7 +144,7 @@ Ingest MCP server configs and skill directories into the KG.
    ```
    graph_ingest(
        action="agent_toolkit",
-       target_path='["/home/apps/workspace/agent-packages/skills/universal-skills/universal_skills/agent-tools/"]'
+       target_path='["${WORKSPACE_ROOT}/agent-packages/skills/universal-skills/universal_skills/agent-tools/"]'
    )
    ```
 
@@ -234,7 +234,7 @@ graph_query(query="MATCH (s:Server {name: 'github-mcp'}) RETURN s.name, s.tool_c
 # Step 2: If not found, hydrate
 graph_ingest(
     action="agent_toolkit",
-    target_path="/home/genius/.gemini/antigravity/mcp_config_source.json"
+    target_path="${HOME}/.gemini/antigravity/mcp_config_source.json"
 )
 
 # Step 3: Delegate

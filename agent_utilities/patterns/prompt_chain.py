@@ -19,6 +19,7 @@ See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.planning.recursion-nesting
 """
 
 
+import ast
 import logging
 import time
 from typing import Any
@@ -31,6 +32,103 @@ from agent_utilities.orchestration.resilience import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MAX_BRANCH_EXPRESSION_BYTES = 4096
+_MAX_BRANCH_AST_NODES = 64
+
+
+def _evaluate_branch_condition(expression: str, output: str) -> bool | str | int | float:
+    """Evaluate a small, side-effect-free branch expression language.
+
+    Supported forms cover the declarative branch use case: comparisons against
+    ``output``, ``and``/``or``/``not``, membership tests, ``len(output)``, and
+    ``output.startswith(...)`` / ``output.endswith(...)``. Attribute traversal,
+    imports, comprehensions, arithmetic, arbitrary calls, and object creation are
+    rejected, avoiding Python ``eval`` gadget execution from persisted chains.
+    """
+    if len(expression.encode("utf-8")) > _MAX_BRANCH_EXPRESSION_BYTES:
+        raise ValueError("Branch condition is too large")
+    tree = ast.parse(expression, mode="eval")
+    if sum(1 for _ in ast.walk(tree)) > _MAX_BRANCH_AST_NODES:
+        raise ValueError("Branch condition is too complex")
+
+    def _node(node: ast.AST) -> Any:
+        if isinstance(node, ast.Expression):
+            return _node(node.body)
+        if isinstance(node, ast.Constant) and isinstance(
+            node.value, (str, bool, int, float, type(None))
+        ):
+            return node.value
+        if isinstance(node, ast.Name) and node.id == "output":
+            return output
+        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            values = [_node(item) for item in node.elts]
+            return (
+                values
+                if isinstance(node, ast.List)
+                else tuple(values)
+                if isinstance(node, ast.Tuple)
+                else set(values)
+            )
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not bool(_node(node.operand))
+        if isinstance(node, ast.BoolOp):
+            values = [_node(value) for value in node.values]
+            if isinstance(node.op, ast.And):
+                return all(bool(value) for value in values)
+            if isinstance(node.op, ast.Or):
+                return any(bool(value) for value in values)
+        if isinstance(node, ast.Compare):
+            left = _node(node.left)
+            for operator, comparator_node in zip(
+                node.ops, node.comparators, strict=True
+            ):
+                right = _node(comparator_node)
+                if isinstance(operator, ast.Eq):
+                    matched = left == right
+                elif isinstance(operator, ast.NotEq):
+                    matched = left != right
+                elif isinstance(operator, ast.In):
+                    matched = left in right
+                elif isinstance(operator, ast.NotIn):
+                    matched = left not in right
+                elif isinstance(operator, ast.Lt):
+                    matched = left < right
+                elif isinstance(operator, ast.LtE):
+                    matched = left <= right
+                elif isinstance(operator, ast.Gt):
+                    matched = left > right
+                elif isinstance(operator, ast.GtE):
+                    matched = left >= right
+                else:
+                    raise ValueError("Unsupported branch comparison")
+                if not matched:
+                    return False
+                left = right
+            return True
+        if isinstance(node, ast.Call):
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "len"
+                and len(node.args) == 1
+                and not node.keywords
+            ):
+                return len(_node(node.args[0]))
+            if (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"startswith", "endswith"}
+                and not node.keywords
+            ):
+                target = _node(node.func.value)
+                args = tuple(_node(arg) for arg in node.args)
+                if isinstance(target, str) and len(args) in {1, 2, 3}:
+                    return getattr(target, node.func.attr)(*args)
+        raise ValueError("Unsupported branch condition syntax")
+
+    result = _node(tree)
+    if not isinstance(result, (bool, str, int, float)):
+        raise ValueError("Unsupported branch condition result")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +321,7 @@ class PromptChainExecutor:
         if step.branch_condition and step.branch_targets:
             try:
                 condition_result = str(
-                    eval(  # nosec B307 # noqa: S307 — controlled expression from chain def
-                        step.branch_condition,
-                        {"output": output, "__builtins__": {}},
-                    )
+                    _evaluate_branch_condition(step.branch_condition, output)
                 )
                 branched_to = step.branch_targets.get(condition_result)
             except Exception:

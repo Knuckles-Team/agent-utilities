@@ -11,8 +11,12 @@ subsequent loads to ensure cached tool metadata stays current.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
+import math
+import re
+import secrets
 import time
 import typing
 from typing import Any
@@ -26,6 +30,19 @@ else:
 
 
 logger = logging.getLogger(__name__)
+_MAX_MCP_CONFIG_BYTES = 4 * 1024 * 1024
+_MAX_DISCOVERY_TIMEOUT_SECONDS = 300.0
+_EPHEMERAL_FRESHNESS_KEY = secrets.token_bytes(32)
+_SENSITIVE_KEY = re.compile(
+    r"(?:^|_)(?:AUTHORIZATION|COOKIE|CREDENTIAL|PASSWORD|SECRET|TOKEN|API_KEY|HMAC_KEY)(?:_|$)",
+    re.IGNORECASE,
+)
+_SERVER_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+class MCPDiscoveryError(RuntimeError):
+    """Stable live-discovery failure with no child configuration details."""
 
 
 class MCPDiscoveryMixin(_Base):
@@ -57,35 +74,115 @@ class MCPDiscoveryMixin(_Base):
         Returns:
             List of normalized server dicts with keys:
             ``name``, ``command``, ``args``, ``env``, ``tool_flags``,
-            ``config_hash``.
+            ``config_hash``. The hash is a keyed, opaque freshness identity;
+            raw credentials, endpoints, commands, arguments, and local paths
+            never become graph metadata.
 
         """
-        servers: list[dict[str, Any]] = []
+        try:
+            encoded = json.dumps(
+                config_data,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError, RecursionError):
+            raise ValueError("MCP configuration is invalid") from None
+        if len(encoded) > _MAX_MCP_CONFIG_BYTES or not isinstance(config_data, dict):
+            raise ValueError("MCP configuration exceeds its boundary")
         mcp_servers = config_data.get("mcpServers", {})
+        if not isinstance(mcp_servers, dict) or len(mcp_servers) > 512:
+            raise ValueError("MCP server catalog is invalid")
 
-        for name, entry in mcp_servers.items():
+        servers: list[dict[str, Any]] = []
+
+        for raw_name, raw_entry in mcp_servers.items():
+            if (
+                not isinstance(raw_name, str)
+                or not _SERVER_NAME.fullmatch(raw_name)
+                or not isinstance(raw_entry, dict)
+                or len(raw_entry) > 128
+            ):
+                raise ValueError("MCP child declaration is invalid")
+            name = raw_name
+            entry = dict(raw_entry)
             command = entry.get("command", "")
             args = entry.get("args", [])
             env = entry.get("env", {})
-            # Remote (streamable-http / sse) children declare a url + transport
-            # instead of a command — capture them so HTTP servers are discoverable
-            # rather than mis-treated as empty stdio entries.
             url = entry.get("url", "")
-            transport = entry.get("transport", "")
+            transport = str(entry.get("transport", "")).lower()
             headers = entry.get("headers", {})
             disabled = entry.get("disabled", False)
+            provider_profile = entry.get("provider_profile", "")
 
+            if not isinstance(disabled, bool):
+                raise ValueError("MCP child declaration is invalid")
             if disabled:
-                logger.info("Skipping disabled MCP server '%s'", name)
                 continue
+
+            if (
+                not isinstance(command, str)
+                or len(command) > 4_096
+                or "\x00" in command
+                or not isinstance(args, list)
+                or len(args) > 128
+                or not all(
+                    isinstance(value, str)
+                    and len(value.encode("utf-8")) <= 8_192
+                    and "\x00" not in value
+                    for value in args
+                )
+                or not isinstance(env, dict)
+                or len(env) > 256
+                or not all(
+                    isinstance(key, str)
+                    and _ENV_NAME.fullmatch(key)
+                    and len(str(value).encode("utf-8")) <= 65_536
+                    for key, value in env.items()
+                )
+                or not isinstance(url, str)
+                or len(url) > 8_192
+                or transport not in {"", "streamable-http", "sse"}
+                or not isinstance(headers, dict)
+                or len(headers) > 64
+                or not all(
+                    isinstance(key, str)
+                    and 1 <= len(key) <= 128
+                    and len(str(value).encode("utf-8")) <= 16_384
+                    for key, value in headers.items()
+                )
+                or bool(command) == bool(url)
+                or (transport and not url)
+                or not isinstance(provider_profile, str)
+                or (
+                    provider_profile != ""
+                    and re.fullmatch(r"[a-z][a-z0-9-]{1,62}", provider_profile) is None
+                )
+            ):
+                raise ValueError("MCP child declaration is invalid")
+
+            disabled_tools = entry.get("disabledTools", [])
+            private_hosts = entry.get("allowed_private_hosts", [])
+            if (
+                not isinstance(disabled_tools, list)
+                or len(disabled_tools) > 2_048
+                or not all(
+                    isinstance(value, str) and len(value.encode("utf-8")) <= 256
+                    for value in disabled_tools
+                )
+                or not isinstance(private_hosts, list)
+                or len(private_hosts) > 256
+                or not all(
+                    isinstance(value, str) and len(value.encode("utf-8")) <= 253
+                    for value in private_hosts
+                )
+            ):
+                raise ValueError("MCP child declaration is invalid")
 
             # Extract tool-enable flags (env vars ending in TOOL = "True")
             tool_flags = self._parse_tool_flags(env)
 
-            # Build a deterministic hash of the config for freshness checks
-            config_hash = self._compute_config_hash(
-                name, command, args, env, url=url, transport=transport
-            )
+            config_hash = self._compute_config_hash(name, entry)
 
             servers.append(
                 {
@@ -96,9 +193,22 @@ class MCPDiscoveryMixin(_Base):
                     "url": url,
                     "transport": transport,
                     "headers": headers,
+                    "provider_profile": provider_profile,
                     "tool_flags": tool_flags,
                     "config_hash": config_hash,
-                    "disabled_tools": entry.get("disabledTools", []),
+                    "disabled_tools": disabled_tools,
+                    "tls_profile": entry.get("tls_profile", ""),
+                    "tls_profile_ref": entry.get("tls_profile_ref", ""),
+                    "allowed_private_hosts": private_hosts,
+                    "initialization_timeout": entry.get(
+                        "initialization_timeout", entry.get("timeout", 300.0)
+                    ),
+                    "_runtime_materialized_secret_keys": entry.get(
+                        "_runtime_materialized_secret_keys", []
+                    ),
+                    "_runtime_materialization_attestation": entry.get(
+                        "_runtime_materialization_attestation", ""
+                    ),
                 }
             )
 
@@ -111,9 +221,9 @@ class MCPDiscoveryMixin(_Base):
 
         CONCEPT:AU-ECO.mcp.live-server-metadata-cache — Live MCP server connection for tool metadata caching.
 
-        This attempts to start the server as a subprocess (using the command/args
-        from the config), connect via stdio, and retrieve the tool list. If the
-        connection fails, returns an empty list and logs a warning.
+        The canonical multiplexer probe owns both stdio and remote transports.
+        It applies the same AgentConfig TLS/auth/egress/environment boundary as
+        GraphOS and releases the child immediately after ``list_tools()``.
 
         Args:
             server_config: Normalized server dict from :meth:`parse_mcp_config`.
@@ -124,213 +234,54 @@ class MCPDiscoveryMixin(_Base):
             ``input_schema``, ``annotations``.
 
         """
-        name = server_config.get("name", "unknown")
-        command = server_config.get("command", "")
-        args = server_config.get("args", [])
-        url = server_config.get("url", "")
-        transport = str(server_config.get("transport", "")).lower()
+        try:
+            bounded_timeout = float(timeout)
+        except (TypeError, ValueError):
+            bounded_timeout = 0.0
+        if (
+            not math.isfinite(bounded_timeout)
+            or not 0.001 <= bounded_timeout <= _MAX_DISCOVERY_TIMEOUT_SECONDS
+        ):
+            raise MCPDiscoveryError("mcp_discovery_timeout_invalid")
+        name = str(server_config.get("name") or "")
+        if not _SERVER_NAME.fullmatch(name):
+            raise MCPDiscoveryError("mcp_discovery_declaration_invalid")
 
-        # Remote children (streamable-http / sse) connect over the network instead
-        # of spawning a subprocess. Most of the fleet is served this way behind the
-        # multiplexer, so without this branch their tools are never discovered.
-        if url or transport in ("streamable-http", "streamable_http", "http", "sse"):
-            return await self._discover_remote_tools(
-                name, url, transport, server_config.get("headers"), timeout
-            )
-
-        if not command:
-            logger.warning(
-                "No command for MCP server '%s' — skipping live discovery", name
-            )
-            return []
+        from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
         try:
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
-        except ImportError:
-            logger.debug(
-                "mcp package not installed — skipping live discovery for '%s'", name
-            )
-            return []
-
-        import asyncio
-        import os
-        import shutil
-
-        tools: list[dict[str, Any]] = []
-
-        env_vars = os.environ.copy()
-
-        # Ensure ~/.local/bin is in PATH for GUI environments that don't source .bashrc
-        local_bin = os.path.expanduser("~/.local/bin")
-        if local_bin not in env_vars.get("PATH", ""):
-            env_vars["PATH"] = f"{local_bin}:{env_vars.get('PATH', '')}".strip(":")
-
-        server_env = server_config.get("env")
-        if server_env:
-            for k, v in server_env.items():
-                env_vars[k] = str(v)
-
-        # Silence FastMCP startup output to prevent stdout pollution breaking JSON-RPC
-        env_vars["FASTMCP_SHOW_SERVER_BANNER"] = "false"
-        env_vars["FASTMCP_LOG_LEVEL"] = "WARNING"
-
-        # Prevent spawned MCP servers from acquiring a write lock on the knowledge graph
-        # They only expose tools, the orchestrator handles writing
-        env_vars["LADYBUG_DB_READ_ONLY"] = "1"
-
-        # Resolve command to an absolute path using the updated environment PATH
-        resolved_command = shutil.which(command, path=env_vars.get("PATH"))
-        if resolved_command:
-            command = resolved_command
-
-        server_params = StdioServerParameters(
-            command=command,
-            args=args,
-            env=env_vars,
-        )
-
-        try:
-            async with asyncio.timeout(timeout):
-                async with stdio_client(server_params) as (read, write):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        result = await session.list_tools()
-                        tools = self._extract_tools(result.tools)
-
-            logger.info(
-                "[ECO-4.11] Live discovery for '%s': found %d tools",
+            result = await MCPMultiplexer.probe_declaration(
                 name,
-                len(tools),
+                server_config,
+                timeout=bounded_timeout,
             )
-        except TimeoutError:
+        except Exception as exc:
             logger.warning(
-                "[ECO-4.11] Live discovery for '%s' timed out after %.0fs",
-                name,
-                timeout,
+                "[ECO-4.11] MCP discovery rejected (exception_type=%s)",
+                type(exc).__name__,
             )
-        except Exception as e:
-            logger.warning(
-                "[ECO-4.11] Live discovery for '%s' failed: %s",
-                name,
-                e,
-            )
+            raise MCPDiscoveryError("mcp_discovery_unavailable") from None
+        if result.get("error") is not None:
+            logger.warning("[ECO-4.11] MCP discovery unavailable")
+            raise MCPDiscoveryError("mcp_discovery_unavailable")
 
-        return tools
-
-    async def _discover_remote_tools(
-        self,
-        name: str,
-        url: str,
-        transport: str,
-        headers: dict[str, str] | None,
-        timeout: float,
-    ) -> list[dict[str, Any]]:
-        """Discover tools from a remote (streamable-http / sse) MCP server.
-
-        Mirrors the multiplexer's transport handling (CONCEPT:AU-ECO.mcp.profile-differences-from-client): pick sse
-        vs streamable-http, attach the optional service-account bearer
-        (CONCEPT:AU-OS.identity.so-jwt-protected-children) so jwt-protected children are reachable, then
-        ``list_tools()``. A connection/auth failure returns an empty list (logged),
-        so an unreachable or 401 server degrades to a tool-less Server node rather
-        than aborting the whole toolkit ingest.
-        """
-        import asyncio
-        import os
-
-        try:
-            from mcp import ClientSession
-        except ImportError:
-            logger.debug(
-                "mcp package not installed — skipping live discovery for '%s'", name
-            )
-            return []
-
-        url = os.path.expandvars(url or "")
-        if not url:
-            logger.warning(
-                "Remote MCP server '%s' has no url — skipping live discovery", name
-            )
-            return []
-
-        hdrs = (
-            {k: os.path.expandvars(str(v)) for k, v in headers.items()}
-            if headers
-            else {}
-        )
-        # Attach the multiplexer's service-account bearer when configured
-        # (opt-in MCP_CLIENT_AUTH=oidc-client-credentials); never overrides a
-        # child's own Authorization header; a mint failure degrades to no header.
-        try:
-            from agent_utilities.mcp.client_credentials import child_auth_header
-
-            _svc = child_auth_header(hdrs)
-            if _svc:
-                hdrs = {**hdrs, **_svc}
-        except Exception:  # noqa: BLE001 - auth is best-effort
-            pass
-
-        use_sse = transport == "sse" or url.rstrip("/").endswith("/sse")
-        tools: list[dict[str, Any]] = []
-        try:
-            if use_sse:
-                from mcp.client.sse import sse_client
-
-                transport_cm = sse_client(url, headers=hdrs)
-            else:
-                from mcp.client.streamable_http import streamablehttp_client
-
-                transport_cm = streamablehttp_client(url, headers=hdrs)
-
-            async with asyncio.timeout(timeout):
-                async with transport_cm as streams:
-                    read_stream, write_stream = streams[0], streams[1]
-                    async with ClientSession(read_stream, write_stream) as session:
-                        await session.initialize()
-                        result = await session.list_tools()
-                        tools = self._extract_tools(result.tools)
-
-            logger.info(
-                "[ECO-4.11] Remote discovery for '%s': found %d tools", name, len(tools)
-            )
-        except TimeoutError:
-            logger.warning(
-                "[ECO-4.11] Remote discovery for '%s' timed out after %.0fs",
-                name,
-                timeout,
-            )
-        except Exception as e:  # noqa: BLE001 - unreachable/401 → tool-less node
-            logger.warning("[ECO-4.11] Remote discovery for '%s' failed: %s", name, e)
-
-        return tools
-
-    @staticmethod
-    def _extract_tools(raw_tools: Any) -> list[dict[str, Any]]:
-        """Normalize MCP ``list_tools()`` results into tool-metadata dicts.
-
-        Shared by stdio and remote discovery so both transports yield the same
-        shape (``name``, ``description``, ``input_schema``, optional
-        ``annotations``).
-        """
-        tools: list[dict[str, Any]] = []
-        for tool in raw_tools or []:
-            tool_dict: dict[str, Any] = {
-                "name": tool.name,
-                "description": getattr(tool, "description", "") or "",
-                "input_schema": {},
+        tools = result.get("tools")
+        if not isinstance(tools, list):
+            raise MCPDiscoveryError("mcp_discovery_catalog_invalid")
+        normalized: list[dict[str, Any]] = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                raise MCPDiscoveryError("mcp_discovery_catalog_invalid")
+            item = {
+                "name": tool.get("name", ""),
+                "description": tool.get("description", ""),
+                "input_schema": tool.get("inputSchema", {}),
             }
-            if getattr(tool, "inputSchema", None):
-                tool_dict["input_schema"] = (
-                    tool.inputSchema if isinstance(tool.inputSchema, dict) else {}
-                )
-            if getattr(tool, "annotations", None):
-                tool_dict["annotations"] = (
-                    tool.annotations
-                    if isinstance(tool.annotations, dict)
-                    else str(tool.annotations)
-                )
-            tools.append(tool_dict)
-        return tools
+            if "annotations" in tool:
+                item["annotations"] = tool["annotations"]
+            normalized.append(item)
+        logger.info("[ECO-4.11] MCP discovery found %d tools", len(normalized))
+        return normalized
 
     def check_server_freshness(
         self,
@@ -351,6 +302,14 @@ class MCPDiscoveryMixin(_Base):
         """
         if not self.backend:
             return False
+        if (
+            not _SERVER_NAME.fullmatch(str(server_name or ""))
+            or not re.fullmatch(r"[0-9a-f]{64}", str(config_hash or ""))
+            or not isinstance(max_age_hours, int | float)
+            or not math.isfinite(float(max_age_hours))
+            or not 0.0 <= float(max_age_hours) <= 8_760.0
+        ):
+            return False
 
         server_id = f"srv:{server_name}"
         try:
@@ -367,12 +326,7 @@ class MCPDiscoveryMixin(_Base):
 
             # Config changed → stale
             if cached_hash != config_hash:
-                logger.info(
-                    "[ECO-4.11] Server '%s' config hash changed: %s → %s",
-                    server_name,
-                    cached_hash[:8],
-                    config_hash[:8],
-                )
+                logger.info("[ECO-4.11] MCP freshness identity changed")
                 return False
 
             # Check age
@@ -383,20 +337,18 @@ class MCPDiscoveryMixin(_Base):
                     )
                     age_hours = (time.time() - cached_time) / 3600
                     if age_hours > max_age_hours:
-                        logger.info(
-                            "[ECO-4.11] Server '%s' cache expired (%.1fh old, max %.1fh)",
-                            server_name,
-                            age_hours,
-                            max_age_hours,
-                        )
+                        logger.info("[ECO-4.11] MCP discovery cache expired")
                         return False
                 except (ValueError, OverflowError):
                     return False
 
             return True
 
-        except Exception as e:
-            logger.debug("Freshness check failed for '%s': %s", server_name, e)
+        except Exception as exc:
+            logger.debug(
+                "MCP freshness check failed (exception_type=%s)",
+                type(exc).__name__,
+            )
             return False
 
     async def verify_mcp_freshness(
@@ -413,6 +365,8 @@ class MCPDiscoveryMixin(_Base):
             ``live_count`` (int), ``changes`` (list of change descriptions).
 
         """
+        if not _SERVER_NAME.fullmatch(str(server_name or "")):
+            raise MCPDiscoveryError("mcp_discovery_declaration_invalid")
         result: dict[str, Any] = {
             "fresh": True,
             "cached_count": 0,
@@ -478,30 +432,82 @@ class MCPDiscoveryMixin(_Base):
         return sorted(flags)
 
     @staticmethod
-    def _compute_config_hash(
-        name: str,
-        command: str,
-        args: list[str],
-        env: dict[str, str],
-        url: str = "",
-        transport: str = "",
-    ) -> str:
-        """Compute a deterministic hash of a server's configuration.
+    def _compute_config_hash(name: str, declaration: dict[str, Any]) -> str:
+        """Return a keyed, opaque freshness identity for one declaration.
 
-        Used for freshness checks — if the hash changes, the KG cache
-        is invalidated and the server is re-ingested. Includes the remote
-        ``url``/``transport`` so an endpoint change re-triggers discovery.
-
+        The graph stores only this digest. Location-bearing values are reduced
+        to keyed tokens before the outer identity is framed, while sensitive
+        fields contribute only their key/presence (never resolved material).
+        A production profile uses the configured persistence-identity key; a
+        zero-infrastructure development process uses an ephemeral key and will
+        conservatively refresh after restart.
         """
-        payload = json.dumps(
-            {
-                "name": name,
-                "command": command,
-                "args": args,
-                "env": sorted(env.items()),
-                "url": url,
-                "transport": transport,
-            },
-            sort_keys=True,
+
+        from agent_utilities.security.persistence_privacy import (
+            _persistence_identity_key,
         )
-        return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+        key = _persistence_identity_key() or _EPHEMERAL_FRESHNESS_KEY
+
+        def token(label: str, value: Any) -> str:
+            canonical = json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+            return hmac.new(
+                key,
+                b"agent-utilities:mcp-freshness-field:v1\x00"
+                + label.encode("utf-8")
+                + b"\x00"
+                + canonical,
+                hashlib.sha256,
+            ).hexdigest()
+
+        def governed_values(container: Any, *, label: str) -> list[tuple[str, str]]:
+            if not isinstance(container, dict):
+                return []
+            values: list[tuple[str, str]] = []
+            for raw_key, value in sorted(container.items()):
+                field = str(raw_key)
+                marker = (
+                    "credential-present"
+                    if _SENSITIVE_KEY.search(field.replace("-", "_"))
+                    else token(f"{label}:{field}", value)
+                )
+                values.append((field, marker))
+            return values
+
+        payload = {
+            "format": "mcp-freshness/v1",
+            "server": token("server", name),
+            "command": token("command", declaration.get("command", "")),
+            "args": token("args", declaration.get("args", [])),
+            "environment": governed_values(
+                declaration.get("env", {}), label="environment"
+            ),
+            "url": token("url", declaration.get("url", "")),
+            "transport": str(declaration.get("transport", "")).lower(),
+            "headers": governed_values(declaration.get("headers", {}), label="header"),
+            "tls_profile": token("tls_profile", declaration.get("tls_profile", "")),
+            "tls_profile_ref": token(
+                "tls_profile_ref", declaration.get("tls_profile_ref", "")
+            ),
+            "private_hosts": token(
+                "private_hosts", declaration.get("allowed_private_hosts", [])
+            ),
+            "disabled_tools": token(
+                "disabled_tools", declaration.get("disabledTools", [])
+            ),
+        }
+        canonical = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hmac.new(
+            key,
+            b"agent-utilities:mcp-freshness:v1\x00" + canonical,
+            hashlib.sha256,
+        ).hexdigest()

@@ -33,19 +33,13 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
-
-try:
-    import httpx
-
-    _HTTPX = True
-except Exception:  # pragma: no cover - httpx is a core dep, guard anyway
-    _HTTPX = False
-
 
 # ── LeanIX ──────────────────────────────────────────────────────────────────
 
@@ -63,25 +57,38 @@ class LeanixEAClient:
         base_url: str,
         api_token: str,
         *,
-        verify_ssl: bool = False,
         timeout: float = 30.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self._api_token = api_token
-        self._verify_ssl = verify_ssl
         self._timeout = timeout
         self._bearer: str | None = None
         self._data_model: dict[str, Any] | None = None
 
     # -- transport -----------------------------------------------------------
 
+    @contextmanager
+    def _http_client(self) -> Iterator[Any]:
+        from agent_utilities.core.http_client import create_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        trust = resolve_configured_tls_profile("leanix")
+        try:
+            with create_http_client(
+                timeout=self._timeout,
+                **trust.httpx_kwargs(),
+            ) as client:
+                yield client
+        finally:
+            trust.cleanup()
+
     def _get_bearer(self) -> str | None:
         if self._bearer:
             return self._bearer
-        if not _HTTPX:
-            return None
         try:
-            with httpx.Client(verify=self._verify_ssl, timeout=self._timeout) as c:
+            with self._http_client() as c:
                 r = c.post(
                     f"{self.base_url}/services/mtm/v1/oauth2/token",
                     data={"grant_type": "client_credentials"},
@@ -92,7 +99,7 @@ class LeanixEAClient:
             else:
                 logger.debug("LeanIX token exchange failed: HTTP %s", r.status_code)
         except Exception as exc:  # noqa: BLE001 - tolerant transport
-            logger.debug("LeanIX token exchange error: %s", exc)
+            logger.debug("LeanIX token exchange error: %s", type(exc).__name__)
         return self._bearer
 
     def _headers(self) -> dict[str, str] | None:
@@ -104,10 +111,10 @@ class LeanixEAClient:
     def _gql(self, query: str, variables: dict[str, Any] | None = None) -> dict:
         """Execute a Pathfinder GraphQL operation; returns the ``data`` map ({} on error)."""
         headers = self._headers()
-        if not headers or not _HTTPX:
+        if not headers:
             return {}
         try:
-            with httpx.Client(verify=self._verify_ssl, timeout=self._timeout) as c:
+            with self._http_client() as c:
                 r = c.post(
                     f"{self.base_url}/services/pathfinder/v1/graphql",
                     headers=headers,
@@ -118,33 +125,31 @@ class LeanixEAClient:
                 return {}
             body = r.json() or {}
             if body.get("errors"):
-                logger.debug("LeanIX GraphQL errors: %s", body["errors"])
+                logger.debug("LeanIX GraphQL returned operation errors")
             return body.get("data") or {}
         except Exception as exc:  # noqa: BLE001 - tolerant transport
-            logger.debug("LeanIX GraphQL error: %s", exc)
+            logger.debug("LeanIX GraphQL error: %s", type(exc).__name__)
             return {}
 
     def _rest(self, method: str, path: str) -> Any:
         headers = self._headers()
-        if not headers or not _HTTPX:
+        if not headers:
             return None
         try:
-            with httpx.Client(verify=self._verify_ssl, timeout=self._timeout) as c:
+            with self._http_client() as c:
                 r = c.request(
                     method,
                     f"{self.base_url}/services/pathfinder/v1{path}",
                     headers=headers,
                 )
             if r.status_code != 200:
-                logger.debug(
-                    "LeanIX REST %s %s -> HTTP %s", method, path, r.status_code
-                )
+                logger.debug("LeanIX REST request returned HTTP %s", r.status_code)
                 return None
             body = r.json() or {}
             # Pathfinder wraps payloads under {"data": ...}; unwrap when present.
             return body.get("data", body) if isinstance(body, dict) else body
         except Exception as exc:  # noqa: BLE001 - tolerant transport
-            logger.debug("LeanIX REST error %s %s: %s", method, path, exc)
+            logger.debug("LeanIX REST error: %s", type(exc).__name__)
             return None
 
     # -- metamodel -----------------------------------------------------------
@@ -337,8 +342,7 @@ def get_leanix_client() -> LeanixEAClient | None:
     token = setting("LEANIX_TOKEN", "") or setting("LEANIX_API_TOKEN", "")
     if not base_url or not token:
         return None
-    verify = bool(setting("LEANIX_VERIFY_SSL", False, cast=bool))
-    return LeanixEAClient(base_url, token, verify_ssl=verify)
+    return LeanixEAClient(base_url, token)
 
 
 # ── Archi (best-effort) ─────────────────────────────────────────────────────

@@ -1,50 +1,17 @@
-# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement over GRAPH_SERVICE_ENDPOINTS
+# CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Engine-authoritative tenant partition placement over configured coordinator contacts
 # CONCEPT:AU-OS.scaling.shard-topology-visibility-per - Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges and counters
-"""Tenant-partitioned engine shard topology.
+"""Tenant naming and engine coordinator-contact topology.
 
-CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw — Tenant-Partitioned Engine Sharding. Stage-2 scaling for the
-epistemic-graph compute tier: N independent engine processes ("shards") behind
-the client-side HRW router that already ships in ``epistemic_graph.pool``.
+``GRAPH_SERVICE_ENDPOINTS`` is an ordered list of contacts, not a placement
+ring. A request uses the authenticated engine ``PlacementRoute`` RPC, validates
+its epoch and numeric group fence, then maps that group through
+``GRAPH_RAFT_GROUP_ENDPOINTS`` (or the sole stable coordinator). No caller-side
+hash, fallback, or topology guess is permitted.
 
-Partition model (the one sentence that matters)::
-
-    tenant  →  named graph  →  HRW (rendezvous hash)  →  shard endpoint
-
-* The **named graph** is the partition unit. Every engine process keeps its
-  own string-keyed named-graph registry, so a graph lives wholly on exactly
-  one shard and no cross-shard coordination is ever needed for a single
-  graph's operations.
-* **Tenancy** enters only by *choosing the graph name*: when a caller does not
-  target an explicit graph and an ambient
-  :class:`~agent_utilities.security.brain_context.ActorContext` carries a
-  tenant, the default graph is mapped to that tenant's graph via
-  :func:`tenant_graph_name`. The shard choice is therefore always a pure
-  function of the graph name — sync clients here and async
-  ``epistemic_graph.pool.ShardRouter`` users agree by construction (this
-  module delegates to the very same HRW implementation).
-* **Zero-infra default preserved**: with a single endpoint (the default —
-  ``GRAPH_SERVICE_ENDPOINTS`` unset) nothing changes: no tenant graph
-  mapping, no routing, same socket, same autostart behaviour.
-
-Operational semantics in sharded mode (``GRAPH_SERVICE_ENDPOINTS`` lists 2+
-endpoints):
-
-* **Autostart is local-only.** ``EPISTEMIC_GRAPH_AUTOSTART=1`` may only spawn
-  an engine for a *local* (``unix://``) endpoint; a configured remote
-  (``tcp://``) shard that is unreachable is a hard, fail-loud
-  ``ConnectionError`` naming the shard — silently auto-starting a local
-  stand-in would split that shard's graphs into invisible islands (same
-  convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task-queue contract).
-* **The flock host role is per-host.** ``host_lock.py`` elects the ONE process
-  per host that runs daemons and may own the LOCAL engine; it says nothing
-  about remote shards.
-* **Rebalancing is intentionally out of scope.** HRW keeps key movement
-  minimal when endpoints are added/removed, but the engine does NOT migrate
-  data: after a topology change, a graph whose HRW winner changed must be
-  moved manually — export from the old shard / import on the new one via the
-  existing snapshot tooling (``--persist-dir`` checkpoints or
-  ``lifecycle.to_msgpack``/``from_msgpack``). Until then the graph re-creates
-  empty on its new shard.
+Tenant isolation still selects a named graph with :func:`tenant_graph_name`.
+The engine placement catalog owns where that graph lives and performs governed
+movement. Local autostart is available only when this explicit topology is
+unset and the packaged-local transport resolves to one local endpoint.
 
 Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per — Shard Topology Visibility):
 :func:`shard_topology_status` powers the unified daemon status and the
@@ -54,10 +21,10 @@ gateway's ``/daemon/shards`` route, and exports the per-shard
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import socket
-from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -69,7 +36,6 @@ __all__ = [
     "probe_endpoint",
     "resolve_endpoints",
     "resolve_routing_graph",
-    "shard_endpoint_for",
     "shard_topology_status",
     "sharding_active",
     "tenant_graph_name",
@@ -137,48 +103,62 @@ def default_graph_name(config: Any = None) -> str:
 
 
 def resolve_endpoints(config: Any = None) -> list[str]:
-    """Resolve the configured engine endpoint list (1 = today's single mode).
+    """Resolve ordered engine coordinator contacts.
 
-    Precedence: ``engine_endpoint`` (ENGINE_ENDPOINT, the remote override,
-    CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) → ``graph_service_endpoints`` (GRAPH_SERVICE_ENDPOINTS, comma
-    or JSON list) → ``tcp://{graph_service_tcp_addr}`` → ``unix://{socket}`` →
-    :data:`DEFAULT_LOCAL_ENDPOINT`. Endpoint strings are used VERBATIM as both
-    the HRW hash input and the connect target so every client that hashes the
-    same configured list (including async ``ShardRouter`` users) agrees on
-    placement — configure them with explicit ``unix://`` / ``tcp://`` schemes.
+    ``GRAPH_SERVICE_ENDPOINTS`` is the sole explicit external/coordinator
+    topology. Any configured list is returned verbatim and is connect-only.
+    When it is absent, the packaged engine's platform default is used.
+    Contact order is deterministic, but it never decides placement.
     """
     cfg = _config(config)
-    # The explicit remote override (ENGINE_ENDPOINT) wins outright — the single
-    # "engine deployed on another host" endpoint (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
-    engine_endpoint = getattr(cfg, "engine_endpoint", None)
-    if engine_endpoint and str(engine_endpoint).strip():
-        return [str(engine_endpoint).strip()]
     eps = [
         str(e).strip() for e in (cfg.graph_service_endpoints or []) if str(e).strip()
     ]
     if eps:
         return eps
-    if getattr(cfg, "graph_service_tcp_addr", None):
-        return [f"tcp://{cfg.graph_service_tcp_addr}"]
-    if getattr(cfg, "graph_service_socket", None):
-        return [f"unix://{cfg.graph_service_socket}"]
     return [DEFAULT_LOCAL_ENDPOINT]
 
 
 def sharding_active(config: Any = None) -> bool:
-    """True when 2+ endpoints are configured (multi-shard mode)."""
+    """True when multiple coordinator contacts are configured."""
     return len(resolve_endpoints(config)) > 1
 
 
 def is_local_endpoint(endpoint: str) -> bool:
-    """True for endpoints that are local-by-construction (unix sockets).
+    """True for endpoints that are local-by-construction.
 
-    Only local endpoints are eligible for ``EPISTEMIC_GRAPH_AUTOSTART`` in
-    sharded mode: a ``tcp://`` shard (even on a loopback address) is treated
-    as remote and must be managed by its own host's daemon.
+    Unix sockets and TCP loopback addresses are local. Treating loopback TCP as
+    remote breaks the zero-configuration Windows installation because the
+    engine and client deliberately use ``127.0.0.1:8765`` when AF_UNIX is not
+    available. This function classifies transport locality only: any contact
+    supplied through ``GRAPH_SERVICE_ENDPOINTS`` remains connect-only even when
+    it is loopback or a Unix socket.
     """
     ep = endpoint.strip()
-    return not ep.startswith("tcp://")
+    if ep.startswith("unix://") or "://" not in ep:
+        return True
+    # A TLS endpoint is an externally provisioned listener even when its
+    # authority is loopback: autostart cannot safely invent the server identity.
+    if ep.startswith("tls://"):
+        return False
+    if not ep.startswith("tcp://"):
+        return False
+
+    # ``urlsplit`` handles bracketed IPv6. Keep localhost independent of DNS.
+    from urllib.parse import urlsplit
+
+    try:
+        host = urlsplit(ep).hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host.casefold() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +171,7 @@ def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
 
     The single naming rule for tenant-scoped graph placement: facade, backends
     and the engine client all use this helper so a tenant's data consistently
-    lands on ONE named graph (and therefore, via HRW, on one shard). An empty
+    lands on one named graph whose placement is engine-authoritative. An empty
     or unset tenant returns ``base`` unchanged — single-tenant deployments are
     byte-for-byte unaffected.
     """
@@ -204,9 +184,9 @@ def tenant_graph_name(tenant: str | None, base: str = DEFAULT_GRAPH) -> str:
 
 
 def resolve_routing_graph(graph_name: str | None, config: Any = None) -> str:
-    """Resolve the effective graph (= HRW routing key) for an engine client.
+    """Resolve the named graph submitted to the placement authority.
 
-    Resolution order (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw):
+    Resolution order:
 
     1. An explicit, non-default ``graph_name`` — the operation targets a named
        graph; use it verbatim.
@@ -226,42 +206,6 @@ def resolve_routing_graph(graph_name: str | None, config: Any = None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# HRW shard selection — delegates to epistemic_graph.pool.ShardRouter
-# ---------------------------------------------------------------------------
-
-_router_cache: dict[tuple[str, ...], Any] = {}
-
-
-def _hrw_router(endpoints: tuple[str, ...]) -> Any:
-    """One cached ``ShardRouter`` per endpoint set, used ONLY for HRW hashing.
-
-    Delegating to the ShardRouter implementation (rather than re-implementing
-    the hash here) guarantees sync clients and async pool users can never
-    drift on shard placement. The router's connection pools are never
-    initialized — no sockets are opened by hashing.
-    """
-    router = _router_cache.get(endpoints)
-    if router is None:
-        from epistemic_graph.pool import ShardRouter
-
-        router = _router_cache[endpoints] = ShardRouter(list(endpoints))
-    return router
-
-
-def shard_endpoint_for(graph_name: str, endpoints: Sequence[str]) -> str:
-    """Pick the owning shard endpoint for ``graph_name`` (HRW; deterministic).
-
-    With a single endpoint this is the identity function (zero-infra default).
-    """
-    eps = [e for e in endpoints if e]
-    if not eps:
-        raise ValueError("shard_endpoint_for requires at least one endpoint")
-    if len(eps) == 1:
-        return eps[0]
-    return _hrw_router(tuple(eps))._get_shard_endpoint(graph_name)
-
-
-# ---------------------------------------------------------------------------
 # Topology visibility (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
 # ---------------------------------------------------------------------------
 
@@ -274,8 +218,16 @@ def probe_endpoint(endpoint: str, timeout: float = 0.5) -> bool:
     """
     ep = endpoint.strip()
     try:
-        if ep.startswith("tcp://"):
-            host, _, port = ep[6:].rpartition(":")
+        if ep.startswith(("tcp://", "tls://")):
+            from .engine_transport import native_endpoint_address
+
+            authority = native_endpoint_address(ep)[0]
+            if authority.startswith("[") and "]:" in authority:
+                host, port = authority[1:].split("]:", 1)
+            else:
+                host, separator, port = authority.rpartition(":")
+                if not separator:
+                    return False
             with socket.create_connection(
                 (host or "127.0.0.1", int(port)), timeout=timeout
             ):
@@ -299,7 +251,7 @@ def record_shard_connect(endpoint: str, up: bool) -> None:
 
         ENGINE_SHARD_UP.labels(endpoint=endpoint).set(1.0 if up else 0.0)
     except Exception:  # pragma: no cover - metrics must never break clients
-        logger.debug("Could not export shard-up metric for %s", endpoint)
+        logger.debug("Could not export shard-up metric")
 
 
 def shard_topology_status(

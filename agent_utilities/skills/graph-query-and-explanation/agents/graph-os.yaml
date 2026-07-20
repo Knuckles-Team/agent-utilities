@@ -1,0 +1,26 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - ask
+    - ask_data
+    - find
+    - graph_analyze
+    - graph_ask
+    - graph_code
+    - graph_code_nav
+    - graph_context
+    - graph_document_tree
+    - graph_epistemic
+    - graph_evaluate
+    - graph_explain
+    - graph_federated_search
+    - graph_gis
+    - graph_promql
+    - graph_query
+    - graph_search
+    - graph_search_synthesis
+    - graph_table
+    - nl_query
+    - why
+  features: {}

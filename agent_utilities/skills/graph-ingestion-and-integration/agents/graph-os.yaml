@@ -1,0 +1,15 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - document_process
+    - graph_etl
+    - graph_feeds
+    - graph_ingest
+    - graph_share
+    - graph_writeback
+    - ingest_sessions
+    - source_connector
+    - source_drain
+    - source_sync
+  features: {}

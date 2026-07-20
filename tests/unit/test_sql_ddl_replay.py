@@ -20,7 +20,7 @@ class FakeGraph:
         self.nodes[node_id] = props
 
     def add_edge(self, source, target, **props):
-        self.edges.append((source, target, props.get("type")))
+        self.edges.append((source, target, props.get("relationship")))
 
 
 # Mirrors the Rust extractor's output for the tutorial schema.sql.
@@ -78,12 +78,12 @@ def test_replay_maps_db_node_types():
     g = FakeGraph()
     count = _replay_parse_result(_RESULT, g, RegistryNodeType)
     assert count == 5
-    assert g.nodes["table:users"]["type"] == RegistryNodeType.DATABASE_TABLE
-    assert g.nodes["column:users.user_id"]["type"] == RegistryNodeType.DATABASE_COLUMN
+    assert g.nodes["table:users"]["node_type"] == RegistryNodeType.DATABASE_TABLE
+    assert g.nodes["column:users.user_id"]["node_type"] == RegistryNodeType.DATABASE_COLUMN
     assert g.nodes["column:users.user_id"]["primary_key"] == "true"
-    assert g.nodes["view:active_sessions"]["type"] == RegistryNodeType.DATABASE_VIEW
+    assert g.nodes["view:active_sessions"]["node_type"] == RegistryNodeType.DATABASE_VIEW
     # SYMBOL path preserved (line coerced to int).
-    assert g.nodes["symbol:abc"]["type"] == RegistryNodeType.SYMBOL
+    assert g.nodes["symbol:abc"]["node_type"] == RegistryNodeType.SYMBOL
     assert g.nodes["symbol:abc"]["line"] == 10
     # FILE ignored.
     assert "file:x" not in g.nodes

@@ -41,10 +41,11 @@ class DynamicToolOrchestrator:
         try:
             # Query the KG for tools that are relevant to this task domain
             # and are capable of being used by this agent role.
-            results = self.engine.backend.execute(
+            results = self.engine.query_cypher(
                 "MATCH (t:CallableResource)-[:BELONGS_TO]->(d:Domain) "
                 "WHERE toLower($task) CONTAINS toLower(d.name) "
-                "RETURN t.name AS tool_name, t.description AS tool_desc, t.schema AS schema "
+                "RETURN t.id AS id, t.name AS tool_name, "
+                "t.description AS tool_desc, t.schema AS schema "
                 "LIMIT 5",
                 {"task": task_description},
             )
@@ -61,12 +62,11 @@ class DynamicToolOrchestrator:
                     )
 
             logger.info(
-                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Assigned %d dynamic tools for role '%s'",
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Assigned %d dynamic tools",
                 len(tools),
-                agent_role,
             )
-        except Exception as e:
-            logger.debug("Failed to dynamically assign tools: %s", e)
+        except Exception as exc:
+            logger.debug("Dynamic tool assignment failed (%s)", type(exc).__name__)
 
         return tools
 
@@ -76,8 +76,8 @@ class DynamicToolOrchestrator:
         """Resolve a list of tool names that match the query keyword or fuzzy criteria.
 
         If server_name is provided, filters to that server's tools.
-        If zero matches are found, or an error occurs, defaults to returning all tools
-        associated with the server (or all tools in general).
+        No match or query failure returns no tools. A requested narrowing filter
+        is a least-privilege boundary and never widens to the server's full set.
         """
         if not self.engine.backend:
             return []
@@ -91,37 +91,23 @@ class DynamicToolOrchestrator:
               AND (toLower(c.name) CONTAINS toLower($query)
                    OR toLower(c.description) CONTAINS toLower($query)
                    OR (c.tags IS NOT NULL AND any(t in c.tags WHERE toLower(t) CONTAINS toLower($query))))
-            RETURN c.name AS name
+            RETURN c.id AS id, c.name AS name
             """
-            rows = self.engine.backend.execute(
+            rows = self.engine.query_cypher(
                 cypher_query, {"query": query, "server_name": server_name}
             )
             matched_tools = [str(r.get("name")) for r in rows if r.get("name")]
-        except Exception as e:
-            logger.debug("Error during resolve_mcp_tools: %s", e)
-
-        # Fallback: if zero matches found, get all tools for this server
-        if not matched_tools and server_name:
-            try:
-                cypher_all = """
-                MATCH (s:Server {name: $server_name})-[:PROVIDES]->(c:CallableResource)
-                RETURN c.name AS name
-                """
-                rows = self.engine.backend.execute(
-                    cypher_all, {"server_name": server_name}
-                )
-                matched_tools = [str(r.get("name")) for r in rows if r.get("name")]
-            except Exception as e:
-                logger.debug("Error during resolve_mcp_tools fallback: %s", e)
+        except Exception as exc:
+            logger.debug("Error during resolve_mcp_tools (%s)", type(exc).__name__)
 
         # Lazy Freshness Sweep: Check if the cache is older than 24 hours and trigger lazy sync
         if server_name:
             try:
                 cypher_ts = """
                 MATCH (s:Server {name: $name})
-                RETURN s.timestamp AS ts
+                RETURN s.id AS id, s.timestamp AS ts
                 """
-                rows = self.engine.backend.execute(cypher_ts, {"name": server_name})
+                rows = self.engine.query_cypher(cypher_ts, {"name": server_name})
                 if rows:
                     ts_str = rows[0].get("ts")
                     if ts_str:
@@ -149,64 +135,57 @@ class DynamicToolOrchestrator:
     async def refresh_cached_tools(self, server_name: str) -> bool:
         """Force-refresh the cached tool metadata for the given MCP server.
 
-        Reads the command/args/env from the database's Server node, runs live
-        list_tools() discovery, and updates the CallableResource nodes in the KG.
+        Runtime transport is resolved only from the active external MCP
+        configuration. The KG stores capability metadata and opaque references;
+        it is never a command, argument, environment, or endpoint secret store.
         """
         if not self.engine.backend:
             return False
 
         try:
-            cypher = """
-            MATCH (s:Server {name: $name})
-            RETURN s.command AS command, s.args AS args, s.env AS env, s.source_config AS source_config
-            """
-            rows = self.engine.backend.execute(cypher, {"name": server_name})
-            if not rows:
-                logger.warning("Server '%s' not found in KG for refresh", server_name)
-                return False
+            from agent_utilities.core.config import setting
+            from agent_utilities.knowledge_graph.core.engine_ingestion import (
+                _mcp_persistence_resources,
+                _neutral_mcp_alias,
+            )
+            from agent_utilities.mcp.multiplexer import (
+                MCPMultiplexer,
+                _resolve_config_path,
+            )
 
-            row = rows[0]
-            command = row.get("command")
-            if not command:
-                logger.warning(
-                    "Server '%s' has no command configured in KG", server_name
+            config_path = _resolve_config_path(
+                str(setting("MCP_CONFIG", "") or "") or None
+            )
+            catalog = MCPMultiplexer(config_path).load_catalog()
+            server_config = None
+            declaration = catalog.get(server_name)
+            if isinstance(declaration, dict):
+                entries = self.engine.parse_mcp_config(
+                    {"mcpServers": {server_name: declaration}}
                 )
+                server_config = entries[0] if len(entries) == 1 else None
+            else:
+                # Persisted server names are always opaque. Resolve the runtime
+                # catalog entry by recomputing each keyed identity in memory;
+                # neither the catalog name nor its endpoint enters the graph.
+                for candidate_name, candidate in catalog.items():
+                    entries = self.engine.parse_mcp_config(
+                        {"mcpServers": {candidate_name: candidate}}
+                    )
+                    if len(entries) != 1:
+                        continue
+                    candidate_config = entries[0]
+                    candidate_alias = _neutral_mcp_alias(
+                        config_hash=candidate_config["config_hash"]
+                    )
+                    if candidate_alias == server_name:
+                        server_config = candidate_config
+                        break
+            if server_config is None:
+                logger.warning("MCP server declaration is unavailable for refresh")
                 return False
-
-            import json
-
-            raw_args = row.get("args")
-            args = (
-                json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or [])
-            )
-
-            raw_env = row.get("env")
-            env = json.loads(raw_env) if isinstance(raw_env, str) else (raw_env or {})
-
-            source_config = row.get("source_config") or "unknown"
-
-            # Re-discover tools
-            import hashlib
-
-            payload = json.dumps(
-                {
-                    "name": server_name,
-                    "command": command,
-                    "args": args,
-                    "env": sorted(env.items()),
-                },
-                sort_keys=True,
-            )
-            config_hash = hashlib.sha256(payload.encode()).hexdigest()[:16]
-
-            server_config = {
-                "name": server_name,
-                "command": command,
-                "args": args,
-                "env": env,
-                "config_hash": config_hash,
-                "tool_flags": [],
-            }
+            config_hash = server_config["config_hash"]
+            persisted_name = _neutral_mcp_alias(config_hash=config_hash)
 
             # Call discover_mcp_tools (using the mixin method on the engine)
             live_tools = await self.engine.discover_mcp_tools(
@@ -215,36 +194,32 @@ class DynamicToolOrchestrator:
 
             # Ingest/update tools
             self.engine.ingest_mcp_server(
-                name=server_name,
-                url=f"stdio://{command} {' '.join(args)}",
+                name=persisted_name,
+                url=f"mcp-ref://{config_hash}",
                 tools=live_tools,
-                resources={"source_config": source_config, "env": env},
+                resources=_mcp_persistence_resources(
+                    config_path, server_config.get("env")
+                ),
             )
 
             # Update Server metadata in DB
             ts = __import__("time").strftime(
                 "%Y-%m-%dT%H:%M:%SZ", __import__("time").gmtime()
             )
-            self.engine.backend.execute(
-                "MATCH (s:Server {id: $sid}) "
-                "SET s.config_hash = $hash, s.timestamp = $ts, "
-                "s.tool_count = $tc",
+            self.engine.add_node(
+                f"srv:{persisted_name}",
+                "Server",
                 {
-                    "sid": f"srv:{server_name}",
-                    "hash": config_hash,
-                    "ts": ts,
-                    "tc": len(live_tools),
+                    "config_hash": config_hash,
+                    "timestamp": ts,
+                    "tool_count": len(live_tools),
                 },
             )
-            logger.info(
-                "Successfully refreshed tools cache for server '%s'", server_name
-            )
+            logger.info("Successfully refreshed one MCP tools cache")
             return True
 
-        except Exception as e:
-            logger.exception(
-                "Failed to refresh cached tools for server '%s': %s", server_name, e
-            )
+        except Exception as exc:
+            logger.error("Failed to refresh MCP tools cache (%s)", type(exc).__name__)
             return False
 
     # ── OrchestratorProtocol conformance ──────────────────────────────────
@@ -253,7 +228,7 @@ class DynamicToolOrchestrator:
         """Dispatch a tool assignment task."""
         import uuid
 
-        job_id = f"dto:{uuid.uuid4().hex[:8]}"
+        job_id = f"dto:{uuid.uuid4().hex}"
         role = kwargs.get("agent_role", "general")
         try:
             tools = self.assign_tools_for_task(task, role)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Research and Analysis"
+  short_description: "Scoped multi-source research, mining, and causal analysis"
+  default_prompt: "Use $graph-research-and-analysis to investigate this scoped question, challenge privacy-safe evidence, and report grounded findings."

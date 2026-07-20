@@ -84,7 +84,7 @@ class TestEmbeddingHealthCheck:
     def test_healthy_embeddings(self):
         rng = np.random.default_rng(42)
         embeddings = rng.standard_normal((100, 20))
-        report = EmbeddingDiagnostics.embedding_health_check(embeddings)
+        report = EmbeddingDiagnostics().health_check(embeddings)
         assert not report.collapse_detected
         assert report.effective_dimensionality > 5
         assert report.recommendation == "healthy"
@@ -94,7 +94,7 @@ class TestEmbeddingHealthCheck:
         base = np.ones((100, 20))
         noise = np.random.randn(100, 20) * 1e-8
         embeddings = base + noise
-        report = EmbeddingDiagnostics.embedding_health_check(embeddings)
+        report = EmbeddingDiagnostics().health_check(embeddings)
         # The collapse_threshold (ratio effective/total < 0.1) may not fire when
         # noise is spread across all dims, but the variance is extremely low
         # Just verify the module runs without error and produces valid output
@@ -105,11 +105,11 @@ class TestEmbeddingHealthCheck:
         rng = np.random.default_rng(42)
         baseline = rng.standard_normal((50, 10))
         drifted = rng.standard_normal((50, 10)) * 10
-        report = EmbeddingDiagnostics.embedding_health_check(
+        report = EmbeddingDiagnostics().health_check(
             drifted, baseline_embeddings=baseline
         )
         assert report.drift_severity in ("mild", "severe")
 
     def test_insufficient_data(self):
-        report = EmbeddingDiagnostics.embedding_health_check([[1.0]])
+        report = EmbeddingDiagnostics().health_check([[1.0]])
         assert report.recommendation == "insufficient_data"

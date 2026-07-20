@@ -15,7 +15,7 @@ flowchart TB
     end
     REG[":FeedSource registry (KG nodes)\ngraph_feeds list/add/remove"]
     GATE["WorldModelPipelineRunner.run_gated_ingest\ndedup (canonical arxiv:id) → classify"]
-    RESEARCH["research → grade_and_enqueue_paper\n:Task research_paper_fetch (prio by grade)"]
+    RESEARCH["research → grade_and_enqueue_paper\nWorkItem research_paper_fetch (prio by grade)"]
     NEWS["news → relevance+novelty\n:FeedItem / Document · :ingestedFrom :FeedSource"]
 
     N --> GATE
@@ -47,8 +47,10 @@ gate (`automation/worldmodel_pipeline.py`):
    FreshRSS collapses to one node) plus node existence;
 2. **classifies** research vs news (`_is_research`);
 3. **research** → `grade_and_enqueue_paper` (keyword + novelty grade → a prioritized
-   `research_paper_fetch` `:Task`, best-graded fetched first; abstract-only / reject
-   otherwise) — the same AU-KG.research.scholarx-rss-research-feed path for items from *any* feed;
+   `research_paper_fetch` WorkItem, best-graded fetched first; abstract-only / reject
+   otherwise) — the same AU-KG.research.scholarx-rss-research-feed path for items from *any* feed.
+   Durable task metadata replaces author identities with non-reversible references,
+   and both full and marginal graph writes use the native `ChangeEnvelope` boundary;
 4. **news** → relevance+novelty → a `:FeedItem`/Document linked `:ingestedFrom` its
    `:FeedSource`.
 
@@ -76,7 +78,7 @@ unions it with the `KG_RSS_FEEDS` seed and ingests it. The sweep is the generali
 graph_feeds action=add url=https://rss.arxiv.org/rss/cs.AI
 graph_feeds action=sync
 # research item → a prioritized fetch task
-graph_query "MATCH (t:Task {type:'research_paper_fetch'}) RETURN t.id, t.prio_bucket"
+graph_query "MATCH (w:WorkItem {fairness_group:'research_paper_fetch'}) RETURN w.id, w.prio_bucket"
 # feeds + provenance
 graph_query "MATCH (i)-[:INGESTED_FROM]->(f:FeedSource) RETURN f.name, count(i)"
 ```

@@ -200,12 +200,11 @@ class TestCodebaseArtifactRouting:
 
         monkeypatch.setattr(engine, "ingest", _fake_ingest)
 
-        # CONCEPT:AU-KG.ingest.writes-go — documents take the batched, enrich-deferred path
-        # (direct unit + per-doc _BatchedBackend), NOT self.ingest. Spy on the
-        # canonical unit to record each routed document path.
+        # Documents take the governed, enrich-deferred ChangeEnvelope path, not
+        # ``self.ingest``. Spy on the canonical unit to record each routed path.
         doc_seen: list[Path] = []
 
-        def _fake_doc_file(manifest, path_obj, backend=None):
+        def _fake_doc_file(manifest, path_obj):
             doc_seen.append(Path(path_obj))
             return IngestionResult(
                 manifest=manifest,
@@ -272,43 +271,13 @@ class TestCodebaseArtifactRouting:
         assert classified["spec"] == 2
 
     @pytest.mark.asyncio
-    async def test_documents_batch_writes_instead_of_per_node_round_trips(
+    async def test_documents_use_governed_unit_without_backend_override(
         self, mixed_repo: Path, monkeypatch
     ):
-        """CONCEPT:AU-KG.ingest.writes-go — a repo's docs flush as a few BULK RPCs, not one
-        engine round-trip per Document/chunk/concept node.
-
-        Simulates the unit writing 13 nodes + 12 edges per doc (1 Document + 12
-        chunks + edges). Per-file that would be 3×25 = 75 socket round-trips; the
-        batched path collapses each doc to ~2 bulk RPCs (nodes then edges).
-        """
-
-        class _BulkGraph:
-            def __init__(self):
-                self.bulk_calls = 0
-                self.ops = 0
-
-            def batch_update(self, ops):
-                self.bulk_calls += 1
-                self.ops += len(ops)
-
-        class _BulkBackend:
-            def __init__(self):
-                self._graph = _BulkGraph()
-                self.per_item_doc_writes = 0
-                self.nodes: list[tuple[str, dict]] = []
-                self.edges: list[tuple[str, str, str]] = []
-
-            def add_node(self, node_id, **props):
-                if str(props.get("type")) in {"Document", "idea_block"}:
-                    self.per_item_doc_writes += 1
-                self.nodes.append((node_id, props))
-
-            def add_edge(self, src, dst, rel_type=None, **_):
-                self.edges.append((src, dst, rel_type))
+        """Classified documents enter the single ChangeEnvelope-backed unit."""
 
         engine = IngestionEngine.__new__(IngestionEngine)
-        backend = _BulkBackend()
+        backend = _FakeBackend()
         engine.kg = None
         engine.backend = backend
         engine.graph_name = "__commons__"
@@ -324,15 +293,11 @@ class TestCodebaseArtifactRouting:
 
         monkeypatch.setattr(engine, "ingest", _fake_ingest)
 
-        # The unit writes its nodes/edges through the supplied (batched) backend.
-        def _fake_doc_file(manifest, path_obj, backend=None):
-            b = backend if backend is not None else engine.backend
-            did = f"doc:{path_obj.name}"
-            b.add_node(did, type="Document")
-            for i in range(12):
-                cid = f"{did}:chunk:{i}"
-                b.add_node(cid, type="idea_block")
-                b.add_edge(cid, did, rel_type="PART_OF")
+        seen_documents: list[Path] = []
+
+        def _fake_doc_file(manifest, path_obj):
+            seen_documents.append(Path(path_obj))
+            did = f"doc:{Path(path_obj).name}"
             return IngestionResult(
                 manifest=manifest,
                 status="success",
@@ -360,10 +325,6 @@ class TestCodebaseArtifactRouting:
             result.manifest, str(mixed_repo), result
         )
 
-        # All 3 docs' writes went through the engine BULK path…
-        assert backend._graph.ops == 3 * (13 + 12)  # 75 ops total
-        # …as a handful of RPCs (≤2 per doc), NOT 75 per-node round-trips.
-        assert backend._graph.bulk_calls <= 2 * 3
-        assert backend._graph.bulk_calls < backend._graph.ops // 4
-        # No Document/chunk node hit the engine as a per-item write.
-        assert backend.per_item_doc_writes == 0
+        assert len(seen_documents) == 3
+        assert not backend.nodes
+        assert not backend.edges

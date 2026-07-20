@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/skill-validation-deployment-v2.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"},
+    "environmentReference": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$"}
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "identityAuthority", "release", "runtime", "readiness", "validation", "shutdown"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v2"},
+    "kind": {"const": "SkillValidationDeployment"},
+    "identityAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "tokenTtlSeconds", "tlsVerificationRequired", "lifecycleOwned", "renewableCredentialsRequired"],
+      "properties": {
+        "mode": {"const": "ephemeral-https-loopback"},
+        "tokenTtlSeconds": {
+          "type": "integer",
+          "minimum": 180,
+          "maximum": 3600,
+          "description": "Renewable lease lifetime. The deployment validator also requires this value to cover the configured case timeout, current trace and parent-ingestion windows, shutdown grace, and expiry safety margin."
+        },
+        "tlsVerificationRequired": {"const": true},
+        "lifecycleOwned": {"const": true},
+        "renewableCredentialsRequired": {"const": true}
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "specificationReference", "specificationDigest", "promotionEvidenceReference", "promotionEvidenceDigest", "agentUtilitiesSha256", "agentUtilitiesFileCount", "distributionClosureSha256", "releasePythonSha256", "graphOsDigest", "engineDigest", "startCommandReference"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"},
+        "specificationReference": {"$ref": "#/$defs/environmentReference"},
+        "specificationDigest": {"$ref": "#/$defs/digest"},
+        "promotionEvidenceReference": {"$ref": "#/$defs/environmentReference"},
+        "promotionEvidenceDigest": {"$ref": "#/$defs/digest"},
+        "agentUtilitiesSha256": {"$ref": "#/$defs/digest"},
+        "agentUtilitiesFileCount": {"type": "integer", "minimum": 10},
+        "distributionClosureSha256": {"$ref": "#/$defs/digest"},
+        "releasePythonSha256": {"$ref": "#/$defs/digest"},
+        "graphOsDigest": {"$ref": "#/$defs/digest"},
+        "engineDigest": {"$ref": "#/$defs/digest"},
+        "startCommandReference": {"$ref": "#/$defs/environmentReference"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["configurationReference", "configurationDigest", "profileReference", "profileDigest", "endpointReference", "modelRegistry"],
+      "properties": {
+        "configurationReference": {"$ref": "#/$defs/environmentReference"},
+        "configurationDigest": {"$ref": "#/$defs/digest"},
+        "profileReference": {"$ref": "#/$defs/environmentReference"},
+        "profileDigest": {"$ref": "#/$defs/digest"},
+        "endpointReference": {"$ref": "#/$defs/environmentReference"},
+        "modelRegistry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["digest", "modelCount", "lightCount", "normalCount", "localPrivateTransportOnly", "referenceBackedCredentialsOnly", "literalPrivateModelCount", "privateDnsModelCount", "runtimePrivateResolutionRequired"],
+          "properties": {
+            "digest": {"$ref": "#/$defs/digest"},
+            "modelCount": {"const": 2},
+            "lightCount": {"const": 1},
+            "normalCount": {"const": 1},
+            "localPrivateTransportOnly": {"const": true},
+            "referenceBackedCredentialsOnly": {"const": true},
+            "literalPrivateModelCount": {"type": "integer", "minimum": 0, "maximum": 2},
+            "privateDnsModelCount": {"type": "integer", "minimum": 0, "maximum": 2},
+            "runtimePrivateResolutionRequired": {"const": true}
+          }
+        }
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeoutSeconds", "pollIntervalMilliseconds"],
+      "properties": {
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 300},
+        "pollIntervalMilliseconds": {"type": "integer", "minimum": 50, "maximum": 5000}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseTimeoutSeconds", "signerCommandReference", "verifierCommandReference"],
+      "properties": {
+        "caseTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 600},
+        "signerCommandReference": {"$ref": "#/$defs/environmentReference"},
+        "verifierCommandReference": {"$ref": "#/$defs/environmentReference"}
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graceSeconds"],
+      "properties": {"graceSeconds": {"type": "integer", "minimum": 1, "maximum": 60}}
+    }
+  }
+}

@@ -10,6 +10,7 @@ import pytest
 
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
 from agent_utilities.knowledge_graph.retrieval.capability_index import (
+    DEFAULT_CAPABILITY_CACHE_SIZE,
     CapabilityIndex,
     Designation,
 )
@@ -79,6 +80,22 @@ def test_required_caps_with_no_provider_returns_empty():
     assert idx.designate(_basis(0), required_caps=["nonexistent"], k=5) == []
     # Conjunction that no single entity satisfies.
     assert idx.designate(_basis(0), required_caps=["math", "web"], k=5) == []
+
+
+def test_default_hierarchy_matches_declared_subtype():
+    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx.add("mtls_tool", _basis(0), ["EncryptedTransport"])
+
+    out = idx.designate(
+        _basis(0),
+        required_caps=["TransportCapability"],
+        k=5,
+    )
+
+    assert [item.id for item in out] == ["mtls_tool"]
+    assert out[0].provenance["eligibility"]["subsumption_paths"] == {
+        "TransportCapability": ["EncryptedTransport", "TransportCapability"]
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +189,24 @@ def test_save_load_roundtrip_identical_topk(prefer, tmp_path):
     assert reloaded.alternatives("web_search") == ["serp_api"]
 
 
+def test_persistence_uses_non_executable_metadata(tmp_path):
+    save_dir = tmp_path / "capidx"
+    _populated_index("numpy").save(save_dir)
+
+    assert (save_dir / "capability_index.json").is_file()
+    assert not (save_dir / "capability_index.pkl").exists()
+
+
+def test_tampered_embedding_artifact_fails_closed(tmp_path):
+    save_dir = tmp_path / "capidx"
+    _populated_index("numpy").save(save_dir)
+    with (save_dir / "embeddings.npy").open("ab") as handle:
+        handle.write(b"tampered")
+
+    with pytest.raises(ValueError, match="digest"):
+        CapabilityIndex.load(save_dir)
+
+
 # ---------------------------------------------------------------------------
 # 5. Facade designate() delegates correctly
 # ---------------------------------------------------------------------------
@@ -261,11 +296,22 @@ def test_bounded_cache_re_add_refreshes_recency():
     assert "c" in idx
 
 
-def test_unbounded_by_default_never_evicts():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")  # no bounded_cache_size
+def test_default_cache_is_finite():
+    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
     for i in range(20):
         idx.add(f"id{i}", _basis(i % DIM), ["web"])
     assert len(idx) == 20
+    assert idx._bounded_cache_size == DEFAULT_CAPABILITY_CACHE_SIZE
+
+
+@pytest.mark.parametrize("invalid", [0, -1])
+def test_cache_bound_must_be_positive(invalid):
+    with pytest.raises(ValueError, match="positive integer"):
+        CapabilityIndex(
+            dim=DIM,
+            prefer_backend="numpy",
+            bounded_cache_size=invalid,
+        )
 
 
 def test_remove_cleans_up_capability_and_swappable_state():

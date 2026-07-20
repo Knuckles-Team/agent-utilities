@@ -37,22 +37,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from agent_utilities.knowledge_graph.retrieval.capability_index import (
+    compute_eligibility,
+)
+
 logger = logging.getLogger(__name__)
 
-_CALLABLE_TYPES = {
-    "tool",
-    "skill",
-    "agent",
-    "mcp_tool",
-    "a2a_agent",
-    "callable_resource",
-    "internal_skill",
-    "agent_skill",
-}
 
 # CONCEPT:AU-P1-3 — the in-process index is a bounded CACHE, not the authority (the
 # engine is). This caps its resident id count; LRU-evicted beyond it.
 _DEFAULT_BOUND = 4096
+
+# Registry node types considered "callable" (invokable via routing) — mirrors
+# agent_utilities.models.knowledge_graph.RegistryNodeType's AGENT/TOOL/SKILL
+# values, the resource kinds designate_specialists routes callers to.
+_CALLABLE_TYPES = frozenset({"agent", "tool", "skill"})
 
 
 def _is_callable_node(props: dict[str, Any]) -> bool:
@@ -410,6 +409,7 @@ def designate_specialists(
         if embedding is None:
             return None
 
+        from agent_utilities.core.release_channel import active_channel
         from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
             engine_filtered_search,
         )
@@ -422,6 +422,7 @@ def designate_specialists(
             tenant=tenant,
             policy_tags=policy_tags,
             capability_hierarchy=capability_hierarchy,
+            active_release_channel=active_channel(),
         )
         if engine_hits is not None:
             return [nid for nid, _score in engine_hits]
@@ -574,3 +575,11 @@ def explain_capability_eligibility(
         tenant=tenant,
         required_policy_tags=policy_tags,
     )
+
+
+__all__ = [
+    "designate_specialists",
+    "embed_query",
+    "explain_capability_eligibility",
+    "record_capability_outcome",
+]

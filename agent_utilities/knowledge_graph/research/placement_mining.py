@@ -17,7 +17,7 @@ evidence + an expected-benefit statement (never fabricated, mirroring
 Pipeline (mirrors ``loop_controller._run_trace_mining`` exactly — mining is
 NOT a fourth bespoke authority, it reuses the SAME governance/gate spine)::
 
-    mine (associate/anomaly/sequence over Episode/ToolCall/Entity provenance)
+    mine (associate/anomaly/sequence over RunTrace/ToolCall/Entity provenance)
         -> PlacementProposal (typed, evidenced)
         -> Claim (status="proposal", ALWAYS persisted, is_verified=False)
         -> PromotionGovernanceValidator.validate()   (reused as-is)
@@ -31,7 +31,7 @@ NOT a fourth bespoke authority, it reuses the SAME governance/gate spine)::
            SAME ``engine_resharding`` dispatcher ``engine_tools.py`` already
            exposes — no second placement authority, no new engine RPC)
 
-Data sources: the ``Episode -[:USED_TOOL]-> ToolCall -[:AFFECTS]-> Entity``
+Data sources: the ``RunTrace -[:USED_TOOL]-> ToolCall -[:ACTED_ON]-> Entity``
 provenance chain (the SAME real, wired schema :mod:`.trace_pattern_miner`
 already mines the failure side of — see that module's docstring for why this
 is the defensible mapping, not the unwired ``AgentTaskNode``/"AgentOutcomeNode"
@@ -233,17 +233,17 @@ class PlacementProposal:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Telemetry gathering — Episode/ToolCall/Entity provenance
+# Telemetry gathering — canonical RunTrace/ToolCall/Entity provenance
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 def gather_access_records(
-    engine: Any, *, limit: int = _SCAN_LIMIT
+    engine: Any, *, limit: int = _SCAN_LIMIT, after_sequence: int = 0
 ) -> list[dict[str, Any]]:
-    """Query the Episode/ToolCall/Entity provenance chain for per-call access records.
+    """Query canonical trace provenance after a numeric durable cursor.
 
-    Returns one record per ``(episode, tool_call)`` row:
-    ``{episode_id, tool_name, tenant, modality, entity_id, entity_type}``.
+    Returns one record per ``(trace, tool_call)`` row:
+    ``{trace_id, event_sequence, tool_name, tenant, modality, entity_id, entity_type}``.
     ``tenant``/``modality`` are read from ``ToolCall.args`` (parsed JSON if
     stored as a string) — never guessed; a row missing them simply carries
     an empty string for that field. Empty (never raises) on a missing
@@ -251,14 +251,20 @@ def gather_access_records(
     """
     if engine is None:
         return []
+    from agent_utilities.observability.trace_ontology import TRACE_USED_TOOL_EDGE
+
     try:
         rows = (
             engine.query_cypher(
-                "MATCH (e:Episode)-[:USED_TOOL]->(t:ToolCall) "
-                "OPTIONAL MATCH (t)-[:AFFECTS]->(en:Entity) "
-                "RETURN e.id AS episode_id, t.tool_name AS tool_name, "
-                "t.args AS args, en.id AS entity_id, en.type AS entity_type "
-                f"ORDER BY episode_id LIMIT {int(limit)}"
+                f"MATCH (r:RunTrace)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall) "
+                "WHERE r.event_sequence > $after_sequence "
+                "OPTIONAL MATCH (t)-[:ACTED_ON]->(en:Entity) "
+                "RETURN r.id AS trace_id, r.event_sequence AS event_sequence, "
+                "t.tool_name AS tool_name, t.args AS args, "
+                "t.tenant_ref AS tenant_ref, en.id AS entity_id, "
+                "en.node_type AS entity_type ORDER BY event_sequence, trace_id, t.sequence "
+                f"LIMIT {int(limit)}",
+                {"after_sequence": int(after_sequence)},
             )
             or []
         )
@@ -266,9 +272,21 @@ def gather_access_records(
         logger.debug("placement_mining: access-record query failed: %s", e)
         return []
 
+    # A full row page may end in the middle of one trace's tool calls. Drop
+    # that final trace from this pass so the numeric cursor never advances past
+    # unseen access records.
+    if len(rows) >= int(limit) and rows:
+        partial_trace = rows[-1].get("trace_id") if isinstance(rows[-1], dict) else None
+        if partial_trace:
+            rows = [
+                row
+                for row in rows
+                if not isinstance(row, dict) or row.get("trace_id") != partial_trace
+            ]
+
     records: list[dict[str, Any]] = []
     for row in rows:
-        if not isinstance(row, dict) or not row.get("episode_id"):
+        if not isinstance(row, dict) or not row.get("trace_id"):
             continue
         args = row.get("args")
         if isinstance(args, str):
@@ -280,9 +298,16 @@ def gather_access_records(
             args = {}
         records.append(
             {
-                "episode_id": str(row["episode_id"]),
+                "trace_id": str(row["trace_id"]),
+                "event_sequence": int(row.get("event_sequence") or 0),
                 "tool_name": str(row.get("tool_name") or ""),
-                "tenant": str(args.get("tenant_id") or args.get("tenant") or ""),
+                "tenant": str(
+                    row.get("tenant_ref")
+                    or args.get("tenant_ref")
+                    or args.get("tenant_id")
+                    or args.get("tenant")
+                    or ""
+                ),
                 "modality": str(args.get("modality") or ""),
                 "entity_id": str(row.get("entity_id") or ""),
                 "entity_type": str(row.get("entity_type") or ""),
@@ -344,31 +369,31 @@ def _basket_items(rec: dict[str, Any]) -> list[str]:
 
 
 def build_baskets(records: list[dict[str, Any]]) -> list[list[str]]:
-    """One basket per episode — the union of its access-record items.
+    """One basket per trace — the union of its access-record items.
 
     Only baskets with >= 2 distinct items carry a co-occurrence signal
-    (mirrors ``trace_pattern_miner``'s own ">= 2" episode filter).
+    (mirrors ``trace_pattern_miner``'s own ">= 2" trace filter).
     """
     baskets: dict[str, set[str]] = {}
     order: list[str] = []
     for rec in records:
-        eid = rec["episode_id"]
-        if eid not in baskets:
-            baskets[eid] = set()
-            order.append(eid)
-        baskets[eid].update(_basket_items(rec))
-    return [sorted(baskets[eid]) for eid in order if len(baskets[eid]) >= 2]
+        tid = rec["trace_id"]
+        if tid not in baskets:
+            baskets[tid] = set()
+            order.append(tid)
+        baskets[tid].update(_basket_items(rec))
+    return [sorted(baskets[tid]) for tid in order if len(baskets[tid]) >= 2]
 
 
 def build_tenant_access_counts(records: list[dict[str, Any]]) -> dict[str, int]:
-    """Distinct-episode access count per tenant — the ``shard_split`` anomaly input."""
+    """Distinct-trace access count per tenant — the ``shard_split`` anomaly input."""
     counts: dict[str, int] = {}
     seen: set[tuple[str, str]] = set()
     for rec in records:
         tenant = rec.get("tenant")
         if not tenant:
             continue
-        key = (tenant, rec["episode_id"])
+        key = (tenant, rec["trace_id"])
         if key in seen:
             continue
         seen.add(key)
@@ -377,7 +402,7 @@ def build_tenant_access_counts(records: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def build_tenant_sequences(records: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """Per-tenant ORDERED item sequence (episode order = time order) — the
+    """Per-tenant ORDERED item sequence (trace order = event-sequence order) — the
     ``cache_prewarm`` sequence-mining input. Only tenants with >= 2 items
     carry an ordered-subsequence signal."""
     by_tenant: dict[str, list[str]] = {}
@@ -406,6 +431,7 @@ def mine_placement_patterns(
     limit: int = _SCAN_LIMIT,
     min_support: float = 0.1,
     min_confidence: float = 0.6,
+    after_sequence: int = 0,
 ) -> dict[str, Any]:
     """Mine tenant/tool/entity/modality co-occurrence + hot/cold skew + sequence.
 
@@ -414,7 +440,7 @@ def mine_placement_patterns(
     mining pass in this codebase uses — degrades exactly like those on a
     no-mining engine build (empty result, never raises):
 
-    1. **associate** — co-occurrence rules over per-episode baskets
+    1. **associate** — co-occurrence rules over per-trace baskets
        (tenant/tool/entity/entity_type/modality items).
     2. **anomaly** (x2) — per-tenant access-count skew (hot tenant -> a
        ``shard_split`` candidate) and per-entity ``temporal_drift_score``
@@ -425,7 +451,9 @@ def mine_placement_patterns(
     from agent_utilities.mcp.tools.engine_surface_tools import _invoke
 
     errors: list[str] = []
-    records = gather_access_records(engine, limit=limit)
+    records = gather_access_records(
+        engine, limit=limit, after_sequence=after_sequence
+    )
     baskets = build_baskets(records)
     access_counts = build_tenant_access_counts(records)
     sequences_by_tenant = build_tenant_sequences(records)
@@ -534,6 +562,9 @@ def mine_placement_patterns(
         "sequence": sequence,
         "access_counts": access_counts,
         "records_scanned": len(records),
+        "next_event_sequence": max(
+            [after_sequence, *(int(r.get("event_sequence") or 0) for r in records)]
+        ),
         "errors": errors,
     }
 
@@ -989,7 +1020,7 @@ def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
       ``engine_resharding`` (no second placement authority, no new engine
       RPC). This is a genuine data move — the engine copies the graph's rows
       onto the target shard and flips its catalog route — NOT a client-side
-      HRW-ring rewrite and NOT the route-only ``catalog_assign`` (which only
+      client-route rewrite and NOT the route-only ``catalog_assign`` (which only
       flips routing metadata without moving anything already resident on a
       different shard — see ``ReshardingClient.catalog_assign``'s own
       docstring: "Flips the ROUTE only — to MOVE the rows too use reshard").
@@ -1239,6 +1270,7 @@ def run_placement_mining_cycle(
     measurement_fn: MeasurementFn | None = None,
     tolerance: float = _CANARY_TOLERANCE,
     limit: int = _SCAN_LIMIT,
+    after_sequence: int | None = None,
 ) -> dict[str, Any]:
     """Mine -> propose -> govern -> canary -> apply -> outcome, end to end (X-5/Seam-4).
 
@@ -1267,6 +1299,11 @@ def run_placement_mining_cycle(
     over the same content-addressed finding id (:meth:`ClaimFlywheel.
     is_retracted`).
     """
+    from agent_utilities.observability.trace_ontology import (
+        TraceCursor,
+        load_trace_cursor,
+        save_trace_cursor,
+    )
     from agent_utilities.orchestration.action_policy import (
         ActionRequest,
         get_action_policy,
@@ -1278,7 +1315,15 @@ def run_placement_mining_cycle(
     from .promotion_governance import PromotionGovernanceValidator
 
     errors: list[str] = []
-    mine_result = mine_placement_patterns(engine, limit=limit)
+    cursor_consumer = "placement-miner"
+    prior_cursor = (
+        load_trace_cursor(engine, cursor_consumer)
+        if after_sequence is None
+        else TraceCursor(max(0, int(after_sequence)))
+    )
+    mine_result = mine_placement_patterns(
+        engine, limit=limit, after_sequence=prior_cursor.event_sequence
+    )
     errors.extend(mine_result.get("errors") or [])
     proposals = placement_proposals_from_mining(mine_result)
     below_floor = [p for p in proposals if not p.clears_floor]
@@ -1485,6 +1530,17 @@ def run_placement_mining_cycle(
         if len(examples) < 5:
             examples.append(record)
 
+    completed_cursor = prior_cursor
+    if not errors:
+        completed_cursor = save_trace_cursor(
+            engine,
+            cursor_consumer,
+            int(
+                mine_result.get("next_event_sequence")
+                or prior_cursor.event_sequence
+            ),
+        )
+
     return {
         "proposals": len(proposals),
         "below_floor": len(below_floor),
@@ -1492,6 +1548,9 @@ def run_placement_mining_cycle(
         "persisted": persisted,
         "applied": applied,
         "outcomes_recorded": outcomes_recorded,
+        "after_event_sequence": prior_cursor.event_sequence,
+        "next_event_sequence": completed_cursor.event_sequence,
+        "cursor_advanced": completed_cursor > prior_cursor,
         "examples": examples,
         "errors": errors,
     }
@@ -1522,9 +1581,9 @@ def placement_control_loop(
     reused as-is.
 
     **Default OFF / manual-trigger (opt-in) — never auto-reshards on
-    import.** ``enabled=None`` (the default) resolves to
-    ``setting("PLACEMENT_CONTROL_LOOP_ENABLED", False, cast=bool)`` — an
-    operator must explicitly opt in via that env/config flag for this to run
+    import.** ``enabled=None`` (the default) resolves through the typed
+    ``AgentConfig.placement_control_loop_enabled`` field — an operator must
+    explicitly opt in via ``PLACEMENT_CONTROL_LOOP_ENABLED`` for this to run
     on an automatic/periodic caller. A caller that IS the manual trigger
     itself (the ``graph_loops`` MCP action / its REST twin — a human or an
     orchestrator explicitly asking for one governed pass right now) passes
@@ -1536,10 +1595,10 @@ def placement_control_loop(
     Disabled ⇒ a zero-side-effect no-op report: mining, governance, the
     canary, and the engine reshard RPC never run.
     """
-    from agent_utilities.core.config import setting
+    from agent_utilities.core.config import config
 
     gate = (
-        bool(setting("PLACEMENT_CONTROL_LOOP_ENABLED", False))
+        bool(config.placement_control_loop_enabled)
         if enabled is None
         else bool(enabled)
     )

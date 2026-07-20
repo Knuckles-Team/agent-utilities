@@ -61,11 +61,11 @@ MCP action and no dispatch code**:
 ### Reached over graph-os (the explain action) + its REST twin
 
 It is the universal `explain` action of `graph_analyze` (the same one that serves
-`code`/`ops`). `graph_analyze action=explain` parses `target` as `domain:intent`:
+`code`/`ops`). `graph_explain action=explain` parses `target` as `domain:intent`:
 
 ```text
-graph_analyze action=explain target="troubleshoot:run"     node_id="<run_id>" query="<symptom>"
-graph_analyze action=explain target="troubleshoot:service" query="<host>.arpa returns 502"
+graph_explain action=explain target="troubleshoot:run"     node_id="<run_id>" query="<symptom>"
+graph_explain action=explain target="troubleshoot:service" query="<host>.example returns 502"
 ```
 
 `synthesize_context` (`context_plane.py`) routes `domain=troubleshoot` to
@@ -79,10 +79,12 @@ one core, per the platform contract.
   `run` (a failed agent/delegation — the default), `service` (an endpoint is unreachable —
   host-vs-service), `health` (general posture). An out-of-range intent is inferred from
   the symptom text.
-- **App-trace pull** — if a `node_id` is supplied (normalized to `trace:<run_id>`), it
-  reads the `:RunTrace` row and its `(:RunTrace)-[:MADE_TOOL_CALL]->(:ToolCall)` chain
-  (`tool_name`, `status`, `error`, `sequence`) — the same provenance the execution seam
-  writes. The first **failing** `:ToolCall` is surfaced in the synthesized headline.
+- **App-trace pull** — if a public run handle or opaque trace id is supplied, it
+  resolves the canonical id and reads the `:RunTrace` row plus its
+  `(:RunTrace)-[:USED_TOOL]->(:ToolCall)` chain
+  (`tool_name`, `status`, `error_digest`, `error_character_count`, `sequence`) — the
+  same privacy-guarded provenance the execution seam writes. The first **failing**
+  `:ToolCall` is surfaced in the synthesized headline by opaque error reference.
 - **Triage list** — with no `node_id`, it surfaces recent `:RunTrace` rows with
   `status IN ['failed','error']` to start from.
 - **Layer ranking** — `_classify` scores the symptom text against `_LAYER_HINTS` and
@@ -102,7 +104,7 @@ layer maps a question to the **exact existing tool** (no new logging):
 
 ```mermaid
 flowchart TD
-    S["symptom: failed run / 502 / crashloop / slow"] --> D["graph_analyze action=explain<br/>target=troubleshoot:run|service (AU-KG.retrieval.kg-4)"]
+    S["symptom: failed run / 502 / crashloop / slow"] --> D["graph_explain action=explain<br/>target=troubleshoot:run|service (AU-KG.retrieval.kg-4)"]
     D --> L1["1 · APP-TRACE<br/>:RunTrace / :ToolCall (KG-2.296)<br/>graph_query · graph_observe trace_rootcause"]
     L1 --> L2["2 · CONTAINER<br/>cm__container_operations action=logs<br/>exit 137=OOM · 143=SIGTERM · 0+restart=healthcheck"]
     L2 --> L3["3 · SYSTEM (host OS)<br/>sm__query_system_logs · sm__list_services<br/>sm__get_process_details · sm__storage_health"]
@@ -112,15 +114,15 @@ flowchart TD
 
 | Layer | Question | Healthy signal | Unhealthy signal & next move |
 |---|---|---|---|
-| **1 · App / agent-run** | What did the delegated run actually do, and where did it fail? | `:RunTrace status=ok`; every `:ToolCall status=ok` | a failing `:ToolCall` — its `tool_name` + `args` + `error` are usually the root. `graph_query` the chain, or `graph_observe action=trace_rootcause` for the Trace/Span/Generation subgraph (AU-OS.config.model-factory-passthrough); live queue/lane health via `graph_analyze action=explain target="ops:health"` (AU-KG.retrieval.ops-context). |
+| **1 · App / agent-run** | What did the delegated run actually do, and where did it fail? | `:RunTrace status=ok`; every `:ToolCall status=ok` | a failing `:ToolCall` — its `tool_name`, status, and opaque payload digests identify the event without retaining raw args/results. `graph_query` the chain, or `graph_observe action=trace_rootcause` for the Trace/Span/Generation subgraph (AU-OS.config.model-factory-passthrough); live queue/lane health via `graph_explain action=explain target="ops:health"` (AU-KG.retrieval.ops-context). |
 | **2 · Container / service** | Is the container crashing, and why (exit code)? | running, healthcheck passing | `cm__container_operations action=logs host=<alias>` (Docker-over-SSH). **Exit 137 = OOM-killed, 143 = SIGTERM, 0-but-restarting = healthcheck failing.** On swarm: `docker service ps <svc> --no-trunc` + `docker service logs <svc>`. |
 | **3 · System / host OS** | Is the host OS the cause (OOM-killer, disk full, failed unit)? | units active, disk healthy, no OOM in dmesg | `sm__query_system_logs` (journald by unit/priority), `sm__list_services` (a failed unit), `sm__get_process_details` (a runaway PID — e.g. an orphaned scanner at 900% CPU), `sm__storage_health` (disk). The dmesg OOM-killer line explains an exit-137 seen at layer 2. |
-| **4 · Host reachability** | Is the **host** down, or only the **service**? (the decisive split) | SSH connects; container present | Resolve the host from the inventory (`cm__list_hosts` / `tm__*`) — an `.arpa` **502 means the edge is up but the upstream isn't**, so SSH the actual upstream, not the edge. Then `tm__remote` / `ssh`: **"No route to host" / timeout = HOST DOWN** (operator/infra — nothing to restart service-side); **connects but the container is stopped/absent/crash-looping = SERVICE DOWN** (restart it, then read layer 2 for the crash cause). |
+| **4 · Host reachability** | Is the **host** down, or only the **service**? (the decisive split) | SSH connects; container present | Resolve the host from the inventory (`cm__list_hosts` / `tm__*`) — an `.example` **502 means the edge is up but the upstream isn't**, so SSH the actual upstream, not the edge. Then `tm__remote` / `ssh`: **"No route to host" / timeout = HOST DOWN** (operator/infra — nothing to restart service-side); **connects but the container is stopped/absent/crash-looping = SERVICE DOWN** (restart it, then read layer 2 for the crash cause). |
 | **5 · Cross-cutting** | Is this a fleet-wide pattern (latency, error spike, saturation)? | no firing alerts; breakers closed; queues drained | `lgtm__grafana` (Loki logs / Tempo traces / Mimir+Grafana metrics) + `lgtm__alertmanager`; the gateway `/metrics` series (AU-OS.observability.no-op-without-metrics) — `ENGINE_BREAKER_STATE`, `KG_INGEST_QUEUE_DEPTH`, `DISPATCH_QUEUE_DEPTH`, `MCP_CHILD_BREAKER_STATE` — show breaker/queue/child health at a glance. |
 
 ### The host-vs-service split (the most common mistake)
 
-The single most valuable distinction the provider encodes: **a `.arpa` edge 502 is not a
+The single most valuable distinction the provider encodes: **a `.example` edge 502 is not a
 host-down signal.** The edge is up; the upstream isn't. Resolve and SSH the *actual
 upstream* host. If SSH gives "No route to host" or times out, the **host** is down — an
 operator/infra problem, with nothing to restart service-side; do not chase the service. If
@@ -132,7 +134,8 @@ breaks nested single-quotes.)
 
 The self-test across all layers is **`agent-utilities-doctor`** (CLI, or MCP
 `graph_configure action=system_doctor`, or REST `/graph/configure/doctor`). Its checks —
-`engine`, `graph_backend`, `graph_connections`, `mcp_fleet` (live-probing),
+`engine`, `graph_backend`, `graph_connections`, `mcp_fleet_secrets`,
+`mcp_fleet` (live-probing),
 `ingestion_coverage` (AU-OS.deployment.flagging-repos), `skills` (OS-5.52), `bus`, `observability`, `secrets`,
 `auth` — are the one-shot answer to *which layer is unhealthy*, each with a remediation +
 the skill that fixes it. Run the doctor first, then drill into the failing layer with the
@@ -143,7 +146,7 @@ provider's per-layer tool.
 - **This is the exception-resolution loop, made native.** When a delegated run
   (`graph_orchestrate execute_agent`) fails or returns an ungrounded answer, pass its
   `run_id` to `target="troubleshoot:run"` — the app-trace layer pulls the exact
-  `:ToolCall` chain (which tool, what args, what result) so you find **why**, fix the gap
+  `:ToolCall` chain (tool, status, and opaque payload digests) so you find **why**, fix the gap
   (a missing skill, an unbound tool, a prompt, missing ingestion), and re-delegate.
 - **Trace every layer until grounded — don't stop at the first.** The provider always
   returns the full ladder for exactly this reason: a `502` at the app layer is grounded

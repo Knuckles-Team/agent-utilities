@@ -15,24 +15,18 @@ import logging
 import os
 from typing import Any, cast
 
-from pydantic_ai import Agent, DeferredToolRequests
+from pydantic_ai import DeferredToolRequests
 from pydantic_graph import End
-
-from agent_utilities.core.config import setting
-
-try:
-    from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import StepContext
-
+from pydantic_graph.step import StepContext
 
 from agent_utilities.core.config import (
     DEFAULT_GRAPH_TIMEOUT,
     emit_graph_event,
     get_discovery_registry,
-    load_node_agents_registry,
     load_specialized_prompts,
+    setting,
 )
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.tools.tool_filtering import filter_tools_by_tag
 
 from ..models import (
@@ -572,7 +566,6 @@ def agent_deps_from_graph(
         workspace_path=ws,
         knowledge_engine=getattr(deps, "knowledge_engine", None),
         mcp_toolsets=toolsets if toolsets is not None else list(deps.mcp_toolsets),
-        ssl_verify=deps.ssl_verify,
         provider=deps.provider,
         base_url=deps.base_url,
         api_key=deps.api_key,
@@ -943,7 +936,7 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         except Exception as e:
             logger.debug(f"WorkspaceAttention scoring failed for '{agent_name}': {e}")
 
-    agent = Agent(
+    agent = create_context_agent(
         model=ctx.deps.agent_model,
         system_prompt=agent_sys_prompt,
         deps_type=GraphDeps,
@@ -1024,15 +1017,15 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                     f"Failed to lazy load MCP server '{target_server_name}': {e}"
                 )
 
-        # Wrap MCP toolsets with the tool guard so sensitive tools are flagged
-        # as 'unapproved' and trigger the DeferredToolRequests flow.
-        from agent_utilities.security.tool_guard import (
-            build_sensitive_tool_names,
-            flag_mcp_tool_definitions,
-        )
+        # Bind MCP toolsets to the mandatory caller identity policy. Approval
+        # decisions trigger DeferredToolRequests; policy denials fail closed.
+        from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
 
         guarded_toolsets = flag_mcp_tool_definitions(
-            matched_toolsets, build_sensitive_tool_names()
+            matched_toolsets,
+            permissions_kernel=ctx.deps.permissions_kernel,
+            agent_identity=ctx.deps.agent_identity,
+            engine=ctx.deps.knowledge_engine,
         )
 
         # Include DeferredToolRequests in output type so the agent can defer
@@ -1051,8 +1044,11 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
         # form and the generic AgentDepsT/OutputDataT inference doesn't land on any
         # single Agent() overload. Tracked with the file's other pydantic-graph
         # generic-typing debt (mypy-remediation-plan.md Phase 2), not a runtime bug.
-        agent = Agent(  # type: ignore[call-overload]
+        agent = create_context_agent(
             model=ctx.deps.agent_model,
+            permissions_kernel=ctx.deps.permissions_kernel,
+            agent_identity=ctx.deps.agent_identity,
+            permission_engine=ctx.deps.knowledge_engine,
             system_prompt=agent_sys_prompt,
             deps_type=GraphDeps,
             toolsets=guarded_toolsets,
@@ -1235,8 +1231,6 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                                         tool=req_part.tool_name,
                                         result=str(req_part.content)[:500],
                                     )
-                # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
-                # and mirror to results (keyed by domain tag, for backwards compatibility).
                 result_str = str(res.output)
 
                 # RLM Large Result Summarization
@@ -1305,7 +1299,6 @@ async def _execute_dynamic_mcp_agent(ctx: StepContext, agent_info: MCPAgent) -> 
                 ctx.state.results_registry[node_uid] = result_str
 
                 result_key = agent_info.name or cache_key
-                ctx.state.results[result_key] = result_str
                 ctx.state.routed_domain = result_key
                 logger.info(
                     f"Expert: '{agent_info.name}' succeeded (attempt {attempt_no}). "
@@ -1419,7 +1412,7 @@ async def _attempt_specialist_fallback(
         no suitable fallback could be identified or executed.
 
     """
-    registry = load_node_agents_registry()
+    registry = get_discovery_registry()
     siblings = [
         a
         for a in registry.agents
@@ -1494,9 +1487,7 @@ async def _execute_agent_package_logic(
         logger.info(
             f"Expert Execution: Calling remote A2A agent '{node_id}' at {peer_url}"
         )
-        client = A2AClient(
-            timeout=deps.approval_timeout or 300.0, ssl_verify=deps.ssl_verify
-        )
+        client = A2AClient(timeout=deps.approval_timeout or 300.0)
 
         # Use the expert's specific question or the original query
         sub_query = ctx.state.query
@@ -1519,7 +1510,6 @@ async def _execute_agent_package_logic(
         # Unified result storage
         node_uid = f"{node_id}_{ctx.state.step_cursor}"
         ctx.state.results_registry[node_uid] = result_str
-        ctx.state.results[node_id] = result_str
 
         epistemic = envelope.get("epistemic") or {}
         if epistemic:
@@ -1542,7 +1532,7 @@ async def _execute_agent_package_logic(
     else:
         # CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Unified specialist execution
         # Try specialized prompt-based execution first (loads persona, injects tools + skills)
-        registry = load_node_agents_registry()
+        registry = get_discovery_registry()
         mcp_agent = next(
             (a for a in registry.agents if agent_matches_node_id(a, node_id)),
             None,
@@ -1644,13 +1634,8 @@ async def _execute_specialized_step(
         )
 
     # Filter MCP toolsets by domain tag AND node_id (prompt_name) with deduplication.
-    # Wrap each with the tool guard so sensitive tools trigger approval.
-    from agent_utilities.security.tool_guard import (
-        build_sensitive_tool_names,
-        flag_mcp_tool_definitions,
-    )
-
-    _sensitive_names = build_sensitive_tool_names()
+    # Bind each MCP toolset to the mandatory caller identity policy.
+    from agent_utilities.security.tool_guard import flag_mcp_tool_definitions
 
     # Resolve tags from the unified registry instead of the deprecated NODE_SKILL_MAP
     registry = get_discovery_registry()
@@ -1669,6 +1654,23 @@ async def _execute_specialized_step(
         if ts_identity in _seen_ts:
             continue
 
+        # A native GraphOS toolset is already run-scoped to the exact skill and
+        # caller allow-list. It is not a fleet server and must not be discarded
+        # by server/domain tag matching. Bind it exactly once, then apply the
+        # same signed identity-policy wrapper as remote MCP toolsets.
+        metadata = getattr(toolset, "metadata", None)
+        if isinstance(metadata, dict) and metadata.get("graphos_native") is True:
+            _seen_ts.add(ts_identity)
+            guarded = flag_mcp_tool_definitions(
+                [toolset],
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                engine=ctx.deps.knowledge_engine,
+            )
+            collected_mcp_toolsets.append(guarded[0])
+            mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
+            continue
+
         server_id = (
             getattr(toolset, "id", getattr(toolset, "name", "unknown"))
             .lower()
@@ -1680,7 +1682,12 @@ async def _execute_specialized_step(
             t.lower().replace("-", "_") == target for t in tool_tags
         ):
             _seen_ts.add(ts_identity)
-            guarded = flag_mcp_tool_definitions([toolset], _sensitive_names)
+            guarded = flag_mcp_tool_definitions(
+                [toolset],
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                engine=ctx.deps.knowledge_engine,
+            )
             collected_mcp_toolsets.append(guarded[0])
             mcp_tool_count += len(getattr(toolset, "tools", {})) or 1
         else:
@@ -1689,7 +1696,12 @@ async def _execute_specialized_step(
                 fid = id(filtered)
                 if fid not in _seen_ts:
                     _seen_ts.add(fid)
-                    guarded = flag_mcp_tool_definitions([filtered], _sensitive_names)
+                    guarded = flag_mcp_tool_definitions(
+                        [filtered],
+                        permissions_kernel=ctx.deps.permissions_kernel,
+                        agent_identity=ctx.deps.agent_identity,
+                        engine=ctx.deps.knowledge_engine,
+                    )
                     collected_mcp_toolsets.append(guarded[0])
                     mcp_tool_count += len(getattr(filtered, "tools", {})) or 1
 
@@ -1710,8 +1722,11 @@ async def _execute_specialized_step(
         ctx.state, custom_tools, collected_mcp_toolsets + skill_toolsets
     )
 
-    agent = Agent(
+    agent = create_context_agent(
         model=specialist_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
         system_prompt=(
             f"{memory_instruction}\n\n"
             f"{prompt}\n\n"
@@ -1724,6 +1739,12 @@ async def _execute_specialized_step(
         toolsets=_scoped_toolsets,
         output_type=[str, DeferredToolRequests],
     )
+    # Dynamic function tools must pass through the same fail-closed approval
+    # policy as top-level agents and MCP toolsets. Without this step a local
+    # specialist could invoke an ungoverned shell/file tool directly.
+    from agent_utilities.security.tool_guard import apply_tool_guard_approvals
+
+    apply_tool_guard_approvals(agent)
 
     # Tool-count telemetry for specialized steps
     total_tool_count = len(custom_tools) + mcp_tool_count
@@ -1781,16 +1802,7 @@ async def _execute_specialized_step(
                     node=prompt_name,
                 )
             res = await stream.get_output()
-        # v1/v2 compat shim: `.usage` is a v2 property but was a v1 method, and
-        # `_DeprecatedCallableRunUsage` supports both call shapes — the reassignments
-        # below narrow callable/coroutine down to a plain `RunUsage`, so this local is
-        # intentionally `Any` across all three forms rather than pinned to one.
-        usage: Any = stream.usage  # v2: property (was a method in v1)
-        if callable(usage):
-            usage = usage()
-        if asyncio.iscoroutine(usage):
-            usage = await usage
-        ctx.state._update_usage(usage)
+        ctx.state._update_usage(stream.usage)
         result_str = str(res)
 
         # RLM Large Result Summarization
@@ -1818,11 +1830,8 @@ async def _execute_specialized_step(
                     + "... [TRUNCATED DUE TO SIZE & RLM FAILURE]"
                 )
 
-        # Unified result storage: write to results_registry (primary, read by dispatcher/verifier)
-        # and mirror to results (keyed by domain, for backwards compatibility).
         node_uid = f"{prompt_name}_{ctx.state.step_cursor}"
         ctx.state.results_registry[node_uid] = result_str
-        ctx.state.results[prompt_name] = result_str
 
         logger.info(
             f"Specialized step '{prompt_name}': stored result ({len(result_str)} chars) "
@@ -1924,15 +1933,9 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
                         enable_skills=True,
                         skill_types=["universal", "graphs"],
                         tool_tags=target["tags"],
-                        tool_guard_mode="off",
+                        permissions_kernel=ctx.deps.permissions_kernel,
+                        agent_identity=ctx.deps.agent_identity,
                     )
-                elif isinstance(target, str):
-                    # Legacy package-based delegation is deprecated
-                    raise RuntimeError(
-                        f"Legacy delegation to package '{target}' is deprecated. "
-                        "Use the MCPAgent pattern or provide an Agent instance."
-                    )
-
                 if isinstance(target, tuple) and len(target) == 2:
                     sub_graph, sub_config = target
                     res = await execute_graph(
@@ -1966,10 +1969,10 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
                 # Unified result storage
                 node_uid = f"{domain}_{ctx.state.step_cursor}"
                 ctx.state.results_registry[node_uid] = result_str
-                ctx.state.results[domain] = result_str
             except Exception as e:
                 logger.error(f"domain_step delegation error for '{domain}': {e}")
-                ctx.state.results[domain] = f"Delegation Error: {e}"
+                node_uid = f"{domain}_{ctx.state.step_cursor}"
+                ctx.state.results_registry[node_uid] = f"Delegation Error: {e}"
         else:
             query = ctx.state.query
             if ctx.state.validation_feedback:
@@ -1986,8 +1989,8 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
                 tool_tags=[domain],
                 name=f"Graph-{domain}",
                 system_prompt=domain_prompt,
-                ssl_verify=deps.ssl_verify,
-                tool_guard_mode="off",
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
             )
 
             emit_graph_event(deps.event_queue, "subagent_started", domain=domain)
@@ -2000,8 +2003,7 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
 
             # If an approval manager is available, use the transparent
             # approval loop that pauses the graph and waits for user
-            # decisions.  Otherwise, fall back to the legacy behaviour
-            # that terminates the graph on DeferredToolRequests.
+            # decisions. Without a manager, deferred requests terminate the graph.
             if deps.approval_manager is not None:
                 from agent_utilities.observability.approval_manager import (
                     run_with_approvals,
@@ -2029,7 +2031,8 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
 
                 if isinstance(output, DeferredToolRequests):
                     ctx.state.human_approval_required = True
-                    ctx.state.results[domain] = output
+                    node_uid = f"{domain}_{ctx.state.step_cursor}"
+                    ctx.state.results_registry[node_uid] = output
                     emit_graph_event(
                         deps.event_queue,
                         event_type="approval_required",
@@ -2044,13 +2047,13 @@ async def _execute_domain_logic(ctx: StepContext, domain: str):
             result_str = str(output)
             node_uid = f"{domain}_{ctx.state.step_cursor}"
             ctx.state.results_registry[node_uid] = result_str
-            ctx.state.results[domain] = result_str
             emit_graph_event(deps.event_queue, "subagent_completed", domain=domain)
 
     except Exception as e:
         logger.error(f"domain_step error for '{domain}': {e}")
         ctx.state.error = f"Domain failed: {e}"
-        ctx.state.results[domain] = f"Error: {e}"
+        node_uid = f"{domain}_{ctx.state.step_cursor}"
+        ctx.state.results_registry[node_uid] = f"Error: {e}"
         return "error_recovery"
     finally:
         for env_var, value in original_env.items():

@@ -61,11 +61,10 @@ def bootstrap_ontology_path(ctx: PipelineContext) -> str | None:
         fh.write(boot.to_turtle())
         path = fh.name
     logger.info(
-        "Bootstrapped ontology from %d records: %d classes, %d properties → %s",
+        "Bootstrapped ontology from %d records: %d classes, %d properties",
         result.samples_seen,
         len(result.classes),
         len(result.properties),
-        path,
     )
     return path
 

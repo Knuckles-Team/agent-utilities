@@ -6,11 +6,10 @@ For every service in ``deploy/mcp-fleet.registry.yml`` that lacks a
 stack (``compose.yml`` + ``AGENTS.md`` + ``README.md``) matching the convention
 of the already-deployed connectors (e.g. ``services/github-mcp``):
 
-  image:   knucklessg1/<package>:latest
+  image:   <runtime image prefix>/<package>:<runtime tag>
   command: [<name>]            # the package's console script
   transport: streamable-http on :8000, /health healthcheck
-  networks: caddy/cloudflare/internet, dns 10.0.0.199
-  swarm placement round-robin over the misc-MCP workers (GR1080 excluded — down)
+  network, authentication, policy endpoint, and placement are operator inputs
 
 These dirs become individual GitLab repos (push-to-create) and Portainer GitOps
 swarm stacks. Idempotent: never overwrites an existing service dir.
@@ -27,35 +26,33 @@ import argparse
 import re
 from pathlib import Path
 
-PLACEMENT_NODES = ["R710", "RW710"]  # stateless MCP workers; GR1080 is down
+_SERVICE_COMPONENT = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$")
+_PLACEMENT_COMPONENT = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,126}[A-Za-z0-9])?$"
+)
+_IMAGE_PREFIX = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._:/-]{0,253}[A-Za-z0-9])?$")
+_IMAGE_TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
 
 COMPOSE_TMPL = """version: '3.8'
 services:
   {name}:
-    image: knucklessg1/{package}:latest
+    image: {image_prefix}/{package}:{image_tag}
     hostname: {name}
     restart: always
     networks:
-    - caddy
-    - cloudflare
-    - internet
-    dns:
-    - 10.0.0.199
+    - {network}
     environment:
     - PYTHONUNBUFFERED=1
     - HOST=0.0.0.0
     - PORT=8000
     - TRANSPORT=streamable-http
-    # Fleet-standard auth ON by default: the shared agent_utilities server factory
-    # verifies Keycloak-issued JWTs (audience agent-services) + enforces eunomia
-    # policy. Non-secret internal URLs. The multiplexer presents a service token
-    # (MCP_CLIENT_AUTH=oidc-client-credentials). CONCEPT:AU-OS.identity.so-jwt-protected-children.
+    # Authentication and policy authority are runtime configuration.
     - AUTH_TYPE=jwt
-    - FASTMCP_SERVER_AUTH_JWT_AUDIENCE=agent-services
-    - FASTMCP_SERVER_AUTH_JWT_ISSUER=http://keycloak.arpa/realms/master
-    - FASTMCP_SERVER_AUTH_JWT_JWKS_URI=http://keycloak.arpa/realms/master/protocol/openid-connect/certs
+    - FASTMCP_SERVER_AUTH_JWT_AUDIENCE=${{FASTMCP_SERVER_AUTH_JWT_AUDIENCE:?required}}
+    - FASTMCP_SERVER_AUTH_JWT_ISSUER=${{FASTMCP_SERVER_AUTH_JWT_ISSUER:?required}}
+    - FASTMCP_SERVER_AUTH_JWT_JWKS_URI=${{FASTMCP_SERVER_AUTH_JWT_JWKS_URI:?required}}
     - EUNOMIA_TYPE=remote
-    - EUNOMIA_REMOTE_URL=http://eunomia.arpa
+    - EUNOMIA_REMOTE_URL=${{EUNOMIA_REMOTE_URL:?required}}
     command:
     - {name}
     healthcheck:
@@ -72,58 +69,53 @@ services:
     deploy:
       placement:
         constraints:
-        - node.labels.name == ${{SERVER:-{node}}}
+        - node.labels.{placement_label} == ${{SERVER:-{node}}}
       restart_policy:
         condition: any
 networks:
-  cloudflare:
-    external: true
-  internet:
-    external: true
-  caddy:
+  {network}:
     external: true
 """
 
 README_TMPL = """# {name}
 
-Portainer GitOps stack for the `{name}` Model Context Protocol server
-(`knucklessg1/{package}`), served over streamable-http on port 8000.
+GitOps stack for the `{name}` Model Context Protocol server, served over
+streamable-http on port 8000.
 
 ## Deploy
 
 ```
 cd existing_repo
-git remote add origin http://gitlab.arpa/homelab/containers/services/{name}.git
+test -n "${{GIT_REMOTE_URL:?set the target repository URL}}"
+git remote add origin "$GIT_REMOTE_URL"
 git branch -M main
 git push -u origin main
 ```
 
-Then create/redeploy the Portainer **swarm** stack from this repository
-(GitOps auto-sync). Reachable internally at `http://{name}.arpa`.
+Then create or redeploy the target platform's Swarm stack from this repository.
+The public/service URL is supplied by the target environment.
 
-Per-service credentials/config are injected as Portainer stack environment
-variables (or from OpenBao at runtime), not committed here.
+Per-service credentials and configuration are injected by the target platform's
+secret controller, not committed here.
 """
 
 AGENTS_TMPL = """# AGENTS.md - AI Agent Context
 
 ## Role in Agent OS Architecture
 The `{name}` service is an active operational MCP server running within the Swarm
-overlay network (image `knucklessg1/{package}`).
+overlay network (image selected by deployment configuration).
 
 ### Intent & Function
 - **Ecosystem Capability**: Model Context Protocol adapter exposed over
   streamable-http on port 8000.
-- **LAN Access**: Reachable internally at `http://{name}.arpa`.
-- **Integration Layer**: AI agents reach it via the `{name}` tool surface (or
-  through the `mcp-multiplexer`) to automate its domain.
+- **Network Access**: Resolved from the runtime service registry.
+- **Integration Layer**: AI agents reach it through GraphOS's `{name}` fleet
+  tool surface to automate its domain.
 
 ### How to Interact
-1. **MCP / HTTP**: Connect to the internal endpoint `http://{name}.arpa` (or the
-   mapped host port from the fleet registry).
-2. **Lifecycle**: Use `portainer-agent` / `container-manager-mcp` to check
-   replication, scale, or trigger updates.
-3. **Config/Secrets**: Injected as Portainer stack env / OpenBao at runtime.
+1. **MCP / HTTP**: Resolve the endpoint from the runtime fleet registry.
+2. **Lifecycle**: Use the deployment platform's standard lifecycle interface.
+3. **Config/Secrets**: Injected by the deployment secret controller.
 """
 
 
@@ -146,28 +138,78 @@ def parse_registry(path: Path) -> list[tuple[str, str]]:
     return services
 
 
+def _require_match(value: str, pattern: re.Pattern[str], option: str) -> str:
+    """Reject values that could escape a path or alter generated YAML."""
+    clean = value.strip()
+    if not pattern.fullmatch(clean) or ".." in clean:
+        raise ValueError(f"{option} contains unsupported characters")
+    return clean
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--registry", required=True, type=Path)
     ap.add_argument("--services-dir", required=True, type=Path)
+    ap.add_argument("--image-prefix", required=True)
+    ap.add_argument("--image-tag", default="latest")
+    ap.add_argument("--network", required=True)
+    ap.add_argument(
+        "--placement-nodes",
+        required=True,
+        help="comma-separated node-label values",
+    )
+    ap.add_argument("--placement-label", default="name")
     args = ap.parse_args()
 
     services = parse_registry(args.registry)
+    try:
+        image_prefix = _require_match(
+            args.image_prefix.rstrip("/"), _IMAGE_PREFIX, "--image-prefix"
+        )
+        image_tag = _require_match(args.image_tag, _IMAGE_TAG, "--image-tag")
+        network = _require_match(args.network, _SERVICE_COMPONENT, "--network")
+        placement_label = _require_match(
+            args.placement_label, _PLACEMENT_COMPONENT, "--placement-label"
+        )
+        placement_nodes = [
+            _require_match(value, _PLACEMENT_COMPONENT, "--placement-nodes")
+            for value in args.placement_nodes.split(",")
+            if value.strip()
+        ]
+    except ValueError as exc:
+        ap.error(str(exc))
+    if not placement_nodes:
+        ap.error("--placement-nodes must contain at least one value")
     generated: list[str] = []
     idx = 0
     for name, package in services:
+        try:
+            name = _require_match(name, _SERVICE_COMPONENT, "registry service name")
+            package = _require_match(
+                package, _SERVICE_COMPONENT, "registry package name"
+            )
+        except ValueError as exc:
+            ap.error(str(exc))
         dest = args.services_dir / name
         if dest.exists():
             continue  # already deployed / present
-        node = PLACEMENT_NODES[idx % len(PLACEMENT_NODES)]
+        node = placement_nodes[idx % len(placement_nodes)]
         idx += 1
         dest.mkdir(parents=True)
         (dest / "compose.yml").write_text(
-            COMPOSE_TMPL.format(name=name, package=package, node=node)
+            COMPOSE_TMPL.format(
+                name=name,
+                package=package,
+                node=node,
+                image_prefix=image_prefix,
+                image_tag=image_tag,
+                network=network,
+                placement_label=placement_label,
+            )
         )
         (dest / "README.md").write_text(README_TMPL.format(name=name, package=package))
         (dest / "AGENTS.md").write_text(AGENTS_TMPL.format(name=name, package=package))
-        generated.append(f"{name} (knucklessg1/{package} -> {node})")
+        generated.append(f"{name} ({package} -> configured placement)")
 
     print(f"Generated {len(generated)} new stack dirs:")
     for g in generated:

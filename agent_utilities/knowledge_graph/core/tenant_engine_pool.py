@@ -1,4 +1,4 @@
-# CONCEPT:AU-KG.sharding.elastic-over-kg-shard - Elastic per-tenant L1 engine pool: a bounded warm set of tenant-graph engine clients with LRU eviction (cold tenants snapshotted/dropped) and hydrate-on-miss layered over the KG-2.58 shard routing
+# CONCEPT:AU-KG.sharding.elastic-over-kg-shard - Elastic per-tenant engine pool: a bounded warm set of tenant-graph engine clients with LRU eviction (cold tenants snapshotted/dropped) and hydrate-on-miss layered over the KG-2.58 shard routing
 """Bounded, warm pool of per-tenant engine clients with LRU eviction.
 
 KG-2.58 routes each tenant to a named graph on a (statically configured) shard;
@@ -8,15 +8,14 @@ process: only the ``capacity`` most-recently-used tenant graphs are kept *warm*
 past capacity, the least-recently-used tenant is **evicted** — snapshotted/dropped
 and its client closed — and a later access **hydrates** it again.
 
-Eviction is never lossy: the tiered backend mirrors every write to the durable
-L3 tier (Postgres/pggraph), which remains the source of truth, so an evicted
-tenant's data is reloaded from L3 on the next access. The pool only governs L1
-*residency*.
+Eviction is never lossy when drop-on-evict is enabled only with durable engine
+persistence: an evicted tenant's data is reloaded on the next access. The pool
+only governs process residency.
 
-Disabled by default (``KG_ENGINE_POOL_SIZE=0`` → engines are constructed per use
-exactly as today). The engine factory, hydrate, and evict steps are injectable
-so the LRU policy is unit-testable without a live engine, and so the eviction
-hook can call a future engine-side per-graph unload when one ships.
+The typed default retains eight warm clients. Setting ``KG_ENGINE_POOL_SIZE=0``
+disables pooling and constructs clients per use. The engine factory, hydrate, and
+evict steps are injectable so the LRU policy is unit-testable without a live
+engine.
 """
 
 from __future__ import annotations
@@ -36,14 +35,14 @@ __all__ = ["TenantEnginePool", "acquire_engine", "get_engine_pool", "reset_engin
 
 
 def _default_factory(graph_name: str) -> Any:
-    """Construct an engine client bound to ``graph_name`` (KG-2.58 routing)."""
+    """Acquire a zero-connection view bound to ``graph_name``."""
     from .graph_compute import GraphComputeEngine
 
-    return GraphComputeEngine(graph_name=graph_name)
+    return GraphComputeEngine.get_or_create(graph_name=graph_name)
 
 
 def _drop_on_evict_enabled() -> bool:
-    """Whether eviction unloads the tenant graph from the engine (needs L3)."""
+    """Whether eviction unloads the tenant graph from the durable engine."""
     try:
         from agent_utilities.core.config import config
 
@@ -53,10 +52,11 @@ def _drop_on_evict_enabled() -> bool:
 
 
 def _default_evict(graph_name: str, engine: Any) -> None:
-    """Release an evicted tenant's L1 residency.
+    """Release an evicted tenant graph view.
 
-    Always closes the process-local client. When ``KG_ENGINE_POOL_DROP_ON_EVICT``
-    is set (safe only when the data is durably mirrored to L3, which re-hydrates
+    A graph view never closes the shared process client. When
+    ``KG_ENGINE_POOL_DROP_ON_EVICT``
+    is set (safe only when the data is held by an explicit durable mirror, which restores it
     on the next access), it also unloads the tenant's named graph from the engine
     via :meth:`GraphComputeEngine.drop_graph` to reclaim engine memory.
     """
@@ -67,14 +67,6 @@ def _default_evict(graph_name: str, engine: Any) -> None:
                 drop()
             except Exception as exc:  # noqa: BLE001 — best-effort unload
                 logger.debug("drop_graph %s skipped: %s", graph_name, exc)
-    for method in ("close", "disconnect"):
-        fn = getattr(engine, method, None)
-        if callable(fn):
-            try:
-                fn()
-            except Exception as exc:  # noqa: BLE001 — eviction is best-effort
-                logger.debug("evict %s via %s skipped: %s", graph_name, method, exc)
-            break
 
 
 class TenantEnginePool:

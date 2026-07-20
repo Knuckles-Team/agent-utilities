@@ -86,7 +86,7 @@ graph TD
 ### A. Semantic Routing & Topic Sharding (`AU-ECO.bus.pluggable-queue-backend` × `ORCH-1.12` × `KG-2.6`)
 *   **Mechanism**: The company's organizational chart is represented as a structured ontology (`ontology_company.ttl`).
     - The NATS/Kafka messaging topics are sharded hierarchically matching the ontology (e.g., `tasks.shard.legal.compliance.tax.*`).
-    - When a new worker node spins up, it queries the local `KGCoordinator` for its registered specialist role.
+    - When a new worker node starts, it queries its registered specialist role through GraphOS against the authoritative epistemic-graph registry.
     - The worker's agent capabilities are classified against the OWL schema. The coordinator runs a subsumption query:
       ```sparql
       SELECT ?topic WHERE {
@@ -173,7 +173,7 @@ We propose registering the following concept mappings to fully support these syn
 | `OS-5.8` | Epistemic Resource Scheduler | `cognitive_scheduler.py` | Scales processor priority, memory quotas, and thread affinity dynamically based on KG centrality and role centralities. |
 | `AU-OS.governance.reactive-multi-axis-budget` | Ontological Guardrail Engine | `tool_guard.py` | Resolves proposed tool call parameters against OWL policy nodes for complete mathematical safety proofs. |
 | `KG-2.7` | Speculative Graph Brancher | `kg_versioning.py` | Manages transient workspace transaction branches (`KGTransaction`) to allow lock-free concurrent modifications at scale. |
-| `KG-2.7` | Semantic Compactor & Refactorer | `knowledge_graph/memory/` (`ElasticContextManager`), driven by `_tick_compaction` in `core/engine_tasks.py` | Performs background refactoring of millions of execution traces into high-level declarative facts. |
+| `KG-2.7` | Semantic Compactor & Refactorer | `knowledge_graph/memory/` (`AgentContextManager`), driven by `_tick_compaction` in `core/engine_tasks.py` | Performs background refactoring of millions of execution traces into high-level declarative facts. |
 | `KG-2.8` | SHACL Ingestion Gate | `pipeline/phases/shacl_gate.py` | Validates candidate nodes against `shapes/governance.shapes.ttl` before commit; quarantines violating nodes to an `:Invalid` marker with an attached violation report. |
 
 ---

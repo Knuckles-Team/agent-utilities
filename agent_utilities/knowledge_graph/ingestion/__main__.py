@@ -19,8 +19,6 @@ import argparse
 import asyncio
 import json
 
-from agent_utilities.core.config import setting
-
 from .engine import ContentType, IngestionEngine, IngestionManifest
 
 
@@ -31,7 +29,7 @@ def _build_engine():
     built; its backend connects to the running epistemic-graph daemon (role
     self-heals to client), writing to the same durable graph.
     """
-    from agent_utilities.core.paths import ensure_dirs, kg_db_path
+    from agent_utilities.core.paths import ensure_dirs
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -39,10 +37,8 @@ def _build_engine():
     if active is not None:
         return active
     ensure_dirs()
-    backend = create_backend(
-        backend_type=setting("GRAPH_BACKEND"), db_path=str(kg_db_path())
-    )
-    return IntelligenceGraphEngine(backend=backend)
+    backend = create_backend()
+    return IntelligenceGraphEngine.get_or_create(backend=backend)
 
 
 async def _amain(args: argparse.Namespace) -> int:

@@ -34,9 +34,9 @@ A frontend is "scale-many-instances ready" when:
 | Variable | Thin-instance value | Effect |
 |---|---|---|
 | `KG_DAEMON_ROLE` | `client` | Do not run the in-process host daemon; reach the shared host. |
-| `GRAPH_SERVICE_ENDPOINTS` | `unix:///run/eg-0.sock,…` (or host:port) | Where the shared engine (or shards, AU-KG.sharding.tenant-partitioned-sharding-hrw) lives. |
+| `GRAPH_SERVICE_ENDPOINTS` | `unix:///run/eg-0.sock,…` or `tls://engine.example.test:9100` | Connect-only contacts for the existing shared engine (or shards, AU-KG.sharding.tenant-partitioned-sharding-hrw). |
 | `AGENT_URL` / gateway URL | `http://agent-utilities:8000` | The shared gateway the UI calls over HTTP. |
-| `STATE_DB_URI` | shared Postgres DSN | So client instances share sessions/queues/checkpoints (AU-OS.state.unified-durable-state-externalization–18). |
+| `STATE_DB_URI` | shared Postgres DSN | So client instances share sessions, fleet metadata, and queue delivery; WorkItem checkpoints remain engine-native (AU-OS.state.unified-durable-state-externalization–18). |
 
 One node runs the **host** (`KG_DAEMON_ROLE=host` or unset + the engine), everything
 else runs **client**. Pair with the [Enterprise Enablement Runbook](enterprise-enablement-runbook.md)
@@ -54,8 +54,9 @@ runtime-only `Dockerfile` ships the frontend without the backend. ~30–50 MB/in
 
 ### agent-webui — thin via client role
 The React SPA scales infinitely in the browser; the **Python API server** is what you
-scale horizontally. It needs `agent-utilities[agent,graph]` (the engine *client* + the
-canonical gateway routes), so it is not as small as terminal-ui — but it is thin when
+scale horizontally. It needs `agent-utilities[agent-runtime,graph]` for model runtime and
+canonical gateway helpers; the full engine is already a hard base dependency. It is not
+as small as terminal-ui, but it is thin when
 run as **`KG_DAEMON_ROLE=client`**: the server skips the in-process host daemon
 (`server.py` `_start_kg_host_daemon`) and reaches a shared host over the engine socket.
 Run **one** host instance (or a sharded backend) and **many** client-role API instances

@@ -12,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.security.identity import (
-    NormalizedIdentity,
     base_capabilities,
     detect_provider,
     normalize_identity,
@@ -84,10 +83,14 @@ class TestNormalizeIdentity:
         assert ident.roles == ("b", "a")
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance")
-    def test_empty_claims_are_safe(self):
-        ident = normalize_identity({})
-        assert ident == NormalizedIdentity(subject="jwt")
-        assert base_capabilities(ident) == ()
+    def test_missing_subject_is_rejected(self):
+        with pytest.raises(ValueError, match="missing a subject"):
+            normalize_identity({})
+
+    @pytest.mark.parametrize("subject", ["", "   ", 42, [], {}])
+    def test_malformed_subject_is_rejected(self, subject):
+        with pytest.raises(ValueError, match="invalid subject"):
+            normalize_identity({"sub": subject})
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance")
     def test_group_dict_entries_reduced_to_name(self):

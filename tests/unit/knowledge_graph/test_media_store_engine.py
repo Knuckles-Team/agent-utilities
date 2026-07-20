@@ -1,7 +1,8 @@
 #!/usr/bin/python
 """Real-engine proof for durable multimodal memory (CONCEPT:AU-KG.identity.asset-occurrence).
 
-Against the ACTUAL ephemeral engine (KG-2.238, pi-max tier so blob+tsdb are served):
+Against the ACTUAL ephemeral engine from the mandatory
+``epistemic-graph[full]>=2.23.1,<3.0.0`` runtime (KG-2.238):
 
 * a small image/audio payload stored via :class:`MediaStore` round-trips back byte-
   for-byte from the engine BLOB substrate;
@@ -12,15 +13,19 @@ Against the ACTUAL ephemeral engine (KG-2.238, pi-max tier so blob+tsdb are serv
   a reader sees the :AssetOccurrence with its content_digest, the :Blob node, and the
   :hasBlob edge.
 
-These exercise the engine's blob feature; if the resolved test binary lacked it the
-fixture would have rebuilt pi-max (tests/_test_engine.py).
+These exercise the full engine artifact's blob feature. The fixture resolves the
+installed wheel binary and never compiles a different artifact during pytest
+(``tests/_test_engine.py``).
 """
 
 from __future__ import annotations
 
 import pytest
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.identity.asset-occurrence")]
+pytestmark = [
+    pytest.mark.engine,
+    pytest.mark.concept("AU-KG.identity.asset-occurrence"),
+]
 
 
 # A tiny but non-trivial payload: includes 0x0A (newline) and 0xFF bytes so we prove
@@ -43,9 +48,10 @@ def test_media_blob_roundtrip(engine_graph):
     assert res.size_bytes == len(_IMG)
     assert res.deduped is False  # first time these bytes are seen
 
-    # Fetch back by digest AND by occurrence id (``.asset_id`` back-compat alias
-    # too) — both recover the exact bytes.
+    # Fetch back by digest, by canonical occurrence id, and by the
+    # ``.asset_id`` back-compat alias — all recover the exact bytes.
     assert store.fetch_bytes(res.digest) == _IMG
+    assert store.fetch_occurrence(res.occurrence_id) == _IMG
     assert store.fetch_asset(res.occurrence_id) == _IMG
     assert store.fetch_asset(res.asset_id) == _IMG
 

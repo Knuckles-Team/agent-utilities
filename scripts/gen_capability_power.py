@@ -16,6 +16,8 @@ checkout or the vendored cache), assembles one CPD per tool, and writes:
 
 * ``docs/capabilities-power.md``  — human/LLM-browsable rendering.
 * ``docs/capabilities-power.json`` — the same data, machine-readable.
+* ``agent_utilities/knowledge_graph/retrieval/capabilities-power.json`` —
+  byte-identical package data used by installed Graph-OS runtimes.
 * ``docs/_vendor_eg_capability_ledger.json`` — a small cache of the EG ledger
   rows actually used, refreshed whenever a live EG checkout is found, so
   ``--check`` stays deterministic in an AU-only checkout that has no sibling
@@ -62,6 +64,13 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
 
 MD_PATH = ROOT / "docs" / "capabilities-power.md"
 JSON_PATH = ROOT / "docs" / "capabilities-power.json"
+PACKAGE_JSON_PATH = (
+    ROOT
+    / "agent_utilities"
+    / "knowledge_graph"
+    / "retrieval"
+    / "capabilities-power.json"
+)
 CACHE_PATH = ROOT / "docs" / "_vendor_eg_capability_ledger.json"
 
 # Candidate sibling-checkout locations for the EG-generated ledger, tried in
@@ -72,8 +81,27 @@ CACHE_PATH = ROOT / "docs" / "_vendor_eg_capability_ledger.json"
 _CANDIDATE_LEDGER_PATHS = (
     "../epistemic-graph/docs/capabilities.generated.md",
     "../../epistemic-graph/docs/capabilities.generated.md",
-    "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
 )
+_LEDGER_SOURCE_LABEL = "repo://epistemic-graph/docs/capabilities.generated.md"
+
+
+def generation_timestamp() -> str:
+    """Return a reproducible generation instant when SOURCE_DATE_EPOCH is set."""
+
+    from datetime import UTC, datetime
+
+    source_epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if source_epoch is None:
+        instant = datetime.now(UTC)
+    else:
+        try:
+            epoch = int(source_epoch)
+        except ValueError as exc:
+            raise ValueError("SOURCE_DATE_EPOCH must be an integer") from exc
+        if epoch < 0:
+            raise ValueError("SOURCE_DATE_EPOCH must not be negative")
+        instant = datetime.fromtimestamp(epoch, UTC)
+    return instant.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def locate_eg_ledger(explicit: str | None) -> Path | None:
@@ -117,32 +145,30 @@ def load_ledger(
         ledger = {
             method: LedgerRow(**row) for method, row in cached.get("rows", {}).items()
         }
-        return ledger, cached.get("source_path"), False
+        return ledger, _LEDGER_SOURCE_LABEL, False
 
     live_path = locate_eg_ledger(explicit)
     if live_path is not None:
         text = live_path.read_text(encoding="utf-8")
         ledger = parse_eg_ledger_markdown(text)
         if refresh_cache:
-            _write_cache(ledger, str(live_path))
-        return ledger, str(live_path), True
+            _write_cache(ledger, _LEDGER_SOURCE_LABEL)
+        return ledger, _LEDGER_SOURCE_LABEL, True
 
     if CACHE_PATH.exists():
         cached = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
         ledger = {
             method: LedgerRow(**row) for method, row in cached.get("rows", {}).items()
         }
-        return ledger, cached.get("source_path"), False
+        return ledger, _LEDGER_SOURCE_LABEL, False
 
     return {}, None, False
 
 
 def _write_cache(ledger: dict[str, LedgerRow], source_path: str) -> None:
-    from datetime import UTC, datetime
-
     payload = {
         "source_path": source_path,
-        "cached_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "cached_at": generation_timestamp(),
         "row_count": len(ledger),
         "rows": {method: row.to_dict() for method, row in ledger.items()},
     }
@@ -228,6 +254,10 @@ def get_actions_for_tool(
         return list(graphlearn_actions)
     if tool_name == "graph_mine_deep":
         return list(deep_mining_actions)
+    # The checked-in generated manifest is the distribution-owned action
+    # contract. Never prefer a client module imported from the ambient Python
+    # environment: an editable sibling, an older wheel, and CI could otherwise
+    # render different CPDs from the same source snapshot.
     if tool_name in manifest_by_tool:
         actions = [a for a in manifest_by_tool[tool_name] if a is not None]
         if actions:
@@ -270,12 +300,18 @@ def build_typed_io(tool: Any, rest_route: str) -> dict[str, Any]:
 
 
 def build_examples(
-    tool_name: str, one_line: str, does: list[dict[str, Any]]
+    tool_name: str,
+    one_line: str,
+    does: list[dict[str, Any]],
+    *,
+    action_routed: bool,
 ) -> list[str]:
     """A few intent-phrasing examples, DERIVED from the tool's own action names
     (not hand-authored copy) — the X-4/2c resolver few-shot signal.
     """
     examples = [f"{tool_name}: {truncate_at_word(one_line, 80)}"]
+    if not action_routed:
+        return examples
     for d in does[:3]:
         examples.append(f"{tool_name} action={d['action']}")
     return examples
@@ -415,7 +451,12 @@ def build_cpd(
         ),
         when_to_use=when_to_use,
         when_not=when_not,
-        examples=build_examples(name, one_line, does),
+        examples=build_examples(
+            name,
+            one_line,
+            does,
+            action_routed="action" in (tool.parameters or {}).get("properties", {}),
+        ),
         eligibility_predicates=build_eligibility_predicates(name, tags),
         calibrated_outcomes={},
         provenance=Provenance(
@@ -490,9 +531,7 @@ def generate(
         )
         for t in sorted(tools, key=lambda t: t.name)
     ]
-    from datetime import UTC, datetime
-
-    generated_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    generated_at = generation_timestamp()
     return cpds, generated_at
 
 
@@ -518,17 +557,21 @@ def main() -> int:
 
     if args.write:
         MD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        PACKAGE_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
         MD_PATH.write_text(md, encoding="utf-8")
         JSON_PATH.write_text(js, encoding="utf-8")
-        print(f"Wrote {len(cpds)} CPDs to {MD_PATH} and {JSON_PATH}")
+        PACKAGE_JSON_PATH.write_text(js, encoding="utf-8")
+        print(
+            f"Wrote {len(cpds)} CPDs to {MD_PATH}, {JSON_PATH}, and {PACKAGE_JSON_PATH}"
+        )
         return 0
 
     # --check: regenerate (content only, ignoring the generation timestamp,
     # which appears both as a JSON `generated_at` field and inline markdown
     # prose) and diff against what's committed.
     ok = True
-    if not MD_PATH.exists() or not JSON_PATH.exists():
-        print("capabilities-power.md/.json missing — run --write first.")
+    if not MD_PATH.exists() or not JSON_PATH.exists() or not PACKAGE_JSON_PATH.exists():
+        print("capabilities-power catalog output missing — run --write first.")
         return 1
     if strip_generation_timestamp(
         MD_PATH.read_text(encoding="utf-8")
@@ -539,6 +582,17 @@ def main() -> int:
         JSON_PATH.read_text(encoding="utf-8")
     ) != strip_generation_timestamp(js):
         print(f"DRIFT: {JSON_PATH} does not match the live tool registry + ledger.")
+        ok = False
+    if strip_generation_timestamp(
+        PACKAGE_JSON_PATH.read_text(encoding="utf-8")
+    ) != strip_generation_timestamp(js):
+        print(
+            f"DRIFT: {PACKAGE_JSON_PATH} does not match the live tool registry "
+            "+ ledger."
+        )
+        ok = False
+    if JSON_PATH.read_bytes() != PACKAGE_JSON_PATH.read_bytes():
+        print(f"DRIFT: {PACKAGE_JSON_PATH} is not byte-identical to {JSON_PATH}.")
         ok = False
     if ok:
         print(

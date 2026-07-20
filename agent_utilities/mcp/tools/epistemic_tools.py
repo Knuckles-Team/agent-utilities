@@ -42,6 +42,7 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_json
 
 #: Friendly action name -> underlying ``client.query.<method>`` name.
 _ACTION_TO_METHOD: dict[str, str] = {
@@ -139,12 +140,10 @@ def register_epistemic_tools(mcp: Any) -> None:
             try:
                 parsed_ids = json.loads(node_ids) if node_ids else []
             except (TypeError, ValueError) as exc:
-                return json.dumps(
-                    {
-                        "surface": "epistemic",
-                        "action": action_key,
-                        "error": f"invalid node_ids: {exc}",
-                    }
+                return public_error_json(
+                    exc,
+                    code="invalid_request",
+                    context={"surface": "epistemic", "action": action_key},
                 )
             if not isinstance(parsed_ids, list) or not parsed_ids:
                 return json.dumps(

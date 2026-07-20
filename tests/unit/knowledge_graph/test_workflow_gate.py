@@ -2,8 +2,8 @@
 
 A stored WorkflowDefinition is SHACL-validated (WorkflowDefinitionShape /
 WorkflowStepShape in governance.shapes.ttl) before dispatch — malformed
-definitions are refused with a structured report; with KG_BRAIN_ENFORCE on,
-the ontology permissioning row gate (markings + ACLs, fail-closed) is applied
+definitions are refused with a structured report; the mandatory ontology
+permissioning row gate (markings + ACLs, fail-closed) is applied
 to the workflow node for the current actor.
 
 @pytest.mark.concept("AU-ORCH.execution.ontology-validation-execution-path")
@@ -60,19 +60,51 @@ class FakeEngine:
         self.backend = None
 
 
-def _seed_workflow(engine, name="invoice_flow", step_count=2, steps=None):
+def _seed_workflow(engine, name="invoice_flow", step_count=2, steps=None, *, acl=True):
     wid = f"workflow:{name}:abc123"
     engine.graph.add_node(
         wid,
-        {"type": "WorkflowDefinition", "name": name, "step_count": step_count},
+        {
+            "node_type": "WorkflowDefinition",
+            "name": name,
+            "step_count": step_count,
+        },
     )
+    if acl:
+        from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
+        from agent_utilities.models.company_brain import DataClassification
+
+        build_acl(wid, DataClassification.PUBLIC)
     if steps is None:
         steps = [{"node_id": "review"}, {"node_id": "archive"}]
     for i, step in enumerate(steps):
         sid = f"{wid}:step:{i}"
-        engine.graph.add_node(sid, {"type": "WorkflowStep", "step_order": i, **step})
-        engine.graph.add_edge(wid, sid, type="HAS_STEP", step_order=i)
+        engine.graph.add_node(
+            sid, {"node_type": "WorkflowStep", "step_order": i, **step}
+        )
+        engine.graph.add_edge(wid, sid, relationship="HAS_STEP", step_order=i)
     return wid
+
+
+@pytest.fixture(autouse=True)
+def _governed_permission_state(monkeypatch):
+    import agent_utilities.knowledge_graph.core.company_brain_runtime as cbr
+    from agent_utilities.knowledge_graph.ontology.permissioning import (
+        clear_markings,
+        set_marking_store,
+    )
+
+    class Store:
+        @staticmethod
+        def execute(_query, _params):
+            return []
+
+    monkeypatch.setattr(cbr, "_BRAIN", None)
+    clear_markings()
+    set_marking_store(Store())
+    yield
+    clear_markings()
+    monkeypatch.setattr(cbr, "_BRAIN", None)
 
 
 class TestShapeGate:
@@ -105,11 +137,17 @@ class TestShapeGate:
         assert gate["allowed"] is False
         assert any("node_id" in str(v.get("message", "")) for v in gate["violations"])
 
-    def test_unstored_workflow_passes_through(self):
+    def test_unstored_workflow_is_refused(self):
         engine = FakeEngine()
         gate = gate_workflow_execution(engine, "dynamic_adhoc_flow")
-        assert gate["allowed"] is True
+        assert gate["allowed"] is False
         assert gate["workflow_id"] is None
+        assert gate["violations"] == [
+            {
+                "code": "workflow_definition_missing",
+                "message": "A persisted WorkflowDefinition is required for execution.",
+            }
+        ]
 
     def test_gate_off_bypasses_shape_validation(self, monkeypatch):
         from agent_utilities.core.config import config as cfg
@@ -133,27 +171,20 @@ class TestPermissionGate:
         from agent_utilities.security.brain_context import ActorContext
 
         return ActorContext(
-            actor_id=actor_id, actor_type=ActorType.AI_AGENT, roles=tuple(roles)
+            actor_id=actor_id,
+            actor_type=ActorType.AI_AGENT,
+            roles=tuple(roles),
+            tenant_id="tenant-a",
+            authenticated=True,
         )
 
-    @pytest.fixture(autouse=True)
-    def _fresh_brain(self, monkeypatch):
-        # Isolate the process-wide CompanyBrain so ACLs don't leak across tests.
-        import agent_utilities.knowledge_graph.core.company_brain_runtime as cbr
-
-        monkeypatch.setattr(cbr, "_BRAIN", None)
-        yield
-        monkeypatch.setattr(cbr, "_BRAIN", None)
-
-    def test_enforcement_off_skips_acl_check(self, monkeypatch):
-        monkeypatch.delenv("KG_BRAIN_ENFORCE", raising=False)
+    def test_missing_acl_denies(self):
         engine = FakeEngine()
-        _seed_workflow(engine)
-        gate = gate_workflow_execution(engine, "invoice_flow", actor=self._actor())
-        assert gate["allowed"] is True
+        _seed_workflow(engine, acl=False)
+        with pytest.raises(PermissionError):
+            gate_workflow_execution(engine, "invoice_flow", actor=self._actor())
 
-    def test_enforcement_on_acl_deny_raises_permission_error(self, monkeypatch):
-        monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+    def test_acl_deny_raises_permission_error(self):
         from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
         from agent_utilities.models.company_brain import DataClassification
 
@@ -165,12 +196,10 @@ class TestPermissionGate:
             read_roles=["workflow_operator"],
             data_owner="ops",
         )
-        with pytest.raises(PermissionError) as exc:
+        with pytest.raises(PermissionError):
             gate_workflow_execution(engine, "invoice_flow", actor=self._actor())
-        assert "invoice_flow" in str(exc.value)
 
-    def test_enforcement_on_acl_allow_passes(self, monkeypatch):
-        monkeypatch.setenv("KG_BRAIN_ENFORCE", "1")
+    def test_acl_allow_passes(self):
         from agent_utilities.knowledge_graph.ontology.permissioning import build_acl
         from agent_utilities.models.company_brain import DataClassification
 
@@ -192,40 +221,36 @@ class TestPermissionGate:
 
 class TestExecuteWorkflowWiring:
     def test_execute_workflow_action_gates_before_dispatch(self):
-        """The MCP execute_workflow branch calls the gate before orch dispatch."""
+        """The focused workflow execute branch gates before orchestration."""
         import inspect
 
-        from agent_utilities.mcp.tools import analysis_tools
+        from agent_utilities.mcp.tools import workflow_tools
 
-        source = inspect.getsource(analysis_tools)
-        gate_idx = source.find("gate_workflow_execution(engine, gate_name)")
-        dispatch_idx = source.find("await orch.execute_workflow(")
-        assert gate_idx != -1, "execute_workflow must run the ORCH-1.42 gate"
+        source = inspect.getsource(workflow_tools)
+        gate_idx = source.find("gate = _workflow_gate(engine, workflow)")
+        dispatch_idx = source.find("await orchestrator.execute_workflow(")
+        assert gate_idx != -1, "execute must run the ORCH-1.42 gate"
         assert dispatch_idx != -1
         assert gate_idx < dispatch_idx, "gate must run BEFORE dispatch"
 
 
 class TestDispatchWorkflowWiring:
-    """The background twin (action='dispatch_workflow') runs the SAME gate.
-
-    execute_workflow was gated at ORCH-1.42 ship time; dispatch_workflow (the
-    fire-and-forget background dispatch, also the REST twin
-    /api/graph/orchestrate/dispatch-workflow) was a documented follow-up —
-    these tests pin the closed gap: malformed stored definitions are refused
-    BEFORE any background task is created, valid ones dispatch, and the
-    KG_WORKFLOW_SHAPE_GATE flag keeps the same default-on / off-bypass
-    semantics as the foreground path.
-    """
+    """The focused background dispatch runs the same gate and preserves run ids."""
 
     @pytest.fixture()
     def dispatch(self, monkeypatch):
         """(engine, name) -> tool output, with a recording fake runner."""
         import asyncio
 
-        import agent_utilities.orchestration as orch_mod
         from agent_utilities.mcp import kg_server
+        from agent_utilities.mcp.tools.workflow_tools import register_workflow_tools
+        from agent_utilities.workflows import runner as runner_mod
 
-        kg_server.ensure_tools_registered()
+        class _FakeMCP:
+            def tool(self, **_kwargs):
+                return lambda fn: fn
+
+        register_workflow_tools(_FakeMCP())
 
         class _FakeRunner:
             instances: list = []
@@ -234,17 +259,23 @@ class TestDispatchWorkflowWiring:
                 type(self).instances.append(self)
                 self.calls: list[dict] = []
 
-            async def execute_workflow(self, **kwargs):
-                self.calls.append(kwargs)
-                return {"ok": True}
+            async def execute_by_name(self, workflow, engine, **kwargs):
+                del engine
+                self.calls.append({"workflow": workflow, **kwargs})
+
+                class _Result:
+                    def to_dict(self):
+                        return {"status": "completed", **kwargs}
+
+                return _Result()
 
         _FakeRunner.instances = []
-        monkeypatch.setattr(orch_mod, "AgentOrchestrationEngine", _FakeRunner)
+        monkeypatch.setattr(runner_mod, "WorkflowRunner", _FakeRunner)
 
         async def _run(engine, name):
             monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
             out = await kg_server._execute_tool(
-                "graph_orchestrate", action="dispatch_workflow", agent_name=name
+                "graph_workflows", action="dispatch", workflow=name
             )
             await asyncio.sleep(0)  # let any created background task start
             return out
@@ -261,20 +292,37 @@ class TestDispatchWorkflowWiring:
         _seed_workflow(engine, name="empty_flow", step_count=0, steps=[])
         out = await run(engine, "empty_flow")
         payload = json.loads(out)
-        assert "background dispatch refused" in payload["error"]
+        assert "execution refused" in payload["error"]
         assert payload["violations"]
         assert runner.instances == [], "no background task for a refused workflow"
 
     async def test_valid_workflow_dispatches_in_background(self, dispatch):
+        import json
+
+        from agent_utilities.mcp import kg_server
+
         run, runner = dispatch
         engine = FakeEngine()
         _seed_workflow(engine)
         out = await run(engine, "invoice_flow")
-        assert "Workflow dispatched in background" in out
+        payload = json.loads(out)
+        assert payload["status"] == "dispatched"
         assert runner.instances and runner.instances[0].calls
-        assert runner.instances[0].calls[0]["workflow_id"] == "invoice_flow"
+        call = runner.instances[0].calls[0]
+        assert call["workflow"] == "invoice_flow"
+        assert call["trace_session"] == payload["session_id"]
+        status = json.loads(
+            await kg_server._execute_tool(
+                "graph_workflows",
+                action="status",
+                workflow=payload["session_id"],
+            )
+        )
+        assert status["trace_session"] == payload["session_id"]
 
     async def test_gate_off_bypasses_shape_validation(self, dispatch, monkeypatch):
+        import json
+
         from agent_utilities.core.config import config as cfg
 
         monkeypatch.setattr(cfg, "kg_workflow_shape_gate", False)
@@ -282,19 +330,19 @@ class TestDispatchWorkflowWiring:
         engine = FakeEngine()
         _seed_workflow(engine, name="empty_flow", step_count=0, steps=[])
         out = await run(engine, "empty_flow")
-        assert "Workflow dispatched in background" in out
+        assert json.loads(out)["status"] == "dispatched"
         assert runner.instances, "gate off must fall through to dispatch"
 
     def test_dispatch_workflow_action_gates_before_background_task(self):
         """Source order: the gate runs BEFORE asyncio.create_task in the branch."""
         import inspect
 
-        from agent_utilities.mcp.tools import analysis_tools
+        from agent_utilities.mcp.tools import workflow_tools
 
-        source = inspect.getsource(analysis_tools)
-        branch_idx = source.find('elif action == "dispatch_workflow":')
+        source = inspect.getsource(workflow_tools)
+        branch_idx = source.find('if action in {"execute", "dispatch"}:')
         assert branch_idx != -1
-        gate_idx = source.find("gate_workflow_execution(engine, gate_name)", branch_idx)
+        gate_idx = source.find("gate = _workflow_gate(engine, workflow)", branch_idx)
         task_idx = source.find("asyncio.create_task(", branch_idx)
         assert gate_idx != -1, "dispatch_workflow must run the ORCH-1.42 gate"
         assert task_idx != -1

@@ -10,13 +10,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 # CONCEPT:AU-KG.memory.provides-real-ephemeral-one — the ephemeral fixture (``tests/_test_engine.py``) deploys the
-# PUBLISHED ``epistemic-graph`` 1.0.0 wheel: its bundled ``epistemic-graph-server``
-# binary (resolved next to ``sys.executable``) and its client are the SAME release,
+# installed approved ``epistemic-graph[full]`` wheel: its bundled
+# ``epistemic-graph-server`` binary (resolved next to ``sys.executable``) and its
+# client are the SAME release,
 # so the client (``epistemic_graph.client.NodeClient``) already carries
 # ``compare_and_set`` plus the ``.rdf`` / ``.timeseries`` / ``.streaming`` / ``.txn``
 # sub-clients. The historical sys.path shim that prepended the sibling engine SOURCE
-# checkout (needed only while the floor was the feature-poor 0.31.0 wheel) is removed:
-# the venv's installed 1.0.0 client and binary are in lockstep by construction.
+# checkout is absent: the environment's installed client and binary are in lockstep
+# by construction.
 
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
@@ -24,12 +25,10 @@ os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 os.environ.setdefault("ENABLE_GRAPH_INTEGRATION", "false")
 os.environ.setdefault("AGENT_UTILITIES_TESTING", "true")
 os.environ.setdefault("KNOWLEDGE_GRAPH_SYNC_BACKGROUND", "False")
-# The out-of-box default backend is "epistemic_graph" (the durable engine).
-# Pin the unit suite to the pure-ephemeral in-memory backend so tests never
-# touch disk / take a file lock. Integration tests that exercise
-# fanout/ladybug/postgres override this via their own env or by passing an
-# explicit ``backend_type=`` to ``create_backend()``.
-os.environ.setdefault("GRAPH_BACKEND", "memory")
+# GraphOS has one authority and no backend selector. Tests that exercise an
+# external source/projection adapter pass an explicit ``backend_type=`` to the
+# private backend factory; process-level construction uses the real ephemeral
+# engine fixture.
 import shutil
 import tempfile
 
@@ -38,7 +37,7 @@ _pytest_tmp_dir = os.path.join(
 )
 os.makedirs(_pytest_tmp_dir, exist_ok=True)
 _test_db_dir = tempfile.mkdtemp(prefix="agent_utilities_test_db_", dir=_pytest_tmp_dir)
-os.environ["GRAPH_DB_PATH"] = os.path.join(_test_db_dir, "test_knowledge_graph.db")
+os.environ["AGENT_UTILITIES_DATA_DIR"] = _test_db_dir
 
 # Isolate the workspace root so self-evolution / SDD writers (golden loop,
 # sdd.watcher) emit ``.specify/`` artifacts into a throwaway dir instead of
@@ -68,8 +67,10 @@ try:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 except ImportError:
     # Kernel-free lean env (CI guardrails installs the package WITHOUT the
-    # per-platform-compiled `epistemic-graph[numeric]` kernel, which is not
-    # available on PyPI). The engine/backend layer isn't importable there, so
+    # per-platform-compiled `epistemic_graph.numeric` kernel bundled by the
+    # `epistemic-graph[full]` extra, which is not available on PyPI) —
+    # metadata-only guardrail environments may intentionally omit the approved
+    # full engine artifact. The engine/backend layer isn't importable there, so
     # pytest collection of the pure gate/meta suites (tests/gates, the prod-profile
     # guard) must not hard-fail at import. Tests that actually exercise the engine
     # are `@pytest.mark.engine` / kernel-guarded and skip; the autouse cleanup below
@@ -93,10 +94,10 @@ def _isolate_os_environ():
     ``apply_served_security_profile``, backend wiring) write directly to
     ``os.environ`` — NOT via ``monkeypatch`` — so monkeypatch's teardown can't
     undo them and the value leaks into every later test. Concretely a persisted
-    ``GRAPH_DB_URI=postgresql://…`` makes a neo4j-mirror build raise
-    ``ConfigurationError``, a leaked ``KG_AUTH_REQUIRED=1`` makes unauthenticated
-    tool calls raise ``PermissionError``, and ``GRAPH_PG_AGE=1`` flips backend
-    selection. Snapshotting the whole environment and restoring the delta at the
+    a leaked graph connection profile can make a neo4j-mirror build raise
+    ``ConfigurationError``, a leaked graph-security setting can change session
+    validation, and ``GRAPH_PG_AGE=1`` flips backend selection. Snapshotting the
+    whole environment and restoring the delta at the
     test boundary makes the unit suite order-independent regardless of which test
     leaked. Safe here: no module/session-scoped fixture sets env across tests.
     Runs as the first (autouse) fixture, so a test's own ``monkeypatch.setenv``
@@ -132,32 +133,39 @@ def _isolate_registered_tools():
     boundary keeps tool registration order-independent. Only guards a flag is
     needless — the dicts ARE the state. Lazy import so conftest stays cheap.
     """
-    try:
-        from agent_utilities.mcp import kg_server
-    except ImportError:
-        # The MCP server module requires the optional ``[mcp]`` extra
-        # (fastmcp/starlette/fastapi). In the lean serving/CI install (the
-        # Guardrails env) those are absent, so there is no tool registry to
-        # isolate — make the autouse fixture a no-op instead of erroring every
-        # test at setup. Mirrors the lean-tolerance of the heavy-dep mocks above.
-        yield
-        return
-
-    tools_snapshot = dict(kg_server.REGISTERED_TOOLS)
-    routes_snapshot = dict(kg_server.ACTION_TOOL_ROUTES)
+    # The MCP server module requires the optional ``[mcp]`` extra
+    # (fastmcp/starlette/fastapi); a lean serving/CI install (the Guardrails
+    # env) may omit it entirely, or it may simply not have been imported yet
+    # by this test. Looking it up via ``sys.modules`` (rather than importing
+    # it) avoids forcing the optional extra to load for tests that never
+    # touch it — mirrors the lean-tolerance of the heavy-dep mocks above. If
+    # it gets imported mid-test, the ``finally`` block below still snapshots
+    # correctly and clears whatever it registered.
+    module_name = "agent_utilities.mcp.kg_server"
+    kg_server = sys.modules.get(module_name)
+    tools_snapshot = (
+        dict(kg_server.REGISTERED_TOOLS) if kg_server is not None else None
+    )
+    routes_snapshot = (
+        dict(kg_server.ACTION_TOOL_ROUTES) if kg_server is not None else None
+    )
     try:
         yield
     finally:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.REGISTERED_TOOLS.update(tools_snapshot)
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(routes_snapshot)
-        # The named-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry) is a process-wide
-        # singleton seeded from config; a test that registers a backend (e.g. a
-        # Stardog mirror via setup_environment) leaves it pointing at that
-        # backend and corrupts a later test's engine/query routing. Drop it so it
-        # rebuilds fresh from the (restored) config on next use.
-        kg_server._CONNECTION_REGISTRY = None
+        kg_server = sys.modules.get(module_name)
+        if kg_server is not None:
+            kg_server.REGISTERED_TOOLS.clear()
+            kg_server.ACTION_TOOL_ROUTES.clear()
+            if tools_snapshot is not None:
+                kg_server.REGISTERED_TOOLS.update(tools_snapshot)
+            if routes_snapshot is not None:
+                kg_server.ACTION_TOOL_ROUTES.update(routes_snapshot)
+            # The named-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry) is a process-wide
+            # singleton seeded from config; a test that registers a backend (e.g. a
+            # Stardog mirror via setup_environment) leaves it pointing at that
+            # backend and corrupts a later test's engine/query routing. Drop it so it
+            # rebuilds fresh from the (restored) config on next use.
+            kg_server._CONNECTION_REGISTRY = None
 
 
 @pytest.fixture(autouse=True)
@@ -192,8 +200,17 @@ def _isolate_intent_outcome_learning():
 
 @pytest.fixture(autouse=True)
 def clean_graph_globals(monkeypatch, tmp_path):
-    set_active_backend(None)
-    IntelligenceGraphEngine.set_active(None)
+    try:
+        from agent_utilities.knowledge_graph.backends import get_active_backend
+
+        if get_active_backend() is not None:
+            set_active_backend(None)
+        if IntelligenceGraphEngine.get_active() is not None:
+            IntelligenceGraphEngine.set_active(None)
+    except ImportError:
+        # Lean metadata/security test environments intentionally omit the full
+        # native numeric kernel. Reset is a no-op when no engine can be active.
+        pass
 
     # Engine circuit breakers are shared per-endpoint process-wide
     # (CONCEPT:AU-OS.observability.no-op-without-metrics); reset between tests so a deliberate connect failure
@@ -202,11 +219,18 @@ def clean_graph_globals(monkeypatch, tmp_path):
 
     engine_breaker.reset_breakers()
 
-    monkeypatch.setenv("GRAPH_DB_PATH", str(tmp_path / "test_knowledge_graph.db"))
+    monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "agent-data"))
 
     yield
-    set_active_backend(None)
-    IntelligenceGraphEngine.set_active(None)
+    try:
+        from agent_utilities.knowledge_graph.backends import get_active_backend
+
+        if get_active_backend() is not None:
+            set_active_backend(None)
+        if IntelligenceGraphEngine.get_active() is not None:
+            IntelligenceGraphEngine.set_active(None)
+    except ImportError:
+        pass
     engine_breaker.reset_breakers()
 
 
@@ -248,10 +272,30 @@ def isolate_graph_compute_engine(monkeypatch):
     Monkeypatches GraphComputeEngine.__init__ so every instantiation within a
     test gets a unique graph_name derived from a UUID.  Tests that explicitly
     pass a graph_name kwarg keep their own name; others get the per-test unique
-    name.  After the test completes, all graphs created are cleared and deleted
-    to free server-side memory.
+    name. It also scopes the test to a non-personal authenticated GraphSession;
+    the default isolated graph is cleared and deleted under that same authority.
+    Tests that target another explicit graph must scope their own matching
+    GraphSession and clean that graph explicitly.
     """
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
+
     from agent_utilities.knowledge_graph.core import graph_compute
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        reset_session,
+        set_session,
+    )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import (
+        ActorContext,
+        reset_actor,
+        set_actor,
+    )
 
     _original_init = graph_compute.GraphComputeEngine.__init__
     _test_graph_name = f"test_{uuid.uuid4().hex[:12]}"
@@ -270,28 +314,51 @@ def isolate_graph_compute_engine(monkeypatch):
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
 
-    yield _test_graph_name
-
-    # Teardown: clear and delete all test graphs
-    for engine in _created_engines:
-        try:
-            if hasattr(engine, "_client") and engine._client:
-                engine._client.clear()
-        except Exception:
-            pass
-    # Delete all created graphs from the server
-    for engine in _created_engines:
-        for gn in _created_graph_names:
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    actor_token = set_actor(actor)
+    token = set_session(
+        GraphSession(
+            actor=actor,
+            tenant=TEST_TENANT,
+            scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+            graph=_test_graph_name,
+            policy_version=TEST_POLICY_VERSION,
+            audience=TEST_AUDIENCE,
+        )
+    )
+    try:
+        yield _test_graph_name
+    finally:
+        # Teardown runs under the same verified task-local authority.
+        for engine in _created_engines:
             try:
                 if hasattr(engine, "_client") and engine._client:
-                    engine._client.tenants.delete(gn)
+                    engine._client.clear()
             except Exception:
                 pass
-        break  # Only need one client for deletion
+        for engine in _created_engines:
+            for graph_name in _created_graph_names:
+                try:
+                    if hasattr(engine, "_client") and engine._client:
+                        # A distinct explicit graph needs its own explicit test
+                        # session; default-isolated graphs match this fixture.
+                        if graph_name == _test_graph_name:
+                            engine._client.tenants.delete(graph_name)
+                except Exception:
+                    pass
+            break
+        reset_session(token)
+        reset_actor(actor_token)
 
 
 # Set True once the isolated session engine is deployed (or an external
-# ``GRAPH_SERVICE_SOCKET`` is provided). When it stays False, no engine is
+# ``GRAPH_SERVICE_ENDPOINTS`` is provided). When it stays False, no engine is
 # reachable in this environment, so engine-backed tests are *skipped* rather than
 # hard-failing with ``ConnectionRefused`` — see ``pytest_runtest_makereport``.
 _TEST_ENGINE_AVAILABLE = False
@@ -312,21 +379,21 @@ def _session_engine():
     session when available (the main case), while ``engine_graph`` layers per-test
     tenant isolation on top:
 
-    * resolves the engine binary (prebuilt wheel → sibling ``target`` → build the
-      lean ``pi``-tier once and cache it — see ``tests/_test_engine.py``);
+    * resolves a serialized pipeline build or the feature-complete wheel binary;
+      pytest never invokes Cargo as a side effect (see ``tests/_test_engine.py``);
     * starts it on an ISOLATED ephemeral UDS socket + temp ``--persist-dir`` with
       a test auth secret and ``--idle-shutdown-secs`` (self-cleans if the suite
       dies);
-    * exports ``GRAPH_SERVICE_SOCKET`` (+ the secret) so the client /
-      ``EngineResolver`` connect to THIS engine via the **shared** leg — no
+    * exports ``GRAPH_SERVICE_ENDPOINTS`` (+ the secret) so the client /
+      ``EngineResolver`` connects to this explicitly managed engine — no
       autostart needed (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision);
     * on teardown shuts the engine down with a graceful **SIGTERM** (it
       checkpoints + exits cleanly) and removes the temp persist dir + socket.
 
-    When the engine genuinely cannot be obtained (no binary AND no Rust toolchain),
+    When the engine genuinely cannot be obtained (no prebuilt full binary),
     this fixture **degrades gracefully** — it yields with no engine and
     engine-backed tests *skip* via ``pytest_runtest_makereport`` (it never skips
-    or fails the whole session). An externally-provided ``GRAPH_SERVICE_SOCKET``
+    or fails the whole session). An externally-provided ``GRAPH_SERVICE_ENDPOINTS``
     (e.g. a shared host engine) is reused verbatim and never torn down here.
     """
     global _TEST_ENGINE_AVAILABLE, _SESSION_ENGINE_SOCKET
@@ -339,11 +406,12 @@ def _session_engine():
 
     # An externally-managed engine (its own socket) is reused verbatim — don't
     # start (or stop) one of our own.
-    external = os.environ.get("GRAPH_SERVICE_SOCKET")
-    if external:
+    external = os.environ.get("GRAPH_SERVICE_ENDPOINTS")
+    if external and external.startswith("unix://") and "," not in external:
+        external_socket = external.removeprefix("unix://")
         _TEST_ENGINE_AVAILABLE = True
-        _SESSION_ENGINE_SOCKET = external
-        yield external
+        _SESSION_ENGINE_SOCKET = external_socket
+        yield external_socket
         return
 
     try:
@@ -362,17 +430,20 @@ def _session_engine():
     try:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     except ImportError as exc:
-        # The engine BINARY started, but the Python engine layer needs the
-        # per-platform-compiled `epistemic-graph[numeric]` kernel, which is absent
-        # in the lean CI env (not on PyPI). Degrade to the SAME hermetic-skip mode
-        # as an unavailable engine: tests that request the real engine skip; pure
+        # The engine BINARY started, but the Python engine layer isn't
+        # importable: either the per-platform-compiled `epistemic_graph.numeric`
+        # kernel is absent (lean CI env, not on PyPI), or the static
+        # source-contract CI lane doesn't install the sibling
+        # `epistemic-graph[full]` runtime artifact that bundles it. Degrade to
+        # the SAME hermetic-skip mode as an unavailable engine: tests that
+        # request the real engine skip; pure
         # gate/meta tests (tests/gates, the prod-profile guard) are unaffected.
         print(f"[session-engine] engine Python layer unavailable (kernel absent): {exc}")
         engine.stop()
         yield None
         return
 
-    os.environ["GRAPH_SERVICE_SOCKET"] = engine.socket_path  # type: ignore[assignment]
+    os.environ["GRAPH_SERVICE_ENDPOINTS"] = f"unix://{engine.socket_path}"
     os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
     _TEST_ENGINE_AVAILABLE = True
     _SESSION_ENGINE_SOCKET = engine.socket_path
@@ -398,8 +469,7 @@ def tiny_engine(_session_engine):
     """
     if not _session_engine:
         pytest.skip(
-            "real epistemic-graph engine unavailable (no prebuilt binary and no "
-            "Rust toolchain to build the lean pi-tier) — cannot run this "
+            "real epistemic-graph engine unavailable (no prebuilt full binary) — cannot run this "
             "engine-backed test against the real database."
         )
     return _session_engine
@@ -420,41 +490,62 @@ def engine_graph(tiny_engine):
     irrelevant here — we pass an explicit ``graph_name`` so the engine targets
     exactly this tenant.
     """
-    from _test_engine import TEST_AUTH_SECRET
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_AUTH_SECRET,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
 
     # Re-assert the engine wiring per test: ``tiny_engine`` exports
-    # ``GRAPH_SERVICE_SOCKET`` during its (session) setup, but the per-test
+    # ``GRAPH_SERVICE_ENDPOINTS`` during its (session) setup, but the per-test
     # ``_isolate_os_environ`` snapshots env BEFORE that setup ran for the first
     # engine test and restores the snapshot (deleting the socket var) at each
     # boundary. Setting it here — inside the function fixture, after that
     # snapshot — guarantees every engine test connects to the running engine.
     if isinstance(tiny_engine, str):
-        os.environ["GRAPH_SERVICE_SOCKET"] = tiny_engine
+        os.environ["GRAPH_SERVICE_ENDPOINTS"] = f"unix://{tiny_engine}"
         os.environ["GRAPH_SERVICE_AUTH_SECRET"] = TEST_AUTH_SECRET
 
     graph_name = f"engtest_{uuid.uuid4().hex[:16]}"
-    # GraphComputeEngine auto-creates its tenant graph on connect, so the graph
-    # exists immediately (reads on an empty graph succeed).
-    compute = GraphComputeEngine(graph_name=graph_name)
-    client = getattr(compute, "_client", None)
-    try:
-        yield compute
-    finally:
-        # Tenant-purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same): delete the whole graph so no state
-        # leaks into the next test's fresh tenant. The client is intentionally
-        # left OPEN: the autouse ``isolate_graph_compute_engine`` teardown (which
-        # tracks this engine because we created it during the test) then runs its
-        # own ``clear()``/``delete()`` on the live connection. Closing the client
-        # here would stop its event-loop thread and make that later, timeout-less
-        # ``clear()`` block forever — the per-test client thread is a daemon that
-        # the OS reaps at process exit, exactly as the existing teardown relies on.
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
+    with use_session(session):
+        compute = GraphComputeEngine(graph_name=graph_name)
+        client = getattr(compute, "_client", None)
         try:
             if client is not None:
-                client.tenants.delete(graph_name)
-        except Exception:
-            pass
+                client.tenants.create(graph_name)
+            yield compute
+        finally:
+            # Tenant-purge (CONCEPT:EG-KG.backend.tenant-delete-recreate-same):
+            # delete the whole graph so no state leaks into the next test's
+            # fresh tenant. The non-owning routed client stays open for the
+            # process transport.
+            try:
+                if client is not None:
+                    client.tenants.delete(graph_name)
+            except Exception:
+                pass
 
 
 import importlib
@@ -504,7 +595,7 @@ def pytest_runtest_makereport(item, call):
                 "Skipped: epistemic-graph engine not reachable in this "
                 "environment (no isolated test engine started). Set "
                 "AGENT_UTILITIES_TESTING=true with the epistemic-graph source "
-                "present, or export GRAPH_SERVICE_SOCKET, to run engine-backed "
+                "present, or export GRAPH_SERVICE_ENDPOINTS, to run engine-backed "
                 "tests.",
             )
 

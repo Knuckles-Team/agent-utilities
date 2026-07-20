@@ -16,7 +16,8 @@ folds into the same cross-vendor crosswalk as ServiceNow/ERPNext (see
 **Step-level structure lift (CONCEPT:AU-KG.ontology.descriptive-process-world-gains).** When the injected client also
 exposes ``get_process_definition_xml`` (the camunda-mcp ``camunda_process
 action=xml`` surface), each definition's BPMN 2.0 XML is parsed (stdlib
-ElementTree, namespace-tolerant) and the *static* process structure is lifted:
+with a DTD/entity-safe parser (namespace-tolerant) and the *static* process
+structure is lifted:
 
     flow element (task/userTask/serviceTask/.../gateway)
         -> ``BusinessTask``  id=bpmn_task:{processId}:{elementId}  (PART_OF process)
@@ -170,11 +171,12 @@ def _lift_process_structure(
     ``conditionExpression`` is preserved as the edge ``condition`` property.
     Parse failures are swallowed — structure lift is additive, never blocking.
     """
-    import xml.etree.ElementTree as ET  # nosec B405 — BPMN XML comes from the operator-configured Camunda engine (trusted, injected client)
+    from defusedxml import ElementTree as ET
+    from defusedxml.common import DefusedXmlException
 
     try:
-        root = ET.fromstring(xml_text)  # nosec B314 — same trusted operator-configured source, not untrusted input
-    except ET.ParseError:
+        root = ET.fromstring(xml_text)
+    except (ET.ParseError, DefusedXmlException):
         return
 
     elements: dict[str, dict[str, Any]] = {}  # element_id -> {tag, name}

@@ -28,6 +28,7 @@ from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
     _encode_metadata,
 )
+from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.knowledge_graph.core.task_lanes import (
     INTERACTIVE_LANES,
     lane_soft_timeout,
@@ -43,6 +44,25 @@ from agent_utilities.knowledge_graph.ingestion.repo_split import (
     plan_repo_split,
     split_graph_suffix,
 )
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext
+
+
+def _background_session() -> GraphSession:
+    actor = ActorContext(
+        actor_id="test-worker",
+        actor_type=ActorType.SYSTEM,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="test-runtime",
+    )
 
 
 # ── KG-2.287: big-repo split planner ────────────────────────────────────────
@@ -132,6 +152,7 @@ class TestSoftTimeout:
 class TestHungTaskTimeout:
     def _mixin(self) -> TaskManagerMixin:
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
+        obj._background_worker_session = _background_session()
         obj._maybe_build_vector_indexes = MagicMock()  # type: ignore[attr-defined]
         return obj
 
@@ -247,12 +268,8 @@ class TestCodebaseFanout:
         obj._update_task_status = MagicMock()  # type: ignore[attr-defined]
         return obj
 
-    def _patch_env(self, files: list[Path], *, routing=True, shards=4):
+    def _patch_env(self, files: list[Path], *, shards=4):
         return [
-            mock.patch(
-                "agent_utilities.knowledge_graph.core.ingest_routing.routing_enabled",
-                return_value=routing,
-            ),
             mock.patch(
                 "agent_utilities.knowledge_graph.enrichment.pipeline.discover_source_files",
                 return_value=files,
@@ -276,8 +293,8 @@ class TestCodebaseFanout:
     ):
         files = self._big_repo(tmp_path)
         obj = self._mixin()
-        patches = self._patch_env(files, routing=True, shards=4)
-        with patches[0], patches[1], patches[2]:
+        patches = self._patch_env(files, shards=4)
+        with patches[0], patches[1]:
             fanned = obj._maybe_fanout_codebase("parent-1", tmp_path, {})
         assert fanned is True
 
@@ -309,7 +326,7 @@ class TestCodebaseFanout:
         files = self._big_repo(tmp_path)
         obj = self._mixin()
         patches = self._patch_env(files)
-        with patches[0], patches[1], patches[2]:
+        with patches[0], patches[1]:
             # a child carries route_repo/split_child → must NOT fan out again.
             assert (
                 obj._maybe_fanout_codebase(
@@ -323,27 +340,18 @@ class TestCodebaseFanout:
         files = self._big_repo(tmp_path)
         obj = self._mixin()
         patches = self._patch_env(files)
-        with patches[0], patches[1], patches[2]:
+        with patches[0], patches[1]:
             assert (
                 obj._maybe_fanout_codebase("c1", tmp_path, {"only_files": ["/a/b.py"]})
                 is False
             )
         obj.submit_task.assert_not_called()
 
-    def test_no_split_when_routing_disabled(self, tmp_path: Path):
-        # Distinct graphs require routing; with routing off a split buys nothing.
-        files = self._big_repo(tmp_path)
-        obj = self._mixin()
-        patches = self._patch_env(files, routing=False)
-        with patches[0], patches[1], patches[2]:
-            assert obj._maybe_fanout_codebase("p", tmp_path, {}) is False
-        obj.submit_task.assert_not_called()
-
     def test_small_repo_is_not_split(self, tmp_path: Path):
         files = [tmp_path / f"pkg{i % 4}" / f"m{i}.py" for i in range(50)]
         obj = self._mixin()
         patches = self._patch_env(files)
-        with patches[0], patches[1], patches[2]:
+        with patches[0], patches[1]:
             assert obj._maybe_fanout_codebase("p", tmp_path, {}) is False
         obj.submit_task.assert_not_called()
 

@@ -5,7 +5,7 @@ universal-installer (``universal-skills``' ``universal-installer`` skill)
 already materializes a newly-installed/updated package's skills + prompts +
 ontology into the unified XDG tree
 (:func:`agent_utilities.core.unified_install.install_unified` --
-``$XDG_DATA_HOME/agent-utilities/{skills,prompts,ontologies}/<provider>/...``)
+``$XDG_DATA_HOME/agent-utilities/{skills,prompts,ontologies}/<provider>/.generations/<digest>/...``)
 and, whenever a prompt/ontology leg actually changed, drops a small summary
 manifest next to it::
 
@@ -79,12 +79,12 @@ def _read_manifest() -> tuple[dict[str, Any] | None, bytes]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        logger.warning("package_install: could not read %s: %s", path, exc)
+        logger.warning("package_install: source read failed (%s)", type(exc).__name__)
         return None, b""
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
-        logger.warning("package_install: %s is not valid JSON: %s", path, exc)
+        logger.warning("package_install: source JSON invalid (%s)", type(exc).__name__)
         return None, raw
     return data if isinstance(data, dict) else None, raw
 

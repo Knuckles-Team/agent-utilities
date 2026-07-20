@@ -1,0 +1,83 @@
+{
+  "annotations": {"list": []},
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Availability error budget burn",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "graphos:gateway_error_ratio:5m / 0.001", "legendFormat": "5m burn"},
+        {"expr": "graphos:gateway_error_ratio:1h / 0.001", "legendFormat": "1h burn"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "Gateway and engine p99 latency",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "graphos:gateway_request_p99_seconds:5m", "legendFormat": "gateway"},
+        {"expr": "graphos:engine_request_p99_seconds:5m", "legendFormat": "engine"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "Queue and consumer backlog",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "graphos:dispatch_queue_depth", "legendFormat": "dispatch"},
+        {"expr": "graphos:ingest_consumer_lag", "legendFormat": "ingest lag"},
+        {"expr": "graphos:analytics_jobs_ready", "legendFormat": "analytics ready"},
+        {"expr": "sum by (lane) (agent_utilities_lane_queue_depth)", "legendFormat": "lane {{lane}}"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "Engine reachability",
+      "type": "stat",
+      "targets": [{"expr": "kube_statefulset_status_replicas_ready{namespace=\"graphos-cell\",statefulset=\"epistemic-graph-raft\"}", "legendFormat": "ready members"}],
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8}
+    },
+    {
+      "id": 5,
+      "title": "RPO checkpoint age",
+      "type": "stat",
+      "targets": [{"expr": "time() - max(epistemic_graph_checkpoint_last_success_timestamp_seconds)", "legendFormat": "seconds"}],
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8}
+    },
+    {
+      "id": 6,
+      "title": "Durability and admission faults",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(epistemic_graph_wal_append_dropped_total[5m]))", "legendFormat": "WAL dropped"},
+        {"expr": "sum(rate(epistemic_graph_busy_rejections_total[5m]))", "legendFormat": "busy"},
+        {"expr": "sum(rate(epistemic_graph_auth_failures_total[5m]))", "legendFormat": "auth failures"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+    },
+    {
+      "id": 7,
+      "title": "Context compiler evidence path",
+      "type": "timeseries",
+      "targets": [
+        {"expr": "sum(rate(agent_utilities_context_compiler_items_total[5m]))", "legendFormat": "evidence items"},
+        {"expr": "histogram_quantile(0.99, sum by (le) (rate(agent_utilities_context_compiler_ttft_seconds_bucket[5m])))", "legendFormat": "p99 TTFT"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["graph-os", "slo", "error-budget"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timezone": "browser",
+  "title": "GraphOS SLO and recovery",
+  "uid": "graphos-slo-v1",
+  "version": 1
+}

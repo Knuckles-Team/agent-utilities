@@ -1,0 +1,535 @@
+connector: data-science-mcp
+ontology_source: datascience
+schema_version: '1'
+resources:
+- name: Adapter
+  label: PEFT Adapter
+  id_prefix: adapter
+  relations:
+  - name: appliesTo
+    label: applies to
+    target: LanguageModel
+    lpg_rel_type: ''
+- name: Corpus
+  label: Training Corpus
+  id_prefix: corpus
+  relations:
+  - name: curatedFrom
+    label: curated from
+    target: Document
+    lpg_rel_type: ''
+- name: CrossValidationResult
+  label: Cross-Validation Result
+  id_prefix: crossvalidationresult
+  relations: []
+- name: DatasetSplit
+  label: Dataset Split
+  id_prefix: datasetsplit
+  relations:
+  - name: splitOf
+    label: split of
+    target: Dataset
+    lpg_rel_type: ''
+- name: EvaluationMetric
+  label: Evaluation Metric
+  id_prefix: evaluationmetric
+  relations: []
+- name: Experiment
+  label: ML Experiment
+  id_prefix: experiment
+  relations: []
+- name: HyperparameterConfig
+  label: Hyperparameter Config
+  id_prefix: hyperparameterconfig
+  relations: []
+- name: InterpretabilitySuite
+  label: Interpretability Suite
+  id_prefix: interpretabilitysuite
+  relations:
+  - name: hasTest
+    label: has test
+    target: InterpretabilityTest
+    lpg_rel_type: ''
+- name: InterpretabilityTest
+  label: Interpretability Test
+  id_prefix: interpretabilitytest
+  relations: []
+- name: ModelArtifact
+  label: Model Artifact
+  id_prefix: modelartifact
+  relations:
+  - name: evaluatedBy
+    label: evaluated by
+    target: OutcomeEvaluation
+    lpg_rel_type: ''
+  - name: interpretedBy
+    label: interpreted by
+    target: InterpretabilitySuite
+    lpg_rel_type: ''
+  - name: onFrontier
+    label: on frontier
+    target: ParetoFrontier
+    lpg_rel_type: ''
+- name: ParetoFrontier
+  label: Pareto Frontier
+  id_prefix: paretofrontier
+  relations: []
+- name: RewardModel
+  label: Reward Model
+  id_prefix: rewardmodel
+  relations: []
+- name: SpecializedKernel
+  label: Specialized Kernel
+  id_prefix: specializedkernel
+  relations: []
+- name: Tokenizer
+  label: Tokenizer
+  id_prefix: tokenizer
+  relations: []
+- name: TrainingRun
+  label: Training Run
+  id_prefix: trainingrun
+  relations:
+  - name: fineTunes
+    label: fine-tunes
+    target: LanguageModel
+    lpg_rel_type: ''
+  - name: hasCrossValidation
+    label: has cross-validation
+    target: CrossValidationResult
+    lpg_rel_type: ''
+  - name: partOfExperiment
+    label: part of experiment
+    target: Experiment
+    lpg_rel_type: ''
+  - name: producedAdapter
+    label: produced adapter
+    target: Adapter
+    lpg_rel_type: ''
+  - name: producedModel
+    label: produced model
+    target: ModelArtifact
+    lpg_rel_type: ''
+  - name: scoredByReward
+    label: scored by reward
+    target: RewardModel
+    lpg_rel_type: ''
+  - name: specializesKernel
+    label: specializes kernel
+    target: SpecializedKernel
+    lpg_rel_type: ''
+  - name: trainedFromCorpus
+    label: trained from corpus
+    target: Corpus
+    lpg_rel_type: ''
+  - name: trainedOn
+    label: trained on
+    target: Dataset
+    lpg_rel_type: ''
+  - name: trainedTokenizer
+    label: trained tokenizer
+    target: Tokenizer
+    lpg_rel_type: ''
+  - name: usedHyperparameters
+    label: used hyperparameters
+    target: HyperparameterConfig
+    lpg_rel_type: ''
+actions: []
+events:
+- name: datascience-model-registry.updated
+  resource: datascience_model
+  description: "Watermark event for 'datascience-model-registry' \u2014 advances on dataset (mcp_source_presets.json)."
+identity:
+  id_field:
+    datascience_model: model_id
+  title_field:
+    datascience_model: model_str
+  text_field:
+    datascience_model: model_str
+  updated_field:
+    datascience_model: dataset
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Adapter:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  Corpus:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  CrossValidationResult:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  DatasetSplit:
+    ontology_class: Dataset
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  EvaluationMetric:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  Experiment:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  HyperparameterConfig:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  InterpretabilitySuite:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  InterpretabilityTest:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  ModelArtifact:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  ParetoFrontier:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  RewardModel:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  SpecializedKernel:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  Tokenizer:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+  TrainingRun:
+    ontology_class: null
+    fields:
+      complexity: xsd:double
+      datasetName: xsd:string
+      hyperparameters: xsd:string
+      metricName: xsd:string
+      metricValue: xsd:double
+      modelClass: xsd:string
+      modelId: xsd:string
+      nFolds: xsd:integer
+      performance: xsd:double
+      r2Test: xsd:double
+      rounds: xsd:integer
+      splitKind: xsd:string
+      targetColumn: xsd:string
+      targetTau: xsd:double
+      taskName: xsd:string
+      testSize: xsd:double
+      trainerKind: xsd:string
+sync:
+- preset: datascience-model-registry
+  server: data-science-mcp
+  tool: rank_models
+  action: list
+  records_path: ranked_models
+  id_field: model_id
+  title_field: model_str
+  text_field: model_str
+  updated_field: dataset
+  pagination: null
+  doc_type: datascience_model
+  tool_schema_sha256: bb3327e89d7f07a87ecb36a4ac7fe7212e5975b2b0edcaa5cf5b3101d71ddd83
+  raw:
+    server: data-science-mcp
+    tool: rank_models
+    action: list
+    records_path: ranked_models
+    id_field: model_id
+    title_field: model_str
+    text_field: model_str
+    updated_field: dataset
+    doc_type: datascience_model
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - data_science_mcp/connectors/mcp_source_presets.json
+  - data_science_mcp/connectors/tool_schema_fingerprints.json
+  - data_science_mcp/ontology/datascience.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: e7a43f814beb0ddb3a9def0f6b4f8ac475b6c81616cea2771c83dc08c88581f6
+    triple_count: 173
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: gVspuMIqQeGax_VHcGfuSB9QSyncoOkrsB_O_HgEGzcy71jnWc8ZDAPvy2JenGyuq75JKwkuZUQ9tKOIhvTCCA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'ranBy' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'reportedMetric' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Adapter.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Corpus.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.CrossValidationResult.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatasetSplit.ontology_class = 'Dataset' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.EvaluationMetric.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Experiment.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HyperparameterConfig.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.InterpretabilitySuite.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.InterpretabilityTest.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ModelArtifact.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ParetoFrontier.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.RewardModel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SpecializedKernel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Tokenizer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TrainingRun.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

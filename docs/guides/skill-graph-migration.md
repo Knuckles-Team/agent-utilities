@@ -13,7 +13,7 @@ end and adds a real graph to the contract gate's "managed" set.
 
 ```bash
 python -m agent_utilities.knowledge_graph.distillation.skill_graph_pipeline \
-    plan --root /home/apps/workspace/agent-packages/skills/skill-graphs/skill_graphs
+    plan --root ${WORKSPACE_ROOT}/agent-packages/skills/skill-graphs/skill_graphs
 ```
 
 Every graph is classified into one of four migration modes:

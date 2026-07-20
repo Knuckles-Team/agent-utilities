@@ -17,7 +17,7 @@ measures the p50/p95/p99/p99.9 SLO percentiles the contract defines, against eit
   measured-vs-modeled split.
 
 ``--scale`` (0, 1] shrinks the population/rate axes for a fast, deterministic CI run
-(:class:`docs.scaling.workload_contract.ScaledWorkload`) while leaving the SLO percentile
+(:class:`scripts.scale.workload_contract.ScaledWorkload`) while leaving the SLO percentile
 targets untouched — an SLO is a per-operation contract, not a population-dependent one.
 
 Reusable programmatic entry point: :func:`run_workload` (async). The CLI (:func:`main`)
@@ -31,49 +31,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import heapq
-import importlib.util
 import itertools
 import json
 import random
-import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 from agent_utilities.messaging.bus import AgentBus
 from agent_utilities.orchestration import work_item as wi
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _load_module(name: str, path: Path) -> ModuleType:
-    """Dynamically load a sibling module by path (mirrors ``tests/scale/test_capacity_model.py``'s
-    ``_load_model()`` — this repo's established convention for importing ``scripts/``/
-    ``docs/scaling/`` files, neither of which is a packaged, installed module)."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-_fake_engine = _load_module(
-    "agent_utilities_scale_fake_engine", Path(__file__).with_name("fake_engine.py")
+from scripts.scale.fake_engine import FakeScaleEngine, LatencyModel, WallClock
+from scripts.scale.workload_contract import (
+    ScaledWorkload,
+    WorkloadContract,
+    load_workload_contract,
 )
-_workload_contract = _load_module(
-    "agent_utilities_scale_workload_contract",
-    _REPO_ROOT / "docs" / "scaling" / "workload_contract.py",
-)
-
-FakeScaleEngine = _fake_engine.FakeScaleEngine
-LatencyModel = _fake_engine.LatencyModel
-WallClock = _fake_engine.WallClock
-ScaledWorkload = _workload_contract.ScaledWorkload
-WorkloadContract = _workload_contract.WorkloadContract
-load_workload_contract = _workload_contract.load_workload_contract
 
 # --------------------------------------------------------------------------- #
 # Fault injection — scripted, deterministic, applied at a scheduled logical
@@ -196,21 +169,26 @@ def build_mock_engine(latency: LatencyModel | None = None) -> FakeScaleEngine:
 
 
 def build_live_engine() -> Any:
-    """Resolve the process-active epistemic-graph engine for a real hardware soak.
+    """Resolve a configured remote epistemic-graph engine for a hardware soak.
 
-    Raises if no engine is active — a live run must be pointed at a real, configured
-    deployment; it never silently falls back to the mock (that would defeat the
-    entire measured-vs-modeled honesty point of this harness).
+    A certification CLI starts in a fresh process, so ``get_active()`` alone can
+    never discover the remote deployment.  Resolve the configured singleton when
+    necessary, then prove it is reachable.  Production certification pins
+    ``KG_DAEMON_ROLE=client`` and configured ``GRAPH_SERVICE_ENDPOINTS``; an unavailable
+    fleet therefore fails here and can never silently become a local mock/daemon —
+    it never silently falls back to the mock (that would defeat the entire
+    measured-vs-modeled honesty point of this harness).
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    engine = IntelligenceGraphEngine.get_active()
-    if engine is None:
+    engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine.get_or_create()
+    try:
+        engine.query_cypher("MATCH (n) RETURN count(n) AS count LIMIT 1")
+    except Exception as exc:
         raise RuntimeError(
-            "--engine live requires an active IntelligenceGraphEngine (none is "
-            "configured/reachable in this process) — start against a real graph-os "
-            "deployment, or use --engine mock for the CI-safe simulated path."
-        )
+            "--engine live requires a reachable configured deployment; the live "
+            "probe failed and mock fallback is forbidden"
+        ) from exc
     return engine
 
 
@@ -219,7 +197,7 @@ def build_bus(engine: Any, *, force_graph_fallback: bool) -> AgentBus:
 
     ``force_graph_fallback=True`` (the default for mock-engine runs) pins the
     delivery/wakeup plane to the original ``:BusMessage`` graph-node model
-    regardless of ambient ``AGENT_BUS_LOG_BACKEND``/``ENGINE_ENDPOINT`` env —
+    regardless of ambient ``AGENT_BUS_LOG_BACKEND``/``GRAPH_SERVICE_ENDPOINTS`` env —
     :class:`FakeScaleEngine` has no real broker to bind to, and this dev
     workspace's ambient config can otherwise point ``resolve_bus_log_backend``
     at a REAL deployed hub (a hermetic-run hazard, not a hypothetical one — this
@@ -958,7 +936,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--contract",
         default=None,
-        help="Path to workload_contract.yml (default: docs/scaling/workload_contract.yml)",
+        help="Path to a workload contract (default: packaged production contract)",
     )
     p.add_argument(
         "--scale",

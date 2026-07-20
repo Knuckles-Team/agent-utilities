@@ -177,14 +177,26 @@ class EpistemicGraphKVBackend:
         auth = child_auth(headers)  # httpx.Auth | None (None ⇒ MCP_CLIENT_AUTH off)
         if auth is None and self.config.token:
             headers["Authorization"] = f"Bearer {self.config.token}"
-        return create_http_client(
-            timeout=self.config.timeout_s,
-            verify=self.config.verify_tls,
-            headers=headers,
-            base_url=self.config.base_url,
-            limits=httpx.Limits(max_connections=self.config.max_connections),
-            auth=auth,
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
         )
+
+        trust = resolve_configured_tls_profile(
+            "EPISTEMIC_GRAPH_KVCACHE",
+            profile_name=self.config.tls_profile,
+            profile_ref=self.config.tls_profile_ref,
+        )
+        try:
+            return create_http_client(
+                timeout=self.config.timeout_s,
+                verify=trust.ssl_context,
+                headers=headers,
+                base_url=self.config.base_url,
+                limits=httpx.Limits(max_connections=self.config.max_connections),
+                auth=auth,
+            )
+        finally:
+            trust.cleanup()
 
     # -- key handling ---------------------------------------------------------
     @staticmethod

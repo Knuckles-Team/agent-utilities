@@ -6,13 +6,13 @@
     "angle": "cross-domain pattern adaptation (not domain cloning)",
     "source": {
       "repo": "nexu-io/open-design",
-      "path": "/home/apps/workspace/open-source-libraries/open-design",
+      "path": "${WORKSPACE_ROOT}/open-source-libraries/open-design",
       "commit": "accbd3b8a15f06a755618d92662c44befa6bb196",
       "commit_date": "2026-06-02"
     },
     "target": {
       "project": "agent-utilities",
-      "path": "/home/apps/workspace/agent-packages/agent-utilities",
+      "path": "${WORKSPACE_ROOT}/agent-packages/agent-utilities",
       "concept_registry": "docs/concepts.yaml (86 concepts / 12 pillars)"
     },
     "wire_first_heuristic": "<= 3 hops from an MCP tool / FastAPI route / A2A skill; no dead code"

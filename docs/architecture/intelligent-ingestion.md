@@ -4,7 +4,7 @@
 > *understand* what it ingests and ingest it *fast and fairly*: native file
 > auto-classification, commit-history-as-graph, batched/concurrent embedding, and a
 > set of tail optimizations (big-repo split, per-task watchdog, interactive
-> reservation, tail observability) plus batched classified-document writes. Every
+> reservation, tail observability) plus governed classified-document writes. Every
 > capability here is **default-on and woven into the existing ingest flow** — per the
 > *Native by default* discipline — so it "just happens" on the next run.
 
@@ -25,7 +25,7 @@ flowchart TB
     FAN --> STRUCT
     STRUCT --> CLASS["repo_classifier.classify_repo()<br/>Skill / Spec / Prompt / Document / Config / Code (AU-KG.ingest.over-same-tree-fan)"]
     CLASS --> ROUTE["_route_classified_artifacts()<br/>fan non-code to per-type adaptors (KG-2.285)"]
-    ROUTE --> DOCS["batched, enrich-deferred document writes<br/>(_BatchedBackend, AU-KG.ingest.writes-go)"]
+    ROUTE --> DOCS["ChangeEnvelope-backed, enrich-deferred document writes<br/>(AU-KG.ingest.change-envelope)"]
     STRUCT --> HIST["git_history.ingest_commit_history()<br/>:Commit/:Author/:File + coupling/churn (AU-KG.ingest.normal-codebase-ingest-also)"]
     DOCS --> EMB["batched + concurrent embedding<br/>make_embed_fn (AU-KG.ingest.applying-agents-md-batch) · cached client (KG-2.294)"]
     HIST --> EMB
@@ -161,7 +161,7 @@ profiler's `parallelism_factor` to ~1.83. Three fixes raise throughput by ~20x+.
   fresh llama-index embedding client (httpx client + TLS ctx + tokenizer) on **every
   call** — on the ingest hot path that is per-window / per-document / per-fact. A
   thread-safe, process-scoped cache (`core/embedding_utilities.py`, keyed on the
-  resolved `provider, model, base_url, api_key, ssl_verify, timeout`) now returns one
+  resolved `provider, model, base_url, api_key, TLS profile, timeout`) now returns one
   client per distinct config, reused for the whole run; construction is isolated in
   `_build_embedding_model` so the cache wraps exactly one site and only successful
   builds are cached (fail-loud preserved). `clear_embedding_model_cache()` drops it.
@@ -187,7 +187,7 @@ commit-history/classifier work above.)
 ### Big-repo split (KG-2.287)
 
 `knowledge_graph/ingestion/repo_split.py`. One huge repo (agent-utilities,
-epistemic-graph: thousands of files) was **one** `codebase` `:Task` → **one**
+epistemic-graph: thousands of files) was **one** `codebase` WorkItem → **one**
 per-repo graph (`code:<repo>`, KG-2.269) → **one** redb shard writer (EG-KG.backend.sharded-k-way-durable),
 serialising on one writer thread and pinning a worker for minutes (live tail:
 codebase p50=36s but p95=650s / max=797s) while the other K-1 shard writers sat idle.
@@ -250,33 +250,30 @@ profiler described in [Ingestion throughput](ingestion_throughput.md) (the
 
 ---
 
-## Batched classified-document writes + watchdogs (CONCEPT:AU-KG.ingest.writes-go)
+## Governed classified-document writes + watchdogs
 
 **What.** After classification (KG-2.285), `_route_classified_artifacts` was running
 **one full `self.ingest()` per markdown file** — each with its own adaptor dispatch,
 per-node engine round-trips, and an inline central enrich (concept/fact + embed) pass.
 A doc-heavy repo's queue grew faster than it drained.
 
-**How.** Documents now take a **batched, enrich-deferred** path (in the
+**How.** Documents now take a **governed, enrich-deferred** path (in the
 `IngestionEngine`):
 
-- Each doc's **structural write** goes through a per-doc `_BatchedBackend`, so the
-  `Document` + chunk + concept nodes flush as **bulk RPCs** instead of one socket
-  round-trip per node (the *batch, never per-element* rule, see the *Native bulk
-  primitives* section of [Ingestion throughput](ingestion_throughput.md), AU-KG.ingest.instead).
+- Each doc's structural graph slice crosses the engine-native ChangeEnvelope seam,
+  which owns validation, provenance, routing, and atomic materialization. There is
+  no caller-selectable backend override or parallel write authority.
 - Each doc's enrichable text **bubbles up to the parent** codebase result, so the one
   central enrich seam enriches the **whole repo's docs in one pass** (the
   `_ingest_document_dir` pattern) — not N inline passes.
 - Per-doc delta-skip + manifest-record are preserved, so unchanged docs are still
-  skipped on re-ingest; skills/prompts are unchanged; `_ingest_document_file` gains an
-  optional backend override (defaults to `self.backend`, byte-for-byte legacy).
+  skipped on re-ingest; skills and prompts are unchanged.
 
 Together with the cached embedder client (KG-2.294 above) and the per-task watchdog
 (KG-2.286), a doc-heavy repo no longer explodes the queue or pins a worker.
 
-**Why.** A repo's documents ingest in a few bulk RPCs and one enrich pass instead of N
-per-file ingests with per-node round-trips — the dominant doc-ingest inefficiency the
-live e2e profiler exposed.
+**Why.** A repo's documents use one governed write authority and one enrich pass
+instead of N independent per-file ingestion pipelines.
 
 ---
 

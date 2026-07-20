@@ -4,7 +4,7 @@ CONCEPT:AU-KG.memory.tiered-memory-caching — Tiered Memory & Context
 CONCEPT:AU-KG.memory.tiered-memory-caching — Observational Memory Bridge
 
 This package contains:
-- Synthesis engine (KG-2.4) — Episode→Preference, Decision→Principle rules
+- Synthesis engine (KG-2.4) — RunTrace→Preference, Decision→Principle rules
 - Memory materializer (KG-2.7) — KG→Markdown bidirectional sync
 - Observer (KG-2.7) — LLM-powered transcript→observation extraction
 - Reflector (KG-2.7) — Observation→reflection condensation
@@ -18,7 +18,6 @@ from .agent_context import (
     CompactionStrategy,
     ContextCompactor,
     ContextOperator,
-    ElasticContextManager,
     MemoryEntry,
     MemoryTimescale,
     PreemptiveCacheEngine,
@@ -29,12 +28,16 @@ from .agent_context import (
     prune_context_by_semantic_distance,
 )
 from .memento_compressor import (
+    MEMENTO_RAW_RETENTION_POLICY,
     MEMENTO_SYSTEM_PROMPT,
     boundary_score,
     compress_to_memento,
     get_recent_mementos,
     judge_memento,
+    memento_source_reference,
     plan_block_eviction,
+    recover_chain,
+    recover_evicted_block,
     segment_into_blocks,
 )
 from .memory_engine import (
@@ -91,7 +94,6 @@ __all__ = [
     "AgentContextManager",
     "ContextCompactor",
     "ContextOperator",
-    "ElasticContextManager",
     "CompactedResult",
     "CompactionStrategy",
     "PreemptiveCacheEngine",
@@ -104,9 +106,13 @@ __all__ = [
     "segment_into_blocks",
     "plan_block_eviction",
     "MEMENTO_SYSTEM_PROMPT",
+    "MEMENTO_RAW_RETENTION_POLICY",
     "estimate_message_tokens",
     "estimate_tokens",
     "get_recent_mementos",
+    "memento_source_reference",
+    "recover_evicted_block",
+    "recover_chain",
     "SessionMementoCache",
     "refresh_session_memento_cache",
     "prune_context_by_semantic_distance",

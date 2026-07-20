@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphos-front
+  namespace: graphos-control
+  labels:
+    app.kubernetes.io/name: graphos-front
+    graphos.io/tier: front
+spec:
+  replicas: 3
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: graphos-front
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: graphos-front
+        graphos.io/tier: front
+        graphos.io/tenant-partition: shared-control
+      annotations:
+        graphos.io/mtls-mode: strict
+        sidecar.istio.io/nativeSidecar: "true"
+        proxy.istio.io/config: '{"holdApplicationUntilProxyStarts":true}'
+    spec:
+      serviceAccountName: graphos-front
+      automountServiceAccountToken: false
+      priorityClassName: graphos-serving
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: graphos-front}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {app.kubernetes.io/name: graphos-front}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: {app.kubernetes.io/name: graphos-front}
+      containers:
+        - name: graph-os
+          image: graph-os-image
+          imagePullPolicy: IfNotPresent
+          command: ["graph-os"]
+          args:
+            - --transport
+            - streamable-http
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8000"
+          ports:
+            - {name: http, containerPort: 8000, protocol: TCP}
+          envFrom:
+            - configMapRef: {name: graphos-security-contract}
+            - secretRef: {name: graphos-runtime-secrets, optional: false}
+          env:
+            - {name: KG_DAEMON_ROLE, value: client}
+            - {name: REQUESTS_CA_BUNDLE, value: /var/run/graphos/trust/ca-bundle.pem}
+            - {name: SSL_CERT_FILE, value: /var/run/graphos/trust/ca-bundle.pem}
+            - {name: LANGFUSE_CA_BUNDLE, value: /var/run/graphos/trust/ca-bundle.pem}
+            - {name: UV_NATIVE_TLS, value: "true"}
+            - {name: WORKLOAD_IDENTITY_TOKEN_FILE, value: /var/run/secrets/tokens/graphos-token}
+          volumeMounts:
+            - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: trust-bundle, mountPath: /var/run/graphos/trust, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          startupProbe:
+            httpGet: {path: /api/health, port: http, scheme: HTTP}
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet: {path: /api/health, port: http, scheme: HTTP}
+            failureThreshold: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/health, port: http, scheme: HTTP}
+            failureThreshold: 3
+            periodSeconds: 20
+          resources:
+            requests: {cpu: "500m", memory: 1Gi}
+            limits: {cpu: "4", memory: 4Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+      volumes:
+        - name: workload-identity
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: "${GRAPHOS_WORKLOAD_IDENTITY_AUDIENCE:?required}"
+                  expirationSeconds: 3600
+                  path: graphos-token
+        - name: trust-bundle
+          secret:
+            secretName: graphos-trust-bundle
+            optional: false
+        - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: graphos-front
+  namespace: graphos-control
+  labels:
+    app.kubernetes.io/name: graphos-front
+spec:
+  selector: {app.kubernetes.io/name: graphos-front}
+  ports:
+    - {name: http, port: 8000, targetPort: http, protocol: TCP}
+  type: ClusterIP

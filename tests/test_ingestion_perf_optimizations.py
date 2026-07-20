@@ -142,28 +142,31 @@ class TestBulkIngestGate:
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
-        # :Task status/metadata is the CONTROL plane, so _bulk_ingest_active reads
-        # via _control_cypher (CONCEPT:AU-KG.backend.schedule-on-control-graph), not the data-plane query_cypher.
-        obj._control_cypher = MagicMock(return_value=rows)  # type: ignore[attr-defined]
+        obj._ingest_work_item_index = MagicMock(
+            return_value={str(i): row for i, row in enumerate(rows)}
+        )  # type: ignore[attr-defined]
         return obj
 
-    def _meta(self, task_type: str) -> str:
-        from agent_utilities.knowledge_graph.core.engine_tasks import _encode_metadata
-
-        return _encode_metadata({"type": task_type, "target": "x"})
+    @staticmethod
+    def _item(task_type: str) -> dict:
+        return {
+            "status": "ready",
+            "metadata": {"type": task_type, "target": "opaque-ref"},
+        }
 
     def test_active_when_codebase_task_present(self):
-        rows = [{"meta": self._meta("codebase")}, {"meta": self._meta("document")}]
+        rows = [self._item("codebase"), self._item("document")]
         assert self._mixin(rows)._bulk_ingest_active() is True
 
     def test_inactive_when_no_codebase_task(self):
-        rows = [{"meta": self._meta("document")}, {"meta": self._meta("deep_analysis")}]
+        rows = [self._item("document"), self._item("deep_analysis")]
         assert self._mixin(rows)._bulk_ingest_active() is False
 
-    def test_query_failure_degrades_to_false(self):
+    def test_query_failure_fails_closed(self):
         obj = self._mixin([])
-        obj._control_cypher = MagicMock(side_effect=RuntimeError("engine down"))
-        assert obj._bulk_ingest_active() is False
+        obj._ingest_work_item_index = MagicMock(side_effect=RuntimeError("engine down"))
+        with pytest.raises(RuntimeError, match="engine down"):
+            obj._bulk_ingest_active()
 
 
 # ── per-lane/stage profiling (CONCEPT:AU-OS.observability.per-lane-latency-metrics) ──────────────────────────────
@@ -172,16 +175,25 @@ class TestProfileReport:
         from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
         obj = TaskManagerMixin.__new__(TaskManagerMixin)
-        # profile_report issues two control queries: the :Task scan (rows) then the
-        # off-queue :ProfileSpan scan (none here). Returning ``rows`` for BOTH would
-        # double-count every task, so the span query yields [].
-        obj._control_cypher = MagicMock(side_effect=[rows, []])  # type: ignore[attr-defined]
+        native_status = {
+            "completed": "succeeded",
+            "failed": "failed",
+            "dead_letter": "dead_letter",
+        }
+        obj._ingest_work_item_index = MagicMock(
+            return_value={
+                str(i): {
+                    "status": native_status[row["status"]],
+                    "metadata": row["meta"],
+                }
+                for i, row in enumerate(rows)
+            }
+        )  # type: ignore[attr-defined]
+        obj._control_cypher = MagicMock(return_value=[])  # type: ignore[attr-defined]
         return obj
 
     def _row(self, status: str, **meta: object) -> dict:
-        from agent_utilities.knowledge_graph.core.engine_tasks import _encode_metadata
-
-        return {"status": status, "meta": _encode_metadata(meta)}
+        return {"status": status, "meta": meta}
 
     def test_groups_by_lane_with_percentiles_and_parallelism(self):
         rows = [
@@ -224,10 +236,11 @@ class TestProfileReport:
         # total task ms (450) over wall span (300ms) → 1.5x pipelining
         assert rep["parallelism_factor"] == 1.5
 
-    def test_empty_on_cypher_failure(self):
+    def test_work_item_read_failure_fails_closed(self):
         obj = self._mixin([])
-        obj._control_cypher = MagicMock(side_effect=RuntimeError("down"))
-        assert obj.profile_report() == {}
+        obj._ingest_work_item_index = MagicMock(side_effect=RuntimeError("down"))
+        with pytest.raises(RuntimeError, match="down"):
+            obj.profile_report()
 
 
 # ── batched parse (CONCEPT:EG-KG.compute.graph-compute-engine): extractor + pipeline routing ───────────
@@ -266,19 +279,12 @@ class TestBatchExtract:
 
 class TestMakeBatchParseFn:
     class _GC:
-        supports_batch_parse = True
-
         def __init__(self):
             self.calls: list[int] = []
 
         def parse_files(self, files):
             self.calls.append(len(files))
             return [{} for _ in files]
-
-    def test_returns_none_when_unsupported(self):
-        gc = self._GC()
-        gc.supports_batch_parse = False
-        assert make_batch_parse_fn(gc) is None
 
     def test_chunks_by_env(self, monkeypatch):
         monkeypatch.setenv("KG_PARSE_BATCH", "2")

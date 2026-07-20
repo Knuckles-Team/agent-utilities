@@ -50,10 +50,13 @@ events: []
 identity:
   id_field:
     hardware_node: host
+    system-service: name
   title_field:
     hardware_node: host
+    system-service: name
   text_field:
     hardware_node: host
+    system-service: description
   updated_field: {}
 permissions:
   acl_fields: []
@@ -63,8 +66,11 @@ schema_mappings:
   DiskVolume:
     ontology_class: null
     fields:
+      addressFamilyCount: xsd:integer
       capacityBytes: xsd:integer
       cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
       fstype: xsd:string
       hostname: xsd:string
       ipAddress: xsd:string
@@ -74,14 +80,21 @@ schema_mappings:
       machineArch: xsd:string
       memoryTotal: xsd:integer
       mountpoint: xsd:string
+      mtu: xsd:integer
       osVersion: xsd:string
       percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
       serviceState: xsd:string
+      usedBytes: xsd:integer
   HardwareNode:
     ontology_class: null
     fields:
+      addressFamilyCount: xsd:integer
       capacityBytes: xsd:integer
       cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
       fstype: xsd:string
       hostname: xsd:string
       ipAddress: xsd:string
@@ -91,14 +104,21 @@ schema_mappings:
       machineArch: xsd:string
       memoryTotal: xsd:integer
       mountpoint: xsd:string
+      mtu: xsd:integer
       osVersion: xsd:string
       percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
       serviceState: xsd:string
+      usedBytes: xsd:integer
   NetworkInterface:
     ontology_class: null
     fields:
+      addressFamilyCount: xsd:integer
       capacityBytes: xsd:integer
       cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
       fstype: xsd:string
       hostname: xsd:string
       ipAddress: xsd:string
@@ -108,14 +128,21 @@ schema_mappings:
       machineArch: xsd:string
       memoryTotal: xsd:integer
       mountpoint: xsd:string
+      mtu: xsd:integer
       osVersion: xsd:string
       percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
       serviceState: xsd:string
+      usedBytes: xsd:integer
   SoftwarePackage:
     ontology_class: null
     fields:
+      addressFamilyCount: xsd:integer
       capacityBytes: xsd:integer
       cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
       fstype: xsd:string
       hostname: xsd:string
       ipAddress: xsd:string
@@ -125,14 +152,21 @@ schema_mappings:
       machineArch: xsd:string
       memoryTotal: xsd:integer
       mountpoint: xsd:string
+      mtu: xsd:integer
       osVersion: xsd:string
       percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
       serviceState: xsd:string
+      usedBytes: xsd:integer
   SystemService:
     ontology_class: System
     fields:
+      addressFamilyCount: xsd:integer
       capacityBytes: xsd:integer
       cpuCount: xsd:integer
+      externalToolId: xsd:string
+      freeBytes: xsd:integer
       fstype: xsd:string
       hostname: xsd:string
       ipAddress: xsd:string
@@ -142,9 +176,13 @@ schema_mappings:
       machineArch: xsd:string
       memoryTotal: xsd:integer
       mountpoint: xsd:string
+      mtu: xsd:integer
       osVersion: xsd:string
       percentUsed: xsd:decimal
+      processor: xsd:string
+      serviceDescription: xsd:string
       serviceState: xsd:string
+      usedBytes: xsd:integer
 sync:
 - preset: systems-hosts
   server: systems-manager
@@ -166,36 +204,61 @@ sync:
     title_field: host
     text_field: host
     doc_type: hardware_node
+- preset: system-services
+  server: systems-manager
+  tool: sm_service_operations
+  action: list_services
+  records_path: services
+  id_field: name
+  title_field: name
+  text_field: description
+  updated_field: null
+  pagination: null
+  doc_type: system-service
+  tool_schema_sha256: d2b92e0e421b1a727c42ec0eabc99415f3f27f455073e1e2eba96ac6bcde15ac
+  raw:
+    server: systems-manager
+    tool: sm_service_operations
+    params_style: args
+    action: list_services
+    records_path: services
+    id_field: name
+    title_field: name
+    text_field: description
+    doc_type: system-service
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T14:21:05Z'
   source_artifacts:
   - a2a.json
   - systems_manager/connectors/mcp_source_presets.json
+  - systems_manager/connectors/tool_schema_fingerprints.json
   - systems_manager/ontology/systems.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: ebdc118caf9d9e0dc68d8b22cdd132037339c341db72fc3472a6703cfdd7bd77
-    triple_count: 82
+    hash: 8f5d38237a5426f389cc0457f9057de6a4587374d2c01817fe0a59c7f96d11c0
+    triple_count: 87
   signer: ontology-manifest-generator
-  signature: babd3aaf3e33650970536e046d5816b33bcc3463935729323119661ae1fcb272
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: vysk5_lLUBZUN1XVc4giiM91cDilOTnYfYMKSKUTXnSs5F8BMMGZMXOpfBdOnTj413fZK9AK_C7V6qohekEhAg
 policy:
   pii_fields: {}
   tenant_boundary: null
   rls: []
 review_todos:
-- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+- "policy.rls / policy.tenant_boundary are unset — no row-level-security predicate has been reviewed\
   \ for this connector."
-- "schema_mappings.DiskVolume.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.HardwareNode.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.NetworkInterface.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.SoftwarePackage.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
-  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.SystemService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
-  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+- "schema_mappings.DiskVolume.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HardwareNode.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.NetworkInterface.ontology_class = None [UNRESOLVED — no crosswalk found by any\
+  \ heuristic] — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SoftwarePackage.ontology_class = None [UNRESOLVED — no crosswalk found by any\
+  \ heuristic] — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SystemService.ontology_class = 'System' [DRAFT — nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] — verify manually before relying\
   \ on this crosswalk for reasoning/joins."
 - 'auth: SSH key via the local ''ssh'' CLI (subprocess, not paramiko) using a per-host inventory (key_path/identity_file,
   user, port from ~/.config/agent-utilities/inventory.yaml); a separate OpenBao-backed path handles BMC/iDRAC
@@ -204,23 +267,23 @@ review_todos:
   a least-privilege sudo model (no explicit SSH scope); OpenBao needs read on apps/data/idrac. Shape:
   SSH is per-host delegated (each host its own key/user); the OpenBao token is a single shared service
   credential.'
-- "change_support: none \u2014 this connector is NOT wired into any source_sync delta/hydrate/materialize\
+- "change_support: none — this connector is NOT wired into any source_sync delta/hydrate/materialize\
   \ ingestion path today (see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory,\
   \ which omits it entirely); it is an action/ops MCP connector (control-plane calls), not a KG data-ingestion\
   \ source. cdc: none. webhook: none (any 'webhook' hits in this package's source manage webhooks/admission-hooks\
-  \ IN THE REMOTE SYSTEM \u2014 they are not an inbound push-ingestion receiver into this KG)."
-- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+  \ IN THE REMOTE SYSTEM — they are not an inbound push-ingestion receiver into this KG)."
+- "policy.classification / policy.retention: UNKNOWN — this connector declares no data classification\
   \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
   \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
   \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
   \ above for the one heuristic that IS populated)."
-- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+- "quality (SHACL shapes / freshness SLA): UNKNOWN — no SHACL shape set or freshness contract is\
   \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
   \ SLA is authored and referenced here."
-- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+- "manifest_status: draft — resources/schema_mappings/sync/actions/events were generated deterministically\
   \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
   \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
   \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
-  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ manifest MANDATORY for enterprise activation — operator sign-off on the ontology_class crosswalks,\
   \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
   \ manifest should be treated as fully authoritative."

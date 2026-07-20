@@ -76,7 +76,7 @@ class KBExtractor:
         self._provider = provider or setting("PROVIDER", "openai")
         self._base_url = base_url or (_default_chat.base_url if _default_chat else None)
         self._api_key = (
-            api_key or (_default_chat.api_key if _default_chat else "") or ""
+            api_key or (_default_chat.api_key_ref if _default_chat else "") or ""
         )
         self._article_agent: Any = None
         self._health_agent: Any = None
@@ -101,9 +101,9 @@ class KBExtractor:
         """Lazily create the article extraction Pydantic AI agent."""
         if self._article_agent is None:
             try:
-                from pydantic_ai import Agent
+                from agent_utilities.core.contextual_model import create_context_agent
 
-                self._article_agent = Agent(
+                self._article_agent = create_context_agent(
                     model=self._get_model(),
                     output_type=ExtractedArticle,
                     system_prompt=_ARTICLE_SYSTEM_PROMPT,
@@ -117,9 +117,9 @@ class KBExtractor:
         """Lazily create the health-check Pydantic AI agent."""
         if self._health_agent is None:
             try:
-                from pydantic_ai import Agent
+                from agent_utilities.core.contextual_model import create_context_agent
 
-                self._health_agent = Agent(
+                self._health_agent = create_context_agent(
                     model=self._get_model(),
                     output_type=KBHealthReport,
                     system_prompt=_HEALTH_SYSTEM_PROMPT,
@@ -133,9 +133,9 @@ class KBExtractor:
         """Lazily create the index generation Pydantic AI agent."""
         if self._index_agent is None:
             try:
-                from pydantic_ai import Agent
+                from agent_utilities.core.contextual_model import create_context_agent
 
-                self._index_agent = Agent(
+                self._index_agent = create_context_agent(
                     model=self._get_model(),
                     output_type=ExtractedKBIndex,
                     system_prompt=_INDEX_SYSTEM_PROMPT,

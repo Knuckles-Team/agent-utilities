@@ -17,7 +17,10 @@ import logging
 import os
 from typing import Any
 
-from agent_utilities.core.config import setting
+from agent_utilities.core.config import resolve_langfuse_host, setting
+from agent_utilities.observability.langfuse_trust import (
+    langfuse_credentials_configured,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -182,10 +185,8 @@ class HydrationManager:
                 "url": setting("LGTM_URL", ""),
             },
             "langfuse": {
-                "configured": bool(
-                    setting("LANGFUSE_PUBLIC_KEY") and setting("LANGFUSE_SECRET_KEY")
-                ),
-                "url": setting("LANGFUSE_URL", "https://cloud.langfuse.com"),
+                "configured": langfuse_credentials_configured(),
+                "url": resolve_langfuse_host(),
             },
             "keycloak": {
                 "configured": bool(
@@ -254,7 +255,9 @@ class HydrationManager:
         """Trigger instant hydration for a specific source.
 
         Resolves the connector method from CAPABILITY_REGISTRY, enabling
-        tool-agnostic orchestration.
+        tool-agnostic orchestration. Connector implementations retain their
+        compact ``ingest_external_batch`` protocol, but receive a transparent
+        proxy that commits that batch through native ``ApplyChangeEnvelope``.
         """
         source = source.lower().strip()
         entry = CAPABILITY_REGISTRY.get(source)
@@ -265,7 +268,9 @@ class HydrationManager:
             raise ValueError(
                 f"Connector method '{entry['method']}' not found for source '{source}'"
             )
-        return method(engine)
+        from ..ingestion.envelope_ingest import NativeChangeEnvelopeEngineProxy
+
+        return method(NativeChangeEnvelopeEngineProxy(engine))
 
     def hydrate_all(self, engine: Any) -> dict[str, Any]:
         """Sequentially hydrate all active/configured sources."""
@@ -425,7 +430,7 @@ class HydrationManager:
                 with open(catalog_path) as f:
                     yaml_content = yaml.safe_load(f)
             except Exception as e:
-                logger.debug(f"Failed to read Backstage YAML from {catalog_path}: {e}")
+                logger.debug("Failed to read Backstage YAML (%s)", type(e).__name__)
 
         if yaml_content and isinstance(yaml_content, dict):
             metadata = yaml_content.get("metadata", {})
@@ -530,8 +535,6 @@ class HydrationManager:
         if bpm_url and bpm_token:
             from abc import ABC, abstractmethod
 
-            import requests
-
             class BaseBPMHydrator(ABC):
                 def __init__(self, url: str, token: str):
                     self.url = url.rstrip("/")
@@ -544,16 +547,28 @@ class HydrationManager:
 
             class OpenSourceBPMHydrator(BaseBPMHydrator):
                 def fetch_processes(self) -> list[dict[str, Any]]:
+                    from agent_utilities.core.http_client import create_http_client
+                    from agent_utilities.core.transport_security import (
+                        resolve_configured_tls_profile,
+                    )
+
                     result = []
                     headers = {
                         "Authorization": f"Bearer {self.token}",
                         "Accept": "application/json",
                     }
-                    resp = requests.get(
-                        f"{self.url}/repository/process-definitions",
-                        headers=headers,
-                        timeout=5.0,
-                    )
+                    trust = resolve_configured_tls_profile("bpm")
+                    try:
+                        with create_http_client(
+                            timeout=5.0,
+                            headers=headers,
+                            **trust.httpx_kwargs(),
+                        ) as client:
+                            resp = client.get(
+                                f"{self.url}/repository/process-definitions"
+                            )
+                    finally:
+                        trust.cleanup()
                     if resp.status_code == 200:
                         for proc in resp.json():
                             proc_id = str(proc.get("id", ""))
@@ -570,7 +585,7 @@ class HydrationManager:
                                 )
                     else:
                         logger.warning(
-                            f"BPM hydration API returned {resp.status_code}: {resp.text}"
+                            "BPM hydration API returned a non-success status"
                         )
                     return result
 
@@ -607,7 +622,7 @@ class HydrationManager:
                 with open(bpmn_path, encoding="utf-8") as f:
                     xml_content = f.read()
             except Exception as e:
-                logger.debug(f"Failed to read BPMN file from {bpmn_path}: {e}")
+                logger.debug("Failed to read BPMN source (%s)", type(e).__name__)
 
         if not xml_content:
             xml_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -717,7 +732,7 @@ class HydrationManager:
                 with open(checklist_path, encoding="utf-8") as f:
                     content = f.read()
             except Exception as e:
-                logger.debug(f"Failed to read checklist from {checklist_path}: {e}")
+                logger.debug("Failed to read checklist source (%s)", type(e).__name__)
 
         if not content:
             content = """
@@ -772,25 +787,27 @@ class HydrationManager:
         }
 
     def _hydrate_relational_database(self, engine: Any) -> dict[str, Any]:
-        """Hydrate relational database schema dynamically using SQLite catalogs."""
+        """Hydrate a bounded synthetic relational schema using an in-memory catalog.
+
+        External database discovery belongs to the governed source-connector
+        boundary. This built-in hydration path therefore never accepts a host
+        filesystem path or opens a deployment database implicitly.
+        """
         import sqlite3
 
         entities = []
         relationships = []
 
-        db_path = setting("DATABASE_PATH", ":memory:")
         try:
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(":memory:")
             cursor = conn.cursor()
-
-            if db_path == ":memory:":
-                cursor.execute(
-                    "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)"
-                )
-                cursor.execute(
-                    "CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER, FOREIGN KEY(author_id) REFERENCES users(id))"
-                )
-                conn.commit()
+            cursor.execute(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)"
+            )
+            cursor.execute(
+                "CREATE TABLE posts (id INTEGER PRIMARY KEY, title TEXT, author_id INTEGER, FOREIGN KEY(author_id) REFERENCES users(id))"
+            )
+            conn.commit()
 
             cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
@@ -959,11 +976,22 @@ class HydrationManager:
                 "reason": "Missing GITLAB_TOKEN/GITLAB_API_TOKEN",
             }
 
-        client = GitLabApi(base_url=url, token=token, verify=False)
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        trust = resolve_configured_tls_profile("gitlab")
+        client = GitLabApi(
+            base_url=url,
+            token=token,
+            verify=trust.requests_kwargs()["verify"],
+        )
         try:
             projects = client.get_projects(per_page=30)
-        except Exception as e:
-            return {"status": "error", "error": f"Failed to fetch projects: {e}"}
+        except Exception:
+            return {"status": "error", "error": "Failed to fetch projects"}
+        finally:
+            trust.cleanup()
 
         if not isinstance(projects, list):
             projects = [projects] if projects else []
@@ -1504,13 +1532,10 @@ class HydrationManager:
                 "reason": "langfuse-agent package not installed",
             }
 
-        setting("LANGFUSE_URL", "https://cloud.langfuse.com")
-        pub_key = setting("LANGFUSE_PUBLIC_KEY")
-        sec_key = setting("LANGFUSE_SECRET_KEY")
-        if not pub_key or not sec_key:
+        if not langfuse_credentials_configured():
             return {
                 "status": "skipped",
-                "reason": "Missing LANGFUSE_PUBLIC_KEY or LANGFUSE_SECRET_KEY",
+                "reason": "Langfuse credential pair is not configured",
             }
 
         entities: list[dict[str, Any]] = []
@@ -1816,7 +1841,7 @@ class HydrationManager:
                 "id": rec_id,
                 "type": "system",
                 "name": "app.example.com [A]",
-                "value": "10.0.0.50",
+                "value": "192.0.2.50",
                 "domain": "technitium",
             }
         )

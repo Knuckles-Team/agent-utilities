@@ -205,7 +205,9 @@ def load_desired_state(
                     scaling=parse_scaling_spec(raw.get("scaling"), name),
                 )
         except Exception as e:  # noqa: BLE001 — a broken registry reconciles nothing
-            logger.warning("fleet_reconciler: registry parse failed (%s): %s", path, e)
+            logger.warning(
+                "fleet_reconciler: registry parse failed (%s)", type(e).__name__
+            )
 
     if override_path:
         try:
@@ -256,11 +258,6 @@ class FleetReconciler:
             except Exception:  # noqa: BLE001
                 max_actions = 5
         self.max_actions = max(1, int(max_actions))
-        # C3/Phase 3b (D13): CDC-fired :AgentTask dependency firing when the
-        # engine's change-feed is reachable, falling back to the poll sweep
-        # otherwise — one watcher per reconciler instance so its CDC cursor
-        # persists across ticks (see ``AgentTaskDepWatcher``).
-        self._agent_task_watcher = AgentTaskDepWatcher(engine)
 
     # ── divergence detection ────────────────────────────────────────
 
@@ -421,18 +418,12 @@ class FleetReconciler:
         # Human-granted approvals get their own budget: a backlog of new
         # divergences must not starve actions an operator already sanctioned.
         approved = self._drain_approved(self.max_actions)
-        # C3/Phase 3b (D13): CDC-fired :AgentTask dependency firing when the
-        # engine's change-feed is reachable; poll sweep as the fallback (see
-        # ``AgentTaskDepWatcher``/``fire_ready_agent_tasks`` docstrings).
-        fired_agent_tasks = self._agent_task_watcher.fire()
-
         report = {
             "divergences": len(proposals),
             "processed": len(actions),
             "deferred": [p.summary() for p in deferred],
             "actions": actions,
             "approved_drained": approved,
-            "fired_agent_tasks": fired_agent_tasks,
             "actuator": getattr(self.actuator, "name", "?"),
         }
         self._record(report)
@@ -443,7 +434,7 @@ class FleetReconciler:
             return
         try:
             self.engine.add_node(
-                f"reconcile_report:{uuid.uuid4().hex[:12]}",
+                f"reconcile_report:{uuid.uuid4().hex}",
                 "ReconcileReport",
                 properties={
                     "divergences": report["divergences"],

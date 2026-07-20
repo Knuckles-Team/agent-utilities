@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.automation.feed_sources import (
     list_feed_sources,
     register_feed_nodes,
@@ -19,6 +21,23 @@ class _Engine:
 
     def add_node(self, node_id, node_type, properties=None):
         self.backend.add_node(node_id, node_type=node_type, **(properties or {}))
+
+
+@pytest.fixture(autouse=True)
+def _capture_native_feed_submission(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep registry mapping assertions isolated from native transaction tests."""
+
+    def capture(engine, envelope):
+        row = envelope.to_entity_dict()
+        node_id = str(row.pop("id"))
+        node_type = str(row.pop("type"))
+        engine.add_node(node_id, node_type, properties=row)
+        return {"status": "success", "watermark_advanced": False}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        capture,
+    )
 
 
 def test_scholarx_feed_documents_noop_without_scholarx(monkeypatch):

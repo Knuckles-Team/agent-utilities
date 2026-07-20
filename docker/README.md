@@ -13,7 +13,7 @@ table** first, then the composition recipes.
 
 | Profile | What you run | Setup guide |
 |---|---|---|
-| **Tiny** (laptop/homelab, zero-infra) | Nothing — the KG runs **in-process**. Just `scripts/bootstrap.sh`. | [`docs/recipes/tiny.md`](../docs/recipes/tiny.md) |
+| **Tiny** (laptop/homelab, zero-infra) | Nothing to compose — GraphOS supervises the packaged Rust engine as an out-of-process child over a private local transport. Just `scripts/bootstrap.sh`. | [`docs/recipes/tiny.md`](../docs/recipes/tiny.md) |
 | **Single-node prod** (one durable host) | `pg-age.compose.yml` + `mcp.compose.yml` + core connectors | [`docs/recipes/single-node-prod.md`](../docs/recipes/single-node-prod.md) |
 | **Enterprise** (multi-host swarm, full fleet) | `pg-age` + `kafka-kraft` + `mcp` + the whole `*-mcp` fleet, via the genesis workflow | [`docs/recipes/enterprise.md`](../docs/recipes/enterprise.md) |
 
@@ -57,7 +57,7 @@ vars, `config.json`, secrets, database choice) lives in [`docs/recipes/`](../doc
 ## 4. "I just want to self-deploy" — the short path
 
 ```bash
-# 1) Try it — zero infra, KG in-process
+# 1) Try it — zero infra, packaged engine supervised out of process
 scripts/bootstrap.sh                                   # docs/recipes/tiny.md
 
 # 2) Durable single host — bring up the KG tier, then the gateway
@@ -65,7 +65,7 @@ docker compose -f docker/pg-age.compose.yml up -d
 docker compose -f docker/mcp.compose.yml up -d         # docs/recipes/single-node-prod.md
 
 # 3) Full platform — swarm + all tiers + the *-mcp fleet
-#    run the `agent-os-genesis` (alias `day0`) skill — it resolves an adaptive run plan
+#    run the `agent-utilities-deployment` skill — it resolves an adaptive run plan
 #    (deploy / baremetal / use-existing / skip per component) and stands the whole thing up.
 #                                                       # docs/recipes/enterprise.md
 ```
@@ -77,6 +77,5 @@ docker compose -f docker/mcp.compose.yml up -d         # docs/recipes/single-nod
   `single-node-prod`, `enterprise`, `databases`, `delta-ingestion`, `unified-feeds`,
   `unified-scheduling`
 - **Per-service `*-mcp` stacks (the deployed fleet):** [`../../../services/`](../../../services/)
-- **Genesis / day-0 bring-up + connector provisioning:**
-  `agent_utilities/skills/workflows/agent-os-genesis/` (incl.
-  `references/plane-provisioning-and-connector-auth.md` for connector auth + SSO)
+- **Genesis / day-0 bring-up + connector provisioning:** the
+  `agent-utilities-deployment` pre-bundled workflow skill and `genesis.yaml`.

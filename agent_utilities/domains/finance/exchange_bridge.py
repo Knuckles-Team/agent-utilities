@@ -137,20 +137,6 @@ class BinanceExchange(ExchangeBackend):
         price = limit_price or 0.0
         if not price:
             try:
-                import requests
-
-                clean_symbol = symbol.replace("/", "").replace("-", "")
-                url = (
-                    f"https://api.binance.com/api/v3/ticker/price?symbol={clean_symbol}"
-                )
-                resp = requests.get(url, timeout=3.0)
-                if resp.status_code == 200:
-                    price = float(resp.json().get("price", 0.0))
-            except Exception:
-                pass
-
-        if not price:
-            try:
                 import yfinance as yf
 
                 yf_symbol = symbol.replace("/USDT", "-USD").replace("/USD", "-USD")

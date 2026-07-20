@@ -18,7 +18,7 @@ the KG self-improving WITHOUT auto-merging anything:
 
 Every research artifact is a DRAFT/proposal: spec markdown under ``.specify/`` and KG
 proposal nodes. No code execution, no PR merge, no edits outside ``.specify``.
-Exposed on-demand (the ``graph_loops`` / ``graph_orchestrate`` MCP tools and the REST
+Exposed on-demand (the ``graph_loops`` / ``graph_evolution`` MCP tools and the REST
 twin) and via a throttled daemon tick.
 """
 
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -167,10 +168,12 @@ class LoopController:
         ``KG_LOOP_MINE_DISCOVERY``, default ON — the discovery-flywheel mining pass,
         CONCEPT:AU-KG.evolution.mining-flywheel) → ``trace_mining`` (env
         ``KG_LOOP_TRACE_MINING``, default ON — workstream C6, closed-loop agent
-        mining: mines Episode/OutcomeEvaluation/ToolCall provenance for repeated
+        mining: mines RunTrace/OutcomeEvaluation/ToolCall provenance for repeated
         FAILURE tool-call sequences and runs each through the SAME C4
         CandidateInsight→Claim→Validation→Action-gate pipeline; SAFETY-CRITICAL,
-        see ``_run_trace_mining``'s docstring) → ``insight_validation`` (env
+        see ``_run_trace_mining``'s docstring) → ``placement_control`` (typed
+        ``PLACEMENT_CONTROL_LOOP_ENABLED``, default OFF — mines placement evidence
+        and enters the approval-gated measured canary) → ``insight_validation`` (env
         ``KG_LOOP_INSIGHT_VALIDATION``, default ON — workstream C4, the Insight
         Engine closed loop: mined findings above a confidence floor become
         reviewable ``ClaimNode``s, gated by ``action_policy.decide()``) →
@@ -216,6 +219,7 @@ class LoopController:
             "mine_discovery": None,
             "insight_validation": None,
             "trace_mining": None,
+            "placement_control": None,
             "belief_revision": None,
             "standardize": None,
             "skill_proposals": None,
@@ -237,7 +241,7 @@ class LoopController:
         from .evolution_state import StageBeacon
 
         self._cycle_id = (
-            f"evo_cycle_{time.strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:6]}"
+            f"evo_cycle_{time.strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex}"
         )
         self._beacon = StageBeacon(
             self.engine,
@@ -333,7 +337,7 @@ class LoopController:
             )
 
         # 0a1.45 TRACE MINING — closed-loop agent mining (workstream C6,
-        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): mines Episode/
+        # CONCEPT:AU-KG.evolution.insight-engine-closed-loop): mines RunTrace/
         # OutcomeEvaluation/ToolCall provenance for repeated FAILURE tool-call
         # sequences (``trace_pattern_miner``) and runs each mined pattern through
         # the SAME C4 CandidateInsight→Claim→Validation→Action-gate pipeline —
@@ -347,6 +351,19 @@ class LoopController:
         # docstring in ``core/config.py``).
         if trace_mining:
             report["trace_mining"] = _stage("trace_mining", self._run_trace_mining)
+
+        # 0a1.46 PLACEMENT CONTROL — workload-aware placement mining (X-5).
+        # This is the one automatic caller governed by the typed opt-in. The
+        # controller itself reuses the same propose -> ActionPolicy -> measured
+        # canary -> promote/rollback spine as the explicit graph_loops action;
+        # approval_required remains the shipped mutation posture.
+        if config.placement_control_loop_enabled:
+            from .placement_mining import placement_control_loop
+
+            report["placement_control"] = _stage(
+                "placement_control",
+                lambda: placement_control_loop(self.engine, enabled=True),
+            )
 
         # 0a1.5 BELIEF REVISION — confidence propagation + light TMS (CONCEPT:AU-KG.
         # adaptation.confidence-propagation-belief-revision, workstream C2): recomputes
@@ -514,7 +531,9 @@ class LoopController:
         # this backend does not reliably bind list params.
         type_list = ", ".join("'" + t.replace("'", "") + "'" for t in sorted(casings))
         try:
-            rows = q(f"MATCH (n) WHERE n.type IN [{type_list}] RETURN count(n) AS c")
+            rows = q(
+                f"MATCH (n) WHERE n.node_type IN [{type_list}] RETURN count(n) AS c"
+            )
             if not rows:
                 return None
             row = rows[0]
@@ -1352,7 +1371,7 @@ class LoopController:
     def _run_trace_mining(self) -> dict[str, Any]:
         """Mine repeated FAILURE tool-call sequences; route each through the C4 pipeline.
 
-        Workstream C6 — closed-loop agent mining. Mines Episode/
+        Workstream C6 — closed-loop agent mining. Mines RunTrace/
         OutcomeEvaluation/ToolCall provenance (:mod:`.trace_pattern_miner`) for
         repeated FAILURE tool-call sequences and runs each mined pattern
         through the SAME CandidateInsight→Claim→Validation→Action-gate
@@ -1407,6 +1426,10 @@ class LoopController:
         (``KG_LOOP_TRACE_MINING``, default ON — this stage is itself
         propose-only regardless of the flag).
         """
+        from agent_utilities.observability.trace_ontology import (
+            load_trace_cursor,
+            save_trace_cursor,
+        )
         from agent_utilities.orchestration.action_policy import (
             ActionRequest,
             get_action_policy,
@@ -1422,7 +1445,11 @@ class LoopController:
         from .trace_pattern_miner import mine_trace_patterns
 
         errors: list[str] = []
-        mine_result = mine_trace_patterns(self.engine)
+        cursor_consumer = "trace-pattern-miner"
+        prior_cursor = load_trace_cursor(self.engine, cursor_consumer)
+        mine_result = mine_trace_patterns(
+            self.engine, after_sequence=prior_cursor.event_sequence
+        )
         errors.extend(mine_result.get("errors") or [])
         candidates = candidates_from_sequential_patterns(mine_result.get("patterns"))
         below_floor = [c for c in candidates if not c.clears_floor]
@@ -1586,14 +1613,28 @@ class LoopController:
             if len(examples) < 5:
                 examples.append(record)
 
+        completed_cursor = prior_cursor
+        if not errors:
+            completed_cursor = save_trace_cursor(
+                self.engine,
+                cursor_consumer,
+                int(
+                    mine_result.get("next_event_sequence")
+                    or prior_cursor.event_sequence
+                ),
+            )
+
         return {
             "candidates": len(candidates),
             "below_floor": len(below_floor),
             "eligible": len(eligible),
             "persisted_claims": persisted,
             "routed": routed,
-            "failure_episodes": mine_result.get("failure_episodes", 0),
+            "failure_traces": mine_result.get("failure_traces", 0),
             "sequences_mined": mine_result.get("sequences_mined", 0),
+            "after_event_sequence": prior_cursor.event_sequence,
+            "next_event_sequence": completed_cursor.event_sequence,
+            "cursor_advanced": completed_cursor > prior_cursor,
             "examples": examples,
             "errors": errors,
         }
@@ -1870,9 +1911,7 @@ class LoopController:
             # before advancing it. A lost race means a concurrent cycle / peer
             # host / graph_loops run already owns it — skip rather than
             # double-drive. (CONCEPT:AU-KG.compute.user-override-prompt-library)
-            if not claim_loop(
-                self.engine, loop["id"], current_status=str(loop.get("status") or "")
-            ):
+            if not claim_loop(self.engine, loop["id"]):
                 out["skipped"] += 1
                 out["results"].append(
                     {"id": loop["id"], "kind": kind, "status": "skipped(claimed)"}
@@ -1959,12 +1998,34 @@ class LoopController:
                 "done": done,
             }
         cmd = (loop.get("validation_cmd") or "").strip()
-        runner = self._develop_runner or _default_develop_runner
         if not cmd:
             # no command to validate → nothing to advance; leave it active
             return {"status": loop.get("status", "pending"), "output": ""}
+        if self._develop_runner is None:
+            from agent_utilities.core.config import config
+
+            if not config.kg_loop_allow_host_validation:
+                return {
+                    "status": "pending",
+                    "output": (
+                        "host validation is disabled; configure a governed "
+                        "develop runner or explicitly enable the dangerous host runner"
+                    ),
+                }
+        runner = self._develop_runner or _default_develop_runner
         ok, output = runner(cmd, self.codebase_root)
-        return {"status": "completed" if ok else "pending", "output": output}
+        from agent_utilities.http.redaction import redact_text
+        from agent_utilities.security.persistence_privacy import (
+            PersistencePrivacyGuard,
+        )
+
+        safe_output, _ = PersistencePrivacyGuard().sanitize_text(
+            redact_text(str(output)[:4096])
+        )
+        return {
+            "status": "completed" if ok else "pending",
+            "output": safe_output,
+        }
 
     def _advance_skill(self, loop: dict[str, Any]) -> dict[str, Any]:
         """Run a skill / skill-workflow Loop to its completion state."""
@@ -1979,7 +2040,7 @@ class LoopController:
             )
         return {"status": "completed" if ok else "failed", "output": output}
 
-    # -- durable, resumable run-to-completion (CONCEPT:AU-KG.research.these-properties-carry + OS-5.16) --- #
+    # -- engine-native resumable run-to-completion (CONCEPT:AU-KG.research.these-properties-carry) --- #
     async def run_loop(
         self,
         loop: dict[str, Any],
@@ -1988,19 +2049,16 @@ class LoopController:
         on_iteration: Callable[[int, dict[str, Any]], None] | None = None,
         desired_state: Callable[[], str | None] | None = None,
         sleep_s: float = 0.0,
-        durable: Any = None,
     ) -> dict[str, Any]:
-        """Drive ONE Loop to completion, durably and resumably — for any kind.
+        """Drive one Loop to completion under its native WorkItem lease.
 
-        This is the generalized fold of the old goal-runner: it owns the durable,
-        checkpointed, corrigible iteration machinery once, for research/develop/skill
-        alike (durability is cross-cutting, not goal-specific):
+        This is the generalized fold of the goal runner: it owns resumable,
+        corrigible iteration once for research/develop/skill alike:
 
-        - **Resume** from the last durable checkpoint (``DurableExecutionManager``,
-          backend-selected SQLite/Postgres via ``state_store``) so a crash/redelivery
-          continues near the in-flight iteration instead of replaying from zero.
-        - **Durable iteration**: each step runs under an idempotency key
-          (``<loop>:iter:<n>``) — at-least-once retries, exactly-once effect.
+        - **Resume** from the WorkItem's fenced ``checkpoint_id`` so a reclaimed
+          expired lease continues after the last committed iteration.
+        - **One authority**: lease, checkpoint, retry, and terminal outcome all
+          live on the same engine-native WorkItem. There is no checkpoint sidecar.
         - **Corrigible interruption** (SAFE-1.5): ``desired_state`` (e.g. a fleet
           pause/kill signal) is honored each iteration — checkpoint and yield without
           resistance.
@@ -2012,27 +2070,18 @@ class LoopController:
         """
         import asyncio
 
-        from agent_utilities.orchestration.durable_execution import (
-            DurableExecutionManager,
-        )
+        from agent_utilities.orchestration import work_item as _wi
 
         from .loops import TERMINAL_STATUS, claim_loop, mark_loop_status
 
         loop_id = loop["id"]
         max_it = int(max_iterations or loop.get("max_iterations") or 20)
-        if durable is None:
-            durable = DurableExecutionManager(session_id=loop_id)
-        it = self._resume_iteration(durable)
         status = str(loop.get("status") or "running")
-        # Atomically claim the Loop as in-flight (status → running via the engine
-        # CAS) so a concurrent daemon cycle / peer host / graph_loops run can't
-        # double-drive it — only the winner advances. A resume (it > 0) is a
-        # legitimate re-entry of a Loop this caller already owns (durable
-        # rehydration left it 'running'/'orphaned'), so a lost CAS there is not
-        # fatal; on a fresh start (it == 0) a lost claim means someone else owns
-        # it and we yield. (CONCEPT:AU-KG.compute.user-override-prompt-library, was a blind flip — KG-2.78)
-        won = claim_loop(self.engine, loop_id, current_status=status)
-        if not won and it == 0:
+        # The native claim transaction owns expired-lease recovery. A negative
+        # result is authoritative; no sidecar checkpoint can grant re-entry.
+        won = claim_loop(self.engine, loop_id)
+        if not won:
+            it = self._resume_iteration(self.engine, loop_id)
             logger.info(
                 "run_loop: Loop %s already claimed by another driver — yielding.",
                 loop_id,
@@ -2043,10 +2092,13 @@ class LoopController:
                 "iterations": it,
                 "skipped": True,
             }
-        # On resume (it > 0) we already own the Loop; the claim CAS won't flip a
-        # node already 'running', so re-stamp the resumed iteration onto it.
-        if it > 0:
-            mark_loop_status(self.engine, loop_id, "running", iteration=it)
+        it = self._resume_iteration(self.engine, loop_id)
+        item_id = _wi.loop_work_item_id(loop_id)
+        claim = _wi.current_work_item_claim(self.engine, item_id)
+        if claim is None:
+            raise _wi.WorkItemBackendUnavailable(
+                f"Loop {loop_id!r} lost its native claim before execution"
+            )
 
         while it < max_it and status not in TERMINAL_STATUS:
             if desired_state is not None:
@@ -2072,17 +2124,21 @@ class LoopController:
 
             async def _step() -> dict[str, Any]:
                 # _iterate may block (subprocess validation / workflow run); offload
-                # to a thread so the durable loop never stalls the event loop.
+                # to a thread so the loop never stalls the event loop.
                 return await asyncio.to_thread(self._iterate, loop)
 
-            outcome = await durable.arun_durable_action(
-                node_id=f"{loop_id}:iter:{it}",
-                action=_step,
-                idempotency_key=f"{loop_id}:{it}",
-                state={"iteration": it, "kind": loop.get("kind", "research")},
-            )
+            outcome = await _step()
             outcome = outcome if isinstance(outcome, dict) else {"status": "pending"}
             status = str(outcome.get("status", "pending"))
+            if not _wi.checkpoint_work_item(
+                self.engine,
+                item_id,
+                claim,
+                f"checkpoint:iteration:{it}",
+            ):
+                raise _wi.WorkItemBackendUnavailable(
+                    f"Loop {loop_id!r} lost its native lease while checkpointing"
+                )
             mark_loop_status(
                 self.engine,
                 loop_id,
@@ -2107,25 +2163,15 @@ class LoopController:
         return {"id": loop_id, "status": status, "iterations": it}
 
     @staticmethod
-    def _resume_iteration(durable: Any) -> int:
-        """Read the durable checkpoint → number of already-applied iterations."""
-        import json
+    def _resume_iteration(engine: Any, loop_id: str) -> int:
+        """Read the last fenced iteration from the Loop WorkItem."""
 
-        try:
-            pending = durable.resume_session()
-        except Exception as e:  # noqa: BLE001 — recovery is best-effort
-            logger.debug("durable resume failed: %s", e)
-            return 0
-        if not pending:
-            return 0
-        state = pending.get("state")
-        try:
-            state = json.loads(state) if isinstance(state, str) else (state or {})
-        except (TypeError, ValueError):
-            state = {}
-        prior = state.get("iteration")
-        # the pending iteration was in flight (never completed) → re-run it
-        return (prior - 1) if isinstance(prior, int) and prior > 0 else 0
+        from agent_utilities.orchestration import work_item as _wi
+
+        item = _wi.get_work_item(engine, _wi.loop_work_item_id(loop_id))
+        checkpoint = str((item or {}).get("checkpoint_id") or "")
+        match = re.fullmatch(r"checkpoint:iteration:([1-9][0-9]*)", checkpoint)
+        return int(match.group(1)) if match else 0
 
     def _run_standardize(self) -> dict[str, Any]:
         """Run the enterprise standardization + consolidation pass (CONCEPT:AU-KG.ontology.populated-at-import-real-3).
@@ -2235,7 +2281,7 @@ class LoopController:
         # Share the id with the live beacon (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) so the finalized
         # EvolutionCycle and the mid-flight beacon cross-reference one cycle.
         cycle_id = self._cycle_id or (
-            f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+            f"evo_cycle_{_time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}"
         )
         # Conform to the EvolutionCycle table schema (schema_definition.py): only
         # known columns are first-class; cycle-specific metrics go in ``metadata``
@@ -2496,26 +2542,119 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     best-effort — mirrors the durable goal loop's validation step (``sessions``) but
     as a single step in the unified hot path. (CONCEPT:AU-KG.research.these-properties-carry)
 
-    Security: ``cmd`` is the operator-authored validation command from a develop
-    Loop definition (e.g. ``pytest -q && ruff check``), a trusted internal source —
-    the same trust boundary as the engine's other intentional dynamic-execution
-    sites. ``shell=True`` is deliberate so those commands can use shell operators
-    (``&&``, pipes, env expansion); it is never fed external/untrusted input.
+    This dangerous compatibility runner is disabled by default. When explicitly
+    enabled, it accepts one bounded argv command, resolves an operator-allowlisted
+    executable from ``PATH``, does not invoke a shell, and passes only a minimal
+    non-secret environment. Prefer an injected governed sandbox runner.
     """
+    import os
+    import shlex
+    import shutil
+    import signal
     import subprocess
+    import tempfile
+    import time
+    from pathlib import Path
 
+    from agent_utilities.core.config import config
+
+    if not config.kg_loop_allow_host_validation:
+        return False, "host validation is disabled"
+    if not cmd or len(cmd.encode("utf-8")) > 16 * 1024:
+        return False, "validation command is empty or exceeds the configured limit"
     try:
-        proc = subprocess.run(
-            cmd,
-            shell=True,  # nosec B602 — trusted operator-authored validation command (see docstring)
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=600,
-        )
-    except Exception as e:  # noqa: BLE001 — never abort the cycle
-        return False, f"validation command failed to run: {e}"
-    out = f"exit={proc.returncode}\n{proc.stdout[-1500:]}\n{proc.stderr[-500:]}"
+        argv = shlex.split(cmd, posix=os.name != "nt")
+    except ValueError:
+        return False, "validation command has invalid quoting"
+    if (
+        not argv
+        or len(argv) > 64
+        or any(len(arg) > 4096 or "\x00" in arg for arg in argv)
+    ):
+        return False, "validation command arguments exceed the configured limits"
+
+    executable_name = Path(argv[0]).name.lower()
+    if executable_name.endswith(".exe"):
+        executable_name = executable_name[:-4]
+    allowed = {
+        value.strip().lower()
+        for value in config.kg_loop_host_validation_executables.split(",")
+        if value.strip()
+    }
+    if (
+        argv[0] != Path(argv[0]).name
+        or executable_name not in allowed
+        or executable_name in {"sh", "bash", "zsh", "cmd", "powershell", "pwsh"}
+    ):
+        return False, "validation executable is not operator-allowlisted"
+    executable = shutil.which(argv[0])
+    if executable is None:
+        return False, "validation executable is unavailable"
+    root = Path(cwd).expanduser().resolve(strict=False)
+    if not root.is_dir():
+        return False, "validation working directory is unavailable"
+
+    env_names = {
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "WINDIR",
+        "TMP",
+        "TEMP",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "VIRTUAL_ENV",
+    }
+    child_env = {name: os.environ[name] for name in env_names if name in os.environ}
+    child_env.update({"CI": "1", "NO_COLOR": "1", "PYTHONNOUSERSITE": "1"})
+
+    output_limit = 2 * 1024 * 1024
+    proc: subprocess.Popen[bytes] | None = None
+    stop_reason = ""
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as output:
+            popen_kwargs: dict[str, Any] = {
+                "cwd": root,
+                "env": child_env,
+                "stdin": subprocess.DEVNULL,
+                "stdout": output,
+                "stderr": subprocess.STDOUT,
+                "shell": False,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                popen_kwargs["start_new_session"] = True
+            proc = subprocess.Popen([executable, *argv[1:]], **popen_kwargs)
+            deadline = time.monotonic() + 600
+            while proc.poll() is None:
+                if os.fstat(output.fileno()).st_size > output_limit:
+                    stop_reason = "validation output limit exceeded"
+                    break
+                if time.monotonic() >= deadline:
+                    stop_reason = "validation command timed out"
+                    break
+                time.sleep(0.05)
+            if stop_reason:
+                if os.name != "nt":
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    proc.kill()
+            proc.wait(timeout=5)
+            size = os.fstat(output.fileno()).st_size
+            output.seek(max(0, size - 2000))
+            tail = output.read(2000).decode("utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001 — never abort the cycle
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        return False, f"validation command failed to run ({type(exc).__name__})"
+    if stop_reason:
+        return False, f"{stop_reason}\n{tail}"
+    out = f"exit={proc.returncode}\n{tail}"
     return proc.returncode == 0, out
 
 
@@ -2570,7 +2709,7 @@ def run_assimilation_pass(
 
     dedup → auto-satisfy → synergy → rank (idempotent via the watermark); with
     ``synthesize=True`` also generate grounded SDD plan proposals for the top-N
-    open gaps. The MCP ``graph_orchestrate(action="assimilate")`` action and the
+    open gaps. The MCP ``graph_evolution(action="assimilate")`` action and the
     evolution skill call this; the daemon runs it as part of ``run_one_cycle``.
 
     ``synth_fn`` overrides plan synthesis (e.g. the deterministic offline
@@ -2581,7 +2720,7 @@ def run_assimilation_pass(
     if engine is None:
         from ..core.engine import IntelligenceGraphEngine
 
-        engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
+        engine = IntelligenceGraphEngine.get_or_create()
     # OS-5.71 — the assimilation pass runs OFF the task queue, so profile it under a
     # contextvar span (capturing enrich-embeds + matcher LLM-judges automatically)
     # and persist it as a :ProfileSpan so profile_report covers it like any lane.

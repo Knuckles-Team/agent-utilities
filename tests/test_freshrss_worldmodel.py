@@ -5,6 +5,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import agent_utilities.knowledge_graph.core.source_sync as ss
 from agent_utilities.automation.research_pipeline import (
     RELEVANCE_PROFILES,
@@ -13,6 +15,16 @@ from agent_utilities.automation.research_pipeline import (
     ResearchPipelineRunner,
     score_text,
 )
+
+
+@pytest.fixture(autouse=True)
+def _source_sync_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
+
+
 from agent_utilities.automation.worldmodel_pipeline import (
     WorldModelConfig,
     WorldModelPipelineRunner,
@@ -218,10 +230,16 @@ def test_sync_freshrss_skips_when_unconfigured(monkeypatch):
 
 def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.arpa")
-    monkeypatch.setattr(ss, "_read_watermark", lambda b, s: None)
-    written: dict[str, str] = {}
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **k: None)
     monkeypatch.setattr(
-        ss, "_write_watermark", lambda b, s, w: written.__setitem__(s, w)
+        "agent_utilities.automation.feed_sources.upsert_feed_source",
+        lambda *a, **k: "feed:freshrss:fixture",
+    )
+    committed: list[dict] = []
+    monkeypatch.setattr(
+        ss,
+        "_ingest_graph_slice_via_envelope",
+        lambda *a, **k: committed.append(k) or {"status": "success"},
     )
 
     docs = [
@@ -236,12 +254,17 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     )
 
     class FakeRunner:
-        def __init__(self, engine=None, config=None):
+        def __init__(self, engine=None, config=None, connector="", source_instance=""):
             pass
 
         def run_gated_ingest(self, docs):
             return SimpleNamespace(
-                ingested=2, relevant=1, marginal=1, research=0, skipped=1
+                ingested=2,
+                relevant=1,
+                marginal=1,
+                research=0,
+                skipped=1,
+                failed=0,
             )
 
     monkeypatch.setattr(
@@ -254,19 +277,24 @@ def test_sync_freshrss_gates_and_watermarks(monkeypatch):
     res = ss.sync_source(engine, "freshrss", mode="delta")
 
     assert res["status"] == "ok" and res["source"] == "freshrss"
-    assert res["items_seen"] == 3
-    assert res["relevant"] == 1 and res["marginal"] == 1
-    assert res["skipped_unchanged"] == 1
-    assert written["freshrss"] == "1700000300"  # max published epoch
+    assert res["details"]["items_seen"] == 3
+    assert res["details"]["relevant"] == 1
+    assert res["details"]["marginal"] == 1
+    assert res["details"]["skipped_unchanged"] == 1
+    assert committed == [{"checkpoint": "1700000300"}]
 
 
-def test_ingest_full_enqueues_feed_ingest_task():
-    """CONCEPT:AU-KG.ingest.rss-feed-connector — relevance-gated full ingest is DECOUPLED: it ENQUEUES a
-    feed_ingest task (the worldview lane) carrying the already-fetched text, rather
-    than processing inline, so the sweep returns fast and ingest workers drain in
-    parallel. Falls back to inline only when no queue (submit_task) exists."""
-    eng = MagicMock()
+def test_ingest_full_uses_native_document_processor():
+    """A relevant feed item becomes one native document-slice transaction."""
+    eng = SimpleNamespace(backend=None)
     runner = WorldModelPipelineRunner(engine=eng)
+    processed: list[dict] = []
+
+    class _Processor:
+        def process(self, text, **kwargs):
+            processed.append({"text": text, **kwargs})
+
+    runner._proc = _Processor()
     doc = SimpleNamespace(
         id="item1",
         title="Oil markets shift on Hormuz risk",
@@ -277,10 +305,9 @@ def test_ingest_full_enqueues_feed_ingest_task():
     rec = {"origin": {"title": "EIA"}, "canonical": [{"href": "https://example/1"}]}
     runner._ingest_full(doc, rec, score=4.0, domains=["energy"])
 
-    assert eng.submit_task.called, "relevant item must be ENQUEUED, not inline"
-    kw = eng.submit_task.call_args.kwargs
-    assert kw["task_type"] == "feed_ingest"
-    fd = kw["extra_meta"]["feed_doc"]
-    assert fd["document_id"].startswith("doc:freshrss:")
-    assert fd["text"].strip()  # carries the body so the worker never re-crawls
-    assert fd["metadata"]["domains"] == ["energy"]
+    assert len(processed) == 1
+    item = processed[0]
+    assert item["document_id"].startswith("doc:freshrss:")
+    assert item["text"].strip()
+    assert item["metadata"]["domains"] == ["energy"]
+    assert item["connector"] == "freshrss"

@@ -72,10 +72,10 @@ def test_ceiling_global_default_env_overrides(monkeypatch):
 
 
 def test_explicit_per_model_ceiling_wins(monkeypatch):
-    _install_model(monkeypatch, "gb10", ceiling=5, declared=64)
+    _install_model(monkeypatch, "accelerator-a", ceiling=5, declared=64)
     # Explicit server capacity wins absolutely — even BELOW the optimistic
     # instances×calls product (the box genuinely can't sustain 64).
-    assert mc.server_ceiling("gb10") == 5
+    assert mc.server_ceiling("accelerator-a") == 5
 
 
 def test_ceiling_never_below_declared_capacity(monkeypatch):

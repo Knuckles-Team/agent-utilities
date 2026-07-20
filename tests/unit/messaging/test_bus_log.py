@@ -1,21 +1,21 @@
-"""Partitioned-log AgentBus delivery/wakeup plane (CONCEPT:AU-ECO.bus.partitioned-log-delivery, AU-P1-2).
+"""Current bounded AgentBus partition-log contract.
 
-Exercises the two log backends (engine-native broker, Kafka) directly against small
-in-memory fakes — no live broker / no ``confluent_kafka`` install needed, same DI
-pattern as ``kafka_queue_backend.py``'s own tests — plus the ``resolve_bus_log_backend``
-selection logic and the ``AgentBus`` wiring that makes the log the hot path while the
-semantic registry (roster/subscriptions) stays in the graph.
+Exercises the two log backends (engine-native broker, Kafka) directly against
+small in-memory fakes — no live broker / no ``confluent_kafka`` install needed
+— plus the ``resolve_bus_log_backend`` selection logic that picks between
+them (and the tenant-scoped keying both backends share).
 """
 
 from __future__ import annotations
 
+import inspect
+import json
 import time
 from collections import defaultdict
 from types import SimpleNamespace
 
 import pytest
 
-from agent_utilities.messaging.bus import AgentBus
 from agent_utilities.messaging.bus_log import (
     BUS_LOG_BACKENDS,
     BusLogUnavailable,
@@ -25,7 +25,6 @@ from agent_utilities.messaging.bus_log import (
     current_bus_tenant,
     resolve_bus_log_backend,
 )
-from tests.unit.messaging.test_bus import _FakeGraph
 
 # ── tenant-qualified keying ───────────────────────────────────────────────────
 
@@ -43,239 +42,228 @@ def test_current_bus_tenant_scoped_to_actor():
         assert current_bus_tenant() == "acme"
 
 
-def test_bus_partition_key_is_tenant_qualified():
-    assert bus_partition_key("acme", "bob") == "acme:bob"
-    assert bus_partition_key("", "bob") == "default:bob"
-
-
 # ══════════════════════════════════════════════════════════════════════════
-# Engine-native broker (AMQP-style exchanges/queues)
+# Engine-native broker (lease-based delivery: consume/ack_tag/nack_tag)
 # ══════════════════════════════════════════════════════════════════════════
-class _FakeAmqpBroker:
-    """Minimal in-memory AMQP-ish broker: exchanges route to bound queues.
-
-    Real enough to exercise ``EngineBrokerBusLog``'s exchange/queue/bind/publish/consume
-    calls end-to-end: a ``direct`` exchange routes by routing_key; a ``fanout`` exchange
-    reaches every bound queue from ONE publish call (the broker owns fan-out, not the
-    caller).
-    """
-
+class FakeBroker:
     def __init__(self) -> None:
-        self.exchanges: dict[str, dict] = {}
-        self.queues: dict[str, list[str]] = defaultdict(list)
-        self.publish_calls: list[tuple[str, str]] = []
+        self.exchanges: dict[str, dict[str, list[str]]] = {}
+        self.queues: dict[str, list[bytes]] = defaultdict(list)
+        self.inflight: dict[int, tuple[str, bytes]] = {}
+        self.tag = 0
 
-    def declare_exchange(self, *, exchange, exchange_type="direct"):
-        self.exchanges.setdefault(
-            exchange, {"type": exchange_type, "bindings": defaultdict(list)}
-        )
+    def declare_exchange(self, exchange, kind="direct"):
+        del kind
+        self.exchanges.setdefault(exchange, defaultdict(list))
 
-    def declare_queue(self, *, queue, durable=True):
+    def declare_queue(self, queue, **_policy):
         self.queues.setdefault(queue, [])
 
-    def bind(self, *, queue, exchange, routing_key=""):
-        exch = self.exchanges[exchange]
-        key = routing_key if exch["type"] == "direct" else "*"
-        if queue not in exch["bindings"][key]:
-            exch["bindings"][key].append(queue)
+    def bind_queue(self, exchange, queue, routing_key):
+        if queue not in self.exchanges[exchange][routing_key]:
+            self.exchanges[exchange][routing_key].append(queue)
 
-    def publish(self, *, exchange, routing_key="", payload=""):
-        self.publish_calls.append((exchange, routing_key))
-        if exchange == "":
-            # Default-exchange semantics (used by the DLQ path): routing_key IS the queue.
-            self.queues.setdefault(routing_key, []).append(payload)
-            return
-        exch = self.exchanges.get(exchange)
-        if exch is None:
-            raise RuntimeError(f"no such exchange {exchange!r}")
-        if exch["type"] == "fanout":
-            targets: set[str] = set()
-            for qs in exch["bindings"].values():
-                targets.update(qs)
-        else:
-            targets = set(exch["bindings"].get(routing_key, []))
-        for q in targets:
-            self.queues.setdefault(q, []).append(payload)
+    def publish(self, exchange, routing_key, payload):
+        delivered = 0
+        for queue in self.exchanges[exchange][routing_key]:
+            self.queues[queue].append(payload)
+            delivered += 1
+        return delivered
 
-    def consume(self, *, queue, max_messages=200, ack=True):
-        msgs = self.queues.get(queue, [])
-        taken = msgs[:max_messages]
-        del msgs[: len(taken)]
-        return taken
+    def consume(
+        self,
+        queue,
+        *,
+        group,
+        consumer,
+        now_ms,
+        lease_ms=0,
+        prefetch=0,
+    ):
+        del group, consumer, now_ms, lease_ms
+        if prefetch and len(self.inflight) >= prefetch:
+            return None
+        if not self.queues[queue]:
+            return None
+        payload = self.queues[queue].pop(0)
+        self.tag += 1
+        self.inflight[self.tag] = (queue, payload)
+        return f"message:{self.tag}", {
+            "payload": payload.hex(),
+            "delivery_tag": self.tag,
+        }
 
-    def stats(self):
-        return {"queues": {q: len(v) for q, v in self.queues.items()}}
+    def ack_tag(self, delivery_tag):
+        return self.inflight.pop(delivery_tag, None) is not None
 
-
-def _engine_backend() -> tuple[EngineBrokerBusLog, _FakeAmqpBroker]:
-    broker = _FakeAmqpBroker()
-    client = SimpleNamespace(broker=broker)
-    return EngineBrokerBusLog(client), broker
-
-
-def test_engine_broker_direct_delivery_via_offsets_not_graph_scan():
-    """Two direct messages are delivered once each; a second receive is empty — the
-    broker's own consumed queue position is the cursor, never a graph MATCH."""
-    backend, broker = _engine_backend()
-    now = time.time()
-    assert backend.publish_direct(
-        tenant="acme",
-        group="g1",
-        sender="a",
-        to="b",
-        payload="hi",
-        meta_json="{}",
-        created=now,
-    )
-    assert backend.publish_direct(
-        tenant="acme",
-        group="g2",
-        sender="a",
-        to="b",
-        payload="again",
-        meta_json="{}",
-        created=now + 1,
-    )
-    got = backend.receive(tenant="acme", agent_id="b", topics=[], max_messages=10)
-    assert [m["payload"] for m in got] == ["hi", "again"]
-    # Delivered via consumed offsets: the queue is drained, a second receive is empty.
-    assert (
-        backend.receive(tenant="acme", agent_id="b", topics=[], max_messages=10) == []
-    )
-    # Tenant-qualified naming, not a bare agent id.
-    assert "bus.direct.acme" in broker.exchanges
-    assert "bus.inbox.acme.b" in broker.queues
+    def nack_tag(self, delivery_tag, requeue=True, now_ms=None):
+        del now_ms
+        item = self.inflight.pop(delivery_tag, None)
+        if item is None:
+            return "absent"
+        queue, payload = item
+        if requeue:
+            self.queues[queue].insert(0, payload)
+        return "requeued" if requeue else "discarded"
 
 
-def test_engine_broker_direct_is_tenant_isolated():
-    backend, broker = _engine_backend()
-    now = time.time()
-    backend.publish_direct(
-        tenant="acme",
-        group="g1",
-        sender="a",
-        to="b",
-        payload="acme-msg",
-        meta_json="{}",
-        created=now,
-    )
-    backend.publish_direct(
-        tenant="globex",
-        group="g2",
-        sender="a",
-        to="b",
-        payload="globex-msg",
-        meta_json="{}",
-        created=now,
-    )
-    got_acme = backend.receive(tenant="acme", agent_id="b", topics=[], max_messages=10)
-    got_globex = backend.receive(
-        tenant="globex", agent_id="b", topics=[], max_messages=10
-    )
-    assert [m["payload"] for m in got_acme] == ["acme-msg"]
-    assert [m["payload"] for m in got_globex] == ["globex-msg"]
-
-
-def test_engine_broker_topic_fanout_multiple_subscribers():
-    """ONE publish reaches every bound subscriber queue — the broker fans out, never a
-    per-recipient application write."""
-    backend, broker = _engine_backend()
-    backend.bind_subscriber(tenant="acme", agent_id="sub1", topic="news")
-    backend.bind_subscriber(tenant="acme", agent_id="sub2", topic="news")
-    publishes_before = len(broker.publish_calls)
-    ok = backend.publish_topic(
-        tenant="acme",
-        group="g",
-        sender="pub",
-        topic="news",
-        payload="breaking",
-        meta_json="{}",
-        created=time.time(),
-    )
-    assert ok
-    # ONE publish call for N subscribers — not O(subscribers) writes.
-    assert len(broker.publish_calls) == publishes_before + 1
-
-    got1 = backend.receive(
-        tenant="acme", agent_id="sub1", topics=["news"], max_messages=10
-    )
-    got2 = backend.receive(
-        tenant="acme", agent_id="sub2", topics=["news"], max_messages=10
-    )
-    assert [m["payload"] for m in got1] == ["breaking"]
-    assert [m["payload"] for m in got2] == ["breaking"]
-    # Each subscriber's queue is now drained (its own offset/position advanced).
-    assert (
-        backend.receive(
-            tenant="acme", agent_id="sub1", topics=["news"], max_messages=10
-        )
-        == []
+def backend(partitions: int = 4) -> tuple[EngineBrokerBusLog, FakeBroker]:
+    broker = FakeBroker()
+    return (
+        EngineBrokerBusLog(
+            SimpleNamespace(broker=broker),
+            partitions=partitions,
+            delivery_lease_ms=120_000,
+        ),
+        broker,
     )
 
 
-def test_engine_broker_publisher_excluded_from_own_topic_broadcast():
-    backend, _ = _engine_backend()
-    backend.bind_subscriber(tenant="acme", agent_id="pub", topic="t")
-    backend.publish_topic(
-        tenant="acme",
-        group="g",
-        sender="pub",
-        topic="t",
-        payload="x",
+def test_only_current_required_backends_exist() -> None:
+    assert BUS_LOG_BACKENDS == ("engine", "kafka")
+
+
+def test_engine_log_is_pinned_to_the_current_broker_client_contract() -> None:
+    from epistemic_graph.client import BrokerClient
+
+    expected = {
+        "declare_exchange": ("self", "exchange", "kind"),
+        "declare_queue": (
+            "self",
+            "queue",
+            "dl_exchange",
+            "dl_routing_key",
+            "max_delivery_count",
+            "message_ttl_ms",
+            "queue_expiry_ms",
+            "max_priority",
+        ),
+        "bind_queue": ("self", "exchange", "queue", "routing_key"),
+        "publish": ("self", "exchange", "routing_key", "payload"),
+        "consume": (
+            "self",
+            "queue",
+            "group",
+            "consumer",
+            "now_ms",
+            "lease_ms",
+            "prefetch",
+        ),
+        "ack_tag": ("self", "delivery_tag"),
+        "nack_tag": ("self", "delivery_tag", "requeue", "now_ms"),
+    }
+    observed = {
+        method: tuple(inspect.signature(getattr(BrokerClient, method)).parameters)
+        for method in expected
+    }
+    assert observed == expected
+
+
+def test_partition_key_is_opaque_and_tenant_qualified() -> None:
+    key_a = bus_partition_key("tenant-a", "recipient")
+    key_b = bus_partition_key("tenant-b", "recipient")
+    assert key_a != key_b
+    assert "tenant-a" not in key_a and "recipient" not in key_a
+
+
+def test_engine_log_ack_occurs_after_explicit_commit_boundary() -> None:
+    log, broker = backend()
+    assert log.publish_direct(
+        tenant="tenant",
+        group="group",
+        sender="sender",
+        to="recipient",
+        payload="payload",
         meta_json="{}",
         created=time.time(),
     )
-    assert (
-        backend.receive(tenant="acme", agent_id="pub", topics=["t"], max_messages=10)
-        == []
+    messages = log.receive(
+        tenant="tenant", agent_id="ignored", topics=[], max_messages=10
     )
+    assert [message["payload"] for message in messages] == ["payload"]
+    assert broker.inflight
+    assert log.ack(messages[0])
+    assert not broker.inflight
 
 
-def test_engine_broker_dlq_on_poison_message():
-    backend, broker = _engine_backend()
-    _, inbox = backend._direct_inbox("acme", "vic")
-    broker.queues[inbox].append("not-json{{{")  # poison: not decodable as an envelope
-    got = backend.receive(tenant="acme", agent_id="vic", topics=[], max_messages=10)
-    assert got == []
-    dlq = backend.read_dlq(tenant="acme")
-    assert len(dlq) == 1
-    assert dlq[0]["error"] == "decode_error"
-    assert "not-json" in dlq[0]["raw"]
+def test_nack_requeues_for_idempotent_replay() -> None:
+    log, _broker = backend()
+    log.publish_topic(
+        tenant="tenant",
+        group="group",
+        sender="sender",
+        topic="topic",
+        payload="payload",
+        meta_json=json.dumps({"priority": 1}),
+        created=time.time(),
+    )
+    first = log.receive(tenant="tenant", agent_id="", topics=[], max_messages=10)
+    assert log.nack(first[0], requeue=True)
+    replay = log.receive(tenant="tenant", agent_id="", topics=[], max_messages=10)
+    assert replay[0]["msg_group"] == first[0]["msg_group"]
 
 
-def test_engine_broker_stats_reports_backend_name():
-    backend, _ = _engine_backend()
-    st = backend.stats()
-    assert st["backend"] == "engine"
+def test_engine_log_poison_payload_is_reference_only_in_dlq() -> None:
+    log, broker = backend(partitions=1)
+    _exchange, queue = log._partition_queue("tenant", 0)
+    broker.queues[queue].append(b"not-json")
+
+    assert log.receive(tenant="tenant", agent_id="", topics=[], max_messages=1) == []
+    assert not broker.inflight
+    records = log.read_dlq(tenant="tenant", max_messages=1)
+    assert len(records) == 1
+    assert set(records[0]) == {
+        "error",
+        "raw_bytes",
+        "raw_sha256",
+        "source_queue",
+        "ts",
+    }
 
 
-def test_engine_broker_publish_failure_returns_false_not_raise():
-    """A broker that cannot publish degrades to ``False``, never a crash on the hot path."""
-
-    class _Boom:
-        def declare_exchange(self, **kw):
-            pass
-
-        def declare_queue(self, **kw):
-            pass
-
-        def bind(self, **kw):
-            pass
-
-        def publish(self, **kw):
-            raise ConnectionError("broker down")
-
-    backend = EngineBrokerBusLog(SimpleNamespace(broker=_Boom()))
-    ok = backend.publish_direct(
-        tenant="acme",
-        group="g",
-        sender="a",
-        to="b",
-        payload="x",
+def test_engine_log_fails_on_unacknowledgeable_delivery() -> None:
+    log, broker = backend(partitions=1)
+    assert log.publish_direct(
+        tenant="tenant",
+        group="group",
+        sender="sender",
+        to="recipient",
+        payload="payload",
         meta_json="{}",
         created=time.time(),
     )
-    assert ok is False
+    consume = broker.consume
+
+    def without_delivery_tag(*args, **kwargs):
+        node_id, properties = consume(*args, **kwargs)
+        properties.pop("delivery_tag")
+        return node_id, properties
+
+    broker.consume = without_delivery_tag  # type: ignore[method-assign]
+    with pytest.raises(BusLogUnavailable, match="unacknowledgeable"):
+        log.receive(tenant="tenant", agent_id="", topics=[], max_messages=1)
+
+
+def test_engine_log_rejects_nonfinite_wire_values() -> None:
+    log, broker = backend(partitions=1)
+    assert not log.publish_direct(
+        tenant="tenant",
+        group="group",
+        sender="sender",
+        to="recipient",
+        payload="payload",
+        meta_json="{}",
+        created=float("nan"),
+    )
+    assert not any(broker.queues.values())
+
+
+def test_queue_count_is_fixed_by_partitions_not_agents() -> None:
+    log, broker = backend(partitions=3)
+    log.receive(tenant="tenant", agent_id="a", topics=[], max_messages=3)
+    log.receive(tenant="tenant", agent_id="b", topics=["x"], max_messages=3)
+    partition_queues = [name for name in broker.queues if "bus.partition." in name]
+    assert len(partition_queues) == 3
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -389,9 +377,9 @@ def test_kafka_bus_log_provisions_topics_idempotently():
 
 def test_kafka_bus_direct_delivery_via_offsets_multiple_messages():
     cluster: dict = {}
-    backend = _kafka_backend(cluster)
+    backend_ = _kafka_backend(cluster)
     now = time.time()
-    assert backend.publish_direct(
+    assert backend_.publish_direct(
         tenant="acme",
         group="g1",
         sender="a",
@@ -400,7 +388,7 @@ def test_kafka_bus_direct_delivery_via_offsets_multiple_messages():
         meta_json="{}",
         created=now,
     )
-    assert backend.publish_direct(
+    assert backend_.publish_direct(
         tenant="acme",
         group="g2",
         sender="a",
@@ -409,40 +397,22 @@ def test_kafka_bus_direct_delivery_via_offsets_multiple_messages():
         meta_json="{}",
         created=now + 1,
     )
-    got = backend.receive(tenant="acme", agent_id="b", topics=[], max_messages=10)
+    got = backend_.receive(tenant="acme", agent_id="b", topics=[], max_messages=10)
     assert [m["payload"] for m in got] == ["hi", "again"]
     # Delivered via the consumer's own committed offset — a second receive is empty.
     assert (
-        backend.receive(tenant="acme", agent_id="b", topics=[], max_messages=10) == []
+        backend_.receive(tenant="acme", agent_id="b", topics=[], max_messages=10) == []
     )
-
-
-def test_kafka_bus_tenant_qualified_partition_key():
-    cluster: dict = {}
-    backend = _kafka_backend(cluster)
-    backend.publish_direct(
-        tenant="acme",
-        group="g",
-        sender="a",
-        to="bob",
-        payload="x",
-        meta_json="{}",
-        created=time.time(),
-    )
-    from agent_utilities.messaging.bus_log import DIRECT_TOPIC
-
-    key, _value = cluster[DIRECT_TOPIC][0]
-    assert key == b"acme:bob"
 
 
 def test_kafka_bus_topic_multiple_subscribers_each_own_committed_offset():
     """N subscribers each get their OWN consumer/offset — one publish, every subscriber
     reads the full message exactly once via its own group, no shared cursor."""
     cluster: dict = {}
-    backend = _kafka_backend(cluster)
-    backend.bind_subscriber(tenant="acme", agent_id="sub1", topic="news")
-    backend.bind_subscriber(tenant="acme", agent_id="sub2", topic="news")
-    backend.publish_topic(
+    backend_ = _kafka_backend(cluster)
+    backend_.bind_subscriber(tenant="acme", agent_id="sub1", topic="news")
+    backend_.bind_subscriber(tenant="acme", agent_id="sub2", topic="news")
+    backend_.publish_topic(
         tenant="acme",
         group="g",
         sender="pub",
@@ -451,23 +421,23 @@ def test_kafka_bus_topic_multiple_subscribers_each_own_committed_offset():
         meta_json="{}",
         created=time.time(),
     )
-    got1 = backend.receive(
+    got1 = backend_.receive(
         tenant="acme", agent_id="sub1", topics=["news"], max_messages=10
     )
-    got2 = backend.receive(
+    got2 = backend_.receive(
         tenant="acme", agent_id="sub2", topics=["news"], max_messages=10
     )
     assert [m["payload"] for m in got1] == ["breaking"]
     assert [m["payload"] for m in got2] == ["breaking"]
     # Each subscriber's own offset has advanced — a second receive is empty for both.
     assert (
-        backend.receive(
+        backend_.receive(
             tenant="acme", agent_id="sub1", topics=["news"], max_messages=10
         )
         == []
     )
     assert (
-        backend.receive(
+        backend_.receive(
             tenant="acme", agent_id="sub2", topics=["news"], max_messages=10
         )
         == []
@@ -478,8 +448,8 @@ def test_kafka_bus_new_topic_subscriber_default_gets_only_future_messages():
     """No history dump by default (mirrors the graph model): a message published BEFORE a
     subscriber binds is not replayed unless ``from_ts`` seeds a recent window."""
     cluster: dict = {}
-    backend = _kafka_backend(cluster)
-    backend.publish_topic(
+    backend_ = _kafka_backend(cluster)
+    backend_.publish_topic(
         tenant="acme",
         group="g",
         sender="pub",
@@ -488,14 +458,14 @@ def test_kafka_bus_new_topic_subscriber_default_gets_only_future_messages():
         meta_json="{}",
         created=time.time(),
     )
-    backend.bind_subscriber(tenant="acme", agent_id="late", topic="news")
+    backend_.bind_subscriber(tenant="acme", agent_id="late", topic="news")
     assert (
-        backend.receive(
+        backend_.receive(
             tenant="acme", agent_id="late", topics=["news"], max_messages=10
         )
         == []
     )
-    backend.publish_topic(
+    backend_.publish_topic(
         tenant="acme",
         group="g2",
         sender="pub",
@@ -504,7 +474,7 @@ def test_kafka_bus_new_topic_subscriber_default_gets_only_future_messages():
         meta_json="{}",
         created=time.time(),
     )
-    got = backend.receive(
+    got = backend_.receive(
         tenant="acme", agent_id="late", topics=["news"], max_messages=10
     )
     assert [m["payload"] for m in got] == ["after"]
@@ -514,8 +484,8 @@ def test_kafka_bus_late_subscriber_replay_recent_via_seek():
     """``replay_recent`` (``from_ts`` in the past) backfills messages already in the log —
     the log-backed equivalent of the graph model's cursor baseline."""
     cluster: dict = {}
-    backend = _kafka_backend(cluster)
-    backend.publish_topic(
+    backend_ = _kafka_backend(cluster)
+    backend_.publish_topic(
         tenant="acme",
         group="g",
         sender="pub",
@@ -524,10 +494,10 @@ def test_kafka_bus_late_subscriber_replay_recent_via_seek():
         meta_json="{}",
         created=time.time(),
     )
-    backend.bind_subscriber(
+    backend_.bind_subscriber(
         tenant="acme", agent_id="late", topic="news", from_ts=time.time() - 3600.0
     )
-    got = backend.receive(
+    got = backend_.receive(
         tenant="acme", agent_id="late", topics=["news"], max_messages=10
     )
     assert [m["payload"] for m in got] == ["missed-it"]
@@ -535,14 +505,14 @@ def test_kafka_bus_late_subscriber_replay_recent_via_seek():
 
 def test_kafka_bus_dlq_on_poison_message():
     cluster: dict = {}
-    backend = _kafka_backend(cluster)
+    backend_ = _kafka_backend(cluster)
     from agent_utilities.messaging.bus_log import DIRECT_TOPIC
 
     # Directly inject a poison (non-JSON) record, bypassing publish_direct.
     cluster.setdefault(DIRECT_TOPIC, []).append((b"acme:vic", b"not-json{{{"))
-    got = backend.receive(tenant="acme", agent_id="vic", topics=[], max_messages=10)
+    got = backend_.receive(tenant="acme", agent_id="vic", topics=[], max_messages=10)
     assert got == []
-    dlq = backend.read_dlq(tenant="acme")
+    dlq = backend_.read_dlq(tenant="acme")
     assert len(dlq) == 1
     assert dlq[0]["error"] == "decode_error"
 
@@ -575,12 +545,14 @@ def _cfg(**overrides):
     return SimpleNamespace(**base)
 
 
-def test_resolve_auto_with_nothing_configured_returns_none_graph_fallback():
+def test_resolve_auto_with_nothing_configured_returns_none() -> None:
     assert resolve_bus_log_backend(config=_cfg()) is None
 
 
-def test_resolve_explicit_graph_returns_none():
-    assert resolve_bus_log_backend(config=_cfg(agent_bus_log_backend="graph")) is None
+def test_resolver_rejects_removed_graph_backend() -> None:
+    config = SimpleNamespace(agent_bus_log_backend="graph")
+    with pytest.raises(ValueError, match="AGENT_BUS_LOG_BACKEND"):
+        resolve_bus_log_backend(config=config)
 
 
 def test_resolve_rejects_unknown_value():
@@ -589,26 +561,27 @@ def test_resolve_rejects_unknown_value():
 
 
 def test_resolve_auto_prefers_kafka_when_bootstrap_configured():
-    """Auto mode never raises: an unreachable Kafka broker degrades to the graph
-    fallback (``None``), same contract as ``TASK_QUEUE_BACKEND``'s auto mode."""
-    backend = resolve_bus_log_backend(
+    """Auto mode never raises: an unreachable Kafka broker degrades to no
+    configured backend (``None``), same contract as ``TASK_QUEUE_BACKEND``'s
+    auto mode."""
+    result = resolve_bus_log_backend(
         engine=SimpleNamespace(),
         config=_cfg(kafka_bootstrap_servers="nowhere.invalid:9092"),
     )
-    assert backend is None or backend.name == "kafka"
+    assert result is None or result.name == "kafka"
 
 
 def test_resolve_auto_kafka_construction_succeeds_uses_kafka(monkeypatch):
     """When Kafka construction succeeds (broker reachable / provisioned), auto mode
-    picks it over the graph fallback."""
+    picks it over no backend at all."""
     from agent_utilities.messaging import bus_log as bus_log_mod
 
     sentinel = object()
     monkeypatch.setattr(bus_log_mod, "KafkaBusLog", lambda **kw: sentinel)
-    backend = resolve_bus_log_backend(
+    result = resolve_bus_log_backend(
         config=_cfg(kafka_bootstrap_servers="broker.test:9092")
     )
-    assert backend is sentinel
+    assert result is sentinel
 
 
 def test_resolve_explicit_kafka_unreachable_raises():
@@ -624,20 +597,20 @@ def test_resolve_explicit_kafka_unreachable_raises():
 def test_resolve_engine_broker_present_on_bound_engine_wins():
     """The direct test seam: an engine object carrying ``.broker`` is used without any
     separate MCP-tool client connection."""
-    fake_engine = SimpleNamespace(broker=_FakeAmqpBroker())
-    backend = resolve_bus_log_backend(
+    fake_engine = SimpleNamespace(broker=FakeBroker())
+    result = resolve_bus_log_backend(
         engine=fake_engine, config=_cfg(agent_bus_log_backend="engine")
     )
-    assert isinstance(backend, EngineBrokerBusLog)
-    assert backend.name == "engine"
+    assert isinstance(result, EngineBrokerBusLog)
+    assert result.name == "engine"
 
 
 def test_resolve_auto_with_engine_endpoint_signal_uses_bound_engine_broker():
-    fake_engine = SimpleNamespace(broker=_FakeAmqpBroker())
-    backend = resolve_bus_log_backend(
+    fake_engine = SimpleNamespace(broker=FakeBroker())
+    result = resolve_bus_log_backend(
         engine=fake_engine, config=_cfg(engine_endpoint="tcp://engine:9999")
     )
-    assert isinstance(backend, EngineBrokerBusLog)
+    assert isinstance(result, EngineBrokerBusLog)
 
 
 def test_resolve_explicit_engine_unreachable_raises(monkeypatch):
@@ -673,88 +646,13 @@ def test_resolve_explicit_engine_client_without_broker_surface_raises(monkeypatc
         )
 
 
-def test_bus_log_backends_tuple_is_stable():
-    assert BUS_LOG_BACKENDS == ("engine", "kafka", "graph")
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# AgentBus wiring: the log is the hot path, no per-recipient graph node
-# ══════════════════════════════════════════════════════════════════════════
-@pytest.fixture()
-def log_backed_bus():
-    AgentBus._instance = None
-    fake_graph = _FakeGraph()
-    bus = AgentBus(engine=fake_graph)
-    engine_backend, broker = _engine_backend()
-    bus._log_backend_cache = engine_backend
-    return bus, fake_graph, broker
-
-
-def test_agentbus_send_direct_uses_log_no_graph_message_node(log_backed_bus):
-    bus, fake_graph, broker = log_backed_bus
-    bus.register("a")
-    bus.register("b")
-    out = bus.send(sender="a", to="b", payload="hello")
-    assert out["ok"] is True and out["delivered"] == ["b"]
-    # NO :BusMessage node was written to the graph — the log carried the body.
-    assert not any(n.get("type") == "BusMessage" for n in fake_graph.nodes.values())
-    got = bus.receive("b")
-    assert [m["payload"] for m in got["messages"]] == ["hello"]
-
-
-def test_agentbus_send_topic_fanout_via_log_no_per_recipient_graph_write(
-    log_backed_bus,
-):
-    bus, fake_graph, broker = log_backed_bus
-    for a in ("pub", "sub1", "sub2"):
-        bus.register(a)
-    bus.subscribe("sub1", "research")
-    bus.subscribe("sub2", "research")
-    out = bus.send(sender="pub", topic="research", payload="paper dropped")
-    assert out["ok"] is True
-    assert set(out["delivered"]) == {"sub1", "sub2"}
-    assert not any(n.get("type") == "BusMessage" for n in fake_graph.nodes.values())
-    assert [m["payload"] for m in bus.receive("sub1")["messages"]] == ["paper dropped"]
-    assert [m["payload"] for m in bus.receive("sub2")["messages"]] == ["paper dropped"]
-
-
-def test_agentbus_ack_is_best_effort_success_when_log_backed(log_backed_bus):
-    bus, _fake_graph, _broker = log_backed_bus
-    bus.register("a")
-    bus.register("b")
-    bus.send(sender="a", to="b", payload="hi")
-    mid = bus.receive("b")["messages"][0]["id"]
-    assert bus.ack("b", mid) is True
-
-
-def test_agentbus_status_reports_log_backend_name(log_backed_bus):
-    bus, _fake_graph, _broker = log_backed_bus
-    assert bus.status()["log_backend"] == "engine"
-
-
-def test_agentbus_status_reports_graph_when_no_backend_configured():
-    AgentBus._instance = None
-    bus = AgentBus(engine=_FakeGraph())
-    bus._log_backend_cache = None
-    assert bus.status()["log_backend"] == "graph"
-
-
-def test_agentbus_late_subscriber_replay_recent_via_kafka_log():
-    """Late-subscriber replay via the log's cursor (Kafka: real timestamp seek).
-
-    The engine-broker fixture above cannot exercise this: AMQP-style fanout only reaches
-    queues bound at PUBLISH time (there is no time-indexed replay without a queue already
-    existing) — a documented follow-up. Kafka's ``offsets_for_times`` seek gives the
-    log-backed equivalent of the graph model's per-(agent,topic) cursor baseline.
-    """
-    AgentBus._instance = None
-    bus = AgentBus(engine=_FakeGraph())
-    cluster: dict = {}
-    bus._log_backend_cache = _kafka_backend(cluster)
-
-    bus.register("pub")
-    bus.send(sender="pub", topic="news", payload="breaking")
-    bus.register("late")
-    bus.subscribe("late", "news", replay_recent=True)
-    got = bus.receive("late")
-    assert [m["payload"] for m in got["messages"]] == ["breaking"]
+def test_resolver_uses_configured_visibility_lease() -> None:
+    broker = FakeBroker()
+    config = SimpleNamespace(
+        agent_bus_log_backend="engine",
+        agent_bus_partitions=2,
+        agent_bus_delivery_lease_seconds=90,
+    )
+    log = resolve_bus_log_backend(engine=SimpleNamespace(broker=broker), config=config)
+    assert isinstance(log, EngineBrokerBusLog)
+    assert log.delivery_lease_ms == 90_000

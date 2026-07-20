@@ -161,7 +161,7 @@ class UniversalKnowledgeClassifier:
         self._provider = provider or setting("PROVIDER", "openai")
         self._base_url = base_url or (_default_chat.base_url if _default_chat else None)
         self._api_key = (
-            api_key or (_default_chat.api_key if _default_chat else "") or ""
+            api_key or (_default_chat.api_key_ref if _default_chat else "") or ""
         )
         self._agent: Any = None
 
@@ -169,7 +169,7 @@ class UniversalKnowledgeClassifier:
         """Lazily create the Pydantic AI classification agent."""
         if self._agent is None:
             try:
-                from pydantic_ai import Agent
+                from agent_utilities.core.contextual_model import create_context_agent
 
                 from ...core.model_factory import create_model
 
@@ -179,7 +179,7 @@ class UniversalKnowledgeClassifier:
                     base_url=self._base_url,
                     api_key=self._api_key,
                 )
-                self._agent = Agent(
+                self._agent = create_context_agent(
                     model=model,
                     output_type=KnowledgeClassification,
                     system_prompt=_CLASSIFIER_SYSTEM_PROMPT,

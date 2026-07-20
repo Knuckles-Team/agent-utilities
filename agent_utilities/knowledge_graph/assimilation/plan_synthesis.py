@@ -117,7 +117,7 @@ def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
     import concurrent.futures
 
     try:
-        from agent_utilities.agent.factory import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         model = create_model(role="planner")
@@ -127,7 +127,9 @@ def _llm_synth(neighborhood: dict[str, Any]) -> dict[str, str] | None:
             f"capability into agent-utilities. Neighborhood: {neighborhood}. "
             "Return markdown only."
         )
-        agent = Agent(model=model, system_prompt="You are an SDD plan synthesizer.")
+        agent = create_context_agent(
+            model=model, system_prompt="You are an SDD plan synthesizer."
+        )
         try:
             timeout_s = float(setting("ASSIMILATION_SYNTH_TIMEOUT_S", "30"))
         except ValueError:

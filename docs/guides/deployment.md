@@ -1,10 +1,10 @@
 # Deploying agent-utilities
 
-This guide covers everything needed to deploy `agent-utilities` — from a single
-self-contained binary with **no external dependencies** up to a distributed,
-production-grade cluster. It also documents how the two MCP servers (`graph-os`
-and `mcp-multiplexer`) are run as standard **stdio** or **streamable-http**
-servers, and where the REST API lives.
+This guide covers everything needed to deploy `agent-utilities` — from a
+self-contained installation with **no external services** up to a distributed,
+production-grade cluster. It documents the sole `graph-os` MCP process over
+**stdio** or **streamable-http**, including its built-in fleet gateway, and where
+the REST API lives.
 
 > **CONCEPT:AU-ECO.messaging.native-backend-abstraction / OS-5.x** — MCP standardized interfaces + Agent OS deploy.
 
@@ -13,18 +13,21 @@ servers, and where the REST API lives.
 ## 1. Install
 
 ```bash
-# Core library (zero-infra default backend works out of the box)
+# Core Python library and mandatory full epistemic-graph engine
 pip install agent-utilities
 
-# Everything: MCP servers, UI, embeddings, graph backends, messaging, auth…
+# Supported headless GraphOS serving runtime
+pip install "agent-utilities[serving]"
+
+# Every optional integration, only when this host needs all of them
 pip install "agent-utilities[all]"
 ```
 
-Useful extras (compose with `agent-utilities[mcp,graph,postgresql]`):
+Useful extras compose with `agent-utilities[serving,...]`:
 
 | Extra | Adds |
 |-------|------|
-| `mcp` | FastMCP server stack (`graph-os`, `mcp-multiplexer`) |
+| `mcp` | FastMCP server stack (`graph-os`) |
 | `graph` | Graph compute / retrieval deps |
 | `postgresql` | `psycopg` driver for the optional Postgres/pg-age mirror |
 | `owl` / `stardog` | OWL ontology + SPARQL reasoning |
@@ -37,10 +40,10 @@ those mirrors.
 
 ---
 
-## 2. The out-of-box default: a single self-contained binary
+## 2. The out-of-box default: a self-contained installation
 
-When `GRAPH_BACKEND` is unset, agent-utilities runs the **`epistemic_graph`**
-engine alone — the one database, the authority for all reads and writes:
+Agent-utilities always runs the **epistemic-graph** engine as the one database
+and authority for all reads and writes:
 
 ```
 epistemic-graph engine   (Rust-native, always included)
@@ -48,26 +51,47 @@ epistemic-graph engine   (Rust-native, always included)
   · in-memory cache + native graph compute + semantic/ontology reasoning
 ```
 
-This runs entirely in one process with **no external system dependencies** (no
-Postgres, Neo4j, or FalkorDB server required). It is the recommended default for
+GraphOS runs as the Python console entry point and supervises the bundled Rust
+`epistemic-graph-server` as an out-of-process child over a private socket. The two
+processes come from one installation and need **no external service** (no Postgres,
+Neo4j, or FalkorDB server required). It is the recommended default for
 local development, edge/offline agents, demos, single-node, and most production
 deployments.
 
 ```bash
-# Nothing to configure — just run:
-graph-os                     # or: python -m agent_utilities.mcp.kg_server
+# Generate the exact zero-infrastructure authority boundary, then run:
+setup-config generate --profile tiny
+agent-utilities-doctor --only graph_identity auth
+graph-os --transport stdio
 ```
 
-The engine's durable store lives at the XDG path
-`~/.local/share/agent-utilities/kg/` (override with `GRAPH_DB_PATH`).
+For this one shape, leave `GRAPH_SERVICE_ENDPOINTS`, `KG_AUTH_TOKEN_REF`, and
+`KG_IDENTITY_OAUTH2` unset. GraphOS signs and validates a short-lived JWT using an
+in-memory key and fixed neutral service claims as a one-time proof, destroys the
+key and token, and returns a process-lifetime session. It persists no personal,
+host, endpoint, filesystem, credential, or proof data.
+
+Every network transport, non-tiny profile, explicit engine endpoint, and other
+entry point must instead configure exactly one `KG_AUTH_TOKEN_REF` or
+`KG_IDENTITY_OAUTH2` in XDG AgentConfig plus the external JWT validation policy.
+Raw tokens and OAuth2 client secrets are rejected as durable configuration.
+GraphOS aborts when identity, audience, tenant authority, JWKS, or policy pinning
+cannot be established; failure never falls back to local authority.
+External stdio authority remains bounded by a renewable shared expiry-only lease.
+Renewal must preserve the original identity and capabilities; drift is rejected,
+failed renewal never extends the lease, and graph work fails closed at expiry.
+
+The engine's durable store lives under the discovered XDG data directory; inject
+`GRAPH_SERVICE_PERSIST_DIR` at runtime to override it without recording a machine path
+in project configuration.
 
 ### Backend selection cheat-sheet
 
-| Goal | Env |
+| Goal | AgentConfig |
 |------|-----|
 | Default — the engine only (self-contained, zero-infra) | *(unset)* |
-| Pure ephemeral, in-memory (tests/CI) | `GRAPH_BACKEND=memory` |
-| Engine + mirrors for interop/BI/DR | `GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS=postgresql` + `GRAPH_DB_URI=postgresql://…` |
+| Isolated tests/CI | The real ephemeral epistemic-graph fixture |
+| Engine + projections for interop/BI/DR | `GRAPH_MIRROR_TARGETS=postgresql` + `GRAPH_DB_CONNECTION_PROFILE_REF=secret://graph/mirror-profile` |
 
 > The engine is always the authority and always serves every read. A mirror
 > (Postgres, Neo4j, FalkorDB, Ladybug) only receives an **asynchronous, lossless**
@@ -84,122 +108,42 @@ template. It serves **only the MCP tool surface**; the REST API is centralized i
 the API gateway (see §5).
 
 ```bash
-# stdio (local agent integration — Claude Code, the multiplexer, etc.)
+# stdio (local agent integration)
 graph-os --transport stdio
 
-# streamable-http (remote / containerized)
-graph-os --transport streamable-http --host 0.0.0.0 --port 8004
+# streamable-http (local loopback)
+graph-os --transport streamable-http --host 127.0.0.1 --port 8004
 ```
 
-Standard args (from `create_mcp_server`): `--transport {stdio,streamable-http,sse}`,
-`--host`, `--port`, plus auth/eunomia flags. A liveness endpoint is served at
-`GET /health` under HTTP transports.
+Non-loopback streamable HTTP requires configured JWT/OIDC authentication and
+trusted TLS termination. The server rejects unauthenticated remote binding.
+
+GraphOS accepts `--transport {stdio,streamable-http}`, `--host`, `--port`, plus
+auth/eunomia flags. A liveness endpoint is served at `GET /health` under the
+streamable-HTTP transport.
 
 Tools exposed: `graph_query`, `graph_search`, `graph_write`, `graph_ingest`,
 `graph_analyze`, `graph_orchestrate`, `graph_configure`, `graph_sessions`,
-`graph_goals`, `graph_hydrate`, `graph_feedback`.
+`graph_goals`, `source_sync`, `graph_feedback`.
 
 ---
 
-## 4. Running `mcp-multiplexer` (one server, many tools)
+## 4. Built-in MCP fleet gateway
 
-The multiplexer aggregates many child MCP servers (declared in an
-`mcp_config.json`) into one unified server, namespacing each child's tools with a
-short, host-aware prefix. It is also a standard FastMCP server:
+GraphOS is the only MCP process clients launch. It reads the configured
+`mcpServers` catalog, exposes the bounded discovery tools (`find_tools`,
+`list_catalog`, `load_tools`, and `unload_tools`), and mounts child tools on
+demand. Per-child enable/disable filters, timeouts, concurrency limits, pools,
+restart supervision, and circuit breakers remain internal GraphOS behavior.
 
 ```bash
-# stdio
-mcp-multiplexer --config /path/to/mcp_config.json --transport stdio
-
-# streamable-http
-mcp-multiplexer --config mcp_config.json --transport streamable-http --host 0.0.0.0 --port 8005
+graph-os --transport stdio
+graph-os --transport streamable-http --host 127.0.0.1 --port 8004
 ```
 
-`--config` defaults to `$MCP_CONFIG`, then a discovery list
-(`~/.config/agent-utilities/mcp_config.json`, `./mcp_config.json`, …). Per-child
-`enabledTools` / `disabledTools` (fnmatch) and `timeout` are honored; the
-multiplexer skips itself and any `disabled` server to avoid recursion.
-
-**Eager vs. dynamic (`MCP_MULTIPLEXER_MODE`).** The default `eager` mode mounts
-every child's tools up front. `dynamic` mode (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog) boots with only the
-meta-tools `find_tools` / `load_tools` / `unload_tools` and lazily mounts child tools
-at runtime via FastMCP `tools/list_changed` — use it when the aggregated fleet would
-otherwise blow past a client's tool-count limit.
-
-### Four ways to wire the multiplexer into a client
-
-Like any MCP server, the multiplexer can be consumed four ways. The child
-`mcp_config.json` it aggregates is the same file in every case (mount it for the
-container options).
-
-=== "1. stdio (client launches it)"
-
-    The common case — the client spawns the multiplexer and reads its consolidated
-    tool surface over stdio:
-
-    ```json
-    {
-      "mcpServers": {
-        "mcp-multiplexer": {
-          "command": "uvx",
-          "args": ["--from", "agent-utilities", "mcp-multiplexer",
-                   "--config", "mcp_config.json", "--transport", "stdio"],
-          "env": { "MCP_MULTIPLEXER_MODE": "dynamic" }
-        }
-      }
-    }
-    ```
-
-=== "2. streamable-http (local process)"
-
-    Run it as a long-lived HTTP process, then point the client at the URL:
-
-    ```bash
-    mcp-multiplexer --config mcp_config.json --transport streamable-http --host 0.0.0.0 --port 8005
-    curl -s http://localhost:8005/health        # {"status":"OK"}
-    ```
-
-    ```json
-    { "mcpServers": { "mcp-multiplexer": { "url": "http://localhost:8005/mcp" } } }
-    ```
-
-=== "3. Local container / uv"
-
-    Build the image from this repo's `docker/Dockerfile` (or run via `uv`), mounting
-    the child config. Launch directly from `mcp_config.json` (swap `docker`→`podman`):
-
-    ```json
-    {
-      "mcpServers": {
-        "mcp-multiplexer": {
-          "command": "docker",
-          "args": [
-            "run", "-i", "--rm",
-            "-e", "TRANSPORT=stdio",
-            "-e", "MCP_CONFIG=/config/mcp_config.json",
-            "-v", "./mcp_config.json:/config/mcp_config.json:ro",
-            "agent-utilities:local", "mcp-multiplexer"
-          ]
-        }
-      }
-    }
-    ```
-
-    Or run a local streamable-http container and connect by `url`
-    (`uv run mcp-multiplexer --transport streamable-http --port 8005` for the uv variant).
-
-=== "4. Remote URL (deployed gateway)"
-
-    When the multiplexer is deployed remotely (e.g. as a streamable-http service
-    fronted by Caddy on the internal `*.arpa` zone), connect with the `"url"` key — no
-    local process or image required:
-
-    ```json
-    { "mcpServers": { "mcp-multiplexer": { "url": "http://mcp-gateway.arpa/mcp" } } }
-    ```
-
-    Fronting it with Caddy follows the same reverse-proxy → `:8005` pattern as the
-    connector fleet (`http://<host>.arpa` → container port).
+Point local clients at the installed `graph-os` command or remote clients at
+an authenticated, TLS-protected GraphOS `/mcp` URL. Both modes use the same fleet
+catalog; there is no secondary MCP gateway deployment.
 
 ---
 
@@ -208,7 +152,11 @@ container options).
 All Knowledge Graph **REST** endpoints are served by the API gateway
 (`agent_utilities.server.app`), not by the `graph-os` MCP server. Funnelling
 every client (UIs, subagents, ingestion scripts) through one persistent process
-eliminates embedded-DB file-lock contention.
+provides one authenticated policy and session boundary.
+
+```bash
+python -m agent_utilities --host 127.0.0.1 --port 9000
+```
 
 Mounted under `/api`:
 
@@ -216,7 +164,11 @@ Mounted under `/api`:
   `/api/graph/ingest`, `/api/graph/analyze`, `/api/graph/orchestrate`,
   `/api/graph/configure` (+ their granular sub-routes)
 - `/api/sessions`, `/api/goals`, `/api/tools`
-- `POST /cypher` — lock-bypassing direct-Cypher fast path (backpressure + read cache)
+
+Cypher is available as a language inside the typed `graph_query` operation. The
+gateway intentionally exposes no raw query-language route; reads and mutations
+therefore retain the same `GraphSession`, tenant, policy, audit, and durability
+semantics as every other graph operation.
 
 The single background KG daemon is role-gated by `KG_DAEMON_ROLE`:
 
@@ -226,27 +178,26 @@ The single background KG daemon is role-gated by `KG_DAEMON_ROLE`:
 | `client` | MCP servers/agents: enqueue work, do not spawn workers |
 | `auto` | Pick based on context (default) |
 
+`graph-os-daemon` is the standalone headless host for that queue, maintenance,
+and background-work loop when the REST gateway is not the host. It serves no HTTP
+API. Use `python -m agent_utilities` for REST and `graph-os` for MCP.
+
 ---
 
-## 6. MCP client wiring (`mcp_config.json`)
+## 6. MCP client wiring
 
-Point a client (Claude Code, Antigravity, Windsurf, OpenCode) at the servers:
+Register the portable stdio launcher in Codex through its native command:
 
-```json
-{
-  "mcpServers": {
-    "graph-os": {
-      "command": "graph-os",
-      "args": ["--transport", "stdio"],
-      "env": { "GRAPH_BACKEND": "epistemic_graph" }
-    }
-  }
-}
+```bash
+setup-config codex
+# Equivalent: codex mcp add graph-os -- graph-os --transport stdio
 ```
 
-To consolidate many servers behind one (recommended when a client has a tool-count
-limit), point the client at `mcp-multiplexer` and list the children in the same
-`mcp_config.json`.
+Codex stores this registration in `config.toml`; do not create a Codex
+`mcp_config.json`. Other clients should register the same command and arguments
+through their native configuration surface. GraphOS independently reads an
+optional XDG fleet catalog for progressive-disclosure tools. Keep topology,
+identity, credential references, and TLS-profile references in AgentConfig.
 
 ---
 
@@ -262,37 +213,62 @@ Compose files live under `docker/`:
 | `docker/kafka-kraft.compose.yml` | Redpanda/Kafka reactive event ledger |
 
 ```bash
-# Zero-infra: just the MCP server (the engine is the database, inside the container)
+# Self-contained: MCP server plus its packaged, supervised engine
 docker compose -f docker/mcp.compose.yml up -d
 
 # Add a Postgres/pg-age mirror for interop/BI/DR:
 docker compose -f docker/pg-age.compose.yml up -d
-# then enable fan-out:
-#   GRAPH_BACKEND=fanout
+# then declare the projection (fan-out enables automatically):
 #   GRAPH_MIRROR_TARGETS=postgresql
-#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5433/agent_kg
+#   GRAPH_DB_CONNECTION_PROFILE_REF=secret://graph/mirror-profile
 ```
 
 ---
 
-## 8. Production hardening
+## 8. External sources and Langfuse
 
-Set `APP_PROFILE=production` to enable the profile guard
+External Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph, and
+GraphQL sources are declared through reference-only `EXTERNAL_GRAPH_CONNECTORS`.
+Deployment supplies the referenced connection, authentication, TLS, variables, and
+mapping-policy documents; the repository retains no source-specific profile. Run the
+bounded `discover → propose → approve → external_graph_doctor → ingest` lifecycle
+described in [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).
+
+For Langfuse, configure `LANGFUSE_HOST`, both credential references, and a verified
+TLS-profile reference in AgentConfig. The native MCP child and propose-only failure
+evolution auto-enable when both credential references resolve unless explicitly
+disabled. `TRACE_EXPORT_ENABLED`, `LANGFUSE_CAPTURE_CONTENT`, and
+`LANGFUSE_KG_AUTO_INGEST` remain explicit gates; auto-ingestion also requires an
+independent persistence HMAC-key reference.
+
+```bash
+agent-utilities-doctor --only config transport_security graph_connections langfuse
+agent-utilities-doctor --live
+```
+
+---
+
+## 9. Production hardening
+
+Set `APP_PROFILE` to `production` to enable the profile guard
 (`agent_utilities.core.profile_guard`). In production it **refuses in-memory
 defaults** and requires a durable, shardable engine plus a real event broker:
 
-- a durable engine — the embedded `epistemic_graph` engine (default), or a
+- a durable engine — the packaged, supervised `epistemic_graph` engine (default), or a
   shared/remote engine via `GRAPH_SERVICE_ENDPOINTS`; the pure `memory` backend
   is rejected.
-- `a2a_broker` = `kafka`/`nats`, `a2a_storage` = `postgresql`/`redis`.
+- `a2a_broker` = `redis`/`postgres`, `a2a_storage` = `redis`/`postgres`.
+  These are the adapter names currently constructed by `server/app.py`; an
+  engine-native broker/storage pair remains an identified implementation gap.
 - `kafka_bootstrap_servers` set (the reactive event ledger needs a real broker).
 
-```bash
-export APP_PROFILE=production
-export GRAPH_BACKEND=fanout        # engine authority + mirrors for interop/DR
-export GRAPH_MIRROR_TARGETS=postgresql
-export GRAPH_DB_URI=postgresql://agent:agent@pg-age.internal:5432/agent_kg
-export KAFKA_BOOTSTRAP_SERVERS=redpanda-0:9092,redpanda-1:9092
+```json
+{
+  "APP_PROFILE": "production",
+  "GRAPH_MIRROR_TARGETS": ["postgresql"],
+  "GRAPH_DB_CONNECTION_PROFILE_REF": "secret://graph/mirror-profile",
+  "KAFKA_BOOTSTRAP_SERVERS": "broker.example.invalid:9092"
+}
 ```
 
 The guard raises `ProductionProfileError` listing every offending setting so an
@@ -300,7 +276,7 @@ operator can fix them all at once.
 
 ---
 
-## 9. Verify a deployment
+## 10. Verify a deployment
 
 ```bash
 # Resolve the active backend (should print the epistemic-graph engine by default)
@@ -310,12 +286,16 @@ b=c(); print(type(b).__name__)"
 # graph-os exposes the standard args
 graph-os --help
 
+# Validate static configuration, identity, engine, connectors, and observability
+agent-utilities-doctor
+
 # Health (HTTP transport)
 curl -s localhost:8004/health
 
 # REST via the gateway
-curl -s -XPOST localhost:8000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
+curl -s -XPOST localhost:9000/api/graph/query -d '{"cypher":"MATCH (n) RETURN count(n)"}'
 ```
 
 See also: [Configuration](configuration.md) · [Graph Engine (Authority + Mirrors)](graph_engine.md)
-· [Deploying Graph Databases](graph-db-deployment.md).
+· [Deploying Graph Databases](graph-db-deployment.md) ·
+[Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).

@@ -36,10 +36,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pydantic_ai import Agent
 from pydantic_graph import End
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.contextual_model import create_context_agent
 
 try:
     from pydantic_graph.step import StepContext
@@ -106,7 +106,7 @@ async def researcher_step(
     from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
     from ..tools.workspace_tools import read_workspace_file
 
-    researcher = Agent(
+    researcher = create_context_agent(
         model=ctx.deps.agent_model,
         system_prompt=(f"{researcher_prompt}\n\nWorkspace Context: {agent_context}"),
         tools=[project_search, read_workspace_file] + knowledge_tools,
@@ -259,8 +259,11 @@ async def planner_step(
             )
             ctx.state.current_flow_id = best_flow.flow_id
 
-    planner = Agent(
+    planner = create_context_agent(
         model=ctx.deps.agent_model,
+        permissions_kernel=ctx.deps.permissions_kernel,
+        agent_identity=ctx.deps.agent_identity,
+        permission_engine=ctx.deps.knowledge_engine,
         output_type=_plan_output_type(ctx.deps.agent_model),  # FU-2
         deps_type=GraphDeps,
         tools=domain_tools,
@@ -362,7 +365,7 @@ async def planner_step(
                 "Please reply ONLY with a simple text list of the exact agent names you want to use from the available specialists "
                 "(separated by commas). DO NOT output conversational text, just the comma-separated agent names."
             )
-            fallback_agent = Agent(
+            fallback_agent = create_context_agent(
                 model=ctx.deps.agent_model, system_prompt=fallback_prompt
             )
             fallback_res = await fallback_agent.run(ctx.state.query)
@@ -491,7 +494,7 @@ async def architect_step(
 
     from ..tools.knowledge_tools import knowledge_tools  # lazy: break import cycle
 
-    architect = Agent(
+    architect = create_context_agent(
         model=ctx.deps.agent_model,
         system_prompt=architect_prompt + f"\n\nContext:\n{ctx.state.exploration_notes}",
         tools=knowledge_tools,
@@ -731,7 +734,7 @@ async def memory_selection_step(
         )
         return "dispatcher"
 
-    selectors = Agent(
+    selectors = create_context_agent(
         model=ctx.deps.agent_model,
         system_prompt=prompt_content,
         output_type=dict,
@@ -750,7 +753,9 @@ async def memory_selection_step(
             f"Memory Selection structured output failed: {e}. Attempting unstructured fallback."
         )
         try:
-            fallback = Agent(model=ctx.deps.agent_model, system_prompt=prompt_content)
+            fallback = create_context_agent(
+                model=ctx.deps.agent_model, system_prompt=prompt_content
+            )
             res_fb = await fallback.run(
                 f"Query: {ctx.state.query}\n\nAvailable memories:\n"
                 + "\n".join(memories[:20])
@@ -833,20 +838,22 @@ class LATSPlanner:
     """
 
     def __init__(self, context: str, deps: GraphDeps, model: Any):
+        from agent_utilities.core.contextual_model import wrap_model_with_context
+
         self.context = context
         self.deps = deps
-        self.model = model
-        self.agent = Agent(
-            model=model,
+        self.model = wrap_model_with_context(model)
+        self.agent = create_context_agent(
+            model=self.model,
             deps_type=GraphDeps,
             system_prompt=(
                 f"You are a LATS Planning Agent. Generate candidate execution plans "
                 f"and evaluate them based on the context.\n\nContext:\n{context}"
             ),
-            output_type=_plan_output_type(model),  # FU-2
+            output_type=_plan_output_type(self.model),  # FU-2
         )
-        self.evaluator = Agent(
-            model=model,
+        self.evaluator = create_context_agent(
+            model=self.model,
             system_prompt="Evaluate the feasibility of the following plan out of 10. Output only the integer score.",
         )
 

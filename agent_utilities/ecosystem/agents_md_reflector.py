@@ -67,9 +67,9 @@ class AgentsMdProposal:
 
     @property
     def proposal_id(self) -> str:
-        digest = hashlib.md5(
-            f"{self.section}:{self.content}".encode(), usedforsecurity=False
-        ).hexdigest()[:10]
+        digest = hashlib.sha256(f"{self.section}:{self.content}".encode()).hexdigest()[
+            :32
+        ]
         return f"amp_{digest}"
 
     def to_markdown(self) -> str:
@@ -188,7 +188,7 @@ class AgentsMdReflector:
 
     async def _call_llm(self, transcript: str, current_md: str) -> str:
         try:
-            from pydantic_ai import Agent
+            from agent_utilities.core.contextual_model import create_context_agent
 
             from ..core.config import DEFAULT_KG_MODEL_ID, DEFAULT_LLM_PROVIDER
             from ..core.model_factory import create_model
@@ -196,7 +196,9 @@ class AgentsMdReflector:
             model = create_model(
                 provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
             )
-            agent = Agent(model, system_prompt=REFLECTOR_SYSTEM_PROMPT)
+            agent = create_context_agent(
+                model, system_prompt=REFLECTOR_SYSTEM_PROMPT
+            )
             from ..core.event_loop import allow_nested_run_sync
 
             allow_nested_run_sync()

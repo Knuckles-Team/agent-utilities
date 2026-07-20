@@ -34,6 +34,7 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_payload
 
 #: Governance/compliance node labels already ingested by the CISO Assistant
 #: extractor (agent_utilities/knowledge_graph/enrichment/extractors/ciso_assistant.py)
@@ -122,7 +123,7 @@ def _export(
         return {
             "surface": "compliance",
             "action": "export",
-            "error": f"invalid node_ids: {exc}",
+            **public_error_payload(exc, code="invalid_request"),
         }
     if not isinstance(raw_ids, list):
         return {
@@ -139,7 +140,7 @@ def _export(
             return {
                 "surface": "compliance",
                 "action": "export",
-                "error": f"cypher selection failed: {exc}",
+                **public_error_payload(exc),
             }
         for row in rows or []:
             if not isinstance(row, dict):

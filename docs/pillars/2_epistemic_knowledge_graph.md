@@ -44,8 +44,8 @@ Security is enforced natively on the read path. Node ACLs (`DataLevelPermissions
 classification + read/write roles) and tenant scoping are applied at retrieval time
 via `core/secured_reads.py` and the guarded `facade.designate`/`facade.query`, so
 agents cannot retrieve restricted sub-graphs (like executive compensation data)
-regardless of the prompt. Enforcement is gated by **`KG_BRAIN_ENFORCE`** (off by
-default for backward compatibility); identity is carried by an `ActorContext`. See
+regardless of the prompt. Enforcement is mandatory and identity is carried by a
+verified `ActorContext` plus immutable `GraphSession`. See
 **[Company Brain Runtime](../architecture/company_brain_runtime.md)** for the full
 wiring.
 
@@ -54,7 +54,7 @@ Logical inferences inherit their parents' secrecy. When `owl_bridge` downfeeds a
 inferred relationship (e.g. `dependsOn` transitivity), `secured_reads.inherit_inferred_acl`
 sets the inferred target's `DataClassification` to the **strictest** of its premise
 nodes, so implicitly reasoned knowledge can never bypass the classification
-perimeter. Active under `KG_BRAIN_ENFORCE`.
+perimeter. This propagation is always active.
 
 ### Semantic Subsumption & Inductive Hypergraphs (KG-2.2 & KG-2.4)
 When new information is encountered, **OWL-Driven Semantic Subsumption** automatically computes embedding similarities against OWL class prototypes, injecting the new concept into the correct lineage. **Inductive Knowledge Hypergraphs** vectorize relationship intersections via `EncPI` (Positional Interaction Encodings), enabling the graph to perform zero-shot generalization over entirely novel runtime topologies.
@@ -458,7 +458,7 @@ graph TD
 The graph engine supports policy-guided retrieval across four orthogonal views:
 - **Semantic View**: Traditional RAG/vector search for conceptual similarity.
 - **Temporal View**: Episodic memory retrieval based on chronological sequences and Ebbinghaus-style temporal decay.
-- **Causal View**: Reasoning traces and "Why" links (e.g., `ReasoningTrace -> ToolCall -> OutcomeEvaluation`).
+- **Causal View**: Canonical execution provenance and outcomes (e.g., `RunTrace -[:USED_TOOL]-> ToolCall` and `RunTrace -[:PRODUCED_OUTCOME]-> OutcomeEvaluation`).
 - **Entity View**: Structural knowledge of People, Organizations, Locations, and Code Symbols.
 - **Epistemic View** (CONCEPT:AU-KG.ingest.engineering-rules): Beliefs, supporting evidence (BUILDS_ON, EXEMPLIFIES, CITES), and contradictions. Powered by `retrieve_epistemic_view()`.
 - **Research Knowledge Base**: Grounded evidence and sources for domain-specific topics (e.g., Medical Journals).
@@ -580,7 +580,7 @@ not per-source LLM reading. `knowledge_graph/assimilation/` provides dedup
 `HAS_SYNERGY_WITH`) + leverage ranking, grounded plan synthesis from a feature's KG
 neighborhood, and lifecycle close-out (`DERIVED_FROM_RESEARCH`/`ASSIMILATED_INTO`).
 Content-addressed ingest + a per-cycle state watermark make it idempotent — cost
-grows with the delta, not the corpus. Runs via `graph_orchestrate(action="assimilate")`,
+grows with the delta, not the corpus. Runs via `graph_evolution(action="assimilate")`,
 the golden-loop daemon tick, or `scripts/run_assimilation_breadth.py`. Each cycle
 emits metrics + a queryable `EvolutionCycle` node for monitoring. Full design:
 [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md). Extends KG-2.7.
@@ -652,14 +652,13 @@ metrics registry (AU-OS.observability.no-op-without-metrics). Full design:
 
 ### AU-KG.sharding.tenant-partitioned-sharding-hrw — Tenant-Partitioned Engine Sharding
 
-With 2+ `GRAPH_SERVICE_ENDPOINTS`, `GraphComputeEngine` routes each named graph
-to its owning engine shard via HRW (rendezvous) hashing — the exact
-`epistemic_graph.pool.ShardRouter` hash, so sync and async callers agree by
-construction. The routing key resolves explicit graph name → ambient
+`GraphComputeEngine` submits each named graph to the engine placement authority.
+The returned group, epoch, and numeric fence are mandatory; sync and async callers
+never reconstruct placement. The graph key resolves explicit graph name → ambient
 `ActorContext` tenant (through `tenant_graph_name(tenant, base)` in
 `knowledge_graph/core/shard_topology.py`) → `KG_DEFAULT_GRAPH`. An unreachable
-remote shard is a fail-loud `ConnectionError` naming the shard, its graph, and
-the remediation; autostart applies only to the local `unix://` endpoint.
+authority or incomplete topology fails closed; autostart applies only to a sole
+local endpoint.
 Topology is observable (AU-OS.scaling.shard-topology-visibility-per): `shard_topology_status()` on the daemon
 status, the gateway dashboard's `daemon/shards` route, and
 `agent_utilities_engine_shard_up{endpoint}` /

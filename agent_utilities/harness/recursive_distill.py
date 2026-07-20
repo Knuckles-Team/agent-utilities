@@ -191,7 +191,7 @@ class RecursiveDistiller:
 
         try:
             self.engine.add_node(
-                f"{label.lower()}:{uuid.uuid4().hex[:12]}",
+                f"{label.lower()}:{uuid.uuid4().hex}",
                 label,
                 properties={
                     **props,

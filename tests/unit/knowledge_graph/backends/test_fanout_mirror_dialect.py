@@ -197,9 +197,13 @@ def test_poison_entry_is_dropped_not_retried_forever(
     # Tiny backoff so the few permanent-error confirmations complete fast.
     monkeypatch.setattr(fanout_backend, "_BASE_BACKOFF_S", 0.01)
     monkeypatch.setattr(fanout_backend, "_MAX_BACKOFF_S", 0.02)
+    monkeypatch.setattr(
+        fanout_backend,
+        "_new_epistemic_authority",
+        _AuthorityBackend,
+    )
 
     fan = FanOutBackend(
-        _AuthorityBackend(),
         {"poison": _PoisonMirror()},
         outbox_path=str(tmp_path / "outbox.db"),
     )

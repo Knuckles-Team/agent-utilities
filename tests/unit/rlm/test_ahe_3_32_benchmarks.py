@@ -11,8 +11,8 @@ from agent_utilities.rlm.benchmarks import (
 )
 from agent_utilities.rlm.benchmarks.base import BenchResult, get_task
 from agent_utilities.rlm.benchmarks.baselines import (
-    Completion,
     CompactionSystem,
+    Completion,
     System,
     SystemOutput,
     VanillaSystem,

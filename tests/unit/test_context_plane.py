@@ -11,7 +11,7 @@ from agent_utilities.core.source_paths import normalize_path, repo_of
 from agent_utilities.knowledge_graph.retrieval import context_plane
 from agent_utilities.knowledge_graph.retrieval.ops_context import diagnose_ops
 
-_CANON = "/home/apps/workspace/agent-packages/agent-utilities/x.py"
+_CANON = "/home/agent-user/workspace/agent-packages/agent-utilities/x.py"
 
 
 # ── E1: shared source-path util ───────────────────────────────────────────────
@@ -23,7 +23,8 @@ def test_source_paths_normalize_and_repo_of():
     assert normalize_path(_CANON) == _CANON
     assert repo_of(_CANON) == "agent-utilities"
     assert (
-        repo_of("/home/apps/workspace/open-source-libraries/aider/m.py") == "oss/aider"
+        repo_of("/home/agent-user/workspace/open-source-libraries/aider/m.py")
+        == "oss/aider"
     )
     assert repo_of("") == "unknown"
 

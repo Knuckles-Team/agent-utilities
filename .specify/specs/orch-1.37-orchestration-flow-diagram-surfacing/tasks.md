@@ -54,6 +54,6 @@
 - `python -m pytest tests/unit/test_orchestrate_mermaid_surfacing.py -q` green (system python per
   egeria/py312 pre-commit note).
 - Import-check `kg_server`, `agent_runner`, `manager`.
-- Run `python /home/apps/workspace/test_workflow_e2e.py`; confirm non-null `mermaid` in
+- Run `python ${WORKSPACE_ROOT}/test_workflow_e2e.py`; confirm non-null `mermaid` in
   execute_agent / execute_workflow / swarm responses and a readable report.
 - `pre-commit run --all-files` green.

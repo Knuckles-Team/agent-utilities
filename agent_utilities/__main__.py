@@ -2,6 +2,7 @@
 
 import logging
 
+from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
 
 from . import (
@@ -11,8 +12,6 @@ from . import (
     initialize_workspace,
     load_identity,
 )
-
-__version__ = "0.2.33"
 
 
 def setup_logging(debug=False):
@@ -53,7 +52,7 @@ def agent_server():
         from agent_utilities.core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = args.workspace
-        logging.info(f"Workspace override set to: {args.workspace}")
+        logging.info("Workspace override configured")
 
     initialize_workspace()
     meta = load_identity()
@@ -81,7 +80,6 @@ def agent_server():
         port=args.port,
         enable_web_ui=args.web,
         enable_terminal_ui=args.terminal,
-        ssl_verify=not args.insecure,
         name=agent_name,
         system_prompt=system_prompt,
         enable_otel=args.otel,

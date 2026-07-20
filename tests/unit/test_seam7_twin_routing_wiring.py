@@ -27,6 +27,7 @@ from typing import Any
 import pytest
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.observability.trace_ontology import trace_id
 
 pytestmark = [
     pytest.mark.concept("AU-ORCH.twin.agent-digital-twin"),
@@ -64,7 +65,7 @@ class _FakeTwinEngine:
         self, cypher: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         params = params or {}
-        if "MADE_TOOL_CALL" in cypher:
+        if "USED_TOOL" in cypher:
             tid = params["tid"]
             return [
                 dict(row, id=nid)
@@ -92,10 +93,10 @@ def _seed_engine() -> _FakeTwinEngine:
         "toolcall:seam7-demo:0",
         "ToolCall",
         properties={
-            "_trace_id": "trace:run:seam7-demo",
+            "_trace_id": trace_id("run:seam7-demo"),
             "tool_name": "kg_query",
             "args": "{}",
-            "result_preview": "ok",
+            "result": "ok",
             "error": "",
             "sequence": 0,
         },
@@ -132,7 +133,7 @@ async def test_graph_runvcs_twin_capture_hydrates_from_the_real_kg_and_persists(
     node_id = payload["node_id"]
     assert node_id in engine.nodes
     assert engine.nodes[node_id]["label"] == "AgentDigitalTwin"
-    assert (node_id, "trace:run:seam7-demo", "TWIN_OF") in engine.edges
+    assert (node_id, trace_id("run:seam7-demo"), "TWIN_OF") in engine.edges
     assert (node_id, "workitem:seam7-1", "REFERENCES") in engine.edges
 
 

@@ -25,7 +25,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.INFRASTRUCTURE
     description = "DNS server — zones, queries, and blocking statistics"
     env_prefix = "TECHNITIUM_DNS"
-    default_url = "https://dns.local.example.com"
     supports_websocket = False
 
     def get_fields(self) -> list[WidgetField]:
@@ -47,7 +46,11 @@ class Widget(BaseWidget):
         url = self._resolve_url(config)
         token = self._resolve_token(config)
 
-        client = TechnitiumDnsApi(base_url=url, token=token, verify=False)
+        client = TechnitiumDnsApi(
+            base_url=url,
+            token=token,
+            verify=self._requests_tls_verify(config),
+        )
 
         total_queries = 0
         blocked = 0
@@ -65,7 +68,7 @@ class Widget(BaseWidget):
                 if total_queries > 0:
                     block_rate = round((blocked / total_queries) * 100, 1)
         except Exception as e:
-            logger.debug("Technitium stats fetch: %s", e)
+            logger.debug("Technitium stats fetch: %s", type(e).__name__)
 
         try:
             zones_data = client.list_zones()
@@ -75,7 +78,7 @@ class Widget(BaseWidget):
             elif isinstance(zones_data, list):
                 zones = len(zones_data)
         except Exception as e:
-            logger.debug("Technitium zones fetch: %s", e)
+            logger.debug("Technitium zones fetch: %s", type(e).__name__)
 
         return WidgetData(
             fields={

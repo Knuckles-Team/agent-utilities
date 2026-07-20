@@ -97,7 +97,7 @@ def require_engine_authority_backend(consumer: str) -> Any:
     248) use when no backend is supplied. It returns the active backend when it is
     engine-capable; otherwise it builds a fresh in-process engine client backend
     (``EpistemicGraphBackend``), which connects through the OS-5.63 resolver — the
-    resolver auto-starts the pi-tier engine in prod, and the KG-2.238 test fixture
+    resolver auto-starts the mandatory full engine artifact in prod, and the KG-2.238 test fixture
     provides a real ephemeral one. If the engine is genuinely unreachable this
     raises ``RuntimeError`` (NEVER a SQLite fallback).
 
@@ -115,8 +115,8 @@ def require_engine_authority_backend(consumer: str) -> Any:
     except Exception as exc:  # noqa: BLE001 — re-raise as a clear, typed error
         raise RuntimeError(
             f"{consumer} requires the epistemic-graph engine, but no engine is "
-            "reachable. The OS-5.63 resolver auto-starts the pi-tier engine in "
-            "prod and the KG-2.238 test fixture provides a real ephemeral one — "
+            "reachable. The OS-5.63 resolver auto-starts the mandatory full engine "
+            "artifact in prod and the KG-2.238 test fixture provides a real ephemeral one — "
             f"there is no SQLite fallback. Underlying error: {exc}"
         ) from exc
 
@@ -188,6 +188,23 @@ class GraphBackend(ABC):
         """
         pass
 
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute under a backend-enforced read-only transaction.
+
+        A backend must override this method only when its protocol can enforce
+        read-only execution. Public query surfaces call this contract and fail
+        closed for backends that expose only an ambiguous read/write command.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not expose a server-enforced read-only query"
+        )
+
     @abstractmethod
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
@@ -209,7 +226,7 @@ class GraphBackend(ABC):
         """Atomic compare-and-set on a node's fields (CONCEPT:AU-KG.compute.user-override-prompt-library).
 
         Optional capability: backends that support an atomic conditional update
-        (engine L1, tiered) override this; the default declines so a caller can
+        (the engine authority and capable mirrors) override this; the default declines so a caller can
         feature-detect rather than silently no-op.
         """
         raise NotImplementedError(  # ABSTRACT-OK — optional CAS capability

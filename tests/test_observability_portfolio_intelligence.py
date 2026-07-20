@@ -36,15 +36,27 @@ class _FakeEngine:
         pagerank: dict[str, float] | None = None,
     ) -> None:
         self._edges = edges or []
-        self._by_label = by_label or {}
+        self._by_label = (
+            {"Regulation": [("baseline-regulation", {"name": "Baseline"})]}
+            if by_label is None
+            else by_label
+        )
         self.nodes = _NodesView(node_props or {})
         self._pagerank = pagerank or {}
 
     def out_edges(self, node_id: str, data: bool = False):
-        return [(s, t, {"rel_type": r}) for (s, r, t) in self._edges if s == node_id]
+        return [
+            (s, t, {"relationship": r})
+            for (s, r, t) in self._edges
+            if s == node_id
+        ]
 
     def in_edges(self, node_id: str, data: bool = False):
-        return [(s, t, {"rel_type": r}) for (s, r, t) in self._edges if t == node_id]
+        return [
+            (s, t, {"relationship": r})
+            for (s, r, t) in self._edges
+            if t == node_id
+        ]
 
     def get_nodes_by_label(self, label: str, limit: int = 0):
         rows = self._by_label.get(label, [])
@@ -201,8 +213,8 @@ def test_sector_with_no_applicable_regulation_passes():
     assert "no REQUIRED" in check.reason
 
 
-def test_compliance_substrate_absent_logs_warning_and_falls_back_to_pass(caplog):
-    engine = _FakeEngine()  # no "Regulation" nodes at all -> substrate not ingested
+def test_compliance_substrate_absent_logs_warning_and_fails_closed(caplog):
+    engine = _FakeEngine(by_label={})
     request = {"candidateId": "prod-a", "sector": "medical", "dataClass": "phi"}
 
     with caplog.at_level(
@@ -210,7 +222,7 @@ def test_compliance_substrate_absent_logs_warning_and_falls_back_to_pass(caplog)
     ):
         check = pi._check_compliance_gates("prod-a", request, engine)
 
-    assert check.passed is True
+    assert check.passed is False
     assert "substrate unavailable" in check.reason
     assert any("substrate unavailable" in rec.message for rec in caplog.records)
 

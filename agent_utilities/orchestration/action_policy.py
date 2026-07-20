@@ -103,14 +103,14 @@ DEFAULT_POLICY: dict[str, Any] = {
         # ``bus.send``/``bus.dispatch`` rule to approval_required for a stricter posture.
         {"kind": "bus.send", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "bus.dispatch", "target": "*", "tier": TIER_AUTO_NOTIFY},
-        # Durable :AgentTask execution (Codex Gap-6 orchestration flow,
-        # agent_dispatch_worker.execute_agent_task_turn): the task itself was
+        # Durable WorkItem execution (agent_dispatch_worker.execute_work_item_turn):
+        # the assignment itself was
         # already approved into its DAG at creation time (out of scope for
         # this gate) — auto+notify so the claim->execute->outcome fleet loop
         # runs unattended while every execution is audited via the
         # AgentPolicyDecision this same gate writes. Tighten to
         # approval_required for a stricter posture.
-        {"kind": "agent_task.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
+        {"kind": "work_item.execute", "target": "*", "tier": TIER_AUTO_NOTIFY},
         {"kind": "record_dry_run", "target": "*", "tier": TIER_AUTO},
         # Sandboxed developer-workspace actions (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating) default to
         # auto: the workspace container/process IS the containment boundary.
@@ -363,14 +363,14 @@ class ActionPolicy:
             data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
                 logger.warning(
-                    "action_policy: %s has no rules list — using shipped default", path
+                    "action_policy has no rules list — using shipped default"
                 )
                 data = DEFAULT_POLICY
             self._file_cache = (mtime, data)
             return data
         except Exception as e:  # noqa: BLE001 — a broken file must not open the gate
             logger.warning(
-                "action_policy: failed loading %s (%s) — using default", path, e
+                "action_policy load failed (%s) — using default", type(e).__name__
             )
             return DEFAULT_POLICY
 
@@ -748,8 +748,8 @@ class ActionPolicy:
         Listed by ``GET /api/fleet/approvals``; resolved by
         ``POST /api/fleet/approvals/grant`` (job_id = this node id); executed
         by the fleet reconciler's approved-action drain (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
-        Deliberately NOT a ``Task`` node: pending Tasks are claimed by the
-        engine's task workers, which would execute the action unapproved.
+        Deliberately not a WorkItem: the immutable approval request cannot be
+        claimed or executed before a separate authorized WorkItem exists.
         """
         if self.engine is None:
             return None
@@ -765,7 +765,7 @@ class ActionPolicy:
                 return str(rows[0]["id"])
         except Exception as e:  # noqa: BLE001 — dedup is best-effort
             logger.debug("action_policy: approval dedup probe failed: %s", e)
-        approval_id = f"action_approval:{uuid.uuid4().hex[:12]}"
+        approval_id = f"action_approval:{uuid.uuid4().hex}"
         try:
             self.engine.add_node(
                 approval_id,
@@ -794,7 +794,7 @@ class ActionPolicy:
         """Write the ``ActionDecision`` audit node (also the rate/blast ledger)."""
         if self.engine is None:
             return None
-        audit_id = f"action_decision:{uuid.uuid4().hex[:12]}"
+        audit_id = f"action_decision:{uuid.uuid4().hex}"
         req = decision.request
         try:
             self.engine.add_node(

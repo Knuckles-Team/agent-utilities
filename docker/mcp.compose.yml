@@ -7,6 +7,18 @@
 # TRANSPORT=stdio and drop the port mapping/healthcheck.
 services:
   kg-server-mcp:
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${MCP_CONTAINER_MEMORY_LIMIT:-2g}
+    cpus: ${MCP_CONTAINER_CPU_LIMIT:-1.0}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     build:
       context: .. # Production
       dockerfile: docker/Dockerfile
@@ -23,7 +35,7 @@ services:
         max-file: "3"
     restart: always
     volumes:
-      - ../data:/app/data
+      - kg-data:/app/data
     env_file:
       - path: ../.env
         required: false
@@ -40,10 +52,13 @@ services:
       # - "KG_FAILURE_EVOLUTION=true"
       # - "KG_GOLDEN_AUTO_MERGE=false"
     ports:
-      - "8004:8004"
+      - "127.0.0.1:8004:8004"
     healthcheck:
       test: [ "CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  kg-data:

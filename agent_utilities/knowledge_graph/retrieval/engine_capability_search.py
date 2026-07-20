@@ -10,7 +10,7 @@ CONCEPT:AU-KG.compute.kg-2) and native ``semantic_search`` ANN primitive that
 :mod:`agent_utilities.knowledge_graph.retrieval.hybrid_retriever` already uses for
 general retrieval — instead of the in-process hnswlib/numpy scan in
 :mod:`.capability_index`. That module is now a *bounded, non-authoritative cache*;
-this module is the authority.
+this module is the designation authority.
 
 Two engine-native paths, in preference order (mirrors
 ``docs/architecture/vector_index_lifecycle.md``'s retrieval tiers):
@@ -20,31 +20,35 @@ Two engine-native paths, in preference order (mirrors
    capability/tenant/policy restriction with the vector ``Rank`` leg itself — this
    is the "filtered ANN" the engine provides natively; there is no Python-side
    pre-filter-then-scan.
-2. **Native ANN + bounded post-filter** — when the connected engine has no
-   ``query`` feature (a lean build), fall to the unseeded ``semantic_search`` kNN,
-   over-fetch, and restrict to the filter-matching ids over the BOUNDED returned
-   candidate pool (never a full-graph scan) — the same degrade pattern
-   ``hybrid_retriever._engine_vector_search`` uses for corpus/path restriction.
+2. **Native ANN + bounded post-filter** — when unified planning is unavailable
+   (e.g. a lean engine build with no ``query`` feature), fall to the unseeded
+   ``semantic_search`` kNN, over-fetch, and restrict to the filter-matching ids
+   over the BOUNDED returned candidate pool (never a full-graph scan) — the same
+   degrade pattern ``hybrid_retriever._engine_vector_search`` uses for
+   corpus/path restriction.
 
-Both paths return ``None`` when no engine vector surface is reachable at all,
-signalling the caller to fall back to the bounded in-process
-:class:`~.capability_index.CapabilityIndex` cache (dev / no engine configured).
-Never raises — a plan the engine build doesn't understand (e.g. an older engine
-without the ``Filter`` op) degrades to the next tier, exactly like every other
+Both paths return ``None`` when no engine vector surface is reachable at all.
+There is no designation fallback to an in-process capability index —
+:mod:`.capability_index` stays in the loop only as a bounded, non-authoritative
+cache (reward write-back via ``record_outcome``), never as a read-path fallback;
+an engine without either vector surface is unavailable. Never raises — a plan
+the engine build doesn't understand (e.g. an older engine without the
+``Filter`` op) degrades to the next tier, exactly like every other
 engine-surface consumer in this codebase.
 
-**X-4 — ontology-subsumption-aware push-down.** Pass ``capability_hierarchy`` to
-:func:`engine_filtered_search` to make the ``capabilities`` restriction
-subsumption-aware: a required capability type is satisfied by a node declaring it
-OR any ontology-narrower subtype. The engine's ``array_contains`` ``Filter`` op is
+**X-4 — ontology-subsumption-aware push-down.** The ``capabilities`` restriction
+is always hierarchy-aware (an isolated ontology may be injected via
+``capability_hierarchy``; omitting it resolves the bundled current hierarchy):
+a required capability type is satisfied by a node declaring it OR any
+ontology-narrower subtype. The engine's ``array_contains`` ``Filter`` op is
 exact-string only, so when (and only when) a required capability actually HAS
 known subtypes, the capability ``Filter`` legs are left out of the pushed-down
 plan (tenant/policy filters still push down) and the returned/oversampled rows are
 post-filtered locally with :func:`_node_satisfies` against the subsumption-widened
-set — the same bounded degrade pattern tier 2 already uses for a lean engine
-build, applied here to a semantic (not just capability-surface) gap. A required
-capability with no known subtypes is untouched: identical plan, identical
-behaviour to pre-X-4.
+set — the same bounded degrade pattern tier 2 already uses when unified planning
+is unavailable (e.g. a lean engine build), applied here to a semantic (not just
+capability-surface) gap. A required capability with no known subtypes is
+untouched: identical plan, identical behaviour to pre-X-4.
 """
 
 import logging
@@ -83,14 +87,21 @@ def build_capability_filters(
     return filters
 
 
-def _capability_satisfied(
-    caps_set: set[str], required: str, hierarchy: Any | None
-) -> bool:
+def _resolve_capability_hierarchy(hierarchy: Any | None) -> Any:
+    """Return an injected hierarchy or the bundled current ontology hierarchy."""
+    if hierarchy is not None:
+        return hierarchy
+    from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
+        get_default_hierarchy,
+    )
+
+    return get_default_hierarchy()
+
+
+def _capability_satisfied(caps_set: set[str], required: str, hierarchy: Any) -> bool:
     """True if ``required`` is declared literally, or (X-4) subsumed by a declared subtype."""
     if required in caps_set:
         return True
-    if hierarchy is None:
-        return False
     return any(hierarchy.is_subtype_of(c, required) for c in caps_set)
 
 
@@ -100,7 +111,8 @@ def _node_satisfies(
     tenant: str | None,
     policy_tags: list[str] | None,
     *,
-    capability_hierarchy: Any | None = None,
+    capability_hierarchy: Any,
+    active_release_channel: Any | None = None,
 ) -> bool:
     """Bounded, in-Python re-check of the SAME predicate the engine ``Filter`` encodes.
 
@@ -130,6 +142,11 @@ def _node_satisfies(
             tags = [tags]
         tags_set = {str(t) for t in tags}
         if not all(str(t) in tags_set for t in policy_tags):
+            return False
+    if active_release_channel is not None:
+        from agent_utilities.core.release_channel import component_visible
+
+        if not component_visible(props, active_release_channel):
             return False
     return True
 
@@ -171,7 +188,8 @@ def _local_capability_filter(
     required_caps: list[str] | None,
     tenant: str | None,
     policy_tags: list[str] | None,
-    capability_hierarchy: Any | None,
+    capability_hierarchy: Any,
+    active_release_channel: Any | None,
     k: int,
 ) -> list[tuple[str, float]]:
     """Batch-fetch properties for ``candidates`` and keep the first ``k`` that satisfy
@@ -189,6 +207,7 @@ def _local_capability_filter(
             tenant,
             policy_tags,
             capability_hierarchy=capability_hierarchy,
+            active_release_channel=active_release_channel,
         ):
             out.append((nid, score))
             if len(out) >= int(k):
@@ -206,18 +225,19 @@ def engine_filtered_search(
     policy_tags: list[str] | None = None,
     label: str = "",
     capability_hierarchy: Any | None = None,
+    active_release_channel: Any | None = None,
 ) -> list[tuple[str, float]] | None:
     """Return ``(id, score)`` candidates from the engine's native filtered ANN.
 
-    ``None`` means "no engine vector surface reachable at all" — the caller should
-    fall back to the bounded in-process :class:`~.capability_index.CapabilityIndex`
-    cache. An empty list is a real, authoritative answer: the engine ran the
-    filtered plan and no entity qualified.
+    ``None`` means no engine vector surface is reachable. An empty list is a
+    real, authoritative answer: the engine ran the filtered plan and no entity
+    qualified.
 
-    ``capability_hierarchy`` (X-4) makes ``required_caps`` ontology-subsumption-aware
-    — see the module docstring for the push-down/post-filter split this triggers.
-    Omitting it (the default) is byte-identical to the pre-X-4 behaviour.
+    ``capability_hierarchy`` (X-4) may inject an isolated ontology; omitting it
+    resolves the bundled current hierarchy. See the module docstring for the
+    push-down/post-filter split this triggers.
     """
+    capability_hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
     graph = getattr(engine, "graph", None)
     if graph is None:
         return None
@@ -228,14 +248,17 @@ def engine_filtered_search(
     # declaration), so it is excluded from push-down and re-checked locally.
     subsumed_caps: list[str] = []
     exact_caps = required_caps
-    if capability_hierarchy is not None and required_caps:
+    if required_caps:
         subsumed_caps = [
             c for c in required_caps if capability_hierarchy.descendants(c)
         ]
         if subsumed_caps:
             exact_caps = [c for c in required_caps if c not in subsumed_caps]
 
-    needs_local_check = bool(subsumed_caps)
+    # Release visibility is an ordered policy (stable < beta < edge), not an
+    # exact equality predicate. Apply it to the bounded ANN candidate set while
+    # the remaining exact predicates stay pushed into the native plan.
+    needs_local_check = bool(subsumed_caps) or active_release_channel is not None
     filters = build_capability_filters(exact_caps, tenant, policy_tags)
     plan_k = max(int(k) * 4, 20) if needs_local_check else int(k)
 
@@ -265,9 +288,10 @@ def engine_filtered_search(
                 tenant,
                 policy_tags,
                 capability_hierarchy,
+                active_release_channel,
                 k,
             )
-        except Exception as e:  # noqa: BLE001 — engine build without `query`/`Filter` -> tier 2
+        except Exception as e:  # noqa: BLE001 — unified plan unavailable (e.g. no query/Filter) -> tier 2
             logger.debug(
                 "engine_capability_search: unified filtered plan unavailable, "
                 "falling to native ANN + bounded post-filter: %s",
@@ -291,5 +315,12 @@ def engine_filtered_search(
         return candidates[: int(k)]
 
     return _local_capability_filter(
-        graph, candidates, required_caps, tenant, policy_tags, capability_hierarchy, k
+        graph,
+        candidates,
+        required_caps,
+        tenant,
+        policy_tags,
+        capability_hierarchy,
+        active_release_channel,
+        k,
     )

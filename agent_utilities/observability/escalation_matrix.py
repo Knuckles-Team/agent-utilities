@@ -323,7 +323,7 @@ class EscalationGate:
 
         import uuid
 
-        request_id = f"escalation:{action_name}:{uuid.uuid4().hex[:10]}"
+        request_id = f"escalation:{action_name}:{uuid.uuid4().hex}"
         if event_queue is not None:
             await event_queue.put(
                 {
@@ -561,7 +561,7 @@ class EscalationGate:
             if kg is None or kg.store is None:
                 return
             kg.store.execute(
-                "MERGE (n {id: $id}) SET n.type = 'escalation_decision', "
+                "MERGE (n {id: $id}) SET n.node_type = 'escalation_decision', "
                 "n.action_name = $action_name, n.actor_id = $actor_id, "
                 "n.risk_tier = $risk, n.value_tier = $value, n.outcome = $outcome, "
                 "n.approver = $approver, n.audit_ref = $audit_ref, "
@@ -578,8 +578,8 @@ class EscalationGate:
                     "timestamp": decision.timestamp,
                 },
             )
-        except Exception as exc:  # noqa: BLE001 — persistence is best-effort
-            logger.debug("escalation persist skipped: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - optional sink, type-only log
+            logger.debug("escalation persist skipped: error_type=%s", type(exc).__name__)
 
 
 def make_decision_provider(decisions: dict[str, Any]) -> Any:

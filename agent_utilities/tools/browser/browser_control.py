@@ -14,7 +14,19 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from ...models import AgentDeps
-from .browser_manager import get_browser_manager
+from ...security.persistence_privacy import persistence_reference
+from .browser_manager import browser_fetch_enabled, get_browser_manager
+
+
+def _page_reference(url: str) -> str:
+    return persistence_reference("browser_page", url, namespace="control")
+
+
+def _disabled() -> dict[str, Any]:
+    return {
+        "success": False,
+        "error": "Browser-backed source access is disabled by policy.",
+    }
 
 
 async def initialize_browser(
@@ -35,18 +47,27 @@ async def initialize_browser(
         A dictionary containing the initialization status and browser metadata.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
+    if browser_type not in {"chromium", "firefox", "webkit"}:
+        return {"success": False, "error": "Browser type is not supported."}
     manager = get_browser_manager()
     manager.headless = headless
     manager.browser_type = browser_type
     manager.homepage = homepage
-    await manager.async_initialize()
+    try:
+        await manager.async_initialize()
+    except (PermissionError, ValueError):
+        return {
+            "success": False,
+            "error": "Browser destination was rejected by policy.",
+        }
     page = await manager.get_current_page()
     return {
         "success": True,
         "browser_type": browser_type,
         "headless": headless,
-        "homepage": homepage,
-        "current_url": page.url if page else "Unknown",
+        "page_ref": _page_reference(page.url) if page else None,
     }
 
 
@@ -80,7 +101,7 @@ async def browser_status(ctx: RunContext[AgentDeps]) -> dict[str, Any]:
     return {
         "success": True,
         "status": "initialized" if manager._initialized else "not_initialized",
-        "current_url": page.url if page else None,
+        "page_ref": _page_reference(page.url) if page else None,
     }
 
 
@@ -97,6 +118,19 @@ async def browser_new_page(
         A dictionary containing the URL and page title of the new tab.
 
     """
+    if not browser_fetch_enabled():
+        return _disabled()
     manager = get_browser_manager()
-    page = await manager.new_page(url)
-    return {"success": True, "url": page.url, "title": await page.title()}
+    try:
+        page = await manager.new_page(url)
+    except (PermissionError, ValueError):
+        return {
+            "success": False,
+            "error": "Browser destination was rejected by policy.",
+        }
+    title = str(await page.title())
+    return {
+        "success": True,
+        "page_ref": _page_reference(page.url),
+        "title_ref": persistence_reference("browser_title", title, namespace="control"),
+    }

@@ -66,8 +66,8 @@ Dynamic tool configurations are evaluated dynamically in hierarchical order of p
 
 ### Process Environment Variables (Defaults)
 Set base default tool sets or tags for a process instance:
-- `MCP_ENABLED_TOOLS` or `MCP_ENABLED_COMPONENTS`: Comma-separated list of enabled tool names (e.g. `list_directories,view_file`).
-- `MCP_DISABLED_TOOLS` or `MCP_DISABLED_COMPONENTS`: Comma-separated list of tools to hide explicitly.
+- `MCP_ENABLED_TOOLS`: Comma-separated list of enabled tool names (e.g. `list_directories,view_file`).
+- `MCP_DISABLED_TOOLS`: Comma-separated list of tools to hide explicitly.
 - `MCP_ENABLED_TAGS`: Comma-separated tags to expose.
 - `MCP_DISABLED_TAGS`: Comma-separated tags to exclude.
 
@@ -112,11 +112,11 @@ WHERE toLower(t.name) CONTAINS toLower($query)
 RETURN t.name AS name, t.tags AS tags
 ```
 
-### Self-Healing & Fallback Execution
-- **Fallback Chain**: If the Knowledge Graph matches nothing or fails, the orchestrator automatically cascades to a safe fallback path, returning the full set of configured tools for the server so that the agent remains functional.
+### Self-Healing & Fail-Closed Execution
+- **Least-privilege query boundary**: When a client requests a semantic query filter, no match, no active graph, or any resolution error returns an empty component set. A narrowing request never widens to the server's complete tool surface.
 - **Lazy Cache Synchronization**: To maintain peak sub-millisecond response times, tool nodes are stored in the graph. The orchestrator inspects the server node's updated timestamp:
   - If the cache age is less than 24 hours, it returns results instantly.
-  - If the cache age exceeds 24 hours, the orchestrator continues with the current request instantly, but concurrently spins up a **non-blocking background task** (`refresh_cached_tools`) to introspect the live server and update graph nodes asynchronously.
+  - If the cache age exceeds 24 hours, the orchestrator preserves the current filtered result and concurrently starts a **non-blocking background task** (`refresh_cached_tools`) to introspect the live server and update graph nodes asynchronously. Refresh never widens the current request.
 
 ---
 
@@ -164,5 +164,5 @@ The dynamic tool selection layer is strictly governed by the standard `DynamicVi
 
 ### Key Guarantees
 - **Robust Schema Protection**: Interactive arguments (`--tools` / `--disabled-tools`) are sanitized and cast into strict Python sets to prevent any parameter injection attacks.
-- **Fail-Safe Operation**: Any runtime exception in Starlette request parsing or GraphOS connection automatically intercepts the trace, reports a debug warning, and falls back to exposing the complete set of capabilities.
+- **Fail-Closed Operation**: Any runtime exception in request parsing or GraphOS resolution records only the exception type and exposes no components for that narrowing request.
 - **Full Thread Safety**: Async background synchronization prevents any blocking or latency overheads during live tool requests.

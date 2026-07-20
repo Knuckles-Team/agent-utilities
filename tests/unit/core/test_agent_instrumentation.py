@@ -3,8 +3,10 @@
 import os
 from pathlib import Path
 
-# Add agents to path
-WORKSPACE_ROOT = Path("/home/apps/workspace")
+# Add agents to path (derive the workspace root from this file's location)
+WORKSPACE_ROOT = Path(
+    os.environ.get("WORKSPACE_ROOT", str(Path(__file__).resolve().parents[5]))
+)
 AGENTS_DIR = WORKSPACE_ROOT / "agent-packages" / "agents"
 
 

@@ -72,10 +72,12 @@ class FakeEngine:
         self.backend = FakeBackend(servers)
 
     def add_node(self, node_id, node_type, properties=None, **props):
-        self.graph.add_node(node_id, {"type": node_type, **(properties or props or {})})
+        self.graph.add_node(
+            node_id, {"node_type": node_type, **(properties or props or {})}
+        )
 
     def link_nodes(self, source, target, rel_type, properties=None):
-        self.graph.add_edge(source, target, type=rel_type, **(properties or {}))
+        self.graph.add_edge(source, target, relationship=rel_type, **(properties or {}))
 
     def search_hybrid(self, query, top_k=3):
         return []
@@ -88,12 +90,12 @@ class _BatchWriter:
         self.engine = engine
 
     def add_node(self, node_id, **props):
-        node_type = props.pop("type", "Thing")
-        self.engine.graph.add_node(node_id, {"type": node_type, **props})
+        node_type = props.pop("node_type")
+        self.engine.graph.add_node(node_id, {"node_type": node_type, **props})
 
     def add_edge(self, src, tgt, **props):
-        rel = props.pop("rel_type", "RELATES_TO")
-        self.engine.graph.add_edge(src, tgt, type=rel, **props)
+        rel = props.pop("relationship")
+        self.engine.graph.add_edge(src, tgt, relationship=rel, **props)
 
     # The one writer (write_entities) persists via UNWIND execute_batch; route
     # those rows into the FakeGraph through the add_node/add_edge above.
@@ -109,12 +111,7 @@ class _BatchWriter:
                 self.add_edge(
                     row["source"],
                     row["target"],
-                    rel_type=row.get("type"),
-                    **{
-                        k: v
-                        for k, v in row.items()
-                        if k not in ("source", "target", "type")
-                    },
+                    **{k: v for k, v in row.items() if k not in ("source", "target")},
                 )
         return []
 
@@ -203,17 +200,17 @@ class TestGatewayParallelism:
             engine.graph.add_node(
                 f"task:{el}",
                 {
-                    "type": "BusinessTask",
+                    "node_type": "BusinessTask",
                     "name": name,
                     "element_id": el,
                     "task_type": "parallelGateway" if gw else "serviceTask",
                     "is_gateway": gw,
                 },
             )
-            engine.graph.add_edge(f"task:{el}", "proc:p1", type="PART_OF")
-        engine.graph.add_edge("task:a", "task:gw", type="FLOWS_TO")
-        engine.graph.add_edge("task:gw", "task:b", type="FLOWS_TO")
-        engine.graph.add_edge("task:gw", "task:c", type="FLOWS_TO")
+            engine.graph.add_edge(f"task:{el}", "proc:p1", relationship="PART_OF")
+        engine.graph.add_edge("task:a", "task:gw", relationship="FLOWS_TO")
+        engine.graph.add_edge("task:gw", "task:b", relationship="FLOWS_TO")
+        engine.graph.add_edge("task:gw", "task:c", relationship="FLOWS_TO")
 
         plan = await ProcessPlanCompiler(engine).compile("proc:p1")
         by_task = {s.refined_subtask: s for s in plan.steps}
@@ -232,16 +229,16 @@ class TestCycleRejection:
             engine.graph.add_node(
                 f"task:{el}",
                 {
-                    "type": "BusinessTask",
+                    "node_type": "BusinessTask",
                     "name": name,
                     "element_id": el,
                     "task_type": "task",
                     "is_gateway": False,
                 },
             )
-            engine.graph.add_edge(f"task:{el}", "proc:loop", type="PART_OF")
-        engine.graph.add_edge("task:a", "task:b", type="FLOWS_TO")
-        engine.graph.add_edge("task:b", "task:a", type="FLOWS_TO")
+            engine.graph.add_edge(f"task:{el}", "proc:loop", relationship="PART_OF")
+        engine.graph.add_edge("task:a", "task:b", relationship="FLOWS_TO")
+        engine.graph.add_edge("task:b", "task:a", relationship="FLOWS_TO")
 
         with pytest.raises(ProcessCompilationError) as exc:
             await ProcessPlanCompiler(engine).compile("proc:loop")
@@ -257,9 +254,11 @@ class TestCompileAndStore:
 
         workflow_id = report["workflow_id"]
         assert workflow_id in engine.graph.nodes
-        assert engine.graph.nodes[workflow_id]["type"] == "WorkflowDefinition"
+        assert engine.graph.nodes[workflow_id]["node_type"] == "WorkflowDefinition"
         realizes = [
-            (s, t) for s, t, p in engine.graph._edges if p.get("type") == "REALIZES"
+            (s, t)
+            for s, t, p in engine.graph._edges
+            if p.get("relationship") == "REALIZES"
         ]
         assert (workflow_id, PROC) in realizes
 
@@ -278,7 +277,7 @@ class TestCompileAndStore:
         step_nodes = [
             engine.graph.nodes[t]
             for s, t, p in engine.graph._edges
-            if s == workflow_id and p.get("type") == "HAS_STEP"
+            if s == workflow_id and p.get("relationship") == "HAS_STEP"
         ]
         assert len(step_nodes) == 3
         join = next(n for n in step_nodes if n.get("node_id") == "archive")
@@ -293,15 +292,15 @@ class TestMcpSurface:
         from starlette.routing import Route
         from starlette.testclient import TestClient
 
-        from agent_utilities.mcp.kg_server import (
-            graph_orchestrate_compile_process_endpoint,
-        )
+        from agent_utilities.mcp.kg_server import _make_tool_endpoint
+
+        graph_workflows_endpoint = _make_tool_endpoint("graph_workflows")
 
         app = Starlette(
             routes=[
                 Route(
-                    "/graph/orchestrate/compile-process",
-                    graph_orchestrate_compile_process_endpoint,
+                    "/graph/workflows",
+                    graph_workflows_endpoint,
                     methods=["POST"],
                 )
             ]
@@ -312,13 +311,17 @@ class TestMcpSurface:
         ) as mock_tool:
             client = TestClient(app)
             resp = client.post(
-                "/graph/orchestrate/compile-process",
-                json={"process_id": PROC, "name": "invoice_flow"},
+                "/graph/workflows",
+                json={
+                    "action": "compile_process",
+                    "workflow": PROC,
+                    "name": "invoice_flow",
+                },
             )
         assert resp.status_code == 200
         mock_tool.assert_awaited_once_with(
-            "graph_orchestrate",
+            "graph_workflows",
             action="compile_process",
-            task=PROC,
-            agent_name="invoice_flow",
+            workflow=PROC,
+            name="invoice_flow",
         )

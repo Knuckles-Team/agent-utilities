@@ -17,7 +17,7 @@ paginated, capacity-guarded batch-tasks**:
   advanced :class:`ConnectorCheckpoint`. The corpus drains across many tasks until the cursor
   is exhausted.
 * the page-tasks ride the existing ``connectors`` lane (CONCEPT:AU-ORCH.execution.two-level-fair-rotation), so each runs under
-  the BACKGROUND_INGESTION priority edict (ORCH-1.98/1.99) and the GB10 server-capacity guard
+  the BACKGROUND_INGESTION priority edict (ORCH-1.98/1.99) and the configured server-capacity guard
   (ORCH-1.102/1.103) — it can't time out the request and can't OOM the box. Re-draining is
   cheap: the write-layer content-hash delta (KG-2.9) skips unchanged items, and each page-task
   is idempotent + resumable from its carried checkpoint.
@@ -30,6 +30,7 @@ mechanism is not FreshRSS-specific: any large poll-paginated source can register
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -122,7 +123,7 @@ def list_chunked_sources() -> list[str]:
     return sorted(_PAGE_DRAINERS)
 
 
-# ── Drain-state node (progress, queryable alongside :Task) ───────────────────
+# ── Drain-state node (content-plane progress evidence) ────────────────────
 
 
 def _drain_node_id(drain_id: str) -> str:
@@ -132,24 +133,28 @@ def _drain_node_id(drain_id: str) -> str:
 def _write_drain_state(
     engine: Any, drain_id: str, source: str, state: dict[str, Any]
 ) -> None:
-    """Upsert the :SourceDrain progress node (best-effort, backend-agnostic JSON blob)."""
-    backend = getattr(engine, "backend", None)
-    if backend is None:
-        return
-    try:
-        backend.execute(
-            "MERGE (n:SourceDrain {id: $id}) "
-            "SET n.source = $src, n.status = $status, n.state = $state, n.updated_at = $ts",
+    """Commit the durable :SourceDrain progress node through ChangeEnvelope."""
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        _ingest_graph_slice_via_envelope,
+    )
+
+    serialized = json.dumps(state, sort_keys=True, separators=(",", ":"), default=str)
+    version = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    _ingest_graph_slice_via_envelope(
+        engine,
+        "source_drain",
+        [
             {
                 "id": _drain_node_id(drain_id),
-                "src": source,
+                "type": "SourceDrain",
+                "source": source,
                 "status": str(state.get("status") or "draining"),
-                "state": json.dumps(state, default=str),
-                "ts": datetime.now(UTC).isoformat(),
-            },
-        )
-    except Exception:  # noqa: BLE001 — progress is best-effort; the drain still runs
-        logger.debug("drain state write failed for %s", drain_id, exc_info=True)
+                "state": serialized,
+                "updatedAt": version,
+            }
+        ],
+        source_instance=source,
+    )
 
 
 def _read_drain_state(engine: Any, drain_id: str) -> dict[str, Any] | None:
@@ -205,7 +210,7 @@ def _enqueue_drain_page(
     """Enqueue ONE ``connector_drain`` page-task (background bucket, dedupe bypassed).
 
     All page-tasks share ``target=source``, so the target-based dedupe MUST be bypassed
-    (``skip_dedupe``); the per-page identity is ``drain_id``+``page``. Carried on the Task:
+    (``skip_dedupe``); the per-page identity is ``drain_id``+``page``. Carried in WorkItem metadata:
     ``sync_mode``/``drain_id``/``drain_source``/``drain_page`` top-level (queryable) and the
     serialized checkpoint in the metadata blob.
     """
@@ -250,7 +255,7 @@ def start_chunked_drain(
             **_progress_view(engine, existing),
         }
 
-    drain_id = f"{source}-{uuid.uuid4().hex[:8]}"
+    drain_id = f"{source}-{uuid.uuid4().hex}"
     _write_drain_state(
         engine,
         drain_id,
@@ -290,11 +295,6 @@ def start_chunked_drain(
         "first_task": first,
         "watch": {
             "status_tool": f"source_drain (action=status, drain_id={drain_id})",
-            "task_query": (
-                "MATCH (t:Task) WHERE t.drain_source = "
-                f"'{source}' AND t.drain_id = '{drain_id}' "
-                "RETURN t.status AS status, count(*) AS n ORDER BY status"
-            ),
         },
         "note": (
             "Draining the whole corpus across capacity-guarded background page-tasks; "
@@ -317,7 +317,8 @@ def run_drain_page(
     Rebuilds the connector, resumes its :meth:`poll` from the carried checkpoint, ingests the
     batch via the source's :class:`PageDrainer`, and — when ``checkpoint.has_more`` — enqueues
     the next page-task carrying the advanced checkpoint. On exhaustion (or the page backstop)
-    marks the drain complete and advances the source watermark so later delta syncs are cheap.
+    marks the drain complete and commits its native source cursor in the same
+    ChangeEnvelope transaction as a terminal review marker.
     """
     from agent_utilities.protocols.source_connectors.base import ConnectorCheckpoint
 
@@ -336,6 +337,11 @@ def run_drain_page(
     batch = conn.poll(checkpoint)
     docs = list(batch.documents or [])
     counts = drainer.ingest_page(engine, docs) if docs else {"items": 0}
+    page_failures = int(counts.get("failed", 0) or 0)
+    if page_failures:
+        raise RuntimeError(
+            f"chunked drain page retained its cursor after {page_failures} ingest failures"
+        )
 
     next_cp = batch.checkpoint
     has_more = bool(getattr(next_cp, "has_more", False))
@@ -363,24 +369,34 @@ def run_drain_page(
         )
     else:
         status = "completed"
+        if exhausted_empty:
+            raise RuntimeError(
+                "chunked drain connector returned an empty page with has_more=true"
+            )
         if over_backstop and has_more:
             status = "stopped_backstop"
-        # Advance the source watermark once the full walk exhausts, so later delta syncs
-        # only pull what changed (the connector parks the high-water on the final checkpoint).
+        # Only a truly exhausted walk is authoritative. Commit a terminal marker
+        # and the typed cursor atomically; a backstop never advances the cursor.
         watermark = getattr(next_cp, "watermark", None)
-        if watermark:
-            try:
-                from agent_utilities.knowledge_graph.core.source_sync import (
-                    _write_watermark,
-                )
+        if status == "completed" and watermark:
+            from agent_utilities.knowledge_graph.core.source_sync import (
+                _ingest_graph_slice_via_envelope,
+            )
 
-                _write_watermark(
-                    getattr(engine, "backend", None), source, str(watermark)
-                )
-            except Exception:  # noqa: BLE001 — watermark advance is best-effort
-                logger.debug(
-                    "drain watermark advance failed for %s", source, exc_info=True
-                )
+            _ingest_graph_slice_via_envelope(
+                engine,
+                source,
+                [
+                    {
+                        "id": f"{source}:chunked-drain-checkpoint",
+                        "type": "SourceReviewCheckpoint",
+                        "updatedAt": str(watermark),
+                        "items_seen": items_seen,
+                        "pages_done": pages_done,
+                    }
+                ],
+                checkpoint=str(watermark),
+            )
 
     state = {
         "status": status,
@@ -429,24 +445,20 @@ def drain_status(engine: Any, drain_id: str) -> dict[str, Any]:
     """Queryable progress for a drain handle (CONCEPT:AU-KG.ontology.single-source-full-drain).
 
     Returns the cumulative :SourceDrain state plus a live per-status breakdown of the
-    chain's ``connector_drain`` :Task nodes, so an operator/agent fires ONE call and
+    chain's ``connector_drain`` WorkItems, so an operator/agent fires ONE call and
     watches it drain.
     """
     state = _read_drain_state(engine, drain_id)
     tasks: dict[str, int] = {}
-    cc = getattr(engine, "_control_cypher", None)
-    if callable(cc):
-        try:
-            rows = cc(
-                "MATCH (t:Task) WHERE t.drain_id = $id "
-                "RETURN t.status AS status, count(*) AS n",
-                {"id": drain_id},
-            )
-            for r in rows or []:
-                if isinstance(r, dict) and r.get("status"):
-                    tasks[str(r["status"])] = int(r.get("n", 0) or 0)
-        except Exception:  # noqa: BLE001 — task breakdown is best-effort
-            logger.debug("drain task breakdown failed for %s", drain_id, exc_info=True)
+    try:
+        for item in engine._ingest_work_item_index().values():
+            meta = item.get("metadata") or {}
+            if meta.get("drain_id") != drain_id:
+                continue
+            status = str(item.get("status") or "unknown")
+            tasks[status] = tasks.get(status, 0) + 1
+    except Exception:  # noqa: BLE001 — task breakdown is best-effort
+        logger.debug("drain WorkItem breakdown failed for %s", drain_id, exc_info=True)
     if state is None:
         return {"drain_id": drain_id, "status": "unknown", "tasks": tasks}
     return {"drain_id": drain_id, **state, "tasks": tasks}
@@ -474,10 +486,10 @@ def _freshrss_build_connector(engine: Any, mode: str) -> Any:
     if mode != "full":
         from agent_utilities.knowledge_graph.core.source_sync import (
             _as_epoch,
-            _read_watermark,
+            _read_envelope_watermark,
         )
 
-        since = _read_watermark(getattr(engine, "backend", None), "freshrss")
+        since = _read_envelope_watermark(engine, "freshrss")
         if since and (epoch := _as_epoch(since)) is not None:
             config["params"] = {"newer_than": epoch}
     return build_connector("mcp_tool", config)
@@ -502,6 +514,7 @@ def _freshrss_ingest_page(engine: Any, docs: list[Any]) -> dict[str, Any]:
         "marginal": report.marginal,
         "research": report.research,
         "skipped_unchanged": report.skipped,
+        "failed": report.failed,
     }
 
 

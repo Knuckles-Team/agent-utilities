@@ -160,7 +160,7 @@ class DistillationEngine:
         embed_model = self._get_embed_model()
 
         for i, chunk_text_content in enumerate(chunks):
-            block_id = f"ideablock:{uuid.uuid4().hex[:8]}"
+            block_id = f"ideablock:{uuid.uuid4().hex}"
 
             # Generate embedding
             embedding = None
@@ -244,7 +244,7 @@ class DistillationEngine:
         Returns:
             The created block dict.
         """
-        block_id = f"ideablock:{uuid.uuid4().hex[:8]}"
+        block_id = f"ideablock:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         block = {

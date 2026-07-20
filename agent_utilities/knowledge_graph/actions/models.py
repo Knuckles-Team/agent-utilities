@@ -278,7 +278,7 @@ class ActionInvocation(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if not self.id:
-            self.id = f"invocation:{self.action_name}:{uuid.uuid4().hex[:12]}"
+            self.id = f"invocation:{self.action_name}:{uuid.uuid4().hex}"
 
     @property
     def ok(self) -> bool:

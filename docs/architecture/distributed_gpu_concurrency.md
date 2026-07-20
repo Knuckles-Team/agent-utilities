@@ -3,8 +3,7 @@
 > **Concepts:** `CONCEPT:AU-KG.compute.concurrency-controller-sizing` (per-model static capacity), `CONCEPT:AU-KG.compute.surfaces-universal-latency-signal`
 > (per-model adaptive target), `CONCEPT:AU-KG.compute.pure-config-enumeration-fail` (shared-GPU budget — this doc's
 > headline). Code: `core/model_concurrency.py`, `core/model_capacity_autoscale.py`,
-> `core/gpu_group_budget.py`, `core/config.py`. Sharding precedent:
-> `epistemic_graph/pool.py` (`ShardRouter`, HRW).
+> `core/gpu_group_budget.py`, `core/config.py`.
 
 This is the plan for how LLM/embedding fan-out concurrency is sized — from a single
 shared GPU today to many GPU hosts in the future — so that **interactive chat
@@ -59,10 +58,9 @@ floored at floor(m)
   idle they reclaim up to the whole budget. Conservative by construction:
   **embedding yields to chat.**
 
-This is a *ceiling that protects chat*, not an aggressive ramp. Live fact it
-encodes: on the GB10, embed-capacity 4 alone peaked the device at ~62 % with no
-concurrent chat, so embedding must leave headroom — the budget makes that
-structural instead of a hope.
+This is a *ceiling that protects chat*, not an aggressive ramp. Calibrate the
+embedding ceiling from each deployment's measured saturation knee and leave
+headroom for concurrent chat; the budget makes that structural instead of a hope.
 
 ### (c) Per-deployment aggregate — across N GPU hosts (target state)
 
@@ -75,33 +73,29 @@ locally protects that host's chat slice; the aggregate is just their sum.
 ## Distributed multi-GPU
 
 Today every model has one `base_url`. The distributed design generalizes that to
-an **endpoint list per model**, mirroring the engine's existing sharding precedent
-in `epistemic_graph/pool.py`:
+an **endpoint list per model** managed by the model scheduler:
 
-* `ShardRouter(GRAPH_SERVICE_ENDPOINTS)` already fans the Rust engine across shards
-  using **HRW (rendezvous) hashing** — deterministic, minimal-reshuffle endpoint
-  selection. We reuse exactly this shape for model endpoints.
 * **Per-model endpoint list.** `base_url` becomes (or is augmented by) a list of
   GPU-host endpoints serving the same model id. Each endpoint belongs to its own
   `gpu_group` (one GPU host) and carries its own tier-(b) budget.
 * **Per-model total capacity = Σ per-host shares.** The fan-out gate is sized to
   the sum of each host's `allowed(m)`; the per-call router then picks a host.
-* **Cross-host load balancing — least-in-flight, HRW as fallback.** For
+* **Cross-host load balancing.** For
   interactive calls prefer **least-in-flight** (route to the host with the most
-  free chat slice right now) so a momentarily hot host is avoided; for cache- or
-  affinity-sensitive work use **HRW** (stable mapping → warm KV cache). This is the
-  same least-loaded-vs-rendezvous choice the engine already makes.
+  free chat slice right now) so a momentarily hot host is avoided. Cache-sensitive
+  work uses an explicit scheduler-owned affinity key and health-fenced assignment;
+  graph placement is a separate engine authority.
 * **Scale-out is automatic.** Adding a host to a model's endpoint list raises the
   aggregate capacity and gives the AIMD controllers more total headroom to ramp
   into; removing one shrinks it. No code change — it is a config-list edit, exactly
-  like adding a `GRAPH_SERVICE_ENDPOINTS` shard.
+  like adding a replica to any governed service pool.
 
 ```mermaid
 flowchart LR
     Caller["fan-out (map_concurrent)"]
-    Caller --> R{{"per-model router<br/>least-in-flight / HRW"}}
-    R --> H1["GPU host 1<br/>gpu_group=gb10-a<br/>budget B1 (chat reserved)"]
-    R --> H2["GPU host 2<br/>gpu_group=gb10-b<br/>budget B2 (chat reserved)"]
+    Caller --> R{{"per-model router<br/>least-in-flight / explicit affinity"}}
+    R --> H1["GPU host 1<br/>gpu_group=accelerator-a<br/>budget B1 (chat reserved)"]
+    R --> H2["GPU host 2<br/>gpu_group=accelerator-b<br/>budget B2 (chat reserved)"]
     R --> H3["GPU host N<br/>gpu_group=...<br/>budget Bn"]
     H1 -.->|"share s1"| Agg["aggregate cap(m) = Σ si"]
     H2 -.->|"share s2"| Agg
@@ -124,8 +118,8 @@ Find it with a short profiling sweep per GPU host:
      at the scheduler (hard saturation).
    * **GPU utilization / unified-memory pressure** approaching its ceiling.
 3. The **budget = the concurrency just before the knee** (where throughput is
-   maxed but latency hasn't inflated). For the GB10 today that knee is low because
-   embed-4 alone already hits ~62 %.
+   maxed but latency has not inflated). Record the measured value in runtime
+   configuration; do not copy another deployment's budget.
 
 This is a one-time (or occasional) calibration; the online AIMD then auto-tunes
 *within* the budget continuously, so the budget only has to be roughly right.
@@ -216,10 +210,10 @@ Why this is the right split:
 "GPU_CONCURRENCY_BUDGETS": { "llm-host": 32, "embed-host": 16 }
 ```
 
-### One shared GPU/host → CAPACITY-GUARD the share (homelab / tiny / Pi)
+### One shared accelerator/host → capacity-guard the share
 
-When there is only **one** GPU (or one box) for both roles — a homelab/tiny/Pi
-profile — keep both on it but apply the guard so the combined load is bounded:
+When there is only **one** accelerator (or one host) for both roles, keep both
+models on it but apply the guard so the combined load is bounded:
 
 * both models on **one `gpu_group`** → the joint `GPU_CONCURRENCY_BUDGETS` caps
   their **sum** (tier b), with chat's floor reserved off the top;
@@ -248,28 +242,28 @@ fails safe toward the floor.
 
 | | Today | Target |
 |---|---|---|
-| GPUs | **two**: a dedicated GR1080 embedder (`gr1080-embed.arpa`) + a GB10 generator (10.0.0.18, unified memory) — the split-GPU shape below | N GPU hosts |
+| Accelerators | one dedicated embedding endpoint plus one shared generation/fallback endpoint — the split-device shape below | N accelerator hosts |
 | Model→endpoint | one `base_url` per model, **plus** a `fallback` endpoint on the embedder (AU-KG.enrichment.each-call-resolves-active) | endpoint **list** per model |
-| Sharing | PRIMARY `bge-m3` dedicated to the GR1080 (`gpu_group="gr1080"`); the GB10 runs the `qwen3.6-27b` generator **and** the FALLBACK `bge-m3` (`gpu_group="gb10"`), which only takes load while the primary's breaker is OPEN | each host its own `gpu_group` + budget |
+| Sharing | the primary embedder uses `gpu_group="embedding-accelerator"`; generation and the fallback embedder share `gpu_group="shared-accelerator"` | each host its own `gpu_group` + budget |
 | Tier (a) | live (`AU-KG.compute.surfaces-universal-latency-signal`) | unchanged |
-| Tier (b) | **live (`AU-KG.compute.pure-config-enumeration-fail`)** — `GPU_CONCURRENCY_BUDGETS={"gr1080": <knee>, "gb10": <knee>}`; on the GB10 the generator's floor is reserved off the top so the fallback embedder yields | per-host budgets, one per GPU |
-| Tier (c) | n/a (single host per role) | aggregate = Σ per-host shares; least-in-flight / HRW routing reusing `pool.py` precedent |
-| Failover | **live (`AU-KG.enrichment.each-call-resolves-active/2.300`)** — GR1080 primary → GB10 fallback, capacity-guard inheritance, auto-recovery | per-model endpoint health + balancing |
-| Planning | manual knee estimate (embed-4 ≈ 62 %) | profiling sweep per host → budget; AIMD tunes within |
+| Tier (b) | **live (`AU-KG.compute.pure-config-enumeration-fail`)** — `GPU_CONCURRENCY_BUDGETS={"embedding-accelerator": <knee>, "shared-accelerator": <knee>}`; on the shared device the generator's floor is reserved so the fallback embedder yields | per-host budgets, one per accelerator |
+| Tier (c) | n/a (single host per role) | aggregate = Σ per-host shares; least-in-flight or explicit scheduler affinity |
+| Failover | **live (`AU-KG.enrichment.each-call-resolves-active/2.300`)** — dedicated primary → shared fallback, capacity-guard inheritance, auto-recovery | per-model endpoint health + balancing |
+| Planning | runtime profiling sweep per host → budget; AIMD tunes within | continuous profiling and policy-reviewed updates |
 
 ### Configuration
 
 ```jsonc
-// ~/.config/agent-utilities/config.json
+// AgentConfig excerpt; endpoints and model ids are deployment inputs.
 {
-  // Group both models onto the one physical GB10 (cross-endpoint grouping needs
+  // Group both models onto one physical accelerator (cross-endpoint grouping needs
   // the explicit tag; same-endpoint models group by host automatically).
-  "chat_models":      [{ "id": "qwen3.6-27b", "base_url": "http://vllm.arpa/v1",  "gpu_group": "gb10" }],
-  "embedding_models": [{ "id": "bge-m3",     "base_url": "http://vllm-embed.arpa/v1", "gpu_group": "gb10" }],
+  "chat_models":      [{ "id": "${CHAT_MODEL_ID}", "base_url": "https://chat.example.test/v1", "gpu_group": "shared-accelerator" }],
+  "embedding_models": [{ "id": "${EMBEDDING_MODEL_ID}", "base_url": "https://embed.example.test/v1", "gpu_group": "shared-accelerator" }],
 
-  // Total concurrent in-flight calls across ALL models on the gb10 GPU (the
+  // Total concurrent in-flight calls across ALL models on the shared accelerator (the
   // saturation knee). Unset → no budget → per-model behaviour (no regression).
-  "GPU_CONCURRENCY_BUDGETS": { "gb10": 6 },
+  "GPU_CONCURRENCY_BUDGETS": { "shared-accelerator": 6 },
 
   // Optional: which roles get their floor reserved first (default: chat/generator/
   // default/lite/super). Best-effort roles (embedding/batch) get the remainder.
@@ -281,16 +275,16 @@ fails safe toward the floor.
 
 The embedding plane runs against a **primary** embedder endpoint and, when that
 endpoint is unreachable, **fails over automatically** to a configured **fallback**
-endpoint — routing **back** automatically once the primary recovers. The operator's
-homelab shape: a dedicated `gr1080-embed.arpa` GPU (its own `gpu_group="gr1080"`,
-its own budget) is the primary; the shared GB10 `vllm-embed.arpa`
-(`gpu_group="gb10"`, sharing the GB10 with the `qwen` generator) is the fallback.
+endpoint — routing **back** automatically once the primary recovers. A common
+deployment shape uses a dedicated embedding accelerator (its own
+`gpu_group="embedding-accelerator"`) as primary and a shared endpoint
+(`gpu_group="shared-accelerator"`, shared with generation) as fallback.
 
-The headline guarantee: **while failed over, the fallback inherits the GB10 joint
+The headline guarantee: **while failed over, the fallback inherits the shared-device joint
 budget.** Because the fallback is resolved as a first-class capacity-guard model key
-(`embedding:fallback`) whose config carries `gpu_group="gb10"`, the whole guard —
+(`embedding:fallback`) whose config carries `gpu_group="shared-accelerator"`, the whole guard —
 `server_ceiling`, the adaptive controller, and the per-GPU joint budget — keys off
-the fallback endpoint. So fallback embeds share the GB10 ceiling with the generator
+the fallback endpoint. So fallback embeds share the device ceiling with the generator
 (the generator's floor is reserved off the top) and **can never OOM the shared box**
 — exactly the rule that governs the steady-state co-tenancy above, now applied to
 the failover path too.
@@ -317,25 +311,25 @@ the failover path too.
 ### Configuration
 
 ```jsonc
-// ~/.config/agent-utilities/config.json
+// AgentConfig excerpt; values are supplied by deployment configuration.
 {
   "embedding_models": [{
-    "id": "bge-m3",
-    "base_url": "http://gr1080-embed.arpa/v1",   // PRIMARY: dedicated GR1080
-    "gpu_group": "gr1080",
+    "id": "${EMBEDDING_MODEL_ID}",
+    "base_url": "https://primary-embed.example.test/v1",
+    "gpu_group": "embedding-accelerator",
     "max_concurrent_requests": 16,
-    "fallback": {                                  // FALLBACK: shared GB10
-      "id": "bge-m3",
-      "base_url": "http://vllm-embed.arpa/v1",
-      "gpu_group": "gb10",                         // shares the GB10 joint budget
+    "fallback": {
+      "id": "${EMBEDDING_MODEL_ID}",
+      "base_url": "https://fallback-embed.example.test/v1",
+      "gpu_group": "shared-accelerator",
       "max_concurrent_requests": 8
     }
   }],
-  "chat_models": [{ "id": "qwen3.6-27b", "base_url": "http://vllm.arpa/v1", "gpu_group": "gb10" }],
+  "chat_models": [{ "id": "${CHAT_MODEL_ID}", "base_url": "https://chat.example.test/v1", "gpu_group": "shared-accelerator" }],
 
-  // The GB10 joint budget governs the generator + the fallback embedder together,
-  // and (separately) the dedicated GR1080 budget governs the primary embedder.
-  "GPU_CONCURRENCY_BUDGETS": { "gb10": 20, "gr1080": 16 }
+  // One joint budget governs generation + fallback embedding; a separate budget
+  // governs the dedicated primary embedder.
+  "GPU_CONCURRENCY_BUDGETS": { "shared-accelerator": 20, "embedding-accelerator": 16 }
 }
 ```
 
@@ -344,7 +338,7 @@ before (always primary, zero change). Single-level only — a nested `fallback` 
 a `fallback` is ignored (enforced in `Config._resolve_model_config` for the
 `embedding:fallback` key).
 
-### Why the fallback can't OOM the GB10 — the capacity-guard inheritance, precisely
+### Why the fallback cannot OOM the shared accelerator
 
 The guarantee hinges on the fallback being a **first-class capacity-guard model key**,
 not a special case bolted onto the embedder. Three wirings make it hold:
@@ -357,28 +351,28 @@ not a special case bolted onto the embedder. Three wirings make it hold:
    `active_embedding_endpoint()` *per call* and gates the fan-out
    (`map_concurrent_sync(..., model=endpoint.model_key)`) on that active key. On failover
    the key flips to `embedding:fallback`, so the breaker, the `server_ceiling`, and the
-   joint GPU-group budget all switch to the fallback's GB10 config in the same step. The
+   joint GPU-group budget all switch to the fallback's shared-device config in the same step. The
    client itself is rebuilt for the fallback's `base_url` (the process-scoped client cache,
    KG-2.294, keys on `base_url`, so it swaps — never a stale primary client).
 3. **Role classification.** `model_capacity_autoscale._role_hint` maps
    `embedding:fallback` (and the `embed:fallback` / `embedding-fallback` aliases) to the
    `"embedding"` **role** — a *best-effort* role under tier (b). So while failed over, the
-   GB10 budget reserves the **generator's** floor off the top and squeezes the fallback
+   shared-device budget reserves the **generator's** floor and squeezes the fallback
    embedder toward *its* floor: the generator (latency-critical) keeps its slice and the
    fallback uses only genuine leftover headroom. The exact rule that governs steady-state
-   GB10 co-tenancy now governs the failover path too.
+   shared-device co-tenancy now governs the failover path too.
 
 ### Operating notes — wiring a split-GPU host and handling a downed GPU
 
 * **Wire each endpoint to its own `gpu_group`.** Tag the generator and the *dedicated*
-  embedder with **different** `gpu_group` values (`gb10`, `gr1080`) so each physical GPU
-  gets its own tier-(b) budget and the embedder can ramp to its own GPU's max with zero
-  risk to chat. Tag the **fallback** embedder with the **generator's** `gpu_group` (`gb10`)
+  embedder with **different** values (`shared-accelerator`, `embedding-accelerator`) so
+  each physical device gets its own tier-(b) budget. Tag the **fallback** embedder with
+  the **generator's** group (`shared-accelerator`)
   so it shares that budget when it takes load. Give each group a `GPU_CONCURRENCY_BUDGETS`
   entry equal to its saturation knee; leave the generator's role in `GPU_RESERVED_ROLES`
   (default `chat,generator,default,…`) so its floor is always reserved.
 * **Keep the served model name identical across primary and fallback.** Both serve
-  `bge-m3` (only `base_url` / `gpu_group` / `max_concurrent_requests` differ), so the
+  the configured embedding model (only `base_url` / `gpu_group` / `max_concurrent_requests` differ), so the
   pgvector dimension and schema are unchanged across hosts and vectors are interchangeable.
 * **Primary embedder GPU down → automatic, observable failover.** The next embed batch
   whose call fails/times out feeds the primary's breaker (key `embedding`); on its first
@@ -390,13 +384,13 @@ not a special case bolted onto the embedder. Three wirings make it hold:
   flips back to `False`, the next batch returns to the primary, and the primary's own
   HALF_OPEN probe confirms recovery (close → stay primary) or re-opens (→ fallback again
   next round). An INFO log + `recovery_count` mark it.
-* **Generator (GB10) down with no fallback for *it*.** Generation has no failover endpoint
+* **Generator down with no fallback for it.** Generation has no failover endpoint
   (it is the latency-critical singleton); its breaker simply backs off callers until the
-  server returns. The fallback embedder on the GB10 is governed by the *same* breaker key
-  only insofar as it shares the endpoint host — embeds keep running on the GR1080 primary
+  server returns. The fallback embedder on the shared device is governed by the *same* breaker key
+  only insofar as it shares the endpoint host — embeds keep running on the dedicated primary
   the whole time, unaffected by a generator outage.
 * **Check failover health** via `embedding_endpoint_status()` (REST/MCP observability):
   it returns the active endpoint, `is_fallback`, `fallback_configured`, the primary breaker
   snapshot, and cumulative `failover_count` / `recovery_count`. A high failover count with
-  no recovery means the primary embedder GPU is genuinely down — go fix the GR1080, not the
+  no recovery means the primary embedding accelerator is genuinely down — fix the endpoint, not the
   config.

@@ -113,7 +113,7 @@ def collect_inventory_creations(
             backend.execute(
                 "MATCH (n) WHERE n.name IS NOT NULL "
                 "AND (n.domain IS NULL OR n.domain <> $t) "
-                "RETURN n.type AS type, n.name AS name, n.id AS id LIMIT $limit",
+                "RETURN n.node_type AS type, n.name AS name, n.id AS id LIMIT $limit",
                 {"t": target, "limit": limit},
             )
             or []

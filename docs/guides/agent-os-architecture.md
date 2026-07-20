@@ -31,9 +31,9 @@ graph TB
     end
 
     subgraph HOSTS["🖥️ REMOTE HOSTS (KG HostNodes)"]
-        H1["ECO-4.0: host:server1\ntcp://192.168.1.10:2375"]
-        H2["ECO-4.0: host:server2\ntcp://192.168.1.11:2375"]
-        H3["ECO-4.0: host:server3\nssh://admin@192.168.1.12"]
+        H1["ECO-4.0: host:server1\ntcp://192.0.2.10:2375"]
+        H2["ECO-4.0: host:server2\ntcp://192.0.2.10:2375"]
+        H3["ECO-4.0: host:server3\nssh://${DEPLOY_USER}@192.0.2.10"]
     end
 
     KG --> SM & CM & TM & RM
@@ -115,7 +115,7 @@ Pure Python library. Owns all models, logic, graph orchestration, and KG. **Neve
 | Maintenance cron | `automation/maintenance_cron.py` | CONCEPT:AU-OS.state.cognitive-scheduler-preemption |
 | KG models (incl. HostNode, InfrastructureTemplateNode) | `models/knowledge_graph.py` | CONCEPT:AU-KG.query.object-graph-mapper |
 | Tool guard | `security/tool_guard.py` | CONCEPT:AU-ORCH.execution.inject-signal-board-observations |
-| Self-model + ACO | `knowledge_graph/self_model.py` | CONCEPT:AU-KG.memory.tiered-memory-caching |
+| Self-model + ACO | `knowledge_graph/retrieval/memory_retriever.py` | CONCEPT:AU-KG.memory.tiered-memory-caching |
 
 ### Layer 2: `systems-manager` — The OS Layer
 
@@ -176,15 +176,15 @@ Remote hosts are first-class KG citizens via `HostNode`. Credentials are resolve
 HostNode(
     id="host:media-server",
     name="media-server",
-    hostname="192.168.1.10",
+    hostname="192.0.2.10",
     alias="media-server",
     user="admin",
     credential_ref="secret://hosts/media-server/password",
     identity_file_ref="secret://hosts/media-server/identity",
-    docker_endpoint="tcp://192.168.1.10:2375",
+    docker_endpoint="tcp://192.0.2.10:2375",
     docker_host=True,
     swarm_role="manager",
-    container_manager_url="http://192.168.1.10:9050",
+    container_manager_url="http://192.0.2.10:9050",
     labels={"role": "media", "location": "rack-2"},
 )
 ```

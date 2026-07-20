@@ -1,140 +1,106 @@
 # Queue-Driven Agent Dispatch
 
-**Concept:** ORCH-1.45 — session-partitioned agent-turn queue consumed by a
-stateless dispatch-worker fleet. Builds directly on AU-OS.state.unified-durable-state-externalization (state
-externalization), AU-KG.ingest.cross-host-safe-kg–2.57 (the durable task-queue stack), OS-5.14
-(worker auth) and AU-OS.state.fleet-supervisory-plane-at (the fleet supervisory plane).
+Agent execution is queue-only. A gateway never executes a goal or orchestrator
+turn inline and there is no dispatch-backend selector.
 
-## The problem
+## Authority model
 
-The cognitive scheduler (`core/cognitive_scheduler.py`) is an in-process
-asyncio priority queue: `max_concurrent` agent turns per **process**, a
-per-process `_processes` table, and no cross-host dispatch. Even with
-sessions/goals externalized to Postgres (AU-OS.state.unified-durable-state-externalization), *execution* stayed pinned
-to the host that accepted the goal — a busy gateway could not hand a turn to
-an idle peer, and the scheduler tier could not scale horizontally.
-
-## The model
-
-```
-caller ──► enqueue seam ──► agent_turns queue ──► dispatch worker (any host)
-            (job handle)     key = session_id        │
-                                                     ├─ session_execution_guard
-                                                     ├─ claim (idempotent)
-                                                     ├─ EXISTING execution body
-                                                     └─ durable writeback + ack
+```text
+request
+  -> fail-closed queue-depth admission check
+  -> submit WorkItem
+  -> atomically admit AgentTurnEnvelope under the depth bound
+  -> worker claims WorkItem with lease epoch + fencing token
+  -> execute with periodic lease heartbeat
+  -> renew immediately before each side effect
+  -> fenced WorkItem commit
+  -> acknowledge queue delivery
 ```
 
-- **Envelope, not payload.** `AgentTurnEnvelope`
-  (`orchestration/agent_dispatch.py`) carries `job_id` (the idempotency key),
-  `session_id`, `kind` (`goal_loop` | `orchestrator_task`), `payload_ref`,
-  tenant, priority, deadline. Bodies live in the durable stores the envelope
-  references — the `goals`/`sessions` rows (the full goal spec is persisted
-  in the session's `metadata_json`) or the `:Task` graph node.
-- **Transport = the existing KG-2.55 stack.** `TASK_QUEUE_BACKEND`/auto picks
-  Kafka (`agent_turns` topic, consumer group `agent-dispatch`), Postgres
-  (SKIP LOCKED claims on `agent_dispatch_queue` in the shared state store), or
-  the zero-infra per-host SQLite file. The same fail-loud contract applies:
-  an explicitly selected kafka/postgres transport that is unreachable raises
-  `TaskQueueUnavailable` instead of silently islanding the queue.
-- **Enqueue seams.** `graph_orchestrate action=dispatch` and the goal
-  machinery (`core/sessions.create_goal`) check one flag,
-  `AGENT_DISPATCH_BACKEND` (`inline` | `queue`, default `inline`). Inline is
-  the previous in-process behavior byte-for-byte. In queue mode the caller
-  gets a **job handle** — poll `graph_orchestrate action=status` /
-  `/api/graph/orchestrate/job/{job_id}` (orchestrator jobs) or the goals API
-  (goal runs).
-- **Worker** (`orchestration/agent_dispatch_worker.py`, console script
-  `agent-dispatch-worker`): claims the referenced record, rehydrates state
-  from the shared store, and executes through the **existing** bodies —
-  `run_goal_loop` for goals, the orchestration manager's agent execution for
-  orchestrator jobs (the same extraction discipline as the AU-KG.ingest.decoupled-kg-ingest-consumer
-  `kg-ingest` worker: relocate, never duplicate). Those bodies already write
-  turns, iterations and final status back into the durable stores.
+`WorkItem` is the only writable lifecycle authority. Goal definitions, loop
+definitions, session rows, outcomes, and provenance may describe work, but none
+of them owns a second writable status or lease. The current state machine is:
 
-## Ordering: session beats tenant
+```text
+submitted -> ready -> leased -> running
+    -> succeeded | failed | cancelled | dead_letter
+```
 
-`partition_key_for` (KG-2.56) gains `session:<id>` at the **top** of the key
-hierarchy. Turn N+1 of a session reads the state turn N wrote — interleaving
-two turns of one session corrupts the conversation, so per-session serial
-execution is a *correctness* requirement, while tenant keying is only an
-ordering/fairness grouping for ingest work. A session never spans tenants, so
-session-keying cannot weaken tenant isolation. Distinct sessions spread
-across partitions and execute in parallel; `AGENT_TURNS_PARTITIONS`
-(default 6, grow-only) bounds fleet-wide session concurrency on Kafka.
+Claims, renewals, dependency release, retries, cancellation, and terminal
+commits use the engine-native WorkItem transaction surface. A commit is rejected
+unless tenant, owner, lease epoch, and fencing token still match. Outcome and
+provenance nodes are append-only evidence written around the authoritative
+commit.
 
-## Delivery and idempotency guarantees
+## Queue contract
 
-- **At-least-once.** The ack/offset-commit happens strictly AFTER a turn is
-  processed or durably marked failed. A worker crash redelivers the envelope:
-  Kafka group rebalance, Postgres visibility timeout (600 s), SQLite
-  head-until-ack.
-- **Idempotent claims.** `job_id`/`payload_ref` is the idempotency key. The
-  claim check skips terminal jobs (duplicate delivery) and jobs whose
-  `running` claim is fresh (a live worker owns them); a claim older than
-  `CLAIM_TTL_S` (1 h) is presumed dead and **re-claimed** — crash → claim
-  expiry → requeue, the ingest reaper pattern folded into the claim itself.
-- **Per-session mutual exclusion.** `session_execution_guard` holds a
-  process-local per-session lock plus the AU-OS.state.unified-durable-state-externalization Postgres advisory lock
-  (`agent-session:<id>`) for the claim+execute+writeback cycle. At-least-once
-  delivery can hand one session's turn to two workers; the guard guarantees
-  exactly one executes, the other claims-and-skips. A crashed holder releases
-  the advisory lock server-side, so recovery is redelivery + re-claim, never
-  a stuck session.
-- **Deadlines.** A turn consumed after `deadline_unix` is durably failed
-  ("expired") without execution.
+`AgentTurnEnvelope` carries only `job_id`, `session_id`, `kind`, `payload_ref`,
+tenant, priority, deadline, and attempt metadata. The referenced WorkItem or
+session store owns the durable body.
 
-## Placement: queue-pull, no central placer
+The transport follows `TASK_QUEUE_BACKEND`:
 
-Workers **pull** turns when they have capacity; nothing pushes work at them.
-At this stage that is the correct design, not a shortcut: the partitioned
-queue already provides per-session serialization (the only hard placement
-constraint), uniform load spreading across consumers, and automatic
-rebalancing when workers join/leave — a central placer would add a
-coordination point, a failure mode, and rebalance churn while enforcing
-nothing the partition key doesn't already enforce. Affinity-aware placement
-(HRW routing toward workers with warm session caches) is future work layered
-on the same envelope, worth its complexity only once checkpoint-rehydration
-cost dominates turn latency.
+- Kafka: `agent_turns`, consumer group `agent-dispatch`;
+- PostgreSQL: `agent_dispatch_queue` with skip-locked claims;
+- local development: an XDG-scoped SQLite queue.
 
-## Fleet visibility
+An explicitly selected unavailable transport fails loudly. Kafka partitioning
+uses `session_id`, so one session is serial while different sessions can run in
+parallel. `AGENT_TURNS_PARTITIONS` is grow-only and bounds Kafka concurrency.
+`AGENT_DISPATCH_MAX_DEPTH` bounds accepted durable turns. SQLite and PostgreSQL
+perform compare-and-admit atomically; Kafka rejects from authoritative consumer
+group lag and relies on broker quota/retention as its cross-producer hard bound.
+An unavailable depth probe is never interpreted as an empty queue.
 
-- Workers heartbeat into the `dispatch_workers` table of the **sessions
-  store** (the same registry surface AU-OS.state.fleet-supervisory-plane-at reads): worker id, host,
-  capacity, active sessions, transport, liveness. Stale heartbeats
-  (> 90 s) drop out.
-- `/api/fleet/topology` returns `dispatch_workers` (+ a totals count).
-- `graph_orchestrate job/{id}` shows **which worker/host executed**: the
-  claim stamps `claimed_by`/`dispatch_host` on the `:Task` node and
-  completion stamps `executed_by`; goal rows carry the worker token in
-  `owner_host`.
-- Metrics on the AU-OS.observability.no-op-without-metrics registry:
-  `agent_utilities_dispatch_queue_depth{backend}`,
-  `agent_utilities_dispatch_turns_total{outcome}`,
-  `agent_utilities_dispatch_workers`.
+Dispatch lease recovery is typed and aligned with the workload contract:
+`AGENT_DISPATCH_CLAIM_TTL_S` defaults to 120 seconds and is capped at the
+300-second RTO; `AGENT_DISPATCH_RENEW_INTERVAL_S` defaults to 30 seconds. The
+doctor reports this as `dispatch_lease_recovery`, and the lease guard renews both
+periodically and immediately before every authoritative side effect.
 
-## Deployment shape
+Kafka producers coalesce concurrent submissions (or an explicit `put_many`
+batch) behind one delivery-confirmed flush barrier. Consumers are thread-local:
+each worker owns its consumer and the opaque acknowledgement receipt carries
+that owner, removing the former process-wide poll/commit lock.
 
-A horizontally scaled deployment is now four independent tiers:
+PostgreSQL stores only opaque tenant and fairness references in scheduling
+columns. Claims order expired deadlines first for prompt cancellation, then
+priority, least-recently-served tenant, least-recently-served fairness group,
+deadline, enqueue time, and id. The schema is current-only; there is no FIFO
+fallback or alternate legacy claim query. Its acknowledgement receipt includes
+the opaque claim owner and timestamp, so a worker whose visibility claim was
+reassigned cannot delete the newer worker's row. Fairness history is pruned when
+its tenant/group has no remaining queued work.
 
-| Tier | Scales by | State |
-|---|---|---|
-| Stateless gateways (`GATEWAY_WORKERS`, N hosts) | request volume | none (AU-OS.state.unified-durable-state-externalization) |
-| **N dispatch workers** (`agent-dispatch-worker`) | active agent turns | none — claims + shared store |
-| M ingest workers (`kg-ingest-worker`, AU-KG.ingest.decoupled-kg-ingest-consumer) | ingest backlog | none |
-| Engine shards (`GRAPH_SERVICE_ENDPOINTS`, AU-KG.sharding.tenant-partitioned-sharding-hrw) + state Postgres + Kafka | resident population / events | durable |
+## Delivery invariants
 
-Flags: `STATE_DB_URI` (required for multi-host dispatch — sessions must be
-shared), `TASK_QUEUE_BACKEND=kafka` (or postgres), `AGENT_DISPATCH_BACKEND=queue`,
-`AGENT_TURNS_PARTITIONS`. Single-host/dev needs none of them: inline dispatch
-and the SQLite transport remain the zero-infra default.
+- Queue acknowledgement occurs only after a durable fenced WorkItem commit.
+- Redelivery is expected; deterministic WorkItem/idempotency identifiers make it
+  safe.
+- Workers renew leases periodically while executing and synchronously before
+  each bounded side effect. Executors receive a `WorkItemLeaseGuard` and must
+  route mutations through `lease_guard.side_effect(...)`. A stale worker cannot
+  commit after a newer lease epoch has been issued, and a fenced queue delivery
+  is left unacknowledged for redelivery.
+- `session_execution_guard` adds local locking and a fleet-wide PostgreSQL
+  advisory lock when shared state is configured.
+- Expired envelopes cancel their referenced WorkItem without writing status to a
+  Goal, Loop, Task, or Concept projection.
+- An orchestrator envelope must reference an existing WorkItem. Workers never
+  infer, adopt, or manufacture authority from another node type.
 
-## Testing
+## Operational surfaces
 
-`tests/unit/test_agent_dispatch.py` — envelope round-trip, session-key
-precedence, inline-mode live-path (unchanged behavior), queue-mode job
-handles on both seams, worker claim/execute/writeback against a fake queue +
-real SQLite sessions store, two-workers-one-session mutual exclusion,
-stale-claim crash-requeue, deadline expiry, poison-envelope tolerance,
-heartbeat/topology/metrics surfaces. No broker, Postgres or engine daemon
-required.
+- Worker: `agent-dispatch-worker`
+- Enqueue implementation: `agent_utilities/orchestration/agent_dispatch.py`
+- Claim/execute/commit implementation:
+  `agent_utilities/orchestration/agent_dispatch_worker.py`
+- Work authority: `agent_utilities/orchestration/work_item.py`
+- Queue controls: `TASK_QUEUE_BACKEND`, `AGENT_TURNS_PARTITIONS`,
+  `AGENT_DISPATCH_MAX_DEPTH`, `AGENT_DISPATCH_CLAIM_TTL_S`,
+  `AGENT_DISPATCH_RENEW_INTERVAL_S`
+- Multi-host session state: `STATE_DB_URI`
+
+Worker heartbeat, queue depth, success/failure, and lease failures are exposed
+through fleet topology and gateway metrics. The doctor reports configuration and
+transport failures without persisting hostnames, usernames, or filesystem paths.

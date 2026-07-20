@@ -235,7 +235,7 @@ def test_resource_pressure_never_auto_acts(engine, permissive_policy, notifier):
     set_fleet_actuator(actuator)
     event_id = _event(
         engine,
-        subject="r820",
+        subject="analysis-node-a",
         source="alertmanager",
         status="firing",
         summary="disk usage above 95% on /var",

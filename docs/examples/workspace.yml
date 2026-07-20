@@ -4,7 +4,7 @@
 # this to bootstrap (clone missing repos), to self-configure KG ingestion breadth
 # (every repo here is a code-context source), and during genesis.
 #
-# Place this file at the WORKSPACE ROOT (e.g. /home/apps/workspace/workspace.yml).
+# Place this file at the WORKSPACE ROOT (e.g. ${WORKSPACE_ROOT}/workspace.yml).
 # agent-utilities also auto-seeds a default copy at
 # ~/.config/agent-utilities/workspace.yml if none exists; the root file (which an
 # operator actually edits) takes precedence.
@@ -17,7 +17,7 @@ name: "My Agent Workspace"            # human label (advisory)
 # `path` is the ABSOLUTE base dir under which every repo below is cloned/resolved.
 # Each repo lands at <path>/<...subdirs...>/<repo-name>. If omitted, the bootstrap
 # falls back to the current working directory (a warning).
-path: "/home/apps/workspace"
+path: "${WORKSPACE_ROOT}"
 description: "Main development environment."   # advisory
 
 # ── repositories at the workspace root ──────────────────────────────────────

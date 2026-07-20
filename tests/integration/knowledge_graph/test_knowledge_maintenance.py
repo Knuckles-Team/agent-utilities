@@ -54,13 +54,11 @@ def test_summarize_old_chats():
     assert "ChatSummary" in backend.queries[2]["query"]
 
 
-@patch("agent_utilities.knowledge_graph.core.maintainer.requests.post")
-def test_enrich_embeddings(mock_post):
-    # Mock LM Studio response
-    mock_post.return_value.json.return_value = {
-        "data": [{"embedding": [0.1, 0.2, 0.3]}]
-    }
-    mock_post.return_value.raise_for_status = MagicMock()
+@patch(
+    "agent_utilities.knowledge_graph.core.maintainer.generate_embedding",
+    return_value=[0.1, 0.2, 0.3],
+)
+def test_enrich_embeddings(mock_generate_embedding):
 
     backend = DummyBackend(
         execute_results=[[{"id": "msg_1", "content": "hello", "embedding": None}]]
@@ -72,5 +70,5 @@ def test_enrich_embeddings(mock_post):
     count = maintainer.enrich_embeddings()
 
     assert count == 1
-    assert mock_post.called
+    assert mock_generate_embedding.called
     assert any(q.get("action") == "add_embedding" for q in backend.queries)

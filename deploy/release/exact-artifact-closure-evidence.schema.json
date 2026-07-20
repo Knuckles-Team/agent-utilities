@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/exact-artifact-closure-evidence-v1.json",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "signature", "subjectDigest"],
+      "properties": {
+        "algorithm": {
+          "enum": ["ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"]
+        },
+        "keyId": {"type": "string", "pattern": "^key:[a-f0-9]{64}$"},
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43,4096}$"
+        },
+        "subjectDigest": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "schemaVersion",
+    "releaseId",
+    "status",
+    "privacySafe",
+    "release",
+    "campaigns",
+    "gates",
+    "signature"
+  ],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "ExactArtifactClosureEvidence"},
+    "schemaVersion": {"const": 1},
+    "releaseId": {
+      "type": "string",
+      "pattern": "^release-[a-z0-9][a-z0-9.-]{2,63}$"
+    },
+    "status": {"const": "passed"},
+    "privacySafe": {"const": true},
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "promotionEvidenceSha256",
+        "releaseSpecSha256",
+        "campaignManifestSha256",
+        "agentUtilitiesSha256",
+        "distributionClosureSha256",
+        "releasePythonSha256",
+        "graphosSha256",
+        "engineSha256",
+        "harnessSha256",
+        "testCatalogSha256"
+      ],
+      "properties": {
+        "promotionEvidenceSha256": {"$ref": "#/$defs/digest"},
+        "releaseSpecSha256": {"$ref": "#/$defs/digest"},
+        "campaignManifestSha256": {"$ref": "#/$defs/digest"},
+        "agentUtilitiesSha256": {"$ref": "#/$defs/digest"},
+        "distributionClosureSha256": {"$ref": "#/$defs/digest"},
+        "releasePythonSha256": {"$ref": "#/$defs/digest"},
+        "graphosSha256": {"$ref": "#/$defs/digest"},
+        "engineSha256": {"$ref": "#/$defs/digest"},
+        "harnessSha256": {"$ref": "#/$defs/digest"},
+        "testCatalogSha256": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "campaigns": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["faultRestart", "protocolAuthorization", "workItemAgentBus", "performance", "multimodal", "knowledgeBatch", "reasoningRepair", "exactLocal", "permissionGovernance"],
+      "properties": {
+        "faultRestart": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "matrix_cases", "mutation_families"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "matrix_cases": {"const": 60},
+            "mutation_families": {"const": 15}
+          }
+        },
+        "protocolAuthorization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "data_path_cases", "protocol_cases"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "data_path_cases": {"const": 14},
+            "protocol_cases": {"const": 10}
+          }
+        },
+        "workItemAgentBus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "work_item_cases", "agent_bus_cases"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "work_item_cases": {"const": 8},
+            "agent_bus_cases": {"const": 2}
+          }
+        },
+        "performance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "scenario_families", "ledger_rows"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "scenario_families": {"const": 30},
+            "ledger_rows": {"const": 54}
+          }
+        },
+        "multimodal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidenceSha256",
+            "performanceEvidenceSha256",
+            "modalities",
+            "behavior_dimensions",
+            "fault_cases"
+          ],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "performanceEvidenceSha256": {"$ref": "#/$defs/digest"},
+            "modalities": {"const": 4},
+            "behavior_dimensions": {"const": 12},
+            "fault_cases": {"const": 16}
+          }
+        },
+        "knowledgeBatch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "families", "requirements", "snapshot_cases"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "families": {"const": 7},
+            "requirements": {"const": 7},
+            "snapshot_cases": {"const": 7}
+          }
+        },
+        "reasoningRepair": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "cases"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "cases": {"const": 9}
+          }
+        },
+        "exactLocal": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "evidenceSha256",
+            "campaignManifestSha256",
+            "gates",
+            "optimizer_families",
+            "optimizer_modalities"
+          ],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "campaignManifestSha256": {"$ref": "#/$defs/digest"},
+            "gates": {"const": 7},
+            "optimizer_families": {"const": 13},
+            "optimizer_modalities": {"const": 14}
+          }
+        },
+        "permissionGovernance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidenceSha256", "cases"],
+          "properties": {
+            "evidenceSha256": {"$ref": "#/$defs/digest"},
+            "cases": {"const": 8}
+          }
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["G-01", "G-02", "G-04", "G-05", "G-08", "G-09", "G-14", "G-15", "G-17", "G-26", "G-30", "G-32", "G-34", "G-35", "G-37"],
+      "properties": {
+        "G-01": {"const": "passed"},
+        "G-02": {"const": "passed"},
+        "G-04": {"const": "passed"},
+        "G-05": {"const": "passed"},
+        "G-08": {"const": "passed"},
+        "G-09": {"const": "passed"},
+        "G-14": {"const": "passed"},
+        "G-15": {"const": "passed"},
+        "G-17": {"const": "passed"},
+        "G-26": {"const": "passed"},
+        "G-30": {"const": "passed"},
+        "G-32": {"const": "passed"},
+        "G-34": {"const": "passed"},
+        "G-35": {"const": "passed"},
+        "G-37": {"const": "passed"}
+      }
+    },
+    "signature": {"$ref": "#/$defs/signature"}
+  }
+}

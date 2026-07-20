@@ -133,10 +133,10 @@ def test_epistemic_graph_obs_addr_wins_over_generic_endpoint(
     from agent_utilities.observability import _resolve_otel_endpoint
 
     monkeypatch.setenv(
-        "EPISTEMIC_GRAPH_OBS_ADDR", "http://engine-collector.example/otlp"
+        "EPISTEMIC_GRAPH_OBS_ADDR", "https://engine-collector.example/otlp"
     )
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://langfuse.example/otel")
-    assert _resolve_otel_endpoint() == "http://engine-collector.example/otlp"
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://langfuse.example/otel")
+    assert _resolve_otel_endpoint() == "https://engine-collector.example/otlp"
 
 
 # ---------------------------------------------------------------------------

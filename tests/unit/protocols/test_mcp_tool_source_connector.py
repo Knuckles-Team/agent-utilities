@@ -20,9 +20,14 @@ from agent_utilities.protocols.source_connectors import (
 )
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     MCP_TOOL_PRESETS,
+    McpToolSourceConnector,
     McpToolSourceError,
     get_tool_preset,
     list_tool_presets,
+)
+from agent_utilities.protocols.source_connectors.tool_schema import (
+    canonical_input_schema,
+    compatibility_fingerprint,
 )
 
 # ── canned fleet servers ─────────────────────────────────────────────────────
@@ -198,6 +203,138 @@ def test_enterprise_presets_build_with_verified_shape():
     # Keycloak returns a bare user array → records_path stays "" (whole result).
     assert kc.records_path == ""
     assert (kc.id_field, kc.title_field, kc.text_field) == ("id", "username", "email")
+
+
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
+def test_langfuse_presets_exclude_raw_trace_content():
+    sensitive_fields = {"input", "output", "metadata", "userId", "sessionId"}
+
+    for preset_name in (
+        "langfuse-traces",
+        "langfuse-observations",
+        "langfuse-sessions",
+    ):
+        # Provider-contributed presets may replace transport/action details, but
+        # cannot weaken the central privacy projection.
+        preset = get_tool_preset(preset_name)
+        expected_text_field = "id" if preset_name == "langfuse-sessions" else "name"
+        assert preset["text_field"] == expected_text_field
+        assert preset["metadata_fields"]
+        assert sensitive_fields.isdisjoint(preset["metadata_fields"])
+
+        if preset_name == "langfuse-sessions":
+            continue
+
+        connector = McpToolSourceConnector(**MCP_TOOL_PRESETS[preset_name])
+        document = connector._to_document(
+            {
+                "id": "trace-1",
+                "name": "safe operation name",
+                "input": "private request",
+                "output": "private response",
+                "metadata": {"private": True},
+                "userId": "private-user",
+                "sessionId": "private-session",
+                "timestamp": "2026-07-14T00:00:00Z",
+                "startTime": "2026-07-14T00:00:00Z",
+            }
+        )
+
+        assert document is not None
+        assert document.text == "safe operation name"
+        assert sensitive_fields.isdisjoint(document.metadata["record"])
+
+    assert (
+        MCP_TOOL_PRESETS["langfuse-observations"]["action"] == "observations_get_many"
+    )
+
+
+@pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
+def test_governed_connector_lists_and_fingerprints_live_tool_before_pull():
+    server = make_sql_server(
+        rows=[{"id": 1, "title": "A", "body": "body", "updated_at": "2026"}]
+    )
+    live_tool = next(
+        tool
+        for tool in server._tool_manager._tools.values()
+        if tool.name == "sql_query"
+    )
+    expected = compatibility_fingerprint(
+        "sql_query", canonical_input_schema(live_tool, include_presentation=False)
+    )
+    connector = build_connector(
+        "mcp_tool",
+        {
+            "preset": "sql-query",
+            "client": server,
+            "params": {"sql": "SELECT 1", "params": {"after": 0}, "max_rows": 2},
+            "id_field": "id",
+            "title_field": "title",
+            "text_field": "body",
+            "verify_live_schema": True,
+            "tool_schema_sha256": expected,
+        },
+    )
+
+    docs = list(connector.load())
+
+    assert len(docs) == 1
+    assert connector.live_tool_schema_sha256 == expected
+
+
+@pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
+def test_governed_connector_refuses_schema_drift_before_pull():
+    connector = build_connector(
+        "mcp_tool",
+        {
+            "preset": "sql-query",
+            "client": make_sql_server(),
+            "params": {"sql": "SELECT 1", "params": {"after": 0}},
+            "verify_live_schema": True,
+            "tool_schema_sha256": "0" * 64,
+        },
+    )
+
+    with pytest.raises(McpToolSourceError, match="fingerprint differs"):
+        list(connector.load())
+
+
+@pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
+def test_governed_connector_projects_keyed_mapping_records():
+    connector = build_connector(
+        "mcp_tool",
+        {
+            "server": "inventory-mcp",
+            "tool": "inventory_list",
+            "records_path": "items",
+            "records_is_mapping": True,
+            "mapping_key_field": "source_key",
+            "id_field": "source_key",
+            "text_field": "summary",
+            "strict_schema": True,
+        },
+    )
+
+    records = connector._records({"items": {"neutral-alias": {"summary": "available"}}})
+
+    assert records == [{"source_key": "neutral-alias", "summary": "available"}]
+
+
+@pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
+def test_governed_connector_rejects_scalar_mapping_records():
+    connector = build_connector(
+        "mcp_tool",
+        {
+            "server": "inventory-mcp",
+            "tool": "inventory_list",
+            "records_path": "items",
+            "records_is_mapping": True,
+            "strict_schema": True,
+        },
+    )
+
+    with pytest.raises(McpToolSourceError, match="non-object record"):
+        connector._records({"items": {"neutral-alias": "unsafe"}})
 
 
 @pytest.mark.concept("AU-ECO.connector.mcp-tool-connector")
@@ -399,16 +536,14 @@ def test_acl_fields_map_to_external_access():
 
 
 @pytest.mark.concept("AU-P0-4")
-def test_unconfigured_acl_defaults_to_quarantined_not_public(monkeypatch):
+def test_unconfigured_acl_defaults_to_quarantined_not_public():
     """No acl_* fields configured -> fail-closed default (CONCEPT:AU-P0-4).
 
     An unproven/unconfigured connector must never default a document's access
     to world-public; it must default to the most-restrictive descriptor
-    (:meth:`ExternalAccess.quarantined`) unless the operator explicitly opts a
-    dev/local deployment back into public via ``CONNECTOR_DEFAULT_PUBLIC``.
+    (:meth:`ExternalAccess.quarantined`). Only a certified connector's explicit
+    source ACL can grant public access.
     """
-    monkeypatch.delenv("CONNECTOR_DEFAULT_PUBLIC", raising=False)
-
     server = FastMCP("no-acl-server")
 
     @server.tool
@@ -435,30 +570,6 @@ def test_unconfigured_acl_defaults_to_quarantined_not_public(monkeypatch):
     assert CONNECTOR_UNCONFIGURED_MARKING in access.markings
     assert access.user_emails == []
     assert access.group_ids == []
-
-
-@pytest.mark.concept("AU-P0-4")
-def test_connector_default_public_opt_in_restores_legacy_behavior(monkeypatch):
-    """``CONNECTOR_DEFAULT_PUBLIC=true`` is the explicit dev/local opt-in back to public."""
-    monkeypatch.setenv("CONNECTOR_DEFAULT_PUBLIC", "true")
-
-    server = FastMCP("no-acl-server-optin")
-
-    @server.tool
-    def records(action: str, params_json: str = "{}") -> dict:
-        return {"items": [{"id": "r1", "text": "body"}]}
-
-    conn = build_connector(
-        "mcp_tool",
-        {
-            "client": server,
-            "tool": "records",
-            "action": "list",
-            "records_path": "items",
-        },
-    )
-    docs = {d.id: d for d in conn.load()}
-    assert docs["r1"].external_access.is_public is True
 
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")

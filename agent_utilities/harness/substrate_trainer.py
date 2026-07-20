@@ -42,7 +42,7 @@ from typing import Any
 # NOTE: ``batch_normalized_advantage`` is imported lazily inside ``build_corpus``
 # below. A top-level import triggers ``agent_utilities.graph.__init__``, which
 # eagerly re-exports the pydantic-ai/pydantic-graph agent runtime (``builder``) —
-# an ``[agent]``-extra dependency. Importing it eagerly here would drag pydantic_ai
+# an ``[agent-runtime]`` dependency. Importing it eagerly here would drag pydantic_ai
 # onto the import path of every harness consumer (e.g. the lean Eval-corpus gate),
 # breaking ``import`` in the lean CI/serving install (Dependency discipline).
 

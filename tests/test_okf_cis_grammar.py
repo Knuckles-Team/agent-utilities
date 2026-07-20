@@ -1,7 +1,7 @@
 """OKF-CIS grammar + vocab tests (CONCEPT:AU-OS.governance.concept-2).
 
-Covers the additive standard: id<->path<->IRI round-trip, the >=2-segment rule,
-rejection of legacy/malformed ids, the shared-pillar federation invariant, the
+Covers id<->path<->IRI round-trip, the >=2-segment rule, strict rejection of
+malformed ids, the shared-pillar federation invariant, the
 closed domain vocab, and the 2-letter slug registry uniqueness.
 """
 
@@ -44,7 +44,7 @@ def test_shared_pillar_federates_across_repos() -> None:
     "bad",
     [
         "AU-KG.ingest",  # only 1 segment -> a domain node, not a concept
-        "AU-KG.retrieval.synthesized-cited-answer",  # legacy numeric grammar
+        "KG-2.101",
         "AUX-KG.a.b",  # slug not 2 letters
         "AU-XX.a.b",  # pillar not in the closed set
         "AU-KG.A.b",  # uppercase segment
@@ -56,12 +56,6 @@ def test_rejects_malformed(bad: str) -> None:
     assert not ch.is_okf_id(bad)
     with pytest.raises(ValueError):
         ch.parse_okf_id(bad)
-
-
-def test_legacy_parser_still_works() -> None:
-    # Additive: the legacy grammar must keep parsing during migration.
-    assert ch.parse_concept_id("AU-KG.retrieval.synthesized-cited-answer").canonical == "AU-KG.retrieval.synthesized-cited-answer"
-    assert ch.canonicalize("AU-KG.compute.numeric-kernel") == "AU-KG.ontology.concept-hierarchy"
 
 
 def test_domain_vocab_closed_and_covers_all_pillars() -> None:

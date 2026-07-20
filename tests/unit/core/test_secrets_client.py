@@ -7,11 +7,8 @@ Covers:
 - InEpistemicGraphBackend: the durable, engine-backed __secrets__ store CRUD +
   the encrypted-property split (key/metadata plaintext, value sealed by the
   engine's encryption-at-rest).
-- SQLiteBackend: persistence + encryption (retained as the migration source).
 - SecretsClient: env fallback, URI resolution, typed retrieval.
 - Factory: backend selection (engine default everywhere, vault enterprise).
-- One-time legacy secrets.db → __secrets__ migration (read-old → write-new →
-  delete-old).
 """
 
 import os
@@ -24,7 +21,6 @@ from agent_utilities.security.secrets_client import (
     InEpistemicGraphBackend,
     SecretsClient,
     SecretsConfig,
-    SQLiteBackend,
     create_secrets_client,
 )
 
@@ -87,7 +83,7 @@ class TestInEpistemicGraphBackend:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
     def test_metadata_is_queryable_plaintext(self, engine_backend):
-        """Key NAME + metadata stay plaintext node properties (mirrors SQLite split)."""
+        """Key name and metadata stay queryable while the value is sealed."""
         engine_backend.set("svc/token", "v", service="gitlab")
         from agent_utilities.security.secrets_client import _node_id
 
@@ -108,64 +104,6 @@ class TestInEpistemicGraphBackend:
         assert client.resolve_ref("vault://gitlab/token") == "glpat-xyz"
         assert client.delete("gitlab/token") is True
         assert client.get("gitlab/token") is None
-
-
-# ---------------------------------------------------------------------------
-# SQLiteBackend (retained as migration source)
-# ---------------------------------------------------------------------------
-
-
-class TestSQLiteBackend:
-    """Tests for the persistent SQLite + Fernet backend (migration source)."""
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_set_and_get(self, tmp_path):
-        db = tmp_path / "test.db"
-        backend = SQLiteBackend(db_path=db)
-        backend.set("gitlab/token", "glpat-123")
-        assert backend.get("gitlab/token") == "glpat-123"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_persistence_across_instances(self, tmp_path):
-        """Re-opening with the same key file should retrieve old secrets."""
-        db = tmp_path / "persist.db"
-        b1 = SQLiteBackend(db_path=db)
-        b1.set("persisted", "value")
-        # The key file is auto-created alongside the DB
-        b2 = SQLiteBackend(db_path=db)
-        assert b2.get("persisted") == "value"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_overwrite(self, tmp_path):
-        db = tmp_path / "overwrite.db"
-        backend = SQLiteBackend(db_path=db)
-        backend.set("k", "v1")
-        backend.set("k", "v2")
-        assert backend.get("k") == "v2"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_delete(self, tmp_path):
-        db = tmp_path / "del.db"
-        backend = SQLiteBackend(db_path=db)
-        backend.set("rmme", "bye")
-        assert backend.delete("rmme") is True
-        assert backend.get("rmme") is None
-        assert backend.delete("rmme") is False
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_list_keys(self, tmp_path):
-        db = tmp_path / "list.db"
-        backend = SQLiteBackend(db_path=db)
-        backend.set("z", "1")
-        backend.set("a", "2")
-        assert backend.list_keys() == ["a", "z"]
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_key_file_created(self, tmp_path):
-        db = tmp_path / "keyfile.db"
-        SQLiteBackend(db_path=db)
-        key_file = db.with_suffix(".key")
-        assert key_file.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -243,16 +181,11 @@ class TestResolveRef:
         assert client.resolve_ref("secret://my/path") == "val"
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_sqlite_scheme(self, engine_backend):
+    @pytest.mark.parametrize("reference", ["sqlite://sqlite/key", "plain"])
+    def test_non_current_reference_is_rejected(self, engine_backend, reference):
         client = SecretsClient(backend=engine_backend)
-        client.set("sqlite/key", "sqlite-val")
-        assert client.resolve_ref("sqlite://sqlite/key") == "sqlite-val"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_plain_key_fallback(self, engine_backend):
-        client = SecretsClient(backend=engine_backend)
-        client.set("plain", "simple")
-        assert client.resolve_ref("plain") == "simple"
+        with pytest.raises(ValueError, match="runtime secret reference is invalid"):
+            client.resolve_ref(reference)
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_missing_ref_returns_none(self, engine_backend):
@@ -276,9 +209,8 @@ class TestSecretsFactory:
         assert isinstance(client.backend, InEpistemicGraphBackend)
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
-    def test_explicit_inmemory_is_engine_backed(self):
-        """``inmemory`` (legacy config key) now resolves to the engine store."""
-        config = SecretsConfig(backend="inmemory")
+    def test_explicit_engine_backend_is_engine_backed(self):
+        config = SecretsConfig(backend="engine")
         client = create_secrets_client(config)
         assert isinstance(client.backend, InEpistemicGraphBackend)
 
@@ -295,51 +227,6 @@ class TestSecretsFactory:
             # hvac missing (ImportError) or no reachable vault (auth/connect) — the
             # factory selected the vault path, which is what this asserts.
             pass
-
-
-# ---------------------------------------------------------------------------
-# One-time legacy secrets.db migration (CONCEPT:AU-OS.identity.encrypted-secret-store)
-# ---------------------------------------------------------------------------
-
-
-class TestLegacyMigration:
-    """read-old → write-new → delete-old, on first engine-backed boot."""
-
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
-    def test_migrates_and_deletes_legacy_db(
-        self, engine_backend, tmp_path, monkeypatch
-    ):
-        from agent_utilities.security import secrets_client as sc
-
-        # Seed a legacy Fernet SQLite store with its sibling .key.
-        db = tmp_path / "secrets.db"
-        legacy = SQLiteBackend(db_path=db)
-        legacy.set("gitlab/token", "glpat-legacy", service="gitlab")
-        legacy.set("openai/key", "sk-legacy")
-        legacy._conn.close()
-        key_file = db.with_suffix(".key")
-        assert db.exists() and key_file.exists()
-
-        # Point the migration at our temp legacy db.
-        monkeypatch.setattr(sc, "_legacy_sqlite_path", lambda: db)
-
-        migrated = sc._migrate_legacy_sqlite(engine_backend)
-
-        assert migrated == 2
-        assert engine_backend.get("gitlab/token") == "glpat-legacy"
-        assert engine_backend.get("openai/key") == "sk-legacy"
-        # Old db + key file removed once converted (No-Legacy on-disk exception).
-        assert not db.exists()
-        assert not key_file.exists()
-
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.encrypted-secret-store")
-    def test_migration_is_noop_without_legacy_db(
-        self, engine_backend, tmp_path, monkeypatch
-    ):
-        from agent_utilities.security import secrets_client as sc
-
-        monkeypatch.setattr(sc, "_legacy_sqlite_path", lambda: tmp_path / "absent.db")
-        assert sc._migrate_legacy_sqlite(engine_backend) == 0
 
 
 # ---------------------------------------------------------------------------

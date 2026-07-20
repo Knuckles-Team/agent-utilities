@@ -26,7 +26,7 @@ _N_EDGES = 25
 
 
 class _SourceGraph:
-    """A fake L1 compute graph (the `.graph` copy_graph reads from).
+    """A fake native graph (the `.graph` copy_graph reads from).
 
     Uses the declared ``Agent`` node + ``DEPENDS_ON`` (Agent→Agent) edge so the
     strict-schema LadybugDB target accepts the workload (both must be declared);

@@ -11,8 +11,8 @@ applies entries in order and advances a persisted cursor; a mirror that is
 offline or slow keeps its unapplied tail in the log and **replays from its cursor
 on reconnect / process restart** — so a transient outage never drops a write.
 
-Why a dedicated durable log (and not the in-memory write-behind queue the
-``TieredGraphBackend`` uses): that queue lives in process memory, so a crash or a
+Why a dedicated durable log (and not an in-memory write-behind queue): an
+in-memory queue is lost on process failure, so a crash or a
 mirror outage longer than the process lifetime loses the backlog. This log is
 ``sqlite`` in WAL mode (durable across restarts, zero external infra) — the same
 zero-infra-default shape the state-store seam uses. The append is committed
@@ -48,8 +48,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Concurrent-sqlite discipline (CONCEPT:AU-KG.backend.mirror-outbox). This one outbox file is opened by
-# BOTH the graph-os CLIENT and the graph-os HOST — each runs ``GRAPH_BACKEND=fanout``
-# and builds a :class:`~agent_utilities.knowledge_graph.backends.fanout_backend.FanOutBackend`
+# BOTH the graph-os CLIENT and the graph-os HOST when projections are configured;
+# each builds a :class:`~agent_utilities.knowledge_graph.backends.fanout_backend.FanOutBackend`
 # against the same ``graph_mirror_outbox.db`` on the shared data volume, each with an
 # append path plus one drainer thread per mirror. With WAL, exactly one writer holds
 # the write lock at a time and a second writer must WAIT for it. Without a busy

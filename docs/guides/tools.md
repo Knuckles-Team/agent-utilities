@@ -4,7 +4,11 @@
 
 ## Overview
 
-The `tools/` module provides 18 tool modules that are exposed to agents during graph execution. Each tool module registers functions that the LLM can call via the PydanticAI tool system.
+The `tools/` package provides the PydanticAI tool surface used by direct agent
+execution. `register_agent_tools` is the authoritative registry; optional groups
+are enabled through `AgentConfig`, and graph orchestrators expose only
+`execute_graph`, the protocol-agnostic graph execution authority, so routing
+remains isolated.
 
 ## Tool Categories
 
@@ -12,27 +16,28 @@ The `tools/` module provides 18 tool modules that are exposed to agents during g
 
 | Module | Key Functions | Description |
 |---|---|---|
-| `agent_tools` | `agent_share_your_reasoning`, `agent_run_shell_command` | Core agent capabilities |
-| `team_tools` | `delegate_to_team`, `request_review` | Multi-agent coordination |
-| `a2a_tools` | `discover_agents`, `send_a2a_message` | Agent-to-Agent protocol tools |
+| `agent_tools` | `share_reasoning`, `invoke_specialized_agent` | Core agent capabilities |
+| `team_tools` | `spawn_team`, `assign_team_task`, `message_teammate` | Multi-agent coordination |
+| `a2a_tools` | `list_a2a_peers`, `register_a2a_peer`, `delete_a2a_peer` | Agent-to-Agent peer registry |
 
 ### Developer Tools
 
 | Module | Key Functions | Description |
 |---|---|---|
-| `developer_tools` | `create_file`, `replace_in_file`, `read_file` | File manipulation |
-| `git_tools` | `git_status`, `git_diff`, `git_commit` | Version control |
-| `workspace_tools` | `list_workspace`, `search_files`, `grep` | Workspace navigation |
+| `developer_tools` | `project_search` plus shared KG tools | Read-only code and knowledge discovery |
+| `git_tools` | `get_git_status`, `list_worktrees` | Privacy-safe repository inspection |
+| `workspace_tools` | `read_workspace_file`, `get_skill_content`, `list_files` | Bounded, read-only workspace navigation |
 
 ### Knowledge & Memory Tools
 
 | Module | Key Functions | Description |
 |---|---|---|
-| `knowledge_tools` | `query_knowledge_graph`, `store_knowledge` | KG read/write |
-| `memory_tools` | `recall_memory`, `store_memory` | Conversational memory |
-| `kg_evolution_tools` | `evolve_schema`, `migrate_graph` | KG schema management |
-| `kg_share_tools` | `export_subgraph`, `import_subgraph` | KG data sharing |
-| `pattern_tools` | `detect_pattern`, `apply_pattern` | Pattern recognition |
+| `kg_tools` | `kg_search`, `kg_recall`, `kg_query` | Shared graph discovery and queries |
+| `knowledge_tools` | memory CRUD, SDD synchronization, and governed knowledge-base operations | Knowledge and memory lifecycle |
+| `memory_tools` | `read_agents_md` | Bounded, sanitized project instructions |
+| `kg_evolution_tools` | `extract_and_ingest_triples` | Governed triple extraction and ingestion |
+| `kg_share_tools` | `export_subgraph`, `import_agent_card` | KG data sharing |
+| `pattern_tools` | `run_manual_test` | Pattern test execution |
 
 ### Social & Search Tools
 
@@ -44,12 +49,12 @@ The `tools/` module provides 18 tool modules that are exposed to agents during g
 
 | Module | Key Functions | Description |
 |---|---|---|
-| `scheduler_tools` | `schedule_task`, `list_scheduled` | Task scheduling |
-| `mcp_sync_tool` | `sync_mcp_agents` | MCP server discovery |
-| `sdd_tools` | `run_sdd_pipeline`, `validate_specs` | Spec-driven development |
-| `self_improvement_tools` | `analyze_codebase`, `suggest_improvements` | Self-improvement |
-| `style_tools` | `apply_coding_style`, `check_conventions` | Code style enforcement |
-| `onboarding_tools` | `analyze_project`, `generate_onboarding` | Project onboarding |
+| `scheduler_tools` | `schedule_task`, `list_tasks`, `delete_task`, `view_cron_log` | Task scheduling |
+| `mcp_sync_tool` | `trigger_mcp_sync` | MCP server discovery |
+| `sdd_tools` | project context, specification, task, import/export, and TDD operations | Spec-driven development |
+| `self_improvement_tools` | improvement cycles, skill proposals, and experiment queries | Self-improvement |
+| `style_tools` | `set_output_style`, `list_output_styles` | Output-style selection |
+| `onboarding_tools` | `bootstrap_project` | Project onboarding |
 
 ## Tool Registration
 
@@ -87,8 +92,8 @@ agent at creation time:
 ```python
 from agent_utilities.tools.tool_registry import register_agent_tools
 
-# Registers the relevant tool modules (developer, git, workspace, knowledge,
-# memory, a2a, etc.) onto the agent, guarded against duplicate registration.
+# Registers the relevant tool modules onto the agent, guarded against duplicate
+# registration and the configured optional-tool policy.
 register_agent_tools(agent, graph_bundle=my_graph_bundle)
 ```
 

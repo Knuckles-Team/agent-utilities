@@ -71,15 +71,15 @@ def _anomaly(node_id, entity, signal, at, *, kind="above-baseline"):
 
 # --- pure helpers -------------------------------------------------------- #
 def test_asset_key_joins_producer_namespaces_on_shared_host():
-    assert inc._asset_key("fan:host:r510") == "r510"
-    assert inc._asset_key("systems:host:r510") == "r510"
+    assert inc._asset_key("fan:host:storage-node-a") == "storage-node-a"
+    assert inc._asset_key("systems:host:storage-node-a") == "storage-node-a"
 
 
 def test_layer_of_maps_producer_prefixes():
-    assert inc._layer_of("fan:host:r510") == "hardware"
-    assert inc._layer_of("systems:host:r510") == "os"
-    assert inc._layer_of("cm:node:r820") == "orchestration"
-    assert inc._layer_of("tunnel:path:r820-r510") == "network"
+    assert inc._layer_of("fan:host:storage-node-a") == "hardware"
+    assert inc._layer_of("systems:host:storage-node-a") == "os"
+    assert inc._layer_of("cm:node:analysis-node-a") == "orchestration"
+    assert inc._layer_of("tunnel:path:analysis-node-a--storage-node-a") == "network"
     assert inc._layer_of("mystery:x:y") == "unknown"
 
 
@@ -100,8 +100,8 @@ def test_correlate_incidents_groups_multi_layer_anomalies_on_shared_entity(monke
     into ONE incident spanning both layers — the cross-layer payoff."""
     rows = {
         "HealthAnomaly": [
-            _anomaly("a1", "fan:host:r510", "cpu_temp_c", _ago(120)),
-            _anomaly("a2", "systems:host:r510", "load1", _ago(0)),
+            _anomaly("a1", "fan:host:storage-node-a", "cpu_temp_c", _ago(120)),
+            _anomaly("a2", "systems:host:storage-node-a", "load1", _ago(0)),
         ],
         "Incident": [],
     }
@@ -116,7 +116,10 @@ def test_correlate_incidents_groups_multi_layer_anomalies_on_shared_entity(monke
     incident = out[0]
     assert incident["layers"] == ["hardware", "os"]
     assert incident["signals"] == ["cpu_temp_c", "load1"]
-    assert incident["entities"] == ["fan:host:r510", "systems:host:r510"]
+    assert incident["entities"] == [
+        "fan:host:storage-node-a",
+        "systems:host:storage-node-a",
+    ]
     assert incident["root_cause_layer"] == "hardware"
     assert incident["severity"] == "critical"
     assert set(incident["anomalies"]) == {"a1", "a2"}
@@ -134,9 +137,9 @@ def test_correlate_incidents_leaves_unrelated_anomalies_separate(monkeypatch):
     ``window_s`` apart, do NOT get collapsed into one incident."""
     rows = {
         "HealthAnomaly": [
-            _anomaly("a1", "fan:host:r510", "cpu_temp_c", _ago(7200)),
-            _anomaly("a2", "fan:host:r710", "cpu_temp_c", _ago(7190)),
-            _anomaly("a3", "fan:host:r510", "cpu_temp_c", _ago(0)),
+            _anomaly("a1", "fan:host:storage-node-a", "cpu_temp_c", _ago(7200)),
+            _anomaly("a2", "fan:host:compute-node-b", "cpu_temp_c", _ago(7190)),
+            _anomaly("a3", "fan:host:storage-node-a", "cpu_temp_c", _ago(0)),
         ],
         "Incident": [],
     }
@@ -148,13 +151,17 @@ def test_correlate_incidents_leaves_unrelated_anomalies_separate(monkeypatch):
 
     assert len(out) == 3
     assets = sorted(i["entity"] for i in out)
-    assert assets == ["fan:host:r510", "fan:host:r510", "fan:host:r710"]
+    assert assets == [
+        "fan:host:compute-node-b",
+        "fan:host:storage-node-a",
+        "fan:host:storage-node-a",
+    ]
 
 
 def test_correlate_incidents_dedupes_already_open_incident(monkeypatch):
     rows = {
         "HealthAnomaly": [
-            _anomaly("a1", "fan:host:r510", "cpu_temp_c", _ago(0)),
+            _anomaly("a1", "fan:host:storage-node-a", "cpu_temp_c", _ago(0)),
         ],
         "Incident": [],
     }
@@ -191,7 +198,12 @@ def test_correlate_incidents_no_engine_returns_empty(monkeypatch):
 def test_correlate_incidents_ignores_anomalies_older_than_days(monkeypatch):
     rows = {
         "HealthAnomaly": [
-            _anomaly("a1", "fan:host:r510", "cpu_temp_c", "2020-01-01T00:00:00Z"),
+            _anomaly(
+                "a1",
+                "fan:host:storage-node-a",
+                "cpu_temp_c",
+                "2020-01-01T00:00:00Z",
+            ),
         ],
         "Incident": [],
     }
@@ -209,8 +221,8 @@ def test_propose_remediation_writes_proposal_report_only(monkeypatch):
     monkeypatch.setattr(inc, "_notify", notified.append)
 
     incident = {
-        "id": "health:incident:r510:abc",
-        "entity": "systems:host:r510",
+        "id": "health:incident:storage-node-a:abc",
+        "entity": "systems:host:storage-node-a",
         "root_cause_layer": "os",
         "signals": ["disk_pct"],
     }
@@ -246,11 +258,38 @@ def test_propose_remediation_engine_unreachable_returns_none(monkeypatch):
     assert inc.propose_remediation(incident) is None
 
 
+def test_notify_uses_bounded_shared_http_boundary(monkeypatch):
+    import agent_utilities.core.config as config_module
+    import agent_utilities.protocols.source_connectors.http_safety as http_safety
+
+    monkeypatch.setattr(
+        config_module,
+        "setting",
+        lambda key, default=None, cast=None: (
+            "https://notify.example.invalid/events"
+            if key == "INCIDENT_NOTIFY_URL"
+            else default
+        ),
+    )
+    calls = []
+    monkeypatch.setattr(
+        http_safety,
+        "safe_post_json",
+        lambda url, payload, **kwargs: calls.append((url, payload, kwargs)) or {},
+    )
+
+    inc._notify("bounded message")
+
+    assert calls[0][1] == {"source": "incident-brain", "message": "bounded message"}
+    assert calls[0][2]["max_request_bytes"] == 64 * 1024
+    assert calls[0][2]["tls_service"] == "incident-notify"
+
+
 # --- actuate_remediation (propose -> gate -> (held)) ---------------------- #
 def test_actuate_remediation_refuses_non_restart_class_actions():
     proposal = {
         "proposedAction": "investigate_os_pressure",
-        "entity": "systems:host:r510",
+        "entity": "systems:host:storage-node-a",
     }
     out = inc.actuate_remediation(proposal)
     assert out["status"] == "not_actuatable"
@@ -269,15 +308,15 @@ def test_actuate_remediation_defaults_to_held_pending_human_approval():
     proposal = {
         "id": "health:remediation:x",
         "proposedAction": "restart_or_cordon_pod",
-        "entity": "cm:node:r820",
-        "incident": "health:incident:r820:abc",
+        "entity": "cm:node:analysis-node-a",
+        "incident": "health:incident:analysis-node-a:abc",
     }
     out = inc.actuate_remediation(proposal)
     assert out["status"] == "held"
     assert out["decision"] == "queue_approval"
     assert out["tier"] == "approval_required"
     assert out["action_kind"] == "restart_service"
-    assert out["target"] == "r820"
+    assert out["target"] == "analysis-node-a"
 
 
 def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeypatch):
@@ -306,13 +345,13 @@ def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeyp
     proposal = {
         "id": "health:remediation:y",
         "proposedAction": "restart_or_cordon_pod",
-        "entity": "cm:node:r820",
+        "entity": "cm:node:analysis-node-a",
     }
     out = inc.actuate_remediation(proposal)
     assert out["status"] == "executed"
     assert len(executed) == 1
     assert executed[0].kind == "restart_service"
-    assert executed[0].target == "r820"
+    assert executed[0].target == "analysis-node-a"
 
 
 # --- run_incident_correlation -------------------------------------------- #
@@ -393,7 +432,7 @@ def test_run_incident_correlation_default_flag_off_never_attempts_actuation(
     proposal = {
         "id": "p1",
         "proposedAction": "restart_or_cordon_pod",
-        "entity": "cm:node:r820",
+        "entity": "cm:node:analysis-node-a",
     }
     monkeypatch.setattr(inc, "propose_remediation", lambda incident: proposal)
     attempted: list = []
@@ -436,7 +475,7 @@ def test_run_incident_correlation_enabled_flag_wires_through_to_held(monkeypatch
     proposal = {
         "id": "p1",
         "proposedAction": "restart_or_cordon_pod",
-        "entity": "cm:node:r820",
+        "entity": "cm:node:analysis-node-a",
     }
     monkeypatch.setattr(inc, "propose_remediation", lambda incident: proposal)
 

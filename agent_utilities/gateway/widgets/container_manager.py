@@ -47,8 +47,8 @@ class Widget(BaseWidget):
                 1 for c in containers if c.get("State", "").lower() == "running"
             )
         except Exception as e:
-            logger.debug("Container Manager fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Container Manager fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

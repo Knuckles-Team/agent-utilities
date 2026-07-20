@@ -78,7 +78,10 @@ class TestISO20022Factory:
         )
         assert msg.message_type == ISO20022MessageType.PACS_008
         assert msg.amount == 100000.0
-        assert msg.end_to_end_id.startswith("E2E-")
+        assert msg.end_to_end_id.startswith("E2E")
+        assert len(msg.end_to_end_id) == 35
+        assert msg.instruction_id.startswith("INS")
+        assert len(msg.instruction_id) == 35
 
     def test_payment_initiation(self):
         msg = ISO20022MessageFactory.create_payment_initiation(

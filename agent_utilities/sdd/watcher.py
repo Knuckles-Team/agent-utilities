@@ -22,10 +22,10 @@ from agent_utilities.core.config import setting
 logger = logging.getLogger(__name__)
 
 # Cache of seen file hashes to avoid redundant writes/ingestions
-# Key: absolute file path, Value: set of seen MD5 hashes
+# Key: absolute file path, Value: set of seen SHA-256 hashes
 _SEEN_HASHES: dict[str, set[str]] = {}
 
-# Cache of seen file modification times (st_mtime) to avoid redundant disk reads & MD5 hashing
+# Cache of seen file modification times (st_mtime) to avoid redundant disk reads and hashing
 # Key: absolute file path, Value: float modification timestamp
 _SEEN_MTIMES: dict[str, float] = {}
 
@@ -34,10 +34,8 @@ _WATCHER_PAUSED = False
 
 
 def _get_md5(content: str) -> str:
-    """Calculate MD5 hash of string content."""
-    return hashlib.md5(
-        content.encode("utf-8", errors="ignore"), usedforsecurity=False
-    ).hexdigest()
+    """Return the legacy-named, collision-resistant content digest."""
+    return hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _get_latest_version_from_history(
@@ -68,7 +66,9 @@ def _get_latest_version_from_history(
                     content = f.read_text(encoding="utf-8", errors="ignore")
                     seen_hashes.add(_get_md5(content))
                 except Exception as e:
-                    logger.debug(f"Failed to read historical file {f}: {e}")
+                    logger.debug(
+                        "Failed to read historical file (%s)", type(e).__name__
+                    )
 
     return version, seen_hashes
 
@@ -283,7 +283,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:
-        logger.debug(f"Failed to get stat for {file_path}: {e}")
+        logger.debug("Failed to stat watched file (%s)", type(e).__name__)
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
@@ -292,7 +292,7 @@ def process_plan_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        logger.error(f"Failed to read file {file_path}: {e}")
+        logger.error("Failed to read watched file (%s)", type(e).__name__)
         return
 
     content_hash = _get_md5(content)
@@ -385,7 +385,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:
-        logger.debug(f"Failed to get stat for {file_path}: {e}")
+        logger.debug("Failed to stat watched file (%s)", type(e).__name__)
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
@@ -394,7 +394,7 @@ def process_tasks_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        logger.error(f"Failed to read file {file_path}: {e}")
+        logger.error("Failed to read watched file (%s)", type(e).__name__)
         return
 
     content_hash = _get_md5(content)
@@ -506,23 +506,15 @@ def _safe_walk(root: Path, target_names: set[str], max_depth: int = 5):
 
 
 def get_all_skills_directories(workspace_path: Path) -> list[Path]:
-    """Get all normalized skills directories across all platforms and the workspace."""
-    raw_dirs = [
-        "~/.gemini/antigravity/skills",
-        "~/.claude/skills",
-        "~/.config/claude/skills",
-        "~/.devin/skills",
-        "~/.codeium/windsurf/skills",
-        "~/.windsurf/skills",
-        "~/.config/agent-utilities/skills",
-        setting("AGENT_SKILLS_DIR"),
-    ]
-    resolved = []
-    for d in raw_dirs:
-        if d:
-            p = Path(os.path.expanduser(d)).resolve()
-            if p.exists() and p.is_dir():
-                resolved.append(p)
+    """Get canonical installed/configured skill-provider directories."""
+    from agent_utilities.core.providers import resolve_skill_provider_dirs
+
+    resolved = [path.resolve() for _provider, path in resolve_skill_provider_dirs()]
+    configured = setting("CUSTOM_SKILLS_DIRECTORY")
+    if configured:
+        path = Path(str(configured)).expanduser().resolve()
+        if path.is_dir():
+            resolved.append(path)
 
     # Also add the workspace's agent-packages skills folder
     wp_skills = workspace_path / "agent-packages" / "skills"
@@ -639,6 +631,10 @@ def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
 
 def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     """Processes a single SKILL.md file, checking for changes and versioning."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        skill_reference,
+    )
+
     if not file_path.exists():
         return
 
@@ -646,7 +642,11 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         mtime = file_path.stat().st_mtime
     except Exception as e:
-        logger.debug(f"Failed to get stat for {file_path}: {e}")
+        logger.debug(
+            "Failed to stat %s (%s)",
+            skill_reference(file_path.parent.name),
+            type(e).__name__,
+        )
         mtime = 0.0
 
     if _SEEN_MTIMES.get(file_key) == mtime:
@@ -655,7 +655,11 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
     try:
         content = file_path.read_text(encoding="utf-8", errors="ignore")
     except Exception as e:
-        logger.error(f"Failed to read file {file_path}: {e}")
+        logger.error(
+            "Failed to read %s (%s)",
+            skill_reference(file_path.parent.name),
+            type(e).__name__,
+        )
         return
 
     content_hash = _get_md5(content)
@@ -675,10 +679,14 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
             try:
                 frontmatter_str = content[3:end_idx].strip()
                 frontmatter = yaml.safe_load(frontmatter_str) or {}
-                skill_name = frontmatter.get("name", skill_name)
+                skill_name = str(frontmatter.get("name", skill_name))
                 skill_desc = frontmatter.get("description", "")
             except Exception as e:
-                logger.debug(f"Failed to parse skill frontmatter for {file_path}: {e}")
+                logger.debug(
+                    "Failed to parse frontmatter for %s (%s)",
+                    skill_reference(file_path.parent.name),
+                    type(e).__name__,
+                )
 
     prefix = f"skill_{skill_name.lower().replace(' ', '_').replace('-', '_')}"
     history_dir = workspace_path / ".specify" / "history" / "skills"
@@ -707,11 +715,13 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
 
     try:
         history_file.write_text(content, encoding="utf-8")
-        logger.info(
-            f"Archived skill version: {history_file.relative_to(workspace_path) if workspace_path in history_file.parents else history_file}"
-        )
+        logger.info("Archived skill version for %s", skill_reference(skill_name))
     except Exception as e:
-        logger.error(f"Failed to write skill history archive: {e}")
+        logger.error(
+            "Failed to archive %s (%s)",
+            skill_reference(skill_name),
+            type(e).__name__,
+        )
         return
 
     try:
@@ -719,13 +729,10 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         props = {
             "name": skill_name,
             "description": skill_desc,
-            "path": str(file_path.resolve()),
+            "source_ref": skill_reference(skill_name),
             "version": version,
             "last_updated": int(time.time() * 1000),
         }
-        for k, v in frontmatter.items():
-            if k not in ["name", "description"]:
-                props[k] = str(v)
 
         engine.add_node(node_id, node_type="Skill", properties=props)
 
@@ -737,10 +744,18 @@ def process_skill_file(engine: Any, file_path: Path, workspace_path: Path):
         try:
             engine.backend.execute(query_project, {"node_id": node_id})
         except Exception as e:
-            logger.debug(f"Could not link skill to project: {e}")
+            logger.debug(
+                "Could not link %s to project (%s)",
+                skill_reference(skill_name),
+                type(e).__name__,
+            )
 
     except Exception as e:
-        logger.error(f"Failed to ingest skill to KG: {e}")
+        logger.error(
+            "Failed to ingest %s (%s)",
+            skill_reference(skill_name),
+            type(e).__name__,
+        )
 
     _SEEN_HASHES[file_key].add(content_hash)
     _SEEN_MTIMES[file_key] = mtime
@@ -777,10 +792,7 @@ def process_watched_file(
         return
 
     try:
-        logger.info(
-            f"Watched document detected ({source}): {file_path}. "
-            "Submitting ingestion task."
-        )
+        logger.info("Watched document detected; submitting ingestion task")
         if hasattr(engine, "submit_task"):
             engine.submit_task(
                 target_path=str(file_path.resolve()),
@@ -791,7 +803,10 @@ def process_watched_file(
         _SEEN_HASHES[file_key].add(mtime_str)
         _SEEN_MTIMES[file_key] = mtime
     except Exception as e:
-        logger.error(f"Failed to submit watched-document ingestion task: {e}")
+        logger.error(
+            "Failed to submit watched-document ingestion task (%s)",
+            type(e).__name__,
+        )
 
 
 def process_kg_ingest_location(engine: Any, file_path: Path):
@@ -815,9 +830,7 @@ def process_kg_ingest_location(engine: Any, file_path: Path):
     if content_hash in _SEEN_HASHES[file_key]:
         return
 
-    logger.info(
-        f"Knowledge Graph Ingestion location modified: {file_path}. Re-ingesting."
-    )
+    logger.info("Knowledge Graph ingestion location modified; re-ingesting")
 
     if file_path.name == "mcp_config.json":
         try:
@@ -882,7 +895,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
             elif f.name.lower() in {"tasks.md", "task.md"}:
                 process_tasks_file(engine, f, workspace_path)
     except Exception as e:
-        logger.debug(f"Failed during nested specification scan: {e}")
+        logger.debug("Nested specification scan failed (%s)", type(e).__name__)
 
     # 4. Multi-IDE / Platform Skills Scan
     try:
@@ -900,7 +913,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                 elif f.name.lower() in {"tasks.md", "task.md"}:
                     process_tasks_file(engine, f, workspace_path)
     except Exception as e:
-        logger.debug(f"Failed during skills scan: {e}")
+        logger.debug("Skills scan failed (%s)", type(e).__name__)
 
     # 5. Watched directories scan — ScholarX/research downloads (top-level) +
     #    operator KG_WATCH_DIRS document corpora (recursive). One unified ingest
@@ -922,7 +935,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
             except Exception:
                 pass
     except Exception as e:
-        logger.debug(f"Failed during watched-directories scan: {e}")
+        logger.debug("Watched-directory scan failed (%s)", type(e).__name__)
 
     # 6. Core Knowledge Graph Ingest Locations Scan
     try:
@@ -938,7 +951,7 @@ def run_watcher_scan(engine: Any, workspace_path: Path):
                 except Exception:
                     pass
     except Exception as e:
-        logger.debug(f"Failed during core KG ingestion location scan: {e}")
+        logger.debug("Core KG ingestion-location scan failed (%s)", type(e).__name__)
 
 
 def run_plan_watcher_loop(engine: Any, workspace_path: Path, interval: float = 5.0):
@@ -1011,7 +1024,9 @@ def seed_plans_from_prompts(
 
             count += 1
         except Exception as e:
-            logger.error(f"Failed to seed plan from {md_file}: {e}")
+            logger.error(
+                "Failed to seed plan from specification (%s)", type(e).__name__
+            )
 
     logger.info(f"Successfully seeded {count} verified plans into the KG and history.")
     return count

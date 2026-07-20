@@ -41,7 +41,10 @@ async def test_codemap_persistence(sample_graph):
     engine = IntelligenceGraphEngine(db_path=":memory:")
 
     artifact = CodemapArtifact(
-        id="test-codemap", prompt="test prompt", mode="fast", hierarchy=[]
+        id="test-codemap",
+        prompt_ref="pref:test",
+        mode="fast",
+        hierarchy=[],
     )
 
     # Store
@@ -51,7 +54,7 @@ async def test_codemap_persistence(sample_graph):
     retrieved = await engine.get_codemap_by_id("test-codemap")
     assert retrieved is not None
     assert retrieved.id == "test-codemap"
-    assert retrieved.prompt == "test prompt"
+    assert retrieved.prompt_ref == "pref:test"
 
 
 @pytest.mark.asyncio

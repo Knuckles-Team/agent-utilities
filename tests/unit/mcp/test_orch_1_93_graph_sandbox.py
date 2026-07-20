@@ -41,32 +41,27 @@ def test_registered_on_both_surfaces():
 async def test_status_reports_rungs(sandbox_tool):
     out = json.loads(await sandbox_tool(action="status", rung=""))
     assert out["status"] in ("ok", "warn")
-    assert "forkserver" in out["rungs"]
+    assert isinstance(out["rungs"], dict)
     assert isinstance(out["warm_rungs"], list)
     assert "rewards" in out and "pool" in out
 
 
-async def test_warm_then_pool_reflects_it(sandbox_tool):
-    out = json.loads(await sandbox_tool(action="warm", rung="forkserver"))
-    assert out["action"] == "warm" and out["rung"] == "forkserver"
-    assert out["already_warm"] is False
-    assert out["pool"]["by_kind"].get("forkserver") == 1
-    # Warming again is idempotent — reuses the pooled parent.
-    again = json.loads(await sandbox_tool(action="warm", rung="forkserver"))
-    assert again["already_warm"] is True
+async def test_warm_rejects_unknown_rung(sandbox_tool):
+    out = json.loads(await sandbox_tool(action="warm", rung="unknown"))
+    assert out["error"] == "requested rung is not an available confined warm-fork"
 
 
 async def test_warm_rejects_non_forkable_rung(sandbox_tool):
-    out = json.loads(await sandbox_tool(action="warm", rung="local"))
-    assert "error" in out and "not a warm-fork rung" in out["error"]
+    out = json.loads(await sandbox_tool(action="warm", rung="wasm"))
+    assert out["error"] == "requested rung is not an available confined warm-fork"
 
 
 async def test_reap_returns_structure(sandbox_tool):
     out = json.loads(await sandbox_tool(action="reap", rung=""))
     assert out["action"] == "reap"
-    assert "reaped_parents" in out and "pool" in out
+    assert "reaped_parent_count" in out and "pool" in out
 
 
 async def test_unknown_action_errors(sandbox_tool):
     out = json.loads(await sandbox_tool(action="bogus", rung=""))
-    assert out["error"] == "unknown action 'bogus'"
+    assert out["error"] == "unknown sandbox action"

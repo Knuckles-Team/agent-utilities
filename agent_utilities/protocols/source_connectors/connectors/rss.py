@@ -25,11 +25,12 @@ from collections.abc import Callable, Iterator
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
+from ..http_safety import require_safe_source_url, safe_get_text
 from ..registry import register_source
 
 FetchFn = Callable[[str], str]
@@ -43,28 +44,6 @@ _FEED_FETCH_TIMEOUT_S = 20.0
 #: Max feeds fetched concurrently per sweep (bounds sockets/threads; the sweep
 #: scales to many feeds without a serial stall — the 2000-reviews/hr path).
 _FEED_FETCH_CONCURRENCY = 12
-
-
-def _default_fetch(url: str) -> str:
-    """Fetch a feed URL with lazy ``httpx`` (clear error if unavailable)."""
-    try:
-        import httpx
-    except ImportError as exc:  # pragma: no cover - environment without httpx
-        raise RuntimeError(
-            "RssConnector needs 'httpx' to fetch feeds. "
-            "Install it, or pass a fetch_fn for offline use."
-        ) from exc
-    resp = httpx.get(
-        url,
-        # Bounded per-feed so one slow feed can't stall a multi-feed sweep; feeds
-        # are fetched concurrently (see RssConnector._all_documents), so the sweep's
-        # wall-clock is ~the slowest single feed, not the sum. (CONCEPT:AU-KG.ingest.rss-feed-connector)
-        timeout=_FEED_FETCH_TIMEOUT_S,
-        follow_redirects=True,
-        headers={"User-Agent": "agent-utilities-rss/1.0"},
-    )
-    resp.raise_for_status()
-    return resp.text
 
 
 def _parse(content: str):
@@ -126,16 +105,42 @@ class RssConnector(LoadConnector, PollConnector):
         doc_type: str = "feed_item",
         source_name: str = "rss",
         fetch_fn: FetchFn | None = None,
+        allowed_private_hosts: list[str] | None = None,
+        allowed_redirect_hosts: list[str] | None = None,
+        max_response_bytes: int = 10 * 1024 * 1024,
         **_: object,
     ) -> None:
         urls = [feed_urls] if isinstance(feed_urls, str) else list(feed_urls or [])
         self.feed_urls = [u for u in (s.strip() for s in urls) if u]
         if not self.feed_urls:
             raise ValueError("RssConnector requires one or more 'feed_urls'")
-        self.max_items = max(1, int(max_items))
+        if len(self.feed_urls) > 1000:
+            raise ValueError("RssConnector accepts at most 1000 feed URLs")
+        private_hosts = list(allowed_private_hosts or [])
+        for url in self.feed_urls:
+            require_safe_source_url(
+                url, allowed_private_hosts=private_hosts, resolve_dns=False
+            )
+        self.max_items = min(10_000, max(1, int(max_items)))
         self.doc_type = doc_type
         self.source_name = source_name
-        self._fetch: FetchFn = fetch_fn or _default_fetch
+        self.external_access = default_external_access()
+        if fetch_fn is not None:
+            self._fetch = fetch_fn
+        else:
+            redirect_hosts = list(allowed_redirect_hosts or [])
+
+            def _safe_fetch(url: str) -> str:
+                return safe_get_text(
+                    url,
+                    timeout=_FEED_FETCH_TIMEOUT_S,
+                    headers={"User-Agent": "agent-utilities-rss/1.0"},
+                    max_bytes=max_response_bytes,
+                    allowed_private_hosts=private_hosts,
+                    allowed_redirect_hosts=redirect_hosts,
+                )
+
+            self._fetch = _safe_fetch
 
     def health_check(self) -> bool:
         return bool(self.feed_urls)
@@ -186,7 +191,7 @@ class RssConnector(LoadConnector, PollConnector):
                     doc_type=self.doc_type,
                     updated_at=published,
                     metadata={"record": record, "source_system": self.source_name},
-                    external_access=ExternalAccess.public(),
+                    external_access=self.external_access.model_copy(deep=True),
                 )
             )
         return out

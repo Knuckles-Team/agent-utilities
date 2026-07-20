@@ -144,5 +144,6 @@ restart graph-os → `source_sync(source=<domain corpus>, mode=delta)` → verif
 canonical OWL types + `support_count`/`weight`, direction satisfies domain/range,
 CommunityReport nodes answer a global-theme query, and re-run shows `skipped_unchanged>0`.
 
-**Human-gated (deferred):** engine rebuild + image push + R820 swarm redeploy to serve the
-`ResolveCandidates` op live; B-proposed ontology classes await review + concept reservation.
+**Human-gated (deferred):** engine rebuild, image publication, and an
+orchestrator-managed redeploy are required to serve the `ResolveCandidates` op;
+B-proposed ontology classes await review and concept reservation.

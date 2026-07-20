@@ -151,8 +151,8 @@ WAITING ──(capacity available)──► RUNNING ──(complete)──► CO
 - **AgentProcessNode (KG model)**: Processes persisted as KG nodes for observability
 
 ## Implementation Details
-- **Source Code**: [`cognitive_scheduler.py`](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/cognitive_scheduler.py) (817 lines)
+- **Source Code**: [`cognitive_scheduler.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/core/cognitive_scheduler.py) (817 lines)
 - **Classes**: `CognitiveScheduler`, `AgentProcess`, `InferenceBudget`, `SchedulerPriority`, `ProcessState`
-- **Tests**: [`test_cognitive_scheduler.py`](file:///home/apps/workspace/agent-packages/agent-utilities/tests/test_cognitive_scheduler.py)
+- **Tests**: [`test_cognitive_scheduler.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/tests/test_cognitive_scheduler.py)
 - **Pillar**: OS
 - **Package Export**: `agent_utilities.core.CognitiveScheduler`

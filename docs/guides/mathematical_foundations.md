@@ -10,17 +10,17 @@
 
 ## Table of Contents
 
-1. [Graph Theory Foundations (AU-KG.ontology.default-runtime-bound-import)](#graph-theory-foundations-kg-241)
+1. [Graph Theory Foundations](#graph-theory-foundations)
 2. [Embedding Alignment Diagnostics (KG-2.42)](#embedding-alignment-diagnostics-kg-242)
 3. [Structural Causal Reasoning (KG-2.43)](#structural-causal-reasoning-kg-243)
-4. [Latent Space Regularization (AU-KG.ontology.batch-incremental-sync-live)](#latent-space-regularization-kg-244)
+4. [Latent Space Regularization](#latent-space-regularization)
 5. [Probabilistic Graph Reasoning (KG-2.45)](#probabilistic-graph-reasoning-kg-245)
-6. [Optimal Execution & Market Making (AU-KG.ontology.redact-object-materialize-restricted)](#optimal-execution--market-making-kg-246)
+6. [Optimal Execution & Market Making](#optimal-execution)
 7. [Source Materials](#source-materials)
 
 ---
 
-## Graph Theory Foundations (AU-KG.ontology.default-runtime-bound-import)
+## Graph Theory Foundations (AU-KG.ontology.default-runtime-bound-import) { #graph-theory-foundations }
 
 **Source**: *Mathematics for Computer Science* (Lehman, Leighton, Meyer — MIT 6.042J)
 
@@ -161,7 +161,7 @@ Continuous monitoring of embedding quality through:
 - **CKA drift**: Compares current embeddings against a baseline snapshot.
 - **Severity levels**: "none", "mild", "severe" drift.
 
-**Module**: `MemoryOptimizationEngine.embedding_health_check()`
+**Module**: `MemoryOptimizationEngine.health_check()`
 
 ---
 
@@ -239,7 +239,7 @@ parents of Y (potential confounders).
 
 ---
 
-## Latent Space Regularization (AU-KG.ontology.batch-incremental-sync-live)
+## Latent Space Regularization (AU-KG.ontology.batch-incremental-sync-live) { #latent-space-regularization }
 
 **Source**: *LeWorldModel* (arXiv:2603.19312v2)
 
@@ -275,7 +275,7 @@ When consolidating an embedding:
 2. Check if the result reduces the overall participation ratio
 3. If so, apply additional dampening to preserve diversity
 
-**Module**: `MemoryOptimizationEngine.synthesize_ewc()` (alias `diversity_preserving_consolidation`)
+**Module**: `MemoryOptimizationEngine.synthesize_ewc()`
 
 ### Predictive Consistency Score
 
@@ -350,7 +350,7 @@ High surprise = frequently visited but far away = novel connection.
 
 ---
 
-## Optimal Execution & Market Making (AU-KG.ontology.redact-object-materialize-restricted)
+## Optimal Execution & Market Making (AU-KG.ontology.redact-object-materialize-restricted) { #optimal-execution }
 
 **Source**: *High-Frequency Trading* lecture notes (Drissi, Oxford-Man Institute, 2024)
 

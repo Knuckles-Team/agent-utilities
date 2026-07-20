@@ -5,7 +5,7 @@ from __future__ import annotations
 
 The ``ops`` provider of the context plane (KG-2.136): answers *"is the system
 healthy / why is the maint lane backing up / what's blocked?"* by synthesizing the
-KG's own operational data — :Task nodes, their status/lane/kind, the dead-letter
+KG's own operational data — WorkItems, their status/lane/kind, the dead-letter
 and failed backlog — into one grounded answer with task/lane citations and a
 remediation hint. Pure Cypher reads (best-effort, never raises) so a degraded
 backend still yields a partial picture instead of a crash.
@@ -15,8 +15,6 @@ named in the question), ``impact`` (what's stuck/poisoned).
 """
 
 from typing import Any
-
-from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
 
 VALID_INTENTS = ("health", "why", "impact")
 
@@ -58,30 +56,27 @@ def diagnose_ops(
         intent = "health"
     limit = max(1, min(50, int(top_k)))
 
+    grouped = engine.list_tasks()
     status_counts = {
-        str(r.get("status")): _as_int(r.get("n"))
-        for r in read_rows(
-            engine, "MATCH (t:Task) RETURN t.status AS status, count(t) AS n", {}
-        )
+        status: len(items)
+        for status, items in grouped.items()
+        if isinstance(items, list)
     }
-    active = read_rows(
-        engine,
-        "MATCH (t:Task) WHERE t.status IN ['pending','running'] "
-        "RETURN t.lane AS lane, t.status AS status, count(t) AS n",
-        {},
-    )
-    broken = read_rows(
-        engine,
-        "MATCH (t:Task) WHERE t.status IN ['failed','dead_letter'] "
-        "RETURN t.lane AS lane, t.status AS status, count(t) AS n",
-        {},
-    )
-    dead_sample = read_rows(
-        engine,
-        "MATCH (t:Task) WHERE t.status = 'dead_letter' "
-        "RETURN t.id AS id, t.lane AS lane, t.tkind AS tkind LIMIT $k",
-        {"k": limit},
-    )
+    lane_snapshot = engine.lane_metrics()
+    active: list[dict[str, Any]] = []
+    broken: list[dict[str, Any]] = []
+    for lane, values in lane_snapshot.items():
+        if not isinstance(values, dict):
+            continue
+        for status in ("pending", "running"):
+            active.append({"lane": lane, "status": status, "n": values.get(status, 0)})
+    for status in ("failed", "dead_letter"):
+        for job in grouped.get(status, [])[:limit]:
+            broken.append({"lane": "unknown", "status": status, "n": 1})
+    dead_sample = [
+        {"id": job.get("job_id"), "lane": "unknown", "tkind": "unknown"}
+        for job in grouped.get("dead_letter", [])[:limit]
+    ]
 
     # Per-lane roll-up.
     lanes: dict[str, dict[str, int]] = {}
@@ -165,7 +160,7 @@ def _synthesize(
 ) -> str:
     total = sum(status_counts.values())
     head = (
-        f"Task queue: {status_counts.get('pending', 0)} pending, "
+        f"WorkItem queue: {status_counts.get('pending', 0)} pending, "
         f"{status_counts.get('running', 0)} running, "
         f"{status_counts.get('dead_letter', 0)} dead-lettered, "
         f"{status_counts.get('failed', 0)} failed, "

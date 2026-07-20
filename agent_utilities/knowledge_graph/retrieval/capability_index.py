@@ -33,35 +33,34 @@ Layer contract: this is an L2 component. It is consumed by the
 :class:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph` facade and,
 through it, by the ``graph/*`` execution plane. It has no upward dependencies.
 
-**AU-P1-3 — engine-native capability index.** This class is now, by design, a
-*bounded, non-authoritative cache* — not the source of truth. The authority is
-the engine's own native filtered ANN (see
+**AU-P1-3 — engine-native capability index.** Specialist designation uses the
+engine's native filtered ANN (see
 :mod:`agent_utilities.knowledge_graph.retrieval.engine_capability_search`),
-queried directly with capability/tenant/policy filters composed into ONE
-``query_unified`` plan (``Scan``/``Filter``/``Rank``/``Limit``). This structure
-now exists only as: (a) a fallback when the engine ANN is unreachable (dev, or
-a lean engine build), and (b) a fast in-process ranking surface kept fresh by
-CDC deltas (:mod:`agent_utilities.graph.reactive.engine_subscription`) rather
-than a periodic full rebuild — see
-``graph/routing/enrichers/capability_designation.py``. Pass
-``bounded_cache_size`` to cap it with LRU eviction (:meth:`remove` is called on
-the evicted id so no backend — HNSW or numpy — grows without bound); omitting
-it keeps the historical unbounded behaviour for the other in-process reward-EMA
-consumers (``OutcomeRouter``, ``ReasonerRouter``) that reuse this class as a
-generic learner and are not part of the capability-designation cache.
+queried directly with capability/tenant/policy filters composed into one
+``query_unified`` plan (``Scan``/``Filter``/``Rank``/``Limit``). This class is
+not a designation fallback; it remains an explicit in-process learner used by
+the object-index funnel, the facade, ``OutcomeRouter``, and ``ReasonerRouter``.
+Passing ``bounded_cache_size`` customizes its finite LRU bound (:meth:`remove` is called
+on the evicted id so no backend — HNSW or numpy — grows without bound). The
+default is finite for every consumer, including ``OutcomeRouter`` and
+``ReasonerRouter``.
 
-**X-4 — ontology-subsumption-aware selection.** Pass ``capability_hierarchy``
-(a :class:`~agent_utilities.knowledge_graph.ontology.capability_hierarchy.
-CapabilityHierarchy`) to make capability filtering subsumption-aware: a
+**X-4 — ontology-subsumption-aware selection.** Capability filtering always
+uses the current :class:`~agent_utilities.knowledge_graph.ontology.
+capability_hierarchy.CapabilityHierarchy`: a
 ``required_caps`` entry ``T`` is satisfied by an entity declaring ``T`` OR any
 *narrower* capability type the ontology's ``rdfs:subClassOf`` chain says is a
 ``T`` (a tool declaring ``DNSCapability`` now satisfies a request for the
-broader ``ServiceCapability``). Omitting it (the default) preserves the exact
-pre-X-4 flat-string-equality behaviour — every existing caller is unaffected.
+broader ``ServiceCapability``). Callers may inject a hierarchy for an isolated
+ontology, otherwise the bundled current hierarchy is resolved automatically.
 """
 
+import hashlib
+import json
 import logging
-import pickle  # nosec B403 — only loads index snapshots written by this class's save()
+import os
+import secrets
+import tempfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +80,52 @@ except ImportError:
     np: Any = None  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
+
+_INDEX_METADATA_FILE = "capability_index.json"
+_MAX_INDEX_METADATA_BYTES = 64 * 1024 * 1024
+DEFAULT_CAPABILITY_CACHE_SIZE = 4096
+
+
+def _atomic_private_write(directory: Path, filename: str, payload: bytes) -> Path:
+    """Replace one cache artifact without following a pre-existing file link."""
+
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        directory.chmod(0o700)
+    except OSError:
+        pass
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{filename}.", dir=directory)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary_path.chmod(0o600)
+        os.replace(temporary_path, directory / filename)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+    return directory / filename
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _checked_artifact(path: Path, *, maximum_bytes: int) -> Path:
+    """Require a bounded regular artifact and reject link-based cache swaps."""
+
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("capability index artifact is unavailable")
+    size = path.stat().st_size
+    if size <= 0 or size > maximum_bytes:
+        raise ValueError("capability index artifact exceeds its safe bound")
+    return path
 
 # Optional ANN backend — never a hard import.
 try:  # pragma: no cover - import guard
@@ -109,7 +154,23 @@ except Exception:  # pragma: no cover - import guard
 _REWARD_REGEN_DISTANCE = 0.25
 
 
-__all__ = ["Designation", "CapabilityIndex", "compute_eligibility"]
+__all__ = [
+    "DEFAULT_CAPABILITY_CACHE_SIZE",
+    "Designation",
+    "CapabilityIndex",
+    "compute_eligibility",
+]
+
+
+def _resolve_capability_hierarchy(hierarchy: Any | None) -> Any:
+    """Return an injected hierarchy or the bundled current ontology hierarchy."""
+    if hierarchy is not None:
+        return hierarchy
+    from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
+        get_default_hierarchy,
+    )
+
+    return get_default_hierarchy()
 
 
 @dataclass
@@ -164,31 +225,30 @@ def compute_eligibility(
     candidate the bounded in-process cache never resident (the common case when
     the engine's own filtered ANN is the authority, not this cache).
 
-    When ``hierarchy`` is given, a required capability is also satisfied by any
-    declared capability that is a (transitive) ontology subtype of it — the
+    A required capability is also satisfied by any declared capability that is
+    a (transitive) ontology subtype of it — the
     subsumption path(s) actually used are reported in ``subsumption_paths``
     (``required_cap -> [declared_cap, ..., required_cap]``), the concrete "WHY"
-    the reasoner accepted a non-exact match.
+    the reasoner accepted a non-exact match. ``hierarchy=None`` resolves the
+    bundled current hierarchy rather than selecting a flat-string mode.
     """
+    hierarchy = _resolve_capability_hierarchy(hierarchy)
     caps = {str(c) for c in (capabilities or ())}
     req = {str(c) for c in required_caps} if required_caps else set()
 
     subsumption_paths: dict[str, list[str]] = {}
-    if hierarchy is not None:
-        satisfied: set[str] = set()
-        for r in req:
-            if r in caps:
+    satisfied: set[str] = set()
+    for r in req:
+        if r in caps:
+            satisfied.add(r)
+            continue
+        for c in sorted(caps):
+            if hierarchy.is_subtype_of(c, r):
                 satisfied.add(r)
-                continue
-            for c in sorted(caps):
-                if hierarchy.is_subtype_of(c, r):
-                    satisfied.add(r)
-                    path = hierarchy.subsumption_path(c, r)
-                    if path:
-                        subsumption_paths[r] = path
-                    break
-    else:
-        satisfied = req & caps
+                path = hierarchy.subsumption_path(c, r)
+                if path:
+                    subsumption_paths[r] = path
+                break
     missing_caps = sorted(req - satisfied)
 
     tenant_of = tenant
@@ -220,8 +280,7 @@ def compute_eligibility(
         "ontology_type": ontology_type,
         "eligible": eligible,
     }
-    if hierarchy is not None:
-        result["subsumption_paths"] = subsumption_paths
+    result["subsumption_paths"] = subsumption_paths
     return result
 
 
@@ -247,14 +306,14 @@ class CapabilityIndex:
             unavailable.
         max_elements: Initial capacity hint for the HNSW backend (grows
             automatically as needed).
-        bounded_cache_size: When set, caps the number of resident ids —
+        bounded_cache_size: Caps the number of resident ids —
             ``add()`` evicts the least-recently-touched id (via :meth:`remove`)
             once this many are resident (AU-P1-3: AU keeps only a bounded
-            cache; the engine is the authority). ``None`` (default) preserves
-            the historical unbounded behaviour.
-        capability_hierarchy: Optional ontology subsumption source (X-4) — see
-            the class docstring. ``None`` (default) is exact flat-string
-            capability matching, byte-for-byte the pre-X-4 behaviour.
+            cache; the engine is the authority). ``None`` selects
+            :data:`DEFAULT_CAPABILITY_CACHE_SIZE`; zero and negative values are
+            rejected.
+        capability_hierarchy: Ontology subsumption source (X-4) — see the class
+            docstring. ``None`` resolves the bundled current hierarchy.
     """
 
     def __init__(
@@ -272,9 +331,9 @@ class CapabilityIndex:
         self._dim = dim
         self._space = space
         self._max_elements = max(1, max_elements)
-        # CONCEPT:AU-P1-3 (X-4) — optional ontology subsumption source. ``None``
-        # (default) preserves exact pre-X-4 flat-string capability matching.
-        self._hierarchy = capability_hierarchy
+        # CONCEPT:AU-P1-3 (X-4) — hierarchy-aware selection is the sole current
+        # contract. ``None`` resolves the bundled ontology singleton.
+        self._hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
 
         # Choose backend.
         if prefer_backend == "numpy":
@@ -325,13 +384,15 @@ class CapabilityIndex:
         self._id_to_label: dict[str, int] = {}
         self._next_label = 0
 
-        # Bounded-cache LRU (CONCEPT:AU-P1-3): ``None`` disables eviction outright,
-        # preserving the historical unbounded behaviour for non-designation callers
-        # (OutcomeRouter, ReasonerRouter, ...) that reuse this class as a plain
-        # reward-EMA learner over a small, naturally-bounded id space.
+        # Bounded-cache LRU (CONCEPT:AU-P1-3): every consumer is finite. A caller
+        # may tune the cap but cannot select an unbounded or disabled cache.
         self._bounded_cache_size = (
-            int(bounded_cache_size) if bounded_cache_size else None
+            DEFAULT_CAPABILITY_CACHE_SIZE
+            if bounded_cache_size is None
+            else int(bounded_cache_size)
         )
+        if self._bounded_cache_size <= 0:
+            raise ValueError("bounded_cache_size must be a positive integer")
         self._lru: OrderedDict[str, None] = OrderedDict()
 
     # ------------------------------------------------------------------
@@ -499,14 +560,13 @@ class CapabilityIndex:
         # Bounded-cache LRU eviction (CONCEPT:AU-P1-3) — touch ``id`` as most-recently
         # used, then evict the oldest entries beyond the cap via :meth:`remove` so
         # every backing structure (HNSW label, capability/tenant/policy/reward maps)
-        # stays in lockstep. A no-op unless ``bounded_cache_size`` was set.
-        if self._bounded_cache_size:
-            self._lru[id] = None
-            self._lru.move_to_end(id)
-            while len(self._lru) > self._bounded_cache_size:
-                oldest, _ = self._lru.popitem(last=False)
-                if oldest != id:
-                    self.remove(oldest)
+        # stays in lockstep.
+        self._lru[id] = None
+        self._lru.move_to_end(id)
+        while len(self._lru) > self._bounded_cache_size:
+            oldest, _ = self._lru.popitem(last=False)
+            if oldest != id:
+                self.remove(oldest)
 
     def remove(self, id: str) -> bool:
         """Evict ``id`` from every backing structure (CONCEPT:AU-P1-3 — bounded cache).
@@ -593,18 +653,16 @@ class CapabilityIndex:
         return frozenset(self._id_to_caps.get(id, ()))
 
     def _providers_for(self, cap: str) -> set[str]:
-        """ids providing ``cap`` — plus, with a hierarchy attached (X-4), ids
+        """ids providing ``cap`` — plus (X-4) ids
         providing any ontology subtype of ``cap`` (subsumption-aware lookup).
 
         No change to storage: this only widens which inverted-index buckets are
         unioned for a single required capability, so it stays an O(1)-per-subtype
-        set lookup, never a scan. Without a hierarchy this is byte-identical to
-        the pre-X-4 lookup.
+        set lookup, never a scan.
         """
         ids = set(self._cap_to_ids.get(cap, set()))
-        if self._hierarchy is not None:
-            for sub in self._hierarchy.descendants(cap):
-                ids |= self._cap_to_ids.get(sub, set())
+        for sub in self._hierarchy.descendants(cap):
+            ids |= self._cap_to_ids.get(sub, set())
         return ids
 
     # ------------------------------------------------------------------
@@ -982,15 +1040,22 @@ class CapabilityIndex:
     def save(self, path: str | Path) -> None:
         """Persist the index to ``path`` (a directory).
 
-        The capability maps, embeddings, and swappable adjacency are pickled;
-        the HNSW index (when active) is additionally saved via its native
-        serializer so reloads stay O(log N).
+        Capability maps and adjacency use bounded JSON rather than executable
+        pickle.  Binary vector artifacts are written to private temporary files,
+        atomically installed, and bound to the metadata by SHA-256 digests.  The
+        metadata is installed last, so a crash cannot advertise a mixed snapshot.
 
         Args:
             path: Destination directory (created if absent).
         """
         path = Path(path)
-        path.mkdir(parents=True, exist_ok=True)
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.is_symlink() or not path.is_dir():
+            raise ValueError("capability index path must be a real directory")
+        try:
+            path.chmod(0o700)
+        except OSError:
+            pass
 
         meta = {
             "backend": self._backend,
@@ -1011,19 +1076,47 @@ class CapabilityIndex:
             "next_label": self._next_label,
             "ids": list(self._id_to_vec.keys()),
         }
-        with open(path / "capability_index.pkl", "wb") as fh:
-            pickle.dump(meta, fh)
-
         # Embeddings stored as a stacked array + ordered id list for fast load.
         ids = list(self._id_to_vec.keys())
         if ids:
             arr = np.stack([self._id_to_vec[i] for i in ids])
         else:
             arr = np.zeros((0, self._dim or 0), dtype=np.float32)
-        np.save(path / "embeddings.npy", arr)
+        descriptor, temporary = tempfile.mkstemp(prefix=".embeddings.", dir=path)
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                np.save(handle, arr, allow_pickle=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary_path.chmod(0o600)
+            os.replace(temporary_path, path / "embeddings.npy")
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        meta["embeddings_sha256"] = _sha256_file(path / "embeddings.npy")
 
         if self._backend == "hnsw" and self._hnsw is not None:
-            self._hnsw.save_index(str(path / "hnsw.bin"))
+            descriptor, temporary = tempfile.mkstemp(prefix=".hnsw.", dir=path)
+            os.close(descriptor)
+            temporary_path = Path(temporary)
+            try:
+                self._hnsw.save_index(str(temporary_path))
+                temporary_path.chmod(0o600)
+                with temporary_path.open("rb") as handle:
+                    os.fsync(handle.fileno())
+                os.replace(temporary_path, path / "hnsw.bin")
+            except Exception:
+                temporary_path.unlink(missing_ok=True)
+                raise
+            meta["hnsw_sha256"] = _sha256_file(path / "hnsw.bin")
+
+        encoded = json.dumps(
+            meta, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        if len(encoded) > _MAX_INDEX_METADATA_BYTES:
+            raise ValueError("capability index metadata exceeds its safe bound")
+        _atomic_private_write(path, _INDEX_METADATA_FILE, encoded)
 
     @classmethod
     def load(cls, path: str | Path) -> CapabilityIndex:
@@ -1037,10 +1130,24 @@ class CapabilityIndex:
             behaviour.
         """
         path = Path(path)
-        # nosec B301 — deserializes only a snapshot produced by this class's save(),
-        # a trusted local artifact, not untrusted external input.
-        with open(path / "capability_index.pkl", "rb") as fh:
-            meta = pickle.load(fh)  # nosec B301
+        if path.is_symlink() or not path.is_dir():
+            raise ValueError("capability index path must be a real directory")
+        metadata_path = _checked_artifact(
+            path / _INDEX_METADATA_FILE,
+            maximum_bytes=_MAX_INDEX_METADATA_BYTES,
+        )
+        try:
+            meta = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            raise ValueError("capability index metadata is invalid") from None
+        if not isinstance(meta, dict):
+            raise ValueError("capability index metadata is invalid")
+        ids = meta.get("ids")
+        if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+            raise ValueError("capability index identifiers are invalid")
+        dim = meta.get("dim")
+        if dim is not None and (not isinstance(dim, int) or not 0 < dim <= 1_000_000):
+            raise ValueError("capability index dimension is invalid")
 
         idx = cls(
             dim=meta["dim"],
@@ -1062,16 +1169,39 @@ class CapabilityIndex:
         idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
         idx._next_label = meta["next_label"]
 
-        ids = meta["ids"]
-        arr = np.load(path / "embeddings.npy")
+        expected_vector_bytes = max(1, len(ids)) * max(1, int(dim or 1)) * 16
+        embeddings_path = _checked_artifact(
+            path / "embeddings.npy",
+            maximum_bytes=expected_vector_bytes + 1024 * 1024,
+        )
+        if not isinstance(meta.get("embeddings_sha256"), str) or not secrets.compare_digest(
+            _sha256_file(embeddings_path), meta["embeddings_sha256"]
+        ):
+            raise ValueError("capability index embedding digest is invalid")
+        arr = np.load(embeddings_path, allow_pickle=False)
+        if getattr(arr, "ndim", 0) != 2 or arr.shape[0] != len(ids):
+            raise ValueError("capability index embedding shape is invalid")
+        if dim is not None and arr.shape[1] != dim:
+            raise ValueError("capability index embedding dimension is invalid")
         for i, nid in enumerate(ids):
             idx._id_to_vec[nid] = np.asarray(arr[i], dtype=np.float32)
-            if idx._bounded_cache_size:
-                idx._lru[nid] = None
+            idx._lru[nid] = None
 
         if idx._backend == "hnsw":
             hnsw_path = path / "hnsw.bin"
             if hnsw_path.exists() and idx._dim is not None:
+                _checked_artifact(
+                    hnsw_path,
+                    maximum_bytes=max(
+                        1024 * 1024,
+                        max(1, len(ids)) * max(1, int(idx._dim)) * 64,
+                    ),
+                )
+                expected_hnsw = meta.get("hnsw_sha256")
+                if not isinstance(expected_hnsw, str) or not secrets.compare_digest(
+                    _sha256_file(hnsw_path), expected_hnsw
+                ):
+                    raise ValueError("capability index ANN digest is invalid")
                 idx._hnsw = hnswlib.Index(space="cosine", dim=idx._dim)
                 idx._hnsw.load_index(str(hnsw_path), max_elements=idx._max_elements)
                 idx._hnsw.set_ef(max(50, idx._max_elements))

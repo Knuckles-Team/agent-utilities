@@ -45,8 +45,8 @@ def client(mock_agent):
 def test_health_endpoint(client):
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "OK"
-    assert response.json()["agent"] == "Agent"  # Default name if not overridden
+    assert response.json() == {"status": "ok"}
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_a2a_info_endpoint(client):

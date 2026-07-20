@@ -288,20 +288,32 @@ class RunEventLog:
         if engine is None:
             return
         try:
+            from agent_utilities.observability.trace_ontology import trace_id
+            from agent_utilities.security.persistence_privacy import (
+                PersistencePrivacyGuard,
+                persistence_reference,
+            )
+
+            payload, privacy = PersistencePrivacyGuard().sanitize(event.payload)
             engine.add_node(
                 event.node_id,
                 "RunEvent",
                 properties={
-                    "run_id": event.run_id,
+                    "run_ref": persistence_reference(
+                        "run", event.run_id, namespace="run-vcs"
+                    ),
                     "schema_ref": event.schema_ref,
                     "mode": event.mode,
                     "ordinal": event.ordinal,
                     "record_id": event.record_id,
-                    "payload_json": _canonical(event.payload)[:4000],
+                    "payload_json": _canonical(payload)[:4000],
+                    "privacy_schema": "persistence-privacy-v1",
+                    "privacy_redactions": privacy.redactions,
+                    "privacy_types": list(privacy.detected_types),
                     "ts": event.ts,
                 },
             )
-            engine.add_edge(f"trace:{event.run_id}", event.node_id, "HAS_EVENT")
+            engine.add_edge(trace_id(event.run_id), event.node_id, "HAS_EVENT")
             if event.ordinal > 0:
                 prev = self._events[event.ordinal - 1]
                 engine.add_edge(prev.node_id, event.node_id, "NEXT")

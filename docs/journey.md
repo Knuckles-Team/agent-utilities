@@ -23,7 +23,7 @@ In that single millisecond, a spark of execution is struck. But this is not a ba
 
 Before a single line of reasoning can be formed, the **Agent OS Kernel** (`CONCEPT:AU-OS.safety.doom-loop-detection`) wakes. It operates as the foundational substrate, resolving standardized XDG directories to load the system config and establish safe boundaries.
 
-The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:AU-OS.config.secrets-authentication`), verifying the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:AU-OS.state.cognitive-scheduler-preemption`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it dynamically interrogates the **vllm.arpa** routing layer to establish hard context-window constraints, allocates a strict **Agent Token Quota**, and sets up the execution threads.
+The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:AU-OS.config.secrets-authentication`), verifying the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:AU-OS.state.cognitive-scheduler-preemption`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it dynamically interrogates the configured model routing layer to establish hard context-window constraints, allocates a strict **Agent Token Quota**, and sets up the execution threads.
 
 ```
                   ┌─────────────────────────────────────┐
@@ -304,7 +304,7 @@ enterprise points this system at *real* client data — incidents, compensation,
 contracts, code — three questions stop being academic: when two systems disagree,
 who is right? who is allowed to see what? and when a human says "that's wrong,"
 does the system actually learn? The **Company Brain Runtime** (`CONCEPT:AU-KG.research.research-pipeline-runner`)
-answers all three, and it can be switched on with a single flag, `KG_BRAIN_ENFORCE`.
+answers all three as a mandatory graph security contract.
 
 The first answer is **source truth**. Every write now passes through a guarded
 backend that stamps provenance and resolves contradictions by *authority*, not by

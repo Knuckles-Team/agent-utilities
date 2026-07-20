@@ -22,7 +22,7 @@ class EcosystemBridge:
     def register_agent(self, agent_id: str, agent_instance: Any) -> None:
         """Register an agent with the ecosystem bridge."""
         self._agents[agent_id] = agent_instance
-        logger.info(f"Registered agent {agent_id} with EcosystemBridge.")
+        logger.info("Registered agent with EcosystemBridge")
 
     def register_handler(self, event_type: str, handler: Callable) -> None:
         """Register a callback for specific event types."""

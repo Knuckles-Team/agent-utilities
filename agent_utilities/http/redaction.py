@@ -8,7 +8,7 @@ into one importable module:
 
 * ``Authorization``-style scheme credentials (``Bearer``/``SSWS``/``Basic``/
   ``Token`` followed by token material);
-* DSN / URL-embedded credentials (``scheme://user:password@host``);
+* credentials embedded in DSN / URL authority components;
 * well-known token shapes (GitHub/GitLab PATs, AWS access keys, ``sk-`` keys,
   Slack ``xox*`` tokens);
 * ``key=value`` / ``"key": "value"`` secret assignments;
@@ -32,7 +32,7 @@ REDACTED = "***REDACTED***"
 #: ``Bearer <jwt>`` / ``SSWS <token>`` / ``Basic <b64>`` / ``Token <token>``.
 _AUTH_SCHEME_RE = re.compile(r"\b(Bearer|SSWS|Basic|Token)\s+[A-Za-z0-9._~+/=-]{6,}")
 
-#: ``scheme://user:password@host`` DSN credentials (postgres/amqp/redis/...).
+#: DSN credentials embedded in URL authority components (postgres/amqp/redis/...).
 _DSN_CREDENTIALS_RE = re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.-]*://[^/\s:@]+):([^@/\s]+)@")
 
 #: Well-known token shapes that are secrets regardless of context.

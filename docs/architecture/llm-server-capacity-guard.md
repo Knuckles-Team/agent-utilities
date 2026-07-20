@@ -14,7 +14,7 @@
 
 Under concurrent ecosystem load — ingestion embeddings (`bge-m3`) **plus** concept/
 fact enrichment (`qwen`) **plus** agent orchestration (`qwen`), all hitting the
-**same** GB10 vLLM host — the GB10's **unified** memory (121 GB shared CPU+GPU) was
+**same** accelerator host — its **unified** memory was
 exhausted:
 
 ```
@@ -33,7 +33,7 @@ server's** capacity, but our concurrency limits were sized from the **local** ho
 | `PriorityModelGate` capacity = adaptive target (could ramp to 512) | `core/resource_priority.py` |
 
 Three demand sources, each sized locally, can sum to **hundreds** of in-flight
-requests — far more than the GB10 can serve without OOM.
+requests — potentially far more than a single accelerator can serve without OOM.
 
 ## The guard
 
@@ -57,7 +57,7 @@ This ceiling clamps **both** the adaptive ramp (`resolve_capacity` →
 `PriorityModelGate` sized to `server_ceiling(model)`. Enrichment and orchestration
 both target `qwen` → the **same** gate key → their **sum** can never exceed the
 ceiling. Embeds target `bge-m3` → a separate endpoint → its own ceiling (and the
-two endpoints share the physical GB10 via the shared-GPU budget, below).
+two endpoints share one physical accelerator via the shared-device budget, below).
 
 Two layers, composed:
 
@@ -131,11 +131,11 @@ under-declared model can never let its adaptive controller ramp to
 
 The ceiling is a legitimate **explicit config** (Configuration-discipline): it
 reflects the *server's* capacity, which **cannot** be auto-derived from the local
-host — a GB10 ≠ a Pi ≠ a cluster.
+host — a workstation accelerator ≠ an edge device ≠ a cluster.
 
-## Recommended GB10-class vLLM envelope (operator-side; we do NOT manage their compose)
+## Recommended single-accelerator vLLM envelope (operator-side)
 
-Two models share the GB10's 121 GB unified memory (generator + embedder), so the
+When two models share one device's memory (generator + embedder), the
 server config must leave room for **both** plus the system. Align the server's
 `--max-num-seqs` with our client ceiling (**client ceiling ≤ server `--max-num-seqs`**):
 
@@ -156,13 +156,13 @@ Then set, per model in our config:
 
 ```jsonc
 // qwen — server says --max-num-seqs 32
-{ "id": "qwen/qwen3.6-27b", "max_concurrent_requests": 32, "gpu_group": "gb10" }
+{ "id": "${CHAT_MODEL_ID}", "max_concurrent_requests": 32, "gpu_group": "shared-accelerator" }
 // bge-m3 — server says --max-num-seqs 16
-{ "id": "bge-m3",              "max_concurrent_requests": 16, "gpu_group": "gb10" }
+{ "id": "${EMBEDDING_MODEL_ID}", "max_concurrent_requests": 16, "gpu_group": "shared-accelerator" }
 ```
 
-`gpu_group: "gb10"` on both makes the shared-GPU budget (AU-KG.compute.pure-config-enumeration-fail,
-`GPU_CONCURRENCY_BUDGETS={"gb10": 40}`) cap their **joint** in-flight sum across the
+`gpu_group: "shared-accelerator"` on both makes the shared-device budget (AU-KG.compute.pure-config-enumeration-fail,
+`GPU_CONCURRENCY_BUDGETS={"shared-accelerator": 40}`) cap their **joint** in-flight sum across the
 two endpoints, so the physical box is protected even though they are different
 endpoints. Rule of thumb: `Σ client ceilings ≤ Σ server --max-num-seqs`, and the
 GPU-group budget ≤ what 121 GB can hold for both models' KV-cache at once.

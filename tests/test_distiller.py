@@ -1,13 +1,14 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+import ast
 import os
 import shutil
 import tempfile
 
 import pytest
+import yaml
 
-from agent_utilities.harness.evolve_agent import EvolveAgent
 from agent_utilities.knowledge_graph.distillation.physical_distiller import (
     PhysicalDistillationEngine,
 )
@@ -49,7 +50,7 @@ This is the workflow description.
         skill_id="test_skill",
         new_name="evolved_skill_name",
         new_description="This is a highly advanced evolved skill description.",
-        skill_code_path=skill_dir,
+        artifact_path=skill_dir,
         tags=["evolved", "dns", "auto"],
         requires=["adguard-home-agent", "new-dependency"],
     )
@@ -60,13 +61,14 @@ This is the workflow description.
     with open(skill_file, encoding="utf-8") as f:
         updated_content = f.read()
 
-    assert "name: evolved_skill_name" in updated_content
+    frontmatter = yaml.safe_load(updated_content.split("---", 2)[1])
+    assert frontmatter["name"] == "evolved_skill_name"
     assert (
-        "description: This is a highly advanced evolved skill description."
-        in updated_content
+        frontmatter["description"]
+        == "This is a highly advanced evolved skill description."
     )
-    assert "tags: ['evolved', 'dns', 'auto']" in updated_content
-    assert "requires: ['adguard-home-agent', 'new-dependency']" in updated_content
+    assert frontmatter["tags"] == ["evolved", "dns", "auto"]
+    assert frontmatter["requires"] == ["adguard-home-agent", "new-dependency"]
     assert "# Test Skill Body" in updated_content
     assert "This is the workflow description." in updated_content
 
@@ -100,8 +102,12 @@ def test_tool(param1: str) -> str:
     with open(py_file, encoding="utf-8") as f:
         updated_code = f.read()
 
-    assert '"""This is a brand new description of the tool."""' in updated_code
-    assert "Multi-line explanation here." not in updated_code
+    function = next(
+        node
+        for node in ast.walk(ast.parse(updated_code))
+        if isinstance(node, ast.FunctionDef)
+    )
+    assert ast.get_docstring(function) == "This is a brand new description of the tool."
 
 
 def test_distill_mcp_tool_without_docstring(temp_workspace):
@@ -130,7 +136,12 @@ def test_tool_no_doc(param1: str) -> str:
     with open(py_file, encoding="utf-8") as f:
         updated_code = f.read()
 
-    assert '"""Injected tool docstring."""' in updated_code
+    function = next(
+        node
+        for node in ast.walk(ast.parse(updated_code))
+        if isinstance(node, ast.FunctionDef)
+    )
+    assert ast.get_docstring(function) == "Injected tool docstring."
     assert "    x = 10" in updated_code
 
 
@@ -152,21 +163,20 @@ def test_distill_system_prompt(temp_workspace):
     assert content == "You are Antigravity, a self-evolving system prompt."
 
 
-def test_dspy_dynamic_optimizers_selection(temp_workspace):
-    """Verify that EvolveAgent properly instantiates and configures alternate optimizers."""
-    # Test MIPROv2 configuration
-    agent_mipro = EvolveAgent(
-        workspace_path=temp_workspace, dspy_optimizer_type="MIPROv2"
-    )
-    assert agent_mipro.dspy_optimizer_type == "MIPROv2"
+def test_distiller_rejects_path_escape_and_identifying_content(temp_workspace):
+    engine = PhysicalDistillationEngine(workspace_root=temp_workspace)
+    outside = os.path.join(os.path.dirname(temp_workspace), "outside.md")
 
-    # Test BootstrapFewShotWithRandomSearch configuration
-    agent_search = EvolveAgent(
-        workspace_path=temp_workspace,
-        dspy_optimizer_type="BootstrapFewShotWithRandomSearch",
+    assert engine.distill_system_prompt(outside, "safe") is False
+    assert (
+        engine.distill_system_prompt(
+            "prompts/private.md", "Contact person@example.test for access"
+        )
+        is False
     )
-    assert agent_search.dspy_optimizer_type == "BootstrapFewShotWithRandomSearch"
+    assert not os.path.exists(outside)
 
-    # Test default
-    agent_default = EvolveAgent(workspace_path=temp_workspace)
-    assert agent_default.dspy_optimizer_type == "BootstrapFewShot"
+
+def test_legacy_direct_commit_is_permanently_retired(temp_workspace):
+    engine = PhysicalDistillationEngine(workspace_root=temp_workspace)
+    assert engine.commit_distilled_changes(["SKILL.md"]) is False

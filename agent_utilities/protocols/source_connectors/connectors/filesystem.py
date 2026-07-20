@@ -4,7 +4,7 @@ from __future__ import annotations
 
 CONCEPT:AU-ECO.connector.document-source-framework — reference ``Load`` + ``Poll`` + permission-sync connector.
 CONCEPT:AU-ECO.connector.incremental-poll-watermark — incremental poll keyed on a max-mtime watermark.
-CONCEPT:AU-ECO.connector.posix-owner-mapping — POSIX owner/group → :class:`ExternalAccess`.
+CONCEPT:AU-ECO.connector.posix-owner-mapping — explicit source groups → :class:`ExternalAccess`.
 
 Walks a directory, reading document files into :class:`SourceDocument`s. Reuses
 the ingestion engine's document-extension allow-list and skip-dirs, and the
@@ -16,6 +16,7 @@ live-path ingestion test exercises end-to-end.
 import hashlib
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 from ..base import (
     CheckpointedBatch,
@@ -73,8 +74,11 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
         root: Directory to walk (required).
         extensions: Optional override of the document extension allow-list.
         recursive: Walk subdirectories (default True).
-        public: Mark every document world-readable (default True). When False,
-            POSIX owner/group are mapped to :class:`ExternalAccess` groups.
+        public: Explicitly mark every document world-readable (default False).
+        group_ids: Optional non-personal access groups. When neither ``public``
+            nor groups are configured, documents are quarantined.
+        source_id: Optional logical namespace. It is hashed before persistence;
+            local roots and workstation names are never stored in graph ids.
     """
 
     provider = "Local Filesystem"
@@ -87,7 +91,9 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
         subdir: str = "",
         extensions: list[str] | None = None,
         recursive: bool = True,
-        public: bool = True,
+        public: bool = False,
+        group_ids: list[str] | None = None,
+        source_id: str = "",
         watermark_file: str = "",
         stamp_okf: bool = False,
         okf_type: str = "Reference",
@@ -118,14 +124,31 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
         if not root:
             raise ValueError("FilesystemConnector requires a 'root' directory")
         base_root = Path(root).expanduser()
-        # ``slug`` provenance defaults to the repo-dir name a ``subdir`` hangs off.
-        self.slug = slug or (base_root.name if subdir else "")
-        self.root = base_root / subdir if subdir else base_root
+        resolved_base = base_root.resolve(strict=False)
+        resolved_root = (base_root / subdir if subdir else base_root).resolve(
+            strict=False
+        )
+        if not resolved_root.is_relative_to(resolved_base):
+            raise ValueError("FilesystemConnector subdir must stay within root")
+        self._base_root = resolved_base
+        self.root = resolved_root
+        namespace_material = source_id or str(resolved_root)
+        self.source_namespace = hashlib.sha256(
+            namespace_material.encode("utf-8", errors="surrogatepass")
+        ).hexdigest()[:16]
+        # A caller may supply domain provenance, but never inherit a local
+        # directory/workstation name implicitly.
+        self.slug = slug or self.source_namespace
         self.extensions = (
             {e.lower() for e in extensions} if extensions else _doc_extensions()
         )
         self.recursive = recursive
         self.public = public
+        self.group_ids = [
+            value
+            for value in (str(group).strip() for group in (group_ids or []))
+            if value
+        ]
         self.watermark_file = watermark_file
         self.stamp_okf = bool(stamp_okf)
         self.okf_type = okf_type
@@ -143,13 +166,20 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
         if not self.watermark_file:
             return None
         wf = Path(self.watermark_file)
+        if wf.is_symlink():
+            return None
         if not wf.is_absolute():
-            # Resolve relative to the repo root (parent of ``subdir``) then root.
-            for cand in (self.root.parent / wf.name, self.root / wf.name, wf):
-                if cand.exists():
-                    wf = cand
+            # Resolve relative to the configured root namespace only.
+            for cand in (self._base_root / wf, self.root / wf.name):
+                if cand.is_symlink():
+                    continue
+                resolved = cand.resolve(strict=False)
+                if resolved.is_relative_to(self._base_root) and resolved.exists():
+                    wf = resolved
                     break
-        if not wf.exists():
+        else:
+            wf = wf.resolve(strict=False)
+        if not wf.is_relative_to(self._base_root) or not wf.exists():
             return None
         return hashlib.sha256(wf.read_bytes()).hexdigest()
 
@@ -163,13 +193,21 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
             return
         walker = self.root.rglob("*") if self.recursive else self.root.glob("*")
         for p in sorted(walker):
-            if not p.is_file():
+            # Do not follow file symlinks or admit a path that resolves outside
+            # the operator-authorized root (including junction-like escapes).
+            if p.is_symlink() or not p.is_file():
+                continue
+            try:
+                resolved = p.resolve(strict=True)
+            except (OSError, RuntimeError):
+                continue
+            if not resolved.is_relative_to(self.root):
                 continue
             if p.suffix.lower() not in self.extensions:
                 continue
             if any(part in self._skip for part in p.parts):
                 continue
-            yield p
+            yield resolved
 
     def _read(self, path: Path) -> str:
         from ....knowledge_graph.enrichment.extractors.document import (
@@ -181,24 +219,23 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
         except Exception:  # noqa: BLE001 — unreadable file → empty (skipped upstream)
             return ""
 
-    def _access(self, path: Path) -> ExternalAccess:
+    def _access(self, _path: Path) -> ExternalAccess:
         if self.public:
             return ExternalAccess.public()
-        groups: list[str] = []
-        try:
-            import grp
+        if self.group_ids:
+            return ExternalAccess(is_public=False, group_ids=list(self.group_ids))
+        return ExternalAccess.quarantined()
 
-            gid = path.stat().st_gid
-            groups.append(grp.getgrgid(gid).gr_name)
-        except Exception:  # noqa: BLE001 — group lookup is best-effort on the platform
-            pass
-        return ExternalAccess(is_public=False, group_ids=groups)
+    def _portable_uri(self, path: Path) -> str:
+        relative = path.relative_to(self.root).as_posix()
+        return f"filesystem://{self.source_namespace}/{quote(relative, safe='/')}"
 
     def _to_document(self, path: Path) -> SourceDocument | None:
         text = self._read(path)
         if not text.strip():
             return None
         st = path.stat()
+        portable_uri = self._portable_uri(path)
         metadata: dict[str, object] = {"size": st.st_size, "mtime_ns": st.st_mtime_ns}
         doc_type = (
             self.doc_type_override or path.suffix.lstrip(".").lower() or "document"
@@ -219,19 +256,19 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
                     "slug": provenance,
                     "okf_type": self.okf_type,
                     "okf_domain": domain,
-                    "overlay_source": str(path.resolve()),
+                    "overlay_source": portable_uri,
                 }
             )
             text = frontmatter_text(
                 text,
                 ftype=self.okf_type,
-                resource=str(path.resolve()),
+                resource=portable_uri,
                 title=path.stem.replace("-", " ").replace("_", " ").title(),
                 extra={"slug": provenance, "domain": domain},
             )
         return SourceDocument(
-            id=str(path.resolve()),
-            source_uri=str(path.resolve()),
+            id=portable_uri,
+            source_uri=portable_uri,
             title=path.name,
             text=text,
             doc_type=doc_type,
@@ -298,11 +335,11 @@ class FilesystemConnector(LoadConnector, PollConnector, PermSyncConnector):
     def slim(self) -> Iterator[SlimDocument]:
         for path in self._iter_files():
             yield SlimDocument(
-                id=str(path.resolve()),
-                source_uri=str(path.resolve()),
+                id=self._portable_uri(path),
+                source_uri=self._portable_uri(path),
                 external_access=self._access(path),
             )
 
     def fetch_access(self) -> Iterator[tuple[str, ExternalAccess]]:
         for path in self._iter_files():
-            yield str(path.resolve()), self._access(path)
+            yield self._portable_uri(path), self._access(path)

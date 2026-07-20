@@ -248,10 +248,24 @@ class PostgresBackend(BaseStatePersistence[StateT]):
 class RedisBackend(BaseStatePersistence[StateT]):
     """Redis-based state persistence using redis-py (asyncio)."""
 
-    def __init__(self, url: str, prefix: str = "graph:"):
+    def __init__(
+        self,
+        url: str,
+        prefix: str = "graph:",
+        *,
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
+    ):
+        from urllib.parse import urlparse
+
+        if urlparse(url).scheme.casefold() != "rediss":
+            raise ValueError("Redis checkpoint transport requires rediss://")
         self.url = url
         self.prefix = prefix
         self._redis: Any = None
+        self._tls_profile = tls_profile
+        self._tls_profile_ref = tls_profile_ref
+        self._tls_trust: Any = None
         self._run_id = ""
 
     async def _get_redis(self):
@@ -261,8 +275,35 @@ class RedisBackend(BaseStatePersistence[StateT]):
             raise ImportError("redis is required for RedisBackend") from None
 
         if self._redis is None:
-            self._redis = redis.from_url(self.url, decode_responses=True)
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
+
+            self._tls_trust = resolve_configured_tls_profile(
+                "redis",
+                profile_name=self._tls_profile,
+                profile_ref=self._tls_profile_ref,
+            )
+            try:
+                self._redis = redis.from_url(
+                    self.url,
+                    decode_responses=True,
+                    **self._tls_trust.redis_kwargs(),
+                )
+            except Exception:
+                self._tls_trust.cleanup()
+                self._tls_trust = None
+                raise
         return self._redis
+
+    async def close(self) -> None:
+        """Close the Redis pool and remove runtime TLS material."""
+        if self._redis is not None:
+            await self._redis.aclose()
+            self._redis = None
+        if self._tls_trust is not None:
+            self._tls_trust.cleanup()
+            self._tls_trust = None
 
     @asynccontextmanager
     async def record_run(self, snapshot_id: str) -> Any:
@@ -324,7 +365,7 @@ class KGBackend:
         status: str = "active",
     ) -> str:
         if session_id is None:
-            session_id = f"sess:{uuid.uuid4().hex[:12]}"
+            session_id = f"sess:{uuid.uuid4().hex}"
 
         checkpoint_id = f"ckpt:{session_id}:{int(time.time())}"
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -366,7 +407,7 @@ class KGBackend:
             "name": f"Checkpoint: {query[:50]}..."
             if len(query) > 50
             else f"Checkpoint: {query}",
-            "type": RegistryNodeType.SESSION_CHECKPOINT.value,
+            "node_type": RegistryNodeType.SESSION_CHECKPOINT.value,
             "session_id": session_id,
             "query": query[:1000],
             "plan": plan[:2000],
@@ -441,7 +482,7 @@ class KGBackend:
                 else:
                     for nid, data in self.engine.graph.nodes(data=True):
                         if (
-                            data.get("type")
+                            data.get("node_type")
                             == RegistryNodeType.SESSION_CHECKPOINT.value
                             and data.get("session_id") == session_id
                         ):
@@ -491,7 +532,7 @@ class KGBackend:
         sessions: list[dict[str, Any]] = []
         if self.engine and self.engine.backend:
             try:
-                where = "WHERE c.type = 'session_checkpoint'"
+                where = "WHERE c.node_type = 'session_checkpoint'"
                 if status:
                     where += " AND c.status = $status"
                 results = self.engine.backend.execute(
@@ -561,9 +602,46 @@ class CheckpointManager:
             if dsn:
                 backend = PostgresBackend(dsn=dsn)
         elif ptype == "redis":
-            url = kwargs.get("url") or setting("REDIS_URL")
+            from agent_utilities.core.config import config
+
+            profile_name = kwargs.get("tls_profile")
+            profile_ref = kwargs.get("tls_profile_ref")
+            url = kwargs.get("url")
+            connection_ref = (
+                kwargs.get("connection_profile_ref")
+                or config.redis_connection_profile_ref
+            )
+            if connection_ref:
+                from agent_utilities.security.secrets_client import (
+                    create_secrets_client,
+                )
+
+                raw = create_secrets_client().resolve_ref(str(connection_ref))
+                rendered = (
+                    raw.decode("utf-8")
+                    if isinstance(raw, bytes)
+                    else str(raw or "")
+                ).strip()
+                try:
+                    profile = json.loads(rendered)
+                except (TypeError, ValueError):
+                    profile = None
+                if isinstance(profile, dict):
+                    if set(profile).difference(
+                        {"url", "tls_profile", "tls_profile_ref"}
+                    ):
+                        raise ValueError("Redis connection profile is invalid")
+                    url = str(profile.get("url") or "").strip()
+                    profile_name = profile.get("tls_profile") or profile_name
+                    profile_ref = profile.get("tls_profile_ref") or profile_ref
+                else:
+                    url = rendered
             if url:
-                backend = RedisBackend(url=url)
+                backend = RedisBackend(
+                    url=str(url),
+                    tls_profile=(str(profile_name) if profile_name else None),
+                    tls_profile_ref=(str(profile_ref) if profile_ref else None),
+                )
         elif ptype == "kg":
             engine = kwargs.get("engine")
             backend = KGBackend(engine=engine)

@@ -45,7 +45,7 @@ APPROVE = make_decision_provider(
 
 @pytest.fixture
 def kernel() -> PermissionsKernel:
-    return PermissionsKernel()
+    return PermissionsKernel(signing_key="test-signing-authority-material-32b")
 
 
 @pytest.fixture

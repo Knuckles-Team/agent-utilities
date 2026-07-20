@@ -207,14 +207,11 @@ class OntologicalIdentifierRegistry:
             "status": "registered",
         }
 
-    def mark_system_synced(self, doc_id: str, _system: str = "knowledge_graph") -> None:
-        """
-        Mark a document as synced to the knowledge graph.
-        (system arg kept for backwards compatibility)
+    def mark_synced(self, doc_id: str) -> None:
+        """Mark a document as synced to the knowledge graph.
 
         Args:
             doc_id: Unified document ID
-            system: Ignored in the unified graph architecture
         """
         if doc_id in self.document_ids:
             self.document_ids[doc_id]["synced"] = True
@@ -234,20 +231,6 @@ class OntologicalIdentifierRegistry:
         if doc_id not in self.document_ids:
             return False
         return self.document_ids[doc_id].get("synced", False)
-
-    def is_system_synced(self, doc_id: str, _system: str = "knowledge_graph") -> bool:
-        """
-        Check if a document is synced.
-        (system arg kept for backwards compatibility)
-
-        Args:
-            doc_id: Unified document ID
-            system: Ignored in the unified graph architecture
-
-        Returns:
-            bool: True if synced
-        """
-        return self.is_fully_synced(doc_id)
 
     def get_document_info(self, doc_id: str) -> dict[str, Any] | None:
         """
@@ -301,13 +284,11 @@ class OntologicalIdentifierRegistry:
             if info.get("status") == status
         ]
 
-    def get_unsynced_documents(self, _system: str = "knowledge_graph") -> list[str]:
+    def get_unsynced_documents(self) -> list[str]:
         """
         Get documents that are not synced to the graph.
 
         Args:
-            system: Ignored in the unified graph architecture
-
         Returns:
             List[str]: List of document IDs not synced
         """

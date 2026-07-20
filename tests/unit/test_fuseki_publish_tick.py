@@ -4,7 +4,7 @@ The bundled ontology modules are pushed to an optional Apache Jena Fuseki
 triplestore by a maintenance-scheduler tick gated on ``KG_FUSEKI_PUBLISH``
 (default OFF — Fuseki is optional infrastructure). These tests cover the
 tick registration gating, the publisher invocation with an injected
-publisher, and the real Fuseki transport against a mocked ``requests.put``.
+publisher, and the real Fuseki transport against a mocked Requests session.
 
 @pytest.mark.concept("AU-KG.ontology.authoritative-tbox")
 """
@@ -52,12 +52,23 @@ class TestDaemonRegistration:
     def test_default_flag_is_off(self, monkeypatch):
         from agent_utilities.core.config import AgentConfig
 
-        # Isolate from the deployment's semantic-plane wiring: a configured
-        # Fuseki/Jena endpoint auto-enables publish (KG-2.52), so clear both
-        # to assert the genuine field default with no endpoint present.
+        # Isolate from the deployment's semantic-plane wiring: an EXPLICITLY
+        # configured Fuseki endpoint auto-enables publish (KG-2.52), so clear
+        # it to assert the genuine field default with nothing explicitly set.
+        # The endpoint has no environment-specific default, and must not
+        # auto-enable publish; see test_default_endpoint_alone_does_not_auto_enable_publish.
         monkeypatch.delenv("KG_FUSEKI_ENDPOINT", raising=False)
-        monkeypatch.delenv("JENA_FUSEKI_URL", raising=False)
         assert AgentConfig().kg_fuseki_publish is False
+
+    def test_default_endpoint_alone_does_not_auto_enable_publish(self, monkeypatch):
+        """CONCEPT:AU-KG.ontology.authoritative-tbox — the neutral empty default
+        must not flip the publish tick on; only an explicit endpoint does."""
+        from agent_utilities.core.config import AgentConfig
+
+        monkeypatch.delenv("KG_FUSEKI_ENDPOINT", raising=False)
+        cfg = AgentConfig()
+        assert cfg.kg_fuseki_endpoint == ""
+        assert cfg.kg_fuseki_publish is False
 
     def test_tick_interval_comes_from_config(self, monkeypatch):
         from agent_utilities.core.config import config as cfg
@@ -150,13 +161,33 @@ class TestPublishInvocation:
             def raise_for_status(self):
                 return None
 
-        def _fake_put(url, data=None, params=None, headers=None, timeout=None):
-            calls.update(
-                {"url": url, "params": params, "headers": headers, "data": data}
-            )
-            return _Resp()
+        class _Session:
+            trust_env = True
+            verify = True
+            cert = None
+            proxies = {}
 
-        monkeypatch.setattr(requests, "put", _fake_put)
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def put(
+                self,
+                url,
+                data=None,
+                params=None,
+                headers=None,
+                timeout=None,
+                **_kwargs,
+            ):
+                calls.update(
+                    {"url": url, "params": params, "headers": headers, "data": data}
+                )
+                return _Resp()
+
+        monkeypatch.setattr(requests, "Session", _Session)
         graph = rdflib.Graph()
         graph.add(
             (

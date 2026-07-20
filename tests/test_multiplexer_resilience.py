@@ -118,16 +118,9 @@ async def test_per_server_max_concurrency_override_beats_global_default():
     assert runtime_default.max_concurrency == config.mcp_child_max_concurrency
 
 
-async def test_zero_max_concurrency_disables_the_limit():
-    session = GatedSession()
-    runtime = ChildRuntime("unlimited", {"max_concurrency": 0})
-    runtime.adopt_sessions([session])
-
-    tasks = [asyncio.create_task(runtime.call_tool("t", {})) for _ in range(20)]
-    await asyncio.sleep(0.01)
-    assert session.active == 20
-    session.release.set()
-    await asyncio.gather(*tasks)
+async def test_zero_max_concurrency_is_rejected():
+    with pytest.raises(ValueError, match="max_concurrency"):
+        ChildRuntime("unlimited", {"max_concurrency": 0})
 
 
 async def test_multiplexer_surfaces_busy_error_as_typed_tool_result(tmp_path):
@@ -232,8 +225,9 @@ async def test_stdio_child_ignores_pool_size_and_keeps_one_pipe(tmp_path, monkey
     connects: list[Any] = []
 
     @contextlib.asynccontextmanager
-    async def fake_stdio(params):
+    async def fake_stdio(params, *, errlog):
         connects.append(params)
+        assert errlog is not None
         yield ("r", "w")
 
     class FakeSessionCM:

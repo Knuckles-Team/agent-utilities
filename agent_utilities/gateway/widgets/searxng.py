@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.PRODUCTIVITY
     description = "Metasearch engine — privacy-respecting search aggregator"
     env_prefix = "SEARXNG"
-    default_url = "https://searxng.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -31,16 +30,15 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        import httpx
-
         url = self._resolve_url(config)
         try:
-            resp = httpx.get(f"{url}/config", timeout=5.0, verify=False)  # nosec B501
+            with self._http_client(config, timeout=5.0) as client:
+                resp = client.get(f"{url}/config")
             data = resp.json() if resp.status_code == 200 else {}
             engines = data.get("engines", [])
         except Exception as e:
-            logger.debug("SearXNG fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("SearXNG fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

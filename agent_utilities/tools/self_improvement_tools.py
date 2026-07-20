@@ -87,10 +87,15 @@ async def query_experiment_results(ctx: RunContext[Any], experiment_name: str) -
         return "Error: Knowledge Graph engine is not active."
 
     # Query logic for experiment performance
-    query = """
-    MATCH (exp:Experiment {name: $name})
+    from agent_utilities.observability.trace_ontology import (
+        TRACE_PRODUCED_OUTCOME_EDGE,
+    )
+
+    query = f"""
+    MATCH (exp:Experiment {{name: $name}})
     MATCH (exp)-[:HAS_VARIANT]->(v)
-    OPTIONAL MATCH (v)-[:USED_BY]->(e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation)
+    OPTIONAL MATCH (v)<-[:USES_SKILL|USES_PROMPT]-(r:RunTrace)
+    -[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation)
     RETURN v.id as variant, avg(o.reward) as avg_reward, count(o) as sample_size
     ORDER BY avg_reward DESC
     """

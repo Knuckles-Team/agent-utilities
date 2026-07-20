@@ -45,7 +45,7 @@ def _kt_package(
         tools=tools or [],
         tags=["knuckles-team", *tags],
         container_config=ContainerConfig(
-            image=image or f"docker.io/knucklessg1/{name}:latest",
+            image=image or f"docker.io/example/{name}:latest",
             compose_ref=f"agents/{name}/compose.yml",
         ),
     )
@@ -477,7 +477,7 @@ def get_default_catalog() -> tuple[SpecialistPackage, ...]:
             description="Genius Agent — the orchestrator. Consumes MCP tools from all other adaptive_agent_router.",
             tags=["knuckles-team", "core"],
             container_config=ContainerConfig(
-                image="docker.io/knucklessg1/genius-agent:latest",
+                image="docker.io/example/genius-agent:latest",
                 compose_ref="agents/genius-agent/compose.yaml",
             ),
         )

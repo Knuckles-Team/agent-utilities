@@ -4,8 +4,8 @@ The platform's self-evolution arcs are fully wired but **off by default**: the
 daemon ticks for the golden loop (`KG-2.7`) and failure-driven evolution
 (`AU-AHE.harness.failure-evolution`) are registered in the engine's maintenance scheduler, yet their
 flags default to `False` in code. That is deliberate — turning a fleet
-autonomous is a *deployment* decision, made in your `.env`, never a library
-default.
+autonomous is an explicit XDG AgentConfig deployment decision, never a library
+default or repository-local setting.
 
 This guide describes the safety chain you get when you turn the loops on, and
 exactly which flags do what.
@@ -75,11 +75,11 @@ Two modules under `knowledge_graph/research/` implement the bridge:
   * a proposal that embeds explicit file artifacts (`files` /
     `files_json` = `[{"path", "content"}, ...]`) becomes a `kind="code"`
     change set, validated through the tiered RLM sandbox (`ORCH-1.38`):
-    per-file syntax compile + best-effort import. Proposal-named tests
-    (`tests` / `tests_json`) are run later in the publisher's worktree, where
-    the full repository context exists — a snippet sandbox cannot run
-    repo-relative pytest (an honest v1 limit). Sandbox-invalid change sets
-    are never published.
+    per-file syntax compile + best-effort import. Proposed test targets
+    (`tests` / `tests_json`) are treated as data and may only run through an
+    injected governed sandbox runner. The publisher never executes
+    proposal-selected host commands. Sandbox-invalid change sets are never
+    published.
   * a prose-only proposal (most SpecDrafts/TeamSpecs) becomes a
     `kind="sdd_plan"` change set: an SDD skeleton under
     `.specify/specs/<topic>/` (`spec.md` + `tasks.md`). For prose, that
@@ -89,12 +89,12 @@ Two modules under `knowledge_graph/research/` implement the bridge:
   `LocalBranchPublisher` uses plain `git`: it adds a **fresh worktree** off
   the target repo's default branch under `EVOLUTION_WORKTREE_ROOT` (default
   `data_dir()/evolution_worktrees` — never a checkout's working tree),
-  applies the change set, runs proposal-named tests + the injected
-  regression gate (`make_regression_check`, `AU-AHE.harness.failure-evolution`), and commits citing
-  the proposal + concept ids. The result (branch, sha, gate verdict) is
-  recorded as a `ProposalPublication` node linked `PUBLISHED_AS` from the
-  proposal, stamped onto the proposal node, and mirrored into
-  `ActionExecution` + the `golden_loop.publish_proposal` audit trail.
+  applies the change set, optionally delegates bounded targets to an injected
+  governed sandbox runner, runs the regression gate (`make_regression_check`,
+  `AU-AHE.harness.failure-evolution`), and commits with opaque proposal
+  attribution. Persisted graph and audit records contain opaque references,
+  verdicts, and counts only—never repository paths, worktree paths, branch
+  names, commit hashes, proposal content, or test output.
 
 ### The human workflow (approve → publish → merge)
 
@@ -107,13 +107,14 @@ Two modules under `knowledge_graph/research/` implement the bridge:
    `job_id`. (Granted `merge_promotion` approvals are deliberately *not*
    drained by the fleet reconciler — they belong to the bridge.)
 3. The human (or any agent surface) triggers the one-shot publication:
-   `graph_orchestrate(action="publish_proposal", task="<proposal node id>")`
-   over MCP, or REST `POST /api/graph/orchestrate/publish-proposal` with
-   `{"proposal_id": "..."}`. The granted approval is consumed; the change set
+   `graph_evolution(action="publish_proposal", target="<proposal node id>")`
+   over MCP, or REST `POST /api/graph/evolution` with
+   `{"action":"publish_proposal","target":"..."}`. The granted approval is consumed; the change set
    is synthesized, sandbox-validated, and published as a local branch.
-4. Review the branch (`PublishResult.worktree_path` / `branch` on the
-   proposal node), then merge + release through the normal flow
-   (workspace-validator phased `auto_push`). The bridge never pushes.
+4. Resolve the returned opaque publication references through authorized
+   deployment tooling, review the branch, then merge and release through the
+   normal governed flow. The bridge never pushes and does not persist local
+   filesystem locations.
 
 A deployment that wants zero manual steps can relax the tier with a KG
 override — `governance_rule {scope: 'action_policy', kind: 'merge_promotion',
@@ -143,6 +144,8 @@ class RepositoryManagerPublisher:
         # optionally push + open a PR — that policy lives in the deployment,
         # not in agent-utilities).
         ...
+        # Raw repository coordinates remain ephemeral inside the publisher;
+        # PublishResult.to_dict() and graph/audit records expose opaque refs.
         return PublishResult(ok=True, branch=..., commit_sha=..., repo_path=...)
 
 set_change_publisher(RepositoryManagerPublisher(mcp_call))
@@ -151,30 +154,32 @@ set_change_publisher(RepositoryManagerPublisher(mcp_call))
 ## Flags
 
 All flags are typed `AgentConfig` fields (see
-[Configuration](configuration.md)); set them in the deployment `.env` (see the
-commented blocks in `.env.example` and `docker/mcp.compose.yml`).
+[Configuration](configuration.md)); set their aliases in XDG `config.json` or
+inject an explicit process override. Concrete secret values remain behind
+runtime references.
 
 | Flag | Default | Effect |
 | --- | --- | --- |
 | `KG_LOOP` | `false` | Hourly propose-only self-evolution cycle (intake → acquire → resolve → distill/synthesize proposals). |
 | `KG_LOOP_INTERVAL` / `KG_LOOP_TOPICS` | `3600` / `5` | Tick cadence and per-cycle topic budget. |
-| `KG_FAILURE_EVOLUTION` | `false` | Pull Langfuse failures → `failure_gap` topics → regression-gated remediation cycle. |
+| `KG_FAILURE_EVOLUTION` | `auto` | Pull Langfuse failures → `failure_gap` topics → regression-gated remediation when both Langfuse credential refs are configured; explicit `false` opts out. |
 | `KG_FAILURE_EVOLUTION_INTERVAL` / `KG_FAILURE_EVOLUTION_WINDOW` | `3600` / `86400` | Tick cadence and telemetry look-back. |
 | `KG_ANOMALY_CONSUMER` | `true` | Consume unconsumed `PerformanceAnomaly` nodes into `failure_gap` topics (cheap, LLM-free, propose-only — on by default). |
 | `KG_GOLDEN_AUTO_MERGE` | `false` | Allow governed proposal→active promotion. Keep `false` until you trust the proposal stream. |
 | `KG_GOLDEN_MERGE_THRESHOLD` | `0.85` | Minimum proposal quality score for auto-merge eligibility. |
 | `EVOLUTION_WORKTREE_ROOT` | `data_dir()/evolution_worktrees` | Where the `AHE-3.21` bridge creates fresh git worktrees when publishing a promoted proposal as a local branch. |
-| `FLEET_EVENTS_TOKEN` | unset | Shared secret for the `POST /api/fleet/events` monitoring-webhook ingress (`AU-OS.config.fleet-event-ingress`). |
+| `FLEET_EVENTS_TOKEN_REF` | unset | Secret-provider reference for the `POST /api/fleet/events` monitoring-webhook ingress (`AU-OS.config.fleet-event-ingress`). |
 | `FLEET_RECONCILER` | `false` | Desired-state fleet reconciler tick — registry vs observed, converged through the `OS-5.24` ActionPolicy gate (see [Fleet Autonomy](../architecture/fleet_autonomy.md)). |
 | `ACTION_POLICY_PATH` | shipped default | Operational action policy (tiers / rate limits / maintenance windows / blast-radius caps); the shipped default keeps every mutating action approval-required (`OS-5.24`). |
 
 ## Recommended rollout
 
-1. Enable `KG_LOOP=true` and `KG_FAILURE_EVOLUTION=true` and watch the
-   proposal stream (`EvolutionCycle` nodes, `failure_gap` Concepts, audit log)
-   for a few cycles. Nothing merges.
+1. Configure both Langfuse credential refs, leave content capture and auto-merge
+   off, and enable `KG_LOOP=true`. Failure evolution engages automatically unless
+   explicitly disabled. Watch the proposal stream (`EvolutionCycle` nodes,
+   `failure_gap` Concepts, audit log) for a few cycles. Nothing merges.
 2. Point Alertmanager / Uptime Kuma at `POST /api/fleet/events` (set
-   `FLEET_EVENTS_TOKEN`) so production incidents also feed the loop. Critical
+   `FLEET_EVENTS_TOKEN_REF`) so production incidents also feed the loop. Critical
    events now dispatch the `AU-OS.host.remediation-playbooks` remediation playbooks — with the shipped
    action policy every mutating step lands in `GET /api/fleet/approvals`
    instead of executing.

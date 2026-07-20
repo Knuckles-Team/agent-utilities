@@ -6,6 +6,11 @@ daemon and is not marked ``live``.
 
 from __future__ import annotations
 
+import shutil
+import stat
+
+import pytest
+
 from agent_utilities.runtime import DevWorkspace, LocalWorkspace, create_workspace
 from agent_utilities.runtime.events import (
     CmdRunAction,
@@ -46,6 +51,26 @@ async def test_file_write_read_edit_cycle():
         edit = await ws.act(FileEditAction(path="m.py", old="a = 1", new="a = 100"))
         assert edit.applied and edit.replacements == 1
         assert "a = 100" in (await ws.act(FileReadAction(path="m.py"))).content
+
+
+async def test_file_write_rejects_symlink_parent_escape(tmp_path):
+    root = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    try:
+        (root / "redirect").symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable on this platform")
+
+    ws = DevWorkspace(LocalWorkspace(root=root), run_id="symlink-boundary")
+    async with ws:
+        result = await ws.act(
+            FileWriteAction(path="redirect/escaped.txt", content="blocked")
+        )
+
+    assert isinstance(result, ErrorObservation)
+    assert not (outside / "escaped.txt").exists()
 
 
 async def test_edit_nonunique_without_replace_all_is_error():
@@ -100,3 +125,13 @@ def test_create_workspace_falls_back_to_local(monkeypatch):
     )
     ws = create_workspace(prefer_docker=True)
     assert ws.backend.name == "local"
+
+
+def test_docker_workspace_host_directory_is_owner_only():
+    from agent_utilities.runtime.docker_workspace import DockerWorkspace
+
+    workspace = DockerWorkspace(run_id="permission-boundary")
+    try:
+        assert stat.S_IMODE(workspace.root.stat().st_mode) == 0o700
+    finally:
+        shutil.rmtree(workspace.root)

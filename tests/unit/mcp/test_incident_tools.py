@@ -59,7 +59,7 @@ def test_correlate_action_delegates_to_incidents_module(monkeypatch):
 
     def _fake_correlate(*, window_s, days):
         calls.append((window_s, days))
-        return [{"id": "health:incident:r510:abc", "status": "open"}]
+        return [{"id": "health:incident:storage-node-a:abc", "status": "open"}]
 
     monkeypatch.setattr(incidents, "correlate_incidents", _fake_correlate)
     tool = _register(monkeypatch)
@@ -74,15 +74,15 @@ def test_list_returns_open_incidents_newest_first(monkeypatch):
     engine = _FakeEngine(
         [
             (
-                "health:incident:r510:1",
+                "health:incident:storage-node-a:1",
                 {"status": "open", "opened_at": "2026-07-01T00:00:00Z"},
             ),
             (
-                "health:incident:r820:2",
+                "health:incident:analysis-node-a:2",
                 {"status": "closed", "opened_at": "2026-07-05T00:00:00Z"},
             ),
             (
-                "health:incident:r710:3",
+                "health:incident:compute-node-b:3",
                 {"status": "open", "opened_at": "2026-07-10T00:00:00Z"},
             ),
         ]
@@ -93,7 +93,10 @@ def test_list_returns_open_incidents_newest_first(monkeypatch):
     assert out["count"] == 2
     ids = [i["id"] for i in out["incidents"]]
     # newest opened_at first
-    assert ids == ["health:incident:r710:3", "health:incident:r510:1"]
+    assert ids == [
+        "health:incident:compute-node-b:3",
+        "health:incident:storage-node-a:1",
+    ]
 
 
 def test_list_no_status_filter_returns_all(monkeypatch):
@@ -117,11 +120,18 @@ def test_list_no_reachable_engine(monkeypatch):
 
 def test_get_returns_matching_incident(monkeypatch):
     engine = _FakeEngine(
-        [("health:incident:r510:1", {"status": "open", "summary": "disk full"})]
+        [
+            (
+                "health:incident:storage-node-a:1",
+                {"status": "open", "summary": "disk full"},
+            )
+        ]
     )
     tool = _register(monkeypatch, engine)
-    out = json.loads(tool(action="get", incident_id="health:incident:r510:1"))
-    assert out["incident"]["id"] == "health:incident:r510:1"
+    out = json.loads(
+        tool(action="get", incident_id="health:incident:storage-node-a:1")
+    )
+    assert out["incident"]["id"] == "health:incident:storage-node-a:1"
     assert out["incident"]["summary"] == "disk full"
 
 

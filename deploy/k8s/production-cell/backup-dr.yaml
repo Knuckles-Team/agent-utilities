@@ -1,0 +1,151 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: graphos-backup
+  namespace: graphos-cell
+  labels: {graphos.io/operation: backup}
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  startingDeadlineSeconds: 30
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 9000
+      ttlSecondsAfterFinished: 86400
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: graphos-backup
+            graphos.io/operation: backup
+          annotations:
+            graphos.io/mtls-mode: strict
+            sidecar.istio.io/nativeSidecar: "true"
+            proxy.istio.io/config: '{"holdApplicationUntilProxyStarts":true}'
+        spec:
+          serviceAccountName: graphos-backup
+          automountServiceAccountToken: false
+          priorityClassName: graphos-background-worker
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: backup
+              image: graph-os-image
+              command: ["graph-os-production-ops"]
+              args: ["backup", "--archive-root", "/archive"]
+              envFrom:
+                - configMapRef: {name: graphos-cell-contract}
+                - secretRef: {name: graphos-runtime-secrets, optional: false}
+              env:
+                - {name: REQUESTS_CA_BUNDLE, value: /var/run/graphos/trust/ca-bundle.pem}
+                - {name: SSL_CERT_FILE, value: /var/run/graphos/trust/ca-bundle.pem}
+                - {name: WORKLOAD_IDENTITY_TOKEN_FILE, value: /var/run/secrets/tokens/graphos-token}
+              volumeMounts:
+                - {name: object-archive, mountPath: /archive}
+                - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
+                - {name: trust-bundle, mountPath: /var/run/graphos/trust, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+              resources:
+                requests: {cpu: "1", memory: 2Gi}
+                limits: {cpu: "4", memory: 8Gi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+          volumes:
+            - name: object-archive
+              persistentVolumeClaim: {claimName: graphos-object-archive}
+            - name: workload-identity
+              projected:
+                defaultMode: 0440
+                sources:
+                  - serviceAccountToken: {audience: "${GRAPHOS_WORKLOAD_IDENTITY_AUDIENCE:?required}", expirationSeconds: 3600, path: graphos-token}
+            - name: trust-bundle
+              secret: {secretName: graphos-trust-bundle, optional: false}
+            - {name: tmp, emptyDir: {sizeLimit: 1Gi}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: graphos-restore-validation
+  namespace: graphos-cell
+  labels: {graphos.io/operation: restore-validation}
+spec:
+  schedule: "17 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: graphos-restore-validation
+            graphos.io/operation: restore-validation
+          annotations:
+            graphos.io/mtls-mode: strict
+            sidecar.istio.io/nativeSidecar: "true"
+            proxy.istio.io/config: '{"holdApplicationUntilProxyStarts":true}'
+        spec:
+          serviceAccountName: graphos-backup
+          automountServiceAccountToken: false
+          priorityClassName: graphos-background-worker
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile: {type: RuntimeDefault}
+          containers:
+            - name: restore-validation
+              image: graph-os-image
+              command: ["graph-os-production-ops"]
+              args:
+                - restore-validate
+                - --archive-root
+                - /archive
+                - --scratch-root
+                - /validation
+              envFrom:
+                - configMapRef: {name: graphos-cell-contract}
+                - secretRef: {name: graphos-runtime-secrets, optional: false}
+              env:
+                - {name: REQUESTS_CA_BUNDLE, value: /var/run/graphos/trust/ca-bundle.pem}
+                - {name: SSL_CERT_FILE, value: /var/run/graphos/trust/ca-bundle.pem}
+                - {name: WORKLOAD_IDENTITY_TOKEN_FILE, value: /var/run/secrets/tokens/graphos-token}
+              volumeMounts:
+                # Restore validation takes the same archive-scoped lock as backup
+                # retention, so the shared archive mount must permit that lock file.
+                - {name: object-archive, mountPath: /archive}
+                - {name: restore-validation, mountPath: /validation}
+                - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
+                - {name: trust-bundle, mountPath: /var/run/graphos/trust, readOnly: true}
+                - {name: tmp, mountPath: /tmp}
+              resources:
+                requests: {cpu: "2", memory: 4Gi}
+                limits: {cpu: "8", memory: 16Gi}
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+          volumes:
+            - name: object-archive
+              persistentVolumeClaim: {claimName: graphos-object-archive}
+            - name: restore-validation
+              persistentVolumeClaim: {claimName: graphos-restore-validation}
+            - name: workload-identity
+              projected:
+                defaultMode: 0440
+                sources:
+                  - serviceAccountToken: {audience: "${GRAPHOS_WORKLOAD_IDENTITY_AUDIENCE:?required}", expirationSeconds: 3600, path: graphos-token}
+            - name: trust-bundle
+              secret: {secretName: graphos-trust-bundle, optional: false}
+            - {name: tmp, emptyDir: {sizeLimit: 2Gi}}

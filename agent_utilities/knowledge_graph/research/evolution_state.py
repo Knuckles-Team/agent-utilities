@@ -288,7 +288,7 @@ def emit_saturation_signal(engine: Any, gauge: dict[str, Any]) -> str | None:
         return None
     import uuid
 
-    sig_id = f"evolution_saturation:{uuid.uuid4().hex[:10]}"
+    sig_id = f"evolution_saturation:{uuid.uuid4().hex}"
     try:
         engine.add_node(
             sig_id,
@@ -347,7 +347,7 @@ def read_evolution_state(
         "saturation": gauge,
         "steering": {
             "pause": "graph_schedules action=disable name=<evolution schedule>",
-            "reprioritize": "graph_loops action=prioritize loop_id=<id> priority=high",
+            "reprioritize": "graph_loops action=prioritize loop_id=<id> priority_bucket=1",
             "review_spec": "graph_loops action=review spec_id=<id> decision=approve|reject|edit",
             "request_more": gauge.get("recommendation") or "(not saturated)",
         },

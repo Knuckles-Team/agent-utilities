@@ -13,10 +13,8 @@ as ``content_url`` ingests, repos as ``codebase`` ingests — each tagged with t
 ``cohort_id`` so progress is a read-time COUNT (no per-cohort counters to race).
 It then submits ONE ``cohort_synthesize`` gate task.
 
-The gate is a **self-polling barrier**, deliberately NOT a ``depends_on`` join: a
-``depends_on`` barrier is *cancelled* the moment any single member fails
-(``_deps_state`` → ``broken``), so one poison paper would wedge the whole cohort.
-Instead the gate re-defers itself (``scheduled``) each poll until every member is
+The gate is a **self-polling barrier**, deliberately NOT a ``depends_on`` join.
+Instead its fenced WorkItem lease is natively deferred each poll until every member is
 **terminal** — completed OR failed — or a deadline passes, then runs the
 assimilation pass (which materializes the feature matrix, KG-2.173) over whatever
 was ingested. Pipeline parallelism comes for free: members drain concurrently
@@ -43,9 +41,8 @@ DEFAULT_MAX_WAIT_S = 3600.0
 POLL_INTERVAL_S = 60.0
 SYNTHESIZE_TASK_TYPE = "cohort_synthesize"
 
-_DONE = {"completed", "done", "success"}
-_FAILED = {"failed", "dead_letter", "cancelled", "error"}
-_TERMINAL = _DONE | _FAILED
+_WORK_DONE = {"succeeded"}
+_WORK_FAILED = {"failed", "dead_letter", "cancelled"}
 
 
 def _decode(meta: Any) -> dict[str, Any]:
@@ -55,21 +52,48 @@ def _decode(meta: Any) -> dict[str, Any]:
 
 
 def _arxiv_id(ref: str) -> str:
-    """Bare arXiv id from a URL / ``arxiv:ID`` / bare id (else the ref unchanged)."""
+    """Return a validated bare arXiv id without retaining an input location."""
     s = str(ref).strip().rstrip("/")
     m = re.search(r"(\d{4}\.\d{4,5})(v\d+)?$", s)
-    return m.group(1) if m else s
+    if m is None:
+        raise ValueError("cohort paper references must be arXiv ids or arXiv URLs")
+    return m.group(1)
 
 
-def _paper_pdf_path(pid: str) -> str:
-    """Path to a pre-downloaded paper PDF in the research store, if it exists."""
+def resolve_ephemeral_paper_pdf(pid: str) -> str | None:
+    """Resolve a configured paper file at execution time, never in task metadata."""
     try:
         from ...core import paths
 
         p = paths.research_dir() / "papers" / f"{pid}.pdf"
-        return str(p) if p.exists() else ""
+        return str(p) if p.is_file() else None
     except Exception:  # noqa: BLE001 — best-effort; empty → handler downloads
-        return ""
+        return None
+
+
+def _commit_cohort_state(
+    engine: Any, cohort_id: str, properties: dict[str, Any]
+) -> None:
+    """Commit cohort state through the engine-native ChangeEnvelope authority."""
+    from ..ingestion.envelope_ingest import ingest_graph_slice
+
+    applied = ingest_graph_slice(
+        engine,
+        "scholarx",
+        [
+            {
+                "id": cohort_id,
+                "node_type": RegistryNodeType.RESEARCH_COHORT.value,
+                **properties,
+            }
+        ],
+        source_instance="research-cohort",
+    )
+    if applied.get("status") not in {"success", "skipped"}:
+        raise RuntimeError(
+            "native cohort ChangeEnvelope failed: "
+            f"{applied.get('error') or applied.get('status')}"
+        )
 
 
 def create_cohort(
@@ -84,25 +108,33 @@ def create_cohort(
 
     ``papers`` are arXiv ids / URLs ingested via the ``research_paper_fetch`` lane —
     so each becomes an **Article** node (the matrix feature type), full-text from a
-    pre-downloaded PDF when present (CONCEPT:AU-KG.research.so-cohort), and its ``article_id`` is
+    execution-time-resolved PDF when present (CONCEPT:AU-KG.research.so-cohort), and its ``article_id`` is
     recorded on the task as durable cohort provenance (CONCEPT:AU-KG.research.provenance). ``repos``
-    are local paths / git URLs ingested via the ``codebase`` lane. Returns the
+    are remote URLs ingested via the ``codebase`` lane; local paths are rejected
+    because durable tasks must not contain machine locations. Returns the
     ``cohort_id`` and the submitted job ids.
     """
-    papers = [p for p in (papers or []) if p]
-    repos = [r for r in (repos or []) if r]
-    cohort_id = f"cohort-{uuid.uuid4().hex[:8]}"
+    paper_ids = [_arxiv_id(p) for p in (papers or []) if p]
+    repos = [str(r) for r in (repos or []) if r]
+    if any(not repo.startswith("https://") for repo in repos):
+        raise ValueError(
+            "cohort repositories must be HTTPS URLs; local paths cannot be persisted"
+        )
+    cohort_id = f"cohort-{uuid.uuid4().hex}"
     now = time.time()
     deadline = now + float(max_wait_s)
 
-    engine.add_node(
+    from ...security.persistence_privacy import PersistencePrivacyGuard
+
+    safe_goal, _ = PersistencePrivacyGuard().sanitize_text(goal)
+    _commit_cohort_state(
+        engine,
         cohort_id,
-        node_type=RegistryNodeType.RESEARCH_COHORT.value,
-        properties={
-            "goal": goal,
+        {
+            "goal": safe_goal,
             "status": "ingesting",
-            "member_count": len(papers) + len(repos),
-            "papers": len(papers),
+            "member_count": len(paper_ids) + len(repos),
+            "papers": len(paper_ids),
             "repos": len(repos),
             "created_at": datetime.now(UTC).isoformat(),
             "deadline_unix": deadline,
@@ -111,11 +143,10 @@ def create_cohort(
     )
 
     members: list[str] = []
-    for i, ref in enumerate(papers):
-        pid = _arxiv_id(ref)
-        url = ref if str(ref).startswith("http") else f"https://arxiv.org/abs/{pid}"
+    for i, pid in enumerate(paper_ids):
+        url = f"https://arxiv.org/abs/{pid}"
         # research_paper_fetch → an Article node via the research pipeline, using the
-        # pre-downloaded PDF for full text when present; the handler records the
+        # execution-time-resolved PDF for full text when present; the handler records the
         # resulting article_id on the task (cohort provenance, KG-2.192).
         members.append(
             engine.submit_task(
@@ -128,7 +159,6 @@ def create_cohort(
                     "paper": {
                         "id": pid,
                         "url": url,
-                        "pdf_path": _paper_pdf_path(pid),
                         "score": 1.0,
                     },
                 },
@@ -161,7 +191,7 @@ def create_cohort(
     logger.info(
         "cohort %s: %d papers + %d repos fanned out → gate %s",
         cohort_id,
-        len(papers),
+        len(paper_ids),
         len(repos),
         synth,
     )
@@ -169,13 +199,13 @@ def create_cohort(
         "cohort_id": cohort_id,
         "members": members,
         "synthesize_job": synth,
-        "papers": len(papers),
+        "papers": len(paper_ids),
         "repos": len(repos),
     }
 
 
 def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
-    """Read-time COUNT of a cohort's member tasks by status (the gate itself excluded)."""
+    """Count members from authoritative WorkItems."""
     counts = {
         "total": 0,
         "pending": 0,
@@ -185,37 +215,42 @@ def cohort_member_status(engine: Any, cohort_id: str) -> dict[str, int]:
         "completed": 0,
         "failed": 0,
         "terminal": 0,
+        "unknown": 0,
     }
     try:
-        rows = engine._control_cypher(
-            "MATCH (t:Task) RETURN t.status as s, t.metadata as meta"
-        )
+        work = engine._ingest_work_item_index()
     except Exception:  # noqa: BLE001 — status read is best-effort
+        counts["total"] = 1
+        counts["unknown"] = 1
         return counts
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        meta = _decode(row.get("meta"))
+    for item in work.values():
+        meta = item.get("metadata") or {}
         if (
             meta.get("cohort_id") != cohort_id
             or meta.get("type") == SYNTHESIZE_TASK_TYPE
         ):
             continue
         counts["total"] += 1
-        s = str(row.get("s") or "").lower()
-        if s in _DONE:
+        s = str(item.get("status") or "").lower()
+        if s in _WORK_DONE:
             counts["completed"] += 1
-        elif s in _FAILED:
+        elif s in _WORK_FAILED:
             counts["failed"] += 1
-        elif s == "running":
+        elif s in {"leased", "running"}:
             counts["running"] += 1
-        elif s == "scheduled":
-            counts["scheduled"] += 1
-        elif s == "blocked":
+        elif s == "submitted":
             counts["blocked"] += 1
+        elif s == "ready":
+            retry_at = float(item.get("next_retry_at") or 0.0)
+            if retry_at > time.time():
+                counts["scheduled"] += 1
+            else:
+                counts["pending"] += 1
+        elif not s:
+            counts["unknown"] += 1
         else:
             counts["pending"] += 1
-        if s in _TERMINAL:
+        if s in _WORK_DONE | _WORK_FAILED:
             counts["terminal"] += 1
     return counts
 
@@ -230,15 +265,11 @@ def cohort_source_ids(engine: Any, cohort_id: str) -> set[str]:
     """
     ids: set[str] = set()
     try:
-        rows = engine._control_cypher(
-            "MATCH (t:Task) RETURN t.status as s, t.metadata as meta"
-        )
+        work = engine._ingest_work_item_index()
     except Exception:  # noqa: BLE001 — provenance read is best-effort
         return ids
-    for row in rows or []:
-        if not isinstance(row, dict):
-            continue
-        meta = _decode(row.get("meta"))
+    for item in work.values():
+        meta = item.get("metadata") or {}
         if meta.get("cohort_id") != cohort_id:
             continue
         for key in ("article_id", "node_id", "source_id"):
@@ -293,20 +324,17 @@ def finalize_cohort(engine: Any, cohort_id: str) -> dict[str, Any]:
     )
     matrix = rep.get("feature_matrix") or {}
     st = cohort_member_status(engine, cohort_id)
-    try:
-        engine.add_node(
-            cohort_id,
-            node_type=RegistryNodeType.RESEARCH_COHORT.value,
-            properties={
-                "status": "synthesized",
-                "synthesized_at": datetime.now(UTC).isoformat(),
-                "member_status": json.dumps(st),
-                "feature_matrix": json.dumps(matrix.get("counts", {})),
-                "matrix_node": str(matrix.get("node_id", "")),
-            },
-        )
-    except Exception as e:  # noqa: BLE001 — node update is best-effort
-        logger.debug("cohort %s finalize node update failed: %s", cohort_id, e)
+    _commit_cohort_state(
+        engine,
+        cohort_id,
+        {
+            "status": "synthesized",
+            "synthesized_at": datetime.now(UTC).isoformat(),
+            "member_status": json.dumps(st),
+            "feature_matrix": json.dumps(matrix.get("counts", {})),
+            "matrix_node": str(matrix.get("node_id", "")),
+        },
+    )
     return {
         "cohort_id": cohort_id,
         "members": st,
@@ -344,6 +372,7 @@ __all__ = [
     "cohort_ready",
     "finalize_cohort",
     "cohort_status",
+    "resolve_ephemeral_paper_pdf",
     "SYNTHESIZE_TASK_TYPE",
     "DEFAULT_MAX_WAIT_S",
     "POLL_INTERVAL_S",

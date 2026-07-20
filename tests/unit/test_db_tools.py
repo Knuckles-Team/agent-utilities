@@ -29,59 +29,58 @@ def sqlite_dsn(tmp_path):
     return f"sqlite:///{db}"
 
 
+@pytest.fixture
+def sqlite_ref(sqlite_dsn, monkeypatch):
+    from agent_utilities.security import secrets_client
+
+    class _Secrets:
+        def resolve_ref(self, reference):
+            assert reference == "env://TEST_DATABASE_DSN"
+            return sqlite_dsn
+
+    monkeypatch.setattr(secrets_client, "create_secrets_client", lambda: _Secrets())
+    return "env://TEST_DATABASE_DSN"
+
+
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
 def test_db_tools_registered():
     assert {t.__name__ for t in db_tools} == {"db_tables", "db_schema", "db_query"}
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_db_tables(sqlite_dsn):
-    out = json.loads(asyncio.run(db_tables(None, sqlite_dsn)))
+def test_db_tables(sqlite_ref):
+    out = json.loads(asyncio.run(db_tables(None, sqlite_ref)))
     assert set(out["tables"]) == {"users", "orders"}
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_db_schema(sqlite_dsn):
-    out = json.loads(asyncio.run(db_schema(None, sqlite_dsn)))
+def test_db_schema(sqlite_ref):
+    out = json.loads(asyncio.run(db_schema(None, sqlite_ref)))
     assert out["schema"]["users"] == ["id", "name"]
     assert set(out["schema"]["orders"]) == {"id", "user_id", "total"}
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_db_query_read(sqlite_dsn):
-    out = json.loads(asyncio.run(db_query(None, sqlite_dsn, "SELECT * FROM users")))
+def test_db_query_read(sqlite_ref):
+    out = json.loads(asyncio.run(db_query(None, sqlite_ref, "SELECT * FROM users")))
     assert out["row_count"] == 2
     assert {r["name"] for r in out["rows"]} == {"alice", "bob"}
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_db_query_blocks_writes_by_default(sqlite_dsn):
+def test_db_query_blocks_writes(sqlite_ref):
     for stmt in ("DELETE FROM users", "DROP TABLE users", "UPDATE users SET name='x'"):
-        out = json.loads(asyncio.run(db_query(None, sqlite_dsn, stmt)))
-        assert "blocked" in out.get("error", "")
+        out = json.loads(asyncio.run(db_query(None, sqlite_ref, stmt)))
+        assert out["error"] == "interactive database tools are read-only"
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_db_query_allows_write_when_opted_in(sqlite_dsn, monkeypatch):
-    monkeypatch.setenv("DB_TOOLS_ALLOW_WRITE", "1")
-    out = json.loads(
-        asyncio.run(db_query(None, sqlite_dsn, "DELETE FROM users WHERE id=1"))
-    )
-    assert "error" not in out or "blocked" not in out.get("error", "")
-    remaining = json.loads(
-        asyncio.run(db_query(None, sqlite_dsn, "SELECT * FROM users"))
-    )
-    assert remaining["row_count"] == 1
+def test_literal_connection_is_rejected(sqlite_dsn):
+    out = json.loads(asyncio.run(db_tables(None, sqlite_dsn)))
+    assert out["error"] == "database introspection failed"
 
 
 @pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_dsn_alias_resolves_from_env(monkeypatch, sqlite_dsn):
-    monkeypatch.setenv("WAREHOUSE_DSN", sqlite_dsn)
-    out = json.loads(asyncio.run(db_tables(None, "warehouse")))
-    assert set(out["tables"]) == {"users", "orders"}
-
-
-@pytest.mark.concept("AU-ECO.toolkit.database-traversal-tools")
-def test_empty_query_rejected(sqlite_dsn):
-    out = json.loads(asyncio.run(db_query(None, sqlite_dsn, "   ")))
+def test_empty_query_rejected(sqlite_ref):
+    out = json.loads(asyncio.run(db_query(None, sqlite_ref, "   ")))
     assert out["error"] == "empty query"

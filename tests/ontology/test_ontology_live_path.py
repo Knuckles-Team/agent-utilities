@@ -37,8 +37,8 @@ from agent_utilities.knowledge_graph.ontology.functions import (
 
 @pytest.fixture()
 def kg() -> KnowledgeGraph:
-    """A cheap in-memory facade (no external backend required)."""
-    return KnowledgeGraph(backend_type="memory")
+    """A facade over the current epistemic-graph authority."""
+    return KnowledgeGraph()
 
 
 # ── facade wiring ────────────────────────────────────────────────────────────

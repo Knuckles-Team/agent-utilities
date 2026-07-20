@@ -12,18 +12,39 @@ This package provides:
   microsecond cold starts and linear memory isolation
 """
 
-from .cognitive_scheduler import CognitiveScheduler
-from .release_channel import (
-    ChannelRegistry,
-    ReleaseChannel,
-    active_channel,
-    channel_visible,
-    component_visible,
-    get_component_channel,
-    release_channel,
-    set_active_channel,
-)
-from .wasm_runner import WasmAgentRunner
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+_EXPORTS = {
+    "CognitiveScheduler": ("cognitive_scheduler", "CognitiveScheduler"),
+    "WasmAgentRunner": ("wasm_runner", "WasmAgentRunner"),
+    "ReleaseChannel": ("release_channel", "ReleaseChannel"),
+    "ChannelRegistry": ("release_channel", "ChannelRegistry"),
+    "active_channel": ("release_channel", "active_channel"),
+    "set_active_channel": ("release_channel", "set_active_channel"),
+    "channel_visible": ("release_channel", "channel_visible"),
+    "component_visible": ("release_channel", "component_visible"),
+    "get_component_channel": ("release_channel", "get_component_channel"),
+    "release_channel": ("release_channel", "release_channel"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load one explicitly exported core symbol without importing other runtimes."""
+
+    target = _EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = target
+    value = getattr(import_module(f"{__name__}.{module_name}"), attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_EXPORTS})
 
 __all__ = [
     "CognitiveScheduler",

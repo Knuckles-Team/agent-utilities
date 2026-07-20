@@ -9,8 +9,6 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import requests
-
 from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
     DEFAULT_EMBEDDING_MODEL_ID,
@@ -20,23 +18,42 @@ from .engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
 
-# Default configuration using model registry with fallback to native vLLM embeddings
-_base_url = (DEFAULT_EMBEDDING_BASE_URL or "http://vllm-embed.arpa/v1").rstrip("/")
-LM_STUDIO_URL = f"{_base_url}/embeddings"
-EMBEDDING_MODEL = DEFAULT_EMBEDDING_MODEL_ID or "bge-m3"
+# Endpoints and model identifiers are deployment configuration.  Keeping the
+# unconfigured state explicit prevents maintenance from contacting a baked-in host.
+_base_url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
+LM_STUDIO_URL = f"{_base_url}/embeddings" if _base_url else ""
+EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
 
 
 def generate_embedding(text: str) -> list[float] | None:
-    """Generate embedding vector using local LM Studio."""
+    """Generate an embedding through the configured OpenAI-compatible endpoint."""
+    if not LM_STUDIO_URL or not EMBEDDING_MODEL:
+        logger.warning(
+            "embedding maintenance skipped: configure an embedding endpoint and model"
+        )
+        return None
     try:
+        from agent_utilities.core.http_client import create_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
         payload = {"model": EMBEDDING_MODEL, "input": text}
-        response = requests.post(LM_STUDIO_URL, json=payload, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        trust = resolve_configured_tls_profile("embedding")
+        try:
+            with create_http_client(
+                timeout=10,
+                **trust.httpx_kwargs(),
+            ) as client:
+                response = client.post(LM_STUDIO_URL, json=payload)
+                response.raise_for_status()
+                data = response.json()
+        finally:
+            trust.cleanup()
         if "data" in data and len(data["data"]) > 0:
             return data["data"][0]["embedding"]
     except Exception as e:
-        logger.error(f"Failed to generate embedding: {e}")
+        logger.error("Failed to generate embedding: %s", type(e).__name__)
     return None
 
 
@@ -117,12 +134,13 @@ class GraphMaintainer:
                 )
 
                 try:
-                    from pydantic_ai import Agent
-
+                    from agent_utilities.core.contextual_model import (
+                        create_context_agent,
+                    )
                     from agent_utilities.core.model_factory import create_model
 
                     model = create_model()
-                    agent = Agent(
+                    agent = create_context_agent(
                         model=model,
                         system_prompt=(
                             "You are a conversation synthesis assistant. Summarize the following thread "
@@ -143,7 +161,7 @@ class GraphMaintainer:
 
                 import uuid
 
-                sum_id = f"sum:{uuid.uuid4().hex[:8]}"
+                sum_id = f"sum:{uuid.uuid4().hex}"
                 props = {
                     "id": sum_id,
                     "type": "chat_summary",
@@ -250,8 +268,7 @@ class GraphMaintainer:
 
         import uuid
 
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -260,7 +277,7 @@ class GraphMaintainer:
         # Use an LLM here to summarize
         try:
             model = create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 system_prompt="You are a memory synthesis engine. Summarize the following episode descriptions into a single, highly dense and concise paragraph capturing the core actions, decisions, and outcomes.",
             )
@@ -273,7 +290,7 @@ class GraphMaintainer:
             logger.warning(f"LLM summarization failed, using fallback: {e}")
             summary_text = f"Synthesized summary of {len(episodes)} episodes."
 
-        sum_id = f"sum:{uuid.uuid4().hex[:8]}"
+        sum_id = f"sum:{uuid.uuid4().hex}"
 
         self.engine.backend.execute(
             "CREATE (s:ChatSummary {id: $id, summary_text: $text, timestamp: $ts, importance_score: 0.8})",
@@ -337,8 +354,8 @@ class GraphMaintainer:
             return 0
 
         from pydantic import BaseModel, Field
-        from pydantic_ai import Agent
 
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         class SelfImprovementAction(BaseModel):
@@ -351,7 +368,7 @@ class GraphMaintainer:
 
         try:
             model = create_model()
-            agent = Agent(
+            agent = create_context_agent(
                 model=model,
                 output_type=SelfImprovementAction,
                 system_prompt=(
@@ -377,7 +394,7 @@ class GraphMaintainer:
             ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # Store critique as a Reflection node
-            ref_id = f"ref:improve:{uuid.uuid4().hex[:8]}"
+            ref_id = f"ref:improve:{uuid.uuid4().hex}"
             ref_props = {
                 "id": ref_id,
                 "type": "reflection",
@@ -397,7 +414,7 @@ class GraphMaintainer:
             # Store each recommendation as a Goal node
             goals_count = 0
             for goal_text in data.improvement_goals:
-                goal_id = f"goal:improve:{uuid.uuid4().hex[:8]}"
+                goal_id = f"goal:improve:{uuid.uuid4().hex}"
                 goal_props = {
                     "id": goal_id,
                     "type": "goal",
@@ -442,8 +459,8 @@ class GraphMaintainer:
         agents = self.engine.backend.execute(query_agents) or []
 
         from pydantic import BaseModel, Field
-        from pydantic_ai import Agent as PydanticAgent
 
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         class DreamResult(BaseModel):
@@ -456,7 +473,7 @@ class GraphMaintainer:
 
         try:
             model = create_model()
-            agent = PydanticAgent(
+            agent = create_context_agent(
                 model=model,
                 output_type=DreamResult,
                 system_prompt=(
@@ -479,7 +496,7 @@ class GraphMaintainer:
             ts = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # Store the dream as a permanent Reflection node in the graph
-            dream_id = f"ref:dream:{uuid.uuid4().hex[:8]}"
+            dream_id = f"ref:dream:{uuid.uuid4().hex}"
             dream_props = {
                 "id": dream_id,
                 "type": "reflection",
@@ -538,10 +555,10 @@ class GraphMaintainer:
         """Return ``(src, dst, sim)`` concept pairs above ``threshold``.
 
         Prefers the native ``compute_similarity_edges`` (epistemic-graph, one round-trip over
-        the L0-resident embeddings); falls back to an in-process numpy O(n²) pass over the
+        the engine-resident embeddings); falls back to an in-process numpy O(n²) pass over the
         already-fetched concept embeddings when the native result is empty or the Rust compute
         core is unavailable. The native op reads the Rust engine's resident graph, which may not
-        hold these L1-fetched concepts (TieredGraphBackend sync gap), so an empty native result
+        hold these engine-fetched concepts, so an empty native result
         is disambiguated by the in-hand numpy pass rather than trusted as "no similar pairs".
         Pairs are filtered to the supplied Concept id set.
         """
@@ -573,7 +590,7 @@ class GraphMaintainer:
                         len(pairs),
                     )
                     return pairs
-                # Empty native result: the L0 engine likely doesn't hold these concepts —
+                # Empty native result: the engine likely doesn't hold these concepts —
                 # fall through to numpy over the in-hand embeddings.
             except Exception as e:  # noqa: BLE001 - Rust core unavailable → numpy fallback
                 logger.debug(

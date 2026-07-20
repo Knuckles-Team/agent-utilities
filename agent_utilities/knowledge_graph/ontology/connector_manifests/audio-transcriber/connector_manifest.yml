@@ -1,0 +1,112 @@
+connector: audio-transcriber
+ontology_source: audio
+schema_version: '1'
+resources:
+- name: Transcript
+  label: Transcript
+  id_prefix: transcript
+  relations:
+  - name: transcribedFrom
+    label: transcribed from
+    target: AssetOccurrence
+    lpg_rel_type: ''
+- name: TranscriptSegment
+  label: Transcript Segment
+  id_prefix: transcriptsegment
+  relations:
+  - name: segmentOf
+    label: segment of
+    target: Transcript
+    lpg_rel_type: ''
+actions: []
+events:
+- name: audio-transcripts.updated
+  resource: transcript
+  description: "Watermark event for 'audio-transcripts' \u2014 advances on created_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    transcript: id
+  title_field:
+    transcript: title
+  text_field:
+    transcript: text
+  updated_field:
+    transcript: created_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Transcript:
+    ontology_class: Document
+    fields:
+      duration: xsd:float
+      endTime: xsd:float
+      language: xsd:string
+      languageProbability: xsd:float
+      noSpeechProb: xsd:float
+      startTime: xsd:float
+      task: xsd:string
+      whisperModel: xsd:string
+  TranscriptSegment:
+    ontology_class: null
+    fields:
+      duration: xsd:float
+      endTime: xsd:float
+      language: xsd:string
+      languageProbability: xsd:float
+      noSpeechProb: xsd:float
+      startTime: xsd:float
+      task: xsd:string
+      whisperModel: xsd:string
+sync:
+- preset: audio-transcripts
+  server: audio-transcriber
+  tool: audio_ingest_transcription
+  action: transcribe
+  records_path: documents
+  id_field: id
+  title_field: title
+  text_field: text
+  updated_field: created_at
+  pagination: null
+  doc_type: transcript
+  tool_schema_sha256: 63365388ea53ca6abe45ba7292418e2d8bf0bd45743f0df4cd96dc2ab26367f6
+  raw:
+    server: audio-transcriber
+    tool: audio_ingest_transcription
+    action: transcribe
+    records_path: documents
+    id_field: id
+    title_field: title
+    text_field: text
+    updated_field: created_at
+    doc_type: transcript
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - audio_transcriber/connectors/mcp_source_presets.json
+  - audio_transcriber/connectors/tool_schema_fingerprints.json
+  - audio_transcriber/ontology/audio.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d95ce2eab76d36a6f049b6908af6230b770efdae6bcc3c53db9ee77ac2ffc27f
+    triple_count: 43
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: zrGcMqljCS5xmO5dVzMdgw9ApN_J1DVp-slW0GpbCGvTbzvFdQ-JgFizTQZZfYhKnPHnYC_pW0OA1hMkFVXGDw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'spokenBy' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Transcript.ontology_class = 'Document' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.TranscriptSegment.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."

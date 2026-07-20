@@ -234,7 +234,7 @@ class LintEnforcementHook:
                 return None
 
             report = "\n".join(f"[{r.rule_name}] {r.output[:500]}" for r in failures)
-            logger.info("[ECO-4.3] Lint violations in %s:\n%s", file_path, report)
+            logger.info("[ECO-4.3] Lint violations detected")
 
             return HR(
                 modify_result=f"\n\n⚠️ Lint violations detected:\n{report}"

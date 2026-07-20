@@ -6,9 +6,9 @@ a GenerationNode — CI-safe here with pydantic-ai's TestModel (no network).
 
 from __future__ import annotations
 
-from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.harness import tracing
 from agent_utilities.harness.trace_backend import KGTraceBackend
 
@@ -26,7 +26,7 @@ def test_wrapped_model_records_generation(monkeypatch):
     try:
         wrapped = tracing.wrap_model_for_tracing(TestModel())
         assert type(wrapped).__name__ == "_TracingModel"
-        Agent(wrapped).run_sync("hello")
+        create_context_agent(wrapped).run_sync("hello")
         gens = [g for e in be._traces.values() for g in e["generations"]]
         assert gens, "expected a GenerationNode from the wrapped request"
         assert gens[0].type == "generation"

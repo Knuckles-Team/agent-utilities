@@ -9,6 +9,7 @@ durable outcome persistence.
 
 from __future__ import annotations
 
+import re
 import types
 from typing import Any
 
@@ -23,72 +24,93 @@ from agent_utilities.graph.routing.enrichers.capability_designation import (
     record_capability_outcome,
 )
 
-
-def _make_engine(nodes: dict[str, dict]):
-    """Fake engine exposing graph.node_ids() + graph._get_node_properties()."""
-    graph = types.SimpleNamespace(
-        node_ids=lambda: list(nodes.keys()),
-        _get_node_properties=lambda nid: nodes.get(nid, {}),
-    )
-    return types.SimpleNamespace(graph=graph, backend=None)
-
-
-# Two callable tools, near-orthogonal embeddings; one non-callable node ignored.
 NODES = {
     "tool:search": {
         "type": "tool",
-        "embedding": [1.0, 0.0, 0.0],
         "capabilities": ["web_search"],
+        "tenant": "tenant-a",
+        "policy_tags": ["cleared"],
     },
-    "tool:math": {
-        "type": "tool",
-        "embedding": [0.0, 1.0, 0.0],
-        "capabilities": ["arithmetic"],
-    },
-    "concept:foo": {"type": "concept", "embedding": [0.0, 0.0, 1.0]},  # not callable
+    "tool:math": {"type": "tool", "capabilities": ["arithmetic"]},
 }
 
 
-def test_index_built_only_from_callable_nodes_with_embeddings():
-    engine = _make_engine(NODES)
-    index = build_designation_index(engine)
-    assert index is not None
-    assert len(index) == 2  # the concept node is excluded
+class _Backend:
+    def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
+        self.nodes = nodes
+
+    def execute(self, query: str, params: dict[str, Any] | None = None):
+        params = params or {}
+        node = self.nodes.setdefault(str(params.get("id")), {})
+        if "SET" in query:
+            for prop, param in re.findall(r"n\.(\w+)\s*=\s*\$(\w+)", query):
+                node[prop] = params.get(param)
+            return []
+        return [
+            {
+                alias: node.get(prop)
+                for prop, alias in re.findall(r"n\.(\w+)\s+AS\s+(\w+)", query)
+            }
+        ]
 
 
-def test_designate_returns_best_specialist():
-    engine = _make_engine(NODES)
-    # Query embedding closest to tool:search.
-    out = designate_specialists(
-        engine, "find me a search", k=1, embed_fn=lambda q: [0.95, 0.05, 0.0]
+def _make_engine(nodes: dict[str, dict[str, Any]] | None = None):
+    values = {key: dict(value) for key, value in (nodes or NODES).items()}
+    graph = types.SimpleNamespace(
+        _get_node_properties=lambda node_id: values.get(node_id, {})
     )
-    assert out == ["tool:search"]
+    return types.SimpleNamespace(graph=graph, backend=_Backend(values))
 
 
-def test_capability_filter_restricts_candidates():
-    engine = _make_engine(NODES)
-    out = designate_specialists(
+def test_designate_uses_engine_native_filtered_search(monkeypatch):
+    engine = _make_engine()
+    observed: dict[str, Any] = {}
+
+    def search(_engine, embedding, **kwargs):
+        observed.update(embedding=embedding, **kwargs)
+        return [("tool:math", 0.99)]
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.engine_capability_search."
+        "engine_filtered_search",
+        search,
+    )
+    result = designate_specialists(
         engine,
-        "anything",
-        k=5,
+        "calculate",
+        k=1,
         required_caps=["arithmetic"],
-        embed_fn=lambda q: [0.1, 0.9, 0.0],
+        tenant="tenant-a",
+        policy_tags=["cleared"],
+        embed_fn=lambda _query: [0.0, 1.0],
     )
-    assert out == ["tool:math"]
+    assert result == ["tool:math"]
+    assert observed["required_caps"] == ["arithmetic"]
+    assert observed["tenant"] == "tenant-a"
+    assert observed["policy_tags"] == ["cleared"]
 
 
-def test_graceful_fallback_when_no_embeddings():
-    engine = _make_engine(
-        {"tool:x": {"type": "tool", "capabilities": ["c"]}}  # no embedding
+def test_designate_reports_unavailable_engine_vector_surface(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.retrieval.engine_capability_search."
+        "engine_filtered_search",
+        lambda *_args, **_kwargs: None,
     )
-    assert designate_specialists(engine, "q", embed_fn=lambda q: [1.0]) is None
+    assert (
+        designate_specialists(
+            _make_engine(), "query", embed_fn=lambda _query: [1.0, 0.0]
+        )
+        is None
+    )
 
 
-def test_graceful_fallback_when_no_model_and_no_embed_fn():
-    engine = _make_engine(NODES)
-    # No embed_fn and create_embedding_model unavailable in-test -> None, not raise.
-    out = designate_specialists(engine, "q", embed_fn=lambda q: None)
-    assert out is None
+def test_designate_reports_unavailable_embedding():
+    assert (
+        designate_specialists(
+            _make_engine(), "query", embed_fn=lambda _query: None
+        )
+        is None
+    )
 
 
 def test_index_cached_on_engine():
@@ -328,6 +350,17 @@ def test_record_capability_outcome_updates_inprocess_and_persists_durably():
     assert read_capability_reward(engine, "tool:search") == pytest.approx(updated)
 
 
+def test_record_outcome_persists_to_engine_authority():
+    engine = _make_engine()
+    updated = record_capability_outcome(engine, "tool:search", success=True)
+    assert updated > 0.5
+    from agent_utilities.knowledge_graph.retrieval.durable_outcome_store import (
+        read_capability_reward,
+    )
+
+    assert read_capability_reward(engine, "tool:search") == pytest.approx(updated)
+
+
 def test_record_capability_outcome_never_raises_without_a_backend():
     engine = _make_engine(NODES)
     designate_specialists(engine, "q", embed_fn=lambda q: [1.0, 0.0, 0.0])
@@ -374,3 +407,28 @@ def test_get_designation_index_force_refresh_bypasses_cdc_gating():
     # Even with nothing "changed", an explicit refresh re-derives the index.
     forced = get_designation_index(engine, refresh=True)
     assert forced is not None and len(forced) == 2
+
+
+def test_record_outcome_fails_when_authority_is_unavailable():
+    engine = _make_engine()
+    engine.backend = None
+    with pytest.raises(RuntimeError, match="persistence is unavailable"):
+        record_capability_outcome(engine, "tool:search", success=True)
+
+
+def test_explain_reads_authoritative_node_properties():
+    engine = _make_engine()
+    report = explain_capability_eligibility(
+        engine,
+        "tool:search",
+        required_caps=["web_search"],
+        tenant="tenant-a",
+        policy_tags=["cleared"],
+    )
+    assert report is not None
+    assert report["eligible"] is True
+    assert report["capabilities_matched"] is True
+
+
+def test_explain_unknown_entity_returns_none():
+    assert explain_capability_eligibility(_make_engine(), "missing") is None

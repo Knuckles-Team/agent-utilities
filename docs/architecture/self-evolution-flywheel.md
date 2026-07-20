@@ -214,27 +214,28 @@ human/Claude approves it — review-first by default, exactly as a 24/7 auto-cod
 > The mechanism that makes "every exception you resolve **hardens** the system" real,
 > end-to-end for **one** agent. Modules:
 > `agent_utilities/harness/evolve_agent.py`,
-> `agent_utilities/harness/dspy_optimization.py`,
+> `agent_utilities/harness/program_optimization.py`,
 > `agent_utilities/knowledge_graph/adaptation/feedback.py`. Concepts: AHE-3.71 (gated
 > apply + audit), AU-AHE.harness.when-outcome-names-agent (per-agent attribution), AU-AHE.harness.callers-feed-back-per (the orchestrator).
 
 This converts the previously dormant/stubbed metric→optimize→harden substrate into one
-real, gated **metric → DSPy-optimize → hardened-prompt** cycle for a single agent's
-system prompt. It reuses the existing DSPy / `StructuredPrompt` / reward machinery — no
-new optimizer.
+real, gated **metric → native optimize → hardened-prompt** cycle for a single agent's
+system prompt. It reuses the existing `StructuredPrompt` and reward machinery while the
+engine jobs plane owns compilation and durable evidence.
 
 ### AU-AHE.harness.when-outcome-names-agent — per-agent attribution
 
 When a delegated run produces an outcome, `FeedbackService.record_action_outcome(…,
-agent_id=…)` tags the resulting eval case `agent:<id>` (see
-`adaptation/feedback.py`). Then:
+agent_id=…)` derives an opaque `agent_ref` and tags the resulting eval case with that
+reference (see `adaptation/feedback.py`). The supplied identifier is not copied into
+optimizer or evolution artifacts. Then:
 
 - `FeedbackService.agent_eval_cases(agent_id)` returns the eval-corpus slice attributed
   to that agent — its **measured executions** (expected vs the goal that was reached),
   which double as the training signal and the held-out scoring slice for its prompt.
-- `FeedbackService.build_agent_trainset(agent_id)` turns those into
-  `dspy.Example(context, task) → response` rows (degrading to plain dicts when DSPy is
-  not importable, so it works offline).
+- `FeedbackService.build_agent_trainset(agent_id)` exposes provider-neutral
+  `context`/`task`/`response` rows plus their opaque `example_ref` at the governed corpus
+  boundary.
 
 So an agent's *own real outcomes* — including the ones that failed — become the corpus
 that steers its prompt optimization. Attribution is by **agent**, not just by trace
@@ -246,13 +247,16 @@ signature.
 
 1. **Attribute** — pool the agent's `action_outcome` cases into a per-agent trainset +
    eval slice (AU-AHE.harness.when-outcome-names-agent).
-2. **Optimize** — `run_dspy_optimization` on the `system_prompt` target with that
-   trainset; **degrade gracefully** to the labeled successes as demos when no LM is
-   reachable to compile, so the cycle still hardens the prompt offline.
-3. **Build** — fold the optimized demos into a candidate `StructuredPrompt`
-   (`build_hardened_prompt`).
-4. **Evaluate** — `score_prompt_against_corpus` scores baseline vs candidate against the
-   agent's eval slice.
+2. **Optimize** — `run_program_optimization` on the `system_prompt` target with that
+   trainset. The native request and result contain opaque content, demonstration,
+   evidence, and provenance references—not raw trace examples.
+3. **Build** — validate a reference-only `ProgramCompiledState`. The prompt blueprint and
+   proposal persist this state, while `FeedbackService.resolve_program_demonstrations`
+   materializes selected examples from the governed corpus only for the current execution.
+   The renderer bounds and JSON-encodes each value inside a fixed data delimiter and tells
+   the model never to treat instructions inside an example as policy.
+4. **Evaluate** — `score_prompt_against_corpus` scores the baseline against that ephemeral
+   execution rendering. Resolved example text is discarded after evaluation.
 5. **Decide + apply** — `should_promote(baseline, candidate, min_delta)`, then a **gated**
    apply.
 
@@ -262,8 +266,9 @@ It returns a `PromptHardeningOutcome` (`status` = `applied` | `proposed` | `reje
 ### AHE-3.71 — the gated apply + the audit/approve surface
 
 `EvolveAgent.apply_edits` is no longer a stub. For a `system_prompt` edit carrying a
-DSPy-hardened candidate body it calls `_apply_prompt_edit`, which writes the candidate to
-its `StructuredPrompt` file via `.save()` and commits it — but **only** when *both* hold:
+native reference-only compiled state it calls `_apply_prompt_edit`, which attaches that
+state to its `StructuredPrompt` file via `.save()` and commits it — but **only** when
+*both* hold:
 
 - the candidate **beat baseline** (`edit.metadata["promote"]`), **and**
 - the **`KG_AGENT_AUTO_APPLY`** gate is on (`config.kg_agent_auto_apply`, default `False`
@@ -271,19 +276,32 @@ its `StructuredPrompt` file via `.save()` and commits it — but **only** when *
 
 Off-gate (the default) the cycle is **propose-only**: a queryable, git-diffable
 `ProposedPromptChange` audit record is written under `.specify/proposals/<id>.json`
-(plus a best-effort KG node) carrying the before/after metric, the decision, and the
-held/rejected candidate — and the **live prompt is left untouched**. A prompt rewrite is
-high-impact, so it is never silent. `EvolveAgent.approve_proposed_change(proposal_id)` is
-the steerable human/Claude apply path: a winning prompt can go live **by review** instead
-of by flipping the global flag.
+(plus a best-effort KG node) carrying opaque agent/component/evidence references,
+compiled metadata, the before/after metric, and the decision. It never stores raw trace
+examples, source-system identifiers, or a local path. The **live prompt is left
+untouched**. `EvolveAgent.approve_proposed_change(proposal_ref)` is the steerable reviewed
+apply path: a winning prompt can go live by review instead of by flipping the global gate.
+Approval verifies the proposal integrity reference, revalidates compiled metadata, binds
+the opaque component reference to the in-memory registry, and rejects workspace escapes.
+Background failure-cluster optimization is always review-only even when the global
+auto-apply gate is enabled; only the metric-scored per-agent hardening path can be marked
+automatically eligible.
+
+The same boundary applies to round manifests. `persist_manifest` projects the operational
+`ChangeManifest` into a durable schema containing opaque round/edit/component/task/evidence
+references, scores, booleans, and validated compiled metadata. It omits local paths, raw
+diffs, free-form trace text, and source identifiers; the filename uses a portable digest.
+Deep-analysis output is bounded, must select a registered component type, cannot nominate
+a path, and may reference only task IDs already present in the in-memory evidence corpus.
 
 ```mermaid
 flowchart LR
-    fail["delegated run fails /\nungrounded / escalated"] --> outcome["record_action_outcome\n(agent_id=…) → agent:&lt;id&gt; case\n(AU-AHE.harness.when-outcome-names-agent)"]
-    outcome --> attribute["agent_eval_cases +\nbuild_agent_trainset"]
-    attribute --> optimize["run_dspy_optimization\n(or labeled-successes demos)"]
-    optimize --> build["build_hardened_prompt →\ncandidate StructuredPrompt"]
-    build --> eval["score baseline vs candidate"]
+    fail["delegated run fails /\nungrounded / escalated"] --> outcome["record_action_outcome\n→ opaque agent/example refs"]
+    outcome --> attribute["agent_eval_cases +\nbuild_agent_trainset\n(governed store)"]
+    attribute --> optimize["run_program_optimization\nreference-only request/result"]
+    optimize --> build["validate ProgramCompiledState\n(no raw demonstrations)"]
+    build --> resolve["resolve demonstration refs\nephemerally for execution"]
+    resolve --> eval["score baseline vs execution render"]
     eval --> promote{"should_promote?"}
     promote -- "no" --> rejected["rejected (audit only)"]
     promote -- "yes" --> gate{"KG_AGENT_AUTO_APPLY?"}
@@ -325,7 +343,7 @@ so the walk progressively reconstructs a query-relevant subgraph and self-termin
 dependency-free lexical default (`lexical_relevance` — no torch) and engine-backed
 adapters (`engine_neighbor_fn`, `resolve_seeds`). It is wired into the live path: the
 `entity_context` `"why"` intent natively runs reconstruction (and falls back to the census
-on no seed, so zero regression) — reachable via `graph_analyze action=explain
+on no seed, so zero regression) — reachable via `graph_explain action=explain
 target='entity:why'` and its REST twin. The ontology gains `:ReconstructionTrajectory`
 (the analog of MRAgent's reconstructed memory state).
 

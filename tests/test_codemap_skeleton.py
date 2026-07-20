@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from agent_utilities.models.codemap import CodemapArtifact, CodemapNode
-from agent_utilities.models.codemap import _estimate_tokens
+from agent_utilities.models.codemap import (
+    CodemapArtifact,
+    CodemapNode,
+    _estimate_tokens,
+)
 
 
 def _artifact(n: int) -> CodemapArtifact:
@@ -18,11 +21,11 @@ def _artifact(n: int) -> CodemapArtifact:
         )
         for i in range(n)
     ]
-    return CodemapArtifact(id="x", prompt="map it", mode="fast", nodes=nodes)
+    return CodemapArtifact(id="x", prompt_ref="pref:map", mode="fast", nodes=nodes)
 
 
 def test_empty_artifact_renders_empty():
-    art = CodemapArtifact(id="x", prompt="p", mode="fast", nodes=[])
+    art = CodemapArtifact(id="x", prompt_ref="pref:empty", mode="fast", nodes=[])
     assert art.to_skeleton(100) == ""
 
 

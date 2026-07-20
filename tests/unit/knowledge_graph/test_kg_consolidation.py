@@ -10,11 +10,11 @@ Covers:
 * ``SynthesisProposal`` construction and confidence bounds.
 * ``SynthesisProposal.compute_signature`` is stable and
   order-independent over ``evidence_node_ids``.
-* ``EpisodeToPreferenceRule.detect`` produces the expected number of
+* ``EpisodeToPreferenceRule.detect`` (compatibility name) consumes canonical traces and produces the expected number of
   proposals on a synthetic in-memory graph.
 * Rule respects ``min_evidence_count`` (below-threshold scenarios emit 0
   proposals).
-* Rule skips episodes with outcome below ``reward_threshold``.
+* Rule skips traces with outcome below ``reward_threshold``.
 * ``SynthesisEngine.run`` isolates broken rules (per §4.2).
 * ``SynthesisEngine.dedup_by_signature`` removes duplicates.
 """
@@ -38,10 +38,9 @@ def _make_episode(
     tool_name: str,
     reward: float,
 ) -> None:
-    """Wire up one (Episode)-[:USED_TOOL]->(ToolCall) +
-    (Episode)-[:PRODUCED_OUTCOME]->(OutcomeEvaluation) triplet.
+    """Wire up one canonical RunTrace/ToolCall/OutcomeEvaluation triplet.
     """
-    g.add_node(episode_id, type="episode", timestamp="2026-01-01T00:00:00Z")
+    g.add_node(episode_id, type="RunTrace", timestamp="2026-01-01T00:00:00Z")
     tool_id = f"tc:{episode_id}"
     outcome_id = f"oc:{episode_id}"
     g.add_node(tool_id, type="tool_call", tool_name=tool_name)

@@ -124,7 +124,7 @@ def _persist_message(engine: Any, channel_id: str, sender: str, payload: str) ->
         return
     sid, run_id = _parse_channel_id(channel_id)
     snode = f"session:{sid}"
-    mid = f"msg:{sid}:{run_id}:{uuid.uuid4().hex[:8]}"
+    mid = f"msg:{sid}:{run_id}:{uuid.uuid4().hex}"
     with contextlib.suppress(Exception):
         add_node(
             mid,

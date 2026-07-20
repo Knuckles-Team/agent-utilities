@@ -294,10 +294,8 @@ def main():
             if f.endswith(".md") and os.path.exists(f):
                 files_to_scan.append(f)
     else:
-        # Scan recursively under current working directory or /home/apps/workspace/agent-packages/
-        scan_dir = "."
-        if os.path.exists("/home/apps/workspace/agent-packages"):
-            scan_dir = "/home/apps/workspace/agent-packages"
+        # Scan recursively under an explicit fleet root or the current directory.
+        scan_dir = os.environ.get("AGENT_PACKAGES_ROOT", ".")
 
         for root, dirs, files in os.walk(scan_dir):
             dirs[:] = [d for d in dirs if d not in excludes and not d.startswith(".")]

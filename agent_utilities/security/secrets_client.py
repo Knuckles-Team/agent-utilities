@@ -12,17 +12,15 @@ Provides encrypted secrets storage with two backends:
   store. Secrets live as ``:Secret`` nodes in a dedicated ``__secrets__``
   epistemic-graph graph; the secret VALUE is held as an **encrypted node
   property** (sealed by the engine's encryption-at-rest, CONCEPT:EG-KG.sharding.row-level-security
-  ChaCha20-Poly1305 over redb value blobs, keyed by
-  ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + KMS seam). The key NAME and metadata stay
+  ChaCha20-Poly1305 over redb value blobs, keyed through the
+  ``EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF`` launcher boundary + KMS seam). The key NAME and metadata stay
   queryable plaintext. There is **no local-disk / RAM fallback**: even the
   zero-infra ``tiny`` profile gets a real engine, because
-  ``GraphComputeEngine`` auto-starts the pre-bundled pi-tier engine binary on
-  demand (the OS-5.63 resolver) — the pi wheel ships the encrypted store too.
+  ``GraphComputeEngine`` auto-starts the full engine artifact installed by the
+  hard-base ``epistemic-graph[full]>=2.23.1,<3.0.0`` dependency on demand (the
+  OS-5.63 resolver); that artifact includes the encrypted store.
 - **VaultBackend**: HashiCorp Vault / OpenBao integration via ``hvac`` — the
   enterprise path (UNTOUCHED by OS-5.66).
-
-:class:`SQLiteBackend` remains ONLY as the read source for the one-time on-disk
-migration off the legacy ``secrets.db``; it is never selected as a live backend.
 
 Usage::
 
@@ -36,20 +34,16 @@ URI reference resolution::
 
     client.resolve_ref("vault://agents/mcp/gitlab/token")
     client.resolve_ref("env://GITLAB_TOKEN")
-    client.resolve_ref("sqlite://gitlab/token")
 """
 
 
 import abc
-import contextlib
 import json
 import logging
-import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from cryptography.fernet import Fernet, InvalidToken
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from agent_utilities.core.config import setting
 
@@ -58,7 +52,7 @@ logger = logging.getLogger(__name__)
 #: The dedicated engine graph that holds secret nodes, isolated from all other
 #: content/control-plane writes (mirrors the ``__control__`` isolation pattern,
 #: CONCEPT:AU-KG.backend.schedule-on-control-graph). Its value blobs are sealed by the engine's
-#: encryption-at-rest when ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` is configured.
+#: encryption-at-rest when the launcher resolves its external data-key reference.
 #: (Named ``__secrets__`` — a system ``__…__`` graph like ``__control__`` /
 #: ``__commons__`` — kept as a single constant so the dedicated-graph name is the
 #: one place to change it.)
@@ -89,13 +83,11 @@ class SecretsConfig(BaseModel):
     CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
 
-    backend: str = Field(
-        default="inmemory",
-        description="Backend type: 'inmemory', 'sqlite', or 'vault'.",
-    )
-    sqlite_path: str | None = Field(
-        default=None,
-        description="Path to SQLite secrets database (used with 'sqlite' backend).",
+    model_config = ConfigDict(extra="forbid")
+
+    backend: Literal["engine", "vault"] = Field(
+        default="engine",
+        description="Backend type: encrypted engine storage or 'vault'.",
     )
     vault_url: str | None = Field(
         default=None,
@@ -141,10 +133,6 @@ class SecretsConfig(BaseModel):
     vault_k8s_sa_token_path: str = Field(
         default="/var/run/secrets/kubernetes.io/serviceaccount/token",
         description="Path to the Kubernetes service account token file.",
-    )
-    master_key: str | None = Field(
-        default=None,
-        description="Master encryption key (base64-encoded Fernet key). Auto-generated if omitted.",
     )
 
 
@@ -195,24 +183,25 @@ class InEpistemicGraphBackend(SecretsBackend):
     Secrets are stored as ``:Secret`` nodes in a dedicated ``__secrets__``
     epistemic-graph graph (isolated from all other content/control-plane
     writes — cf. the ``__control__`` pattern, CONCEPT:AU-KG.backend.schedule-on-control-graph). The split
-    mirrors :class:`SQLiteBackend`:
+    separates queryable metadata from the encrypted value:
 
     - the secret **value** is held as the encrypted ``value`` node property —
       sealed on disk by the engine's encryption-at-rest (CONCEPT:EG-KG.sharding.row-level-security,
-      ChaCha20-Poly1305 over redb value blobs, keyed by
-      ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` + the KMS seam);
+      ChaCha20-Poly1305 over redb value blobs, keyed through the
+      ``EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF`` launcher boundary + KMS seam);
     - the key **name** and **metadata** stay queryable plaintext properties
       (``key``, ``metadata``, ``label``) so ``list``/lookup work over the
       engine's labeled-fetch without decrypting anything.
 
-    The master key is no longer a sibling ``.key`` file co-located with the
-    ciphertext: the engine resolves ``EPISTEMIC_GRAPH_ENCRYPTION_KEY`` (or its
-    KMS) at the storage layer, so the key and the ciphertext live apart.
+    AgentConfig retains only the external reference. The launcher resolves and
+    validates it immediately before spawning a local Rust child; the raw value
+    is neither an AgentConfig field nor inherited ambient process state.
 
     This is the secret store in *every* profile. There is no local-disk / RAM
-    fallback: ``GraphComputeEngine`` auto-starts the pre-bundled pi-tier engine
-    on demand (the OS-5.63 resolver), so an engine — and therefore the encrypted
-    ``__secrets__`` graph — is always available, even on a Pi.
+    fallback: ``GraphComputeEngine`` auto-starts the mandatory full engine
+    artifact on demand (the OS-5.63 resolver), so an engine — and therefore the
+    encrypted ``__secrets__`` graph — is always available, including on supported
+    constrained hosts.
     """
 
     def __init__(self, graph: Any | None = None) -> None:
@@ -221,7 +210,9 @@ class InEpistemicGraphBackend(SecretsBackend):
                 GraphComputeEngine,
             )
 
-            graph = GraphComputeEngine(graph_name=SECRETS_GRAPH, backend_type="rust")
+            graph = GraphComputeEngine.get_or_create(
+                graph_name=SECRETS_GRAPH, backend_type="rust"
+            )
         self._graph = graph
 
     def get(self, key: str) -> str | None:
@@ -242,14 +233,14 @@ class InEpistemicGraphBackend(SecretsBackend):
                 "metadata": json.dumps(metadata) if metadata else "{}",
             },
         )
-        logger.info("Secret '%s' stored (engine, graph=%s).", key, SECRETS_GRAPH)
+        logger.info("Secret stored in the engine backend")
 
     def delete(self, key: str) -> bool:
         nid = _node_id(key)
         existed = self._graph.has_node(nid)
         if existed:
             self._graph.remove_node(nid)
-            logger.info("Secret '%s' deleted (engine).", key)
+            logger.info("Secret deleted from the engine backend")
         return existed
 
     def list_keys(self) -> list[str]:
@@ -259,92 +250,6 @@ class InEpistemicGraphBackend(SecretsBackend):
             if isinstance(props, dict) and isinstance(props.get("key"), str):
                 keys.append(props["key"])
         return sorted(keys)
-
-
-# ---------------------------------------------------------------------------
-# SQLite Backend (persistent)
-# ---------------------------------------------------------------------------
-
-
-class SQLiteBackend(SecretsBackend):
-    """Persistent SQLite backend with Fernet field-level encryption.
-
-    Secret *values* are encrypted; key names and metadata are stored in
-    plaintext for queryability.  The DB file itself should live in a
-    user-private directory (e.g. ``~/.agent-utilities/secrets.db``).
-
-    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-    """
-
-    def __init__(
-        self,
-        db_path: str | Path = "~/.agent-utilities/secrets.db",
-        master_key: bytes | None = None,
-    ) -> None:
-        self._db_path = Path(db_path).expanduser()
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if master_key is None:
-            # Derive from env or generate and persist alongside the DB.
-            key_file = self._db_path.with_suffix(".key")
-            if key_file.exists():
-                master_key = key_file.read_bytes().strip()
-            else:
-                master_key = Fernet.generate_key()
-                key_file.write_bytes(master_key)
-                # Best-effort restrictive permissions.
-                try:
-                    key_file.chmod(0o600)
-                except OSError:
-                    pass
-
-        self._fernet = Fernet(master_key)
-        self._conn = sqlite3.connect(str(self._db_path))
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS secrets ("
-            "  key TEXT PRIMARY KEY,"
-            "  value BLOB NOT NULL,"
-            "  metadata TEXT DEFAULT '{}'"
-            ")"
-        )
-        self._conn.commit()
-        logger.info("SQLite secrets backend initialised at %s", self._db_path)
-
-    def get(self, key: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT value FROM secrets WHERE key = ?", (key,)
-        ).fetchone()
-        if row is None:
-            return None
-        try:
-            return self._fernet.decrypt(row[0]).decode()
-        except InvalidToken:
-            logger.warning(
-                "Failed to decrypt secret '%s' from SQLite — corrupt or wrong key.", key
-            )
-            return None
-
-    def set(self, key: str, value: str, **metadata: Any) -> None:
-        encrypted = self._fernet.encrypt(value.encode())
-        meta_json = json.dumps(metadata) if metadata else "{}"
-        self._conn.execute(
-            "INSERT OR REPLACE INTO secrets (key, value, metadata) VALUES (?, ?, ?)",
-            (key, encrypted, meta_json),
-        )
-        self._conn.commit()
-        logger.info("Secret '%s' stored (SQLite).", key)
-
-    def delete(self, key: str) -> bool:
-        cursor = self._conn.execute("DELETE FROM secrets WHERE key = ?", (key,))
-        self._conn.commit()
-        deleted = cursor.rowcount > 0
-        if deleted:
-            logger.info("Secret '%s' deleted (SQLite).", key)
-        return deleted
-
-    def list_keys(self) -> list[str]:
-        rows = self._conn.execute("SELECT key FROM secrets ORDER BY key").fetchall()
-        return [r[0] for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -423,13 +328,7 @@ class VaultBackend(SecretsBackend):
         # Authenticate using the configured method
         self._authenticate(static_token)
 
-        logger.info(
-            "Vault backend initialised at %s (mount: %s, auth: %s, prefix: %s)",
-            url,
-            mount_point,
-            self._auth_method,
-            self._path_prefix or "<root>",
-        )
+        logger.info("Vault backend initialised auth_method=%s", self._auth_method)
 
     # -- Authentication strategies -----------------------------------------
 
@@ -514,15 +413,13 @@ class VaultBackend(SecretsBackend):
             import time as _time
 
             self._token_auth_time = _time.monotonic()
-            logger.info(
-                "Vault: OIDC/JWT auth successful (mount: %s, role: %s, ttl: %ss)",
-                self._auth_mount,
-                self._role,
-                self._token_lease_duration,
-            )
+            logger.info("Vault OIDC/JWT authentication succeeded")
             return True
         except Exception as e:
-            logger.debug("Vault OIDC auth failed: %s", e, exc_info=True)
+            logger.debug(
+                "Vault OIDC authentication failed (exception_type=%s)",
+                type(e).__name__,
+            )
             return False
 
     def _try_approle(self) -> bool:
@@ -542,7 +439,10 @@ class VaultBackend(SecretsBackend):
             logger.info("Vault: AppRole auth successful.")
             return True
         except Exception as e:
-            logger.debug("Vault AppRole auth failed: %s", e, exc_info=True)
+            logger.debug(
+                "Vault AppRole authentication failed (exception_type=%s)",
+                type(e).__name__,
+            )
             return False
 
     def _try_kubernetes(self) -> bool:
@@ -564,7 +464,10 @@ class VaultBackend(SecretsBackend):
             logger.info("Vault: Kubernetes auth successful.")
             return True
         except Exception as e:
-            logger.debug("Vault Kubernetes auth failed: %s", e, exc_info=True)
+            logger.debug(
+                "Vault Kubernetes authentication failed (exception_type=%s)",
+                type(e).__name__,
+            )
             return False
 
     def _ensure_authenticated(self) -> None:
@@ -598,15 +501,19 @@ class VaultBackend(SecretsBackend):
 
     def get(self, key: str) -> str | None:
         self._ensure_authenticated()
-        full_key = self._full_path(key)
+        path, separator, field = key.partition("#")
+        full_key = self._full_path(path)
         try:
             resp = self._client.secrets.kv.v2.read_secret_version(
                 path=full_key, mount_point=self._mount
             )
             data = resp.get("data", {}).get("data", {})
-            return data.get("value")
-        except Exception:
-            logger.debug("Vault get('%s') failed.", full_key, exc_info=True)
+            return data.get(field if separator else "value")
+        except Exception as exc:
+            logger.debug(
+                "Vault secret lookup failed (exception_type=%s)",
+                type(exc).__name__,
+            )
             return None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:
@@ -618,7 +525,7 @@ class VaultBackend(SecretsBackend):
         self._client.secrets.kv.v2.create_or_update_secret(
             path=full_key, secret=secret_data, mount_point=self._mount
         )
-        logger.info("Secret '%s' stored (Vault, path: %s).", key, full_key)
+        logger.info("Secret stored in the configured vault backend")
 
     def delete(self, key: str) -> bool:
         self._ensure_authenticated()
@@ -627,7 +534,7 @@ class VaultBackend(SecretsBackend):
             self._client.secrets.kv.v2.delete_metadata_and_all_versions(
                 path=full_key, mount_point=self._mount
             )
-            logger.info("Secret '%s' deleted (Vault, path: %s).", key, full_key)
+            logger.info("Secret deleted from the configured vault backend")
             return True
         except Exception:
             return False
@@ -658,8 +565,8 @@ class SecretsClient:
 
     - ``get_or_env(key, env_var)`` — falls back to ``os.environ`` if the
       key is not in the backend.
-    - ``resolve_ref(uri)`` — resolves ``vault://``, ``env://``, and plain
-      key references.
+    - ``resolve_ref(uri)`` — resolves bounded ``vault://``, ``secret://``, and
+      ``env://`` runtime references.
     - Typed ``get_secret()`` returning a ``SecretValue`` Pydantic model.
     """
 
@@ -722,26 +629,30 @@ class SecretsClient:
 
         - ``vault://path/to/secret`` → backend lookup
         - ``env://VAR_NAME`` → ``setting(VAR_NAME)``
-        - ``sqlite://key`` → backend lookup
-        - Plain string → backend lookup
-
         Args:
             ref: Secret reference string.
 
         Returns:
             The resolved secret value, or ``None``.
         """
-        if ref.startswith("env://"):
-            var_name = ref[len("env://") :]
+        scheme, separator, target = str(ref or "").strip().partition("://")
+        if (
+            not separator
+            or scheme not in {"env", "vault", "secret"}
+            or not target
+            or len(ref.encode("utf-8")) > 1_024
+            or any(character.isspace() or ord(character) < 32 for character in ref)
+            or ".." in target.split("/")
+        ):
+            raise ValueError("runtime secret reference is invalid")
+        if scheme == "env":
+            if not target.replace("_", "a").isalnum() or target[0].isdigit():
+                raise ValueError("runtime secret reference is invalid")
+            var_name = target
             return setting(var_name)
-        if ref.startswith("vault://") or ref.startswith("secret://"):
-            key = ref.split("://", 1)[1]
-            return self._backend.get(key)
-        if ref.startswith("sqlite://"):
-            key = ref[len("sqlite://") :]
-            return self._backend.get(key)
-        # Plain key
-        return self._backend.get(ref)
+        if not all(character.isalnum() or character in "_./#-" for character in target):
+            raise ValueError("runtime secret reference is invalid")
+        return self._backend.get(target)
 
     def vault_sync(
         self,
@@ -766,7 +677,7 @@ class SecretsClient:
            caller can drop resolvable refs straight into ``config.json`` (they
            round-trip through :meth:`resolve_ref`).
 
-        Backend-agnostic: works against vault/sqlite/inmemory via the same
+        Backend-agnostic: works against Vault or encrypted engine storage via the same
         ``get``/``set`` contract — ``vault://`` is just the canonical ref scheme.
 
         Args:
@@ -811,66 +722,6 @@ class SecretsClient:
 
 
 # ---------------------------------------------------------------------------
-# One-time on-disk migration off the legacy ``secrets.db``
-# ---------------------------------------------------------------------------
-
-
-def _legacy_sqlite_path() -> Path:
-    return Path("~/.agent-utilities/secrets.db").expanduser()
-
-
-def _migrate_legacy_sqlite(backend: InEpistemicGraphBackend) -> int:
-    """One-time migration: legacy ``secrets.db`` → the encrypted ``__secrets__`` graph.
-
-    CONCEPT:AU-OS.identity.encrypted-secret-store — the No-Legacy on-disk exception (read-old → write-new →
-    delete-old). On first engine-backed boot, if the old Fernet SQLite store
-    exists, decrypt every secret via its sibling ``.key`` file, write it into the
-    engine-backed encrypted store, then delete the db + key file. Idempotent: if
-    the files are gone, this is a no-op.
-
-    Returns the number of secrets migrated.
-    """
-    db_path = _legacy_sqlite_path()
-    if not db_path.exists():
-        return 0
-    key_file = db_path.with_suffix(".key")
-    try:
-        legacy = SQLiteBackend(db_path=db_path)
-        migrated = 0
-        for key in legacy.list_keys():
-            value = legacy.get(key)
-            if value is None:
-                continue
-            backend.set(key, value)
-            migrated += 1
-        # Release the SQLite handle before deleting the files.
-        with contextlib.suppress(Exception):
-            legacy._conn.close()
-    except Exception:
-        logger.exception(
-            "Legacy secrets migration failed; leaving %s in place.", db_path
-        )
-        return 0
-
-    for path in (
-        db_path,
-        key_file,
-        db_path.with_suffix(".db-wal"),
-        db_path.with_suffix(".db-shm"),
-    ):
-        with contextlib.suppress(OSError):
-            if path.exists():
-                path.unlink()
-    logger.info(
-        "Migrated %d secret(s) from %s into the encrypted __secrets__ graph "
-        "and removed the legacy db + key file.",
-        migrated,
-        db_path,
-    )
-    return migrated
-
-
-# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -883,25 +734,23 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
 
     The backend is selected by ``config.backend``:
 
-    - ``"inmemory"`` (default everywhere): the durable engine-backed
-      ``__secrets__`` store (the OS-5.63 resolver auto-starts the pi-tier engine
-      when nothing is running, so this works even in the ``tiny`` profile), with
-      a one-time legacy ``secrets.db`` migration on first boot. No local-disk /
-      RAM fallback.
+    - ``"engine"`` (default everywhere): the durable engine-backed
+      ``__secrets__`` store (the OS-5.63 resolver auto-starts the mandatory full
+      engine artifact when nothing is running, so this works in every profile). No
+      local-disk / RAM fallback.
     - ``"vault"``: HashiCorp Vault / OpenBao KV v2 (enterprise, UNTOUCHED).
 
     Args:
         config: Secrets configuration. If ``None``, reads from environment
-            variables (``SECRETS_BACKEND``, ``SECRETS_SQLITE_PATH``,
-            ``SECRETS_VAULT_URL``, ``SECRETS_VAULT_MOUNT``).
+            variables (``SECRETS_BACKEND``, ``SECRETS_VAULT_URL``,
+            ``SECRETS_VAULT_MOUNT``).
 
     Returns:
         A configured ``SecretsClient`` instance.
     """
     if config is None:
         config = SecretsConfig(
-            backend=setting("SECRETS_BACKEND", "inmemory"),
-            sqlite_path=setting("SECRETS_SQLITE_PATH"),
+            backend=setting("SECRETS_BACKEND", "engine"),
             vault_url=setting("SECRETS_VAULT_URL"),
             vault_mount=setting("SECRETS_VAULT_MOUNT", "secret"),
             vault_auth_method=setting("VAULT_AUTH_METHOD", "auto"),
@@ -914,7 +763,6 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
                 "VAULT_K8S_SA_TOKEN_PATH",
                 "/var/run/secrets/kubernetes.io/serviceaccount/token",
             ),
-            master_key=setting("AGENT_SECRETS_MASTER_KEY"),
         )
 
     if config.backend == "vault":
@@ -934,11 +782,10 @@ def create_secrets_client(config: SecretsConfig | None = None) -> SecretsClient:
         return SecretsClient(backend=backend)
 
     # Default everywhere: the durable engine-backed encrypted ``__secrets__``
-    # store. The OS-5.63 resolver auto-starts the pi-tier engine when nothing is
-    # running, so this is the store even in the zero-infra ``tiny`` profile —
+    # store. The OS-5.63 resolver auto-starts the mandatory full engine artifact
+    # when nothing is running, so this is the store in every profile —
     # there is no local-disk / RAM fallback (CONCEPT:AU-OS.identity.encrypted-secret-store).
     engine_backend = InEpistemicGraphBackend()
-    _migrate_legacy_sqlite(engine_backend)
     logger.info("SecretsClient initialised with engine-backed backend.")
     return SecretsClient(backend=engine_backend)
 

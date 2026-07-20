@@ -3,22 +3,22 @@ from __future__ import annotations
 
 """Tool Guard Module.
 
-This module implements a security middleware layer for agent tools. It provides
-pattern-based sensitivity detection and integrates with pydantic-ai's
-Human-in-the-Loop mechanism to enforce explicit user approval for
-high-risk operations.
+This module implements a security middleware layer for agent tools. It combines
+identity policy, ontological guardrails, and pydantic-ai's Human-in-the-Loop
+mechanism. Pattern sensitivity is limited to native function-tool annotation;
+MCP authorization is identity-policy based.
 
 Two mechanisms are provided:
 
 1. :func:`apply_tool_guard_approvals` — flags *function* tools (``@agent.tool``)
    with ``requires_approval=True``.  Used for the top-level agent.
-2. :func:`build_sensitive_tool_names` + :func:`flag_mcp_tool_definitions` —
-   builds a set of sensitive tool names from the NODE_AGENTS.md registry
-   (``requires_approval`` column) **and** live pattern matching, then wraps
-   MCP toolsets with pydantic-ai's ``ApprovalRequiredToolset``.  When a
-   sensitive tool is called, ``ApprovalRequired`` is raised (unless
-   ``ctx.tool_call_approved`` is already ``True``), causing pydantic-ai to
-   return ``DeferredToolRequests`` instead of executing the tool.
+2. :func:`flag_mcp_tool_definitions` — requires a signed agent identity and
+   ``PermissionsKernel``, then wraps MCP and explicitly marked in-process
+   GraphOS toolsets with pydantic-ai's
+   ``ApprovalRequiredToolset``. DENY fails closed, REQUIRE_APPROVAL yields a
+   deferred request, and ALLOW executes. Missing identity policy is rejected.
+   :func:`build_sensitive_tool_names` remains the registry projection helper
+   for native tool metadata; it is not an MCP authorization fallback.
 """
 
 
@@ -30,9 +30,16 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     pass
 
-from pydantic_ai import Agent
-
 logger = logging.getLogger(__name__)
+
+
+def is_identity_governed_toolset(toolset: Any) -> bool:
+    """Return whether a toolset requires the signed identity-policy wrapper."""
+
+    if hasattr(toolset, "list_tools") or hasattr(toolset, "direct_call_tool"):
+        return True
+    metadata = getattr(toolset, "metadata", None)
+    return isinstance(metadata, dict) and metadata.get("graphos_native") is True
 
 
 def is_sensitive_tool(name: str) -> bool:
@@ -70,12 +77,9 @@ def is_safe_tool(name: str) -> bool:
 def build_sensitive_tool_names() -> set[str]:
     """Build the authoritative set of tool names that require approval.
 
-    Merges two sources:
-
-    1. **Knowledge Graph** — tools where ``requires_approval`` is True.
-    2. **Live pattern matching** — any tool name matching
-       ``SENSITIVE_TOOL_PATTERNS`` is included even if the graph hasn't
-       been re-synced yet.
+    Projects tools whose discovery-registry metadata sets
+    ``requires_approval=True``. MCP authorization does not consume this set;
+    it is decided by ``PermissionsKernel`` and the signed caller identity.
 
     Returns:
         A set of lowercase tool names that should be flagged for approval.
@@ -138,9 +142,7 @@ def check_ontological_guardrails(
                         for target in targets:
                             if restricted_target in target:
                                 logger.warning(
-                                    "Ontological Guardrail (KG): Blocked target '%s' matching policy '%s' in tool '%s'",
-                                    target,
-                                    ndata.get("name", nid),
+                                    "Ontological Guardrail (KG): blocked a policy-matched target in tool '%s'",
                                     tool_name,
                                 )
                                 return True
@@ -151,67 +153,70 @@ def check_ontological_guardrails(
             for kw in restricted_keywords:
                 if kw in target:
                     logger.warning(
-                        "Ontological Guardrail (Fallback): Flagged restricted target '%s' in tool '%s'",
-                        target,
+                        "Ontological Guardrail (Fallback): flagged a restricted target in tool '%s'",
                         tool_name,
                     )
                     return True
     except Exception as e:
-        logger.debug("Ontological guardrail query skipped: %s", e)
+        logger.warning(
+            "Ontological guardrail evaluation failed closed (%s)",
+            type(e).__name__,
+        )
+        # If a caller supplied a policy engine, an unavailable/malformed policy
+        # graph is an enforcement outage, not permission to execute.
+        if engine is not None:
+            raise PermissionError(
+                "Ontological guardrail unavailable; execution denied"
+            ) from None
 
     return False
 
 
 def flag_mcp_tool_definitions(
     toolsets: list[Any],
-    sensitive_names: set[str] | None = None,
-    permissions_kernel: Any | None = None,
-    agent_identity: Any | None = None,
+    *,
+    permissions_kernel: Any,
+    agent_identity: Any,
     engine: Any | None = None,
 ) -> list[Any]:
-    """Wrap MCP toolsets so sensitive tools require human approval.
+    """Wrap MCP/native-GraphOS toolsets with mandatory identity authorization.
 
     Uses pydantic-ai's native :class:`ApprovalRequiredToolset` wrapper.
-    When a specialist agent calls a sensitive tool, the wrapper raises
-    ``ApprovalRequired`` (unless ``ctx.tool_call_approved`` is already
-    ``True`` from a prior approval round).  This causes pydantic-ai to
-    return ``DeferredToolRequests`` instead of executing the tool.
+    When policy requires approval, the wrapper raises ``ApprovalRequired``
+    (unless ``ctx.tool_call_approved`` is already ``True`` from a prior
+    approval round). This causes pydantic-ai to return
+    ``DeferredToolRequests`` instead of executing the tool.
 
-    The ``approval_required_func`` checks:
-    1. **Identity-based policy** (CONCEPT:AU-OS.state.cognitive-scheduler-preemption): If a ``PermissionsKernel`` and
-       ``AgentIdentity`` are provided, the kernel's role-based policy
-       takes precedence.  DENY → raise, REQUIRE_APPROVAL → True.
-    2. **Pattern-based fallback**: If no kernel is available or the
-       identity check returns ALLOW, falls back to the existing
-       NODE_AGENTS.md registry (``sensitive_names``) and live pattern
-       matching (``is_sensitive_tool``).
+    The ``approval_required_func`` applies the mandatory identity policy
+    (CONCEPT:AU-OS.state.cognitive-scheduler-preemption): DENY raises,
+    REQUIRE_APPROVAL returns true, and ALLOW returns false.
 
     Args:
-        toolsets: The original list of MCP toolsets to wrap.
-        sensitive_names: Pre-built set from :func:`build_sensitive_tool_names`.
-            If ``None``, pattern matching alone is used.
-        permissions_kernel: Optional ``PermissionsKernel`` for identity-based
+        toolsets: The original toolsets. MCP transports and toolsets carrying
+            the internal ``graphos_native`` marker are wrapped; unrelated
+            function toolsets remain unchanged.
+        permissions_kernel: Required ``PermissionsKernel`` for identity-based
             authorization (CONCEPT:AU-OS.identity.identity-policy-check).
-        agent_identity: Optional ``AgentIdentity`` for the calling agent.
+        agent_identity: Required signed ``AgentIdentity`` for the calling agent.
         engine: Optional KG engine for ontological guardrails.
 
     Returns:
-        A new list of toolsets where MCP toolsets are wrapped with
+        A new list where governed MCP/native GraphOS toolsets are wrapped with
         ``ApprovalRequiredToolset``.
 
     """
-    from agent_utilities.core.config import TOOL_GUARD_MODE
-
-    if TOOL_GUARD_MODE == "off":
+    governed_toolsets = [ts for ts in toolsets if is_identity_governed_toolset(ts)]
+    if not governed_toolsets:
         return toolsets
-
-    if sensitive_names is None:
-        sensitive_names = set()
+    if permissions_kernel is None or agent_identity is None:
+        raise PermissionError("Tool identity policy is required")
 
     try:
         from pydantic_ai.toolsets.approval_required import ApprovalRequiredToolset
-    except ImportError:
-        return toolsets
+    except ImportError as exc:
+        raise RuntimeError(
+            "Tool guard is enabled but the MCP approval wrapper is unavailable"
+        ) from exc
 
     def _requires_approval(
         _ctx: Any, tool_def: Any, _tool_args: dict[str, Any]
@@ -222,28 +227,38 @@ def flag_mcp_tool_definitions(
         if check_ontological_guardrails(name, _tool_args, engine=engine):
             return True
 
-        # CONCEPT:AU-OS.identity.identity-policy-check — Identity-based policy check (highest priority)
-        if permissions_kernel and agent_identity:
-            try:
-                decision = permissions_kernel.authorize_tool(agent_identity, name)
-                if str(decision) == "deny":
-                    # Deny = require approval (let the approval manager handle it)
-                    return True
-                if str(decision) == "require_approval":
-                    return True
-                if str(decision) == "allow":
-                    # Explicit allow from identity policy — skip pattern check
-                    return False
-            except Exception:
-                pass  # nosec B110 # Fall through to pattern matching
-
-        # Pattern-based fallback
-        return name.lower() in sensitive_names or is_sensitive_tool(name)
+        # CONCEPT:AU-OS.identity.identity-policy-check — mandatory identity policy.
+        try:
+            metadata = getattr(tool_def, "metadata", None)
+            required_capability = getattr(tool_def, "required_capability", None)
+            if required_capability is None and isinstance(metadata, dict):
+                required_capability = metadata.get("required_capability")
+            decision = permissions_kernel.authorize_tool(
+                agent_identity,
+                name,
+                required_capability=required_capability,
+            )
+            decision_value = getattr(decision, "value", decision)
+            decision_name = str(decision_value).strip().lower().rsplit(".", 1)[-1]
+            if decision_name == "deny":
+                # A hard authorization denial is not an approval request.
+                # Converting it to HITL would let an approver bypass RBAC.
+                raise PermissionError("Tool execution denied by identity policy")
+            if decision_name == "require_approval":
+                return True
+            if decision_name == "allow":
+                return False
+            raise PermissionError("Tool authorization returned no valid decision")
+        except PermissionError:
+            raise
+        except Exception as exc:
+            raise PermissionError(
+                "Tool authorization unavailable; execution denied"
+            ) from exc
 
     wrapped: list[Any] = []
     for ts in toolsets:
-        is_mcp = hasattr(ts, "list_tools") or hasattr(ts, "direct_call_tool")
-        if is_mcp:
+        if is_identity_governed_toolset(ts):
             wrapped.append(
                 ApprovalRequiredToolset(
                     wrapped=ts,
@@ -256,7 +271,7 @@ def flag_mcp_tool_definitions(
     return wrapped
 
 
-def apply_tool_guard_approvals(agent: Agent[Any, Any]) -> None:
+def apply_tool_guard_approvals(agent: Any) -> None:
     """Apply requires_approval=True to all sensitive function tools on an agent.
 
     Iterates the agent's function toolset (the first entry in the public
@@ -269,12 +284,6 @@ def apply_tool_guard_approvals(agent: Agent[Any, Any]) -> None:
         agent: The Pydantic AI Agent instance to modify.
 
     """
-    from agent_utilities.core.config import TOOL_GUARD_MODE
-
-    if TOOL_GUARD_MODE == "off":
-        logger.debug("Tool guard disabled (TOOL_GUARD_MODE=off)")
-        return
-
     flagged = 0
 
     try:

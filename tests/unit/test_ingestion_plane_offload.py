@@ -38,6 +38,9 @@ def test_serving_role_enqueues_instead_of_writing(monkeypatch) -> None:
     payload = task["extra_meta"]["payload"]
     assert payload["content"] == "hello world"
     assert payload["memory_id"] == mid  # the enqueued id is the returned id
+    assert payload["agent_ref"].startswith("pref_memory_agent_")
+    assert "agent_id" not in payload
+    assert task["provenance"]["agent_ref"] == payload["agent_ref"]
 
 
 def test_local_flag_never_enqueues(monkeypatch) -> None:

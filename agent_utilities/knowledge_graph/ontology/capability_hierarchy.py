@@ -13,7 +13,7 @@ broader ``:ServiceCapability`` even though the capability ontology
 This module reads that ``rdfs:subClassOf`` closure directly out of the bundled
 Turtle ontology files with a small, dependency-free scan — NOT ``rdflib``. rdflib/
 owlready2/pyshacl are the optional ``owl`` extra, deliberately excluded from the
-serving plane (every profile, pi-tier included — see
+serving plane (every profile uses the hard-base full engine artifact — see
 ``knowledge_graph/ontology/ontology_integrity.py``'s module docstring). Ontology
 subsumption has to be available on *every* install for it to be a live routing
 input rather than a dev-only nicety, so :class:`CapabilityHierarchy` never imports

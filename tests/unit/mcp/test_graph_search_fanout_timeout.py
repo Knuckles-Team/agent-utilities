@@ -35,7 +35,6 @@ Mirrors the ``kg_server._resolve_read_engines`` monkeypatch pattern of
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 
 from agent_utilities.mcp import kg_server

@@ -280,7 +280,7 @@ def test_fast_path_escalates_structural_turns() -> None:
     # A bare action/capability turn no longer trips the STRUCTURAL gate — it is structurally
     # trivial and escalates (if at all) via the KG lexical gate, not this module.
     for q in (
-        "deploy the freshrss stack to r710",
+        "deploy the feed service to compute-node-b",
         "restart the graph-os service",
     ):
         assert not needs_full_orchestration(q), (
@@ -336,7 +336,6 @@ def test_graph_cache_key_is_structural_only() -> None:
         agent_model="m",
         routing_strategy="hybrid",
         sub_agents=None,
-        custom_nodes=None,
     )
     k1 = _graph_cache_key(tag_prompts={"a": "x", "b": "y"}, **base)
     k2 = _graph_cache_key(tag_prompts={"b": "y", "a": "x"}, **base)  # order-independent

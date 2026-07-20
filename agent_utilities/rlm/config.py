@@ -30,7 +30,7 @@ class RLMConfig(BaseModel):
         sub_llm_model_small: Model for recursive sub-calls at depth > 0.
         sub_llm_model_large: Model for the root-level (depth 0) reasoning.
         max_depth: Maximum recursion depth to prevent infinite loops.
-        use_container: Run REPL in Docker/Podman sandbox (env: ``RLM_USE_CONTAINER``).
+        allow_auto_trigger: Permit threshold triggers while ``enabled`` is false.
         max_context_threshold: Character threshold for auto-triggering on large outputs.
         trigger_on_large_output: Auto-invoke RLM when output exceeds threshold.
         trigger_on_ahe_distillation: Auto-invoke for AHE trace analysis (CONCEPT:AU-AHE.harness.harness-evolution).
@@ -62,28 +62,18 @@ class RLMConfig(BaseModel):
         description="Maximum recursion depth for RLM.",
     )
 
-    use_container: bool = Field(
-        default_factory=lambda: to_boolean(setting("RLM_USE_CONTAINER", "False")),
-        description="Whether to run the REPL in a sandboxed container. If false, uses restricted local exec().",
-    )
-
-    use_wasm: bool = Field(
-        default_factory=lambda: to_boolean(setting("RLM_USE_WASM", "False")),
-        description="Whether to run the REPL in a high-performance WASM sandbox (WasmAgentRunner). Overrides use_container.",
-    )
-
-    use_monty: bool = Field(
-        default_factory=lambda: to_boolean(setting("RLM_USE_MONTY", "False")),
-        description="Force the monty sandbox (fast in-process isolation with host callbacks). Overrides use_wasm/use_container.",
+    allow_auto_trigger: bool = Field(
+        default_factory=lambda: to_boolean(setting("RLM_AUTO_TRIGGER", "False")),
+        description=(
+            "Allow threshold-based RLM invocation while ENABLE_RLM is false. "
+            "Off by default so a disabled execution feature cannot auto-start."
+        ),
     )
 
     sandbox: Literal[
         "auto",
-        "local",
         "monty",
         "wasm",
-        "forkserver",
-        "container_fork",
         "docker",
         "firecracker",
     ] = Field(
@@ -91,8 +81,8 @@ class RLMConfig(BaseModel):
         description=(
             "CONCEPT:AU-ORCH.sandbox.sandbox-selection — sandbox selection. 'auto' engages the capability-driven "
             "router (cheapest capable backend, escalate on reject); any explicit value pins "
-            "that one backend. The legacy use_monty/use_wasm/use_container booleans are "
-            "honored as overrides for back-compat and map onto this field."
+            "that one backend. Only "
+            "filesystem/network-confined backends are selectable."
         ),
     )
 
@@ -187,23 +177,6 @@ class RLMConfig(BaseModel):
         description="How to store RLM trajectories in the Knowledge Graph.",
     )
 
-    def resolved_sandbox(self) -> str:
-        """Collapse the ``sandbox`` field + legacy boolean overrides into one selection.
-
-        CONCEPT:AU-ORCH.sandbox.sandbox-selection. Precedence (first wins): explicit ``sandbox`` != 'auto' →
-        ``use_monty`` → ``use_wasm`` → ``use_container`` → 'auto'. Returns 'auto' (engage the
-        router) or a concrete backend name (the router treats it as a forced pin).
-        """
-        if self.sandbox != "auto":
-            return self.sandbox
-        if self.use_monty:
-            return "monty"
-        if self.use_wasm:
-            return "wasm"
-        if self.use_container:
-            return "docker"
-        return "auto"
-
     def should_trigger(
         self,
         *,
@@ -229,6 +202,8 @@ class RLMConfig(BaseModel):
         """
         if self.enabled:
             return True
+        if not self.allow_auto_trigger:
+            return False
         if requires_long_horizon:
             return True
         if self.trigger_on_large_output and output_size > self.max_context_threshold:

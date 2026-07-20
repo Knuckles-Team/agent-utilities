@@ -10,6 +10,8 @@ capacity-guard context; (d) a small delta sync stays INLINE.
 
 from __future__ import annotations
 
+import pytest
+
 import agent_utilities.knowledge_graph.core.chunked_drain as cd
 import agent_utilities.knowledge_graph.core.source_sync as ss
 from agent_utilities.core.resource_priority import (
@@ -26,6 +28,14 @@ from agent_utilities.protocols.source_connectors.base import (
 
 CORPUS_SIZE = 250
 PAGE = 100
+
+
+@pytest.fixture(autouse=True)
+def _source_sync_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
 
 
 class _FakeCorpusConnector(PollConnector):
@@ -158,7 +168,12 @@ def test_drain_pages_walk_whole_corpus_to_exhaustion(monkeypatch):
     ingested, store = _install_fake_drainer(monkeypatch)
     watermarks: dict[str, str] = {}
     monkeypatch.setattr(
-        ss, "_write_watermark", lambda b, s, w: watermarks.__setitem__(s, w)
+        ss,
+        "_ingest_graph_slice_via_envelope",
+        lambda _engine, source, _entities, **kwargs: (
+            watermarks.__setitem__(source, kwargs["checkpoint"])
+            or {"status": "success"}
+        ),
     )
 
     engine = _FakeEngine()
@@ -195,6 +210,39 @@ def test_drain_pages_walk_whole_corpus_to_exhaustion(monkeypatch):
     assert watermarks.get("test_corpus") == "wm-final"
 
 
+def test_failed_page_retains_cursor_and_does_not_enqueue_successor(monkeypatch):
+    _ingested, _store = _install_fake_drainer(monkeypatch)
+    original = cd._PAGE_DRAINERS["test_corpus"]
+    monkeypatch.setitem(
+        cd._PAGE_DRAINERS,
+        "test_corpus",
+        cd.PageDrainer(
+            source="test_corpus",
+            build_connector=original.build_connector,
+            ingest_page=lambda _engine, docs: {
+                "items": len(docs),
+                "ingested": 0,
+                "failed": 1,
+            },
+        ),
+    )
+    engine = _FakeEngine()
+    handle = cd.start_chunked_drain(engine, "test_corpus", mode="full")
+    task = engine.tasks[0]
+
+    with pytest.raises(RuntimeError, match="retained its cursor"):
+        cd.run_drain_page(
+            engine,
+            source="test_corpus",
+            mode="full",
+            drain_id=handle["drain_id"],
+            page=0,
+            checkpoint_json=task["extra_meta"].get("drain_checkpoint"),
+        )
+
+    assert len(engine.tasks) == 1
+
+
 # ── (c) page-tasks carry background priority + capacity-guard context ─────────
 
 
@@ -207,12 +255,12 @@ def test_drain_tasks_carry_background_priority_context(monkeypatch):
     # Background claim bucket (3) — yields to interactive/orchestration.
     assert t["priority"] == 3
     # The task type routes to the connectors lane → BACKGROUND_INGESTION priority class,
-    # which is the same gate that applies the GB10 server-capacity guard (ORCH-1.99/1.102).
+    # which is the same gate that applies the model-server capacity guard (ORCH-1.99/1.102).
     assert lane_for_task_type(cd.DRAIN_TASK_TYPE) == "connectors"
     assert (
         priority_for_task_type(cd.DRAIN_TASK_TYPE) == PriorityClass.BACKGROUND_INGESTION
     )
-    # Drain context is carried top-level (queryable on the :Task) for progress.
+    # Drain context is carried in WorkItem metadata for progress projection.
     assert t["provenance"]["drain_source"] == "test_corpus"
     assert t["provenance"]["sync_mode"] == "full"
     assert "drain_id" in t["provenance"]
@@ -235,7 +283,9 @@ def test_delta_sync_stays_inline(monkeypatch):
 
     res = ss.sync_source(engine, "test_corpus", mode="delta")
 
-    assert res.get("inline") is True
+    # Connector-specific diagnostics remain available without escaping the
+    # canonical EtlResult envelope.
+    assert res["details"]["inline"] is True
     assert sentinel["called"] is True
     # Delta did NOT enqueue any chunked page-task.
     assert engine.tasks == []

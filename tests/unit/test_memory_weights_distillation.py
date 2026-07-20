@@ -352,7 +352,7 @@ def test_kg_2_318_submit_invokes_live_dispatch_and_marks_running(
     """The default submit dispatches the train LIVE through the dispatcher seam.
 
     Injects a MOCK data-science-mcp client (the dispatcher) — standing in for the
-    ``train_model`` workflow over ``graph_orchestrate`` — and asserts submit ACTUALLY
+    ``train_model`` workflow over ``graph_workflows`` — and asserts submit ACTUALLY
     invokes it, marks the job ``running`` with the remote run handle, and registers a
     ``TrainingJob`` node the fleet + poll can read back.
     """

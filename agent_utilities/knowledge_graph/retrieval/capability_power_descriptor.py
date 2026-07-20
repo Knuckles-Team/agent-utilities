@@ -9,19 +9,22 @@ section 2b) — "the power behind each tool", assembled so the future resolver
 can answer *what can this capability do, when should I use it, how reliable is
 it* WITHOUT loading a schema per tool.
 
-**Derived, not hand-maintained.** Every field below is either read straight off
-an existing, already-generated source, or computed from one by a pure function
-in this module — never typed in by hand for a specific capability id. That is
-the whole point: a CPD can never silently rot because it is regenerated from
-the same ground truth every time (:mod:`scripts.gen_capability_power` is the
-generator; ``scripts/check_cpd.py`` is the drift gate). Sources, one per field
-group:
+**Generated from canonical sources, not edited per CPD.** Every field below is
+read from an existing authority or computed from one by a pure function. A CPD
+cannot silently rot because it is regenerated from those same sources every
+time (:mod:`scripts.gen_capability_power` is the generator;
+``scripts/check_cpd.py`` is the drift gate). Sources, one per field group:
 
 * **Tool surface** (``id``, ``title``, ``one_line``, part of ``does``,
-  ``typed_io``) — the live FastMCP tool registry built by
-  ``agent_utilities.mcp.kg_server._build_server`` (``mcp.list_tools()``): the
-  REAL registered ``name``/``description``/``tags``/``parameters`` JSON Schema,
-  not a hand copy of it.
+  ``typed_io``) — the immutable, feature-aware ToolSpec universe selects the
+  families, while an isolated canonical FastMCP build supplies each selected
+  tool's real ``name``/``description``/``tags``/``parameters`` JSON Schema.
+  Runtime ``REGISTERED_TOOLS`` contents never define catalog coverage.
+* **Intent verbs** — the deliberate, ordered ``tool_specs.TOOL_VERBS``
+  routing authority. The generator copies it exactly and runtime routing fails
+  closed unless the packaged descriptor preserves the same order and content.
+  A dependency-free :func:`infer_intent_verbs` fallback (tags/name-derived) is
+  also kept in this module for a candidate the authority does not yet cover.
 * **Action inventory** (rest of ``does``) — the exhaustive, ALREADY GENERATED
   ``agent_utilities.mcp._graphos_action_manifest.GRAPHOS_ACTIONS`` (one row per
   condensed-tool action, produced by ``scripts/gen_graphos_manifest.py``) when a
@@ -503,7 +506,8 @@ def aggregate_side_effects(does_items: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Intent-verb inference (2a) — which of ask/write/act/find/manage/why this
 # capability would resolve under, from its own MCP tags + name (derived, not
-# a hand-authored per-tool table).
+# a hand-authored per-tool table). Kept as a dependency-free fallback for a
+# candidate not (yet) covered by the ``tool_specs.TOOL_VERBS`` authority.
 # ---------------------------------------------------------------------------
 
 _VERB_TAG_HINTS: dict[str, tuple[str, ...]] = {
@@ -610,14 +614,14 @@ def render_markdown(cpds: list[CapabilityPowerDescriptor], *, generated_at: str)
     for c in cpds:
         rest = c.typed_io.get("rest_route", "")
         lines.append(
-            f"| [`{c.id}`](#{c.id.replace('_', '')}) | {', '.join(c.intent_verbs)} "
+            f"| [`{c.id}`](#capability-{c.id}) | {', '.join(c.intent_verbs)} "
             f"| {truncate_at_word(c.one_line, 100)} | {len(c.does)} | `{rest}` |"
         )
     lines.append("")
     lines.append("## Capabilities")
     lines.append("")
     for c in cpds:
-        lines.append(f"### `{c.id}`")
+        lines.append(f"### `{c.id}` {{ #capability-{c.id} }}")
         lines.append("")
         lines.append(f"**{c.title}**")
         lines.append("")

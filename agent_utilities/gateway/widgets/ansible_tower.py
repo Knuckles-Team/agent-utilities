@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.DEVOPS
     description = "Automation — playbooks, job templates, and inventory management"
     env_prefix = "ANSIBLE_TOWER"
-    default_url = "https://awx.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -51,8 +50,8 @@ class Widget(BaseWidget):
                 i.get("total_hosts", 0) for i in inventories if isinstance(i, dict)
             )
         except Exception as e:
-            logger.debug("Ansible Tower fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Ansible Tower fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

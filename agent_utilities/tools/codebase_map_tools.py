@@ -88,7 +88,7 @@ class CodebaseMapGenerator:
         content = self.generate()
         path = self.root / filename
         path.write_text(content, encoding="utf-8")
-        logger.info("[ECO-4.7] Codebase map written to %s", path)
+        logger.info("[ECO-4.7] Codebase map written")
         return path
 
     def persist_to_kg(self) -> None:

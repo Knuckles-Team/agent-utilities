@@ -68,13 +68,13 @@ def load_agents_md(workspace_path: str | Path) -> str | None:
 
     Example::
 
-        content = load_agents_md("/home/user/project")
+        content = load_agents_md("./project")
         if content:
             print(f"Loaded {len(content)} chars of project rules")
     """
     root = Path(workspace_path)
     if not root.is_dir():
-        logger.debug("Workspace path does not exist: %s", root)
+        logger.debug("Configured workspace path does not exist")
         return None
 
     parts: list[str] = []
@@ -85,9 +85,9 @@ def load_agents_md(workspace_path: str | Path) -> str | None:
                 text = path.read_text(encoding="utf-8").strip()
                 if text:
                     parts.append(f"--- Content from {filename} ---\n{text}")
-                    logger.debug("Loaded project rules from %s", path)
+                    logger.debug("Loaded project rules")
             except Exception as exc:
-                logger.warning("Failed to read %s: %s", path, exc)
+                logger.warning("Failed to read project rules (%s)", type(exc).__name__)
 
     if not parts:
         return None
@@ -111,8 +111,8 @@ def find_agents_md(start_path: str | Path) -> Path | None:
 
     Example::
 
-        path = find_agents_md("/home/user/project/src/module")
-        # Returns: PosixPath('/home/user/project/AGENTS.md')
+        path = find_agents_md("./project/src/module")
+        # Returns the nearest project-level AGENTS.md path.
     """
     current = Path(start_path).resolve()
     if current.is_file():
@@ -158,7 +158,7 @@ def inject_project_context(
 
         prompt = inject_project_context(
             "You are a helpful coding assistant.",
-            "/home/user/project",
+            "./project",
         )
     """
     parts: list[str] = [system_prompt]
@@ -208,7 +208,7 @@ def extract_project_metadata(workspace_path: str | Path) -> dict[str, Any]:
 
     Example::
 
-        meta = extract_project_metadata("/home/user/project")
+        meta = extract_project_metadata("./project")
         print(meta.get("test_commands", []))
     """
     import re
@@ -307,7 +307,10 @@ def load_agents_md_layered(
                         found.append((current, text))
                         break  # One per directory level
                 except Exception as exc:
-                    logger.warning("Failed to read %s: %s", path, exc)
+                    logger.warning(
+                        "Failed to read project instructions (%s)",
+                        type(exc).__name__,
+                    )
 
         # Stop at project root
         if stop_at and current == stop_at:

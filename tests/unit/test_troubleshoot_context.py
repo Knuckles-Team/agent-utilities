@@ -22,24 +22,26 @@ class FakeTraceEngine:
             return [
                 {
                     "id": "trace:run-42",
-                    "agent_name": "knowledge-graph",
+                    "attribution_ref": "pref_agent_fixture",
                     "status": "failed",
-                    "error": "engine breaker open",
+                    "error_digest": "pref_trace_content_run_error",
                     "duration_ms": 1200.0,
                 }
             ]
-        if "[:MADE_TOOL_CALL]->(tc:ToolCall)" in cypher:
+        if "[:USED_TOOL]->(tc:ToolCall)" in cypher:
             return [
                 {
                     "tool_name": "graph_search",
                     "status": "ok",
-                    "error": "",
+                    "error_digest": "pref_trace_content_empty",
+                    "error_character_count": 0,
                     "sequence": 0,
                 },
                 {
                     "tool_name": "graph_query",
                     "status": "error",
-                    "error": "connection refused",
+                    "error_digest": "pref_trace_content_connection_refused",
+                    "error_character_count": 18,
                     "sequence": 1,
                 },
             ]
@@ -50,7 +52,11 @@ class FakeFailedRunsEngine:
     def query_cypher(self, cypher, params):
         if "WHERE t.status IN ['failed','error']" in cypher:
             return [
-                {"id": "trace:run-9", "agent_name": "arr-specialist", "error": "boom"}
+                {
+                    "id": "trace:run-9",
+                    "attribution_ref": "pref_agent_arr",
+                    "error_digest": "pref_trace_content_boom",
+                }
             ]
         return []
 
@@ -63,7 +69,8 @@ def test_diagnose_symptom_pulls_run_trace_and_failing_tool_call():
     assert res["status"] == "ok" and res["domain"] == "troubleshoot"
     # The run + its failing tool call surface in the synthesized answer.
     assert "trace:run-42" in res["answer"]
-    assert "graph_query" in res["answer"] and "connection refused" in res["answer"]
+    assert "graph_query" in res["answer"]
+    assert "pref_trace_content_connection_refused" in res["answer"]
     # The full layered ladder is always present in the playbook.
     layers = [p["layer"] for p in res["sections"]["playbook"]]
     assert set(layers) == {
@@ -113,7 +120,7 @@ def test_diagnose_symptom_degrades_on_empty_engine():
 
 @pytest.mark.concept("AU-KG.retrieval.kg-4")
 def test_troubleshoot_registered_in_context_plane():
-    # Reachable via graph_analyze action=explain target="troubleshoot:..."
+    # Reachable via graph_explain action=explain target="troubleshoot:..."
     assert "troubleshoot" in context_plane._BUILTIN_PROVIDERS
     res = context_plane.synthesize_context(
         FakeTraceEngine(),

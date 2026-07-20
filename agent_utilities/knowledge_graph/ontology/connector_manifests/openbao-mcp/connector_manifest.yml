@@ -1,0 +1,146 @@
+connector: openbao-mcp
+ontology_source: openbao
+schema_version: '1'
+resources:
+- name: AuthMount
+  label: Auth Mount
+  id_prefix: authmount
+  relations: []
+- name: Policy
+  label: Policy
+  id_prefix: policy
+  relations: []
+- name: SecretMount
+  label: Secret Mount
+  id_prefix: secretmount
+  relations: []
+- name: VaultServer
+  label: Vault Server
+  id_prefix: vaultserver
+  relations:
+  - name: leaderOf
+    label: leader of
+    target: VaultServer
+    lpg_rel_type: ''
+actions: []
+events: []
+identity:
+  id_field:
+    secret-mount: accessor
+  title_field:
+    secret-mount: type
+  text_field:
+    secret-mount: description
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  AuthMount:
+    ontology_class: null
+    fields:
+      accessor: xsd:string
+      clusterName: xsd:string
+      engineType: xsd:string
+      initialized: xsd:boolean
+      mountPath: xsd:string
+      mountVersion: xsd:string
+      sealed: xsd:boolean
+      standby: xsd:boolean
+      version: xsd:string
+  Policy:
+    ontology_class: Policy
+    fields:
+      accessor: xsd:string
+      clusterName: xsd:string
+      engineType: xsd:string
+      initialized: xsd:boolean
+      mountPath: xsd:string
+      mountVersion: xsd:string
+      sealed: xsd:boolean
+      standby: xsd:boolean
+      version: xsd:string
+  SecretMount:
+    ontology_class: null
+    fields:
+      accessor: xsd:string
+      clusterName: xsd:string
+      engineType: xsd:string
+      initialized: xsd:boolean
+      mountPath: xsd:string
+      mountVersion: xsd:string
+      sealed: xsd:boolean
+      standby: xsd:boolean
+      version: xsd:string
+  VaultServer:
+    ontology_class: Server
+    fields:
+      accessor: xsd:string
+      clusterName: xsd:string
+      engineType: xsd:string
+      initialized: xsd:boolean
+      mountPath: xsd:string
+      mountVersion: xsd:string
+      sealed: xsd:boolean
+      standby: xsd:boolean
+      version: xsd:string
+sync:
+- preset: openbao-mounts
+  server: openbao-mcp
+  tool: openbao_mcp_sys
+  action: get_mounts
+  records_path: data
+  id_field: accessor
+  title_field: type
+  text_field: description
+  updated_field: ''
+  pagination: null
+  doc_type: secret-mount
+  tool_schema_sha256: 724f3c6488c9adc91a053d90f2723217bcb796687b1df96ec83f74846bc75ffd
+  raw:
+    server: openbao-mcp
+    tool: openbao_mcp_sys
+    action: get_mounts
+    records_path: data
+    id_field: accessor
+    title_field: type
+    text_field: description
+    updated_field: ''
+    doc_type: secret-mount
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - openbao_mcp/connectors/mcp_source_presets.json
+  - openbao_mcp/connectors/tool_schema_fingerprints.json
+  - openbao_mcp/ontology/openbao.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 7fc083afb7920f12d29a561cd551a34f5204e425404676a0ddf534950bfae9dc
+    triple_count: 49
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: MgqYj_h0AH0ZXhvZ0k4qtSwvoghmant1myPKxDzg_AqZ5b2UDfk9kcSG8INBgO-C4Y-UJl_W_j9me_ZzmASiCg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'governedByPolicy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'mountedOn' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.AuthMount.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Policy.ontology_class = 'Policy' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.SecretMount.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.VaultServer.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."

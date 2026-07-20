@@ -12,6 +12,8 @@ and ACL is a bespoke :class:`~agent_utilities.protocols.source_connectors.base.E
 bolted on per-connector. None of that is one typed, self-describing unit a
 connector can emit and any consumer (the write layer, a future CDC/webhook
 receiver, an audit trail, a replay/backfill tool) can reason about uniformly.
+Connectors translate their source records into this typed, self-describing
+transaction before materialization, governance, replay, or audit.
 
 ``ChangeEnvelope`` is that one unit — a single dataclass that carries:
 
@@ -40,8 +42,10 @@ receiver, an audit trail, a replay/backfill tool) can reason about uniformly.
 * **operational** — ``provenance`` (free-form dict: manifest hash, connector
   version, generated_by), ``confidence``, ``checkpoint`` (the watermark cursor
   to persist once this envelope is durably processed — the typed twin of
-  ``source_sync._write_watermark``'s bare string), ``trace_context`` (W3C
-  traceparent, mirroring :class:`~knowledge_graph.core.session.GraphSession`).
+  ``source_sync._write_watermark``'s bare string, and the engine-owned typed
+  source cursor committed with the material when running against the native
+  engine authority), ``trace_context`` (W3C traceparent, mirroring
+  :class:`~knowledge_graph.core.session.GraphSession`).
 
 **Scope (deliberately limited, per AU-P1-6).** This module introduces the type
 and ONE adapter each way — :meth:`ChangeEnvelope.from_connector_record` (bridge
@@ -49,15 +53,21 @@ IN from today's ``{"id", "type", **props}`` shape, mirroring
 ``GraphSession.from_ambient``'s "read today's ambient shape, produce the new
 explicit object" pattern) and :meth:`ChangeEnvelope.to_entity_dict` (bridge OUT,
 so a caller holding an envelope can still feed today's
-``engine.ingest_external_batch``/``write_entities`` unchanged).
+``engine.ingest_external_batch``/``write_entities`` unchanged). The type also
+includes deterministic connector-record and entity projections used by the
+mapping and native DTO layers.
 
 **AU-P1-5** (:mod:`~..ingestion.envelope_ingest`) is the ingestion-path
-consolidation this scope note originally deferred: one ``ingest_envelope(engine,
-envelope)`` atomic transaction (validate -> resolve identity -> write -> lineage
-+checkpoint -> CDC -> watermark, crash-resume safe), a first wave of migrated
-``source_sync`` handlers (``leanix``, ``claude_memory``), and 5 brand-new
-envelope-native connectors closing the L27 mandatory-manifest gap. The
-remaining ``source_sync`` handlers are enumerated as still-legacy right in
+consolidation this scope note originally deferred: the sole ingest consumer is
+:func:`~..ingestion.envelope_ingest.ingest_envelope`, one atomic transaction
+(validate -> resolve identity -> write -> lineage+checkpoint -> CDC ->
+watermark, crash-resume safe) that — against the native engine authority —
+renders the DTO into Epistemic Graph's native ``ApplyChangeEnvelope`` so
+object/blob/features, evidence, policy, lineage, content version, cursor, and
+outbox share one redb transaction and (when clustered) one Raft entry. A first
+wave of migrated ``source_sync`` handlers (``leanix``, ``claude_memory``), and
+5 brand-new envelope-native connectors close the L27 mandatory-manifest gap.
+The remaining ``source_sync`` handlers are enumerated as still-legacy right in
 ``source_sync``'s own module docstring — a scoped, stated follow-up, not a
 silent gap.
 """
@@ -107,7 +117,10 @@ class ChangeEnvelope:
     connector can start by populating just identity + payload and add
     governance/bitemporal fields incrementally — mirrors
     :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`'s "every
-    field optional, nothing breaks" design.
+    field optional, nothing breaks" design. Construction defaults support
+    deterministic connector translators; native apply validation still requires
+    the identity, access, provenance, and cursor evidence appropriate to the
+    operation.
 
     Attributes:
         envelope_id: Unique id for THIS delivery attempt (a redelivery of the
@@ -130,7 +143,8 @@ class ChangeEnvelope:
         source_version: The upstream object's own version/updated marker (the
             connector's ``updated_field`` value for THIS object) — distinct
             from the source-wide watermark tracked by
-            ``source_sync._read_watermark``.
+            ``source_sync._read_watermark`` (the engine-owned source cursor
+            when running against the native engine authority).
         operation: ``"upsert"`` | ``"delete"`` | ``"snapshot_complete"``. The
             last is the reconcile "authoritative live-id snapshot ends here"
             marker (parallels ``source_sync._reconcile``'s ``fetch_ok``
@@ -166,7 +180,7 @@ class ChangeEnvelope:
         retention: A retention-policy label/period (e.g. an ISO-8601 duration
             ``"P90D"`` or a named policy id). ``None`` means "no retention
             policy stated" — NOT "retain forever"; a consumer must not assume
-            either way (see the 12 connector manifests' explicit
+            either way (see the connector fleet manifests' explicit
             ``policy.classification / policy.retention: UNKNOWN`` review_todos
             for why this must stay optional rather than defaulted).
         legal_hold: When ``True``, this object must not be purged by any
@@ -180,7 +194,9 @@ class ChangeEnvelope:
             for a heuristically-derived/inferred field). Defaults to ``1.0``.
         checkpoint: The watermark cursor value to persist once this envelope
             is durably processed — the typed counterpart of
-            ``source_sync._write_watermark``'s bare string argument.
+            ``source_sync._write_watermark``'s bare string argument, committed
+            atomically as the engine-owned source cursor when running against
+            the native engine authority.
         trace_context: The W3C ``traceparent``/correlation id this change
             should be attributed to (mirrors
             ``GraphSession.trace_context``).
@@ -214,7 +230,9 @@ class ChangeEnvelope:
     typed_payload: dict[str, Any] | None = None
     blob_ref: str | None = None
 
-    source_acl: ExternalAccess | None = None
+    source_acl: ExternalAccess | None = field(
+        default_factory=ExternalAccess.quarantined
+    )
     classification: DataClassification = DataClassification.INTERNAL
     retention: str | None = None
     legal_hold: bool = False
@@ -241,6 +259,11 @@ class ChangeEnvelope:
             raise ValueError(
                 f"ChangeEnvelope.confidence must be in [0.0, 1.0], got {self.confidence!r}"
             )
+        if self.operation == "upsert" and self.source_acl is None:
+            # Unknown access is not evidence of public access.  Materialize it
+            # under an explicit deny-all quarantine so every upsert has an ACL
+            # proof that can survive the bridge into the current write path.
+            object.__setattr__(self, "source_acl", ExternalAccess.quarantined())
         if not self.idempotency_key:
             object.__setattr__(
                 self,
@@ -257,6 +280,7 @@ class ChangeEnvelope:
 
     # ------------------------------------------------------------------
     # Bridge IN — from today's ``{"id", "type", **props}`` connector-record shape
+    # (connector record translator)
     # ------------------------------------------------------------------
     @classmethod
     def from_connector_record(
@@ -280,7 +304,10 @@ class ChangeEnvelope:
         today's shape, produce the new explicit object" pattern): every
         existing connector already builds ``{"id": ..., "type": ...,
         **props}`` rows (see ``source_sync._sync_leanix`` et al.) — this reads
-        that same shape without requiring any connector to change yet.
+        that same shape without requiring any connector to change yet. The
+        translator binds the record to its connector, source version, tenant,
+        ACL (governed, fail-closed by default), and provenance before the
+        write/native apply operation.
 
         Args:
             record: One connector row, e.g. ``{"id": n.id, "type": n.type,
@@ -294,8 +321,8 @@ class ChangeEnvelope:
             version_field: Which key in ``record`` is the source's own
                 version/updated marker for this object.
                 ``record[version_field]`` becomes :attr:`source_version`.
-            session: An optional ``GraphSession`` (or any object exposing
-                ``.tenant``/``.trace_context``) to source ``tenant``/
+            session: An optional, verified ``GraphSession`` (or any object
+                exposing ``.tenant``/``.trace_context``) to source ``tenant``/
                 ``trace_context`` from when the caller didn't pass them
                 explicitly — the same ambient-bridge idea
                 ``GraphSession.from_ambient()`` itself uses. Import is deferred
@@ -315,7 +342,7 @@ class ChangeEnvelope:
                 from ..core.session import GraphSession
 
                 session = GraphSession.from_ambient()
-            except Exception:  # noqa: BLE001 — session module is optional context
+            except Exception:  # noqa: BLE001 — session module is optional context; explicit tenant remains supported
                 session = None
 
         resolved_tenant = tenant or (getattr(session, "tenant", "") or "")
@@ -333,6 +360,18 @@ class ChangeEnvelope:
                 access = raw_access
             elif isinstance(raw_access, dict):
                 access = ExternalAccess.model_validate(raw_access)
+        if access is None:
+            # Unknown source permissions are an explicit deny-all policy proof,
+            # never an absent policy row and never an inferred public grant.
+            access = ExternalAccess.quarantined()
+        classification = overrides.pop(
+            "classification",
+            (
+                DataClassification.PUBLIC
+                if access.is_public
+                else DataClassification.INTERNAL
+            ),
+        )
 
         return cls(
             connector=connector,
@@ -346,6 +385,7 @@ class ChangeEnvelope:
             ontology_mapping_version=ontology_mapping_version,
             typed_payload=dict(record),
             source_acl=access,
+            classification=classification,
             trace_context=resolved_trace,
             **overrides,
         )
@@ -370,12 +410,15 @@ class ChangeEnvelope:
         re-asserted since the last ``snapshot_complete`` may be tombstoned.
 
         ``live_ids`` (AU-P1-5) is the authoritative still-live id set this
-        snapshot asserts — :func:`~..ingestion.envelope_ingest.ingest_envelope`
-        feeds it straight to ``source_sync._reconcile`` so an envelope-native
-        connector gets the SAME fail-closed empty-snapshot handling as the
-        legacy handlers (``fetch_ok=False`` when the live-id fetch itself
-        failed/was skipped — never silently tombstone on an unverified empty
-        snapshot; see ``_reconcile``'s CONCEPT:AU-P0-4 docstring).
+        snapshot asserts. The native consumer
+        (:func:`~..ingestion.envelope_ingest.ingest_envelope`) resolves stale
+        rows and commits the marker, tombstones, policy, lineage, cursor, and
+        outbox together — the SAME fail-closed empty-snapshot handling as the
+        legacy ``source_sync._reconcile`` handlers: ``fetch_ok=False`` (or an
+        unapproved authoritatively-empty source) retains the existing live
+        set, so a failed/skipped fetch can never silently tombstone on an
+        unverified empty snapshot (see ``_reconcile``'s CONCEPT:AU-P0-4
+        docstring) or become an accidental wipe.
 
         A marker carries no ``source_object_id`` (there's no single object), so
         its idempotency key would otherwise be IDENTICAL across every reconcile
@@ -400,13 +443,15 @@ class ChangeEnvelope:
 
     # ------------------------------------------------------------------
     # Bridge OUT — back to today's ``{"id", "type", **props}`` shape
+    # (native entity projection)
     # ------------------------------------------------------------------
     def to_entity_dict(self) -> dict[str, Any]:
         """Render this envelope back to the ``entities`` row shape
 
         ``engine.ingest_external_batch``/``materialization.write_entities``
         already accept — so a caller holding a :class:`ChangeEnvelope` can
-        feed today's write path unchanged while more connectors are migrated.
+        feed today's write path unchanged while more connectors are migrated;
+        the same rendering serves as the native entity projection.
 
         Raises:
             ValueError: if this envelope carries a ``blob_ref`` instead of a
@@ -424,8 +469,16 @@ class ChangeEnvelope:
         row.setdefault("id", self.source_object_id)
         if self.event_time:
             row.setdefault("updatedAt", self.event_time)
+        # Governance fields belong to the envelope, not to an untrusted payload.
+        # Assign (rather than setdefault) so a source record cannot spoof public
+        # access or erase the tenant/retention decision made at the gate.
         if self.source_acl is not None:
-            row.setdefault("external_access", self.source_acl.model_dump())
+            row["external_access"] = self.source_acl.model_dump()
+        row["classification"] = self.classification.value
+        row["tenant"] = self.tenant
+        row["source_instance"] = self.source_instance
+        row["retention"] = self.retention
+        row["legal_hold"] = self.legal_hold
         return row
 
     # ------------------------------------------------------------------

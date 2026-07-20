@@ -82,14 +82,13 @@ errors **fail closed** (deny). Every decision is audit-logged as an
 `ActionDecision` KG node — which is also the durable ledger the rate/blast
 accounting reads, so budgets hold across processes and restarts.
 
-**Approval flow (reused, not forked).** `queue_approval` files an
+**Approval flow.** `queue_approval` files an
 `ActionApproval` node (deduped per kind+target while pending). The existing
 fleet approvals routes carry it end-to-end: `GET /api/fleet/approvals` lists
-it next to orchestrator Task approvals, `POST /api/fleet/approvals/grant`
+it, `POST /api/fleet/approvals/grant`
 (job_id = the `action_approval:*` id) stamps it, and the reconciler's
-approved-action drain executes it on the next tick. It is deliberately *not*
-a `Task` node — pending Tasks are claimed by the engine's task workers,
-which would execute the action unapproved.
+approved-action drain creates or releases the authorized WorkItem on the next
+tick. Approval evidence never doubles as executable work state.
 
 **Relation to AHE-3.20.** The promotion-governance validator
 (`knowledge_graph/research/promotion_governance.py`) remains the
@@ -159,9 +158,9 @@ deployment registers a real Slack/email `Notifier` via
 
 `orchestration/deploy_watch.py` — the safety net every mutating action ends
 in. `watch_deploy(engine, service, version, window_s, ...)` enqueues a
-durable `deploy_watch` task; the worker-side `run_deploy_watch` probes the
+durable `deploy_watch` WorkItem; the worker-side `run_deploy_watch` probes the
 FleetObserver every `DEPLOY_WATCH_POLL` seconds until the *recorded*
-deadline (a watch requeued by the zombie-task reaper after a host crash
+deadline (a watch whose expired native lease is reclaimed after a host crash
 resumes its original window):
 
 * any `down` observation ⇒ **failed** → `on_fail` (default: a
@@ -270,20 +269,20 @@ audit already lives in the `ActionDecision`/`ActionExecution` ledger.
 **Reactive push (KG-2.253).** The slow `fleet_autoscaler` interval above is the
 *safety-net reconcile*; the **push** half reacts to the change-event itself. A
 fast (`_AUTOSCALE_REACTIVE_INTERVAL`, 5 s) `fleet_autoscale_reactive` tick polls a
-durable engine **change-feed subscription** over control-plane `:Task` mutations —
+durable engine **change-feed subscription** over control-plane WorkItem mutations —
 `fleet_autoscale_subscription(engine)`, built on the one
 `agent_utilities.graph.reactive.subscribe` primitive (the engine's native
 CDC/`watch`, engine concepts EG-KG.query.streaming-cdc-subscriptions/230). The poll is cheap and non-blocking
-(O(new `:Task` changes), not a full re-scan) and short-circuits when nothing
+(O(new WorkItem changes), not a full re-scan) and short-circuits when nothing
 changed, so it can run far more often than the metric-poll interval. When the
-engine pushes a queue-depth-moving `:Task` change, it runs ONE `autoscale_fleet`
+engine pushes a queue-depth-moving WorkItem change, it runs ONE `autoscale_fleet`
 pass at change-time instead of waiting out the interval. Same `FLEET_AUTOSCALER`
 opt-in gate; a no-op (the periodic tick still covers it) when the engine exposes
 no streaming surface.
 
 ```mermaid
 flowchart LR
-    TASK[":Task enqueued / claimed\n(__control__)"] -->|engine CDC commit| FEED["engine change-feed\n(watch/cdc_read)"]
+    TASK["WorkItem enqueued / claimed\n(__control__)"] -->|engine CDC commit| FEED["engine change-feed\n(watch/cdc_read)"]
     FEED -->|push| SUB["EngineSubscription\n(KG-2.253)"]
     SUB -->|pending| RX["_tick_fleet_autoscale_reactive\n(5s, cheap poll)"]
     RX --> EVAL["autoscale_fleet → ActionPolicy → actuator"]

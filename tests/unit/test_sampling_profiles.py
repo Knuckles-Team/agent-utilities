@@ -129,7 +129,7 @@ def test_registry_profiles_by_task_and_role():
     assert reg.pick_profile_for_task("brainstorm").temperature == pytest.approx(1.0)
     # role → task-class mapping
     assert reg.pick_profile_for_role("learner").task_class == "extraction"
-    assert reg.pick_profile_for_role("rlm-proposer").task_class == "reasoning"
+    assert reg.pick_profile_for_role("rlm-root").task_class == "reasoning"
     # unknown → inherit-everything default
     assert reg.pick_profile_for_task("nonexistent") is DEFAULT_PROFILE
 
@@ -155,7 +155,7 @@ def test_router_populates_sampling_profile():
 
 def test_rlm_role_profiles():
     # repl.py threads these two roles by depth.
-    assert resolve_sampling_profile(role="rlm-proposer").task_class == "reasoning"
+    assert resolve_sampling_profile(role="rlm-root").task_class == "reasoning"
     assert resolve_sampling_profile(role="rlm-executor").task_class == "code"
 
 
@@ -163,11 +163,12 @@ def test_rlm_role_profiles():
 
 
 def test_evolve_profile_promotes_best_and_registry_serves_it():
+    import random
+
     from agent_utilities.harness.variant_pool import VariantPool
     from agent_utilities.knowledge_graph.retrieval.capability_index import (
         CapabilityIndex,
     )
-    import random
 
     reg = ModelRegistry()
     ci = CapabilityIndex(dim=8)
@@ -190,11 +191,12 @@ def test_evolve_profile_promotes_best_and_registry_serves_it():
 
 
 def test_mutate_profile_stays_within_bounds():
+    import random
+
     from agent_utilities.harness.variant_pool import VariantPool
     from agent_utilities.knowledge_graph.ontology.value_types import (
         sampling_profile_violations,
     )
-    import random
 
     vp = VariantPool.__new__(VariantPool)
     base = SamplingProfile(

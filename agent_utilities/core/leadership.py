@@ -70,7 +70,19 @@ class DaemonLeadership:
             raise RuntimeError(
                 f"no state-store DSN configured for leadership role {self.role!r}"
             )
-        return psycopg.connect(dsn, autocommit=True)
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        trust = resolve_configured_tls_profile("postgres")
+        try:
+            return psycopg.connect(
+                dsn,
+                autocommit=True,
+                **trust.psycopg_kwargs(),
+            )
+        finally:
+            trust.cleanup()
 
     def is_leader(self) -> bool:
         """True iff this process currently holds the role's leader lock.

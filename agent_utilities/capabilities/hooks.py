@@ -1,16 +1,17 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Lifecycle hooks capability with knowledge graph integration.
+"""Lifecycle hooks capability.
 
 CONCEPT:AU-ORCH.adapter.kg-graph-materialization
 
-Provides PRE_TOOL_USE, POST_TOOL_USE, BEFORE_RUN, and AFTER_RUN hooks
-for auditing, safety, and automatic graph tracing.
+Provides PRE_TOOL_USE, POST_TOOL_USE, BEFORE_RUN, and AFTER_RUN hooks for
+in-process auditing and safety policy. Durable execution tracing is owned by
+``agent_utilities.observability.trace_ontology`` and its orchestration writer;
+hooks never persist tool payloads.
 """
 
 
-import contextlib
 import enum
 import logging
 import time
@@ -59,14 +60,9 @@ Hook = Callable[[HookInput], HookResult | None]
 
 @dataclass
 class HooksCapability(AbstractCapability[Any]):
-    """Capability that executes registered hooks during the agent lifecycle.
-
-    If auto_graph_trace is True, it automatically records tool calls as
-    ToolCallNode entities in the knowledge graph.
-    """
+    """Execute registered, in-process hooks during the agent lifecycle."""
 
     hooks: list[Hook] = field(default_factory=list)
-    auto_graph_trace: bool = True
 
     _tool_sessions: dict[str, float] = field(
         default_factory=dict, init=False, repr=False
@@ -118,28 +114,6 @@ class HooksCapability(AbstractCapability[Any]):
     ) -> dict[str, Any]:
         self._tool_sessions[call.tool_call_id] = time.time()
 
-        # Auto-trace to graph
-        if self.auto_graph_trace:
-            engine = getattr(ctx.deps, "graph_engine", None)
-            if engine:
-                from ..models.knowledge_graph import RegistryNodeType, ToolCallNode
-
-                node = ToolCallNode(
-                    id=call.tool_call_id,
-                    type=RegistryNodeType.TOOL_CALL,
-                    name=f"Tool Call: {call.tool_name}",
-                    tool_name=call.tool_name,
-                    args=args,
-                    importance_score=0.3,
-                    timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                )
-                with contextlib.suppress(Exception):
-                    engine.graph.add_node(node.id, **node.model_dump())
-                    # Edge to episode if available
-                    episode_id = getattr(ctx.deps, "episode_id", None)
-                    if episode_id:
-                        engine.graph.add_edge(episode_id, node.id, type="USED_TOOL")
-
         res = await self._run_hooks(
             HookInput(
                 event=HookEvent.PRE_TOOL_USE,
@@ -168,19 +142,6 @@ class HooksCapability(AbstractCapability[Any]):
         result: Any,
     ) -> Any:
         start_time = self._tool_sessions.pop(call.tool_call_id, time.time())
-        duration = time.time() - start_time
-
-        # Update auto-trace in graph
-        if self.auto_graph_trace:
-            engine = getattr(ctx.deps, "graph_engine", None)
-            if engine:
-                with contextlib.suppress(Exception):
-                    if call.tool_call_id in engine.graph:
-                        engine.graph.nodes[call.tool_call_id]["result"] = str(result)[
-                            :1000
-                        ]
-                        engine.graph.nodes[call.tool_call_id]["duration"] = duration
-                        # Persistence would happen in the background or at the end of the run
 
         res = await self._run_hooks(
             HookInput(

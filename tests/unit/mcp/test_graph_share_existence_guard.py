@@ -12,6 +12,8 @@ import json
 
 from agent_utilities.knowledge_graph.core import tenant_sharing as ts
 from agent_utilities.mcp import kg_server
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
 class _FakeStore:
@@ -25,6 +27,16 @@ class _FakeStore:
         params = params or {}
         self.calls.append((cypher, params))
         if params.get("id") in self.known_ids:
+            if "properties(n)" in cypher:
+                return [
+                    {
+                        "props": {
+                            "id": params["id"],
+                            ts.TENANT_KEY: "tenant-test",
+                            ts.OWNER_KEY: "principal:test",
+                        }
+                    }
+                ]
             return [{"id": params["id"]}]
         return []
 
@@ -34,12 +46,22 @@ def _get_tool():
     return kg_server.REGISTERED_TOOLS["graph_share"]
 
 
+def _actor() -> ActorContext:
+    return ActorContext(
+        actor_id="principal:test",
+        actor_type=ActorType.AI_AGENT,
+        tenant_id="tenant-test",
+        authenticated=True,
+    )
+
+
 def test_org_share_on_nonexistent_node_returns_clean_error(monkeypatch):
     store = _FakeStore(known_ids=set())
     monkeypatch.setattr(ts, "_store", lambda store_arg=None: store)
 
     tool = _get_tool()
-    out = json.loads(tool(action="org", node_id="smoke-test-node-doesnotexist"))
+    with use_actor(_actor()):
+        out = json.loads(tool(action="org", node_id="smoke-test-node-doesnotexist"))
 
     assert "error" in out
     assert "not found" in out["error"].lower()
@@ -51,7 +73,8 @@ def test_org_share_on_real_node_succeeds(monkeypatch):
     monkeypatch.setattr(ts, "_store", lambda store_arg=None: store)
 
     tool = _get_tool()
-    out = json.loads(tool(action="org", node_id="smoke:test-node-001"))
+    with use_actor(_actor()):
+        out = json.loads(tool(action="org", node_id="smoke:test-node-001"))
 
     assert out == {"node_id": "smoke:test-node-001", "shared_scope": "org"}
 
@@ -61,7 +84,8 @@ def test_private_share_on_nonexistent_node_returns_clean_error(monkeypatch):
     monkeypatch.setattr(ts, "_store", lambda store_arg=None: store)
 
     tool = _get_tool()
-    out = json.loads(tool(action="private", node_id="smoke-test-node-doesnotexist"))
+    with use_actor(_actor()):
+        out = json.loads(tool(action="private", node_id="smoke-test-node-doesnotexist"))
 
     assert "error" in out
     assert "not found" in out["error"].lower()

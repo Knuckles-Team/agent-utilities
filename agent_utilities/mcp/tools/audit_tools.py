@@ -37,6 +37,7 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_payload
 
 
 def register_audit_tools(mcp: Any) -> None:
@@ -113,14 +114,15 @@ def _verify() -> dict[str, Any]:
             "surface": "audit",
             "action": "verify",
             "available": False,
-            "error": (
-                "audit ledger not exposed by this engine build/config "
-                f"({exc}). Requires the epistemic-graph `security` cargo "
-                "feature (part of the default `full` build) AND a durable "
-                "redb persist dir configured — otherwise this is a "
+            "hint": (
+                "audit ledger not exposed by this engine build/config. "
+                "Requires the epistemic-graph `security` cargo feature "
+                "(part of the default `full` build) AND a durable redb "
+                "persist dir configured — otherwise this is a "
                 "corresponding epistemic-graph-side gap, not an "
                 "agent-utilities one."
             ),
+            **public_error_payload(exc, code="dependency_unavailable"),
         }
     return {"surface": "audit", "action": "verify", "available": True, **report}
 

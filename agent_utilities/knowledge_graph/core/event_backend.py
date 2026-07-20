@@ -15,7 +15,7 @@ Provides a protocol-based event backbone abstraction with:
 
 Standard topic taxonomy:
     - ``kg.mutations``  — Graph CRUD events (node/edge add/update/delete)
-    - ``kg.tasks``      — Task queue events (schedule, complete, fail)
+    - ``kg.tasks``      — WorkItem notification events (schedule, complete, fail)
     - ``kg.staging``    — Staged graph payloads awaiting write
     - ``kg.telemetry``  — Agent execution traces, latency, error rates
     - ``kg.evolution``  — Self-improvement triggers, AHE cycle events

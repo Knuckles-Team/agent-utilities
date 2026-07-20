@@ -23,7 +23,11 @@ def test_run_etl_sink_table_routes_to_table_ingest(monkeypatch):
         captured.update(
             source=source, table=table, limit=limit, replace=replace, config=config
         )
-        return {"status": "ok", "table": table or f"conn_{source}", "rows_written": 5}
+        return {
+            "status": "ok",
+            "counts": {"rows": 5},
+            "details": {"table": table or f"conn_{source}"},
+        }
 
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.table_ingest.ingest_connector_to_table",
@@ -38,7 +42,7 @@ def test_run_etl_sink_table_routes_to_table_ingest(monkeypatch):
         record_lineage=False,
     )
     assert out["status"] == "ok"
-    assert out["outbound"]["rows_written"] == 5
+    assert out["outbound"]["counts"]["rows"] == 5
     assert captured["source"] == "rest"
     assert captured["table"] == "rest_mirror"
     assert captured["limit"] == 50

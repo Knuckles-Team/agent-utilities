@@ -50,12 +50,10 @@ class NextcloudTalkBackend(MessagingBackend):
 
     async def connect(self) -> None:
         """Connect to Nextcloud Talk API. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
-        try:
-            import httpx
-        except ImportError:
-            raise ImportError(
-                "Install: pip install agent-utilities[messaging-nextcloud]"
-            ) from None
+        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
 
         self._base_url = self.config.extra.get(
             "url", setting("NEXTCLOUD_URL", "")
@@ -64,11 +62,16 @@ class NextcloudTalkBackend(MessagingBackend):
         token = self.config.token or setting("NEXTCLOUD_TOKEN", "")
         if not self._base_url or not token:
             raise ValueError("Set NEXTCLOUD_URL and NEXTCLOUD_TOKEN.")
-        self._client = httpx.AsyncClient(
-            base_url=f"{self._base_url}/ocs/v2.php/apps/spreed/api/v4",
-            auth=(user, token) if user else None,
-            headers={"OCS-APIRequest": "true", "Accept": "application/json"},
-        )
+        trust = resolve_configured_tls_profile("nextcloud")
+        try:
+            self._client = create_async_http_client(
+                base_url=f"{self._base_url}/ocs/v2.php/apps/spreed/api/v4",
+                auth=(user, token) if user else None,
+                headers={"OCS-APIRequest": "true", "Accept": "application/json"},
+                **trust.httpx_kwargs(),
+            )
+        finally:
+            trust.cleanup()
         self._connected = True
         logger.info(
             "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Nextcloud Talk backend connected."
@@ -102,7 +105,9 @@ class NextcloudTalkBackend(MessagingBackend):
             )
         except Exception as e:
             return SendResult(
-                success=False, platform=PlatformId.NEXTCLOUD, error=str(e)
+                success=False,
+                platform=PlatformId.NEXTCLOUD,
+                error=type(e).__name__,
             )
 
     async def send_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:

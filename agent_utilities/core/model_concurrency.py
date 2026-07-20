@@ -45,8 +45,8 @@ __all__ = [
 ]
 
 # Conservative default per-endpoint server-capacity ceiling (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp).
-# A 35B model on a 121 GB unified-memory box (the GB10) has a FINITE concurrent-
-# sequence budget: exceed it and KV-cache + activations exhaust memory → driver
+# Every accelerator has a FINITE concurrent-sequence budget: exceed it and
+# KV-cache + activations exhaust memory → driver
 # OOM → the HOST dies. The local CPU count says nothing about that budget, so the
 # adaptive ramp (which can otherwise climb to MODEL_MAX_CONCURRENCY=512) is clamped
 # at this server-capacity ceiling. 32 is a safe ``--max-num-seqs``-aligned default;

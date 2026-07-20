@@ -30,7 +30,7 @@ class MachineLearningEngineMixin(_Base):
         self, name: str, learning_rate: float, discount_factor: float
     ) -> str:
         """Register a new RLM actor for reinforcement learning tasks."""
-        actor_id = f"rlm:{uuid.uuid4().hex[:8]}"
+        actor_id = f"rlm:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = RLMActorNode(
@@ -51,7 +51,7 @@ class MachineLearningEngineMixin(_Base):
         self, actor_id: str, target_metric: str, threshold: float
     ) -> str:
         """Link an optimization goal to an RLM Actor."""
-        goal_id = f"goal:{uuid.uuid4().hex[:8]}"
+        goal_id = f"goal:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = OptimizationGoalNode(
@@ -78,7 +78,7 @@ class MachineLearningEngineMixin(_Base):
         self, obj1: float, obj2: float, dominates_id: str | None = None
     ) -> str:
         """Record an entry on the Pareto Frontier."""
-        entry_id = f"pareto:{uuid.uuid4().hex[:8]}"
+        entry_id = f"pareto:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = ParetoFrontierEntryNode(

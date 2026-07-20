@@ -36,9 +36,9 @@
 ## 0. Session context — what we did and why (the road to this plan)
 
 This work came out of debugging "why is the Telegram bot slow / not using tools / not
-formatted". Four things shipped (all **local `main`, NOT pushed**, deployed to the live
-messaging daemon via `ssh R820 "docker service update --force agent-utilities-messaging…"`),
-and the investigation then converged on the real root cause below.
+formatted". Four things shipped to a local branch but were not published. The active
+supervisor rolled the candidate into the development messaging daemon, and the
+investigation then converged on the real root cause below.
 
 **Shipped + deployed this session:**
 
@@ -138,7 +138,7 @@ no equivalent — so binding the gate to it would silently fail on other backend
   entrypoint — no new tool/route, inside the surface-parity contract.
 - **A4. Re-ingest the fleet.** Run the live E2E protocol (`ingestion-validation-protocol` memory):
   restart graph-os, `go__source_sync` (or the bootstrap), re-run to prove `skipped_unchanged`.
-  **Needs a healthy engine/embeddings (GB10/vLLM).**
+  **Needs a healthy engine and configured embedding endpoint.**
 - **A5. Verify + profile.** `graph_query` for github/portainer returns `Tool`/`Skill` capability
   nodes; capability-node count covers the fleet. **Then profile** the two slow turns (§6) —
   routing is now correct, so the profile is meaningful (where do the 3 min go: planning loops vs
@@ -150,7 +150,7 @@ AND the dispatcher reaches the portainer tool.
 ### A4/A5 — live validation results (2026-06-20)
 
 Validated against the live durable KG + served read surface (engine + vLLM healthy;
-the GB10 power-fault memory is stale). **Branch `feat/classify-a`, NOT yet merged.**
+the earlier accelerator-fault observation is stale). **The experiment was not yet merged.**
 
 - **Baseline (the hole):** `MATCH (n) WHERE n.name CONTAINS 'portainer'|'github'` → **0** nodes;
   `MATCH (t:Tool)` → only 3 stray nodes. Confirmed the missing fleet vocabulary.
@@ -158,7 +158,7 @@ the GB10 power-fault memory is stale). **Branch `feat/classify-a`, NOT yet merge
   `portainer-mcp` 10, `github-mcp` 11).
 - **Write path proven:** running `_sync_fleet(mode=full)` against the durable engine wrote **57
   Tool nodes** for the reachable (stdio) servers (emerald-exchange 14 + graph-os 43), readable via
-  the served `graph_query`. The `*.arpa` HTTP servers returned **401** because the local debug
+  the served `graph_query`. The `*.example` HTTP servers returned **401** because the local debug
   shell lacks the OIDC client-credentials the served multiplexer injects (expected — credential
   access is human-gated by design).
 - **Case servers (portainer/github):** injecting their real catalog (from the served
@@ -172,7 +172,7 @@ the GB10 power-fault memory is stale). **Branch `feat/classify-a`, NOT yet merge
   now validates a candidate parses to ≥1 `mcpServers` before use.
 
 **Deploy-gated remainder (for the merge step):** a **full-fleet** live re-ingest (all 55 servers,
-incl. the `*.arpa` ones) needs graph-os running this code **with** the injected OIDC creds — i.e.
+incl. the `*.example` ones) needs graph-os running this code **with** the injected OIDC creds — i.e.
 merge `feat/classify-a` → main and restart the served graph-os (boot step 4 re-ingests
 automatically, or call `source_sync source=fleet`). Then A5's profiling of the two slow turns (§6)
 becomes meaningful.
@@ -244,7 +244,7 @@ becomes meaningful.
 ## 5. Sequencing, risks, IDs, where things live
 
 - **Order:** A (incl. re-ingest + profiling) → checkpoint → B. A unblocks B.
-- **Risks:** re-ingestion needs healthy engine/embeddings (GB10/vLLM); the A3 capability schema
+- **Risks:** re-ingestion needs a healthy engine and embedding endpoint; the A3 capability schema
   must match what the dispatcher's specialist routing expects (coordinate with that); aho-corasick
   per-request vs cached (start simple).
 - **Concept IDs to reserve:** `AU-KG.compute.kg-x` (ingestion capability elevation), `EG-x`
@@ -256,7 +256,8 @@ becomes meaningful.
   **committed but not merged/deployed** — ship independently if desired.
 - **Memory:** `ontology-native-classification-build` (recall), `full-graph-dispatcher-routing-bug`,
   `optimization-campaign-checkpoint`, `ingestion-validation-protocol`,
-  `deployment-model-docker-portainer` (redeploy = `ssh R820 docker service update --force`).
+  `deployment-model-docker-portainer` (redeploy through the active supervisor and
+  configured service identity).
 
 ---
 

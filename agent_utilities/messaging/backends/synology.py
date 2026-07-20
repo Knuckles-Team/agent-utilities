@@ -27,6 +27,18 @@ from agent_utilities.messaging.models import (
 logger = logging.getLogger(__name__)
 
 
+def _configured_webhook(config: MessagingConfig) -> str:
+    """Resolve the webhook from an injected profile or a secret reference."""
+    if config.webhook_url:
+        return str(config.webhook_url)
+    reference = str(setting("SYNOLOGY_CHAT_WEBHOOK_URL_REF", "") or "").strip()
+    if not reference:
+        return ""
+    from agent_utilities.security.secrets_client import create_secrets_client
+
+    return str(create_secrets_client().resolve_ref(reference) or "").strip()
+
+
 class SynologyChatBackend(MessagingBackend):
     """Synology Chat backend via incoming/outgoing webhooks. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
 
@@ -45,19 +57,19 @@ class SynologyChatBackend(MessagingBackend):
 
     async def connect(self) -> None:
         """Connect to Synology Chat webhook. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
-        try:
-            import httpx
-        except ImportError:
-            raise ImportError(
-                "Install: pip install agent-utilities[messaging-synology]"
-            ) from None
-
-        webhook_url = self.config.webhook_url or setting(
-            "SYNOLOGY_CHAT_WEBHOOK_URL", ""
+        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
         )
+
+        webhook_url = _configured_webhook(self.config)
         if not webhook_url:
-            raise ValueError("Set SYNOLOGY_CHAT_WEBHOOK_URL.")
-        self._client = httpx.AsyncClient()
+            raise ValueError("Configure a Synology webhook reference.")
+        trust = resolve_configured_tls_profile("synology-chat")
+        try:
+            self._client = create_async_http_client(**trust.httpx_kwargs())
+        finally:
+            trust.cleanup()
         self._connected = True
         logger.info(
             "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Synology Chat backend connected."
@@ -78,9 +90,7 @@ class SynologyChatBackend(MessagingBackend):
         metadata: dict[str, Any] | None = None,
     ) -> SendResult:
         try:
-            webhook = self.config.webhook_url or setting(
-                "SYNOLOGY_CHAT_WEBHOOK_URL", ""
-            )
+            webhook = _configured_webhook(self.config)
             payload = f'payload={{"text": "{text}"}}'
             resp = await self._client.post(
                 webhook,
@@ -93,7 +103,11 @@ class SynologyChatBackend(MessagingBackend):
                 channel_id=channel_id,
             )
         except Exception as e:
-            return SendResult(success=False, platform=PlatformId.SYNOLOGY, error=str(e))
+            return SendResult(
+                success=False,
+                platform=PlatformId.SYNOLOGY,
+                error=type(e).__name__,
+            )
 
     async def listen(self) -> AsyncIterator[InboundEvent]:
         while self._connected:

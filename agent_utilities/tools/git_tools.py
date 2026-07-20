@@ -1,160 +1,140 @@
 #!/usr/bin/python
-"""Git Utilities Tools Module.
+"""Privacy-safe, workspace-confined Git inspection tools."""
 
-CONCEPT:AU-ECO.messaging.native-backend-abstraction
+from __future__ import annotations
 
-This module provides tools for inspecting git status, managing isolated
-worktrees for parallel development, and auditing version control history.
-"""
-
-import logging
 import os
 import shutil
 import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from pydantic_ai import RunContext
 
 from agent_utilities.harness.tracing import trace
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 from .versioning import tool_version
 
-logger = logging.getLogger(__name__)
+
+def _workspace(ctx: RunContext[Any]) -> Path:
+    configured = getattr(getattr(ctx, "deps", None), "workspace_path", None)
+    if not configured:
+        raise ValueError("assigned workspace is unavailable")
+    root = Path(configured)
+    if root.is_symlink():
+        raise ValueError("assigned workspace is unavailable")
+    resolved = root.resolve(strict=True)
+    if not resolved.is_dir() or not (resolved / ".git").exists():
+        raise ValueError("assigned workspace is not a Git checkout")
+    return resolved
+
+
+def _git_environment() -> dict[str, str]:
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name
+        in {
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "PATH",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "WINDIR",
+        }
+    }
+
+
+def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which("git")
+    if not executable:
+        raise RuntimeError("git executable is unavailable")
+    command = [executable, *args]
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        process = subprocess.run(
+            command,
+            cwd=root,
+            env=_git_environment(),
+            stdout=stdout,
+            stderr=stderr,
+            check=False,
+            timeout=30,
+        )
+        stdout.seek(0)
+        output = stdout.read(1024 * 1024 + 1)
+    if len(output) > 1024 * 1024:
+        raise RuntimeError("git output exceeded the resource limit")
+    result = subprocess.CompletedProcess(
+        command,
+        process.returncode,
+        stdout=output.decode("utf-8", errors="replace"),
+        stderr="",
+    )
+    if check and result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, command)
+    return result
 
 
 @trace(name="get_git_status", trace_type="TOOL")
-@tool_version("1.0.0")
+@tool_version("2.0.0")
 async def get_git_status(ctx: RunContext[Any]) -> str:
-    """Retrieve a comprehensive snapshot of the current git environment.
-
-    Returns the current branch name, a summarized file status, and the
-    last five oneline commit logs.
-
-    Args:
-        ctx: The agent run context.
-
-    Returns:
-        A formatted summary of the git environment status.
-
-    """
+    """Return bounded checkout state without host paths or commit messages."""
     try:
-        git_cmd = shutil.which("git")
-        if not git_cmd:
-            return "Error: git executable not found."
-
-        branch = subprocess.check_output(
-            [git_cmd, "rev-parse", "--abbrev-ref", "HEAD"], text=True
-        ).strip()
-        status = subprocess.check_output(
-            [git_cmd, "status", "--short"], text=True
-        ).strip()
-        log = subprocess.check_output(
-            [git_cmd, "log", "--oneline", "-n", "5"], text=True
-        ).strip()
-
+        root = _workspace(ctx)
+        branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+        status_lines = [
+            line
+            for line in _git(
+                root, "status", "--short", "--untracked-files=normal"
+            ).stdout.splitlines()
+            if line
+        ]
+        commit_count = _git(root, "rev-list", "--count", "HEAD").stdout.strip()
+        staged = sum(line[:1] not in {" ", "?"} for line in status_lines)
+        worktree = sum(len(line) > 1 and line[1] != " " for line in status_lines)
+        untracked = sum(line.startswith("??") for line in status_lines)
+        branch_ref = persistence_reference("git_branch", branch)
         return (
-            f"Git Status Snapshot:\n"
-            f"Current branch: {branch}\n"
-            f"Status:\n{status or '(clean)'}\n\n"
-            f"Recent commits:\n{log}"
+            "Git status: "
+            f"branch_ref={branch_ref}; commits={commit_count or '0'}; "
+            f"changed={len(status_lines)}; staged={staged}; "
+            f"worktree={worktree}; untracked={untracked}."
         )
-    except Exception as e:
-        return f"Error fetching git status: {e}"
-
-
-@trace(name="create_worktree", trace_type="TOOL")
-@tool_version("1.0.0")
-async def create_worktree(ctx: RunContext[Any], branch_name: str, path: str) -> str:
-    """Create a new git worktree for isolated and parallel feature development.
-
-    This ensures that agents can work on separate branches without
-    polluting the primary workspace.
-
-    Args:
-        ctx: The agent run context.
-        branch_name: The name of the new branch to create/use.
-        path: Target absolute or relative directory for the worktree.
-
-    Returns:
-        A confirmation message indicating success or an error details.
-
-    """
-    try:
-        git_cmd = shutil.which("git")
-        if not git_cmd:
-            return "Error: git executable not found."
-
-        # 1. Create the branch if it doesn't exist
-        subprocess.run([git_cmd, "branch", branch_name], check=False)
-
-        # 2. Add the worktree
-        cmd = [git_cmd, "worktree", "add", path, branch_name]
-        subprocess.check_call(cmd)
-
-        return f"Successfully created worktree at '{path}' on branch '{branch_name}'."
-    except Exception as e:
-        return f"Error creating worktree: {e}"
-
-
-@trace(name="remove_worktree", trace_type="TOOL")
-@tool_version("1.0.0")
-async def remove_worktree(ctx: RunContext[Any], path: str, force: bool = False) -> str:
-    """Remove an existing git worktree and clean up the associated directory.
-
-    Args:
-        ctx: The agent run context.
-        path: The directory path of the worktree to remove.
-        force: Whether to force removal even if changes are present.
-
-    Returns:
-        A confirmation message indicating success or an error details.
-
-    """
-    try:
-        git_cmd = shutil.which("git")
-        if not git_cmd:
-            return "Error: git executable not found."
-
-        cmd = [git_cmd, "worktree", "remove", path]
-        if force:
-            cmd.append("--force")
-        subprocess.check_call(cmd)
-
-        # Also attempt to remove the directory if git left it
-        if os.path.exists(path):
-            shutil.rmtree(path)
-
-        return f"Successfully removed worktree at '{path}'."
-    except Exception as e:
-        return f"Error removing worktree: {e}"
+    except Exception:
+        return "Error fetching Git status."
 
 
 @trace(name="list_worktrees", trace_type="TOOL")
-@tool_version("1.0.0")
+@tool_version("2.0.0")
 async def list_worktrees(ctx: RunContext[Any]) -> str:
-    """List all currently active git worktrees in the repository.
-
-    Args:
-        ctx: The agent run context.
-
-    Returns:
-        A formatted list of active worktrees and their paths.
-
-    """
+    """List worktree counts and pseudonymous branches without host paths."""
     try:
-        git_cmd = shutil.which("git")
-        if not git_cmd:
-            return "Error: git executable not found."
+        root = _workspace(ctx)
+        records = _git(root, "worktree", "list", "--porcelain").stdout.split("\n\n")
+        branch_refs: list[str] = []
+        count = 0
+        for record in records:
+            if not record.strip():
+                continue
+            count += 1
+            branch_line = next(
+                (line for line in record.splitlines() if line.startswith("branch ")),
+                "",
+            )
+            if branch_line:
+                branch_refs.append(
+                    persistence_reference(
+                        "git_branch", branch_line.removeprefix("branch ")
+                    )
+                )
+        return f"Git worktrees: count={count}; branch_refs={','.join(branch_refs)}"
+    except Exception:
+        return "Error listing Git worktrees."
 
-        return subprocess.check_output([git_cmd, "worktree", "list"], text=True).strip()
-    except Exception as e:
-        return f"Error listing worktrees: {e}"
 
-
-# Tool grouping for registration
-git_tools = [
-    get_git_status,
-    create_worktree,
-    remove_worktree,
-    list_worktrees,
-]
+git_tools = [get_git_status, list_worktrees]

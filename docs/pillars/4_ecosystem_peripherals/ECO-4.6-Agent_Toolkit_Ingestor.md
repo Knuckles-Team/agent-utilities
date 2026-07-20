@@ -58,7 +58,7 @@ Exposed via `graph_ingest(action='agent_toolkit')`:
 
 ```
 target_path: JSON array of sources OR single source path
-             e.g., '["/path/to/mcp_config.json", "http://agent.local", "/skills/my-skill"]'
+             e.g., '["MCP_CONFIG", "https://agent.example.test", "SKILL_DIRECTORY"]'
 
 description: Optional A2A agent card path override (default: /.well-known/agent.json)
 ```

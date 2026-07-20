@@ -15,6 +15,7 @@ Verifies the Plan-03 Step-11 backend reorganization:
 
 import importlib
 import sys
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -72,11 +73,9 @@ def test_default_selection_does_not_require_contrib(backend_type):
     assert not leaked, f"contrib backend(s) imported eagerly: {leaked}"
 
 
-def test_factory_default_backend_type_is_not_contrib(monkeypatch):
-    """With no explicit type and no GRAPH_BACKEND, the default resolves to the
-    primary PostgreSQL tier (a non-contrib backend) — never ladybug/contrib."""
+def test_factory_default_backend_type_is_not_contrib():
+    """The operational authority path never imports a contrib adapter."""
     _purge_contrib_modules()
-    monkeypatch.delenv("GRAPH_BACKEND", raising=False)
 
     # PostgreSQLBackend construction may fail without a live DB; we only need
     # to confirm the resolution path does not touch contrib. Importing the
@@ -88,6 +87,29 @@ def test_factory_default_backend_type_is_not_contrib(monkeypatch):
 
     leaked = [m for m in sys.modules if "backends.contrib." in m]
     assert not leaked, f"contrib backend(s) imported during default path: {leaked}"
+
+
+def test_explicit_external_adapter_never_claims_process_authority(monkeypatch):
+    from agent_utilities.knowledge_graph.backends.contrib import neo4j_backend
+
+    adapter = MagicMock()
+    monkeypatch.setattr(neo4j_backend, "Neo4jBackend", lambda **_kwargs: adapter)
+    backends.set_active_backend(None)
+
+    created = backends.create_backend(
+        backend_type="neo4j",
+        uri="bolt://external.invalid",
+        user="runtime-user",
+        password="runtime-secret",
+    )
+
+    assert created is adapter
+    assert backends.get_active_backend() is None
+
+
+def test_explicit_fanout_selector_is_rejected():
+    with pytest.raises(ValueError, match="automatic operational projection"):
+        backends.create_backend(backend_type="fanout")
 
 
 def test_contrib_backends_importable_via_new_path():

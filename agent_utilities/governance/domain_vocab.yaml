@@ -2,7 +2,7 @@
 #
 # The `domain` level of a concept id `<SLUG>-<PILLAR>.<domain>.<concept>` is the
 # ANTI-SPRAWL gate: it is a CLOSED, curated vocabulary per pillar. Auto-derivation
-# (scripts/plan_concept_migration.py) may ONLY emit a domain listed here; the CI
+# Concept authoring may only use a domain listed here; the CI
 # gate scripts/check_domain_vocab.py FAILS the build if any marker's domain is not
 # in this file. Breadth is therefore governed; depth (facets) is free.
 #
@@ -50,7 +50,7 @@ pillars:
     routing:       [routing, router, specialist, model-routing, designate, fast-path, policy]
     execution:     [execution, executor, parallel, hsm, lifecycle, synthesis, engine]
     reactive:      [reactive, event-sourcing, ledger, dispatcher, reactive]
-    sandbox:       [sandbox, wasm, fork, warm-fork, forkserver, firecracker, container-fork, microvm]
+    sandbox:       [sandbox, wasm, fork, warm-fork, firecracker, microvm]
     scheduling:    [scheduling, schedule, loop, cron, queue, priority, dead-letter, tick]
     dispatch:      [dispatch, agent-dispatch, fanout, swarm, department, worker]
     session:       [session, goal, contract, sla, durable-session, handoff, collection, channel]
@@ -67,7 +67,7 @@ pillars:
     reward:        [reward, advantage, preference, rl, training-signals, grpo, entropy, arpo]
     rlm:           [rlm, predict-rlm, memento, latent, reasoning-model]
     trainer:       [trainer, training, gpu-slot, ml, llm-trainer, fine-tune, scratch]
-    optimization:  [optimization, dspy, telemetry-driven, prompt-optimization, gepa]
+    optimization:  [optimization, native-program, telemetry-driven, prompt-optimization, gepa]
     assimilation:  [assimilation, research-assimilation, comparative, absorb, innovation]
     sdd:           [sdd, spec-driven, dstdd, design-phase, specify]
     org:           [org, role-experience, experience-profile, employee-evolution, playbook, seniority, self-grown]

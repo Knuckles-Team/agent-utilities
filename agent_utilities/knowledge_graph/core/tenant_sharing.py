@@ -15,7 +15,7 @@ system in :mod:`...ontology.permissioning`. The locked model:
   it is placed"). Markings ("share by **how** it is placed") are the orthogonal,
   mandatory control.
 
-Visibility for a non-privileged actor under ``KG_BRAIN_ENFORCE`` (composed with
+Visibility for a non-privileged verified actor (composed with
 the existing tenant ``scope()`` predicate):
 
 * ``own``      — ``n._owner_id == actor.actor_id``
@@ -23,9 +23,8 @@ the existing tenant ``scope()`` predicate):
 * ``unowned``  — ``n._owner_id IS NULL``  (legacy/system data, never hidden)
 * ``commons``  — anything in the commons graph (separate graph, read-union)
 
-Privileged actors (``admin``/``system`` roles, matching the SYSTEM_ACTOR
-defaults) are unrestricted. Everything here is a **no-op unless enforcement is
-on**, so default behaviour is byte-identical to today.
+Verified actors carrying ``admin`` are unrestricted by owner/scope visibility;
+tenant and ACL boundaries still apply.
 """
 
 from __future__ import annotations
@@ -72,18 +71,30 @@ SCOPE_ORG = "org"
 SCOPE_COMMONS = "commons"
 
 # Roles that bypass owner/scope visibility (mirror permissioning._PRIVILEGED_ROLES
-# and the SYSTEM_ACTOR defaults so the two layers agree on "privileged").
-_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin", "system"})
+# so the two layers agree on "privileged").
+_PRIVILEGED_ROLES: frozenset[str] = frozenset({"admin"})
 
 # Cypher-literal safety: ids come from JWT claims and must never break out of the
 # quoted predicate. Same character class the KG-2.6 tenant scoper accepts.
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9_:.\-@]+")
 
 
+def _require_actor(actor: ActorContext | None) -> ActorContext:
+    resolved = actor or current_actor()
+    resolved.ensure_credential_current()
+    if (
+        not resolved.authenticated
+        or not str(resolved.actor_id or "").strip()
+        or not str(resolved.tenant_id or "").strip()
+    ):
+        raise PermissionError("Tenant sharing requires verified tenant authority")
+    return resolved
+
+
 def is_privileged(actor: ActorContext | None = None) -> bool:
-    """True when ``actor`` holds an admin/system role (unrestricted visibility)."""
-    actor = actor or current_actor()
-    return bool(_PRIVILEGED_ROLES.intersection(actor.roles))
+    """True when a verified ``actor`` holds the admin role."""
+    actor = _require_actor(actor)
+    return actor.authenticated and bool(_PRIVILEGED_ROLES.intersection(actor.roles))
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +109,7 @@ def commons_graph_name(config: Any = None) -> str:
 
 def org_graph_name(actor: ActorContext | None = None, config: Any = None) -> str:
     """The named graph an actor's org routes to (KG-2.58), or commons if tenantless."""
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
     base = default_graph_name(config)
     if not actor.tenant_id:
         return base
@@ -115,7 +126,7 @@ def accessible_graphs(
     hierarchies registered in the CompanyBrain ``TenancyManager``) are included
     between the two so a user inherits read access up the tenant tree.
     """
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
     base = default_graph_name(config)
     graphs: list[str] = []
 
@@ -170,7 +181,7 @@ def stamp_ownership(
     Existing markers are never overwritten (a re-write or an explicit share is
     not silently reset to private).
     """
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
     if actor.tenant_id:
         properties.setdefault(TENANT_KEY, actor.tenant_id)
     if is_privileged(actor):
@@ -195,7 +206,7 @@ def visibility_predicate(
     ``(n._owner_id = '<me>' OR n._shared_scope IN ['org','commons'] OR
     n._owner_id IS NULL)`` — own, org-shared/commons, or unowned data.
     """
-    actor = actor or current_actor()
+    actor = _require_actor(actor)
     if is_privileged(actor):
         return None
     owner = actor.actor_id or ""
@@ -231,7 +242,7 @@ def filter_visible(
     """
     if is_privileged(actor):
         return rows
-    me = (actor or current_actor()).actor_id
+    me = _require_actor(actor).actor_id
     out: list[dict[str, Any]] = []
     for row in rows:
         props = _row_props(row)
@@ -345,6 +356,55 @@ def _node_exists(node_id: str, store: Any) -> bool:
     return bool(rows)
 
 
+def _node_properties(node_id: str, store: Any) -> dict[str, Any] | None:
+    """Load the governed ownership fields required before a share transition."""
+    reader = getattr(store, "get_node_properties", None)
+    try:
+        if callable(reader):
+            props = reader(node_id)
+            if props is None:
+                return None
+            if not isinstance(props, dict):
+                raise PermissionError("Node sharing authority is unavailable")
+            return dict(props)
+        rows = (
+            store.execute(
+                "MATCH (n {id: $id}) RETURN properties(n) AS props LIMIT 1",
+                {"id": node_id},
+            )
+            or []
+        )
+    except PermissionError:
+        raise
+    except Exception as exc:
+        raise PermissionError("Node sharing authority is unavailable") from exc
+    if not rows:
+        return None
+    props = rows[0].get("props")
+    if not isinstance(props, dict):
+        raise PermissionError("Node sharing authority is unavailable")
+    return dict(props)
+
+
+def _require_share_authority(
+    node_id: str,
+    store: Any,
+    actor: ActorContext | None,
+) -> tuple[ActorContext, bool]:
+    """Require current same-tenant owner/admin authority for a share mutation."""
+    resolved = _require_actor(actor)
+    props = _node_properties(node_id, store)
+    if props is None:
+        return resolved, False
+    node_tenant = str(props.get(TENANT_KEY) or "").strip()
+    owner = str(props.get(OWNER_KEY) or "").strip()
+    if node_tenant != resolved.tenant_id:
+        raise PermissionError("Node sharing requires same-tenant authority")
+    if not is_privileged(resolved) and owner != resolved.actor_id:
+        raise PermissionError("Node sharing requires owner or administrator authority")
+    return resolved, True
+
+
 def _set_scope(node_id: str, scope: str, store: Any, owner: str | None = None) -> bool:
     """Flip the share-scope property of ``node_id``, iff it exists.
 
@@ -371,7 +431,11 @@ def share_with_org(
 
     Returns ``False`` (no-op) if ``node_id`` does not exist (BUG-6).
     """
-    return _set_scope(node_id, SCOPE_ORG, _store(store))
+    resolved_store = _store(store)
+    _actor, exists = _require_share_authority(node_id, resolved_store, actor)
+    if not exists:
+        return False
+    return _set_scope(node_id, SCOPE_ORG, resolved_store)
 
 
 def make_private(
@@ -381,9 +445,12 @@ def make_private(
 
     Returns ``False`` (no-op) if ``node_id`` does not exist (BUG-6).
     """
-    actor = actor or current_actor()
+    resolved_store = _store(store)
+    actor, exists = _require_share_authority(node_id, resolved_store, actor)
+    if not exists:
+        return False
     return _set_scope(
-        node_id, SCOPE_PRIVATE, _store(store), owner=actor.actor_id or None
+        node_id, SCOPE_PRIVATE, resolved_store, owner=actor.actor_id or None
     )
 
 
@@ -416,6 +483,10 @@ def promote_to_commons(
     place (promotion shares; it does not move).
     """
     src = _store(store)
+    _actor, exists = _require_share_authority(node_id, src, actor)
+    if not exists:
+        logger.warning("promote_to_commons: governed node was not found")
+        return False
     rows = (
         src.execute(
             "MATCH (n {id: $id}) RETURN properties(n) AS props, labels(n) AS labels",

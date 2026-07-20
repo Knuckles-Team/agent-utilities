@@ -20,7 +20,7 @@ class EpistemicSyncWorkflow:
 
     def __init__(self, config: AgentConfig | None = None):
         self.config = config or AgentConfig()
-        self.engine = GraphComputeEngine()
+        self.engine = GraphComputeEngine.get_or_create()
         self.ingestor = FederatedSparqlIngestor(
             endpoints=self.config.sparql_endpoints, engine=self.engine
         )

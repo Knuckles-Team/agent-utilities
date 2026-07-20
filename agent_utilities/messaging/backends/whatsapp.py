@@ -84,23 +84,28 @@ class WhatsAppBackend(MessagingBackend):
 
     async def _connect_business_api(self) -> None:
         """Initialize WhatsApp Business API client. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""
-        try:
-            import httpx
-        except ImportError:
-            raise ImportError(
-                "httpx is required for WhatsApp Business API. "
-                "Install: pip install agent-utilities[messaging-whatsapp]"
-            ) from None
+        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
 
         if not self.config.token:
             raise ValueError("Set WHATSAPP_TOKEN for Business API mode.")
         if not self.config.app_id:
             raise ValueError("Set WHATSAPP_PHONE_NUMBER_ID for Business API mode.")
+        base_url = str(self.config.extra.get("base_url") or "").strip().rstrip("/")
+        if not base_url:
+            raise ValueError("Configure the WhatsApp Business API base URL.")
 
-        self._client = httpx.AsyncClient(
-            base_url="https://graph.facebook.com/v18.0",
-            headers={"Authorization": f"Bearer {self.config.token}"},
-        )
+        trust = resolve_configured_tls_profile("whatsapp-business")
+        try:
+            self._client = create_async_http_client(
+                base_url=base_url,
+                headers={"Authorization": f"Bearer {self.config.token}"},
+                **trust.httpx_kwargs(),
+            )
+        finally:
+            trust.cleanup()
 
     async def _connect_bridge(self) -> None:
         """Initialize neonize bridge client. CONCEPT:AU-ECO.messaging.native-backend-abstraction"""

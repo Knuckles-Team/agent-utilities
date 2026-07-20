@@ -35,7 +35,7 @@ _REQUIRED = (
     "OIDC_CLIENT_SECRET",
     "OIDC_TOKEN_URL",
 )
-_VENV_PY = "/home/apps/workspace/.venv/bin/python"
+_VENV_PY = os.environ.get("DEV_VENV_PYTHON", sys.executable)
 
 
 def _load_creds() -> None:

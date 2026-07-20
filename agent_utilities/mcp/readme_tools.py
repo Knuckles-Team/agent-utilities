@@ -31,15 +31,17 @@ from typing import Any
 
 START = "<!-- MCP-TOOLS-TABLE:START -->"
 END = "<!-- MCP-TOOLS-TABLE:END -->"
+_STRUCTURAL_TOOL_TAGS = frozenset({"gated", "granular", "verbose"})
 
 
 def _toggle_env(tags: set[str]) -> str:
     """Derive the per-domain toggle env var (``<TAG>TOOL``) from a tool's tags.
 
     Mirrors ``register_tool_surface`` auto-discovery: a domain tag ``cmdb`` is
-    gated by ``CMDBTOOL``. ``verbose`` and the service tag are not domain toggles.
+    gated by ``CMDBTOOL``. Structural surface tags and the service tag are not
+    domain toggles.
     """
-    candidates = sorted(t for t in tags if t and t != "verbose")
+    candidates = sorted(t for t in tags if t and t not in _STRUCTURAL_TOOL_TAGS)
     if not candidates:
         return "—"
     # Prefer a tag that isn't the service name (kebab/with '-'); domains are snake.
@@ -101,9 +103,7 @@ def render_tools_table(mcp: Any) -> str:
     verbose.sort(key=lambda r: r[0])
 
     lines = [START, ""]
-    lines.append(
-        "#### Condensed action-routed tools (`MCP_TOOL_MODE=condensed`)"
-    )
+    lines.append("#### Condensed action-routed tools (`MCP_TOOL_MODE=condensed`)")
     lines.append("")
     lines += _table(condensed)
     lines.append("")
@@ -170,7 +170,7 @@ def _load_mcp_instance() -> Any:
 
     Forces ``MCP_TOOL_MODE=both`` so the built server registers BOTH the condensed
     and the verbose 1:1 surfaces — the generator documents the full tool set, not
-    just the default condensed one. (Env *write* to drive the build is sanctioned;
+    just the default intent surface. (Env *write* to drive the build is sanctioned;
     reads still go through the config layer.)
     """
     import os

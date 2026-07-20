@@ -16,6 +16,9 @@ from typing import Any
 
 import yaml
 
+from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+    skill_reference,
+)
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 
 logger = logging.getLogger(__name__)
@@ -293,7 +296,7 @@ tags: [evolved]
         updated_content = SkillCompiler.update_markdown(original_content, plan)
         with open(skill_path, "w", encoding="utf-8") as f:
             f.write(updated_content)
-        logger.info("Losslessly saved updated skill workflow to %s", skill_path)
+        logger.info("Losslessly saved updated skill workflow")
 
     @staticmethod
     def load_team_config(skill_dir: Path) -> dict[str, Any] | None:
@@ -308,8 +311,12 @@ tags: [evolved]
         try:
             with open(team_yaml_path, encoding="utf-8") as f:
                 return yaml.safe_load(f)
-        except Exception as e:
-            logger.error("Failed to load team.yaml from %s: %s", skill_dir, e)
+        except Exception as exc:
+            logger.error(
+                "Failed to load team configuration for %s (%s)",
+                skill_reference(skill_dir.name),
+                type(exc).__name__,
+            )
             return None
 
     @staticmethod
@@ -353,7 +360,7 @@ tags: [evolved]
                     if team_config
                     else "",
                     metadata={
-                        "skill_dir": str(skill_dir),
+                        "skill_ref": skill_reference(skill_dir.name),
                         "has_team_config": bool(team_config),
                     },
                 )
@@ -365,7 +372,7 @@ tags: [evolved]
                     RegistryNodeType.SKILL,
                     properties={
                         "name": skill_dir.name,
-                        "path": str(skill_dir),
+                        "source_ref": skill_reference(skill_dir.name),
                         "step_count": len(plan.steps),
                     },
                 )
@@ -407,8 +414,12 @@ tags: [evolved]
 
                     outcome["team_config_id"] = team_config_id
 
-            except Exception as e:
-                logger.error("Failed to register workflow in real KG: %s", e)
+            except Exception as exc:
+                logger.error(
+                    "Failed to register workflow %s (%s)",
+                    skill_reference(skill_dir.name),
+                    type(exc).__name__,
+                )
                 # Fallback to simulated registration if any DB/OML error happens
                 outcome["registered"] = True
                 outcome["workflow_id"] = f"wf_{skill_dir.name}"

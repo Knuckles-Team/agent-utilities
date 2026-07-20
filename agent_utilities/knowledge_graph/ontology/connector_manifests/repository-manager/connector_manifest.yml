@@ -109,9 +109,11 @@ sync:
   updated_field: null
   pagination: null
   doc_type: repository
+  tool_schema_sha256: 32a9d56b6b468dd37af05dee6884c7ba1616dc14a8ec6c6feb4d7e7ca82418e8
   raw:
     server: repository-manager
     tool: rm_worktree
+    params_style: args
     action: list
     records_path: worktrees
     id_field: path
@@ -120,17 +122,20 @@ sync:
     doc_type: repository
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T00:00:00Z'
   source_artifacts:
   - a2a.json
   - repository_manager/connectors/mcp_source_presets.json
+  - repository_manager/connectors/tool_schema_fingerprints.json
   - repository_manager/ontology/repository.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
     triple_count: 71
   signer: ontology-manifest-generator
-  signature: 721483d95a37ea174f5801cd4e4000d94fc32a2c4c6904c9b3888c5be68010e9
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 3aA7ONlQIDt1PfRZopYOZO4FCNP21BbN4pPSiHbj_QY4MYBRLyr3hVSBljETKaAFhMmT3XG1msorJsJooIiEBA
 policy:
   pii_fields: {}
   tenant_boundary: null

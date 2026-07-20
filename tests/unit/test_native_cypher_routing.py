@@ -1,26 +1,10 @@
-"""CONCEPT:AU-P0-2 — a supported Cypher shape routes to the native engine query
-client (not a client-side regex interpreter), and an unsupported/unroutable
-shape FAILS EXPLICITLY rather than silently returning ``[]``.
-
-``EpistemicGraphBackend.execute`` splits dispatch three ways:
-
-  1. A handful of AU-specific shapes with no native-Cypher equivalent (the
-     virtual ``id`` node-identity accessor, relationship traversal/merge — see
-     the ``execute`` docstring) stay on typed engine methods.
-  2. Everything else that starts with ``MATCH`` (a real WHERE/inline-property
-     predicate on a single-node pattern) is handed, params inlined as Cypher
-     literals, to ``GraphComputeEngine.query_cypher`` — the engine's own
-     parser/executor. This module asserts that hand-off happens (mocking the
-     client, not a live engine) and that the query text is NOT regex-parsed
-     into a hand-rolled scan-and-filter first.
-  3. A query the native engine rejects, or a parameter value its literal
-     grammar cannot express (``None``, a negative number), raises a named
-     exception (:class:`CypherEngineError` / ``NotImplementedError``) — never a
-     silently empty result.
-"""
+"""Native Cypher authority contracts (roadmap item 3)."""
 
 from __future__ import annotations
 
+import ast
+import inspect
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -34,190 +18,170 @@ from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
 
 
 def _backend(graph: Any) -> EpistemicGraphBackend:
-    """Construct the backend bypassing ``__init__`` (no live engine connect)."""
-    b = EpistemicGraphBackend.__new__(EpistemicGraphBackend)
-    b._graph = graph
-    b._embeddings = {}
-    return b
+    backend = EpistemicGraphBackend.__new__(EpistemicGraphBackend)
+    backend._graph = graph
+    backend.graph_name = "test-graph"
+    return backend
 
 
-# --- 1. supported queries route to the native client, not a regex scan -------
-
-
-def test_label_where_query_routes_to_native_client_verbatim() -> None:
-    """A label+WHERE MATCH (a real predicate, no id anchor) must be handed to
-    ``query_cypher`` with every ``$param`` inlined as a literal — not scanned
-    and filtered client-side (the old regex-interpreter behaviour)."""
+def test_read_delegates_to_native_read_mode_without_client_interpretation() -> None:
     graph = MagicMock()
-    graph.query_cypher.return_value = [{"id": "n1"}]
-    b = _backend(graph)
+    graph.query_cypher.return_value = [{"id": "node-1"}]
+    backend = _backend(graph)
 
-    rows = b.execute(
-        "MATCH (n:Doc) WHERE n.status = $status RETURN n.id AS id",
-        {"status": "hot"},
+    rows = backend.execute_read(
+        "MATCH (n:Record) WHERE n.status = $status RETURN n.id AS id",
+        {"status": "ready"},
     )
 
-    # ``n.id`` is rewritten to a bare ``n`` first (this backend's virtual ``id``
-    # accessor has no reliable native-property mapping — see
-    # ``_rewrite_virtual_id_accessors``); everything else passes through as-is.
+    assert rows == [{"id": "node-1"}]
     graph.query_cypher.assert_called_once_with(
-        "MATCH (n:Doc) WHERE n.status = 'hot' RETURN n AS id"
+        "MATCH (n:Record) WHERE n.status = 'ready' RETURN n.id AS id"
     )
-    assert rows == [{"id": "n1"}]
-    # The regex label/full-scan typed methods were never touched for this shape.
-    graph.get_nodes_by_label.assert_not_called()
-    graph._get_all_nodes_with_properties.assert_not_called()
+    graph.query_cypher_write.assert_not_called()
 
 
-def test_or_disjunction_routes_to_native_client() -> None:
-    """An OR disjunction across properties — a shape the old DNF regex parser
-    had to hand-roll — is handed straight to the native engine instead."""
+def test_internal_write_delegates_to_native_mutation_mode() -> None:
     graph = MagicMock()
-    graph.query_cypher.return_value = [{"id": "a"}, {"id": "b"}]
-    b = _backend(graph)
+    graph.query_cypher_write.return_value = []
+    backend = _backend(graph)
 
-    rows = b.execute(
-        "MATCH (t:Task) WHERE t.status = $a OR t.status = $b RETURN t.id AS id",
-        {"a": "pending", "b": "running"},
+    assert (
+        backend.execute(
+            "MATCH (n:Record {id: $id}) SET n.status = $status",
+            {"id": "node-1", "status": "done"},
+        )
+        == []
     )
-
-    graph.query_cypher.assert_called_once_with(
-        "MATCH (t:Task) WHERE t.status = 'pending' OR t.status = 'running' "
-        "RETURN t AS id"
+    graph.query_cypher_write.assert_called_once_with(
+        "MATCH (n:Record {id: 'node-1'}) SET n.status = 'done'"
     )
-    assert rows == [{"id": "a"}, {"id": "b"}]
-
-
-def test_aggregate_with_in_filter_routes_to_native_client() -> None:
-    """``count(...)`` with an ``IN`` filter — aggregation is native-engine work,
-    not a client-side group-by simulation."""
-    graph = MagicMock()
-    graph.query_cypher.return_value = [{"cnt": 2}]
-    b = _backend(graph)
-
-    rows = b.execute(
-        "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN count(t) AS cnt"
-    )
-
-    graph.query_cypher.assert_called_once_with(
-        "MATCH (t:Task) WHERE t.status IN ['pending', 'running'] RETURN count(t) AS cnt"
-    )
-    assert rows == [{"cnt": 2}]
-
-
-def test_id_anchored_match_does_not_call_native_client() -> None:
-    """The virtual ``id`` accessor has no native-Cypher equivalent (this backend
-    does not guarantee ``id`` is a stored property) — it must stay on the O(1)
-    typed engine method, never reach ``query_cypher``."""
-    graph = MagicMock()
-    graph.has_node.return_value = True
-    graph._get_node_properties.return_value = {"type": "Task", "status": "pending"}
-    b = _backend(graph)
-
-    rows = b.execute("MATCH (t:Task {id: $id}) RETURN t.status AS s", {"id": "job-1"})
-
-    graph.query_cypher.assert_not_called()
-    assert rows == [{"s": "pending"}]
-
-
-# --- 2. unsupported / unroutable shapes fail explicitly, never [] -----------
-
-
-def test_engine_runtime_error_is_wrapped_and_named() -> None:
-    """When the native engine itself rejects the query, the backend must raise
-    a named error naming the query — not swallow it into ``[]``."""
-    graph = MagicMock()
-    graph.query_cypher.side_effect = RuntimeError("Cypher error: unknown procedure")
-    b = _backend(graph)
-
-    with pytest.raises(CypherEngineError) as exc_info:
-        b.execute("MATCH (n:Doc) WHERE n.status = $s RETURN n", {"s": "x"})
-
-    err = exc_info.value
-    assert err.query == "MATCH (n:Doc) WHERE n.status = $s RETURN n"
-    assert "unknown procedure" in str(err)
-
-
-def test_negative_number_param_raises_not_implemented_not_empty_list() -> None:
-    """The native engine's literal grammar has no negative-number literal — this
-    must raise ``NotImplementedError`` naming the gap, not silently drop the
-    predicate or return ``[]``."""
-    graph = MagicMock()
-    b = _backend(graph)
-
-    with pytest.raises(NotImplementedError, match="negative"):
-        b.execute("MATCH (n:Metric) WHERE n.delta = $delta RETURN n", {"delta": -1})
     graph.query_cypher.assert_not_called()
 
 
-def test_none_param_raises_not_implemented_not_empty_list() -> None:
-    """The native engine has no NULL literal outside ``IS [NOT] NULL`` — a
-    ``None`` parameter used as an equality/SET literal must raise, not silently
-    inline as a broken/empty comparison."""
+def test_native_mode_mismatch_is_sanitized() -> None:
     graph = MagicMock()
-    b = _backend(graph)
+    graph.query_cypher.side_effect = RuntimeError(
+        "backend details containing a query, endpoint, or credential"
+    )
+    backend = _backend(graph)
 
-    with pytest.raises(NotImplementedError, match="NULL"):
-        b.execute("MATCH (n:Task) WHERE n.priority = $p RETURN n", {"p": None})
+    with pytest.raises(CypherEngineError) as caught:
+        backend.execute_read("MATCH (n:Record) RETURN n")
+
+    error = caught.value
+    assert error.mode == "read"
+    assert error.error_type == "RuntimeError"
+    assert len(error.query_reference) == 16
+    assert "backend details" not in str(error)
+    assert "MATCH" not in str(error)
+    assert error.__cause__ is None
+
+
+def test_missing_parameter_fails_before_native_dispatch() -> None:
+    graph = MagicMock()
+    backend = _backend(graph)
+
+    with pytest.raises(ValueError, match="missing a referenced parameter"):
+        backend.execute_read("MATCH (n {id: $missing}) RETURN n")
+
     graph.query_cypher.assert_not_called()
 
 
-def test_missing_param_raises_value_error_not_empty_list() -> None:
-    """A ``$param`` the caller never supplied must raise — the old interpreter
-    silently resolved a missing param to ``None``, which is exactly the
-    silent-wrong behaviour this workstream removes."""
+@pytest.mark.parametrize("value", [None, -1, {"not": "scalar"}])
+def test_unrepresentable_parameter_fails_closed(value: Any) -> None:
     graph = MagicMock()
-    b = _backend(graph)
+    backend = _backend(graph)
 
-    with pytest.raises(ValueError, match="missing parameter"):
-        b.execute("MATCH (n:Task) WHERE n.status = $missing RETURN n", {})
+    with pytest.raises((TypeError, ValueError)):
+        backend.execute_read(
+            "MATCH (n:Record) WHERE n.value = $value RETURN n",
+            {"value": value},
+        )
+
     graph.query_cypher.assert_not_called()
 
 
-# --- 2b. un-handled relationship reads fall through to native, never [] ------
-
-
-def test_unanchored_typed_traversal_routes_to_native_not_empty() -> None:
-    """An un-anchored typed label→label traversal (the delegation router's
-    ``(:Server)-[:PROVIDES]->(:CallableResource)`` discovery shape, grouped
-    ``count()`` + ``ORDER BY``) that no client-side interpreter handles must be
-    routed to the native engine — which now matches the ``rel_type``-keyed edges —
-    instead of the old silent ``[]``."""
+def test_raw_cypher_batch_translation_is_removed() -> None:
     graph = MagicMock()
-    graph.query_cypher.return_value = [{"server": "arr-mcp", "tools": 1130}]
-    b = _backend(graph)
+    backend = _backend(graph)
 
-    rows = b.execute(
-        "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
-        "RETURN s.name AS server, count(r) AS tools ORDER BY tools DESC LIMIT 50"
+    with pytest.raises(RuntimeError, match="ChangeEnvelope"):
+        backend.execute_batch(
+            "UNWIND $batch AS row MERGE (n:Record {id: row.id})",
+            [{"id": "node-1"}],
+        )
+
+    graph.query_cypher_write.assert_not_called()
+
+
+def test_backend_contains_no_alternate_cypher_engine() -> None:
+    source = "\n".join(
+        inspect.getsource(method)
+        for method in (
+            EpistemicGraphBackend.execute,
+            EpistemicGraphBackend.execute_read,
+            EpistemicGraphBackend.execute_write,
+            EpistemicGraphBackend.execute_batch,
+        )
     )
-
-    graph.query_cypher.assert_called_once_with(
-        "MATCH (s:Server)-[:PROVIDES]->(r:CallableResource) "
-        "RETURN s.name AS server, count(r) AS tools ORDER BY tools DESC LIMIT 50"
+    retired = (
+        "_exec_node_match",
+        "_exec_rel_match",
+        "_exec_rel_merge",
+        "_exec_merge_node",
+        "_exec_var_length_match",
+        "_parse_where",
+        "_project(",
+        "_khop",
+        "_unwind_to_per_row",
+        "_get_all_nodes",
+        "get_successors",
+        "get_predecessors",
     )
-    assert rows == [{"server": "arr-mcp", "tools": 1130}]
+    assert [name for name in retired if name in source] == []
 
 
-def test_labeled_unanchored_count_defers_to_native_not_global_count() -> None:
-    """``(s:Server)-[r]->() RETURN count(r)`` carries a source LABEL the O(1)
-    global ``edge_count()`` shortcut cannot honor — it must defer to the native
-    engine (which applies the label), NOT return the whole-graph edge count."""
-    graph = MagicMock()
-    graph.edge_count.return_value = 459032  # the wrong, unlabeled global count
-    graph.query_cypher.return_value = [{"n": 1130}]
-    b = _backend(graph)
+def test_graph_compute_exposes_separate_native_read_and_write_calls() -> None:
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-    rows = b.execute("MATCH (s:Server)-[r]->(b) RETURN count(r) AS n")
+    read_source = inspect.getsource(GraphComputeEngine.query_cypher)
+    write_source = inspect.getsource(GraphComputeEngine.query_cypher_write)
+    assert ".query.cypher_read(" in read_source
+    assert ".query.cypher_write(" in write_source
+    assert "backend" not in read_source
+    assert "backend" not in write_source
 
-    graph.query_cypher.assert_called_once_with(
-        "MATCH (s:Server)-[r]->(b) RETURN count(r) AS n"
+
+def test_public_query_modules_do_not_call_backend_or_graphcore() -> None:
+    root = Path(__file__).resolve().parents[2] / "agent_utilities"
+    public_files = (
+        root / "gateway" / "graph_api.py",
+        root / "mcp" / "kg_server.py",
+        root / "mcp" / "tools" / "query_tools.py",
     )
-    # The unlabeled global edge_count() must NOT have produced the result.
-    assert rows == [{"n": 1130}]
+    offenders: list[str] = []
+    for path in public_files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "GraphCore":
+                offenders.append(f"{path.name}:{node.lineno}:GraphCore")
+            if not isinstance(node, ast.Call) or not isinstance(
+                node.func, ast.Attribute
+            ):
+                continue
+            receiver = node.func.value
+            if (
+                isinstance(receiver, ast.Attribute)
+                and receiver.attr == "backend"
+                and node.func.attr.startswith("execute")
+            ):
+                offenders.append(f"{path.name}:{node.lineno}:backend")
+    assert offenders == []
 
 
-# --- 3. literal-inlining helper -----------------------------------------------
+# --- literal-inlining helper (pure rendering — unaffected by the read/write/
+# batch dispatch split above) ------------------------------------------------
 
 
 def test_cypher_literal_quotes_and_escapes_strings() -> None:

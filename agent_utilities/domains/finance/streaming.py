@@ -225,7 +225,7 @@ class WebSocketStreamAdapter:
         try:
             self._connection = await websockets.connect(self.url)
             self._connected = True
-            logger.info(f"WebSocket connected to {self.url}")
+            logger.info("WebSocket connected to configured endpoint")
             return True
         except Exception as e:
             logger.error(f"WebSocket connection failed: {e}")

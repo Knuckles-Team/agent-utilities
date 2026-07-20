@@ -27,7 +27,7 @@ def test_guarantee_shorter_truncates_oversized():
     memento = "y" * 2000  # compression "failed" — bigger than the block
     out = _guarantee_shorter(memento, block, max_ratio=0.9)
     assert len(out) < len(block)
-    assert out.endswith("…[truncated:recoverable]")
+    assert out.endswith("…[truncated:memento]")
 
 
 def test_guarantee_shorter_leaves_small_memento_untouched():
@@ -52,18 +52,32 @@ def test_compress_to_memento_guarantees_reduction(monkeypatch):
 # --- hierarchical summary-DAG recovery -------------------------------------
 
 
-def test_recover_chain_walks_multi_level_dag():
+def test_recover_chain_walks_multi_level_dag(monkeypatch):
     engine = MagicMock()
     engine.backend = MagicMock()
 
     def _execute(cypher, params=None):
         pid = (params or {}).get("id")
         return {
-            "m1": [{"id": "m2", "content": "mid-level summary"}],
-            "m2": [{"id": "b1", "content": "RAW BLOCK"}],
+            "m1": [
+                {
+                    "id": "m2",
+                    "node_type": "Memento",
+                    "content": "mid-level summary",
+                }
+            ],
+            "m2": [
+                {
+                    "id": "b1",
+                    "node_type": "EvictedBlock",
+                    "content": mc._ENCRYPTED_CONTENT_MARKER,
+                    "ciphertext": "opaque",
+                }
+            ],
         }.get(pid, [])
 
     engine.backend.execute.side_effect = _execute
+    monkeypatch.setattr(mc, "_recover_evicted_row", lambda _engine, _row: "RAW BLOCK")
     assert recover_chain(engine, "m1") == "RAW BLOCK"  # deepest leaf content
 
 

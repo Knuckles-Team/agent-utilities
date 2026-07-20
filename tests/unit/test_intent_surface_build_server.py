@@ -50,12 +50,14 @@ def test_intent_mode_registers_verbs_and_keeps_the_granular_surface(monkeypatch)
     )
 
 
-def test_intent_verbs_absent_by_default_condensed_mode(monkeypatch):
-    """Default MCP_TOOL_MODE=condensed is untouched — no intent verbs, nothing
-    gated. (Regression guard: the new surface is opt-in only.)"""
+def test_intent_verbs_and_gating_are_active_by_default(monkeypatch):
+    """The sole default is the bounded intent surface."""
     monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
 
     _args, mcp, _middlewares = kg_server._build_server(bootstrap=False)
 
+    assert {"ask", "find", "write", "act", "manage", "why"} <= set(
+        kg_server.REGISTERED_TOOLS
+    )
     assert "graph_query" in kg_server.REGISTERED_TOOLS
-    assert gated_tool_names(mcp) == set()
+    assert "graph_query" in gated_tool_names(mcp)

@@ -120,7 +120,9 @@ class _GraphReader:
 
 def _rel(props: Any) -> str:
     if isinstance(props, dict):
-        return str(props.get("rel_type") or props.get("type") or "")
+        return str(
+            props.get("relationship") or props.get("rel_type") or props.get("type") or ""
+        )
     return ""
 
 
@@ -313,7 +315,7 @@ _EVALUATORS = (
 
 def _signature(entry_id: str, transition: str, signals: list[str]) -> str:
     raw = f"{entry_id}|{transition}|{'+'.join(sorted(signals))}"
-    return hashlib.sha1(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def evaluate_escalation(

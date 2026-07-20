@@ -138,9 +138,9 @@ result = runner.execute({
 - **SandboxedExecutor (OS-5.6)**: Process-level isolation complement — WASM for untrusted code, subprocess for trusted scripts
 
 ## Implementation Details
-- **Source Code**: [`wasm_runner.py`](file:///home/apps/workspace/agent-packages/agent-utilities/agent_utilities/core/wasm_runner.py) (257 lines)
+- **Source Code**: [`wasm_runner.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/core/wasm_runner.py) (257 lines)
 - **Classes**: `WasmAgentRunner`, `safe_eval_math`
-- **Tests**: [`test_wasm_runner.py`](file:///home/apps/workspace/agent-packages/agent-utilities/tests/unit/core/test_wasm_runner.py)
+- **Tests**: [`test_wasm_runner.py`](https://github.com/Knuckles-Team/agent-utilities/blob/main/tests/unit/core/test_wasm_runner.py)
 - **Pillar**: OS
 - **Package Export**: `agent_utilities.core.WasmAgentRunner`
 - **Optional Dependency**: `wasmtime` (graceful fallback to emulation mode)

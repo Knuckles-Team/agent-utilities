@@ -7,6 +7,8 @@ mapping, and source-sync routing) without a live GitLab or engine.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.gitlab_indexer import (
     GitLabProject,
     index_instance,
@@ -214,8 +216,6 @@ def test_delta_watermark_skips_untouched_projects():
 
 
 class _FakeCompute:
-    supports_index_repository = True
-
     def index_repository(self, files):
         return INDEX_RESULT
 
@@ -231,7 +231,22 @@ class _FakeEngine:
         return {"status": "success"}
 
 
-def test_sync_source_routes_to_gitlab_handler():
+def test_sync_source_routes_to_gitlab_handler(monkeypatch: pytest.MonkeyPatch):
+    def capture(engine, connector, entities, relationships=None, **_kwargs):
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {
+            "status": "success",
+            "write_result": {"nodes": len(entities), "edges": len(relationships or [])},
+        }
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        capture,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
     engine = _FakeEngine()
     res = sync_source(engine, "gitlab", mode="full", client=_source())
     assert res["status"] == "ok"
@@ -241,11 +256,17 @@ def test_sync_source_routes_to_gitlab_handler():
     assert engine.batches and engine.batches[0][0] == "gitlab:gitlab"
 
 
-def test_sync_source_skips_when_engine_lacks_index_repository():
+def test_sync_source_fails_when_engine_lacks_index_repository(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
     engine = _FakeEngine()
-    engine.graph_compute.supports_index_repository = False
-    res = sync_source(engine, "gitlab", mode="full", client=_source())
-    assert res["status"] == "skipped"
+    engine.graph_compute.index_repository = None
+    with pytest.raises(RuntimeError, match="mandatory IndexRepository"):
+        sync_source(engine, "gitlab", mode="full", client=_source())
 
 
 # ── webhook intake (Phase 4) ──────────────────────────────────────────────────
@@ -321,17 +342,36 @@ class _FakeConfig:
         self.gitlab_instances = gitlab_instances
 
 
-def test_instances_from_structured_xdg_config():
+def test_instances_from_structured_xdg_config(monkeypatch):
+    monkeypatch.setenv("GITLAB_PROD_TOKEN", "t1")
+    monkeypatch.setenv("GITLAB_PUBLIC_TOKEN", "t2")
     cfg = _FakeConfig(
         gitlab_instances=[
-            {"name": "prod", "url": "https://gl.acme.io", "token": "t1"},
-            {"url": "https://gitlab.com", "token": "t2"},  # name → host slug
+            {
+                "name": "prod",
+                "url": "https://gl.acme.io",
+                "token_ref": "env://GITLAB_PROD_TOKEN",
+            },
+            {
+                "url": "https://gitlab.com",
+                "token_ref": "env://GITLAB_PUBLIC_TOKEN",
+            },  # name → host slug
             {"name": "bad"},  # no url → skipped
         ]
     )
     insts = instances_from_config(cfg)
     assert [i.name for i in insts] == ["prod", "gitlab.com"]
     assert insts[0].url == "https://gl.acme.io" and insts[0].token == "t1"
+
+
+def test_instances_reject_raw_structured_token():
+    cfg = _FakeConfig(
+        gitlab_instances=[
+            {"name": "retired", "url": "https://gitlab.example.test", "token": "x"}
+        ]
+    )
+    with pytest.raises(ValueError, match="token_ref"):
+        instances_from_config(cfg)
 
 
 def test_instances_fall_back_to_single_host(monkeypatch):

@@ -82,12 +82,12 @@ When the user asks to ingest the workspace (without specifying explicit targets)
 3. Convert the combined list of paths into a JSON-formatted array.
 4. Execute the `mcp_agent-utilities-kg_kg_ingest` tool, passing the JSON array to the `target_path` parameter.
 5. **Prompt for Chat Ingestion**: Explicitly prompt the user to confirm whether they would like to ingest all conversation/chat logs from active IDE platforms (e.g. Antigravity or Claude Code) to capture development history and context.
-6. **Tool/Skill Configuration Hydration**: Incorporate the IDE's/global active `mcp_config.json` (e.g., at `~/.config/agent-utilities/mcp_config.json`) and the agent skills directories (defaulting to `/home/apps/workspace/agent-packages/skills/universal-skills` and `/home/apps/workspace/agent-packages/skills/skill-graphs`) as ingestion targets to ensure the Knowledge Graph is fully hydrated with active tool, schema, and capability definitions.
+6. **Tool/Skill Configuration Hydration**: Incorporate the IDE's/global active `mcp_config.json` (e.g., at `~/.config/agent-utilities/mcp_config.json`) and the agent skills directories (defaulting to `${WORKSPACE_ROOT}/agent-packages/skills/universal-skills` and `${WORKSPACE_ROOT}/agent-packages/skills/skill-graphs`) as ingestion targets to ensure the Knowledge Graph is fully hydrated with active tool, schema, and capability definitions.
 
 ### 2. Parallel Git URL Cloning
 If the user specifies explicit comma-separated Git URLs to ingest:
 1. You MUST clone them locally in parallel before ingestion.
-2. Use your `run_command` tool to execute a bash script that clones all URLs simultaneously into `/home/apps/workspace/open-source-libraries/` (or another appropriate directory).
+2. Use your `run_command` tool to execute a bash script that clones all URLs simultaneously into `${WORKSPACE_ROOT}/open-source-libraries/` (or another appropriate directory).
    - **Example:** `git clone <url1> & git clone <url2> & wait`
 3. After the clones complete, compile the local absolute paths of the cloned directories into a JSON array.
 4. Execute `mcp_agent-utilities-kg_kg_ingest` with the JSON array.

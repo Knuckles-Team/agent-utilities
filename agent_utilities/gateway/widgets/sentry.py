@@ -18,7 +18,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.OBSERVABILITY
     description = "Error tracking — unresolved issues, performance, and releases"
     env_prefix = "SENTRY"
-    default_url = "https://sentry.io"
 
     def get_fields(self) -> list[WidgetField]:
         return [

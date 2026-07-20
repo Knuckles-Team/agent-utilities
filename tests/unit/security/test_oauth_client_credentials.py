@@ -288,6 +288,60 @@ class TestForceRefreshOn401:
 
 
 class TestSecretResolution:
+    def test_env_refs_bootstrap_without_graph_secret_backend(self, monkeypatch):
+        monkeypatch.setenv("TEST_LLM_CLIENT_ID", "resolved-client-id")
+        monkeypatch.setenv("TEST_LLM_CLIENT_SECRET", "resolved-client-secret")
+        cfg = OAuth2ClientCredentialsConfig(
+            token_url="https://idp/token",
+            client_id="env://TEST_LLM_CLIENT_ID",
+            client_secret="env://TEST_LLM_CLIENT_SECRET",
+        )
+
+        with patch(
+            "agent_utilities.security.secrets_client.create_secrets_client",
+            side_effect=AssertionError("env refs must not initialize the graph secret backend"),
+        ) as create_secrets_client:
+            provider = build_provider_from_config(cfg)
+
+        create_secrets_client.assert_not_called()
+        assert provider.client_id == "resolved-client-id"
+        assert provider._client_secret == "resolved-client-secret"  # noqa: SLF001
+
+    def test_env_refs_bypass_injected_durable_resolver(self, monkeypatch):
+        monkeypatch.setenv("TEST_LLM_CLIENT_SECRET", "resolved-client-secret")
+        cfg = OAuth2ClientCredentialsConfig(
+            token_url="https://idp/token",
+            client_id="literal-client-id",
+            client_secret="env://TEST_LLM_CLIENT_SECRET",
+        )
+        durable_resolver = MagicMock()
+        durable_resolver.resolve_ref.side_effect = AssertionError(
+            "environment references must not open a durable secret backend"
+        )
+
+        provider = build_provider_from_config(cfg, secrets=durable_resolver)
+
+        durable_resolver.resolve_ref.assert_not_called()
+        assert provider._client_secret == "resolved-client-secret"  # noqa: SLF001
+
+    def test_missing_env_ref_fails_closed_without_disclosure(self, monkeypatch):
+        variable_name = "TEST_MISSING_LLM_CLIENT_SECRET"
+        reference = f"env://{variable_name}"
+        monkeypatch.delenv(variable_name, raising=False)
+        cfg = OAuth2ClientCredentialsConfig(
+            token_url="https://idp/token",
+            client_id="literal-client-id",
+            client_secret=reference,
+        )
+
+        with pytest.raises(ValueError) as captured:
+            build_provider_from_config(cfg)
+
+        message = str(captured.value)
+        assert "did not resolve" in message
+        assert reference not in message
+        assert variable_name not in message
+
     def test_build_provider_uses_injected_resolver(self):
         fake_secrets = MagicMock()
         fake_secrets.resolve_ref.side_effect = lambda ref: {
@@ -306,10 +360,10 @@ class TestSecretResolution:
         # The provider carries the RESOLVED value, not the ref string.
         assert provider._client_secret == "the-real-secret"  # noqa: SLF001 - white-box check
 
-    def test_sensitive_client_id_also_resolved_via_ref(self):
+    def test_sensitive_client_id_env_ref_bypasses_durable_resolver(self, monkeypatch):
+        monkeypatch.setenv("LLM_CLIENT_ID", "resolved-client-id")
         fake_secrets = MagicMock()
         fake_secrets.resolve_ref.side_effect = lambda ref: {
-            "env://LLM_CLIENT_ID": "resolved-client-id",
             "vault://llm/client_secret": "resolved-secret",
         }.get(ref)
         cfg = OAuth2ClientCredentialsConfig(
@@ -318,7 +372,7 @@ class TestSecretResolution:
             client_secret="vault://llm/client_secret",
         )
         provider = build_provider_from_config(cfg, secrets=fake_secrets)
-        assert fake_secrets.resolve_ref.call_count == 2
+        fake_secrets.resolve_ref.assert_called_once_with("vault://llm/client_secret")
         assert provider.client_id == "resolved-client-id"
 
     def test_unresolved_secret_raises(self):
@@ -357,7 +411,7 @@ class TestSecretResolution:
 
 
 # ---------------------------------------------------------------------------
-# Config-level mutual exclusion: api_key vs oauth2
+# Config-level mutual exclusion: api_key_ref vs oauth2
 # ---------------------------------------------------------------------------
 
 
@@ -369,7 +423,7 @@ class TestMutualExclusion:
             ChatModelConfig(
                 id="m1",
                 provider="openai",
-                api_key="sk-plain",
+                api_key_ref="env://TEST_MODEL_API_KEY",
                 oauth2={
                     "token_url": "https://idp/token",
                     "client_id": "a",
@@ -384,7 +438,7 @@ class TestMutualExclusion:
             EmbeddingModelConfig(
                 id="e1",
                 provider="openai",
-                api_key="sk-plain",
+                api_key_ref="env://TEST_MODEL_API_KEY",
                 oauth2={
                     "token_url": "https://idp/token",
                     "client_id": "a",
@@ -406,6 +460,17 @@ class TestMutualExclusion:
         )
         assert cfg.oauth2["token_url"] == "https://idp/token"
 
+    @pytest.mark.parametrize("field", ["api_key", "headers"])
+    def test_chat_model_config_rejects_raw_runtime_material(self, field):
+        from agent_utilities.core.config import ChatModelConfig
+
+        with pytest.raises(ValueError):
+            ChatModelConfig(
+                id="m1",
+                provider="openai",
+                **{field: "raw" if field == "api_key" else {"X-Test": "raw"}},
+            )
+
     def test_chat_model_config_rejects_plaintext_secret_in_oauth2(self):
         from agent_utilities.core.config import ChatModelConfig
 
@@ -418,6 +483,22 @@ class TestMutualExclusion:
                     "client_id": "a",
                     "client_secret": "plaintext-oops",
                 },
+            )
+
+    @pytest.mark.parametrize(
+        "reference",
+        ["env://not/a/name", "env://has-hyphen", "env://1STARTS_WITH_DIGIT"],
+    )
+    def test_chat_model_config_rejects_invalid_environment_reference(
+        self, reference
+    ):
+        from agent_utilities.core.config import ChatModelConfig
+
+        with pytest.raises(ValueError, match="secret reference"):
+            ChatModelConfig(
+                id="m1",
+                provider="openai",
+                api_key_ref=reference,
             )
 
     def test_model_definition_rejects_both(self):
@@ -616,10 +697,10 @@ class TestNoSecretLogging:
 
 
 class TestKeyedCache:
-    def test_same_key_returns_same_provider(self):
+    def test_secret_rotation_gets_isolated_provider(self):
         p1 = get_client_credentials_provider("https://idp/token", "a", "s1", scope="x")
         p2 = get_client_credentials_provider("https://idp/token", "a", "s2", scope="x")
-        assert p1 is p2  # keyed on (token_url, client_id, scope) only
+        assert p1 is not p2
 
     def test_different_scope_returns_different_provider(self):
         p1 = get_client_credentials_provider("https://idp/token", "a", "s", scope="x")

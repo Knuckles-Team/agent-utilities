@@ -1,0 +1,79 @@
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default-strict
+  namespace: graphos-control
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: security.istio.io/v1
+kind: PeerAuthentication
+metadata:
+  name: default-strict
+  namespace: graphos-cell
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: epistemic-graph-mtls
+  namespace: graphos-control
+spec:
+  host: epistemic-graph-coordinator.graphos-cell.svc.cluster.local
+  trafficPolicy:
+    tls: {mode: ISTIO_MUTUAL}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: epistemic-graph-mtls
+  namespace: graphos-cell
+spec:
+  host: "*.epistemic-graph-raft.graphos-cell.svc.cluster.local"
+  trafficPolicy:
+    tls: {mode: ISTIO_MUTUAL}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: epistemic-graph-authority
+  namespace: graphos-cell
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/graphos-control/sa/graphos-front
+              - cluster.local/ns/graphos-cell/sa/graphos-engine
+              - cluster.local/ns/graphos-cell/sa/graphos-dispatch
+              - cluster.local/ns/graphos-cell/sa/graphos-ingest
+              - cluster.local/ns/graphos-cell/sa/graphos-analytics
+              - cluster.local/ns/graphos-cell/sa/graphos-backup
+      to:
+        - operation: {ports: ["9100"]}
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/graphos-cell/sa/graphos-engine
+      to:
+        - operation: {ports: ["9200"]}
+    - from:
+        - source: {namespaces: ["graphos-observability"]}
+      to:
+        - operation: {ports: ["9101"]}
+---
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: epistemic-graph-coordinator-mtls
+  namespace: graphos-cell
+spec:
+  host: epistemic-graph-coordinator.graphos-cell.svc.cluster.local
+  trafficPolicy:
+    tls: {mode: ISTIO_MUTUAL}

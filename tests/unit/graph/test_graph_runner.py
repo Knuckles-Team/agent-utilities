@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agent_utilities.graph.state import GraphState
 from agent_utilities.models import GraphResponse
 from agent_utilities.orchestration import AgentOrchestrationEngine as runner
 
@@ -50,6 +51,62 @@ async def test_run_graph_exception(mock_graph):
 
 
 @pytest.mark.asyncio
+async def test_execute_graph_constructs_permission_context_on_deps(mock_graph):
+    kernel = object()
+    identity = object()
+    captured = {}
+
+    async def capture_construction(*, state, deps):
+        captured["state"] = state
+        captured["deps"] = deps
+        return GraphResponse(status="completed", results={"output": "done"})
+
+    mock_graph.run.side_effect = capture_construction
+    config = {
+        "tag_prompts": {},
+        "tag_env_vars": {},
+        "mcp_toolsets": [],
+        "router_model": None,
+        "agent_model": None,
+        "permissions_kernel": kernel,
+        "agent_identity": identity,
+        "response_format": "json",
+    }
+
+    with (
+        patch(
+            "agent_utilities.orchestration.engine.get_discovery_registry"
+        ) as mock_registry,
+        patch("agent_utilities.orchestration.engine.create_model", return_value=None),
+        patch(
+            "agent_utilities.orchestration.engine.GraphState", wraps=GraphState
+        ) as state_factory,
+        patch(
+            "agent_utilities.core.registry.service_adapter.ServiceRegistry.instance"
+        ) as service_registry,
+    ):
+        mock_registry.return_value.agents = []
+        service_registry.return_value.initialize.return_value = 0
+        response = await runner().execute_graph(
+            mock_graph,
+            config,
+            query="synthetic request",
+            run_id="synthetic-run",
+            streamdown=False,
+        )
+
+    assert response["status"] == "completed"
+    assert state_factory.call_count == 1
+    assert isinstance(captured["state"], GraphState)
+    assert captured["state"].session_id == "synthetic-run"
+    assert captured["deps"].permissions_kernel is kernel
+    assert captured["deps"].agent_identity is identity
+    assert captured["deps"].response_format == "json"
+    assert not hasattr(captured["state"], "permissions_kernel")
+    assert not hasattr(captured["state"], "agent_identity")
+
+
+@pytest.mark.asyncio
 async def test_run_graph_stream_basic(mock_graph):
     # Mock graph.run_stream
     mock_deps = MagicMock()
@@ -93,7 +150,7 @@ async def test_run_graph_stream_basic(mock_graph):
 
     with (
         patch(
-            "agent_utilities.orchestration.engine.load_node_agents_registry"
+            "agent_utilities.orchestration.engine.get_discovery_registry"
         ) as mock_reg,
         patch("agent_utilities.orchestration.engine.create_model") as mock_model,
     ):

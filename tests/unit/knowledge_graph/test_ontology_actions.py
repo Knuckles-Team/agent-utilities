@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from agent_utilities.knowledge_graph.actions import (
-    DEFAULT_EXECUTOR,
     DEFAULT_REGISTRY,
     ActionEffect,
     ActionExecutor,
@@ -57,13 +56,18 @@ def registry() -> ActionRegistry:
 
 @pytest.fixture
 def kernel() -> PermissionsKernel:
-    return PermissionsKernel()
+    return PermissionsKernel(signing_key="test-signing-authority-material-32b")
 
 
 @pytest.fixture
 def executor(registry: ActionRegistry, kernel: PermissionsKernel) -> ActionExecutor:
     # persist=False keeps the unit path hermetic; persistence is tested separately.
     return ActionExecutor(registry, kernel=kernel, persist=False)
+
+
+def test_action_executor_requires_injected_kernel(registry: ActionRegistry) -> None:
+    with pytest.raises(TypeError):
+        ActionExecutor(registry)  # type: ignore[call-arg]
 
 
 # ── registry ────────────────────────────────────────────────────────────────
@@ -127,6 +131,34 @@ def test_permission_deny_blocks_and_audits(
         if r.details.get("status") == "denied"
     ]
     assert denied
+
+
+def test_broad_role_allow_cannot_replace_required_capability(
+    executor: ActionExecutor, kernel: PermissionsKernel
+) -> None:
+    actor = kernel.issue_identity(
+        "agent:unqualified",
+        role=AgentRole.SPECIALIST,
+        capabilities=[],
+    )
+
+    invocation = executor.execute("demo.read", actor, {"key": "alpha"})
+
+    assert invocation.status == ActionStatus.DENIED
+
+
+def test_admin_role_is_explicit_action_authority(
+    executor: ActionExecutor, kernel: PermissionsKernel
+) -> None:
+    actor = kernel.issue_identity(
+        "agent:administrator",
+        role=AgentRole.ADMIN,
+        capabilities=[],
+    )
+
+    invocation = executor.execute("demo.read", actor, {"key": "alpha"})
+
+    assert invocation.status == ActionStatus.SUCCESS
 
 
 def test_param_validation_rejects_bad_input(
@@ -209,27 +241,27 @@ def test_default_registry_is_populated() -> None:
     assert len(DEFAULT_REGISTRY) >= 2
 
 
-def test_default_executor_runs_builtin_live_path() -> None:
-    # Exercise the *module-level* default executor end-to-end. kg.search degrades
+def test_builtin_registry_runs_with_injected_kernel_live_path() -> None:
+    # Exercise the built-in registry with an explicitly governed executor. kg.search degrades
     # to [] when no backend exists, but the governed path (authorize → validate →
     # handle → audit) must complete with SUCCESS.
-    DEFAULT_EXECUTOR.persist = False
-    actor = DEFAULT_EXECUTOR.kernel.issue_identity(
+    kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
+    executor = ActionExecutor(DEFAULT_REGISTRY, kernel=kernel, persist=False)
+    actor = kernel.issue_identity(
         "agent:live", role=AgentRole.SPECIALIST, capabilities=["kg_read"]
     )
-    inv = DEFAULT_EXECUTOR.execute(
-        "kg.search", actor, {"cypher": "MATCH (n) RETURN n LIMIT 1"}
-    )
+    inv = executor.execute("kg.search", actor, {"cypher": "MATCH (n) RETURN n LIMIT 1"})
     assert inv.status == ActionStatus.SUCCESS
     assert inv.audit_ref
 
 
-def test_default_executor_denies_without_capability() -> None:
-    DEFAULT_EXECUTOR.persist = False
-    actor = DEFAULT_EXECUTOR.kernel.issue_identity(
+def test_builtin_registry_denies_without_capability() -> None:
+    kernel = PermissionsKernel(signing_key="test-signing-authority-material-32b")
+    executor = ActionExecutor(DEFAULT_REGISTRY, kernel=kernel, persist=False)
+    actor = kernel.issue_identity(
         "agent:nocap", role=AgentRole.SANDBOX, capabilities=[]
     )
-    inv = DEFAULT_EXECUTOR.execute("kg.search", actor, {"cypher": "MATCH (n) RETURN n"})
+    inv = executor.execute("kg.search", actor, {"cypher": "MATCH (n) RETURN n"})
     assert inv.status == ActionStatus.DENIED
 
 

@@ -70,7 +70,7 @@ class WorkspacePlanPersistenceProvider:
         """
         plan_path = self.workspace_root / "agent_data" / self.plan_filename
 
-        logger.info(f"Syncing ACP plan state ({len(entries)} entries) to {plan_path}")
+        logger.info("Syncing ACP plan state (%d entries)", len(entries))
 
         _STATUS_ICON = {
             "completed": "[x]",
@@ -96,7 +96,7 @@ class WorkspacePlanPersistenceProvider:
             plan_path.parent.mkdir(parents=True, exist_ok=True)
             plan_path.write_text(content, encoding="utf-8")
         except Exception as e:
-            logger.error(f"Failed to persist ACP plan to {plan_path}: {e}")
+            logger.error("Failed to persist ACP plan (%s)", type(e).__name__)
 
 
 def get_workspace_persistence_provider() -> WorkspacePlanPersistenceProvider:

@@ -1,13 +1,9 @@
-"""Tests for the JWT and API Key authentication module.
+"""Tests for JWT bearer authentication.
 
 CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
-Covers:
-- API key verification (valid, invalid, disabled)
-- JWT token decoding (valid claims, expired, bad signature, wrong issuer/audience)
-- Combined credential verification (API key OR JWT)
-- JWKS caching behaviour
-- CORS and TrustedHost configuration
+Covers JWT decoding, bearer-policy enforcement, JWKS caching, CORS, and
+TrustedHost configuration.
 """
 
 import time
@@ -16,10 +12,13 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Request
+from fastapi.security import HTTPAuthorizationCredentials
 
 from agent_utilities.security.auth import (
     _decode_jwt,
-    verify_api_key_only,
+    _fetch_jwks,
+    authenticate_header_values,
+    parse_bearer_authorization,
     verify_credentials,
 )
 
@@ -31,60 +30,24 @@ from agent_utilities.security.auth import (
 def _make_config(**overrides):
     """Create a config-like mock with sensible defaults."""
     cfg = MagicMock()
-    cfg.enable_api_auth = overrides.get("enable_api_auth", False)
-    cfg.agent_api_key = overrides.get("agent_api_key", None)
     cfg.auth_jwt_jwks_uri = overrides.get("auth_jwt_jwks_uri", None)
-    cfg.auth_jwt_issuer = overrides.get("auth_jwt_issuer", None)
-    cfg.auth_jwt_audience = overrides.get("auth_jwt_audience", None)
+    cfg.auth_jwt_issuer = overrides.get(
+        "auth_jwt_issuer",
+        "https://identity.example.test" if cfg.auth_jwt_jwks_uri else None,
+    )
+    cfg.auth_jwt_audience = overrides.get(
+        "auth_jwt_audience", "agent-services" if cfg.auth_jwt_jwks_uri else None
+    )
     cfg.allowed_origins = overrides.get("allowed_origins", None)
     cfg.allowed_hosts = overrides.get("allowed_hosts", None)
+    cfg.cors_allow_credentials = overrides.get("cors_allow_credentials", False)
+    cfg.server_tls_certfile = overrides.get("server_tls_certfile", None)
+    cfg.server_tls_keyfile = overrides.get("server_tls_keyfile", None)
+    cfg.server_tls_terminated = overrides.get("server_tls_terminated", False)
+    cfg.server_trusted_proxy_cidrs = overrides.get(
+        "server_trusted_proxy_cidrs", None
+    )
     return cfg
-
-
-# ---------------------------------------------------------------------------
-# API Key Tests
-# ---------------------------------------------------------------------------
-
-
-class TestVerifyApiKey:
-    """Tests for API key verification."""
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_api_key_disabled_returns_none(self):
-        """When ENABLE_API_AUTH=False, returns None (allow through)."""
-        cfg = _make_config(enable_api_auth=False)
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            result = await verify_api_key_only(api_key="anything")
-            assert result is None
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_api_key_valid(self):
-        """Valid API key returns auth info dict."""
-        cfg = _make_config(enable_api_auth=True, agent_api_key="test-key-123")
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            result = await verify_api_key_only(api_key="test-key-123")
-            assert result is not None
-            assert result["auth_type"] == "api_key"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_api_key_invalid_returns_none(self):
-        """Invalid API key returns None (not authenticated, but doesn't reject yet)."""
-        cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            result = await verify_api_key_only(api_key="wrong-key")
-            assert result is None
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_api_key_none_returns_none(self):
-        """No API key provided returns None."""
-        cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            result = await verify_api_key_only(api_key=None)
-            assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +238,12 @@ class TestDecodeJWT:
         )
         assert claims["sub"] == "user123"
 
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    @pytest.mark.asyncio
+    async def test_plaintext_jwks_outside_loopback_is_rejected(self):
+        with pytest.raises(RuntimeError, match="requires HTTPS"):
+            await _fetch_jwks("http://identity.example.test/jwks")
+
 
 # ---------------------------------------------------------------------------
 # Combined Credential Verification
@@ -282,7 +251,7 @@ class TestDecodeJWT:
 
 
 class TestVerifyCredentials:
-    """Tests for the combined API key + JWT verification."""
+    """Tests for bearer-policy verification."""
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
@@ -291,39 +260,8 @@ class TestVerifyCredentials:
         cfg = _make_config()
         with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
-            result = await verify_credentials(
-                request=request, api_key=None, bearer=None
-            )
+            result = await verify_credentials(request=request, bearer=None)
             assert result is None
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_valid_api_key_accepted(self):
-        """Valid API key is accepted when JWT is not configured."""
-        cfg = _make_config(enable_api_auth=True, agent_api_key="valid-key")
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            request = MagicMock(spec=Request)
-            request.state = MagicMock()
-            result = await verify_credentials(
-                request=request, api_key="valid-key", bearer=None
-            )
-            assert result is not None
-            assert result["auth_type"] == "api_key"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    @pytest.mark.asyncio
-    async def test_invalid_credentials_raises(self):
-        """Invalid credentials raise 401."""
-        from fastapi import HTTPException
-
-        cfg = _make_config(enable_api_auth=True, agent_api_key="correct-key")
-        with mock.patch("agent_utilities.core.config.config", cfg):
-            request = MagicMock(spec=Request)
-            with pytest.raises(HTTPException) as exc_info:
-                await verify_credentials(
-                    request=request, api_key="wrong-key", bearer=None
-                )
-            assert exc_info.value.status_code == 401
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
@@ -331,12 +269,89 @@ class TestVerifyCredentials:
         """No credentials at all when auth is configured raises 401."""
         from fastapi import HTTPException
 
-        cfg = _make_config(enable_api_auth=True, agent_api_key="some-key")
+        cfg = _make_config(
+            auth_jwt_jwks_uri="https://identity.example.test/jwks",
+            server_tls_terminated=True,
+            server_trusted_proxy_cidrs="127.0.0.1/32",
+        )
         with mock.patch("agent_utilities.core.config.config", cfg):
             request = MagicMock(spec=Request)
             with pytest.raises(HTTPException) as exc_info:
-                await verify_credentials(request=request, api_key=None, bearer=None)
+                await verify_credentials(request=request, bearer=None)
             assert exc_info.value.status_code == 401
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    @pytest.mark.asyncio
+    async def test_valid_bearer_identity_is_propagated(self):
+        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
+        request = MagicMock(spec=Request)
+        request.state = MagicMock()
+        bearer = HTTPAuthorizationCredentials(scheme="Bearer", credentials="token")
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch(
+                "agent_utilities.security.auth._fetch_jwks",
+                new=mock.AsyncMock(return_value={"keys": []}),
+            ),
+            mock.patch(
+                "agent_utilities.security.auth._decode_jwt",
+                return_value={"sub": "subject"},
+            ),
+        ):
+            result = await verify_credentials(request=request, bearer=bearer)
+        assert result == {"auth_type": "jwt", "sub": "subject"}
+        assert request.state.user_claims == result
+
+
+class TestBearerHeaderParser:
+    def test_absent_header_returns_none(self):
+        assert parse_bearer_authorization([]) is None
+
+    def test_one_bearer_header_returns_opaque_token(self):
+        assert parse_bearer_authorization([b"bEaReR opaque-token"]) == "opaque-token"
+
+    @pytest.mark.parametrize(
+        "authorization",
+        [
+            [b"Bearer first", b"Bearer second"],
+            [b"Basic opaque"],
+            [b"Bearer"],
+            [b"Bearer two tokens"],
+            [b"Bearer opaque\x00suffix"],
+            [b"Bearer \xff"],
+        ],
+    )
+    def test_ambiguous_or_malformed_header_fails_closed(self, authorization):
+        with pytest.raises(PermissionError):
+            parse_bearer_authorization(authorization)
+
+    @pytest.mark.asyncio
+    async def test_malformed_header_is_rejected_even_without_jwt_configuration(self):
+        with mock.patch("agent_utilities.core.config.config", _make_config()):
+            with pytest.raises(PermissionError):
+                await authenticate_header_values(authorization=[b"Basic opaque"])
+
+    @pytest.mark.asyncio
+    async def test_token_claim_cannot_override_server_minted_auth_type(self):
+        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch(
+                "agent_utilities.security.auth._fetch_jwks",
+                new=mock.AsyncMock(return_value={"keys": []}),
+            ),
+            mock.patch(
+                "agent_utilities.security.auth._decode_jwt",
+                return_value={"sub": "principal:verified", "auth_type": "api_key"},
+            ),
+        ):
+            identity = await authenticate_header_values(
+                authorization=[b"Bearer opaque-token"]
+            )
+        assert identity == {
+            "sub": "principal:verified",
+            "auth_type": "jwt",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -355,11 +370,11 @@ class TestCORSConfig:
         assert parsed == ["https://app.example.com", "https://admin.example.com"]
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_allowed_origins_default_to_wildcard(self):
-        """When ALLOWED_ORIGINS is None, default to ['*']."""
-        origins = None
-        result = [o.strip() for o in origins.split(",")] if origins else ["*"]
-        assert result == ["*"]
+    def test_allowed_origins_default_disables_cors(self):
+        """When ALLOWED_ORIGINS is unset, cross-origin access is disabled."""
+        from agent_utilities.server.app import _csv_values
+
+        assert _csv_values(None) == []
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_allowed_hosts_parsed_from_config(self):
@@ -374,3 +389,50 @@ class TestCORSConfig:
         origins_str = " https://a.com , https://b.com "
         parsed = [o.strip() for o in origins_str.split(",")]
         assert parsed == ["https://a.com", "https://b.com"]
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_remote_listener_requires_auth_and_host_allowlist(self):
+        from agent_utilities.server.app import _http_boundary_settings
+
+        cfg = _make_config()
+        with mock.patch("agent_utilities.server.app.config", cfg):
+            with pytest.raises(RuntimeError, match="requires JWT"):
+                _http_boundary_settings("0.0.0.0")
+
+        cfg = _make_config(
+            auth_jwt_jwks_uri="https://identity.example.test/jwks",
+            server_tls_terminated=True,
+            server_trusted_proxy_cidrs="127.0.0.1/32",
+        )
+        with mock.patch("agent_utilities.server.app.config", cfg):
+            with pytest.raises(RuntimeError, match="explicit ALLOWED_HOSTS"):
+                _http_boundary_settings("0.0.0.0")
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_credentialed_cors_rejects_wildcard(self):
+        from agent_utilities.server.app import _http_boundary_settings
+
+        cfg = _make_config(
+            allowed_origins="*",
+            cors_allow_credentials=True,
+        )
+        with mock.patch("agent_utilities.server.app.config", cfg):
+            with pytest.raises(RuntimeError, match="requires explicit"):
+                _http_boundary_settings("127.0.0.1")
+
+    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
+    def test_remote_listener_accepts_explicit_secure_boundary(self):
+        from agent_utilities.server.app import _http_boundary_settings
+
+        cfg = _make_config(
+            auth_jwt_jwks_uri="https://identity.example.test/jwks",
+            allowed_hosts="api.example.test",
+            allowed_origins="https://ui.example.test",
+            cors_allow_credentials=True,
+            server_tls_terminated=True,
+            server_trusted_proxy_cidrs="127.0.0.1/32",
+        )
+        with mock.patch("agent_utilities.server.app.config", cfg):
+            origins, hosts = _http_boundary_settings("0.0.0.0")
+        assert origins == ["https://ui.example.test"]
+        assert hosts == ["api.example.test"]

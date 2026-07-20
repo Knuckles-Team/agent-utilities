@@ -7,6 +7,8 @@ recorder (plane B).
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
@@ -19,16 +21,24 @@ from agent_utilities.usage.models import (
     UsageToolCall,
 )
 from agent_utilities.usage.recorder import UsageRecorder
+from agent_utilities.usage.schema import sqlite_ddl
 
 
 @pytest.fixture()
-def backend(tmp_path):
+def backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("USAGE_CONTENT_RETENTION", "sanitized")
     b = SqliteUsageBackend(tmp_path / "usage.db")
     b.ensure_schema()
     return b
 
 
-def _bundle(sid="s1", project="proj-a", agent="claude", model="claude-opus-4-8"):
+def _bundle(
+    sid="s1",
+    project="proj-a",
+    agent="claude",
+    model="claude-opus-4-8",
+    tenant_id="",
+):
     return ParsedSessionBundle(
         session=UsageSession(
             id=sid,
@@ -39,6 +49,7 @@ def _bundle(sid="s1", project="proj-a", agent="claude", model="claude-opus-4-8")
             total_output_tokens=500,
             health_grade="A",
             outcome="success",
+            tenant_id=tenant_id,
         ),
         messages=[
             UsageMessage(
@@ -147,7 +158,7 @@ def test_activity_buckets(backend):
 def test_fts_search(backend):
     backend.write_bundle(_bundle())
     hits = backend.search("authentication")
-    assert hits and hits[0].session_id == "s1"
+    assert hits and hits[0].session_id.startswith("pref_run_")
     assert "[authentication]" in hits[0].snippet or "authentication" in hits[0].snippet
     assert backend.search("nonexistenttermxyz") == []
 
@@ -188,3 +199,67 @@ def test_record_tool_call_runtime(backend):
     # tool_stats filters on session origin; runtime session has the call
     assert "graph_query" in stats
     assert stats["graph_query"].category == "db"
+
+
+def test_equal_source_session_ids_are_tenant_qualified(backend):
+    backend.write_bundle(_bundle(sid="same", tenant_id="tenant-a"))
+    backend.write_bundle(_bundle(sid="same", tenant_id="tenant-b"))
+    assert backend.summary().session_count == 2
+    assert backend.summary(tenant_id="tenant-a").session_count == 1
+    assert backend.summary(tenant_id="tenant-b").session_count == 1
+    first = backend.session_detail("same", tenant_id="tenant-a")
+    second = backend.session_detail("same", tenant_id="tenant-b")
+    assert first is not None and second is not None
+    assert first.session.id != second.session.id
+
+
+def test_metadata_mode_never_persists_transcripts_hosts_or_paths(backend, monkeypatch):
+    monkeypatch.setenv("USAGE_CONTENT_RETENTION", "metadata")
+    bundle = _bundle(sid="private")
+    bundle.session.machine = "private-workstation"
+    bundle.session.file_path = "/home/person/private/session.jsonl"
+    bundle.session.first_message = "Contact person@example.test"
+    bundle.messages[0].content = "Contact person@example.test in /home/person/private"
+    bundle.messages[0].thinking_text = "private reasoning"
+    bundle.tool_calls[0].input_json = '{"password":"secret","path":"/tmp/x"}'
+    backend.write_bundle(bundle)
+
+    detail = backend.session_detail("private")
+    assert detail is not None
+    assert all(message.content == "" for message in detail.messages)
+    assert all(message.thinking_text == "" for message in detail.messages)
+    assert all(call.input_json is None for call in detail.tool_calls)
+    with sqlite3.connect(str(backend._path)) as conn:
+        row = conn.execute(
+            "SELECT machine, first_message, file_path FROM sessions"
+        ).fetchone()
+        skipped = conn.execute("SELECT path FROM skipped_files").fetchall()
+    assert row == ("unattributed", "", None)
+    assert all("/home/" not in value[0] for value in skipped)
+
+
+def test_unversioned_populated_usage_store_fails_closed(tmp_path):
+    path = tmp_path / "unversioned.db"
+    with sqlite3.connect(path) as conn:
+        conn.executescript(sqlite_ddl())
+        conn.execute(
+            "INSERT INTO sessions (id, machine, first_message, file_path) "
+            "VALUES (?, ?, ?, ?)",
+            ("raw-id", "raw-host", "raw transcript", "/home/person/raw.jsonl"),
+        )
+        conn.execute(
+            "INSERT INTO skipped_files (path, mtime, size) VALUES (?, ?, ?)",
+            ("/home/person/raw.jsonl", 1, 1),
+        )
+    upgraded = SqliteUsageBackend(path)
+    with pytest.raises(RuntimeError, match="privacy schema is incompatible"):
+        upgraded.ensure_schema()
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM skipped_files").fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT value FROM usage_store_metadata WHERE key='privacy_schema'"
+            ).fetchone()
+            is None
+        )

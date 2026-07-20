@@ -5,12 +5,12 @@ from __future__ import annotations
 
 The **epistemic-graph engine is the ONE authority** (compute + in-memory cache +
 semantic + durable persistence); the facade composes it with the semantic + retrieval
-layers behind one object. There is NO L0/L1/L2 tier vocabulary — the facade exposes three
+layers behind one object. There is no numeric graph-storage hierarchy — the facade exposes three
 collaborating concerns, all served by the one authority:
 
-* **store** — the graph backend the authority persists to (the epistemic engine, plus any
-  durable mirrors under ``backends/`` when ``GRAPH_BACKEND=fanout``) holding the labelled
-  property graph.
+* **store** — the epistemic engine, automatically wrapped with any configured
+  durable external projections (e.g. ``backends/`` mirrors when
+  ``GRAPH_BACKEND=fanout``), holding the labelled property graph.
 * **compute** — the Rust-native ``epistemic-graph`` compute client for in-process graph
   algorithms (when available).
 * **semantic / retrieval** — OWL reasoning (``owl_bridge``) and the capability-aware
@@ -24,11 +24,13 @@ Dependency contract (strictly one-directional)::
 The execution plane (``graph/*`` — routing, planning, orchestration) depends on
 this facade. The facade depends downward on those concerns. **Nothing below the
 facade imports the execution plane**, and the facade itself imports them
-lazily and defensively so that *constructing* a :class:`KnowledgeGraph` never
-requires a running service, an installed optional backend, or a network
-connection. Each is materialised on first access and any import/connect
-failure is tolerated (the attribute resolves to ``None``), keeping the facade
-usable in tests, edge deployments, and degraded environments.
+lazily so that *constructing* a :class:`KnowledgeGraph` remains side-effect
+free — it never requires a running service, an installed optional backend, or
+a network connection. Accessing its operational store or compute layer
+requires the already active process-owned engine and fails closed when that
+authority is absent (the semantic/ontology layers remain best-effort and
+degrade to ``None`` on import/construction failure, keeping the facade usable
+in tests and degraded environments).
 """
 
 import logging
@@ -52,30 +54,22 @@ class KnowledgeGraph:
     capability-aware routing.
 
     Construction is cheap and side-effect free: no layer is touched until its
-    property is accessed, and any failure to import or initialise a layer is
-    logged and surfaced as ``None`` rather than raised.
+    property is accessed. Operational layers bind to the active process-owned
+    engine rather than constructing an overlapping backend or transport.
 
     Args:
-        backend_type: Optional explicit store backend (``"memory"``,
-            ``"ladybug"``, …). Falls back to ``GRAPH_BACKEND`` env / default.
         retrieval: Optional pre-built :class:`CapabilityIndex`. When omitted, a
             fresh empty index is created on first access.
         embedding_dim: Optional embedding dimensionality for a freshly created
             retrieval index.
-        **store_kwargs: Forwarded to the backend factory (``db_path``, ``host``,
-            …) when the store is created.
     """
 
     def __init__(
         self,
         *,
-        backend_type: str | None = None,
         retrieval: CapabilityIndex | None = None,
         embedding_dim: int | None = None,
-        **store_kwargs: Any,
     ) -> None:
-        self._backend_type = backend_type
-        self._store_kwargs = store_kwargs
         self._embedding_dim = embedding_dim
 
         # Lazy slots — sentinel ``...`` means "not yet initialised".
@@ -87,27 +81,81 @@ class KnowledgeGraph:
         # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — lazily built over self.retrieval.
         self._object_funnel: Any = None
 
+    @classmethod
+    def from_engine(cls, engine: Any) -> KnowledgeGraph:
+        """Bind the guarded facade to an existing live engine.
+
+        Served entrypoints use this constructor instead of reaching through an
+        ``IntelligenceGraphEngine`` to its backend.  The facade remains the one
+        policy/audit boundary, while the backend-bound compute client preserves
+        the exact named graph selected for the request.
+        """
+        facade = cls()
+        store = getattr(engine, "backend", None)
+        if store is None:
+            raise RuntimeError("The selected graph engine has no active store")
+        facade._store = store
+        facade._compute = getattr(store, "graph", None) or getattr(
+            engine, "graph_compute", None
+        )
+        return facade
+
+    def cache_snapshot_token(self, session: GraphSession | None = None) -> str | None:
+        """Return a trusted data-snapshot token suitable for a read-cache key.
+
+        A short TTL is not a substitute for snapshot identity: property updates
+        can change a result without changing node/edge counts.  This method only
+        accepts explicit revision primitives exposed by a server-owned
+        transaction, compute client, or store.  When none exists it returns
+        ``None`` and the governed query boundary bypasses caching.
+        """
+        candidates = [getattr(session, "txn", None), self._compute, self._store]
+        for candidate in candidates:
+            if candidate is None or candidate is ...:
+                continue
+            for name in (
+                "cache_snapshot_token",
+                "snapshot_token",
+                "snapshot_id",
+                "data_revision",
+                "commit_revision",
+                "generation",
+            ):
+                value = getattr(candidate, name, None)
+                if callable(value):
+                    try:
+                        value = value()
+                    except Exception:  # pragma: no cover - optional primitive
+                        continue
+                if isinstance(value, str | int) and str(value):
+                    return f"{type(candidate).__name__}:{name}:{value}"
+        return None
+
     # ------------------------------------------------------------------
     # store — the authority's graph backend
     # ------------------------------------------------------------------
     @property
     def store(self) -> Any:
-        """The configured persistent graph backend (the authority's store), or ``None``.
+        """Return the active process authority's persistent graph backend.
 
-        Created lazily via the backend factory. Any failure (missing optional
-        package, unreachable service) is tolerated and yields ``None``.
+        The facade never constructs a backend. GraphOS owns engine lifecycle;
+        callers must bind an explicit engine with :meth:`from_engine` or start
+        the one process authority before accessing this lazy property.
         """
         if self._store is ...:
-            self._store = None
-            try:
-                from .backends import create_backend
+            from .core.engine import IntelligenceGraphEngine
 
-                self._store = create_backend(
-                    backend_type=self._backend_type, **self._store_kwargs
+            active = IntelligenceGraphEngine.get_active()
+            if active is None:
+                raise RuntimeError(
+                    "KnowledgeGraph requires the active process-owned graph engine"
                 )
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("KnowledgeGraph: store backend unavailable: %s", exc)
-                self._store = None
+            store = getattr(active, "backend", None)
+            if store is None:
+                raise RuntimeError(
+                    "The active process-owned graph engine has no store authority"
+                )
+            self._store = store
         return self._store
 
     # ------------------------------------------------------------------
@@ -115,26 +163,26 @@ class KnowledgeGraph:
     # ------------------------------------------------------------------
     @property
     def compute(self) -> Any:
-        """The Rust-native graph compute client, or ``None``.
+        """Return the active process authority's Rust-native compute client.
 
-        Prefers the store backend's own compute engine when present; otherwise
-        instantiates a standalone ``GraphComputeEngine``. Tolerates absence of
-        the compiled engine.
+        The facade never creates a second ``GraphComputeEngine``. An explicit
+        :meth:`from_engine` binding remains available for dependency-injected
+        tests and graph-scoped views.
         """
         if self._compute is ...:
-            self._compute = None
-            try:
-                store = self.store
-                graph = getattr(store, "graph", None)
-                if graph is not None:
-                    self._compute = graph
-                else:
-                    from .core.graph_compute import GraphComputeEngine
+            from .core.engine import IntelligenceGraphEngine
 
-                    self._compute = GraphComputeEngine(backend_type="rust")
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning("KnowledgeGraph: compute engine unavailable: %s", exc)
-                self._compute = None
+            active = IntelligenceGraphEngine.get_active()
+            if active is None:
+                raise RuntimeError(
+                    "KnowledgeGraph requires the active process-owned graph engine"
+                )
+            compute = getattr(active, "graph_compute", None)
+            if compute is None:
+                raise RuntimeError(
+                    "The active process-owned graph engine has no compute authority"
+                )
+            self._compute = compute
         return self._compute
 
     # ------------------------------------------------------------------
@@ -308,7 +356,7 @@ class KnowledgeGraph:
         """Designate the top-``k`` entities for a task.
 
         Delegates to :meth:`CapabilityIndex.designate`, then (when
-        ``KG_BRAIN_ENFORCE`` is on) drops designations the current actor is not
+        mandatory Company Brain enforcement drops designations the current actor is not
         permitted to read and records a read audit. No-op filtering otherwise.
 
         Args:
@@ -317,16 +365,14 @@ class KnowledgeGraph:
             k: Maximum number of designations to return.
             session: Explicit :class:`~.core.session.GraphSession` this read
                 runs under (CONCEPT:AU-P0-1 — the one currency). When omitted, one is
-                derived from today's ambient actor/trace via
-                ``GraphSession.from_ambient()`` so existing callers are unaffected.
+                inherited from the verified ambient context in production.
 
         Returns:
             A list of :class:`Designation` objects, ranked by similarity.
         """
-        from .core.session import GraphSession
+        from .core.session import resolve_session
 
-        if session is None:
-            session = GraphSession.from_ambient()
+        session = resolve_session(session, required_scope="kg:read")
 
         results = self.retrieval.designate(
             prompt_embedding, required_caps=required_caps, k=k
@@ -379,19 +425,18 @@ class KnowledgeGraph:
     ) -> list[dict[str, Any]]:
         """Run a tenant-scoped, permission-filtered, audited Cypher read.
 
-        The guarded counterpart to ``store.execute``: applies tenant scoping to
+        The guarded counterpart to ``store.execute_read``: applies tenant scoping to
         the query, filters ACL-denied rows, and records a read audit — all
-        no-ops unless ``KG_BRAIN_ENFORCE`` is on. Internal/unscoped callers may
-        still use ``store.execute`` directly.
+        mandatory current-contract boundaries. Internal graph reads inherit the
+        same verified session and may not bypass these controls.
 
         Args:
             cypher: The read query.
             params: Optional query parameters.
             session: Explicit :class:`~.core.session.GraphSession` this read
                 runs under (CONCEPT:AU-P0-1 — the one currency: identity + policy +
-                trace in one object). When omitted, one is derived from today's
-                ambient actor via ``GraphSession.from_ambient()`` — existing
-                callers that never heard of ``GraphSession`` are unaffected.
+                trace in one object). Production inherits the middleware-minted
+                ambient session and rejects any out-of-band replacement.
             include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
                 ``KnowledgeBatch`` currency). Default ``False`` — existing callers
                 get the byte-for-byte SAME plain ``list[dict]`` rows as before this
@@ -406,34 +451,21 @@ class KnowledgeGraph:
                 ``docs/architecture/epistemic-columns-currency.md`` for the full
                 seam and how another read path adopts the same pattern.
         """
+        from .core.session import resolve_session
+
+        session = resolve_session(session, required_scope="kg:read")
         store = self.store
         if store is None:
-            return []
+            raise PermissionError("Graph read store is unavailable")
         from .core.secured_reads import audit_read, filter_rows, scope, visible
-        from .core.session import GraphSession
 
-        if session is None:
-            session = GraphSession.from_ambient()
-
-        rows = store.execute(scope(cypher, session.actor), params or {}) or []
+        rows = store.execute_read(scope(cypher, session.actor), params or {}) or []
         rows = visible(filter_rows(rows, session.actor), session.actor)
-        # Fine-grained, default-ON object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): row-drop
-        # marked/ACL-denied rows + column-redact, allow-by-default for unmarked
-        # rows. Runs regardless of KG_BRAIN_ENFORCE because it is driven by the
-        # data's own mandatory markings/ACLs, so unmarked data passes through
-        # unchanged and existing behaviour is preserved.
-        from .core.company_brain_runtime import brain_enforcement_enabled
+        # Fine-grained object permissioning is mandatory: rows without governed
+        # markings/ACLs are denied and enforcement failures propagate.
         from .ontology.permissioning import enforce as enforce_fine_grained
 
-        if brain_enforcement_enabled():
-            # Fail CLOSED (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): with enforcement on, an
-            # enforcement error must never widen into an allow — propagate.
-            rows = enforce_fine_grained(rows, session.actor)
-        else:
-            try:
-                rows = enforce_fine_grained(rows, session.actor)
-            except Exception as exc:  # pragma: no cover - never block a legacy read
-                logger.debug("fine-grained enforce skipped: %s", exc)
+        rows = enforce_fine_grained(rows, session.actor)
         audit_read([], summary="query", actor=session.actor)
         if include_epistemic:
             return self._attach_epistemic(rows)  # type: ignore[return-value]
@@ -488,7 +520,7 @@ class KnowledgeGraph:
         """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
 
         The naming discipline that makes engine sharding tenant-partitioned:
-        ``tenant → named graph → HRW → shard``. ``tenant`` defaults to the
+        ``tenant → named graph → authoritative engine placement``. ``tenant`` defaults to the
         ambient :class:`ActorContext` tenant; ``base`` to the configured
         default graph (``KG_DEFAULT_GRAPH``). With no tenant in scope the base
         is returned unchanged, so single-tenant deployments are unaffected.

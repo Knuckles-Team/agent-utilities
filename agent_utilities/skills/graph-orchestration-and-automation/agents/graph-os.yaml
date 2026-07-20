@@ -1,0 +1,21 @@
+schema_version: 2
+tier: domain
+claims:
+  core:
+    - act
+    - graph_agents
+    - graph_broker
+    - graph_bus
+    - graph_fork
+    - graph_goals
+    - graph_jobs
+    - graph_loops
+    - graph_message
+    - graph_orchestrate
+    - graph_reach
+    - graph_runvcs
+    - graph_sandbox
+    - graph_schedules
+    - graph_workflows
+    - spec_ticket
+  features: {}

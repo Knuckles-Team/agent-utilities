@@ -7,7 +7,6 @@ from agent_utilities.harness.adaptation_benchmark import AdaptationBenchmark
 from agent_utilities.harness.sai_task import SpecializationTask, VerifierResult
 from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
 
-
 # --------------------------------------------------------------------------- #
 # SuperhumanCertifier (SAFE-1.6)
 # --------------------------------------------------------------------------- #

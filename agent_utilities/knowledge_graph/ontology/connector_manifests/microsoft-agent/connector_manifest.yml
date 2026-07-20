@@ -93,14 +93,17 @@ actions:
 events:
 - name: microsoft-calendar.updated
   resource: event
-  description: "Watermark event for 'microsoft-calendar' \u2014 advances on lastModifiedDateTime (mcp_source_presets.json)."
+  description: "Watermark event for 'microsoft-calendar' — advances on lastModifiedDateTime (mcp_source_presets.json)."
 - name: microsoft-mail.updated
   resource: email
-  description: "Watermark event for 'microsoft-mail' \u2014 advances on receivedDateTime (mcp_source_presets.json)."
+  description: "Watermark event for 'microsoft-mail' — advances on receivedDateTime (mcp_source_presets.json)."
 identity:
   id_field:
     event: id
     email: id
+    microsoft-event-reference: id
+    microsoft-message-reference: id
+    microsoft-person-reference: id
   title_field:
     event: subject
     email: subject
@@ -288,88 +291,157 @@ sync:
     text_field: bodyPreview
     updated_field: receivedDateTime
     doc_type: email
+- preset: microsoft-event-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-event-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: events
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-event-reference
+- preset: microsoft-message-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-message-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: messages
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-message-reference
+- preset: microsoft-user-structure
+  server: microsoft-agent
+  tool: list_microsoft_ingestion_projection
+  action: null
+  records_path: records
+  id_field: id
+  title_field: null
+  text_field: null
+  updated_field: null
+  pagination: null
+  doc_type: microsoft-person-reference
+  tool_schema_sha256: aed3830a8e60658aa10f9b7bc680226e9ac3a76a43ccdca813161211cea57e15
+  raw:
+    server: microsoft-agent
+    tool: list_microsoft_ingestion_projection
+    params_style: args
+    params:
+      kind: users
+      params_json: '{"$top":100}'
+    records_path: records
+    id_field: id
+    doc_type: microsoft-person-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T14:21:05Z'
   source_artifacts:
   - a2a.json
   - microsoft_agent/connectors/mcp_source_presets.json
+  - microsoft_agent/connectors/tool_schema_fingerprints.json
   - microsoft_agent/ontology/microsoft.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 9a378ca77ce78dae239fddda4f194db8dbe2b49a28dcaa36adfa8a04b477b245
+    hash: 4d5545b2fcef1af23af5da87943daaad04295833886a037217fd6cec9b357158
     triple_count: 113
   signer: ontology-manifest-generator
-  signature: d29dafce5b43a724442ee0d6fc7b164a352b6d454dac402e4f196acfb25043bc
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: mkx6xBKUAZLog5ZI_P7AiKxFAj8X1CStKNN8CMPF9-_XmapLMMrsPM_I5iO1cbcS9AR95SSDb3e4p9DRH3ePDg
 policy:
   pii_fields: {}
   tenant_boundary: null
   rls: []
 review_todos:
-- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+- "policy.rls / policy.tenant_boundary are unset — no row-level-security predicate has been reviewed\
   \ for this connector."
 - "relation 'hasAttachment' has no declared rdfs:domain resolving to a known resource in this connector's\
-  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+  \ ontology — not attached to any resource; verify its true domain manually."
 - "relation 'hasBody' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
-  \ \u2014 not attached to any resource; verify its true domain manually."
+  \ — not attached to any resource; verify its true domain manually."
 - "relation 'memberOfGroup' has no declared rdfs:domain resolving to a known resource in this connector's\
-  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+  \ ontology — not attached to any resource; verify its true domain manually."
 - "relation 'memberOfTeam' has no declared rdfs:domain resolving to a known resource in this connector's\
-  \ ontology \u2014 not attached to any resource; verify its true domain manually."
-- "schema_mappings.Calendar.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.Channel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.Chat.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.Event.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
-  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ ontology — not attached to any resource; verify its true domain manually."
+- "schema_mappings.Calendar.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Channel.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Chat.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Event.ontology_class = 'Event' [DRAFT — nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] — verify manually before relying on this crosswalk\
   \ for reasoning/joins."
-- "schema_mappings.File.ontology_class = 'File' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
-  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+- "schema_mappings.File.ontology_class = 'File' [DRAFT — nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] — verify manually before relying on this crosswalk\
   \ for reasoning/joins."
-- "schema_mappings.Group.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
-  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+- "schema_mappings.Group.ontology_class = 'Organization' [DRAFT — nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] — verify manually before relying\
   \ on this crosswalk for reasoning/joins."
-- "schema_mappings.MailFolder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.Message.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
-  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- "schema_mappings.SharePointSite.ontology_class = 'Place' [DRAFT \u2014 nearest hub-canonical-class-by-name\
-  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+- "schema_mappings.MailFolder.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Message.ontology_class = None [UNRESOLVED — no crosswalk found by any heuristic]\
+  \ — verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SharePointSite.ontology_class = 'Place' [DRAFT — nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] — verify manually before relying\
   \ on this crosswalk for reasoning/joins."
-- "schema_mappings.Team.ontology_class = 'Team' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
-  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+- "schema_mappings.Team.ontology_class = 'Team' [DRAFT — nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] — verify manually before relying on this crosswalk\
   \ for reasoning/joins."
-- "auth: OAuth2 \u2014 MSAL device-code flow w/ token cache (primary) + OIDC delegation + raw bearer fallback.\
+- "auth: OAuth2 — MSAL device-code flow w/ token cache (primary) + OIDC delegation + raw bearer fallback.\
   \ Env actually read: OIDC_CLIENT_ID, MICROSOFT_TOKEN, AUDIENCE, DELEGATED_SCOPES, AUTH_TYPE, OIDC_CLIENT_SECRET/CONFIG_URL/BASE_URL.\
   \ required_scopes (hardcoded Graph delegated scopes in code): User.Read, Mail.ReadWrite, Calendars.ReadWrite,\
   \ Files.ReadWrite. Shape: per-user delegated (MSAL user token cache), NOT a shared service credential.\
   \ KNOWN DOC DRIFT: README also documents MICROSOFT_CLIENT_ID/SECRET/SCOPE/GRANT_TYPE=client_credentials,\
-  \ but these are not referenced anywhere in the code path \u2014 do not rely on the README's client-credentials\
+  \ but these are not referenced anywhere in the code path — do not rely on the README's client-credentials\
   \ description."
-- "change_support: snapshot/poll only, via mcp_source_presets.json (materialize \u2014 see docs/architecture/kg_connectors_and_ingestion.md\
+- "change_support: snapshot/poll only, via mcp_source_presets.json (materialize — see docs/architecture/kg_connectors_and_ingestion.md\
   \ section 8 connector inventory for the real, already-shipped wiring). cdc: none (no change-data-capture/replication-log\
   \ path). webhook: none (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM\
-  \ as a tool capability \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for\
+  \ as a tool capability — there is no inbound webhook RECEIVER wired to source_sync ingestion for\
   \ this connector today)."
-- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
+- "policy.classification / policy.retention: UNKNOWN — this connector declares no data classification\
   \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
   \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
   \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
   \ above for the one heuristic that IS populated)."
-- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
+- "quality (SHACL shapes / freshness SLA): UNKNOWN — no SHACL shape set or freshness contract is\
   \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
   \ SLA is authored and referenced here."
-- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
+- "manifest_status: draft — resources/schema_mappings/sync/actions/events were generated deterministically\
   \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
   \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
   \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
-  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
+  \ manifest MANDATORY for enterprise activation — operator sign-off on the ontology_class crosswalks,\
   \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
   \ manifest should be treated as fully authoritative."
 - "cross-connector note: atlassian-agent, gitlab-api, servicenow-api, microsoft-agent, and leanix-agent\
   \ all layer a common OIDC_CLIENT_ID/SECRET + ENABLE_DELEGATION + DELEGATED_SCOPES + AUDIENCE RFC-8693-style\
   \ token-exchange path on top of each connector's own native credential (a shared auth.py pattern across\
-  \ these agent-packages) \u2014 this is the per-user delegated-identity opt-in; the native credential\
+  \ these agent-packages) — this is the per-user delegated-identity opt-in; the native credential\
   \ above remains the system-to-system default."

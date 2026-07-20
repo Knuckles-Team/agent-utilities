@@ -1,7 +1,7 @@
 """CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout — warm-fork fan-out over an engine cross-modal candidate set.
 
-Wire-First: these boot a *real* forkserver, retrieve a (faked) cross-modal candidate set ONCE,
-and fork real copy-on-write children over it — proving the two things the capability exists for:
+These drive the current :class:`ForkableSandbox` contract, retrieve a faked cross-modal candidate
+set once, and fork isolated branch views over it — proving the two things the capability exists for:
 
 * **Reuse** — the cross-modal candidate set is computed once for the whole cohort (the recompute
   guard counts exactly one retrieval), and the warm parent is warmed once (the rest of the branches
@@ -12,10 +12,16 @@ and fork real copy-on-write children over it — proving the two things the capa
 
 from __future__ import annotations
 
-import multiprocessing
-
 import pytest
 
+from agent_utilities.rlm.sandboxes.base import (
+    ForkableSandbox,
+    ParentHandle,
+    SandboxCapabilities,
+    SandboxEnv,
+    SandboxResult,
+    WarmSpec,
+)
 from agent_utilities.runtime.crossmodal_fork import (
     CrossModalForkFanout,
     RecomputeError,
@@ -23,15 +29,59 @@ from agent_utilities.runtime.crossmodal_fork import (
 )
 from agent_utilities.runtime.warm_registry import WarmParentRegistry
 
-pytestmark = pytest.mark.skipif(
-    "forkserver" not in multiprocessing.get_all_start_methods(),
-    reason="forkserver start method unavailable on this platform",
-)
+
+class _TestForkableSandbox(ForkableSandbox):
+    """Deterministic confined-backend double that exercises the current fork protocol."""
+
+    name = "test-firecracker"
+    capabilities = SandboxCapabilities(
+        host_callbacks=True,
+        third_party_libs=True,
+        classes=True,
+        full_stdlib=True,
+        network=False,
+        isolated=True,
+        preference_rank=25,
+        warm_fork=True,
+    )
+
+    def is_available(self) -> bool:
+        return True
+
+    def warm_spec(self) -> WarmSpec:
+        return WarmSpec(backend=self.name)
+
+    async def warm(self, spec: WarmSpec) -> ParentHandle:
+        return ParentHandle(backend=self.name, spec=spec, ref={"snapshot": "test"})
+
+    async def run_forked(
+        self, parent: ParentHandle, code: str, env: SandboxEnv
+    ) -> SandboxResult:
+        del parent
+        candidates = env.vars["candidates"]
+        idx = env.vars["branch_index"]
+        if code == "top_scores":
+            top = sorted(candidates, key=lambda c: c["score"], reverse=True)[: idx + 1]
+            output = round(sum(c["score"] for c in top), 4)
+        elif code == "mutate":
+            candidates[0]["score"] = idx * 100
+            candidates.append({"id": f"injected-{idx}"})
+            output = {"seen_score": candidates[0]["score"], "length": len(candidates)}
+        elif code == "length":
+            output = len(candidates)
+        elif code == "max_score":
+            output = max(c["score"] for c in candidates)
+        elif code == "vector_count":
+            output = sum(c["modality"] == "vector" for c in candidates)
+        else:  # pragma: no cover - test misuse
+            return SandboxResult({}, "", f"unknown test operation: {code}")
+        env.helpers["FINAL_VAR"]("out", output)
+        return SandboxResult(updated_vars={}, stdout="")
 
 
 @pytest.fixture
 def clean_registry():
-    """Isolate the process-singleton warm-parent registry per test; drain forkservers after."""
+    """Isolate the process-singleton warm-parent registry per test."""
     WarmParentRegistry._instance = None  # noqa: SLF001 — test isolation
     yield
     WarmParentRegistry.drain_active()
@@ -40,10 +90,7 @@ def clean_registry():
 
 @pytest.fixture
 def sandbox():
-    """A lean forkserver rung (bridge-only preload → boots fast, no numpy import in CI)."""
-    from agent_utilities.rlm.sandboxes.forkserver_backend import ForkServerSandbox
-
-    return ForkServerSandbox(preload=())
+    return _TestForkableSandbox()
 
 
 class _CountingRetriever:
@@ -136,18 +183,14 @@ async def test_candidate_set_retrieved_once_across_branches(clean_registry, sand
 
     # Four divergent branches, each reducing the SAME candidate set differently: branch i sums the
     # top-(i+1) scores. They reuse one shared context; none re-queries the engine.
-    snippet = (
-        "top = sorted(candidates, key=lambda c: c['score'], reverse=True)[: branch_index + 1]\n"
-        "FINAL_VAR('out', round(sum(c['score'] for c in top), 4))"
-    )
-    res = await fanout.fan_out("hybrid query", [snippet] * 4)
+    res = await fanout.fan_out("hybrid query", ["top_scores"] * 4)
 
     # THE reuse proof: one retrieval, one engine hit, regardless of the 4 branches.
     assert retr.calls == 1
     assert res.retrieval_calls == 1
     assert res.reused_without_recompute is True
     assert res.candidate_count == 4
-    assert res.sandbox == "forkserver"
+    assert res.sandbox == "test-firecracker"
 
     # Every branch ran its own divergent reduction over the shared candidate set.
     assert len(res.branches) == 4
@@ -173,7 +216,7 @@ async def test_warm_parent_warmed_once_for_whole_cohort(
 
     retr = _CountingRetriever(_fused_candidates())
     fanout = CrossModalForkFanout(retriever=retr, sandbox=sandbox)
-    res = await fanout.fan_out("q", ["FINAL_VAR('out', len(candidates))"] * 5)
+    res = await fanout.fan_out("q", ["length"] * 5)
 
     assert all(b.ok for b in res.branches)
     assert all(
@@ -182,7 +225,7 @@ async def test_warm_parent_warmed_once_for_whole_cohort(
     assert warm_calls["n"] == 1, "warm() paid once; the other branches reuse the parent"
     stats = WarmParentRegistry.get().stats()
     assert stats["warm_parents"] == 1
-    assert stats["by_kind"].get("forkserver") == 1
+    assert stats["by_kind"].get("test-firecracker") == 1
 
 
 # ── isolation: divergent writes stay branch-local ─────────────────────────────
@@ -192,12 +235,7 @@ async def test_branches_isolated_on_divergent_writes(clean_registry, sandbox):
 
     # Each branch mutates its OWN view of the shared candidate set differently, then reports what
     # it sees. If forks leaked into each other, a branch would observe a sibling's mutation.
-    snippet = (
-        "candidates[0]['score'] = branch_index * 100\n"
-        "candidates.append({'id': f'injected-{branch_index}'})\n"
-        "FINAL_VAR('out', {'seen_score': candidates[0]['score'], 'length': len(candidates)})"
-    )
-    res = await fanout.fan_out("q", [snippet] * 4)
+    res = await fanout.fan_out("q", ["mutate"] * 4)
 
     assert retr.calls == 1  # still one shared retrieval
     assert all(b.ok for b in res.branches), [b.error for b in res.branches]
@@ -215,11 +253,7 @@ async def test_divergent_snippets_share_one_context(clean_registry, sandbox):
     """Genuinely different per-branch code, one retrieval, one warm parent."""
     retr = _CountingRetriever(_fused_candidates())
     fanout = CrossModalForkFanout(retriever=retr, sandbox=sandbox)
-    branches = [
-        "FINAL_VAR('out', len(candidates))",
-        "FINAL_VAR('out', max(c['score'] for c in candidates))",
-        "FINAL_VAR('out', [c['modality'] for c in candidates].count('vector'))",
-    ]
+    branches = ["length", "max_score", "vector_count"]
     res = await fanout.fan_out("q", branches)
 
     assert res.retrieval_calls == 1

@@ -4,10 +4,10 @@ OWL/RDF is a **core, always-on** layer, not an enterprise add-on. It works
 identically over *any* configured LPG storage backend (epistemic-graph, LadybugDB,
 pg-age/AGE, Neo4j, FalkorDB): it consumes the bundled ontologies, **infers new
 relationships**, **back-feeds them durably into the LPG store**, validates writes
-with SHACL, and answers **SPARQL from a local endpoint with zero external
-dependencies**. Apache Jena Fuseki / Stardog are an *optional* enterprise
+with SHACL, and answers **SPARQL from a local endpoint with no external
+triplestore**. Apache Jena Fuseki / Stardog are an *optional* enterprise
 scale-out (federation, a durable triplestore) — never required, and never on the
-critical path for the zero-dep "tiny" / Raspberry-Pi profile.
+critical path for the engine-only `tiny` profile.
 
 ## Engine-native semantic web (CONCEPT:AU-KG.compute.native-sparql-owl-shacl)
 
@@ -22,18 +22,16 @@ surface** (`client.rdf.*`), not a Python rdflib/owlready2/pyshacl stack:
   classifies the OWL axioms in the graph (plus passed Turtle) and materializes
   **confidence/decay-weighted entailments** (inferred subclass edges + class
   memberships), read-only. This is the memory-inference primitive.
-- **SHACL** — validation runs against the engine's RDF projection (`get_triples`);
-  the engine has no native SHACL op, so pyshacl remains the *validator* but the data
-  it sees comes from the engine, not a separate materialization.
+- **SHACL** — `client.rdf.validate_shacl(shapes, data_graph)` runs the engine's native
+  Rust SHACL validator against explicit Turtle shapes and data.
 
 This native RDF/SPARQL/OWL surface is **pure-Rust** (oxrdf/oxttl/spargebra — no
-native C deps) and ships in **every** profile, the tiny **pi-tier** binary included.
-The `EngineResolver` (OS-5.63) auto-starts a pi-tier engine on demand, so the
-engine's semantic surface is always available — even on a Raspberry Pi. The Python
-rdflib/owlready2/pyshacl stack is demoted to a **true last-resort fallback** (only
-when no engine is reachable AND the libs happen to be installed); it is kept out of
-the serving plane (the `serving` extra no longer pulls `[owl]`), so `import
-agent_utilities` + a `kg_server` boot need none of them.
+native C deps) and ships in the single full engine artifact required by
+`epistemic-graph[full]>=2.23.1,<3.0.0`. The `EngineResolver` (OS-5.63) auto-starts
+that artifact on demand, so the engine's semantic surface is always available,
+including on a Raspberry Pi 4+. Optional Python RDF/OWL tooling is not a compatibility
+path for a missing engine and is kept out of the serving plane (the `serving` extra
+does not pull `[owl]`).
 
 ## Architecture
 
@@ -56,7 +54,6 @@ graph TB
     BACKFEED --> LPG
 
     LPG -->|client.rdf.sparql\n(live engine graph)| SPARQL
-    SPARQL -. last-resort fallback .-> MAT["rdflib materialization\n(no-engine only)"]
     BRIDGE -. optional .-> FUSEKI["Jena Fuseki / Stardog\n(enterprise scale-out)"]
 ```
 
@@ -77,25 +74,22 @@ graph TB
 `OWLBridge.query_sparql` and returns W3C SPARQL-JSON. By default it dispatches to
 the engine's native `client.rdf.sparql` (via `GraphComputeEngine.sparql`), which runs
 the SPARQL 1.1 query **over the live engine graph** in one round-trip — no rdflib
-materialization. The rdflib path (`_sparql_via_rdflib`, fed by the engine's
-`GetTriples` bulk export) remains only as the no-engine last resort, behind a final
-regex scan.
+materialization or no-engine compatibility path.
 
 ## SHACL validation
 
 The SHACL gate (`pipeline/phases/shacl_gate.py`, on by default) validates writes
 against the bundled `governance.shapes.ttl` **and** value-type generated shapes
-(`ValueType.to_shacl()`, CONCEPT:AU-KG.ontology.value-type-shacl-load). The data graph it validates is **sourced
-from the engine's RDF projection** (`get_triples` — one round-trip over the live
-graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl), falling back to per-node LPG iteration only when no engine
-is reachable; pyshacl stays the validator (the engine has no native SHACL op).
+(`ValueType.to_shacl()`, CONCEPT:AU-KG.ontology.value-type-shacl-load). The data graph
+is sourced from the engine's RDF projection and submitted to the native SHACL validator
+(CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 Violating nodes are quarantined, not silently dropped.
 
 ## Deployment posture
 
 | Profile | OWL reasoning | SPARQL | Triplestore |
 |---|---|---|---|
-| **tiny (Pi-3, zero-dep)** | ✅ engine-native (pi-tier `client.rdf.owl_reason`) | ✅ engine-native `client.rdf.sparql` | none |
+| **tiny (Pi 4+, engine-only)** | ✅ engine-native (`client.rdf.owl_reason`) | ✅ engine-native `client.rdf.sparql` | none |
 | single-node prod | ✅ engine-native | ✅ engine-native | optional |
 | enterprise | ✅ engine-native | ✅ engine-native | + Jena Fuseki / Stardog (federation), `KG_FUSEKI_PUBLISH=1` |
 
@@ -119,20 +113,21 @@ thin adapter onto `LoopController.run_loop`. The single entrypoint is the **`gra
 MCP tool (`submit` / `list` / `run` / `drive` / `cancel`); `submit_loop` is the shared
 creation path for goals, research topics, failure gaps and skill executions.
 
-**One persistence model.** Goal state is *not* a separate SQLite/Postgres `goals` table —
-it was collapsed onto the **KG Loop node** (a develop `Concept`): status, owner, totals and
-the full iteration record are node properties, so the KG (the durable backend) is the
-single source of truth. `/goals` REST, `graph_goals`, the dispatch worker's claim, and
-restart rehydration all read/write that one node; a `running` claim is excluded from the
-daemon's `active_loops` intake so a goal is never double-driven.
+**One persistence model.** Goal lifecycle is *not* a separate SQLite/Postgres `goals`
+table and is not writable on the Loop projection. The **KG Loop node** (a develop
+`Concept`) retains definition and observability; its deterministic engine-native
+`WorkItem` is the sole authority for status, claim, lease, retry, checkpoint, and terminal
+outcome. `/goals` REST, `graph_goals`, dispatch, and restart recovery render or transition
+that same WorkItem under its native fence, so a goal can never be double-driven by a
+second lifecycle owner.
 
 **Durable checkpointing is cross-cutting, not goal-specific.** `LoopController.run_loop`
-drives one Loop of any kind to completion durably: it resumes from the last checkpoint
-(`DurableExecutionManager`, backend-selected SQLite/Postgres via `state_store`, AU-OS.state.unified-durable-state-externalization),
-runs each iteration under an idempotency key (at-least-once retries, exactly-once effect),
-and honors corrigible interruption (a fleet pause/kill signal → checkpoint and yield,
-SAFE-1.5). The same durable engine that runs autonomous goals therefore resumes a
-research or skill Loop after a crash.
+drives one Loop of any kind to completion under the WorkItem's renewable lease. Each
+completed iteration advances its opaque `checkpoint_id` through a tenant/owner/epoch/
+fencing-token compare-and-set; a reclaimed expired lease resumes from that reference.
+The matching idempotency key and fenced terminal commit make redelivery safe, while a
+fleet pause/kill signal checkpoints and yields corrigibly (SAFE-1.5). No checkpoint
+sidecar or state-store selector participates.
 
 The research path runs the **`OntologyReasoningDriver`** (AU-KG.research.best-effort-lightweight-never) each cycle: it promotes
 the loop's working set + the surrounding ecosystem subgraph, runs `OWLBridge.run_cycle`
@@ -168,6 +163,6 @@ emits a signed `seal_certificate`. Both surfaces are exposed identically — the
 - `knowledge_graph/backends/owl/` — `owlready2` backend + Stardog (full-DL last-resort fallback only).
 - `knowledge_graph/backends/sparql/jena_fuseki_backend.py` — optional Fuseki tier.
 - `gateway/graph_api.py` — `{prefix}/sparql` route + cached bridge.
-- `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_triples()` — the engine-native RDF surface (CONCEPT:AU-KG.compute.native-sparql-owl-shacl): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetTriples`.
+- `core/graph_compute.py::sparql()/owl_reason()/add_triples()/get_rdf()` — the engine-native RDF surface (CONCEPT:AU-KG.compute.native-sparql-owl-shacl): `client.rdf.sparql`/`owl_reason`/`add_triples`/`GetRdf`.
 - `epistemic-graph` `crates/eg-rdf` (`rdf`/`sparql`/`owl` features, pure-Rust oxrdf/oxttl/spargebra) — the native RDF/SPARQL/OWL substrate (`client.rdf.*`).
 - `core/ontology_publisher.py` — bundled-ontology collection + optional Fuseki push.

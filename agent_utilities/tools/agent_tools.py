@@ -33,7 +33,7 @@ async def invoke_specialized_agent(
     """Delegate a targeted task to a specialized sub-agent (local MCP/prompt or remote A2A).
 
     CONCEPT:AU-ECO.toolkit.unified-delegation-surface — ONE delegation surface. This is a thin wrapper over the SAME
-    orchestration core as ``graph_orchestrate(action="execute_agent", ...)`` —
+    orchestration core as ``graph_orchestrate(...)`` —
     ``Orchestrator.execute_agent`` → ``run_agent`` — which resolves the specialist from the
     Knowledge Graph (server / skill / a2a) and runs it. There is no separate discovery /
     A2A / sub-agent-build path here (No-Legacy); both entrypoints converge on one core.

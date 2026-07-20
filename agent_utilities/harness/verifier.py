@@ -269,9 +269,9 @@ class ManifestVerifier:
                 # If any predicted fix is actually a regression, revert this edit
                 if predicted_set & regression_set and edit.git_commit_sha:
                     logger.warning(
-                        f"ManifestVerifier: Reverting {edit.file_path} — "
-                        f"caused unexpected regressions in "
-                        f"{predicted_set & regression_set}"
+                        "ManifestVerifier: reverting component due to "
+                        "unexpected regressions count=%d",
+                        len(predicted_set & regression_set),
                     )
                     success = self.registry.rollback_component(
                         edit.file_path, f"{edit.git_commit_sha}~1"

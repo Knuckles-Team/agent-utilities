@@ -27,6 +27,7 @@ def test_defaults_are_safe_and_minimal():
     assert env.envelope_id  # auto uuid
     assert env.idempotency_key  # auto-derived
     assert env.observed_time.endswith("Z")
+    assert env.source_acl == ExternalAccess.quarantined()
 
 
 def test_idempotency_key_is_deterministic_and_scoped():
@@ -125,20 +126,46 @@ def test_from_connector_record_bridges_todays_shape():
 
 
 def test_from_connector_record_to_entity_dict_round_trips():
-    record = {"id": "n1", "type": "Order", "total": 42}
+    record = {
+        "id": "n1",
+        "type": "Order",
+        "total": 42,
+        "external_access": {"is_public": True},
+    }
     env = ChangeEnvelope.from_connector_record(
-        record, connector="acme-api", id_field="id", version_field="updatedAt"
+        record,
+        connector="sample-api",
+        id_field="id",
+        version_field="updatedAt",
+        tenant="tenant-a",
+        source_acl=ExternalAccess.quarantined(),
     )
     row = env.to_entity_dict()
     assert row["id"] == "n1"
     assert row["type"] == "Order"
     assert row["total"] == 42
+    assert row["external_access"] == ExternalAccess.quarantined().model_dump()
+    assert row["classification"] == "internal"
+    assert row["tenant"] == "tenant-a"
+    assert row["legal_hold"] is False
 
 
 def test_to_entity_dict_requires_typed_payload():
     marker = ChangeEnvelope.snapshot_complete(connector="leanix-agent")
     with pytest.raises(ValueError, match="typed_payload"):
         marker.to_entity_dict()
+
+
+def test_connector_record_public_access_infers_matching_public_classification():
+    env = ChangeEnvelope.from_connector_record(
+        {"id": "public-record", "external_access": {"is_public": True}},
+        connector="fixture-source",
+        tenant="tenant-a",
+    )
+
+    assert env.source_acl == ExternalAccess.public()
+    assert env.classification == DataClassification.PUBLIC
+    assert env.to_entity_dict()["classification"] == "public"
 
 
 def test_snapshot_complete_marker_carries_no_payload():
@@ -153,7 +180,9 @@ def test_snapshot_complete_marker_carries_no_payload():
 
 def test_with_checkpoint_and_with_classification_are_immutable_copies():
     env = ChangeEnvelope(connector="langfuse-agent")
-    updated = env.with_checkpoint("cursor-1").with_classification(DataClassification.PUBLIC)
+    updated = env.with_checkpoint("cursor-1").with_classification(
+        DataClassification.PUBLIC
+    )
     assert env.checkpoint is None
     assert env.classification == DataClassification.INTERNAL
     assert updated.checkpoint == "cursor-1"
@@ -175,6 +204,7 @@ def test_as_dict_and_to_json_render_json_safe_values():
         "is_public": True,
         "user_emails": [],
         "group_ids": [],
+        "read_roles": [],
         "markings": [],
     }
     text = env.to_json()

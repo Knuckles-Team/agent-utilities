@@ -3,8 +3,7 @@ from __future__ import annotations
 """Core Schema Pack — the default full-ontology profile.
 
 Activates all RegistryNodeType and RegistryEdgeType members.
-This is the pack that loads when no explicit pack is configured,
-preserving full backward compatibility.
+This is the default pack selected by :class:`AgentConfig`.
 """
 
 

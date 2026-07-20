@@ -30,8 +30,9 @@ async def execute_validate(
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    # Build a temporary engine wrapper around the pipeline's graph
-    engine = IntelligenceGraphEngine(
+    # Validation shares the process authority; a pipeline must not open a
+    # second operational client merely to run a post-ingest read pass.
+    engine = IntelligenceGraphEngine.get_or_create(
         graph=ctx.graph,
         backend=ctx.backend,
     )

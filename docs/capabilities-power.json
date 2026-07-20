@@ -134,7 +134,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -317,7 +317,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -474,7 +474,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -630,7 +630,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -812,7 +812,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -1104,7 +1104,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -1575,7 +1575,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -1837,7 +1837,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -1998,7 +1998,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -2191,7 +2191,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -2452,7 +2452,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -3721,7 +3721,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -4306,7 +4306,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -4465,7 +4465,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -4642,7 +4642,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -4939,7 +4939,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -5380,7 +5380,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -5819,7 +5819,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -6313,7 +6313,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -6458,7 +6458,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -6719,7 +6719,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -6840,7 +6840,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -7084,7 +7084,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -7362,7 +7362,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -7526,7 +7526,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -7674,7 +7674,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -8097,7 +8097,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -8624,7 +8624,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -8783,7 +8783,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -8917,7 +8917,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -9118,7 +9118,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "BrokerAck",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -9469,7 +9469,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -9626,7 +9626,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -9809,7 +9809,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -9970,7 +9970,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -10272,7 +10272,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -10466,7 +10466,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -10695,7 +10695,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -10897,7 +10897,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "EpistemicStatus",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11098,7 +11098,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11255,7 +11255,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11428,7 +11428,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "ExplainBelief",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11579,7 +11579,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11752,7 +11752,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -11902,7 +11902,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -12094,7 +12094,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "Fork",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -12219,7 +12219,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -12372,7 +12372,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -12469,7 +12469,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -12628,7 +12628,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -13008,7 +13008,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -13153,7 +13153,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -13320,7 +13320,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -13652,7 +13652,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -13791,7 +13791,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -14015,7 +14015,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -14322,7 +14322,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -14473,7 +14473,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -14608,7 +14608,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -14894,7 +14894,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -15091,7 +15091,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -15581,7 +15581,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -15774,7 +15774,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -15972,7 +15972,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "CypherQuery",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -16192,7 +16192,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -16349,7 +16349,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -16667,7 +16667,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -16791,7 +16791,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -16952,7 +16952,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -17139,7 +17139,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "SemanticSearch",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -17330,7 +17330,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -17500,7 +17500,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -17645,7 +17645,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -17783,7 +17783,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -18006,7 +18006,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -18197,7 +18197,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -18580,7 +18580,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -18809,7 +18809,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -18956,7 +18956,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -19132,7 +19132,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": "NlQuery",
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -19352,7 +19352,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -19471,7 +19471,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -19638,7 +19638,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -19895,7 +19895,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20071,7 +20071,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20220,7 +20220,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20421,7 +20421,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20516,7 +20516,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20659,7 +20659,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20795,7 +20795,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -20965,7 +20965,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -21101,7 +21101,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -21410,7 +21410,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -21641,7 +21641,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -21806,7 +21806,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -21915,7 +21915,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -22036,7 +22036,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -22243,7 +22243,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }
@@ -22514,7 +22514,7 @@
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
         "source_method_eg": null,
-        "eg_ledger_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
       }

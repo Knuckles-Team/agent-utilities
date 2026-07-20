@@ -216,7 +216,9 @@ def _parse_modules(modules: tuple[str, ...]) -> ExtractionSchema | None:
             g.parse(str(path), format="turtle")
             parsed_any = True
         except Exception as e:  # noqa: BLE001 — a malformed module never breaks ingest
-            logger.debug("extraction_schema: failed to parse %s: %s", path, e)
+            logger.debug(
+                "extraction_schema: parse failed (%s)", type(e).__name__
+            )
     if not parsed_any:
         return None
 

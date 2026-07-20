@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/oci-scanner-attestation-v1.json",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "keyId", "signature", "subjectDigest"],
+      "properties": {
+        "algorithm": {
+          "enum": ["ed25519", "ecdsa-p256-sha256", "rsa-pss-sha256"]
+        },
+        "keyId": {
+          "type": "string",
+          "pattern": "^key:(?!0{64}$)[a-f0-9]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43,4096}$"
+        },
+        "subjectDigest": {"$ref": "#/$defs/digest"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "attestationVersion",
+    "scanner",
+    "signature"
+  ],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "OciScannerAttestation"},
+    "attestationVersion": {"const": 1},
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "platform",
+        "binaryDigest",
+        "releaseBundleDigest",
+        "verifierDigest",
+        "tlsProfileRef"
+      ],
+      "properties": {
+        "name": {"const": "trivy"},
+        "version": {"const": "0.72.0"},
+        "platform": {"const": "linux/amd64"},
+        "binaryDigest": {"$ref": "#/$defs/digest"},
+        "releaseBundleDigest": {
+          "$ref": "#/$defs/digest",
+          "description": "Digest of canonical JSON binding the release asset and official signature-bundle digests."
+        },
+        "verifierDigest": {"$ref": "#/$defs/digest"},
+        "tlsProfileRef": {
+          "type": "string",
+          "pattern": "^pref_tls_(?!0{64}$)[a-f0-9]{64}$"
+        }
+      }
+    },
+    "signature": {"$ref": "#/$defs/signature"}
+  }
+}

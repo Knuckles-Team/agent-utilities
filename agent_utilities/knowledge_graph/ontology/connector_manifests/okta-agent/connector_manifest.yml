@@ -1,0 +1,321 @@
+connector: okta-agent
+ontology_source: okta
+schema_version: '1'
+resources:
+- name: Application
+  label: Okta Application
+  id_prefix: application
+  relations: []
+- name: Factor
+  label: MFA Factor
+  id_prefix: factor
+  relations: []
+- name: Group
+  label: Okta Group
+  id_prefix: group
+  relations:
+  - name: governedByRule
+    label: governed by rule
+    target: GroupRule
+    lpg_rel_type: ''
+- name: GroupRule
+  label: Group Rule
+  id_prefix: grouprule
+  relations: []
+- name: LogEvent
+  label: System Log Event
+  id_prefix: logevent
+  relations:
+  - name: targetsUser
+    label: targets user
+    target: User
+    lpg_rel_type: ''
+- name: Policy
+  label: Access Policy
+  id_prefix: policy
+  relations:
+  - name: appliesToApp
+    label: applies to app
+    target: Application
+    lpg_rel_type: ''
+- name: User
+  label: Okta User
+  id_prefix: user
+  relations:
+  - name: hasFactor
+    label: has factor
+    target: Factor
+    lpg_rel_type: ''
+  - name: memberOfGroup
+    label: member of group
+    target: Group
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: okta-apps.updated
+  resource: Application
+  description: "Watermark event for 'okta-apps' \u2014 advances on lastUpdated (mcp_source_presets.json)."
+- name: okta-groups.updated
+  resource: Group
+  description: "Watermark event for 'okta-groups' \u2014 advances on lastUpdated (mcp_source_presets.json)."
+- name: okta-users.updated
+  resource: User
+  description: "Watermark event for 'okta-users' \u2014 advances on lastUpdated (mcp_source_presets.json)."
+identity:
+  id_field:
+    Application: id
+    Group: id
+    User: id
+  title_field:
+    Application: label
+    Group: profile.name
+    User: profile.login
+  text_field:
+    Application: signOnMode
+    Group: profile.description
+    User: profile.email
+  updated_field:
+    Application: lastUpdated
+    Group: lastUpdated
+    User: lastUpdated
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Application:
+    ontology_class: ApplicationComponent
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  Factor:
+    ontology_class: null
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  Group:
+    ontology_class: Organization
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  GroupRule:
+    ontology_class: Organization
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  LogEvent:
+    ontology_class: Event
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  Policy:
+    ontology_class: Policy
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+  User:
+    ontology_class: Person
+    fields:
+      email: xsd:string
+      eventType: xsd:string
+      externalToolId: xsd:string
+      factorType: xsd:string
+      groupType: xsd:string
+      login: xsd:string
+      outcome: xsd:string
+      policyType: xsd:string
+      priority: xsd:integer
+      provider: xsd:string
+      signOnMode: xsd:string
+      status: xsd:string
+sync:
+- preset: okta-apps
+  server: okta-agent
+  tool: okta_apps
+  action: list
+  records_path: data
+  id_field: id
+  title_field: label
+  text_field: signOnMode
+  updated_field: lastUpdated
+  pagination: null
+  doc_type: Application
+  tool_schema_sha256: 6ff2bae6fae945eff62584efc2d75bddad777e61f209cad0de904055c20fc243
+  raw:
+    server: okta-agent
+    tool: okta_apps
+    action: list
+    records_path: data
+    id_field: id
+    title_field: label
+    text_field: signOnMode
+    updated_field: lastUpdated
+    doc_type: Application
+- preset: okta-groups
+  server: okta-agent
+  tool: okta_groups
+  action: list
+  records_path: data
+  id_field: id
+  title_field: profile.name
+  text_field: profile.description
+  updated_field: lastUpdated
+  pagination: null
+  doc_type: Group
+  tool_schema_sha256: edb42a85eb1ac297aff11b6104a116c3565ce76e10131c6a3fc0e16c51977e5c
+  raw:
+    server: okta-agent
+    tool: okta_groups
+    action: list
+    records_path: data
+    id_field: id
+    title_field: profile.name
+    text_field: profile.description
+    updated_field: lastUpdated
+    doc_type: Group
+- preset: okta-users
+  server: okta-agent
+  tool: okta_users
+  action: list
+  records_path: data
+  id_field: id
+  title_field: profile.login
+  text_field: profile.email
+  updated_field: lastUpdated
+  pagination: null
+  doc_type: User
+  tool_schema_sha256: e458bef4e01d9a616200031a49892c3fe3f352312bf8889f3c5766d7f7d1941e
+  raw:
+    server: okta-agent
+    tool: okta_users
+    action: list
+    records_path: data
+    id_field: id
+    title_field: profile.login
+    text_field: profile.email
+    updated_field: lastUpdated
+    doc_type: User
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - okta_agent/connectors/mcp_source_presets.json
+  - okta_agent/connectors/tool_schema_fingerprints.json
+  - okta_agent/ontology/okta.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: b6a7b3594c4788de68bc6f1b32793f0d59089a2cee9ed88f54908ee5387360d4
+    triple_count: 87
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: uM38-r22NhCL6Zrsl2Z6eSY_5L8XlFtYhrDFNrC8FZhgMzQnTbcxD3ZS0eXTyTVH-46H85n6ee_cTMc_tLbJDA
+policy:
+  pii_fields:
+    Application:
+    - email
+    Factor:
+    - email
+    Group:
+    - email
+    GroupRule:
+    - email
+    LogEvent:
+    - email
+    Policy:
+    - email
+    User:
+    - email
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.pii_fields was populated by a field-NAME heuristic (['address', 'birthdate', 'card_number',\
+  \ 'credit_card', 'date_of_birth', 'dateofbirth', 'dob', 'email', 'email_address', 'first_name', 'full_name',\
+  \ 'home_address', 'ip', 'ip_address', 'last_name', 'mobile', 'national_id', 'passport', 'phone', 'phone_number',\
+  \ 'social_security_number', 'ssn']) \u2014 verify against the actual data before relying on it for redaction/RLS."
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'assignedToApp' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Application.ontology_class = 'ApplicationComponent' [DEFAULT_ARCHIMATE_CROSSWALK (LeanIX/ArchiMate\
+  \ lookup by resource name)] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Factor.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Group.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.GroupRule.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.LogEvent.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Policy.ontology_class = 'Policy' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.User.ontology_class = 'Person' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."

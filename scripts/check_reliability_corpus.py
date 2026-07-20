@@ -38,7 +38,7 @@ def main() -> int:
 
     # The reliability corpus is built + scored through the harness, which
     # transitively needs the kernel-backed agent_utilities.numeric
-    # (`epistemic-graph[numeric]`). Skip cleanly (exit 0, loud SKIP) when it is
+    # (`epistemic-graph[full]`). Skip cleanly (exit 0, loud SKIP) when it is
     # absent — the gate genuinely cannot build the corpus without it. It runs for
     # real in any env with the kernel (the local pre-commit); lean/headless CI
     # without the extra gets an honest SKIP. Mirrors check_retrieval_quality.py.
@@ -46,9 +46,9 @@ def main() -> int:
         import agent_utilities.numeric  # noqa: F401
     except ImportError as exc:
         print(
-            "SKIPPED: reliability-corpus gate requires the epistemic-graph[numeric] "
+            "SKIPPED: reliability-corpus gate requires the epistemic-graph[full] "
             f"kernel (agent_utilities.numeric unavailable: {exc}). "
-            "Install epistemic-graph[numeric]>=2.7.0 to run it; the local "
+            "Install epistemic-graph[full]>=2.23.1,<3.0.0 to run it; the local "
             "pre-commit runs it with the kernel present.",
             file=sys.stderr,
         )

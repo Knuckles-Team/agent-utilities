@@ -27,7 +27,7 @@ def _numeric_kernel_available() -> bool:
 # it skips cleanly there, so these pass/trip assertions only hold with the kernel.
 _needs_numeric_kernel = pytest.mark.skipif(
     not _numeric_kernel_available(),
-    reason="reliability-corpus gate requires the epistemic-graph[numeric] kernel "
+    reason="reliability-corpus gate requires the epistemic-graph[full] kernel "
     "(it skips cleanly without it, so these trip/pass assertions do not apply)",
 )
 

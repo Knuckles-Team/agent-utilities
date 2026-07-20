@@ -1,0 +1,747 @@
+{
+  "schema": "source-freeze-gates/1",
+  "repositories": [
+    {"id": "agent-utilities", "kind": "repository"},
+    {"id": "epistemic-graph", "kind": "repository"},
+    {"id": "langfuse-agent", "kind": "repository"},
+    {"id": "provider-fleet", "kind": "fleet"}
+  ],
+  "commands": [
+    {
+      "id": "eg-mutation-contract",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_persisted_mutation_contract.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-02", "G-11"]
+    },
+    {
+      "id": "au-public-boundary",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_public_graph_boundary.py", "{repo:agent-utilities}"],
+      "timeout_seconds": 120,
+      "covers": ["G-03", "G-07"]
+    },
+    {
+      "id": "eg-read-policy",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_universal_read_rls.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-01", "G-04"]
+    },
+    {
+      "id": "eg-lazy-lifecycle",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_lazy_lifecycle_architecture.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-05"]
+    },
+    {
+      "id": "au-connector-manifests",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_connector_manifests.py",
+        "--agents-root",
+        "{repo:provider-fleet}/agents"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-06", "G-19"]
+    },
+    {
+      "id": "au-connector-bundles",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_connector_capability_bundles.py",
+        "--agents-root",
+        "{repo:provider-fleet}/agents",
+        "--bundled-root",
+        "{repo:agent-utilities}/agent_utilities/knowledge_graph/ontology/connector_manifests",
+        "--lock-path",
+        "{repo:agent-utilities}/agent_utilities/knowledge_graph/ontology.lock",
+        "--workspace",
+        "{repo:provider-fleet}/agents/repository-manager/repository_manager/workspace.yml"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-06", "G-19"]
+    },
+    {
+      "id": "au-ontology-library",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_ontology.py",
+        "--provider-root",
+        "{repo:provider-fleet}/agents"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-06", "G-13", "G-33"]
+    },
+    {
+      "id": "au-current-only",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_current_only_contract.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-07", "G-12", "G-35", "G-36"]
+    },
+    {
+      "id": "au-work-item-boundary",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_native_work_item_boundary.py", "{repo:agent-utilities}"],
+      "timeout_seconds": 120,
+      "covers": ["G-08", "G-09", "G-16"]
+    },
+    {
+      "id": "au-change-envelope-boundary",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_native_change_envelope_boundary.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-11", "G-13"]
+    },
+    {
+      "id": "au-operations-protocol",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_epistemic_operations_protocol.py",
+        "--epistemic-graph-root",
+        "{repo:epistemic-graph}"
+      ],
+      "timeout_seconds": 180,
+      "covers": ["G-12", "G-13", "G-15", "G-16", "G-25"]
+    },
+    {
+      "id": "eg-modality-architecture",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_p2_modality_architecture.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-14", "G-15"]
+    },
+    {
+      "id": "eg-analytics-reasoning",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_p2_analytics_reasoning_architecture.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-15", "G-16", "G-17"]
+    },
+    {
+      "id": "au-context-compiler",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_context_compiler_boundary.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-18"]
+    },
+    {
+      "id": "au-provider-fleet",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_provider_fleet_contract.py",
+        "--workspace",
+        "{repo:provider-fleet}/agents/repository-manager/repository_manager/workspace.yml",
+        "--providers-root",
+        "{repo:provider-fleet}/agents"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-19", "G-22", "G-33", "G-38"]
+    },
+    {
+      "id": "au-production-assets",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/deployment/check_production_assets.py",
+        "--repository-root",
+        "{repo:agent-utilities}"
+      ],
+      "timeout_seconds": 180,
+      "covers": ["G-20", "G-21"]
+    },
+    {
+      "id": "au-version-consistency",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_version_consistency.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-22", "G-31"]
+    },
+    {
+      "id": "au-release-source-contract",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/release/check_release_catalogs.py"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-22", "G-31", "G-38"]
+    },
+    {
+      "id": "au-oci-layout-export-contract",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/release/check_oci_layout_export.py"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-22", "G-38"]
+    },
+    {
+      "id": "au-fleet-supply-chain",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_fleet_supply_chain.py",
+        "--source-snapshot-root",
+        "{repo:provider-fleet}/agents",
+        "--snapshot-workspace",
+        "{repo:provider-fleet}/agents/repository-manager/repository_manager/workspace.yml"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-22", "G-38"]
+    },
+    {
+      "id": "au-dependency-inventory",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/audit_fleet_dependencies.py",
+        "{repo:agent-utilities}",
+        "--inventory-only",
+        "--single-source-snapshot"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-22", "G-38"]
+    },
+    {
+      "id": "eg-dependency-inventory",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/audit_fleet_dependencies.py",
+        "{repo:epistemic-graph}",
+        "--inventory-only",
+        "--single-source-snapshot"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-22", "G-38"]
+    },
+    {
+      "id": "fleet-dependency-inventory",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/audit_fleet_dependencies.py",
+        "--inventory-only",
+        "--source-snapshot-root",
+        "{repo:provider-fleet}/agents",
+        "--snapshot-workspace",
+        "{repo:provider-fleet}/agents/repository-manager/repository_manager/workspace.yml"
+      ],
+      "timeout_seconds": 600,
+      "covers": ["G-22", "G-38"]
+    },
+    {
+      "id": "eg-operations-protocol",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_epistemic_operations_protocol.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-25"]
+    },
+    {
+      "id": "au-surface-parity",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_surface_parity.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-26", "G-33"]
+    },
+    {
+      "id": "au-exact-harness-contract",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_exact_local_gates_harness.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-26", "G-30", "G-32", "G-34", "G-35", "G-37"]
+    },
+    {
+      "id": "au-exact-closure-layer",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_exact_artifact_closure.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-02", "G-05", "G-14", "G-22", "G-26", "G-30", "G-32", "G-34", "G-37"]
+    },
+    {
+      "id": "au-prebundled-skills",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_prebundled_skills.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-27", "G-33"]
+    },
+    {
+      "id": "au-skill-collisions",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_skill_name_collision.py",
+        "--root",
+        "{repo:provider-fleet}",
+        "--strict"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-27"]
+    },
+    {
+      "id": "au-skill-certification",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_skill_validation_certification.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-22", "G-27", "G-30", "G-38"]
+    },
+    {
+      "id": "au-external-graph",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_external_graph_contract.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-28"]
+    },
+    {
+      "id": "au-fleet-tls",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_fleet_tls_policy.py",
+        "--agents-root",
+        "{repo:provider-fleet}/agents",
+        "--require-fleet"
+      ],
+      "timeout_seconds": 300,
+      "covers": ["G-29", "G-38"]
+    },
+    {
+      "id": "au-http-egress",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_http_egress_boundary.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-28", "G-29", "G-38"]
+    },
+    {
+      "id": "au-security-contract",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/security_contract.py",
+        "--contract",
+        ".security/security-contract.json",
+        "validate"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "eg-security-contract",
+      "repository": "epistemic-graph",
+      "argv": [
+        "{python}",
+        "scripts/security_contract.py",
+        "--contract",
+        ".security/security-contract.json",
+        "validate"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "lf-security-contract",
+      "repository": "langfuse-agent",
+      "argv": [
+        "{python}",
+        "scripts/security_contract.py",
+        "--contract",
+        ".security/security-contract.json",
+        "validate"
+      ],
+      "timeout_seconds": 120,
+      "covers": ["G-29", "G-38"]
+    },
+    {
+      "id": "au-tracked-privacy",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/check_tracked_privacy.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "au-fleet-privacy",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/check_fleet_privacy_policy.py",
+        "--agents-root",
+        "{repo:provider-fleet}/agents",
+        "--all",
+        "--require-fleet"
+      ],
+      "timeout_seconds": 600,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "au-security-sanitizer",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/security_sanitizer.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "eg-security-sanitizer",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/security_sanitizer.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "lf-security-sanitizer",
+      "repository": "langfuse-agent",
+      "argv": ["{python}", "scripts/security_sanitizer.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-38"]
+    },
+    {
+      "id": "lf-api-parity",
+      "repository": "langfuse-agent",
+      "argv": ["{python}", "scripts/verify_api_integration.py", "--local"],
+      "timeout_seconds": 120,
+      "covers": ["G-12", "G-19", "G-22", "G-33", "G-38"]
+    },
+    {
+      "id": "au-documentation-contract",
+      "repository": "agent-utilities",
+      "argv": ["{python}", "scripts/docs_contract.py", "--check"],
+      "timeout_seconds": 180,
+      "covers": ["G-33"]
+    },
+    {
+      "id": "eg-documentation-contract",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_documentation_contract.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-33"]
+    },
+    {
+      "id": "eg-current-only",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_current_only_architecture.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-01", "G-05", "G-10", "G-20", "G-21", "G-22", "G-31", "G-36"]
+    },
+    {
+      "id": "eg-property-schema",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_canonical_property_schema.py"],
+      "timeout_seconds": 120,
+      "covers": ["G-13", "G-15"]
+    },
+    {
+      "id": "eg-release-harness-contract",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_exact_release_campaigns.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-01", "G-04", "G-05", "G-14", "G-15", "G-17", "G-37"]
+    },
+    {
+      "id": "eg-fault-harness-contract",
+      "repository": "epistemic-graph",
+      "argv": ["{python}", "scripts/check_exact_fault_restart_harness.py"],
+      "timeout_seconds": 180,
+      "covers": ["G-02", "G-05", "G-11", "G-34"]
+    },
+    {
+      "id": "au-tenant-identity-contract",
+      "repository": "agent-utilities",
+      "argv": [
+        "{python}",
+        "scripts/security/check_tenant_identity_contract.py",
+        "--repository-root",
+        "{repo:agent-utilities}"
+      ],
+      "timeout_seconds": 180,
+      "covers": ["G-01", "G-35", "G-38"]
+    }
+  ],
+  "gates": [
+    {
+      "id": "G-01",
+      "evidence_classes": ["local-source", "exact-artifact", "external"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": [
+        "au-tenant-identity-contract",
+        "eg-read-policy",
+        "eg-current-only",
+        "eg-release-harness-contract"
+      ],
+      "rationale": "Tenant identity, current verified-request authority, read/write access, and exact authorization campaign shape are source-verifiable; production OIDC/workload/mTLS trust plus restart, replica, and replay behavior remain external."
+    },
+    {
+      "id": "G-02",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["eg-mutation-contract", "eg-fault-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Static mutation and fault-harness contracts are locally verifiable; exact process faults remain an artifact campaign."
+    },
+    {
+      "id": "G-03",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-public-boundary"],
+      "rationale": "The public graph authority inventory is a deterministic source check."
+    },
+    {
+      "id": "G-04",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["epistemic-graph"],
+      "command_ids": ["eg-read-policy", "eg-release-harness-contract"],
+      "rationale": "Read-policy coverage and the generated authorization campaign contract are source-verifiable."
+    },
+    {
+      "id": "G-05",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["eg-lazy-lifecycle", "eg-current-only", "eg-release-harness-contract", "eg-fault-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Isolation and lazy-recovery architecture plus exact campaign shape are source-verifiable."
+    },
+    {
+      "id": "G-06",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "provider-fleet"],
+      "command_ids": ["au-connector-manifests", "au-connector-bundles", "au-ontology-library"],
+      "rationale": "Connector activation, ownership, schema, and fail-closed bundle rules are checked from source."
+    },
+    {
+      "id": "G-07",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-public-boundary", "au-current-only"],
+      "rationale": "GraphSession and guarded-client authority are enforced by current-only source gates."
+    },
+    {
+      "id": "G-08",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-work-item-boundary"],
+      "rationale": "The sole writable WorkItem boundary is locally source-verifiable."
+    },
+    {
+      "id": "G-09",
+      "evidence_classes": ["local-source", "exact-artifact", "external"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-work-item-boundary"],
+      "rationale": "The transactional inbox to WorkItem boundary is checked without starting a broker."
+    },
+    {
+      "id": "G-10",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["epistemic-graph"],
+      "command_ids": ["eg-current-only"],
+      "rationale": "Current placement and fencing architecture is local; multi-node failover remains external."
+    },
+    {
+      "id": "G-11",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["eg-mutation-contract", "au-change-envelope-boundary", "eg-fault-harness-contract"],
+      "rationale": "The native ChangeEnvelope boundary and its exact fault campaign shape are source-verifiable."
+    },
+    {
+      "id": "G-12",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent"],
+      "command_ids": ["au-current-only", "au-operations-protocol", "lf-api-parity"],
+      "rationale": "Canonical trace and outcome schema bindings are checked locally; trace query-back is an artifact gate."
+    },
+    {
+      "id": "G-13",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph", "provider-fleet"],
+      "command_ids": ["au-change-envelope-boundary", "au-operations-protocol", "au-ontology-library", "eg-property-schema"],
+      "rationale": "Artifact and evidence identities are checked across protocol and property source contracts."
+    },
+    {
+      "id": "G-14",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["eg-modality-architecture", "eg-release-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Served modality architecture and exact campaign completeness are source-verifiable."
+    },
+    {
+      "id": "G-15",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-operations-protocol", "eg-modality-architecture", "eg-analytics-reasoning", "eg-property-schema", "eg-release-harness-contract"],
+      "rationale": "All seven KnowledgeBatch family contracts and exact paging campaign shape are local source gates."
+    },
+    {
+      "id": "G-16",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-work-item-boundary", "au-operations-protocol", "eg-analytics-reasoning"],
+      "rationale": "Typed analytics scheduling and publication contracts are local; distributed worker failure is external."
+    },
+    {
+      "id": "G-17",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["epistemic-graph"],
+      "command_ids": ["eg-analytics-reasoning", "eg-release-harness-contract"],
+      "rationale": "Incremental reasoning architecture and the restart, retraction, and repair campaign are source-gated."
+    },
+    {
+      "id": "G-18",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-context-compiler"],
+      "rationale": "The mandatory ContextCompiler boundary is a deterministic source inventory."
+    },
+    {
+      "id": "G-19",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["agent-utilities", "langfuse-agent", "provider-fleet"],
+      "command_ids": ["au-connector-manifests", "au-connector-bundles", "au-provider-fleet", "lf-api-parity"],
+      "rationale": "Provider ownership, bundle completeness, and API parity are local; live certifications remain external."
+    },
+    {
+      "id": "G-20",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-production-assets", "eg-current-only"],
+      "rationale": "Production-cell source assets are checked locally without rendering or deployment."
+    },
+    {
+      "id": "G-21",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-production-assets", "eg-current-only"],
+      "rationale": "Recovery and durable-operations assets are locally checked; exercised recovery remains external."
+    },
+    {
+      "id": "G-22",
+      "evidence_classes": ["local-source", "exact-artifact", "external"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": ["au-provider-fleet", "au-version-consistency", "au-release-source-contract", "au-oci-layout-export-contract", "au-fleet-supply-chain", "au-dependency-inventory", "eg-dependency-inventory", "fleet-dependency-inventory", "eg-current-only", "lf-api-parity", "au-exact-closure-layer", "au-skill-certification"],
+      "rationale": "Version, dependency, fleet, and supply-chain source contracts are local; wheel and signature proof is artifact-bound."
+    },
+    {
+      "id": "G-23",
+      "evidence_classes": ["external"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": [],
+      "rationale": "The elapsed production-scale chaos campaign cannot run in a source-only freeze."
+    },
+    {
+      "id": "G-24",
+      "evidence_classes": ["external"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": [],
+      "rationale": "External signing and independent reproduction require authorities outside the source freeze."
+    },
+    {
+      "id": "G-25",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-operations-protocol", "eg-operations-protocol"],
+      "rationale": "Both generated protocol projections and schema bindings are compared from source."
+    },
+    {
+      "id": "G-26",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-surface-parity", "au-exact-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Intent surface shape and exact adversarial campaign completeness are local source gates."
+    },
+    {
+      "id": "G-27",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "provider-fleet"],
+      "command_ids": ["au-prebundled-skills", "au-skill-collisions", "au-skill-certification"],
+      "rationale": "The ten-skill taxonomy, ownership collision rules, and exact-release certification contract are deterministic source checks."
+    },
+    {
+      "id": "G-28",
+      "evidence_classes": ["local-source", "external"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-external-graph", "au-http-egress"],
+      "rationale": "Universal external-graph and governed egress contracts are checked without live endpoints."
+    },
+    {
+      "id": "G-29",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "langfuse-agent", "provider-fleet"],
+      "command_ids": ["au-fleet-tls", "au-http-egress", "lf-security-contract"],
+      "rationale": "TLS policy and Langfuse security contracts are source-verifiable; trust-chain trace query-back is artifact-bound."
+    },
+    {
+      "id": "G-30",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-exact-harness-contract", "au-exact-closure-layer", "au-skill-certification"],
+      "rationale": "Optimizer family, modality, budget, and promotion campaign requirements are statically gated."
+    },
+    {
+      "id": "G-31",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-version-consistency", "au-release-source-contract", "eg-current-only"],
+      "rationale": "The full engine dependency and folded numeric release contract are source-verifiable; execution is artifact-bound."
+    },
+    {
+      "id": "G-32",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-exact-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Provider materialization ownership and adversarial exact-campaign requirements are statically gated."
+    },
+    {
+      "id": "G-33",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": ["au-provider-fleet", "au-surface-parity", "au-prebundled-skills", "lf-api-parity", "au-ontology-library", "au-documentation-contract", "eg-documentation-contract"],
+      "rationale": "Documentation coverage, navigation inventory, public surfaces, and provider parity are source checks."
+    },
+    {
+      "id": "G-34",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-exact-harness-contract", "eg-fault-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Native A2A adversarial and crash-campaign completeness is checked from source without starting services."
+    },
+    {
+      "id": "G-35",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities"],
+      "command_ids": ["au-current-only", "au-exact-harness-contract", "au-tenant-identity-contract"],
+      "rationale": "Closed-world permission and clean-bootstrap campaign contracts are source-verifiable."
+    },
+    {
+      "id": "G-36",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-current-only", "eg-current-only"],
+      "rationale": "Retired runtime controls and alternate authorities are rejected by current-only source gates."
+    },
+    {
+      "id": "G-37",
+      "evidence_classes": ["local-source", "exact-artifact"],
+      "scope": ["agent-utilities", "epistemic-graph"],
+      "command_ids": ["au-exact-harness-contract", "eg-release-harness-contract", "au-exact-closure-layer"],
+      "rationale": "Benchmark datasets, bounds, and regression campaign shape are local source contracts; measurements are artifact-bound."
+    },
+    {
+      "id": "G-38",
+      "evidence_classes": ["local-source", "exact-artifact", "external"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": ["au-provider-fleet", "au-release-source-contract", "au-oci-layout-export-contract", "au-fleet-supply-chain", "au-dependency-inventory", "eg-dependency-inventory", "fleet-dependency-inventory", "au-fleet-tls", "au-http-egress", "au-security-contract", "eg-security-contract", "lf-security-contract", "au-tracked-privacy", "au-fleet-privacy", "au-security-sanitizer", "eg-security-sanitizer", "lf-security-sanitizer", "lf-api-parity", "au-tenant-identity-contract", "au-skill-certification"],
+      "rationale": "Security, privacy, TLS, dependency, tenant, API, and supply-chain source gates cover every release component."
+    },
+    {
+      "id": "G-39",
+      "evidence_classes": ["terminal"],
+      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
+      "command_ids": [],
+      "rationale": "The final changed-file inventory must run after every implementation, evidence, and report write."
+    }
+  ]
+}

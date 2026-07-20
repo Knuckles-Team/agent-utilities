@@ -1,9 +1,8 @@
-"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Local (host-subprocess) workspace backend: the zero-infra floor.
+"""CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating — Host-subprocess developer workspace.
 
-Mirrors the role :class:`~agent_utilities.rlm.sandboxes.local_backend.LocalSandbox` plays for the
-RLM tier — always available, no isolation. The runtime works out-of-the-box (no Docker daemon)
-so the SWE loop and tests run anywhere; escalate to :class:`~.docker_workspace.DockerWorkspace`
-when isolation is required.
+This backend is intentionally scoped to an operator-authorized developer workspace; it is not
+an RLM code sandbox and does not claim an isolation boundary. Use
+:class:`~.docker_workspace.DockerWorkspace` when workspace isolation is required.
 """
 
 from __future__ import annotations

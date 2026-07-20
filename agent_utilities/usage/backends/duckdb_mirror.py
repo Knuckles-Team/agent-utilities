@@ -14,7 +14,8 @@ from pathlib import Path
 from agent_utilities.core.config import setting
 
 from ..models import SearchHit
-from ..schema import sqlite_ddl
+from ..privacy import sanitize_query_text
+from ..schema import enforce_privacy_schema, sqlite_ddl
 from .sql_base import SqlUsageBackend
 
 
@@ -66,6 +67,7 @@ class DuckDBUsageBackend(SqlUsageBackend):
             for stmt in ddl.split(";"):
                 if stmt.strip():
                     conn.execute(stmt)
+            enforce_privacy_schema(conn)
         self._schema_ready = True
 
     def _ensure_search(self, conn) -> None:
@@ -80,13 +82,19 @@ class DuckDBUsageBackend(SqlUsageBackend):
     def search(self, query, *, limit=50, **filters):
         if not query or not query.strip():
             return []
+        query = sanitize_query_text(query)
+        where, params = self._where(filters, alias="s")
+        conjunction = " AND " if where else " WHERE "
         with self._connect() as conn:
             cur = conn.execute(
                 """SELECT m.session_id, m.ordinal, m.role,
                       substr(m.content, 1, 160), s.project, s.agent
                     FROM messages m JOIN sessions s ON s.id = m.session_id
-                    WHERE m.content ILIKE ? LIMIT ?""",
-                (f"%{query}%", limit),
+                    """
+                + where
+                + conjunction
+                + "m.content ILIKE ? LIMIT ?",
+                (*params, f"%{query}%", limit),
             )
             rows = cur.fetchall()
         return [

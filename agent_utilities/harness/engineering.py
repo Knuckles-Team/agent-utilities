@@ -95,7 +95,7 @@ class EngineeringPatternOrchestrator:
 
     Example::
 
-        orchestrator = EngineeringPatternOrchestrator("/home/user/project")
+        orchestrator = EngineeringPatternOrchestrator("./project")
         result = await orchestrator.execute(
             PatternType.TDD,
             spec_id="feature-auth-login",
@@ -149,7 +149,9 @@ class EngineeringPatternOrchestrator:
             if pattern == PatternType.TDD:
                 return await self._execute_tdd(spec_id=spec_id, deps=deps, **kwargs)
             elif pattern == PatternType.FIRST_RUN_TESTS:
-                return await self._execute_first_run(target_path=target_path, **kwargs)
+                return await self._execute_first_run(
+                    target_path=target_path, deps=deps, **kwargs
+                )
             elif pattern == PatternType.MANUAL_TESTING:
                 return await self._execute_manual_test(
                     target_path=target_path, **kwargs
@@ -207,25 +209,35 @@ class EngineeringPatternOrchestrator:
     async def _execute_first_run(
         self,
         target_path: str | None = None,
+        deps: Any | None = None,
         **kwargs: Any,
     ) -> PatternResult:
         """Execute a first-run test baseline."""
-        from pathlib import Path
-
         from agent_utilities.patterns.first_run_tests import (
             TestResult,
             run_first_tests,
         )
 
-        path = target_path or self.workspace_path
-        result: TestResult = await run_first_tests(Path(path), **kwargs)
+        workspace = getattr(deps, "workspace", None)
+        if workspace is None:
+            return PatternResult(
+                pattern=PatternType.FIRST_RUN_TESTS,
+                success=False,
+                error="A governed developer workspace is required for baseline tests.",
+            )
+        result: TestResult = await run_first_tests(
+            workspace,
+            cwd=target_path,
+            **kwargs,
+        )
         return PatternResult(
             pattern=PatternType.FIRST_RUN_TESTS,
             success=result.success,
             output=result.output,
             metadata={
                 "exit_code": result.exit_code,
-                "command": result.command,
+                "selector": result.selector,
+                "framework": result.framework,
             },
         )
 
@@ -319,7 +331,7 @@ class EngineeringPatternOrchestrator:
         """Dispatch an engineering pattern execution."""
         import uuid
 
-        job_id = f"epo:{uuid.uuid4().hex[:8]}"
+        job_id = f"epo:{uuid.uuid4().hex}"
         pattern = kwargs.pop("pattern", PatternType.TDD)
         try:
             result = await self.execute(pattern, **kwargs)

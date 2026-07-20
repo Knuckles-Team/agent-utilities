@@ -5,26 +5,29 @@ fast path; for the full config-complete walkthrough (secrets, profiles, multi-no
 see the [Self-Setup guide](self-setup.md), and for the database environment see the
 [Stardog + pg-age recipe](../recipes/databases.md).
 
-## TL;DR — zero-infra, 4 commands
+## TL;DR — self-contained local GraphOS
 
 ```bash
-pip install agent-utilities[all]
-setup-config generate --profile tiny        # complete config.json (every option)
-graph-os &                                   # KG MCP server (zero external services)
-agent-utilities-doctor                       # sweep & verify the install
+pip install "agent-utilities[serving]"
+setup-config generate --profile tiny
+agent-utilities-doctor --only graph_identity auth
+graph-os --transport stdio
 ```
 
-That's a working, durable-on-disk knowledge graph + MCP server with **no database or
-external service** (the `tiny` profile uses an in-process engine + embedded LadybugDB).
-Scale up later by re-running `setup-config generate --profile single-node-prod`.
+That starts a durable knowledge graph and MCP server with **no separately managed
+database or service**. GraphOS supervises the packaged Rust epistemic-graph engine
+as an out-of-process child over a private local transport. Scale up later by
+generating the `single-node-prod` profile. The exact tiny, packaged-local stdio
+boundary uses a neutral in-memory bootstrap session, so it needs no IdP credential.
 
 ---
 
 ## 1. Install
 
 ```bash
-pip install agent-utilities[all]
-# or a narrower set, e.g.:  pip install agent-utilities[owl,postgres,stardog]
+pip install "agent-utilities[serving]"             # supported GraphOS runtime
+# Optional external integrations compose by name, for example:
+pip install "agent-utilities[serving,owl,postgresql,stardog]"
 ```
 
 ## 2. Generate your config (all options)
@@ -33,13 +36,31 @@ Don't hand-write `config.json` — generate a complete, profile-seeded one that 
 **every** option at a sensible default:
 
 ```bash
-setup-config generate --profile tiny                 # → ~/.config/agent-utilities/config.json
-setup-config reference                               # browse every option, grouped by subsystem
+setup-config generate --profile tiny       # writes the XDG AgentConfig
+setup-config reference                     # browse every option by subsystem
 ```
 
-Profiles: `tiny` (laptop/edge), `single-node-prod` (one durable host),
-`enterprise` (multi-node). Secret-like keys are blanked — fill them via env or
-`vault://` refs, never in the committed file.
+Profiles: `tiny` (local/edge), `single-node-prod` (one durable host), and
+`enterprise` (multi-node). Generated secret-bearing fields are blank. Persist
+runtime secret references only; do not place resolved credentials, tokens,
+certificate paths, or machine locations in the file.
+
+For this tiny local stdio path, leave `GRAPH_SERVICE_ENDPOINTS`,
+`KG_AUTH_TOKEN_REF`, and `KG_IDENTITY_OAUTH2` unset. GraphOS signs and validates a
+short-lived JWT with an in-memory key as a one-time proof, destroys the key and
+token, and returns a process-lifetime session; no user, host, endpoint,
+filesystem, credential, or proof data is persisted. Validate the boundary:
+
+```bash
+agent-utilities-doctor --only graph_identity auth
+```
+
+Every network transport, non-tiny profile, explicit engine endpoint, and other
+entry point requires exactly one external process identity source and its JWT
+validation policy. A configured-but-invalid source fails closed without local
+fallback. External stdio sessions remain bounded by a renewable shared
+expiry-only lease; identity drift is rejected and failed renewal cannot extend
+authority beyond the validated expiry.
 
 ## 3. (Optional) Databases — single-node-prod / enterprise
 
@@ -48,7 +69,7 @@ pgvector + ParadeDB) and/or Stardog, run:
 
 ```bash
 docker compose -f docker/pg-age-full.compose.yml up -d --build   # AGE + pgvector + pg_search
-setup-databases --profile dev --dsn postgresql://agent:agent@localhost:5432/agent_kg
+setup-databases --profile dev --connection-profile-ref "secret://graph/mirror-profile"
 ```
 
 Full detail (prod Stardog, dev local SPARQL, backfill into AGE, OpenBao):
@@ -57,11 +78,9 @@ Full detail (prod Stardog, dev local SPARQL, backfill into AGE, OpenBao):
 ## 4. Launch
 
 ```bash
-graph-os                       # KG MCP server (stdio / streamable-http)
-graph-os-daemon                # REST gateway (mounts /api/graph/*, /api/sparql, /metrics)
-mcp-multiplexer                # one endpoint over the whole *-mcp fleet
-# …or the interactive agent:
-python -m agent_utilities --provider openai --model-id gpt-4o
+graph-os                       # MCP server; choose this for MCP clients
+graph-os-daemon                # optional headless work host; no HTTP API
+python -m agent_utilities      # agent + REST/API gateway; also hosts background work
 ```
 
 ## 5. Verify
@@ -84,10 +103,10 @@ you're up.
 from agent_utilities import create_agent, create_agent_server
 
 # Quick agent (skill_types selects which skill bundles to load)
-agent = create_agent(name="MyAgent", skill_types=["universal", "graphs"])
+agent = create_agent(name="assistant", skill_types=["universal", "graphs"])
 
-# Full server with protocols (ACP, A2A, MCP, AG-UI)
-create_agent_server(provider="openai", model_id="gpt-4o", port=8000)
+# Full server uses the provider/model registry from AgentConfig.
+create_agent_server()
 ```
 
 See [creating-an-agent.md](creating-an-agent.md) for the complete agent walkthrough.
@@ -102,8 +121,7 @@ Installed by the package:
 | `setup-databases` | Provision Stardog + pg-age and backfill the graph into Apache AGE |
 | `agent-utilities-doctor` | Holistic deployment health sweep (`--fix`, `--live`, `--json`) |
 | `graph-os` | The Knowledge-Graph MCP server (graph-os) |
-| `graph-os-daemon` | The REST gateway / KG daemon (`--status`) |
-| `mcp-multiplexer` | Unified MCP tool gateway over the connector fleet |
+| `graph-os-daemon` | Headless queue, maintenance, and background-work host (`--status`); no HTTP API |
 | `agent-utilities-memory` | Memory store CLI |
 | `python -m agent_utilities` | Launch the interactive agent (flags: `--provider`, `--model-id`, `--mcp-config`, `--web`, `--port`) |
 
@@ -115,6 +133,7 @@ Each command is also reachable over MCP/REST via the `graph_configure` tool
 - [Self-Setup (config-complete, the path Claude follows)](self-setup.md)
 - [Deployment configurations — the ladder](deployment-configurations.md) ·
   [Configuration reference](../architecture/configuration.md)
+- [Universal external graph connectors](../architecture/universal-external-graph-connectors.md)
 - Recipes: [tiny](../recipes/tiny.md) · [single-node-prod](../recipes/single-node-prod.md) ·
   [enterprise](../recipes/enterprise.md) · [databases](../recipes/databases.md)
-- [Day-0 multi-node bootstrap (agent-os-genesis / day0)](day0.md)
+- [Day-0 multi-node bootstrap (`agent-utilities-deployment`)](day0.md)

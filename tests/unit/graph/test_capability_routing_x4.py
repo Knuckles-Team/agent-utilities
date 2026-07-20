@@ -2,10 +2,11 @@
 
 Exercises the single top-level entry point,
 :func:`~agent_utilities.graph.routing.enrichers.capability_routing.
-route_capability_request`, against a fake engine (no live engine ANN — these
-tests deliberately exercise the bounded in-process fallback path so the
-ontology-subsumption-aware ``CapabilityIndex``/hierarchy plumbing is proven end
-to end, not just mocked at the engine boundary). All four X-4 acceptance
+route_capability_request`, against a fake engine exposing both a native
+``semantic_search`` ANN surface and ``node_ids``/``_get_node_properties`` (so
+the ontology-subsumption-aware ``CapabilityIndex``/hierarchy plumbing stays
+exercisable via the in-process fallback path too, not just mocked at the
+engine boundary). All four X-4 acceptance
 scenarios from the task live here:
 
 1. a request routes to a tool whose capability SUBSUMES the need, not just the
@@ -18,6 +19,7 @@ scenarios from the task live here:
 
 from __future__ import annotations
 
+import math
 import re
 import types
 from typing import Any
@@ -62,12 +64,29 @@ class _SharedCypherBackend:
 
 
 def _make_engine(nodes: dict[str, dict[str, Any]]) -> Any:
-    """A fake engine with node_ids/_get_node_properties (no query_unified/semantic_search
-    — forces the in-process CapabilityIndex fallback path) and a durable backend
-    sharing the SAME node store."""
+    """A fake engine exposing a native ANN surface (``semantic_search``) plus
+    ``node_ids``/``_get_node_properties`` (so the in-process ``CapabilityIndex``
+    fallback path stays exercisable too), and a durable backend sharing the
+    SAME node store."""
+
+    def semantic_search(query: list[float], k: int):
+        qnorm = math.sqrt(sum(value * value for value in query)) or 1.0
+        scored: list[tuple[str, float]] = []
+        for node_id, props in nodes.items():
+            embedding = props.get("embedding") or []
+            if len(embedding) != len(query):
+                continue
+            enorm = math.sqrt(sum(value * value for value in embedding)) or 1.0
+            score = sum(a * b for a, b in zip(query, embedding, strict=True)) / (
+                qnorm * enorm
+            )
+            scored.append((node_id, score))
+        return sorted(scored, key=lambda item: item[1], reverse=True)[:k]
+
     graph = types.SimpleNamespace(
         node_ids=lambda: list(nodes.keys()),
         _get_node_properties=lambda nid: nodes.get(nid, {}),
+        semantic_search=semantic_search,
     )
     return types.SimpleNamespace(graph=graph, backend=_SharedCypherBackend(nodes))
 

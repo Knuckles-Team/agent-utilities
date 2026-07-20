@@ -1,0 +1,78 @@
+connector: media-downloader
+ontology_source: media-downloader
+schema_version: '1'
+resources:
+- name: MediaArtifact
+  label: Media artifact
+  id_prefix: mediaartifact
+  relations: []
+- name: MediaOccurrence
+  label: Media occurrence
+  id_prefix: mediaoccurrence
+  relations: []
+- name: MediaRendition
+  label: Media rendition
+  id_prefix: mediarendition
+  relations:
+  - name: renditionOf
+    label: rendition of
+    target: MediaArtifact
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field: {}
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  MediaArtifact:
+    ontology_class: null
+    fields:
+      mediaDigest: xsd:string
+      mediaType: xsd:string
+  MediaOccurrence:
+    ontology_class: null
+    fields:
+      mediaDigest: xsd:string
+      mediaType: xsd:string
+  MediaRendition:
+    ontology_class: null
+    fields:
+      mediaDigest: xsd:string
+      mediaType: xsd:string
+sync: []
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - media_downloader/ontology/media.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: c31edbe139ecddda7259cff5dfe2c35bc53c3945b6d85c05e9d0c7b7f9ae0e0f
+    triple_count: 23
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: TDStJr4b-SNzJgBzVTHJn36aUQJKCZnsgcH9boyfS1ktcue_YojQAdzVi9g__12u0ERoMZ2O5hQgaRXOm896CA
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.MediaArtifact.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MediaOccurrence.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.MediaRendition.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -24,8 +24,7 @@ seam mirrors how ``generate_skill.py`` already shells out to ``crawl.py``.
 The graph is reached over the out-of-process MessagePack/UDS client
 (``epistemic_graph.client``) — there is no PyO3. The node set is selected, then
 its properties + induced edges are pulled in a **single** ``GetSubgraph``
-round-trip (``fetch_subgraph``); a legacy per-node fallback keeps it working
-against engines that predate that batched method.
+round-trip (``fetch_subgraph``).
 
 CLI::
 
@@ -139,51 +138,23 @@ class SkillGraphDistiller:
         tcp_addr: str | None = None,
         auth_secret: str | None = None,
     ) -> SkillGraphDistiller:
-        """Connect a client using ``AgentConfig`` defaults (mirrors
-        ``GraphComputeEngine``'s endpoint resolution) and return a distiller."""
-        from epistemic_graph.client import EpistemicGraphClient
+        """Acquire an async facade over the one process graph client."""
+        import asyncio
+
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
         gname = graph_name or setting("KG_GRAPH_NAME", "__commons__")
-
-        # Resolve endpoint/secret the same way the compute engine does, so the
-        # distiller reads from exactly the graph the ingestion plane writes to.
-        if not (socket_path or tcp_addr):
-            try:
-                from agent_utilities.core.config import AgentConfig
-                from agent_utilities.knowledge_graph.core.graph_compute import (
-                    resolve_engine_auth,
-                )
-
-                config = AgentConfig()
-                if auth_secret is None:
-                    # Shared per-install secret (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) — same
-                    # resolution the compute engine uses.
-                    auth_secret, _insecure = resolve_engine_auth(config)
-                # Shard-aware (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw): route to the graph's
-                # HRW-owning shard instead of assuming endpoints[0], so the
-                # distiller reads the same shard the ingestion plane wrote.
-                from agent_utilities.knowledge_graph.core.shard_topology import (
-                    resolve_endpoints,
-                    shard_endpoint_for,
-                )
-
-                ep = shard_endpoint_for(gname, resolve_endpoints(config))
-                if ep.startswith("tcp://"):
-                    tcp_addr = ep[6:]
-                elif ep.startswith("unix://"):
-                    socket_path = ep[7:]
-                else:
-                    socket_path = ep
-            except Exception:  # noqa: BLE001 — fall through to client env defaults
-                logger.debug("AgentConfig unavailable; using client env defaults")
-
-        client = await EpistemicGraphClient.connect(
-            socket_path=socket_path,
-            tcp_addr=tcp_addr,
-            auth_secret=auth_secret,
-            graph_name=gname,
+        if socket_path or tcp_addr or auth_secret:
+            raise ValueError(
+                "per-call engine endpoint/auth overrides are disabled; configure "
+                "the process graph authority through deployment settings"
+            )
+        engine = await asyncio.to_thread(
+            GraphComputeEngine.get_or_create, graph_name=gname
         )
-        return cls(client, graph_name=gname)
+        return cls(engine.async_client, graph_name=gname)
 
     # ── stage 1: select ───────────────────────────────────────────────────
 
@@ -498,39 +469,6 @@ class SkillGraphDistiller:
         except ValueError:
             return to_rel
 
-    async def _collect_edges(self, node_ids: set[str]) -> list[tuple[str, str, str]]:
-        """Return ``(src, dst, rel_type)`` for edges fully inside the selection.
-
-        Uses a single ``edges.list()`` and unpacks edge-property blobs locally.
-        """
-        try:
-            raw_edges = await self.client.edges.list()
-        except Exception as e:  # noqa: BLE001
-            logger.info("edges.list() unavailable (%s)", e)
-            return []
-        import msgpack
-
-        out: list[tuple[str, str, str]] = []
-        for edge in raw_edges or []:
-            try:
-                src, dst = edge[0], edge[1]
-            except (IndexError, TypeError):
-                continue
-            if src not in node_ids or dst not in node_ids:
-                continue
-            rel = "RELATED"
-            blob = edge[2] if len(edge) > 2 else None
-            if blob:
-                try:
-                    if isinstance(blob, list | tuple):
-                        blob = bytes(blob)
-                    eprops = msgpack.unpackb(blob, raw=False) if blob else {}
-                    rel = str(_first(eprops, _REL_KEYS) or rel)
-                except Exception:  # noqa: BLE001
-                    pass
-            out.append((src, dst, rel))
-        return out
-
     # ── orchestration ─────────────────────────────────────────────────────
 
     async def fetch_subgraph(
@@ -539,48 +477,29 @@ class SkillGraphDistiller:
         """Fetch node properties + induced edges in ONE round-trip via the
         engine's batched ``GetSubgraph``.
 
-        Returns ``(props_by_id, edge_records)``. Falls back to the legacy path
-        (per-node ``properties`` + full ``edges.list`` scan) when the engine
-        predates the batched method, so the distiller works against any engine.
+        Returns ``(props_by_id, edge_records)``. ``GetSubgraph`` is part of the
+        current engine contract; a missing or malformed response fails loudly.
         """
-        try:
-            sub = await self.client.graph.get_subgraph(list(node_ids))
-            if isinstance(sub, dict) and "nodes" in sub:
-                props: dict[str, dict] = {
-                    n["id"]: (n.get("properties") or {})
-                    for n in sub.get("nodes", [])
-                    if n.get("id")
-                }
-                for nid in node_ids:  # guarantee every requested id is present
-                    props.setdefault(nid, {})
-                edges: list[tuple[str, str, str]] = []
-                for e in sub.get("edges", []):
-                    src, dst = e.get("source"), e.get("target")
-                    if not (src and dst):
-                        continue
-                    rel = str(_first(e.get("properties") or {}, _REL_KEYS) or "RELATED")
-                    edges.append((src, dst, rel))
-                return props, edges
-        except Exception as e:  # noqa: BLE001
-            logger.info(
-                "get_subgraph unavailable (%s); falling back to per-node reads", e
-            )
-        # Legacy fallback.
-        props = await self.fetch_props(node_ids)
-        edges = await self._collect_edges(set(node_ids))
-        return props, edges
-
-    async def fetch_props(self, node_ids: list[str]) -> dict[str, dict]:
-        """Per-node property read (legacy fallback for engines without the
-        batched ``GetSubgraph``)."""
-        props: dict[str, dict] = {}
+        sub = await self.client.graph.get_subgraph(list(node_ids))
+        if not isinstance(sub, dict) or not isinstance(sub.get("nodes"), list):
+            raise RuntimeError("engine GetSubgraph returned an invalid response")
+        props: dict[str, dict] = {
+            node["id"]: (node.get("properties") or {})
+            for node in sub["nodes"]
+            if isinstance(node, dict) and node.get("id")
+        }
         for nid in node_ids:
-            try:
-                p = await self.client.nodes.properties(nid)
-            except Exception:  # noqa: BLE001
-                p = None
-            props[nid] = p or {}
-        return props
+            props.setdefault(nid, {})
+        edges: list[tuple[str, str, str]] = []
+        for edge in sub.get("edges", []):
+            if not isinstance(edge, dict):
+                continue
+            src, dst = edge.get("source"), edge.get("target")
+            if not (src and dst):
+                continue
+            rel = str(_first(edge.get("properties") or {}, _REL_KEYS) or "RELATED")
+            edges.append((src, dst, rel))
+        return props, edges
 
     async def distill(
         self,

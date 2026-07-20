@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/prebundled-skill-catalog-v1.json",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$"
+        },
+        "digest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["skill", "treeDigest", "files"],
+      "properties": {
+        "skill": {"type": "string"},
+        "treeDigest": {"$ref": "#/$defs/digest"},
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4096,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/file"}
+        }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "catalogVersion",
+    "membershipDigest",
+    "entryCount",
+    "entries"
+  ],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "PrebundledSkillCatalog"},
+    "catalogVersion": {"const": 1},
+    "membershipDigest": {"$ref": "#/$defs/digest"},
+    "entryCount": {"const": 10},
+    "entries": {
+      "type": "array",
+      "minItems": 10,
+      "maxItems": 10,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-deployment"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-development"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "agent-utilities-evolution"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-engine-and-modalities"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-ingestion-and-integration"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-modeling-and-mutation"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-orchestration-and-automation"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-query-and-explanation"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-research-and-analysis"}}}]},
+        {"allOf": [{"$ref": "#/$defs/entry"}, {"properties": {"skill": {"const": "graph-runtime-and-governance"}}}]}
+      ],
+      "items": false
+    }
+  }
+}

@@ -774,8 +774,8 @@ class OWLBridge:
 
         CONCEPT:AU-KG.compute.native-sparql-owl-shacl — OWL reasoning is demoted to the engine's native OWL 2
         (EL+/RL) reasoner (``client.rdf.owl_reason``, confidence/decay-weighted). The
-        engine's RDF/OWL surface ships in every profile (the tiny/pi-tier binary
-        included), so the engine path is the default everywhere. The Python
+        engine's RDF/OWL surface ships in the mandatory full engine artifact, so
+        the engine path is the default everywhere. The Python
         ``_python_reasoning`` RDFS+ closure is the TRUE last-resort -- only when no
         engine is reachable at all. Both paths emit the same inference-dict shape so
         ``_downfeed_inferences`` is path-agnostic.
@@ -898,14 +898,14 @@ class OWLBridge:
         inferences.extend(self._inverse_inferences())
 
         for u, v, data in self.graph.edges(data=True):
-            rel = data.get("type")
+            rel = data.get("relationship")
             if not rel:
                 continue
 
             # Symmetric closure
             if rel in symmetric_props:
                 if not self.graph.has_edge(v, u) or not any(
-                    e.get("type") == rel
+                    e.get("relationship") == rel
                     for e in self.graph.get_edge_data(v, u, default={}).values()
                 ):
                     inferences.append(
@@ -922,9 +922,9 @@ class OWLBridge:
                 for w in self.graph.successors(v):
                     edge_data_dict = self.graph.get_edge_data(v, w, default={})
                     for w_data in edge_data_dict.values():
-                        if w_data.get("type") == rel:
+                        if w_data.get("relationship") == rel:
                             if not self.graph.has_edge(u, w) or not any(
-                                e.get("type") == rel
+                                e.get("relationship") == rel
                                 for e in self.graph.get_edge_data(
                                     u, w, default={}
                                 ).values()
@@ -951,12 +951,12 @@ class OWLBridge:
             return []
         out: list[dict[str, Any]] = []
         for u, v, data in self.graph.edges(data=True):
-            rel = data.get("type")
+            rel = data.get("relationship")
             inv = self._pack_inverse.get(rel) if rel else None
             if not inv:
                 continue
             existing = self.graph.get_edge_data(v, u, default={})
-            if any(e.get("type") == inv for e in existing.values()):
+            if any(e.get("relationship") == inv for e in existing.values()):
                 continue
             out.append(
                 {
@@ -970,7 +970,7 @@ class OWLBridge:
 
     def _is_eligible_node(self, node_id: str, attrs: dict[str, Any]) -> bool:
         """Check if a node meets promotion criteria."""
-        node_type = attrs.get("type", "")
+        node_type = attrs.get("node_type", "")
         if node_type not in self._effective_node_types:
             return False
 
@@ -1019,13 +1019,13 @@ class OWLBridge:
         stable_edges = []
 
         for src, tgt, attrs in self.graph.edges(data=True):
-            edge_type = attrs.get("type", "")
+            edge_type = attrs.get("relationship", "")
             if edge_type in self._effective_edge_types:
                 stable_edges.append(
                     {
                         "source": src,
                         "target": tgt,
-                        "type": edge_type,
+                        "relationship": edge_type,
                     }
                 )
 
@@ -1062,7 +1062,8 @@ class OWLBridge:
             existing_edges = self.graph.get_edge_data(subject, obj)
             if existing_edges:
                 already_exists = any(
-                    e.get("type") == predicate for e in existing_edges.values()
+                    e.get("relationship") == predicate
+                    for e in existing_edges.values()
                 )
                 if already_exists:
                     continue
@@ -1071,7 +1072,7 @@ class OWLBridge:
             self.graph.add_edge(
                 subject,
                 obj,
-                type=predicate,
+                relationship=predicate,
                 inferred=True,
                 inferred_from="owl_reasoner",
                 inference_type=inference.get("inference_type", "unknown"),
@@ -1177,8 +1178,8 @@ class OWLBridge:
 
         CONCEPT:AU-KG.compute.native-sparql-owl-shacl — SPARQL is demoted to the engine's native SPARQL 1.1
         surface (``client.rdf.sparql``), run over the LIVE engine graph rather than a
-        materialized rdflib copy. The engine RDF/SPARQL surface ships in every profile
-        (tiny/pi-tier binary included), so the engine path is the default everywhere.
+        materialized rdflib copy. The engine RDF/SPARQL surface ships in the mandatory
+        full engine artifact, so the engine path is the default everywhere.
         Strategies, in priority order:
         1. Engine-native SPARQL (``self.graph.sparql``) -- the default in every profile
         2. Native OWL backend SPARQL (if an OWL backend exposes ``query_sparql``)
@@ -1193,8 +1194,8 @@ class OWLBridge:
             names to their bound values.
         """
         # 1) Engine-native SPARQL over the live graph (the demoted-to-engine path;
-        #    the engine's native RDF/SPARQL surface is available in EVERY profile,
-        #    tiny/pi included, so this is the default path -- not a no-engine special
+        #    the engine's native RDF/SPARQL surface is available in the mandatory
+        #    full artifact, so this is the default path -- not a no-engine special
         #    case). CONCEPT:AU-KG.compute.native-sparql-owl-shacl (over the engine projection, engine concept KG-2.240).
         #    We pass the AU projection vocabulary (the ``au:`` namespace + CamelCased
         #    rdf:type) so the engine projects the LIVE property graph into the SAME RDF
@@ -1263,42 +1264,22 @@ class OWLBridge:
         g.bind("rdf", rdflib.RDF)
         g.bind("rdfs", rdflib.RDFS)
 
-        # Fast path (CONCEPT:AU-KG.ontology.owl-durable-backfeed): bulk-export triples from the engine in ONE
-        # call (GetTriples) instead of per-node round-trips, then map to RDF. An
-        # object that is itself a known subject is an edge target (URI); otherwise
-        # a literal. Falls back to the per-node iteration below if unavailable.
+        # Fast path (CONCEPT:AU-KG.ontology.owl-durable-backfeed): serialize the
+        # engine's canonical RDF projection in one GetRdf round-trip and let
+        # rdflib parse the N-Triples document. This preserves datatype and language
+        # tags exactly; no property-graph triple-list coercion is involved.
         try:
-            triples = self.graph.get_triples()
+            ntriples = self.graph.get_rdf()
         except Exception:
-            triples = None
-        if triples:
-            subjects = {str(t[0]) for t in triples if len(t) == 3}
-
-            def _uri(x: str) -> Any:
-                return AU[str(x).replace(" ", "_")]
-
-            for t in triples:
-                if len(t) != 3:
-                    continue
-                s, p, o = str(t[0]), str(t[1]), t[2]
-                if p == "rdf:type":
-                    g.add(
-                        (
-                            _uri(s),
-                            rdflib.RDF.type,
-                            AU[str(o).replace(" ", "_").title().replace("_", "")],
-                        )
-                    )
-                elif str(o) in subjects:
-                    g.add((_uri(s), AU[p], _uri(o)))
-                else:
-                    g.add((_uri(s), AU[p], rdflib.Literal(o)))
+            ntriples = ""
+        if ntriples:
+            g.parse(data=ntriples, format="nt")
             return g
 
         # Promote nodes as typed individuals
         for node_id, data in self.graph.nodes(data=True):
             node_uri = AU[str(node_id).replace(" ", "_")]
-            node_type = data.get("type", "Thing")
+            node_type = data.get("node_type", "Thing")
             # Type assertion
             type_class = AU[node_type.replace(" ", "_").title().replace("_", "")]
             g.add((node_uri, rdflib.RDF.type, type_class))
@@ -1315,7 +1296,7 @@ class OWLBridge:
         for src, tgt, data in self.graph.edges(data=True):
             src_uri = AU[str(src).replace(" ", "_")]
             tgt_uri = AU[str(tgt).replace(" ", "_")]
-            edge_type = data.get("type", "relatedTo")
+            edge_type = data.get("relationship", "relatedTo")
             prop = AU[edge_type]
             g.add((src_uri, prop, tgt_uri))
 
@@ -1382,9 +1363,9 @@ class OWLBridge:
             target_type = match.group(1).lower()
             results = []
             for node_id, data in self.graph.nodes(data=True):
-                node_type = data.get("type", "")
+                node_type = data.get("node_type", "")
                 if node_type == target_type or target_type in node_type:
-                    results.append({"id": node_id, "type": node_type, **data})
+                    results.append({"id": node_id, "node_type": node_type, **data})
             return results[:100]
 
         return [
@@ -1400,7 +1381,7 @@ class OWLBridge:
         """Hydrates raw enterprise payloads from external streams into LPG nodes and edges.
 
         Strictly maps fields using rigid, schema-compliant R2RML mappings to prevent dynamic
-        LLM hallucinations. If namespace matches 'redis://' or 'valkey://', hydrates the state
+        LLM hallucinations. If namespace uses ``rediss://``, hydrates the state
         to an external shared ephemeral cache fabric, enabling concurrent agents to share memory.
 
         Supports automatic TTL expiration tracking.
@@ -1470,7 +1451,7 @@ class OWLBridge:
 
             # Construct mapped properties
             props = {
-                "type": class_name,
+                "node_type": class_name,
                 "id": node_id,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "is_permanent": False,
@@ -1492,7 +1473,7 @@ class OWLBridge:
                             {
                                 "source": node_id,
                                 "target": tgt_id,
-                                "type": rel_type,
+                                "relationship": rel_type,
                                 "inferred": False,
                             }
                         )
@@ -1502,32 +1483,40 @@ class OWLBridge:
             edges_hydrated += len(edges)
 
         # Persistence: External Valkey/Redis or local Namespaced Storage
-        is_external = namespace.startswith("redis://") or namespace.startswith(
-            "valkey://"
-        )
+        is_external = namespace.startswith("rediss://")
         expiration_time = time.time() + ttl_seconds
 
         if is_external:
             try:
                 import redis
 
-                client = redis.from_url(namespace)
-                # Store serialized graph nodes & edges
-                key_prefix = f"company_brain:ns:{namespace.split('/')[-1]}"
-                client.setex(
-                    f"{key_prefix}:data", ttl_seconds, json.dumps(hydrated_payloads)
+                from agent_utilities.core.transport_security import (
+                    resolve_configured_tls_profile,
                 )
+
+                trust = resolve_configured_tls_profile("redis")
+                client = None
+                try:
+                    client = redis.from_url(namespace, **trust.redis_kwargs())
+                    # Store serialized graph nodes & edges
+                    key_prefix = "company_brain:hydrated"
+                    client.setex(
+                        f"{key_prefix}:data",
+                        ttl_seconds,
+                        json.dumps(hydrated_payloads),
+                    )
+                finally:
+                    if client is not None:
+                        client.close()
+                    trust.cleanup()
                 logger.info(
                     "Successfully hydrated %d nodes to external cache fabric.",
                     nodes_hydrated,
                 )
             except Exception as e:
                 logger.warning(
-                    "Valkey/Redis hydration failed: %s. Falling back to local namespace.",
-                    e,
-                )
-                self._save_local_namespace(
-                    namespace, hydrated_payloads, expiration_time
+                    "Redis hydration failed (%s); external connection data was not persisted.",
+                    type(e).__name__,
                 )
         else:
             self._save_local_namespace(namespace, hydrated_payloads, expiration_time)
@@ -1545,11 +1534,14 @@ class OWLBridge:
                     if isinstance(e_item, dict):
                         e_src = e_item.get("source")
                         e_tgt = e_item.get("target")
-                        e_type = e_item.get("type")
+                        e_type = e_item.get("relationship")
                         e_inferred = e_item.get("inferred", False)
                         if isinstance(e_src, str) and isinstance(e_tgt, str):
                             self.graph.add_edge(
-                                e_src, e_tgt, type=e_type, inferred=e_inferred
+                                e_src,
+                                e_tgt,
+                                relationship=e_type,
+                                inferred=e_inferred,
                             )
 
         return {

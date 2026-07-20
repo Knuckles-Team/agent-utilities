@@ -229,13 +229,14 @@ class DataAnalystAgent:
         if not nl_planner.is_llm_configured():
             return _fallback_answer(question, rows)
         try:
-            from pydantic_ai import Agent
-
+            from agent_utilities.core.contextual_model import create_context_agent
             from agent_utilities.core.event_loop import run_sync_isolated
             from agent_utilities.core.model_factory import create_model
 
             model = create_model(role="generator")
-            agent = Agent(model=model, system_prompt=_ANSWER_SYSTEM_PROMPT)
+            agent = create_context_agent(
+                model=model, system_prompt=_ANSWER_SYSTEM_PROMPT
+            )
             payload = json.dumps(rows[:20], default=str)
             prompt = f"Question: {question}\n\nRows (JSON): {payload}"
             # BUG-2 (kg-exhaustive-smoke.md): sibling call site to the fixed

@@ -1,6 +1,4 @@
 #!/usr/bin/python
-from __future__ import annotations
-
 """KG-backed evaluation corpus sourced from real usage (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort).
 
 Closes the Layer-6 gap where eval cases were synthetic/hand-authored. Cases are
@@ -12,12 +10,16 @@ corrections via :class:`FeedbackService` and (2) retrieval regressions caught by
 Works with no backend (in-memory) so it is unit-testable in isolation.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import time
 import uuid
 from collections.abc import Callable
 from typing import Any
+
+from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 logger = logging.getLogger(__name__)
 
@@ -47,15 +49,32 @@ class EvalCorpus:
         optional plain-English pass/fail check (CONCEPT:AU-AHE.evaluation.failure-analysis-loop, Opik Test Suite
         style) judged by LLM-as-judge in lieu of expected-output scoring.
         """
-        case_id = f"eval_case:{uuid.uuid4().hex[:12]}"
-        rec = {
-            "id": case_id,
+        from agent_utilities.harness.optimization_backend import (
+            opaque_program_reference,
+        )
+
+        case_id = f"eval_case:{uuid.uuid4().hex}"
+        program_example_ref = opaque_program_reference("example", case_id)
+        pending = {
             "query": query,
             "expected_output": expected_output,
             "tags": list(tags or []),
             "reason": reason,
             "metadata": dict(metadata or {}),
             "assertion": assertion,
+        }
+        sanitized, _privacy_report = PersistencePrivacyGuard().sanitize(pending)
+        if not isinstance(sanitized, dict):  # defensive: the guard preserves mappings
+            raise RuntimeError("eval case privacy normalization failed")
+        case_metadata = sanitized.get("metadata")
+        if not isinstance(case_metadata, dict):
+            case_metadata = {}
+        case_metadata["program_example_ref"] = program_example_ref
+        rec = {
+            "id": case_id,
+            **sanitized,
+            "metadata": case_metadata,
+            "program_example_ref": program_example_ref,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         self._mem.append(rec)
@@ -63,17 +82,18 @@ class EvalCorpus:
             try:
                 self.backend.add_node(
                     case_id,
-                    type="eval_case",
-                    query=query,
-                    expected_output=expected_output,
+                    node_type="eval_case",
+                    query=rec["query"],
+                    expected_output=rec["expected_output"],
                     tags=",".join(rec["tags"]),
-                    reason=reason,
+                    reason=rec["reason"],
                     metadata=json.dumps(rec["metadata"]) if rec["metadata"] else "",
-                    assertion=assertion,
+                    program_example_ref=program_example_ref,
+                    assertion=rec["assertion"],
                     timestamp=rec["timestamp"],
                 )
             except Exception as exc:  # pragma: no cover - persistence best-effort
-                logger.debug("eval_case persist failed: %s", exc)
+                logger.debug("eval_case persist failed (%s)", type(exc).__name__)
         return case_id
 
     def add_from_trace(
@@ -84,7 +104,8 @@ class EvalCorpus:
         The prod→dataset half of the closed loop: a ``TraceNode`` (or any object/dict with
         ``input``/``output``) becomes a ``DatasetItemNode(source=trace)`` AND an eval case
         whose expected output is the trace's output (or whose ``assertion`` is the check to
-        re-run). ``source_trace_id`` records provenance so the case traces back to its trace.
+        re-run). ``source_trace_ref`` records non-reversible provenance without retaining
+        the source system's trace identifier.
         """
 
         def _g(obj: Any, key: str, default: str = "") -> str:
@@ -92,31 +113,43 @@ class EvalCorpus:
                 return str(obj.get(key, default))
             return str(getattr(obj, key, default) or default)
 
+        from agent_utilities.harness.optimization_backend import (
+            opaque_program_reference,
+        )
+
         trace_id = _g(trace, "id")
-        query = _g(trace, "input") or _g(trace, "name")
+        trace_ref = opaque_program_reference("trace", trace_id or "unidentified-trace")
+        query = _g(trace, "input")
         output = _g(trace, "output")
         case_id = self.add_case(
-            query=query or trace_id,
+            query=query or "governed trace execution",
             expected_output=output,
             tags=(tags or []) + ["from_trace"],
-            reason=f"promoted from trace {trace_id}",
+            reason="promoted from governed trace evidence",
             assertion=assertion,
-            metadata={"source": "trace", "source_trace_id": trace_id},
+            metadata={"source": "trace", "source_trace_ref": trace_ref},
         )
         # Mirror as a DatasetItemNode(source=trace) with provenance, when persistable.
         if self.backend is not None and hasattr(self.backend, "add_node"):
             try:
+                dataset_item, _privacy_report = PersistencePrivacyGuard().sanitize(
+                    {
+                        "node_type": "dataset_item",
+                        "source": "trace",
+                        "input": query,
+                        "expected": output,
+                        "assertion": assertion,
+                    }
+                )
+                if not isinstance(dataset_item, dict):
+                    raise RuntimeError("dataset item privacy normalization failed")
+                dataset_item["source_trace_ref"] = trace_ref
                 self.backend.add_node(
                     f"dataset_item:{case_id}",
-                    type="dataset_item",
-                    source="trace",
-                    input=query,
-                    expected=output,
-                    assertion=assertion,
-                    source_trace_id=trace_id,
+                    **dataset_item,
                 )
             except Exception as exc:  # pragma: no cover - best-effort
-                logger.debug("dataset_item persist failed: %s", exc)
+                logger.debug("dataset_item persist failed (%s)", type(exc).__name__)
         return case_id
 
     def load_cases(self) -> list[Any]:
@@ -128,15 +161,19 @@ class EvalCorpus:
             try:
                 rows = (
                     self.backend.execute(
-                        "MATCH (c) WHERE c.type = 'eval_case' "
+                        "MATCH (c) WHERE c.node_type = 'eval_case' "
                         "RETURN c.id AS id, c.query AS query, "
                         "c.expected_output AS expected_output, c.tags AS tags, "
-                        "c.assertion AS assertion"
+                        "c.assertion AS assertion, c.metadata AS metadata, "
+                        "c.program_example_ref AS program_example_ref"
                     )
                     or []
                 )
             except Exception as exc:  # pragma: no cover - dialect tolerant
-                logger.debug("load_cases query failed, using memory: %s", exc)
+                logger.debug(
+                    "load_cases query failed, using memory (%s)",
+                    type(exc).__name__,
+                )
         if not rows:
             rows = self._mem
         cases: list[Any] = []
@@ -152,6 +189,11 @@ class EvalCorpus:
                     metadata = json.loads(metadata) if metadata else {}
                 except json.JSONDecodeError:  # pragma: no cover - tolerant
                     metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            program_example_ref = str(r.get("program_example_ref") or "")
+            if program_example_ref:
+                metadata.setdefault("program_example_ref", program_example_ref)
             cases.append(
                 TestCase(
                     id=r.get("id", ""),
@@ -178,7 +220,10 @@ class EvalCorpus:
             try:
                 actual = actual_output_fn(case)
             except Exception as exc:  # pragma: no cover - per-case isolation
-                logger.debug("actual_output_fn failed for %s: %s", case.id, exc)
+                logger.debug(
+                    "actual_output_fn failed for governed case (%s)",
+                    type(exc).__name__,
+                )
                 continue
             results.append(runner.run_eval(case, actual))
         return results

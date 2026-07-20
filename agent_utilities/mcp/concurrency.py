@@ -1,16 +1,17 @@
 """Concurrency helpers for MCP tool handlers.
 
-Most fleet MCP tools are ``async def`` (they ``await ctx.*`` helpers) but call a
-**blocking** synchronous client (``requests``/SDK). Running that blocking call
-inline on the event loop stalls every other concurrent request on the worker —
-so one slow upstream call serializes the whole server. :func:`run_blocking`
-offloads the blocking call to a worker thread so the event loop stays free and
-tool calls actually run concurrently.
+Most fleet MCP tools are ``async def`` (they ``await ctx.*`` helpers) while
+provider clients may be either synchronous or asynchronous. Running a blocking
+client inline on the event loop stalls every other concurrent request on the
+worker. :func:`run_blocking` is the strict synchronous primitive;
+:func:`invoke_client_method` is the provider boundary that awaits asynchronous
+SDK methods and offloads synchronous SDK methods to a worker thread.
 
 Usage in a handler::
 
-    from agent_utilities.mcp_utilities import run_blocking
-    response = await run_blocking(client.get_repositories, **kwargs)
+    from agent_utilities.mcp.concurrency import invoke_client_method
+
+    response = await invoke_client_method(client.get_repositories, **kwargs)
 
 CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
@@ -19,8 +20,8 @@ from __future__ import annotations
 
 import functools
 import inspect
-from collections.abc import Callable
-from typing import TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar, cast
 
 import anyio
 
@@ -89,5 +90,38 @@ async def run_blocking(func: Callable[..., T], /, *args, **kwargs) -> T:
     one (see :func:`_wrap_data_kwargs`) so LLM-driven create/update dispatch is
     self-healing; it is a no-op for any callable without a ``data`` parameter.
     """
+    if inspect.iscoroutinefunction(func):
+        raise TypeError(
+            "run_blocking requires a synchronous callable; "
+            "use invoke_client_method for provider SDK methods"
+        )
     kwargs = _wrap_data_kwargs(func, args, kwargs)
-    return await anyio.to_thread.run_sync(functools.partial(func, *args, **kwargs))
+    result = await anyio.to_thread.run_sync(functools.partial(func, *args, **kwargs))
+    if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            result.close()
+        raise TypeError(
+            "run_blocking callable returned an awaitable; "
+            "use invoke_client_method for provider SDK methods"
+        )
+    return result
+
+
+async def invoke_client_method(
+    func: Callable[..., T | Awaitable[T]], /, *args, **kwargs
+) -> T:
+    """Invoke one provider SDK method without blocking the MCP event loop.
+
+    Native asynchronous methods execute on the event loop. Synchronous methods
+    execute in an AnyIO worker thread. Callable objects and decorators that hide
+    an asynchronous return type are also handled by awaiting the returned value.
+    The shared REST-body normalization is applied before either execution path.
+    """
+    kwargs = _wrap_data_kwargs(func, args, kwargs)
+    if inspect.iscoroutinefunction(func):
+        return await func(*args, **kwargs)
+
+    result = await anyio.to_thread.run_sync(functools.partial(func, *args, **kwargs))
+    if inspect.isawaitable(result):
+        return await cast(Awaitable[T], result)
+    return cast(T, result)

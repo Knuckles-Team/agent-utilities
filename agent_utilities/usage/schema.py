@@ -7,13 +7,15 @@ SQL is shared and query-shape parity holds (agentsview backend-parity rule).
 
 from __future__ import annotations
 
+PRIVACY_SCHEMA_VERSION = "usage-privacy-metadata-v1"
+
 # Shared base tables (valid on SQLite + Postgres; INTEGER/TEXT/REAL are accepted
 # by Postgres, BOOLEAN stored as INTEGER 0/1 for parity).
 _BASE_TABLES = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL DEFAULT '',
-    machine TEXT NOT NULL DEFAULT 'local',
+    machine TEXT NOT NULL DEFAULT 'unattributed',
     agent TEXT NOT NULL DEFAULT 'claude',
     first_message TEXT NOT NULL DEFAULT '',
     started_at TEXT,
@@ -118,6 +120,11 @@ CREATE TABLE IF NOT EXISTS skipped_files (
     mtime INTEGER NOT NULL DEFAULT 0,
     size INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS usage_store_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 # SQLite-only: a dedup unique index (partial) + FTS5 virtual table + triggers.
@@ -154,3 +161,33 @@ def postgres_ddl() -> str:
         "INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY"
     )
     return base + _POSTGRES_EXTRA
+
+
+def enforce_privacy_schema(conn) -> bool:
+    """Validate or initialize the usage-store privacy schema.
+
+    A populated store without the current schema marker is rejected. Automatic
+    destructive migration is intentionally forbidden.
+    """
+
+    current = conn.execute(
+        "SELECT value FROM usage_store_metadata WHERE key = ?",
+        ("privacy_schema",),
+    ).fetchone()
+    if current is not None and str(current[0]) == PRIVACY_SCHEMA_VERSION:
+        return False
+    for table in (
+        "messages",
+        "tool_calls",
+        "usage_events",
+        "sessions",
+        "skipped_files",
+    ):
+        if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
+            raise RuntimeError("usage store privacy schema is incompatible")
+    conn.execute("DELETE FROM usage_store_metadata WHERE key = ?", ("privacy_schema",))
+    conn.execute(
+        "INSERT INTO usage_store_metadata (key, value) VALUES (?, ?)",
+        ("privacy_schema", PRIVACY_SCHEMA_VERSION),
+    )
+    return True

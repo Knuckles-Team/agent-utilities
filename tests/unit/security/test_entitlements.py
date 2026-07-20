@@ -7,6 +7,8 @@ to the same entitled kube contexts.
 
 from __future__ import annotations
 
+import contextvars
+
 import pytest
 
 from agent_utilities.security.brain_context import ActorContext, use_actor
@@ -48,7 +50,9 @@ class TestEntitledResources:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_no_catalog_returns_named_resources(self):
-        assert entitled_resources(["k8s:prod", "ssh:r820"], "k8s") == ("prod",)
+        assert entitled_resources(
+            ["k8s:prod", "ssh:analysis-node-a"], "k8s"
+        ) == ("prod",)
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_is_entitled(self):
@@ -59,7 +63,7 @@ class TestEntitledResources:
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_grants_all_in_namespace(self):
         assert grants_all_in_namespace(["k8s:all"], "k8s")
-        assert grants_all_in_namespace(["system"], "k8s")
+        assert not grants_all_in_namespace(["system"], "k8s")
         assert not grants_all_in_namespace(["k8s:prod"], "k8s")
 
 
@@ -96,8 +100,9 @@ class TestIdentityScopedResources:
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_authenticated_caller_scopes_to_entitled(self):
         actor = ActorContext(
-            actor_id="user:ada",
+            actor_id="principal:verified",
             roles=("k8s:prod",),
+            tenant_id="tenant-a",
             authenticated=True,
         )
         with use_actor(actor):
@@ -106,7 +111,22 @@ class TestIdentityScopedResources:
             )
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
-    def test_unauthenticated_system_actor_sees_all_backcompat(self):
-        # Ambient SYSTEM_ACTOR (admin/system) → all resources: today's behaviour
-        # until a real identity with specific groups scopes it down.
-        assert identity_scoped_resources("k8s", ["prod", "dev"]) == ("prod", "dev")
+    def test_missing_actor_fails_closed(self):
+        def isolated():
+            with pytest.raises(PermissionError):
+                identity_scoped_resources("k8s", ["prod", "dev"])
+
+        contextvars.Context().run(isolated)
+
+    @pytest.mark.parametrize(
+        "actor",
+        [
+            ActorContext(actor_id="principal", tenant_id="tenant-a"),
+            ActorContext(
+                actor_id="principal", tenant_id="", authenticated=True
+            ),
+        ],
+    )
+    def test_unverified_or_tenantless_actor_fails_closed(self, actor):
+        with pytest.raises(PermissionError):
+            identity_scoped_resources("k8s", ["prod"], actor=actor)

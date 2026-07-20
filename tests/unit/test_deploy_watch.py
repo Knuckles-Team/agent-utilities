@@ -1,6 +1,6 @@
 """Health-gated deploy watch + policy-gated rollback (CONCEPT:AU-OS.config.health-gated-deploy-rollback).
 
-Covers: durable scheduling (the watch spec rides on the Task node so a
+Covers: durable scheduling (the watch spec rides in WorkItem metadata so a
 requeued watch resumes its ORIGINAL deadline), the sustained-green success
 path, the failure path (default ``on_fail`` = ActionPolicy-gated rollback —
 queued under the shipped default policy, actuated under a permissive one —

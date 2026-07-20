@@ -35,6 +35,10 @@ import logging
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.persistence_privacy import (
+    PersistencePrivacyGuard,
+    persistence_reference,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +49,50 @@ logger = logging.getLogger(__name__)
 #: :func:`.custom_observability.setup_otel` already uses for Langfuse, kept
 #: as a fallback so a deployment with only the generic var set still works.
 _OTEL_ENDPOINT_SETTINGS = ("EPISTEMIC_GRAPH_OBS_ADDR", "OTEL_EXPORTER_OTLP_ENDPOINT")
+_STATUS_VALUES = frozenset(
+    {
+        "cancelled",
+        "completed",
+        "degraded",
+        "error",
+        "failed",
+        "ok",
+        "success",
+        "unknown",
+    }
+)
+
+
+def _telemetry_ref(kind: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return persistence_reference(kind, text[:8192], namespace="telemetry")
+
+
+def _status_label(value: Any) -> str:
+    normalized = str(value or "unknown").strip().lower()
+    return normalized if normalized in _STATUS_VALUES else "unknown"
 
 
 def _resolve_otel_endpoint() -> str:
-    """Resolve the OTLP collector base endpoint from config, or ``""`` if unset."""
+    """Resolve the canonical OTLP endpoint, preferring the engine collector."""
+
+    from agent_utilities.observability.custom_observability import (
+        _resolve_otel_endpoint as resolve_runtime_otel_endpoint,
+    )
+
     for key in _OTEL_ENDPOINT_SETTINGS:
         value = str(setting(key, "") or "").strip()
         if value:
-            return value
-    return ""
+            try:
+                return resolve_runtime_otel_endpoint(value)
+            except ValueError:
+                return ""
+    try:
+        return resolve_runtime_otel_endpoint(None)
+    except ValueError:
+        return ""
 
 
 class TelemetryEngine:
@@ -101,6 +140,7 @@ class TelemetryEngine:
         self._token_counter: Any = None
         self._graph_run_counter: Any = None
         self._otel_configured = False
+        self._otel_transport_security: Any = None
         self._active_spans: dict[str, Any] = {}
         self._span_tokens: dict[str, Any] = {}
 
@@ -167,57 +207,102 @@ class TelemetryEngine:
             from opentelemetry.sdk.resources import Resource
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        except ImportError as e:
+        except ImportError as exc:
             logger.warning(
                 "TelemetryEngine: OpenTelemetry SDK unavailable — OTel export "
-                "disabled (%s). Install with: pip install agent-utilities[logfire]",
-                e,
+                "disabled (exception_type=%s)",
+                type(exc).__name__,
             )
             return False
 
         from agent_utilities.base_utilities import retrieve_package_name
         from agent_utilities.observability.custom_observability import (
+            _MetadataOnlySpanExporter,
+            _resolve_otel_headers,
+            _resolve_otel_transport,
             parse_otlp_headers,
         )
 
-        headers = parse_otlp_headers(
-            str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
-        )
+        try:
+            raw_headers = str(setting("OTEL_EXPORTER_OTLP_HEADERS", "") or "")
+            resolved_headers, _ = _resolve_otel_headers(
+                endpoint=endpoint,
+                headers=raw_headers or None,
+                public_key=None,
+                secret_key=None,
+            )
+            headers = parse_otlp_headers(resolved_headers)
+        except Exception as exc:
+            logger.warning(
+                "TelemetryEngine: OTLP authentication invalid; export disabled "
+                "(exception_type=%s)",
+                type(exc).__name__,
+            )
+            return False
         service_name = str(
             setting("OTEL_SERVICE_NAME", "")
             or retrieve_package_name()
             or "agent-utilities"
         )
+        service_ref = _telemetry_ref("service", service_name)
         base = endpoint.rstrip("/")
-        traces_endpoint = base if base.endswith("/v1/traces") else f"{base}/v1/traces"
-        metrics_endpoint = (
-            base if base.endswith("/v1/metrics") else f"{base}/v1/metrics"
-        )
+        for signal_path in ("/v1/traces", "/v1/metrics"):
+            if base.endswith(signal_path):
+                base = base.removesuffix(signal_path)
+                break
+        traces_endpoint = f"{base}/v1/traces"
+        metrics_endpoint = f"{base}/v1/metrics"
 
+        trust = None
         try:
-            resource = Resource.create({"service.name": service_name})
+            from agent_utilities.core.http_client import create_requests_session
+
+            trust = _resolve_otel_transport(endpoint)
+            trace_session = create_requests_session(transport_security=trust)
+            metric_session = create_requests_session(transport_security=trust)
+            resource = Resource.create({"service.name": service_ref})
 
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(
                 BatchSpanProcessor(
-                    OTLPSpanExporter(endpoint=traces_endpoint, headers=headers)
+                    _MetadataOnlySpanExporter(
+                        OTLPSpanExporter(
+                            endpoint=traces_endpoint,
+                            headers=headers,
+                            session=trace_session,
+                        ),
+                        service_ref=service_ref,
+                    )
                 )
             )
 
             metric_reader = PeriodicExportingMetricReader(
-                OTLPMetricExporter(endpoint=metrics_endpoint, headers=headers)
+                OTLPMetricExporter(
+                    endpoint=metrics_endpoint,
+                    headers=headers,
+                    session=metric_session,
+                )
             )
             meter_provider = MeterProvider(
                 resource=resource, metric_readers=[metric_reader]
             )
-        except Exception as e:  # noqa: BLE001 — OTel setup must never crash the caller
-            logger.warning("TelemetryEngine: OTel provider setup failed: %s", e)
+        except Exception as exc:  # noqa: BLE001 — OTel setup must never crash the caller
+            if trust is not None:
+                try:
+                    trust.cleanup()
+                except Exception:
+                    pass
+            logger.warning(
+                "TelemetryEngine: OTel provider setup failed (exception_type=%s)",
+                type(exc).__name__,
+            )
             return False
 
         self._tracer_provider = tracer_provider
         self._meter_provider = meter_provider
-        self._tracer = tracer_provider.get_tracer(service_name)
-        self._meter = meter_provider.get_meter(service_name)
+        self._otel_transport_security = trust
+        self._tracer = tracer_provider.get_tracer(service_ref)
+        self._meter = meter_provider.get_meter(service_ref)
         self._token_counter = self._meter.create_counter(
             "agent_utilities.llm.tokens",
             unit="token",
@@ -238,17 +323,16 @@ class TelemetryEngine:
         try:
             otel_trace.set_tracer_provider(tracer_provider)
             otel_metrics.set_meter_provider(meter_provider)
-        except Exception as e:  # noqa: BLE001 — best-effort global registration
+        except Exception as exc:  # noqa: BLE001 — best-effort global registration
             logger.debug(
-                "TelemetryEngine: global OTel provider registration skipped: %s", e
+                "TelemetryEngine: global OTel provider registration skipped "
+                "(exception_type=%s)",
+                type(exc).__name__,
             )
 
         self._otel_configured = True
         logger.info(
-            "TelemetryEngine: real OTel pipeline configured — service=%s traces=%s metrics=%s",
-            service_name,
-            traces_endpoint,
-            metrics_endpoint,
+            "TelemetryEngine: real OTel pipeline configured (service=%s)", service_ref
         )
         return True
 
@@ -261,29 +345,37 @@ class TelemetryEngine:
     ) -> None:
         """Record the start of a graph execution."""
         self._lazy_init()
+        run_ref = _telemetry_ref("run", run_id)
+        agent_ref = _telemetry_ref("agent", agent_id or "system")
+        clean_metadata, _privacy = PersistencePrivacyGuard().sanitize(metadata)
+        if not isinstance(clean_metadata, dict):
+            clean_metadata = {}
         if self._audit_logger:
             self._audit_logger.log(
-                actor=agent_id or "system",
+                actor=agent_ref,
                 action="graph.start",
                 resource_type="graph",
-                resource_id=run_id,
-                details={"query_length": len(query), **metadata},
+                resource_id=run_ref,
+                details={"query_length": len(query), **clean_metadata},
             )
         if self._tracer is not None:
             try:
                 span_cm = self._tracer.start_as_current_span(
                     "graph.run",
                     attributes={
-                        "run_id": run_id,
-                        "agent_id": agent_id or "",
+                        "run_ref": run_ref,
+                        "agent_ref": agent_ref,
                         "query_length": len(query),
                     },
                 )
                 span = span_cm.__enter__()
                 self._active_spans[run_id] = span
                 self._span_tokens[run_id] = span_cm
-            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
-                logger.debug("TelemetryEngine: span start failed for %s: %s", run_id, e)
+            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug(
+                    "TelemetryEngine: span start failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
 
     def on_response(
         self,
@@ -299,25 +391,33 @@ class TelemetryEngine:
                 from .token_tracker import TokenUsageRecord
 
                 record = TokenUsageRecord(
-                    session_id=run_id,
-                    model_name=model,
+                    session_id=_telemetry_ref("run", run_id),
+                    model_name=_telemetry_ref("model", model),
                     prompt_tokens=usage.get("prompt", 0),
                     response_tokens=usage.get("response", 0),
                     thoughts_tokens=usage.get("thoughts", 0),
                     tool_use_tokens=usage.get("tool_use", 0),
                 )
                 self._token_tracker.record(record)
-            except Exception as e:
-                logger.debug("Token recording failed: %s", e)
+            except Exception as exc:
+                logger.debug(
+                    "Token recording failed (exception_type=%s)", type(exc).__name__
+                )
         if self._token_counter is not None and usage:
             try:
-                attrs = {"run_id": run_id, "model": model}
+                attrs = {
+                    "run_ref": _telemetry_ref("run", run_id),
+                    "model_ref": _telemetry_ref("model", model),
+                }
                 for kind in ("prompt", "response", "thoughts", "tool_use"):
                     count = usage.get(kind, 0)
                     if count:
                         self._token_counter.add(count, {**attrs, "kind": kind})
-            except Exception as e:  # noqa: BLE001 — metric export must never break the caller
-                logger.debug("TelemetryEngine: token metric recording failed: %s", e)
+            except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
+                logger.debug(
+                    "TelemetryEngine: token metric recording failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
 
     def on_graph_end(
         self,
@@ -328,40 +428,51 @@ class TelemetryEngine:
     ) -> None:
         """Record the end of a graph execution."""
         self._lazy_init()
+        run_ref = _telemetry_ref("run", run_id)
+        status_label = _status_label(status)
+        clean_metadata, _privacy = PersistencePrivacyGuard().sanitize(metadata)
+        if not isinstance(clean_metadata, dict):
+            clean_metadata = {}
         if self._audit_logger:
             self._audit_logger.log(
                 actor="system",
                 action="graph.end",
                 resource_type="graph",
-                resource_id=run_id,
+                resource_id=run_ref,
                 details={
-                    "status": status,
+                    "status": status_label,
                     "duration_ms": duration_ms,
-                    **(metadata or {}),
+                    **clean_metadata,
                 },
             )
         if self._graph_run_counter is not None:
             try:
-                self._graph_run_counter.add(1, {"status": status})
-            except Exception as e:  # noqa: BLE001 — metric export must never break the caller
+                self._graph_run_counter.add(1, {"status": status_label})
+            except Exception as exc:  # noqa: BLE001 — metric export must never break the caller
                 logger.debug(
-                    "TelemetryEngine: graph-run metric recording failed: %s", e
+                    "TelemetryEngine: graph-run metric recording failed "
+                    "(exception_type=%s)",
+                    type(exc).__name__,
                 )
         span = self._active_spans.pop(run_id, None)
         span_cm = self._span_tokens.pop(run_id, None)
         if span is not None:
             try:
-                span.set_attribute("status", status)
+                span.set_attribute("status", status_label)
                 span.set_attribute("duration_ms", duration_ms)
-            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
+            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
-                    "TelemetryEngine: span attribute set failed for %s: %s", run_id, e
+                    "TelemetryEngine: span attribute set failed (exception_type=%s)",
+                    type(exc).__name__,
                 )
         if span_cm is not None:
             try:
                 span_cm.__exit__(None, None, None)
-            except Exception as e:  # noqa: BLE001 — tracing must never break the caller
-                logger.debug("TelemetryEngine: span close failed for %s: %s", run_id, e)
+            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug(
+                    "TelemetryEngine: span close failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
 
     def annotate_epistemic(
         self,
@@ -408,19 +519,27 @@ class TelemetryEngine:
             if confidence is not None:
                 span.set_attribute("epistemic.confidence", float(confidence))
             if status is not None:
-                span.set_attribute("epistemic.status", str(status))
+                span.set_attribute("epistemic.status", _status_label(status))
             if contradiction_count is not None:
                 span.set_attribute(
                     "epistemic.contradiction_count", int(contradiction_count)
                 )
             if policy_labels is not None:
-                span.set_attribute("epistemic.policy_labels", list(policy_labels))
+                span.set_attribute(
+                    "epistemic.policy_label_refs",
+                    [_telemetry_ref("policy", label) for label in policy_labels[:32]],
+                )
             if source_count is not None:
                 span.set_attribute("gen_ai.response.source_count", int(source_count))
             if model:
-                span.set_attribute("gen_ai.request.model", str(model))
-        except Exception as e:  # noqa: BLE001 — tracing must never break a read
-            logger.debug("TelemetryEngine: epistemic span annotation failed: %s", e)
+                span.set_attribute(
+                    "gen_ai.request.model_ref", _telemetry_ref("model", model)
+                )
+        except Exception as exc:  # noqa: BLE001 — tracing must never break a read
+            logger.debug(
+                "TelemetryEngine: epistemic span annotation failed (exception_type=%s)",
+                type(exc).__name__,
+            )
 
     def annotate_context_compiler(
         self,
@@ -510,15 +629,29 @@ class TelemetryEngine:
                 continue
             try:
                 provider.shutdown()
-            except Exception as e:  # noqa: BLE001 — shutdown must never raise
-                logger.debug("TelemetryEngine: OTel provider shutdown failed: %s", e)
+            except Exception as exc:  # noqa: BLE001 — shutdown must never raise
+                logger.debug(
+                    "TelemetryEngine: OTel provider shutdown failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
+        if self._otel_transport_security is not None:
+            try:
+                self._otel_transport_security.cleanup()
+            except Exception as exc:  # noqa: BLE001 - cleanup must never raise
+                logger.debug(
+                    "TelemetryEngine: OTel transport cleanup failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
+            self._otel_transport_security = None
 
     def get_token_summary(self, run_id: str | None = None) -> dict[str, Any]:
         """Get token usage summary, optionally filtered by run_id."""
         self._lazy_init()
         if self._token_tracker:
             if run_id:
-                return self._token_tracker.get_session_totals(run_id).model_dump()
+                return self._token_tracker.get_session_totals(
+                    _telemetry_ref("run", run_id)
+                ).model_dump()
             return self._token_tracker.export_summary()
         return {}
 

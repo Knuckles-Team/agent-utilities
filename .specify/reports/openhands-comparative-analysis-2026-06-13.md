@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-13
 **Sources pinned:**
-- OpenHands @ `/home/apps/workspace/open-source-libraries/OpenHands` (cloned HEAD)
+- OpenHands @ `${WORKSPACE_ROOT}/open-source-libraries/OpenHands` (cloned HEAD)
 - agent-utilities @ `main` `2a712d7` (worktree `feat/openhands-parity-swe-platform`)
 **Ledger:** [`innovation_ledger_openhands.json`](./innovation_ledger_openhands.json) (10 rows, all `verified`)
 

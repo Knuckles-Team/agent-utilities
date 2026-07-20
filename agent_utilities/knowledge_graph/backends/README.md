@@ -51,17 +51,12 @@ interface for Cypher queries, vector search, and functional pruning.
 
 Configured via environment variables:
 
-- `GRAPH_BACKEND`: `epistemic_graph` (default — the engine authority alone, also
-  `memory`/`file` snapshot modes) or `fanout` (engine authority + mirrors). The
-  `tiered`/`GRAPH_BACKEND_L1`/`GRAPH_BACKEND_L2` scheme is **removed**.
-- `GRAPH_AUTHORITY`: read source-of-truth under `fanout` (default
-  `epistemic_graph`; may name any durable connection).
 - `GRAPH_MIRROR_TARGETS`: JSON/list of mirror connection names (declared in
-  `KG_CONNECTIONS`) that receive the fanned-out write stream — replaces the
-  removed `GRAPH_BACKEND_L2`.
-- `GRAPH_DB_PATH`: Local path for LadybugDB (default: `knowledge_graph.db`).
-- `GRAPH_DB_URI` / `PGGRAPH_DSN`: Connection URI for the Neo4j / PostgreSQL mirror.
-- `GRAPH_DB_HOST`: Host for FalkorDB.
+  `KG_CONNECTIONS`) that automatically receive the fanned-out write stream.
+  Epistemic-graph is always the read and write-ack authority.
+- `GRAPH_DB_CONNECTION_PROFILE_REF`: Runtime secret reference resolving to a JSON
+  connection profile. The profile carries the selected backend's URI, host, port,
+  database, identity, credential, local path, and TLS profile fields.
 - `GRAPH_POOL_MIN` / `GRAPH_POOL_MAX`: PostgreSQL connection pool sizing.
 - `GRAPH_PGGRAPH_SCHEMA`: Schema for pg-age table registration (default: `public`).
 

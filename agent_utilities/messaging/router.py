@@ -217,11 +217,6 @@ class InboundRouter:
                     return True
 
                 await retry_unanswered(engine, _reply_send)
-                # CONCEPT:AU-ECO.messaging.topic-log-pruning — same housekeeping cadence prunes expired AgentBus topic-log
-                # messages so the store-and-forward backlog can't grow unbounded.
-                from agent_utilities.messaging.bus import AgentBus
-
-                AgentBus.instance(engine).prune_topic_log()
             except Exception as e:  # noqa: BLE001 — the reaper must survive any single pass
                 logger.debug(
                     "[CONCEPT:AU-ECO.messaging.durable-inbound-pending] inbox reaper pass failed: %s",
@@ -552,7 +547,7 @@ async def _decide_reaction(content: str) -> str:
     (``orchestration.reactions.decide_reaction``), so EVERY entrypoint produces reactions
     from the same one heuristic. Messaging is now just a RENDERER. This shim preserves the
     string contract its callers/tests expect (``""`` for no reaction); disabled with
-    ``REACTIONS=0`` / ``MESSAGING_REACTIONS=0``.
+    ``REACTIONS=0``.
     """
     from agent_utilities.orchestration.reactions import decide_reaction
 
@@ -655,7 +650,7 @@ async def _persist_and_enrich(
             )
             memory_id = None
         # CONCEPT:AU-KG.ingest.list-durable-media — also persist the message's media (image/voice/video)
-        # DURABLY: store the bytes in the engine BLOB substrate + a :MediaAsset node
+        # DURABLY: store the bytes in the engine BLOB substrate + an :AssetOccurrence node
         # linked to this message's memory. Keeps the transcription/vision flow intact;
         # this just makes the media first-class instead of discarding it after use.
         try:
@@ -686,10 +681,10 @@ async def _persist_and_enrich(
         )
 
         await asyncio.to_thread(refresh_session_memento_cache, engine, session)
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         logger.debug(
-            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] session memento skipped: %s",
-            e,
+            "[CONCEPT:AU-ECO.messaging.universal-graph-agent] privacy-safe session "
+            "memento skipped"
         )
     try:
         from agent_utilities.messaging.enrichment import enrich_conversation
@@ -752,7 +747,10 @@ async def _persist_media(
     store = _resolve_media_store(engine)
     if store is None:
         return
-    import httpx
+    from agent_utilities.core.http_client import create_async_http_client
+    from agent_utilities.core.transport_security import (
+        resolve_configured_tls_profile,
+    )
 
     platform = str(getattr(event, "platform", ""))
     channel_id = str(getattr(event, "channel_id", ""))
@@ -760,37 +758,44 @@ async def _persist_media(
     timestamp = getattr(msg, "timestamp", None) or getattr(event, "timestamp", None)
     event_time = timestamp.isoformat() if timestamp is not None else None
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        for att in media[:8]:  # cap per turn
-            try:
-                resp = await client.get(att.url)
-                resp.raise_for_status()
-                data = resp.content
-            except Exception as e:  # noqa: BLE001
-                logger.debug(
-                    "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
-                    e,
+    trust = resolve_configured_tls_profile("messaging-media")
+    try:
+        async with create_async_http_client(
+            timeout=30.0,
+            **trust.httpx_kwargs(),
+        ) as client:
+            for att in media[:8]:  # cap per turn
+                try:
+                    resp = await client.get(att.url)
+                    resp.raise_for_status()
+                    data = resp.content
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(
+                        "[CONCEPT:AU-KG.ingest.list-durable-media] media download failed: %s",
+                        type(e).__name__,
+                    )
+                    continue
+                await asyncio.to_thread(
+                    store.store_media,
+                    data,
+                    media_type=str(getattr(att, "media_type", "")),
+                    mime_type=getattr(att, "mime_type", "")
+                    or resp.headers.get("content-type", "").split(";")[0].strip(),
+                    source=platform,
+                    message_id=message_memory_id,
+                    name=getattr(att, "filename", ""),
+                    owner=owner,
+                    event_time=event_time,
+                    provenance={
+                        "platform": platform,
+                        "channel_id": channel_id,
+                        "thread_id": str(getattr(event, "thread_id", "")),
+                        "message_id": str(getattr(msg, "id", "")),
+                        "filename": getattr(att, "filename", ""),
+                    },
                 )
-                continue
-            await asyncio.to_thread(
-                store.store_media,
-                data,
-                media_type=str(getattr(att, "media_type", "")),
-                mime_type=getattr(att, "mime_type", "")
-                or resp.headers.get("content-type", "").split(";")[0].strip(),
-                source=platform,
-                message_id=message_memory_id,
-                name=getattr(att, "filename", ""),
-                owner=owner,
-                event_time=event_time,
-                provenance={
-                    "platform": platform,
-                    "channel_id": channel_id,
-                    "thread_id": str(getattr(event, "thread_id", "")),
-                    "message_id": str(getattr(msg, "id", "")),
-                    "filename": getattr(att, "filename", ""),
-                },
-            )
+    finally:
+        trust.cleanup()
 
 
 async def _transcribe_attachments(event: Any) -> str:
@@ -818,25 +823,28 @@ async def _fetch_image_parts(urls: list[str]) -> list[Any]:
     if not urls:
         return []
     try:
-        import httpx
         from pydantic_ai import BinaryContent
+
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            safe_get_bytes_async,
+        )
     except Exception:  # noqa: BLE001
         return []
     parts: list[Any] = []
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        for url in urls[:6]:  # cap per turn
-            try:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                media = resp.headers.get("content-type", "").split(";")[0].strip()
-                if not media or media == "application/octet-stream":
-                    # Telegram serves photos as application/octet-stream — sniff the real
-                    # image type from magic bytes so the vision model accepts it (it rejects
-                    # octet-stream). Falls back to JPEG (the Telegram photo default).
-                    media = _sniff_image_media_type(resp.content) or "image/jpeg"
-                parts.append(BinaryContent(data=resp.content, media_type=media))
-            except Exception as e:  # noqa: BLE001
-                logger.debug("[ECO-4.67] image fetch failed (%s): %s", url, e)
+    for url in urls[:6]:  # cap per turn
+        try:
+            content, _encoding = await safe_get_bytes_async(
+                url, timeout=20.0, **configured_source_http_policy()
+            )
+            # The bounded fetch deliberately does not trust a remote MIME type;
+            # accept only supported image magic bytes before model ingestion.
+            media = _sniff_image_media_type(content)
+            if media is None:
+                raise ValueError("attachment is not a supported image")
+            parts.append(BinaryContent(data=content, media_type=media))
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[ECO-4.67] image fetch failed (%s)", type(e).__name__)
     return parts
 
 
@@ -886,8 +894,8 @@ async def _graph_agent_reply(
         this ``session`` source (``memento_source``) and anchors the RunTrace to the Session,
         so turn 2 sees turn 1 via the CORE memory, not a messaging-specific recall query.
       * **Dynamic capabilities** — the graph dynamically resolves specialists / skills / A2A /
-        swarms and fleet tools (e.g. a GitHub request reaches ``graph_orchestrate`` →
-        ``execute_agent`` for the github specialist), all governed by the ActionPolicy gate.
+        swarms and fleet tools (e.g. a GitHub request reaches ``graph_orchestrate`` for
+        the github specialist), all governed by the ActionPolicy gate.
 
     It is wrapped in a hard ``MESSAGING_REPLY_TIMEOUT`` (CONCEPT:AU-ECO.messaging.debounce-timer-cancel): a slow/hung graph
     run must still yield a reply, so on timeout/error we fall through to a plain-chat
@@ -1127,11 +1135,10 @@ async def _plain_chat_reply(
     """
     label, provider, model_id, task = _select_responder(content)
     try:
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
-        bare = Agent(
+        bare = create_context_agent(
             create_model(provider=provider or None, model_id=model_id),
             system_prompt=_messaging_system_prompt(),
         )

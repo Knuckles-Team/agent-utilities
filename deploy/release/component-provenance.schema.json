@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/component-provenance-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["_type", "subject", "predicateType", "predicate"],
+  "properties": {
+    "_type": {"const": "https://in-toto.io/Statement/v1"},
+    "subject": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "digest"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,127}$"},
+          "digest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sha256"],
+            "properties": {"sha256": {"type": "string", "pattern": "^(?!0{64}$)[a-f0-9]{64}$"}}
+          }
+        }
+      }
+    },
+    "predicateType": {"const": "https://slsa.dev/provenance/v1"},
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["buildDefinition", "runDetails"],
+      "properties": {
+        "buildDefinition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["buildType", "externalParameters", "internalParameters", "resolvedDependencies"],
+          "properties": {
+            "buildType": {"const": "https://graphos.invalid/build/exact-local/v1"},
+            "externalParameters": {"const": {}},
+            "internalParameters": {"const": {}},
+            "resolvedDependencies": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["uri", "digest"],
+                "properties": {
+                  "uri": {"const": "urn:graphos:source-freeze"},
+                  "digest": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["sha256"],
+                    "properties": {"sha256": {"type": "string", "pattern": "^(?!0{64}$)[a-f0-9]{64}$"}}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "runDetails": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["builder", "byproducts"],
+          "properties": {
+            "builder": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id"],
+              "properties": {"id": {"const": "https://graphos.invalid/builders/exact-local/v1"}}
+            },
+            "byproducts": {"const": []}
+          }
+        }
+      }
+    }
+  }
+}

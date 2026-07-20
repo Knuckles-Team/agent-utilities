@@ -32,7 +32,9 @@ from agent_utilities.knowledge_graph.research.promotion_governance import (  # n
     PromotionGovernanceValidator,
 )
 
-pytestmark = pytest.mark.concept("AU-AHE.evaluation.capability-benchmark-regression-ratchet")
+pytestmark = pytest.mark.concept(
+    "AU-AHE.evaluation.capability-benchmark-regression-ratchet"
+)
 
 
 class RatchetEngine:
@@ -221,7 +223,7 @@ class TestVerifiedRollback:
             capability_ratchet=ratchet,
         )
         assert report["status"] == "reverted"
-        assert report["capability_ratchet"]["recommendation"] == "full_revert"
+        assert report["capability_ratchet"] == {"passed": False}
         # branch removed — the (unpushed) publication is fully undone.
         assert _git("branch", "--list", "evolution/*", cwd=target_repo) == ""
         assert ratchet.seen  # the ratchet was actually consulted on the worktree
@@ -246,5 +248,5 @@ class TestVerifiedRollback:
             capability_ratchet=ratchet,
         )
         assert report["status"] == "published"
-        assert report["capability_ratchet"]["recommendation"] == "confirm"
+        assert report["capability_ratchet"] == {"passed": True}
         assert "evolution/" in _git("branch", "--list", "evolution/*", cwd=target_repo)

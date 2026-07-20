@@ -1,6 +1,6 @@
 """Closed-loop agent mining (CONCEPT:AU-KG.evolution.insight-engine-closed-loop, workstream C6).
 
-Mine (Episode/OutcomeEvaluation/ToolCall provenance → repeated FAILURE
+Mine (RunTrace/OutcomeEvaluation/ToolCall provenance → repeated FAILURE
 tool-call sequences) → CandidateInsight → EvidenceBundle → Claim → Validation
 (reuses promotion_governance as-is) → Action gate (reuses action_policy.decide(),
 kind="route_policy_update") → governed routing/prompt/tool change +
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.concept("AU-KG.evolution.insight-engine-closed-loop")
 
 
 class _TraceStubEngine:
-    """Minimal engine double: canned Episode/OutcomeEvaluation/ToolCall rows."""
+    """Minimal engine double: canned RunTrace/OutcomeEvaluation/ToolCall rows."""
 
     def __init__(self, rows: list[dict[str, Any]] | None = None):
         self._rows = rows or []
@@ -42,7 +42,7 @@ class _TraceStubEngine:
         self.backend = object()
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
-        if "Episode" in q and "USED_TOOL" in q:
+        if "RunTrace" in q and "USED_TOOL" in q:
             return list(self._rows)
         return []
 
@@ -55,23 +55,25 @@ class _TraceStubEngine:
         return [n for n in self.nodes.values() if n["type"] == node_type]
 
 
-def test_gather_failure_tool_sequences_groups_by_episode_in_order():
+def test_gather_failure_tool_sequences_groups_by_trace_in_order():
     engine = _TraceStubEngine(
         rows=[
-            {"episode_id": "ep1", "tool_name": "Read", "ts": 1},
-            {"episode_id": "ep1", "tool_name": "Edit", "ts": 2},
-            {"episode_id": "ep2", "tool_name": "Bash", "ts": 1},
-            {"episode_id": "ep2", "tool_name": "Bash", "ts": 2},
+            {"trace_id": "trace:1", "tool_name": "Read", "event_sequence": 1},
+            {"trace_id": "trace:1", "tool_name": "Edit", "event_sequence": 1},
+            {"trace_id": "trace:2", "tool_name": "Bash", "event_sequence": 2},
+            {"trace_id": "trace:2", "tool_name": "Bash", "event_sequence": 2},
         ]
     )
     ids, sequences = gather_failure_tool_sequences(engine)
-    assert ids == ["ep1", "ep2"]
+    assert ids == ["trace:1", "trace:2"]
     assert sequences == [["Read", "Edit"], ["Bash", "Bash"]]
 
 
-def test_gather_failure_tool_sequences_drops_single_tool_episodes():
-    """A one-tool-call episode carries no ORDERED subsequence — excluded."""
-    engine = _TraceStubEngine(rows=[{"episode_id": "ep1", "tool_name": "Read", "ts": 1}])
+def test_gather_failure_tool_sequences_drops_single_tool_traces():
+    """A one-tool-call trace carries no ORDERED subsequence — excluded."""
+    engine = _TraceStubEngine(
+        rows=[{"trace_id": "trace:1", "tool_name": "Read", "event_sequence": 1}]
+    )
     ids, sequences = gather_failure_tool_sequences(engine)
     assert ids == []
     assert sequences == []
@@ -129,10 +131,10 @@ def test_mine_trace_patterns_invokes_graph_mine_sequence_surface(monkeypatch):
 
     engine = _TraceStubEngine(
         rows=[
-            {"episode_id": "ep1", "tool_name": "Read", "ts": 1},
-            {"episode_id": "ep1", "tool_name": "Edit", "ts": 2},
-            {"episode_id": "ep2", "tool_name": "Read", "ts": 1},
-            {"episode_id": "ep2", "tool_name": "Edit", "ts": 2},
+            {"trace_id": "trace:1", "tool_name": "Read", "event_sequence": 1},
+            {"trace_id": "trace:1", "tool_name": "Edit", "event_sequence": 1},
+            {"trace_id": "trace:2", "tool_name": "Read", "event_sequence": 2},
+            {"trace_id": "trace:2", "tool_name": "Edit", "event_sequence": 2},
         ]
     )
     result = mine_trace_patterns(engine)
@@ -142,7 +144,8 @@ def test_mine_trace_patterns_invokes_graph_mine_sequence_surface(monkeypatch):
     assert result["patterns"]["patterns"] == [
         {"items": ["Read", "Edit"], "support": 0.8, "count": 4}
     ]
-    assert result["failure_episodes"] == 2
+    assert result["failure_traces"] == 2
+    assert result["next_event_sequence"] == 2
     assert result["sequences_mined"] == 2
 
 
@@ -158,13 +161,52 @@ def test_mine_trace_patterns_degrades_cleanly_on_no_mining_engine_build(monkeypa
     )
     engine = _TraceStubEngine(
         rows=[
-            {"episode_id": "ep1", "tool_name": "Read", "ts": 1},
-            {"episode_id": "ep1", "tool_name": "Edit", "ts": 2},
+            {"trace_id": "trace:1", "tool_name": "Read", "event_sequence": 1},
+            {"trace_id": "trace:1", "tool_name": "Edit", "event_sequence": 1},
         ]
     )
     result = mine_trace_patterns(engine)
     assert result["patterns"] == {"patterns": []}
     assert result["errors"]  # recorded, not raised
+
+
+def test_mine_trace_patterns_never_advances_past_a_partial_trace(monkeypatch):
+    import json
+
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_invoke",
+        lambda **kw: json.dumps(
+            {"result": {"patterns": [], "n_sequences": len(kw["params"]["sequences"])}}
+        ),
+    )
+    engine = _TraceStubEngine(
+        rows=[
+            {
+                "trace_id": "trace:complete",
+                "tool_name": "Read",
+                "event_sequence": 10,
+            },
+            {
+                "trace_id": "trace:complete",
+                "tool_name": "Edit",
+                "event_sequence": 10,
+            },
+            {
+                "trace_id": "trace:partial",
+                "tool_name": "Read",
+                "event_sequence": 20,
+            },
+        ]
+    )
+
+    result = mine_trace_patterns(engine, limit=3)
+
+    assert result["failure_traces"] == 1
+    assert result["sequences_mined"] == 1
+    assert result["next_event_sequence"] == 10
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +256,21 @@ class _TraceMiningStubEngine:
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
+        if "TraceConsumerCursor" in q:
+            values = params or {}
+            if "id" in values:
+                node = self.nodes.get(values["id"])
+                return (
+                    [{"event_sequence": node["event_sequence"]}]
+                    if node is not None
+                    else []
+                )
+            rows = [
+                {"event_sequence": node["event_sequence"]}
+                for node in self.nodes.values()
+                if node.get("consumer_ref") == values.get("consumer_ref")
+            ]
+            return sorted(rows, key=lambda row: row["event_sequence"], reverse=True)[:1]
         if "governance_rule" in q:
             return [{"r": dict(r)} for r in self._governance_rules]
         return []
@@ -235,11 +292,51 @@ def _patch_mine_result(monkeypatch, *, support: float = 0.8) -> None:
                     {"items": ["Read", "Edit"], "support": support, "count": 4}
                 ]
             },
-            "failure_episodes": 4,
+            "failure_traces": 4,
             "sequences_mined": 4,
+            "next_event_sequence": 19,
             "errors": [],
         },
     )
+
+
+def test_trace_mining_cursor_resumes_and_advances_only_after_success(monkeypatch):
+    import agent_utilities.knowledge_graph.research.trace_pattern_miner as tpm
+
+    after: list[int] = []
+    results = iter(
+        [
+            (31, []),
+            (47, ["downstream failure"]),
+            (53, []),
+        ]
+    )
+
+    def _mine(engine, **kwargs):
+        after.append(kwargs["after_sequence"])
+        next_sequence, errors = next(results)
+        return {
+            "patterns": {"patterns": []},
+            "failure_traces": 0,
+            "sequences_mined": 0,
+            "next_event_sequence": next_sequence,
+            "errors": errors,
+        }
+
+    monkeypatch.setattr(tpm, "mine_trace_patterns", _mine)
+    engine = _TraceMiningStubEngine()
+    controller = LoopController(engine)
+
+    first = controller._run_trace_mining()
+    failed = controller._run_trace_mining()
+    resumed = controller._run_trace_mining()
+
+    assert after == [0, 31, 31]
+    assert first["next_event_sequence"] == 31
+    assert first["cursor_advanced"] is True
+    assert failed["next_event_sequence"] == 31
+    assert failed["cursor_advanced"] is False
+    assert resumed["next_event_sequence"] == 53
 
 
 def test_below_floor_pattern_never_becomes_a_claim(monkeypatch):

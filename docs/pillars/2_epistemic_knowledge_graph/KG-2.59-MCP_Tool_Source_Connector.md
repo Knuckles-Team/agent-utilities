@@ -136,13 +136,15 @@ jellyfin-mcp = "jellyfin_mcp.ingestion"
 
 The named data subpackage contains a `mcp_source_presets.json` file — a JSON object
 of `{preset_name: {server, tool, action, …}}` with the exact `MCP_TOOL_PRESETS`
-schema. The hub resolves it via `importlib.resources` (it never imports the
-connector's business logic), merges it into the catalog with **contributed presets
-taking precedence** over the central dict (they live with the connector and track
-its tool surface), and the central dict is the fallback. Discovery is
-failure-isolated and cached. Accessors: `get_tool_preset` / `list_tool_presets` /
-`all_tool_presets` consult the merged catalog; `reset_contributed_presets_cache()`
-clears it after an install.
+schema. The hub resolves it without importing the connector: the entry point's
+owning distribution must prove the data package's files, which are then subjected
+to the bounded regular-file provider contract; selected files absent from the
+distribution manifest are rejected. It merges that verified data into
+the catalog with **contributed presets taking precedence** over the central dict
+(they live with the connector and track its tool surface), and the central dict is
+the fallback. Discovery is failure-isolated and cached. Accessors:
+`get_tool_preset` / `list_tool_presets` / `all_tool_presets` consult the merged
+catalog; `reset_contributed_presets_cache()` clears it after an install.
 
 ## Implementation Details
 - **Source Code**: `agent_utilities/protocols/source_connectors/connectors/mcp_tool.py`

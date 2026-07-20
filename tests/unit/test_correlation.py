@@ -107,15 +107,14 @@ def test_inject_carries_tenant_and_actor():
     assert headers[ACTOR_HEADER] == "alice"
 
 
-def test_inject_omits_system_actor_identity():
+def test_inject_omits_identity_when_actor_is_missing():
     from agent_utilities.observability.correlation import (
         ACTOR_HEADER,
         TENANT_HEADER,
         inject,
     )
 
-    # No actor in scope → ambient SYSTEM_ACTOR (tenant="", actor="system");
-    # identity headers must be absent (nothing to attribute).
-    headers = inject({})
+    # No actor in scope: identity headers must be absent.
+    headers = contextvars.Context().run(inject, {})
     assert TENANT_HEADER not in headers
     assert ACTOR_HEADER not in headers

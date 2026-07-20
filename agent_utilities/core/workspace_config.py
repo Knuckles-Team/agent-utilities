@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import logging
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,21 @@ from agent_utilities.core.config import setting
 from agent_utilities.core.paths import ensure_dirs
 
 logger = logging.getLogger(__name__)
+_UNRESOLVED_ENV = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _workspace_base_path(
+    data: dict[str, Any], *, require_resolved: bool = True
+) -> Path:
+    """Resolve a portable workspace root without retaining machine paths."""
+
+    raw = str(data.get("path") or os.getcwd())
+    expanded = os.path.expanduser(os.path.expandvars(raw))
+    if _UNRESOLVED_ENV.search(expanded):
+        if require_resolved:
+            raise RuntimeError("workspace root environment reference is unresolved")
+        return Path(".")
+    return Path(expanded)
 
 
 def get_workspace_yml_path() -> Path:
@@ -28,13 +44,13 @@ DEFAULT_WORKSPACE_YML = """# Repository Workspace Configuration
 # This file defines the directory structure and repositories for the agent ecosystem.
 
 name: "Agent Packages Workspace"
-path: "/home/apps/workspace"
+path: "${AGENT_UTILITIES_WORKSPACE_ROOT}"
 description: "Main development environment for the agent-packages ecosystem."
 
 repositories:
   - url: "https://github.com/Knuckles-Team/pipelines.git"
     description: "GitHub Actions pipelines for the agent ecosystem."
-  - url: "http://gitlab.arpa/homelab/pipelines/gitlab-pipelines.git"
+  - url: "https://git.example.invalid/group/project.git"
     description: "GitLab CI pipelines for the agent ecosystem."
 
 subdirectories:
@@ -131,11 +147,11 @@ def load_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
 
     if not path.exists():
         if not yml_path:
-            logger.info(f"workspace.yml not found. Generating default at {path}")
+            logger.info("workspace.yml not found; generating configured default")
             with open(path, "w") as f:
                 f.write(DEFAULT_WORKSPACE_YML)
         else:
-            logger.warning(f"Provided workspace.yml not found at {path}")
+            logger.warning("Provided workspace.yml was not found")
             return {}
 
     try:
@@ -143,7 +159,7 @@ def load_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
             data = yaml.safe_load(f)
             return data if data else {}
     except Exception as e:
-        logger.error(f"Failed to parse workspace.yml at {path}: {e}")
+        logger.error("Failed to parse workspace.yml (%s)", type(e).__name__)
         return {}
 
 
@@ -179,10 +195,10 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
         logger.warning("No workspace.yml found.")
         return []
 
-    base_path = Path(data.get("path", os.getcwd()))
+    base_path = _workspace_base_path(data)
     base_path.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Bootstrapping workspace at {base_path}...")
+    logger.info("Bootstrapping configured workspace")
     repos = _extract_repositories(data, base_path)
 
     project_paths = []
@@ -190,7 +206,7 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
     for target_path, url in repos:
         project_paths.append(target_path)
         if not target_path.exists():
-            logger.info(f"Cloning missing project: {url} -> {target_path}")
+            logger.info("Cloning missing configured project")
             try:
                 import shutil
 
@@ -203,10 +219,12 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
                     capture_output=True,
                     text=True,
                 )
-            except subprocess.CalledProcessError as e:
-                logger.error(f"Failed to clone {url}: {e.stderr}")
+            except subprocess.CalledProcessError as exc:
+                logger.error(
+                    "Project clone failed (%s)", type(exc).__name__
+                )
         else:
-            logger.debug(f"Project already exists: {target_path}")
+            logger.debug("Configured project already exists")
 
     return project_paths
 
@@ -221,7 +239,7 @@ def validate_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
 
         {
           "found": bool,            # a workspace.yml was located
-          "path": str | None,       # where it was loaded from
+          "path": str | None,       # abstract source label, never a local path
           "parsed": bool,           # it is valid YAML mapping (not empty / not a list)
           "errors": [str, ...],     # blocking problems (malformed / missing url)
           "warnings": [str, ...],   # advisory problems (missing path / description)
@@ -250,7 +268,13 @@ def validate_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     report: dict[str, Any] = {
         "found": False,
-        "path": str(path) if path else None,
+        "path": (
+            "explicit"
+            if yml_path
+            else "workspace-or-xdg"
+            if path
+            else None
+        ),
         "parsed": False,
         "errors": errors,
         "warnings": warnings,
@@ -284,11 +308,13 @@ def validate_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
         warnings.append("no top-level 'path' — bootstrap falls back to the cwd")
     elif not isinstance(raw_path, str):
         errors.append(f"'path' must be a string, got {type(raw_path).__name__}")
+    elif _UNRESOLVED_ENV.search(os.path.expandvars(raw_path)):
+        warnings.append("workspace root environment reference is unresolved")
 
     _validate_node(data, "<root>", errors, warnings)
 
     try:
-        base = Path(str(data.get("path") or "."))
+        base = _workspace_base_path(data, require_resolved=False)
         report["repo_count"] = len(_extract_repositories(data, base))
     except Exception as exc:  # noqa: BLE001
         errors.append(f"could not enumerate repositories: {exc}")
@@ -321,7 +347,7 @@ def _validate_node(
                 if not url or not isinstance(url, str):
                     errors.append(f"{loc}: missing or non-string 'url'")
                 elif "/" not in url:
-                    errors.append(f"{loc}: 'url' {url!r} is not a well-formed repo URL")
+                    errors.append(f"{loc}: 'url' is not a well-formed repo URL")
                 if not repo.get("description"):
                     warnings.append(f"{loc}: repository has no 'description'")
 
@@ -350,7 +376,11 @@ def workspace_project_roots(yml_path: str | None = None) -> list[str]:
     data = load_workspace_yml(yml_path)
     if not data:
         return []
-    base_path = Path(data.get("path", os.getcwd()))
+    try:
+        base_path = _workspace_base_path(data)
+    except RuntimeError:
+        logger.warning("Workspace root is not configured")
+        return []
     roots: list[str] = []
     for target_path, _url in _extract_repositories(data, base_path):
         if target_path.is_dir():

@@ -680,7 +680,7 @@ class StructuralCausalModel:
             factor: The CausalFactor to add.
         """
         if not factor.id:
-            factor.id = f"cf_{uuid.uuid4().hex[:8]}"
+            factor.id = f"cf_{uuid.uuid4().hex}"
         self._factors[factor.id] = factor
         idx = self._graph.add_node({"id": factor.id, "data": factor})
         self._node_map[factor.id] = idx
@@ -995,7 +995,7 @@ class CausalVerifier:
         Returns:
             CausalVerificationResult with violations and consistency score.
         """
-        chain_id = f"chain_{uuid.uuid4().hex[:8]}"
+        chain_id = f"chain_{uuid.uuid4().hex}"
         violations: list[str] = []
         spurious: list[tuple[str, str]] = []
         total_steps = len(reasoning_steps)

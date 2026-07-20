@@ -1,0 +1,100 @@
+name: Security
+
+on:
+  pull_request:
+    paths:
+      - 'agent_utilities/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'deploy/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/security.yml'
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  security:
+    name: Serialized security gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          languages: python
+          build-mode: none
+          queries: security-extended
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync frozen security environment
+        run: |
+          uv sync --frozen --group guardrails --extra agent-runtime
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: CycloneDX SBOM and license policy
+        run: >-
+          python3 scripts/security/check_sbom_licenses.py
+          --output "$RUNNER_TEMP/agent-utilities.cdx.json"
+
+      - name: Upload sanitized SBOM
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-utilities-cyclonedx
+          path: ${{ runner.temp }}/agent-utilities.cdx.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Bounded parser fuzzing
+        run: >-
+          python3 -m pytest tests/unit/security/test_parser_fuzz.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: Authentication negative paths
+        run: >-
+          python3 -m pytest
+          tests/unit/core/test_request_identity.py
+          tests/unit/mcp/test_graphos_bootstrap_isolation.py
+          tests/unit/security/test_cli_secret_references.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: Tenant and identity source contract
+        run: python3 scripts/security/check_tenant_identity_contract.py --self-check
+
+      - name: Tenant-isolation regression suite
+        run: >-
+          python3 -m pytest
+          tests/unit/security/test_tenant_identity_contract.py
+          tests/unit/test_tenant_e2e_au_p0_5.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: CodeQL analysis
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          category: /language:python

@@ -147,3 +147,13 @@ def test_ontological_guardrails_kg_integration():
         engine=mock_engine,
     )
     assert res_no_match is False
+
+
+def test_ontological_guardrails_policy_engine_failure_requires_approval():
+    """A broken supplied policy graph must deny, not become approvable."""
+    mock_engine = MagicMock()
+    mock_engine.graph.nodes.side_effect = RuntimeError("backend unavailable")
+    with pytest.raises(PermissionError, match="guardrail unavailable"):
+        check_ontological_guardrails(
+            "write_file", {"filepath": "/untrusted/target"}, engine=mock_engine
+        )

@@ -3,7 +3,7 @@
 A bare ``MATCH (n {id: …})`` projects ``properties`` across a UNION of node
 tables. Typed/ontology tables (e.g. ``Account``) lack a ``properties`` column, so
 including them makes the whole UNION fail with ``column "properties" does not
-exist`` — which silently broke the CAS L3-mirror (a label-less ``MATCH (n {id})
+exist`` — which silently broke mirror CAS (a label-less ``MATCH (n {id})
 SET``). The transpiler must fan out only over ``node_tables`` (those that carry the
 universal node shape). Pure-string transpile; no DB.
 """
@@ -25,7 +25,7 @@ def test_labelless_property_union_spans_only_node_tables():
 
 
 def test_labelless_set_union_excludes_non_node_tables():
-    # The CAS L3-mirror shape that was failing on Account/Action.
+    # The mirror CAS shape that was failing on Account/Action.
     sql = transpile(
         "MATCH (n {id: $id}) SET n.status = $s",
         {"id": "x", "s": "cancelled"},
@@ -33,12 +33,6 @@ def test_labelless_set_union_excludes_non_node_tables():
         node_tables=_NODE,
     ).sql
     assert "Account" not in sql and "Action" not in sql
-
-
-def test_defaults_to_known_tables_when_node_tables_unset():
-    # Back-compatible: callers that don't pass node_tables get the old behavior.
-    sql = transpile("MATCH (n {id: $id}) RETURN n", {"id": "x"}, _KNOWN).sql
-    assert "Account" in sql  # spans all known tables when node subset not supplied
 
 
 def test_labelless_where_union_param_count_matches_branches():

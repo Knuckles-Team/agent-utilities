@@ -6,7 +6,7 @@ import sys
 # Standardized block with 2 spaces of indentation for list items
 STANDARD_BLOCK = """  - id: check-mermaid
     name: Check Mermaid syntax
-    entry: python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/mermaid_linter.py
+    entry: bash -c 'python3 "${AGENT_UTILITIES_REPO:?set AGENT_UTILITIES_REPO}/scripts/mermaid_linter.py" "$@"' --
     language: system
     files: \\.md$
     pass_filenames: true"""
@@ -23,7 +23,7 @@ def fix_hook_in_file(filepath):
     pattern = re.compile(
         r"^\s*-\s*id:\s*check-mermaid\n"
         r"^\s*name:\s*Check Mermaid syntax\n"
-        r"^\s*entry:\s*python3 /home/apps/workspace/agent-packages/agent-utilities/scripts/mermaid_linter\.py\n"
+        r"^\s*entry:.*mermaid_linter\.py.*\n"
         r"^\s*language:\s*system\n"
         r"^\s*files:\s*\\\.md\$\n"
         r"^\s*pass_filenames:\s*true\n?",
@@ -42,9 +42,9 @@ def fix_hook_in_file(filepath):
 
 
 def main():
-    scan_dir = "/home/apps/workspace/agent-packages"
-    if not os.path.exists(scan_dir):
-        print(f"Directory {scan_dir} does not exist.")
+    scan_dir = os.environ.get("AGENT_PACKAGES_ROOT", "")
+    if not scan_dir or not os.path.exists(scan_dir):
+        print("AGENT_PACKAGES_ROOT must name an existing directory.")
         sys.exit(1)
 
     count = 0

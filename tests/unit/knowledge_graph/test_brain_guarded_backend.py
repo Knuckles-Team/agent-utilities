@@ -2,8 +2,7 @@
 
 Exercises BrainGuardedBackend directly with a fake inner backend so no daemon or
 real store is needed. Verifies provenance attachment, source-authority
-arbitration, trust decay flipping the winner, and that the default (unwrapped)
-path is unchanged.
+arbitration, trust decay flipping the winner, and fail-closed identity/audit.
 """
 
 from __future__ import annotations
@@ -76,14 +75,21 @@ def _guard():
 def test_provenance_attached_on_write():
     g = _guard()
     with (
-        use_actor(ActorContext("agent:x", ActorType.AI_AGENT)),
+        use_actor(
+            ActorContext(
+                "principal:x",
+                ActorType.AI_AGENT,
+                tenant_id="tenant-a",
+                authenticated=True,
+            )
+        ),
         use_source("servicenow"),
     ):
         g.add_node("incident:1", type="Incident", number="INC1")
     props = g.inner.nodes["incident:1"]
     assert props["type"] == "Incident"
     assert props["_source_system"] == "servicenow"
-    assert props["_actor_id"] == "agent:x"
+    assert props["_actor_id"] == "principal:x"
     assert "_ts" in props and "_confidence" in props
     # provenance ledger recorded the write
     assert get_company_brain().provenance.get_provenance("incident:1")
@@ -92,6 +98,25 @@ def test_provenance_attached_on_write():
 def test_delegates_unknown_methods():
     g = _guard()
     assert g.execute("MATCH (n) RETURN n") == [{"ok": True}]
+
+
+def test_unverified_writer_is_rejected():
+    g = _guard()
+    with use_actor(ActorContext(actor_id="caller", tenant_id="tenant-a")):
+        with pytest.raises(PermissionError, match="verified tenant"):
+            g.add_node("node-a", type="Document")
+
+
+def test_provenance_failure_aborts_write(monkeypatch):
+    g = _guard()
+    monkeypatch.setattr(
+        get_company_brain().provenance,
+        "record_write",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError()),
+    )
+    with pytest.raises(PermissionError, match="provenance"):
+        g.add_node("node-a", type="Document")
+    assert "node-a" not in g.inner.nodes
 
 
 def test_source_authority_wins_suppresses_lower():

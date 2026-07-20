@@ -1,0 +1,144 @@
+connector: nextcloud-agent
+ontology_source: nextcloud
+schema_version: '1'
+resources:
+- name: CalendarEvent
+  label: Calendar Event
+  id_prefix: calendarevent
+  relations: []
+- name: File
+  label: Nextcloud File
+  id_prefix: file
+  relations:
+  - name: hasBlob
+    label: has blob
+    target: AssetOccurrence
+    lpg_rel_type: ''
+  - name: hasDocument
+    label: has document
+    target: Document
+    lpg_rel_type: ''
+- name: Folder
+  label: Nextcloud Folder
+  id_prefix: folder
+  relations: []
+- name: Share
+  label: Nextcloud Share
+  id_prefix: share
+  relations:
+  - name: sharedWith
+    label: shared with
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: sharesResource
+    label: shares resource
+    target: owl:Thing
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: nextcloud-files.updated
+  resource: file
+  description: "Watermark event for 'nextcloud-files' \u2014 advances on last_modified (mcp_source_presets.json)."
+identity:
+  id_field:
+    file: file_id
+  title_field:
+    file: name
+  text_field:
+    file: name
+  updated_field:
+    file: last_modified
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  CalendarEvent:
+    ontology_class: Event
+    fields:
+      mimeType: xsd:string
+      modifiedAt: xsd:string
+      path: xsd:string
+      sizeBytes: xsd:integer
+  File:
+    ontology_class: File
+    fields:
+      mimeType: xsd:string
+      modifiedAt: xsd:string
+      path: xsd:string
+      sizeBytes: xsd:integer
+  Folder:
+    ontology_class: null
+    fields:
+      mimeType: xsd:string
+      modifiedAt: xsd:string
+      path: xsd:string
+      sizeBytes: xsd:integer
+  Share:
+    ontology_class: null
+    fields:
+      mimeType: xsd:string
+      modifiedAt: xsd:string
+      path: xsd:string
+      sizeBytes: xsd:integer
+sync:
+- preset: nextcloud-files
+  server: nextcloud-agent
+  tool: nextcloud_files
+  action: list_files
+  records_path: ''
+  id_field: file_id
+  title_field: name
+  text_field: name
+  updated_field: last_modified
+  pagination: null
+  doc_type: file
+  tool_schema_sha256: 48b75e28f34f73c2ae78c6d06deebf16dbca2220148b4fb6f83c9f316738265b
+  raw:
+    server: nextcloud-agent
+    tool: nextcloud_files
+    action: list_files
+    records_path: ''
+    id_field: file_id
+    title_field: name
+    text_field: name
+    updated_field: last_modified
+    doc_type: file
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - nextcloud_agent/connectors/mcp_source_presets.json
+  - nextcloud_agent/connectors/tool_schema_fingerprints.json
+  - nextcloud_agent/ontology/nextcloud.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 30081b8f0455a3b2034e8242f40f194740a754ee0158da009da9dbc3a42fcc3a
+    triple_count: 46
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: iTXo1rChvrRTpZBM_d_FiiRRGyBooKWu-iROA9Tb2Em8Q6Ki8gg-qfO24g2Px-Zx1bsOoYaN6XmqyqlF4MAYCg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'inFolder' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.CalendarEvent.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.File.ontology_class = 'File' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Folder.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Share.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Graph Ingestion and Integration"
+  short_description: "Idempotent source onboarding, sync, and verification"
+  default_prompt: "Use $graph-ingestion-and-integration to design an idempotent source-to-graph workflow, stop at review when read-only, and verify any authorized ingestion."

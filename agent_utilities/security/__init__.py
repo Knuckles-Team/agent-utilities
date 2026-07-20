@@ -27,8 +27,6 @@ from agent_utilities.security.execution_stability_engine import (
     RepetitionPolicy,
     RepetitionResult,
     RepetitionVerdict,
-    RetryConfig,
-    RetryManager,
 )
 from agent_utilities.security.guardrails import (
     ContentFilterPolicy,
@@ -105,11 +103,6 @@ __all__ = [
     "RepetitionPolicy",
     "RepetitionResult",
     "RepetitionVerdict",
-    # execution_stability_engine (CONCEPT:AU-ORCH.execution.execution-budget-caps) — agent-run retry loops
-    # verified by shell SuccessChecks; for HTTP/in-process retry use
-    # orchestration.resilience.ResiliencePolicy instead.
-    "RetryConfig",
-    "RetryManager",
     # tool_guard
     "apply_tool_guard_approvals",
     "build_sensitive_tool_names",

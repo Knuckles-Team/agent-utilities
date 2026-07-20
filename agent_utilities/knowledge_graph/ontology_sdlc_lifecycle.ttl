@@ -1,5 +1,5 @@
 @prefix : <http://knuckles.team/kg#> .
-@prefix infra: <https://agent-utilities.dev/ontology/infrastructure#> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
 @prefix au: <https://agent-utilities.dev/ontology#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -28,7 +28,7 @@ skill-workflow executor. The REQUIRED shape per lifecycle state (e.g. a merged
 :CodeChange REQUIRES a :PipelineRun) is expressed as SHACL in
 shapes/sdlc_lifecycle.shapes.ttl, consulted in DIFF mode by the enter-anywhere
 orchestrator (agent_utilities.observability.lifecycle_orchestrator).""" ;
-    owl:imports <https://agent-utilities.dev/ontology/infrastructure>,
+    owl:imports <http://knuckles.team/kg/infrastructure>,
         <http://knuckles.team/kg/orchestration> .
 
 # ----------------------------------------------------------------------------

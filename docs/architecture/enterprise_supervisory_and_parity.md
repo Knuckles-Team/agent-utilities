@@ -23,8 +23,7 @@ flowchart TB
 
     exec["_execute_tool()<br/><b>single source of truth</b>"]
     engine[("epistemic-graph engine<br/>the one authority")]
-    durable[("Durable checkpoints<br/>SQLite / Postgres<br/>idempotency keys")]
-    corr["correlation_id stamped on<br/>FleetEvent + Task nodes"]
+    corr["correlation_id stamped on<br/>FleetEvent + WorkItem records"]
 
     agent --> mcp
     http --> rest
@@ -35,7 +34,7 @@ flowchart TB
     gran --> exec
     fleet --> exec
     exec --> engine
-    dispatch -->|"arun_durable_action<br/>(exactly-once effect)"| durable
+    dispatch -->|"native WorkItem<br/>checkpoint · idempotency · fence"| engine
     dispatch --> exec
     fleet -.->|"trace?correlation_id<br/>touched?resource"| engine
     engine --- corr
@@ -91,36 +90,31 @@ it. Multi-agent containment + recovery are covered end-to-end by
 `tests/integration/test_fleet_chaos.py` (domain pause contains only its domain;
 concurrent goal loops honor pause with zero side effects).
 
-## 3. Durable execution on embedded SQLite (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating)
+## 3. Durable execution on native WorkItems (CONCEPT:AU-ORCH.execution.retry-predicate-raised-treating)
 
-**Context.** `DurableExecutionManager` persisted to an in-memory mock — it
-survived nothing. While the epistemic-graph engine is the durable authority for
-KG state, execution checkpoints (idempotency keys, in-flight action progress)
-are deliberately kept off the graph hot path and on a dedicated transactional
-substrate, so the in-memory mock was the wrong place for crash-survivable
-execution.
+**Context.** A separate checkpoint database creates a second lifecycle next to
+the engine's work authority. Its progress can diverge from the active lease,
+allow a stale worker to advance, or report completion before the authoritative
+terminal commit.
 
-**Decision.** Persist checkpoints to an embedded, crash-safe SQLite store (the
-same substrate `core.sessions` uses for recovery; `state_db_uri` promotes it to
-shared Postgres for multi-host). `run_durable_action` provides **at-least-once**
-retries (via `ResiliencePolicy`) and **exactly-once effects** via idempotency
-keys: a completed key short-circuits re-execution and returns the recorded
-result, so a retry or crash-resume never double-applies.
+**Decision.** Keep lease, retry, idempotency, progress, and terminal outcome on
+the same engine-native `WorkItem`. A live claimant persists an opaque
+`checkpoint_id` only after renewing its engine-issued lease; the update is
+atomically fenced on tenant, owner, lease epoch, fencing token, and current
+status. Repeated matching terminal commits are idempotent. There is no SQLite or
+Postgres checkpoint sidecar, and `STATE_DB_URI` does not select execution
+checkpoint storage.
 
-**Wired into the live path (shipped).** Durable execution was previously
-reachable but uninvoked. It now runs on the real async paths via
-`arun_durable_action` (the async twin of `run_durable_action`):
+**Wired into the live path (shipped).** `LoopController.run_loop` resumes from
+the WorkItem's last fenced `checkpoint:iteration:<n>` reference after an expired
+lease is reclaimed. Agent dispatch similarly uses the turn's deterministic
+WorkItem and acknowledges queue delivery only after its fenced native commit.
+A crash before acknowledgement is therefore a safe redelivery; a stale worker
+cannot overwrite progress or outcome from the newer lease.
 
-* **Goal loop** (`core/sessions.py run_goal_loop`) resumes from the last
-  in-flight checkpoint on restart and wraps each iteration's validation command
-  under an idempotency key `{goal_id}:{iteration}` — a crash-resume or redelivery
-  never re-runs an effect that already ran.
-* **Dispatch worker** (`orchestration/agent_dispatch_worker.py`) wraps the agent
-  invocation under the turn's `job_id`, so at-least-once queue redelivery returns
-  the recorded result instead of re-executing the agent.
-
-Covered by `tests/test_durable_execution.py` (async exactly-once + restart) and
-`tests/unit/test_goal_loop_durable.py` (live-path replay does not re-run).
+Covered by `tests/unit/orchestration/test_work_item.py`,
+`tests/unit/knowledge_graph/test_loop_work_item_checkpoint.py`, and
+`tests/unit/test_agent_dispatch.py`.
 
 ## 4. Cross-agent trace correlation (CONCEPT:AU-OS.observability.run-wide-correlation-id)
 

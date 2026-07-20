@@ -9,11 +9,14 @@ Extracted from the monolithic steps.py for maintainability.
 
 
 import asyncio
+import json
 import logging
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import ModelSettings
 from pydantic_graph import End
+
+from agent_utilities.core.contextual_model import create_context_agent
 
 try:
     from pydantic_graph.step import StepContext
@@ -32,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 lock = asyncio.Lock()
 
+_STRUCTURED_RESPONSE_MAX_BYTES = 128 * 1024
+_STRUCTURED_RESPONSE_MAX_TOKENS = 2048
+
 __all__ = [
     "verifier_step",
     "synthesizer_step",
@@ -39,6 +45,22 @@ __all__ = [
     "join_step",
     "wide_search_joiner_step",
 ]
+
+
+def _compact_json_object(value: Any) -> str:
+    """Serialize one bounded JSON object without interpreting model prose."""
+
+    if not isinstance(value, dict):
+        raise TypeError("structured synthesis must return a JSON object")
+    rendered = json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    if len(rendered.encode("utf-8")) > _STRUCTURED_RESPONSE_MAX_BYTES:
+        raise ValueError("structured synthesis exceeded the response byte limit")
+    return rendered
 
 
 async def join_step(
@@ -125,7 +147,7 @@ async def wide_search_joiner_step(
     if not ctx.state.workboard:
         return "dispatcher"
 
-    repair_agent = Agent(
+    repair_agent = create_context_agent(
         model=ctx.deps.agent_model,
         system_prompt=(
             f"You are a WideSearch Repair Specialist. The fast-path Pydantic validation failed for a wide-search extraction.\n\n"
@@ -255,8 +277,11 @@ async def verifier_step(
             # ctx.deps.workspace_path); adapt the graph context so they don't NoneType.
             _agent_deps = agent_deps_from_graph(ctx.deps, domain_toolsets)
 
-            validation_agent = Agent(
+            validation_agent = create_context_agent(
                 model=ctx.deps.agent_model,
+                permissions_kernel=ctx.deps.permissions_kernel,
+                agent_identity=ctx.deps.agent_identity,
+                permission_engine=ctx.deps.knowledge_engine,
                 output_type=ValidationResult,
                 tools=domain_tools,
                 toolsets=domain_toolsets,
@@ -406,7 +431,7 @@ async def verifier_step(
 
                 if not raw_text:
                     # Run a quick unstructured extraction pass
-                    extraction_agent = Agent(
+                    extraction_agent = create_context_agent(
                         model=ctx.deps.agent_model,
                         system_prompt=(
                             "Extract the validation score (0.0 to 1.0) and feedback text from the previous response. "
@@ -539,6 +564,7 @@ async def synthesizer_step(
     if ctx.state.exploration_notes:
         extra_context += f"\n### EXPLORATION FINDINGS\n{ctx.state.exploration_notes}\n"
 
+    structured_response = ctx.deps.response_format == "json"
     final_system_prompt = (
         f"{validator_prompt}\n"
         f"{extra_context}\n"
@@ -547,16 +573,35 @@ async def synthesizer_step(
         f"Synthesize the execution results into a cohesive final answer for the "
         f"user query: '{ctx.state.query}'.\n"
         f"Format data cleanly. Do NOT repeat yourself.\n"
-        f"CRITICAL JSON ADHERENCE: If the query or execution involves extracting 'TweetNode' entries "
-        f"or X/Twitter ingestion, you MUST output your final answer as a raw JSON array of structured objects "
-        f"adhering to the TweetNode schema: post_id, text_content, author_handle, timestamp, engagement_metrics. "
-        f"Do NOT wrap the JSON in markdown code blocks."
     )
 
-    synthesizer = Agent(
-        model=ctx.deps.agent_model,
-        system_prompt=final_system_prompt,
-    )
+    if structured_response:
+        final_system_prompt += (
+            "\nThe response contract requires exactly one JSON object. Use the "
+            "structured output schema; never emit markdown fences or surrounding prose."
+        )
+        synthesizer = create_context_agent(
+            model=ctx.deps.agent_model,
+            system_prompt=final_system_prompt,
+            output_type=dict[str, Any],
+            model_settings=ModelSettings(
+                max_tokens=_STRUCTURED_RESPONSE_MAX_TOKENS,
+                temperature=0.0,
+            ),
+            retries=2,
+        )
+    else:
+        final_system_prompt += (
+            "CRITICAL JSON ADHERENCE: If the query or execution involves extracting "
+            "'TweetNode' entries or X/Twitter ingestion, you MUST output your final "
+            "answer as a raw JSON array of structured objects adhering to the TweetNode "
+            "schema: post_id, text_content, author_handle, timestamp, "
+            "engagement_metrics. Do NOT wrap the JSON in markdown code blocks."
+        )
+        synthesizer = create_context_agent(
+            model=ctx.deps.agent_model,
+            system_prompt=final_system_prompt,
+        )
 
     # CONCEPT:AU-ORCH.execution.degraded-no-data-outcome — track whether the graph gathered
     # ZERO results. A fall-through to the "no data" sentinel below is a DEGRADED outcome,
@@ -564,24 +609,36 @@ async def synthesizer_step(
     # learning (rewarding a non-answer 1.0) and hid the failure from the RunTrace. The flag
     # is surfaced on the GraphResponse so every entrypoint records the run truthfully.
     no_data = False
+    structured_failure = False
     try:
         logger.debug(f"Synthesizer: Prompt summary length: {len(results_summary)}")
-        async with synthesizer.run_stream(
-            "Consolidate and verify based on provided results. Be concise."
-        ) as stream:
-            async for chunk in stream.stream_text(delta=True):
-                emit_graph_event(
-                    ctx.deps.event_queue,
-                    "agent_node_delta",
-                    content=chunk,
-                    node="synthesizer",
-                )
-            res = await asyncio.wait_for(
-                stream.get_output(), timeout=ctx.deps.verifier_timeout
+        if structured_response:
+            run = await asyncio.wait_for(
+                synthesizer.run(
+                    "Consolidate and verify the provided results into one JSON object."
+                ),
+                timeout=ctx.deps.verifier_timeout,
             )
-        result_text = res if res else "None"
-        if result_text.lower() == "none":
-            raise ValueError("Synthesis returned 'None'")
+            result_text = _compact_json_object(run.output)
+            if result_text == "{}":
+                raise ValueError("structured synthesis returned an empty object")
+        else:
+            async with synthesizer.run_stream(
+                "Consolidate and verify based on provided results. Be concise."
+            ) as stream:
+                async for chunk in stream.stream_text(delta=True):
+                    emit_graph_event(
+                        ctx.deps.event_queue,
+                        "agent_node_delta",
+                        content=chunk,
+                        node="synthesizer",
+                    )
+                res = await asyncio.wait_for(
+                    stream.get_output(), timeout=ctx.deps.verifier_timeout
+                )
+            result_text = res if res else "None"
+            if result_text.lower() == "none":
+                raise ValueError("Synthesis returned 'None'")
 
         logger.info(
             f"Synthesizer: Synthesis successful. Output length: {len(result_text)}"
@@ -596,7 +653,17 @@ async def synthesizer_step(
             reason=str(e)[:300],
             has_results=bool(results_summary.strip()),
         )
-        if results_summary.strip():
+        if structured_response:
+            structured_failure = True
+            no_data = not bool(results_summary.strip())
+            result_text = _compact_json_object(
+                {
+                    "error": "structured_synthesis_failed",
+                    "results_available": not no_data,
+                    "status": "degraded",
+                }
+            )
+        elif results_summary.strip():
             result_text = (
                 f"The query was executed, but a final synthesis could not be generated concisely.\n\n"
                 f"### RAW EXECUTION RESULTS\n{results_summary}"
@@ -636,8 +703,11 @@ async def synthesizer_step(
     # A run that fell through to the "no data" sentinel produced no results — NOT a
     # success (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome). Excluding it here keeps the
     # Self-Model / TeamConfig / distillation feedback from rewarding a non-answer.
-    execution_success = (
-        bool(result_text and result_text.lower() != "none") and not no_data
+    execution_success = bool(
+        result_text
+        and result_text.lower() != "none"
+        and not no_data
+        and not structured_failure
     )
     if ctx.deps.knowledge_engine:
         # Self-Model session feedback
@@ -711,8 +781,14 @@ async def synthesizer_step(
                 "verification_attempts": ctx.state.verification_attempts,
                 # Surface the degradation so run_agent records the RunTrace status
                 # truthfully and feeds the failure back (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome).
-                "degraded": no_data,
-                "outcome": "no_data" if no_data else "ok",
+                "degraded": no_data or structured_failure,
+                "outcome": (
+                    "structured_synthesis_failed"
+                    if structured_failure
+                    else "no_data"
+                    if no_data
+                    else "ok"
+                ),
             },
         )
     )
@@ -791,7 +867,7 @@ async def error_recovery_step(
         "node_complete",
         next_node="end",
     )
-    return End({"error": error_str, "results": ctx.state.results})
+    return End({"error": error_str, "results": dict(ctx.state.results_registry)})
 
 
 async def _distill_experience_from_retry(
@@ -813,7 +889,7 @@ async def _distill_experience_from_retry(
             condition: str
             action: str
 
-        distillation_agent = Agent(
+        distillation_agent = create_context_agent(
             model=ctx.deps.agent_model,
             output_type=ExtractedExperience,
             system_prompt=(
@@ -838,7 +914,7 @@ async def _distill_experience_from_retry(
 
             from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
 
-            exp_id = f"exp_{uuid.uuid4().hex[:8]}"
+            exp_id = f"exp_{uuid.uuid4().hex}"
             node = ExperienceNode(
                 id=exp_id,
                 name=f"Fix: {res_data.action[:40]}",
@@ -877,7 +953,6 @@ async def parallel_trajectory_distiller(
 
     try:
         from pydantic import BaseModel, Field
-        from pydantic_ai import Agent
 
         class BatchDistillation(BaseModel):
             tactical_condition: str = Field(
@@ -900,7 +975,7 @@ async def parallel_trajectory_distiller(
 
         combined_trajectories = "\n\n".join(summary_blocks)
 
-        distillation_agent = Agent(
+        distillation_agent = create_context_agent(
             model=deps.agent_model,
             output_type=BatchDistillation,
             system_prompt=(
@@ -922,7 +997,7 @@ async def parallel_trajectory_distiller(
             from ..knowledge_graph.core.hypergraph import PositionalInteractionEncoder
             from ..models.knowledge_graph import ExperienceNode, RegistryNodeType
 
-            exp_id = f"exp_par_{uuid.uuid4().hex[:8]}"
+            exp_id = f"exp_par_{uuid.uuid4().hex}"
             node = ExperienceNode(
                 id=exp_id,
                 name=f"Parallel Tactic: {res_data.tactical_action[:30]}",

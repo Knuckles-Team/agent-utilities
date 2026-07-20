@@ -11,6 +11,8 @@ work — that a materialized gap is selected by the golden loop's
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from agent_utilities.knowledge_graph.adaptation.failure_analyzer import (
@@ -71,6 +73,26 @@ class _FakeBackend:
         return self._anomalies
 
 
+def _in_memory_writer(engine):
+    """Explicit test adapter for the production ChangeEnvelope boundary."""
+
+    def _write(entities, relationships):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("type")
+            engine.add_node(node_id, node_type, properties=row)
+        for relationship in relationships:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("type")
+            engine.link_nodes(source, target, rel_type, properties=row)
+        return {"status": "success"}
+
+    return _write
+
+
 def _analyzer(engine, backend, *, min_occurrences=2, **kw):
     return FailureAnalyzer(
         engine,
@@ -78,6 +100,7 @@ def _analyzer(engine, backend, *, min_occurrences=2, **kw):
         feedback=None,
         latency_budget_ms=1000.0,
         min_occurrences=min_occurrences,
+        graph_writer=_in_memory_writer(engine),
         **kw,
     )
 
@@ -104,7 +127,8 @@ class TestClustering:
         pats = cluster_failures(recs)
         assert len(pats) == 2
         assert pats[0].count == 2  # most frequent first
-        assert sorted(pats[0].trace_ids) == ["t1", "t2"]
+        assert len(pats[0].trace_ids) == 2
+        assert all(value.startswith("pref_trace_") for value in pats[0].trace_ids)
 
 
 class TestMaterialization:
@@ -151,11 +175,11 @@ class TestMaterialization:
         # ExecutionSummary success_rate < 1.0 so maintainer picks it up
         es = next(n for n in engine.nodes.values() if n["type"] == "ExecutionSummary")
         assert es["success_rate"] < 1.0
-        assert es["workflow_id"] == "loop"
+        assert es["workflow_id"].startswith("pref_workflow_")
         # PerformanceAnomaly carries the fields maintainer queries
         pa = next(n for n in engine.nodes.values() if n["type"] == "PerformanceAnomaly")
         assert pa["anomaly_type"] in {"ERROR_RATE", "TIMEOUT"}
-        assert pa["target_node_id"] == "loop"
+        assert pa["target_node_id"].startswith("pref_workflow_")
         # provenance edge wired
         assert any(r == "EVIDENCES" for _s, _t, r in engine.edges)
 
@@ -167,6 +191,46 @@ class TestMaterialization:
         report = _analyzer(engine, backend, min_occurrences=2).run_once()
         assert report["gap_concepts"] == []
         assert not any(n["type"] == "Concept" for n in engine.nodes.values())
+
+    def test_persistence_contains_only_opaque_workflow_detail_and_trace_refs(self):
+        engine = _FakeEngine()
+        private_windows = "\\".join(("C:", "SyntheticUsers", "Private", "workflow"))
+        private_unix = "/".join(("", "synthetic", "private", "project"))
+        private_name = f"person@example.test {private_windows}"
+        private_detail = (
+            f"token failed under {private_unix} for person@example.test"
+        )
+        private_trace = "11111111-2222-4333-8444-555555555555"
+        backend = _FakeBackend(
+            errors=[
+                {
+                    "traceId": private_trace,
+                    "name": private_name,
+                    "statusMessage": private_detail,
+                },
+                {
+                    "traceId": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+                    "name": private_name,
+                    "statusMessage": private_detail,
+                },
+            ]
+        )
+
+        report = _analyzer(engine, backend).run_once()
+        durable = json.dumps({"nodes": engine.nodes, "edges": engine.edges, "report": report})
+
+        for raw in (
+            "person@example.test",
+            private_windows,
+            private_unix,
+            private_trace,
+            "token failed",
+        ):
+            assert raw not in durable
+        assert "evidence_trace_ids" not in durable
+        assert "pref_workflow_" in durable
+        assert "pref_failure_detail_" in durable
+        assert "pref_trace_" in durable
 
 
 class TestDaemonRegistration:

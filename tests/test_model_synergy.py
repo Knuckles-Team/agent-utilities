@@ -7,17 +7,17 @@ from unittest.mock import MagicMock
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import (
-    SelfModelNode,  # type: ignore[attr-defined]
+    MemoryRetrieverNode,
 )
 
 
-class TestSelfModelNodeSynergies:
+class TestMemoryRetrieverNodeSynergies:
     def test_model_synergies_default_empty(self):
-        node = SelfModelNode(id="sm:test", name="Test")
+        node = MemoryRetrieverNode(id="sm:test", name="Test")
         assert node.model_synergies == {}
 
     def test_model_synergies_set(self):
-        node = SelfModelNode(
+        node = MemoryRetrieverNode(
             id="sm:test",
             name="Test",
             model_synergies={"gpt-4o|claude-sonnet": 0.85, "gemini-2.5|llama-3": 0.72},
@@ -25,16 +25,16 @@ class TestSelfModelNodeSynergies:
         assert len(node.model_synergies) == 2
 
     def test_model_synergies_serialization(self):
-        node = SelfModelNode(
+        node = MemoryRetrieverNode(
             id="sm:test", name="Test", model_synergies={"heavy|light": 0.9}
         )
         data = node.model_dump()
         assert "model_synergies" in data
-        restored = SelfModelNode.model_validate(data)
+        restored = MemoryRetrieverNode.model_validate(data)
         assert restored.model_synergies == node.model_synergies
 
     def test_model_synergies_json_schema(self):
-        schema = SelfModelNode.model_json_schema()
+        schema = MemoryRetrieverNode.model_json_schema()
         assert "model_synergies" in schema["properties"]
         assert (
             "CONCEPT:AU-AHE.evaluation.interpretability-tests" in schema["properties"]["model_synergies"]["description"]
@@ -51,7 +51,7 @@ class TestSelfModelNodeSynergies:
         assert abs((alpha * 0.0 + (1 - alpha) * old_rate) - 0.35) < 0.001
 
 
-class TestSelfModelSynergyTracking:
+class TestMemoryRetrieverSynergyTracking:
     def _engine(self):
         e = MagicMock()
         e.graph = GraphComputeEngine(backend_type="rust")
@@ -70,9 +70,11 @@ class TestSelfModelSynergyTracking:
         return s
 
     def test_synergy_recorded_multi_model(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         sm.get_or_create()
         sm.update_after_session(
             self._session(
@@ -87,9 +89,11 @@ class TestSelfModelSynergyTracking:
         assert "heavy|light" in updated.model_synergies
 
     def test_no_synergy_single_model(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         sm.get_or_create()
         sm.update_after_session(
             self._session(
@@ -104,9 +108,11 @@ class TestSelfModelSynergyTracking:
         assert len(updated.model_synergies) == 0
 
     def test_synergies_carried_forward(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"heavy|light": 0.8}
         sm.ogm.upsert(initial)
@@ -122,16 +128,20 @@ class TestGetBestSynergies:
         return e
 
     def test_empty_synergies(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         sm.get_or_create()
         assert sm.get_best_synergies(["gpt-4o"]) == []
 
     def test_filters_by_available(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"gpt-4o|claude": 0.9, "gemini|llama": 0.8}
         sm.ogm.upsert(initial)
@@ -140,9 +150,11 @@ class TestGetBestSynergies:
         assert result[0] == ("gpt-4o|claude", 0.9)
 
     def test_sorted_descending(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"a|b": 0.6, "a|c": 0.9, "b|c": 0.75}
         sm.ogm.upsert(initial)
@@ -150,40 +162,48 @@ class TestGetBestSynergies:
         assert result[0][0] == "a|c"
 
     def test_top_k_limits(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         initial = sm.get_or_create()
         initial.model_synergies = {"a|b": 0.9, "a|c": 0.8, "b|c": 0.7}
         sm.ogm.upsert(initial)
         assert len(sm.get_best_synergies(["a", "b", "c"], top_k=1)) == 1
 
     def test_no_self_model(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
-        sm = SelfModel(self._engine())
+        sm = MemoryRetriever(self._engine())
         assert sm.get_best_synergies(["gpt-4o"]) == []
 
 
 class TestExplainSelfSynergies:
     def test_includes_synergies(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
         e = MagicMock()
         e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
-        sm = SelfModel(e)
+        sm = MemoryRetriever(e)
         initial = sm.get_or_create()
         initial.model_synergies = {"heavy|light": 0.85}
         sm.ogm.upsert(initial)
         assert "Model Synergies" in sm.explain_self()
 
     def test_no_synergies_no_section(self):
-        from agent_utilities.knowledge_graph.self_model import SelfModel
+        from agent_utilities.knowledge_graph.retrieval.memory_retriever import (
+            MemoryRetriever,
+        )
 
         e = MagicMock()
         e.graph = GraphComputeEngine(backend_type="rust")
         e.backend = None
-        sm = SelfModel(e)
+        sm = MemoryRetriever(e)
         sm.get_or_create()
         assert "Model Synergies" not in sm.explain_self()

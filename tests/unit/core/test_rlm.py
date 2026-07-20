@@ -18,27 +18,38 @@ class TestRLMTriggerConditions:
         assert config.should_trigger(output_size=0) is True
 
     def test_should_trigger_large_output(self):
-        config = RLMConfig(enabled=False, trigger_on_large_output=True)
+        config = RLMConfig(
+            enabled=False, allow_auto_trigger=True, trigger_on_large_output=True
+        )
         assert config.should_trigger(output_size=100) is False
         assert config.should_trigger(output_size=60_000) is True
 
     def test_should_trigger_ahe_distillation(self):
-        config = RLMConfig(enabled=False, trigger_on_ahe_distillation=True)
+        config = RLMConfig(
+            enabled=False,
+            allow_auto_trigger=True,
+            trigger_on_ahe_distillation=True,
+        )
         assert config.should_trigger(trace_count=100) is False
         assert config.should_trigger(trace_count=600) is True
 
     def test_should_trigger_kg_bulk(self):
-        config = RLMConfig(enabled=False, trigger_on_kg_bulk_analysis=True)
+        config = RLMConfig(
+            enabled=False,
+            allow_auto_trigger=True,
+            trigger_on_kg_bulk_analysis=True,
+        )
         assert config.should_trigger(kg_node_count=500) is False
         assert config.should_trigger(kg_node_count=1500) is True
 
     def test_should_trigger_long_horizon(self):
-        config = RLMConfig(enabled=False)
+        config = RLMConfig(enabled=False, allow_auto_trigger=True)
         assert config.should_trigger(requires_long_horizon=True) is True
 
     def test_should_not_trigger_when_disabled(self):
         config = RLMConfig(
             enabled=False,
+            allow_auto_trigger=True,
             trigger_on_large_output=False,
             trigger_on_ahe_distillation=False,
             trigger_on_kg_bulk_analysis=False,
@@ -55,6 +66,7 @@ class TestRLMTriggerConditions:
     def test_custom_thresholds(self):
         config = RLMConfig(
             enabled=False,
+            allow_auto_trigger=True,
             ahe_trace_threshold=100,
             kg_bulk_threshold=200,
             max_context_threshold=10_000,
@@ -62,6 +74,13 @@ class TestRLMTriggerConditions:
         assert config.should_trigger(trace_count=101) is True
         assert config.should_trigger(kg_node_count=201) is True
         assert config.should_trigger(output_size=10_001) is True
+
+    def test_disabled_rlm_does_not_auto_trigger_by_default(self):
+        config = RLMConfig(enabled=False)
+        assert config.should_trigger(output_size=1_000_000) is False
+        assert config.should_trigger(trace_count=1_000_000) is False
+        assert config.should_trigger(kg_node_count=1_000_000) is False
+        assert config.should_trigger(requires_long_horizon=True) is False
 
 
 class TestRLMMetadataRoot:
@@ -215,7 +234,7 @@ class TestRLMOWLHelpers:
 # Keep existing tests
 @pytest.mark.asyncio
 async def test_rlm_environment_local_execution():
-    config = RLMConfig(enabled=True, use_container=False)
+    config = RLMConfig(enabled=True)
     env = RLMEnvironment(context="Test data", config=config)
 
     code = """
@@ -233,7 +252,7 @@ print("Debug: ran code")
 
 @pytest.mark.asyncio
 async def test_rlm_environment_async_sub_calls():
-    config = RLMConfig(enabled=True, async_enabled=True, use_container=False)
+    config = RLMConfig(enabled=True, async_enabled=True)
     # We patch run_full_rlm to avoid actual LLM calls
     env = RLMEnvironment(context="Parent", config=config)
 

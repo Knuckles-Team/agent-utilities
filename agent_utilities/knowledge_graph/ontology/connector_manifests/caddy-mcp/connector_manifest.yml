@@ -1,0 +1,154 @@
+connector: caddy-mcp
+ontology_source: caddy
+schema_version: '1'
+resources:
+- name: CertificateAuthority
+  label: Certificate Authority
+  id_prefix: certificateauthority
+  relations: []
+- name: ReverseProxy
+  label: Reverse Proxy
+  id_prefix: reverseproxy
+  relations:
+  - name: hasRoute
+    label: has route
+    target: Route
+    lpg_rel_type: ''
+  - name: proxiesTo
+    label: proxies to
+    target: Upstream
+    lpg_rel_type: ''
+  - name: securedBy
+    label: secured by
+    target: CertificateAuthority
+    lpg_rel_type: ''
+- name: Route
+  label: Route
+  id_prefix: route
+  relations:
+  - name: routesToUpstream
+    label: routes to upstream
+    target: Upstream
+    lpg_rel_type: ''
+- name: Upstream
+  label: Upstream
+  id_prefix: upstream
+  relations: []
+actions: []
+events: []
+identity:
+  id_field:
+    caddy-upstream: address
+  title_field:
+    caddy-upstream: address
+  text_field:
+    caddy-upstream: address
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  CertificateAuthority:
+    ontology_class: null
+    fields:
+      fails: xsd:integer
+      handler: xsd:string
+      healthy: xsd:boolean
+      listenAddress: xsd:string
+      matchHost: xsd:string
+      matchPath: xsd:string
+      numRequests: xsd:integer
+      routeId: xsd:string
+      upstreamAddress: xsd:string
+  ReverseProxy:
+    ontology_class: null
+    fields:
+      fails: xsd:integer
+      handler: xsd:string
+      healthy: xsd:boolean
+      listenAddress: xsd:string
+      matchHost: xsd:string
+      matchPath: xsd:string
+      numRequests: xsd:integer
+      routeId: xsd:string
+      upstreamAddress: xsd:string
+  Route:
+    ontology_class: null
+    fields:
+      fails: xsd:integer
+      handler: xsd:string
+      healthy: xsd:boolean
+      listenAddress: xsd:string
+      matchHost: xsd:string
+      matchPath: xsd:string
+      numRequests: xsd:integer
+      routeId: xsd:string
+      upstreamAddress: xsd:string
+  Upstream:
+    ontology_class: null
+    fields:
+      fails: xsd:integer
+      handler: xsd:string
+      healthy: xsd:boolean
+      listenAddress: xsd:string
+      matchHost: xsd:string
+      matchPath: xsd:string
+      numRequests: xsd:integer
+      routeId: xsd:string
+      upstreamAddress: xsd:string
+sync:
+- preset: caddy-upstreams
+  server: caddy-mcp
+  tool: caddy_mcp_reverse_proxy
+  action: get_reverse_proxy_upstreams
+  records_path: ''
+  id_field: address
+  title_field: address
+  text_field: address
+  updated_field: null
+  pagination: null
+  doc_type: caddy-upstream
+  tool_schema_sha256: 762616fe226dc74041bf19ea86dc1510c5acf2b03c824feb4a435db48482f89b
+  raw:
+    server: caddy-mcp
+    tool: caddy_mcp_reverse_proxy
+    action: get_reverse_proxy_upstreams
+    records_path: ''
+    id_field: address
+    title_field: address
+    text_field: address
+    updated_field: null
+    doc_type: caddy-upstream
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - caddy_mcp/connectors/mcp_source_presets.json
+  - caddy_mcp/connectors/tool_schema_fingerprints.json
+  - caddy_mcp/ontology/caddy.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 2fede50b5b1a12c8210541c70e943b3324a5baa52c67cedc3fd92e7f0194408b
+    triple_count: 59
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: PziVwOxEquL6Kl-5k-ycxx06Jh14reXYVH0vM6SgG7smnop1InxrJcuRGZTPUpOmtlBLvCQ2aaRXouk4fFpnDg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'managedBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.CertificateAuthority.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by\
+  \ any heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ReverseProxy.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Route.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Upstream.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

@@ -62,16 +62,24 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import time
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.models.graph import ExecutionStep, GraphPlan, GraphResponse
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _automatic_workflow_name(run_id: str) -> str:
+    """Derive a collision-resistant privacy-safe name from the full run handle."""
+
+    run_ref = persistence_reference("run", run_id, namespace="workflow-capture")
+    return f"auto:{run_ref}"
 
 
 class WorkflowStore:
@@ -119,7 +127,7 @@ class WorkflowStore:
             The workflow definition node ID.
         """
         workflow_id = (
-            f"workflow:{name.lower().replace(' ', '_')}:{uuid.uuid4().hex[:8]}"
+            f"workflow:{name.lower().replace(' ', '_')}:{secrets.token_hex(16)}"
         )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
@@ -221,9 +229,12 @@ class WorkflowStore:
 
         # Link to source RunTrace if available (best-effort)
         if derived_from_run_id:
-            trace_id = f"trace:{derived_from_run_id}"
+            from agent_utilities.observability.trace_ontology import trace_id
+
             try:
-                self.engine.link_nodes(workflow_id, trace_id, "DERIVED_FROM")
+                self.engine.link_nodes(
+                    workflow_id, trace_id(derived_from_run_id), "DERIVED_FROM"
+                )
             except Exception:
                 pass  # nosec — provenance linking is best-effort
 
@@ -270,7 +281,7 @@ class WorkflowStore:
         # Find connected WorkflowStep nodes via HAS_STEP edges
         step_nodes: list[tuple[int, str, dict[str, Any]]] = []
         for _, target, edge_data in graph.out_edges(wid, data=True):
-            if edge_data.get("type") == "HAS_STEP":
+            if edge_data.get("relationship") == "HAS_STEP":
                 target_data = graph.nodes[target]
                 step_order = edge_data.get("step_order", 0)
                 step_nodes.append((step_order, target, target_data))
@@ -485,7 +496,7 @@ class WorkflowStore:
         name = (
             f"{agent_name}:{task[:50].replace(' ', '_').lower()}"
             if task
-            else f"auto:{run_id[:8]}"
+            else _automatic_workflow_name(run_id)
         )
 
         return self.save_workflow(

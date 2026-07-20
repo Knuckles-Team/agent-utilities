@@ -13,9 +13,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import logging
+import re
 from typing import Any
+from uuid import uuid4
 
 from ..ingestion.gpu_slot_scheduler import (
     CheckpointStore,
@@ -34,6 +37,14 @@ from .fact_extractor import (
 logger = logging.getLogger(__name__)
 
 _JOB_NODE_TYPE = "extraction_job"
+_OWNER_PARAM = "_owner_ref"
+_MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
+_MAX_CORPUS_BYTES = 16 * 1024 * 1024
+_MAX_FILES = 256
+_MAX_JOBS = 1024
+_MAX_SUBSCRIBERS_PER_JOB = 16
+_MAX_EVENT_BYTES = 256 * 1024
+_OWNER_REF_RE = re.compile(r"pref_[a-z0-9_]+_[0-9a-f]{64}\Z")
 
 
 class GraphCheckpointStore:
@@ -49,6 +60,41 @@ class GraphCheckpointStore:
 
     def save(self, job: Job) -> None:
         try:
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
+            params = job.params
+            persistent_params: dict[str, Any] = {
+                "rounds": max(1, min(10, int(params.get("rounds", 1)))),
+                "dedup": bool(params.get("dedup", True)),
+                "dedup_field": str(params.get("dedup_field", "triple"))[:32],
+                "dedup_threshold": max(
+                    0.0, min(1.0, float(params.get("dedup_threshold", 0.9)))
+                ),
+                _OWNER_PARAM: str(params.get(_OWNER_PARAM, ""))[:256],
+                "payload_persisted": False,
+            }
+            if "files" in params:
+                files = params.get("files") or []
+                persistent_params.update(
+                    {
+                        "file_count": len(files),
+                        "payload_ref": persistence_reference(
+                            "extraction_corpus", files, namespace="extraction-job"
+                        ),
+                    }
+                )
+            else:
+                text = str(params.get("text", ""))
+                persistent_params.update(
+                    {
+                        "text_character_count": len(text),
+                        "payload_ref": persistence_reference(
+                            "extraction_document", text, namespace="extraction-job"
+                        ),
+                    }
+                )
             self._engine.add_node(
                 f"extractjob:{job.job_id}",
                 _JOB_NODE_TYPE,
@@ -58,29 +104,46 @@ class GraphCheckpointStore:
                     "preempted": job.preempted,
                     "user_held": job.user_held,
                     "checkpoint_json": json.dumps(job.checkpoint),
-                    "params_json": json.dumps(job.params),
+                    "params_json": json.dumps(persistent_params),
                     "submitted": job.submitted,
                     "kind": job.kind,
                 },
             )
-        except Exception as e:  # noqa: BLE001 - persistence is best-effort
-            logger.debug("checkpoint save failed for %s: %s", job.job_id, e)
+        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+            logger.debug(
+                "checkpoint save failed (exception_type=%s)", type(exc).__name__
+            )
 
     def load_all(self) -> list[Job]:
         nodes = self._query_job_nodes()
         jobs: list[Job] = []
         for n in nodes:
             try:
+                state = JobState(n.get("state", "queued"))
+                params = json.loads(n.get("params_json", "{}"))
+                if not isinstance(params, dict):
+                    continue
+                # Document payloads deliberately never enter durable storage.
+                # Interrupted jobs therefore become terminal and must be
+                # resubmitted instead of silently running with missing input.
+                payload_missing = not bool(params.get("payload_persisted", False))
+                interrupted = payload_missing and state not in {
+                    JobState.DONE,
+                    JobState.FAILED,
+                }
+                if interrupted:
+                    state = JobState.FAILED
                 jobs.append(
                     Job(
                         job_id=n["job_id"],
                         kind=n.get("kind", "extract"),
-                        state=JobState(n.get("state", "queued")),
+                        state=state,
                         submitted=float(n.get("submitted", 0.0)),
                         preempted=bool(n.get("preempted", False)),
                         user_held=bool(n.get("user_held", False)),
-                        params=json.loads(n.get("params_json", "{}")),
+                        params=params,
                         checkpoint=json.loads(n.get("checkpoint_json", "{}")),
+                        error=("payload unavailable after restart" if interrupted else ""),
                     )
                 )
             except Exception:  # noqa: BLE001 - skip a corrupt row, don't fail boot
@@ -120,27 +183,59 @@ class ExtractionJobManager:
 
     def _publish(self, job_id: str, event: dict[str, Any]) -> None:
         """Buffer an event (bounded) and fan it out to live SSE subscribers."""
+        from agent_utilities.security.persistence_privacy import (
+            PersistencePrivacyGuard,
+        )
+
+        clean, _report = PersistencePrivacyGuard().sanitize(event)
+        if not isinstance(clean, dict):
+            clean = {"type": "event_rejected"}
+        try:
+            encoded_size = len(
+                json.dumps(clean, separators=(",", ":"), default=str).encode("utf-8")
+            )
+        except Exception:
+            clean = {"type": "event_rejected"}
+            encoded_size = 0
+        if encoded_size > _MAX_EVENT_BYTES:
+            clean = {"type": "event_rejected", "reason": "event_too_large"}
         buf = self._events.setdefault(job_id, [])
-        buf.append(event)
+        buf.append(clean)
         if len(buf) > self._EVENT_BUFFER_CAP:
             del buf[: len(buf) - self._EVENT_BUFFER_CAP]
         for q in self._subscribers.get(job_id, []):
-            with contextlib.suppress(Exception):
-                q.put_nowait(event)
+            with contextlib.suppress(asyncio.QueueFull):
+                q.put_nowait(clean)
 
-    async def stream(self, job_id: str):
+    def _owned_job(self, job_id: str, owner_ref: str | None) -> Job | None:
+        job = self._scheduler.get(job_id)
+        if job is None:
+            return None
+        if owner_ref is None:
+            return job
+        stored = str(job.params.get(_OWNER_PARAM, ""))
+        if not stored or not hmac.compare_digest(stored, owner_ref):
+            return None
+        return job
+
+    async def stream(self, job_id: str, *, owner_ref: str | None = None):
         """Yield this job's events (buffered history then live) until it ends.
 
         Mirrors the upstream SSE taxonomy so any frontend renders identically;
         terminates on the synthetic ``job_done`` event the runner emits.
         """
-        q: asyncio.Queue = asyncio.Queue()
+        if self._owned_job(job_id, owner_ref) is None:
+            raise KeyError("extraction job not found")
+        subscribers = self._subscribers.setdefault(job_id, [])
+        if len(subscribers) >= _MAX_SUBSCRIBERS_PER_JOB:
+            raise RuntimeError("extraction subscriber limit reached")
+        q: asyncio.Queue = asyncio.Queue(maxsize=256)
         # replay buffered history first so a late subscriber misses nothing
         for ev in list(self._events.get(job_id, [])):
             yield ev
             if ev.get("type") == "job_done":
                 return
-        self._subscribers.setdefault(job_id, []).append(q)
+        subscribers.append(q)
         try:
             while True:
                 ev = await q.get()
@@ -167,19 +262,74 @@ class ExtractionJobManager:
         dedup_field: str = "triple",
         dedup_threshold: float = 0.90,
         job_id: str | None = None,
+        owner_ref: str | None = None,
     ) -> str:
         """Submit an extraction job. ``files`` is ``[{name, text}]`` for a corpus;
         ``text`` is a single document. Returns the job id."""
         await self.ensure_started()
-        jid = (
-            job_id
-            or f"ext-{abs(hash((text[:64], len(text), tuple(f['name'] for f in (files or []))))) & 0xFFFFFF:06x}"
+        if len(self._scheduler.list_jobs()) >= _MAX_JOBS:
+            raise RuntimeError("extraction job limit reached")
+        from agent_utilities.security.persistence_privacy import (
+            PersistencePrivacyGuard,
+            persistence_reference,
         )
+
+        guard = PersistencePrivacyGuard()
+        if owner_ref is not None and not _OWNER_REF_RE.fullmatch(str(owner_ref)):
+            raise ValueError("owner_ref must be an opaque persistence reference")
+        if files is not None:
+            if not isinstance(files, list) or len(files) > _MAX_FILES:
+                raise ValueError("extraction corpus exceeds its file-count boundary")
+            clean_files: list[dict[str, str]] = []
+            total_bytes = 0
+            for index, file in enumerate(files):
+                if not isinstance(file, dict):
+                    raise ValueError("extraction file entries must be objects")
+                raw_text = file.get("text", "")
+                if not isinstance(raw_text, str):
+                    raise ValueError("extraction file content must be text")
+                total_bytes += len(raw_text.encode("utf-8"))
+                if total_bytes > _MAX_CORPUS_BYTES:
+                    raise ValueError("extraction corpus exceeds its size boundary")
+                raw_name = str(file.get("name", index))[:1024]
+                clean_text, _ = guard.sanitize_text(raw_text)
+                clean_files.append(
+                    {
+                        "name": persistence_reference(
+                            "source", raw_name, namespace="extraction-corpus"
+                        ),
+                        "text": clean_text,
+                    }
+                )
+            files = clean_files
+            text = ""
+        else:
+            if not isinstance(text, str) or len(text.encode("utf-8")) > _MAX_DOCUMENT_BYTES:
+                raise ValueError("extraction document exceeds its size boundary")
+            text = guard.sanitize_text(text)[0]
+
+        jid = (
+            f"ext-{uuid4().hex}"
+            if not job_id
+            else persistence_reference(
+                "extraction_job", str(job_id)[:1024], namespace="extraction-job"
+            )
+        )
+        if dedup_field not in {
+            "triple",
+            "title",
+            "description",
+            "title+desc",
+            "triple+title",
+            "all",
+        }:
+            raise ValueError("unsupported extraction deduplication field")
         params: dict[str, Any] = {
-            "rounds": rounds,
+            "rounds": max(1, min(10, int(rounds))),
             "dedup": dedup,
             "dedup_field": dedup_field,
-            "dedup_threshold": dedup_threshold,
+            "dedup_threshold": max(0.0, min(1.0, float(dedup_threshold))),
+            _OWNER_PARAM: str(owner_ref or "")[:256],
         }
         if files:
             params["files"] = files
@@ -189,29 +339,45 @@ class ExtractionJobManager:
         await self._scheduler.submit(jid, kind="extract", params=params)
         return jid
 
-    def status(self, job_id: str) -> dict[str, Any] | None:
-        job = self._scheduler.get(job_id)
+    def status(
+        self, job_id: str, *, owner_ref: str | None = None
+    ) -> dict[str, Any] | None:
+        job = self._owned_job(job_id, owner_ref)
         if job is None:
             return None
         facts = self._results.get(job_id, [])
         unique = sum(1 for f in facts if not f.is_duplicate)
+        public = job.public()
+        if public.get("error"):
+            public["error"] = "extraction job failed"
         return {
-            **job.public(),
+            **public,
             "total_facts": len(facts),
             "unique_facts": unique,
             "duplicate_facts": len(facts) - unique,
         }
 
-    def jobs(self) -> list[dict[str, Any]]:
-        return [self.status(j["job_id"]) or j for j in self._scheduler.list_jobs()]
+    def jobs(self, *, owner_ref: str | None = None) -> list[dict[str, Any]]:
+        jobs: list[dict[str, Any]] = []
+        for candidate in self._scheduler.list_jobs():
+            status = self.status(candidate["job_id"], owner_ref=owner_ref)
+            if status is not None:
+                jobs.append(status)
+        return jobs
 
-    def jsonl(self, job_id: str) -> str:
+    def jsonl(self, job_id: str, *, owner_ref: str | None = None) -> str:
+        if self._owned_job(job_id, owner_ref) is None:
+            raise KeyError("extraction job not found")
         return facts_to_jsonl(self._results.get(job_id, []))
 
-    async def pause(self, job_id: str) -> None:
+    async def pause(self, job_id: str, *, owner_ref: str | None = None) -> None:
+        if self._owned_job(job_id, owner_ref) is None:
+            raise KeyError("extraction job not found")
         await self._scheduler.hold(job_id)
 
-    async def resume(self, job_id: str) -> None:
+    async def resume(self, job_id: str, *, owner_ref: str | None = None) -> None:
+        if self._owned_job(job_id, owner_ref) is None:
+            raise KeyError("extraction job not found")
         await self._scheduler.resume(job_id)
 
     # ------------------------------------------------------------------ #

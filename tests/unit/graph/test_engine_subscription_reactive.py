@@ -10,7 +10,7 @@ CDC/watch feed — i.e. the consumer reacts to the change-event, not a poll inte
 Covers:
 * the ``EngineSubscription`` primitive (catch-up + watch deliver a real write);
 * the world-model gate fires on a ``WorldModelTransition`` write (not a full re-scan);
-* the autoscaler signal subscription fires on a control-plane ``:Task`` change.
+* the autoscaler signal subscription fires on a control-plane WorkItem change.
 """
 
 from __future__ import annotations
@@ -140,29 +140,33 @@ def test_world_model_subscription_fires_on_transition(engine_graph) -> None:
 # ── autoscaler reactive signal ───────────────────────────────────────────
 
 
-def test_autoscale_subscription_fires_on_task_change(engine_graph) -> None:
+def test_autoscale_subscription_fires_on_work_item_change(engine_graph) -> None:
     """The autoscaler reactive signal (KG-2.253) registers ``pending`` on a real
-    control-plane ``:Task`` change — the autoscaler evaluates on the queue-depth
+    control-plane WorkItem change — the autoscaler evaluates on the queue-depth
     change-event, not only on its poll interval."""
     from agent_utilities.orchestration.fleet_autoscaler import (
-        TASK_LABEL,
+        WORK_ITEM_LABEL,
         fleet_autoscale_subscription,
     )
 
     # ``fleet_autoscale_subscription`` prefers engine._control, then graph_compute.
     # The engine_graph compute has neither attribute, so it falls through to using
-    # the compute object itself — watch ``:Task`` on this tenant.
+    # the compute object itself — watch WorkItem changes on this tenant.
     sub = fleet_autoscale_subscription(engine_graph)
     assert sub.available
     assert sub.pending_state["pending"] == 0
 
-    # A queue-depth-moving change: a new :Task enqueued.
-    engine_graph.add_node("task:1", {"type": TASK_LABEL, "status": "pending"})
+    # A queue-depth-moving change: a new WorkItem enqueued.
+    engine_graph.add_node(
+        "workitem:1", {"type": WORK_ITEM_LABEL, "status": "ready"}
+    )
 
     sub.poll(block_ms=0)
-    assert sub.pending_state["pending"] == 1, "autoscaler must react to a :Task change"
+    assert sub.pending_state["pending"] == 1, "autoscaler must react to a WorkItem change"
 
-    # A subsequent :Task mutation (claim) is another change-event.
-    engine_graph.add_node("task:2", {"type": TASK_LABEL, "status": "pending"})
+    # A subsequent WorkItem mutation is another change-event.
+    engine_graph.add_node(
+        "workitem:2", {"type": WORK_ITEM_LABEL, "status": "leased"}
+    )
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 2

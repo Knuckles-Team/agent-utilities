@@ -7,11 +7,18 @@ and self-improvement triggers.
 """
 
 import logging
-import time
 from typing import Any
 
+from agent_utilities.observability.trace_ontology import (
+    OUTCOME_NODE_LABEL,
+    TRACE_PRODUCED_OUTCOME_EDGE,
+    next_event_sequence,
+    outcome_id,
+    outcome_properties,
+    trace_id,
+)
+
 from ..knowledge_graph.core.engine import IntelligenceGraphEngine
-from ..models.knowledge_graph import OutcomeEvaluationNode, RegistryNodeType
 from .hsm import register_on_exit_hook
 
 logger = logging.getLogger(__name__)
@@ -34,10 +41,6 @@ async def record_specialist_outcome_hook(
     if not engine or not engine.backend:
         return
 
-    import uuid
-
-    outcome_id = f"outcome:{uuid.uuid4().hex[:8]}"
-
     # Calculate a basic reward: 1.0 for success, 0.0 for failure
     reward = 1.0 if success else 0.0
 
@@ -46,34 +49,32 @@ async def record_specialist_outcome_hook(
     if success and duration > 30.0:
         reward = 0.8
 
-    node = OutcomeEvaluationNode(
-        id=outcome_id,
-        type=RegistryNodeType.OUTCOME_EVALUATION,
-        name=f"Outcome: {agent_name}",
-        reward=reward,
-        success_criteria_met=["execution_completed"] if success else [],
-        feedback_text=f"Agent '{agent_name}' {'succeeded' if success else 'failed'} in {duration:.2f}s.",
-        timestamp=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    run_id = str(
+        getattr(state, "run_id", "")
+        or getattr(state, "session_id", "")
+        or getattr(deps, "request_id", "")
     )
+    if not run_id:
+        return
+    import time
+
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    tid = trace_id(run_id)
+    oid = outcome_id(run_id)
+    props = outcome_properties(
+        run_id=run_id,
+        status="completed" if success else "failed",
+        timestamp=ts,
+        event_sequence=next_event_sequence(),
+        feedback="execution_completed" if success else "execution_failed",
+        reward=reward,
+    )
+    props["duration_ms"] = max(0.0, float(duration) * 1000.0)
 
     try:
-        # Add node to graph
-        engine.graph.add_node(node.id, **node.model_dump())
-
-        # Link to agent if we can find it in the graph
-        # Note: agent_name here is usually the tag or name
-        agent_matches = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("name") == agent_name
-        ]
-        if agent_matches:
-            engine.graph.add_edge(agent_matches[0], node.id, type="PRODUCED_OUTCOME")
-
-        # Link to current episode if available in state or deps
-        episode_id = getattr(state, "session_id", getattr(deps, "request_id", None))
-        if episode_id and episode_id in engine.graph:
-            engine.graph.add_edge(episode_id, node.id, type="PRODUCED_OUTCOME")
-
-        logger.debug(f"Recorded outcome '{outcome_id}' for agent '{agent_name}'")
+        engine.add_node(oid, OUTCOME_NODE_LABEL, properties=props)
+        engine.link_nodes(tid, oid, TRACE_PRODUCED_OUTCOME_EDGE)
+        logger.debug("Recorded normalized execution outcome")
     except Exception as e:
         logger.warning(f"Failed to record outcome to graph: {e}")
 

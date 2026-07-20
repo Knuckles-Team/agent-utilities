@@ -10,11 +10,7 @@ import logging
 from typing import Any
 from urllib.parse import urlparse
 
-from agent_utilities.security.browser_auth import (
-    BaseBrowserAuthManager,
-    BaseLoopbackCallbackHandler,
-    BaseLoopbackCallbackServer,
-)
+from agent_utilities.security.browser_auth import BaseBrowserAuthManager
 from agent_utilities.security.secrets_client import (
     SecretsClient,
     create_secrets_client,
@@ -55,30 +51,6 @@ def validate_xai_oauth_endpoint(url: str, field: str) -> str:
     return url
 
 
-# Keep LoopbackCallbackServer and LoopbackCallbackHandler for direct backwards compatibility
-class LoopbackCallbackServer(BaseLoopbackCallbackServer):
-    """Subclassed HTTPServer to store authorization code cleanly."""
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-
-class LoopbackCallbackHandler(BaseLoopbackCallbackHandler):
-    """Callback request handler for standard OIDC code flow."""
-
-    # Keep the custom old xAI styles for full regression safety
-    redirect_path = XAI_OAUTH_REDIRECT_PATH
-    success_html = (
-        b"<html><head><style>"
-        b"body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #0f1419; color: #fff; text-align: center; padding: 50px; }"
-        b"h1 { color: #1d9bf0; }"
-        b"</style></head><body>"
-        b"<h1>Authentication Successful</h1>"
-        b"<p>xAI integration has been successfully authorized. You may close this window and return to the console.</p>"
-        b"</body></html>"
-    )
-
-
 class XaiAuthManager(BaseBrowserAuthManager):
     """Manages xAI OAuth authentication flow, token storage, and refresh lifecycle."""
 
@@ -103,13 +75,6 @@ class XaiAuthManager(BaseBrowserAuthManager):
             api_key_secret_key="xai/api_key",
             api_key_env_var="XAI_API_KEY",
         )
-
-    # Maintain public interfaces exactly for tests
-    def get_cached_tokens(self) -> dict[str, Any] | None:
-        return super().get_cached_tokens()
-
-    def save_tokens(self, tokens: dict[str, Any]) -> None:
-        super().save_tokens(tokens)
 
     def refresh_tokens(self, tokens: dict[str, Any]) -> dict[str, Any]:
         # Handle custom HTTP 403 / tier restriction mapping from original implementation

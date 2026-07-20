@@ -12,13 +12,12 @@ class MCPConfigModel(BaseModel):
 
 class MCPAgent(BaseModel):
     name: str = Field(description="Unique agent identifier / tag")
-    agent_type: str = Field(
+    agent_type: Literal["specialist", "a2a"] = Field(
         default="specialist",
         description=(
             "Agent classification. 'specialist' for all local agents "
             "(regardless of origin: prompts, MCP partitioning, or skills). "
-            "'a2a' for remote Agent-to-Agent peers. Legacy values 'prompt' "
-            "and 'mcp' are normalized to 'specialist' at read time (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)."
+            "'a2a' for remote Agent-to-Agent peers."
         ),
     )
     prompt_file: str | None = Field(
@@ -58,7 +57,7 @@ class MCPAgent(BaseModel):
 
     @property
     def tag(self) -> str:
-        """Alias for name, used in routing and legacy test cases."""
+        """Routing tag for this specialist."""
         return self.name
 
 
@@ -90,10 +89,9 @@ class DiscoveredSpecialist(BaseModel):
     tag: str = Field(description="Routing key used by the dispatcher")
     name: str = Field(description="Human-readable display name")
     description: str = Field(default="", description="Specialist summary")
-    source: str = Field(
+    source: Literal["specialist", "a2a"] = Field(
         description=(
-            "Origin: 'specialist' (unified local agent) or 'a2a' (remote peer). "
-            "Legacy values 'prompt' and 'mcp' are normalized to 'specialist' (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)."
+            "Origin: 'specialist' (unified local agent) or 'a2a' (remote peer)."
         ),
     )
     mcp_server: str = Field(default="", description="Source MCP server (MCP only)")

@@ -36,8 +36,10 @@ _LOCAL_ONLY_SCOPES = {"private", "org"}
 
 
 def hub_id() -> str:
-    """This hub's stable id (``BUS_HUB_ID`` or the hostname) — the federation origin label."""
-    return str(setting("BUS_HUB_ID", socket.gethostname()))
+    """This hub's opaque stable origin reference."""
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
+    return bus_reference("hub", str(setting("BUS_HUB_ID", socket.gethostname())))
 
 
 class BusFederationRelay:
@@ -68,10 +70,11 @@ class BusFederationRelay:
     # ── Peer hub registry (KG-native via A2A, ECO-4.86) ──────────────
     def register_hub(self, name: str, url: str, *, auth: str = "none") -> str:
         """Register a peer bus hub (an A2A peer tagged with the hub capability)."""
+        from agent_utilities.messaging.bus_privacy import bus_reference
         from agent_utilities.protocols.a2a import register_a2a_peer
 
         return register_a2a_peer(
-            name,
+            bus_reference("hub", name),
             url,
             description="agent bus hub",
             capabilities=HUB_CAPABILITY,
@@ -131,9 +134,9 @@ class BusFederationRelay:
             data = resp.json()
             inner = data.get("result", data)
             return json.loads(inner) if isinstance(inner, str) else inner
-        except Exception as exc:  # noqa: BLE001 — a peer being down must not break the others
-            logger.warning("[ECO-4.86] forward to %s failed: %s", url, exc)
-            return {"ok": False, "error": str(exc)}
+        except Exception as exc:  # noqa: BLE001 — one peer must not break the others
+            logger.warning("[ECO-4.86] peer forward failed (%s)", type(exc).__name__)
+            return {"ok": False, "error": type(exc).__name__}
 
     # ── Inbound apply (ECO-4.86) ─────────────────────────────────────
     def apply_inbound(

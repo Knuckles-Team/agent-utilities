@@ -25,6 +25,7 @@ from agent_utilities.knowledge_graph.live_artifacts import (
     RefreshService,
     get_live_artifact_store,
 )
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +82,9 @@ async def create_artifact(req: CreateArtifactRequest) -> dict[str, Any]:
         get_live_artifact_store().create(art)
     except BoundedJSONError as exc:
         raise HTTPException(
-            status_code=400, detail=f"bounded-JSON violation: {exc}"
-        ) from exc
+            status_code=400,
+            detail=public_error_payload(exc, logger=logger, code="invalid_request"),
+        ) from None
     return {"artifact_id": art.artifact_id, "rendered": art.last_rendered}
 
 

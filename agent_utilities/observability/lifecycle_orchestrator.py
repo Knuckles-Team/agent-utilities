@@ -244,7 +244,9 @@ def _rel(props: Any) -> str:
     """The relationship type off an edge-property dict (engine keys edges by
     ``rel_type``; tolerate ``type`` too)."""
     if isinstance(props, dict):
-        return str(props.get("rel_type") or props.get("type") or "")
+        return str(
+            props.get("relationship") or props.get("rel_type") or props.get("type") or ""
+        )
     return ""
 
 
@@ -264,7 +266,7 @@ def _follow(reader: _GraphReader, node_id: str, transition: Transition) -> str |
 
 def _signature(entry_id: str, transition: Transition, kind: str) -> str:
     raw = f"{entry_id}|{kind}|{transition.from_stage}->{transition.to_stage}|{transition.name}"
-    return hashlib.sha1(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _proposal(entry_id: str, transition: Transition, kind: str) -> dict[str, Any]:

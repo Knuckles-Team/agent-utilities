@@ -1,0 +1,242 @@
+connector: kafka-mcp
+ontology_source: kafka
+schema_version: '1'
+resources:
+- name: Broker
+  label: Broker
+  id_prefix: broker
+  relations: []
+- name: Consumer
+  label: Consumer
+  id_prefix: consumer
+  relations:
+  - name: assignedPartition
+    label: assigned partition
+    target: Partition
+    lpg_rel_type: ''
+  - name: memberOfGroup
+    label: member of group
+    target: ConsumerGroup
+    lpg_rel_type: ''
+- name: ConsumerGroup
+  label: Consumer Group
+  id_prefix: consumergroup
+  relations:
+  - name: subscribesTo
+    label: subscribes to
+    target: Topic
+    lpg_rel_type: ''
+- name: KafkaAcl
+  label: Kafka ACL
+  id_prefix: kafkaacl
+  relations:
+  - name: appliesToTopic
+    label: applies to topic
+    target: Topic
+    lpg_rel_type: ''
+- name: KafkaCluster
+  label: Kafka Cluster
+  id_prefix: kafkacluster
+  relations: []
+- name: Partition
+  label: Partition
+  id_prefix: partition
+  relations:
+  - name: leaderBroker
+    label: leader broker
+    target: Broker
+    lpg_rel_type: ''
+  - name: partitionOf
+    label: partition of
+    target: Topic
+    lpg_rel_type: ''
+- name: Topic
+  label: Topic
+  id_prefix: topic
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    kafka_topic: topic_name
+  title_field:
+    kafka_topic: topic_name
+  text_field:
+    kafka_topic: topic_name
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Broker:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  Consumer:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  ConsumerGroup:
+    ontology_class: Organization
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  KafkaAcl:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  KafkaCluster:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  Partition:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+  Topic:
+    ontology_class: null
+    fields:
+      brokerHost: xsd:string
+      brokerPort: xsd:integer
+      consumerLag: xsd:integer
+      currentOffset: xsd:integer
+      groupState: xsd:string
+      isInternal: xsd:boolean
+      operation: xsd:string
+      partitionId: xsd:integer
+      partitionsCount: xsd:integer
+      permission: xsd:string
+      principal: xsd:string
+      replicationFactor: xsd:integer
+sync:
+- preset: kafka-topics
+  server: kafka-mcp
+  tool: kafka_topics
+  action: list
+  records_path: data
+  id_field: topic_name
+  title_field: topic_name
+  text_field: topic_name
+  updated_field: null
+  pagination: null
+  doc_type: kafka_topic
+  tool_schema_sha256: a4344229f235c9f28257ba4b6fc92d9ca0ea025b36aef8448e15953c349fa7b9
+  raw:
+    server: kafka-mcp
+    tool: kafka_topics
+    action: list
+    records_path: data
+    id_field: topic_name
+    title_field: topic_name
+    text_field: topic_name
+    updated_field: null
+    doc_type: kafka_topic
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - kafka_mcp/connectors/mcp_source_presets.json
+  - kafka_mcp/connectors/tool_schema_fingerprints.json
+  - kafka_mcp/ontology/kafka.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
+    triple_count: 86
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: JNXZJdbwJonKIr_eXD6YjpqJWc7s6GZvLqM6vDB89kq8_dVAHOMZ2zxgE1E3kzoAVQk2Vnnu8CEmCODe2m8sBw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'inCluster' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Broker.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Consumer.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ConsumerGroup.ontology_class = 'Organization' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.KafkaAcl.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.KafkaCluster.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Partition.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Topic.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

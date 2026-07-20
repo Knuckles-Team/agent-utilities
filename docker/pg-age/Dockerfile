@@ -7,7 +7,7 @@
 # apache/age publishes no semver release tags (only :latest), so we track latest by
 # design; hadolint DL3007 is intentional here.
 # hadolint ignore=DL3007
-FROM apache/age:latest
+FROM apache/age:latest@sha256:4241e2d8bb86a6b2ea44e9ad06c73856e12b209de295124603a599dd7feb70eb
 
 USER root
 RUN apt-get update \

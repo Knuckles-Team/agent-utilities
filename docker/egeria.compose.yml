@@ -1,5 +1,5 @@
 ---
-# Apache Egeria — homelab-stripped, GitOps-deployable stack (CONCEPT:KG-2.9).
+# Apache Egeria — minimal, GitOps-deployable stack (CONCEPT:KG-2.9).
 #
 # Egeria is federated as the metadata / governance / lineage SYSTEM-OF-RECORD
 # alongside the epistemic-graph KG (the cognition/orchestration plane). This is
@@ -15,10 +15,9 @@
 #   open-source-libraries/egeria-workspaces/compose-configs/egeria-quickstart
 #   open-source-libraries/egeria-workspaces/compose-configs/shared-infra
 #
-# Deploy (Portainer/GitLab GitOps): commit to the infra repo; the Portainer
-# stack auto-syncs (portainer-sync-agent / pt__stack). Caddy route:
-#   egeria.arpa -> https://egeria-platform:9443   (tls_insecure_skip_verify —
-#   the platform serves a self-signed cert).
+# Deploy through the target platform's GitOps controller and expose the service
+# through its configured ingress. Trust a private Egeria certificate by mounting
+# the deployment's CA bundle; do not disable certificate verification.
 #
 # BEFORE FIRST BOOT — seed ./egeria-servers/ with the metadata-store + view-server
 # OMAG config JSONs (copy the qs-* configs from the clone and retemplate
@@ -27,9 +26,15 @@
 # in-memory and non-durable across restarts (fine only for the first spike).
 services:
   egeria-platform:
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
     # Pin a published tag for reproducible GitOps; or build from the clone's
     # Dockerfile-egeria-platform for a locally-patched image.
-    image: "odpi/egeria-platform:${EGERIA_IMAGE_TAG:-stable}"
+    image: "${EGERIA_IMAGE:?set-EGERIA_IMAGE-to-image@sha256-digest}"
     # build:
     #   context: ../../../open-source-libraries/egeria-workspaces/compose-configs/egeria-quickstart
     #   dockerfile: Dockerfile-egeria-platform
@@ -59,21 +64,23 @@ services:
       EGERIA_POSTGRES_HOST: "${EGERIA_POSTGRES_HOST:-pggraph-db}"
       EGERIA_POSTGRES_PORT: "${EGERIA_POSTGRES_PORT:-5432}"
       EGERIA_POSTGRES_DB: "${EGERIA_POSTGRES_DB:-egeria_metadata}"
-      EGERIA_POSTGRES_USER: "${EGERIA_POSTGRES_USER:-agent}"
-      EGERIA_POSTGRES_PASSWORD: "${EGERIA_POSTGRES_PASSWORD:-agent}"
+      EGERIA_POSTGRES_USER: "${EGERIA_POSTGRES_USER:?set EGERIA_POSTGRES_USER}"
+      EGERIA_POSTGRES_PASSWORD: "${EGERIA_POSTGRES_PASSWORD:?set EGERIA_POSTGRES_PASSWORD from a secret}"
+      EGERIA_HEALTHCHECK_URL: "${EGERIA_HEALTHCHECK_URL:-https://localhost:9443/open-metadata/platform-services/users/garygeeke/server-platform/origin}"
+      EGERIA_CA_BUNDLE: "${EGERIA_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}"
     ports:
-      - "9443:9443"
+      - "127.0.0.1:9443:9443"
     volumes:
       # Seeded OMAG server configs (metadata-store + view-server, retemplated).
-      - ./egeria-servers:/deployments/data/servers:ro
+      - ${EGERIA_SERVERS_DIR:?set EGERIA_SERVERS_DIR}:/deployments/data/servers:ro
       - egeria-data:/deployments/data
       - egeria-logs:/deployments/logs
     healthcheck:
       test:
         - "CMD-SHELL"
         - >-
-          curl -k -fsS
-          https://localhost:9443/open-metadata/platform-services/users/garygeeke/server-platform/origin
+          curl --fail --silent --show-error --cacert "$${EGERIA_CA_BUNDLE}"
+          "$${EGERIA_HEALTHCHECK_URL}"
           || exit 1
       interval: 30s
       timeout: 15s
@@ -87,8 +94,8 @@ volumes:
   egeria-data:
   egeria-logs:
 
-# External overlay networks provided by the swarm/ingress (Caddy reverse proxy
-# fronts egeria.arpa; `internet` for egress to the cohort/Kafka/Postgres).
+# External overlay networks provided by the target swarm/ingress (`internet` is
+# used for egress to the cohort, Kafka, and PostgreSQL services).
 networks:
   caddy:
     external: true

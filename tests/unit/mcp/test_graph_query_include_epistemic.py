@@ -48,15 +48,6 @@ _ROW = EpistemicRow(
 )
 
 
-class _FakeEngineNoEpistemicKwarg:
-    """Mirrors a pre-existing `query_cypher` implementation that does NOT
-    accept `include_epistemic` — the default (False) call path must never
-    pass it, so this fake intentionally has no such parameter."""
-
-    def query_cypher(self, cypher, params, as_of=None):
-        return [{"id": "agent:foo", "name": "foo"}]
-
-
 class _FakeEngineEpistemic:
     def __init__(self, rows):
         self._rows = rows
@@ -74,20 +65,17 @@ def _fake_resolve_read_engines(engine):
     return _resolve
 
 
-def test_graph_query_default_never_passes_include_epistemic_kwarg(monkeypatch):
-    """The default (unset) path must call `query_cypher` exactly as before —
-    a fake lacking the `include_epistemic` parameter must not raise."""
+def test_graph_query_default_passes_current_include_epistemic_kwarg(monkeypatch):
     _register_query_tools()
-    engine = _FakeEngineNoEpistemicKwarg()
+    engine = _FakeEngineEpistemic([_ROW])
     monkeypatch.setattr(
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
     )
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
-        )
-    )
-    assert out == [{"id": "agent:foo", "name": "foo"}]
+    out = asyncio.run(
+        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+    ).model_dump()
+    assert engine.seen_include_epistemic is False
+    assert out["reasoning_trace"][-1]["payload"]["rows"] == [{"id": "agent:foo"}]
 
 
 def test_graph_query_include_epistemic_true_returns_epistemic_rows(monkeypatch):
@@ -96,21 +84,19 @@ def test_graph_query_include_epistemic_true_returns_epistemic_rows(monkeypatch):
     monkeypatch.setattr(
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
     )
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool(
-                "graph_query",
-                cypher="MATCH (a:Agent) RETURN a",
-                include_epistemic=True,
-            )
+    out = asyncio.run(
+        kg_server._execute_tool(
+            "graph_query",
+            cypher="MATCH (a:Agent) RETURN a",
+            include_epistemic=True,
         )
-    )
+    ).model_dump()
     assert engine.seen_include_epistemic is True
-    assert len(out) == 1
-    assert out[0]["id"] == "agent:foo"
-    assert out[0]["confidence"] == 0.8
-    assert out[0]["source_refs"] == ["src:gitlab/agent-foo"]
-    assert out[0]["properties"]["name"] == "foo"
+    row = out["claims"][0]
+    assert row["id"] == "agent:foo"
+    assert row["confidence"] == 0.8
+    assert row["source_refs"] == ["src:gitlab/agent-foo"]
+    assert row["properties"]["name"] == "foo"
 
 
 def test_graph_query_include_epistemic_false_is_default(monkeypatch):
@@ -119,12 +105,10 @@ def test_graph_query_include_epistemic_false_is_default(monkeypatch):
     monkeypatch.setattr(
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines(engine)
     )
-    out = json.loads(
-        asyncio.run(
-            kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
-        )
-    )
-    assert out == [{"id": "agent:foo"}]
+    out = asyncio.run(
+        kg_server._execute_tool("graph_query", cypher="MATCH (a:Agent) RETURN a")
+    ).model_dump()
+    assert out["reasoning_trace"][-1]["payload"]["rows"] == [{"id": "agent:foo"}]
 
 
 def test_dataclass_json_serialization_roundtrip():

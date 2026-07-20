@@ -50,32 +50,35 @@ def iter_local_bundles(
                 for bundle in source.parse(path):
                     yield str(path), mtime, size, bundle
             except Exception as exc:  # noqa: BLE001 — one bad file never aborts the sweep
-                logger.debug("parse failed for %s: %s", path, exc)
+                logger.debug(
+                    "session_parse_failed source_type=%s error_type=%s",
+                    source.agent_type,
+                    type(exc).__name__,
+                )
 
 
 def _engine_is_remote() -> bool:
     """True when the KG engine is a remote/client process (push instead of write).
 
-    Detected via the daemon role and a configured remote engine endpoint; a
-    local UDS/in-process engine returns False (fast in-process write path).
+    Detected via the daemon role and the canonical explicit engine topology.
+    With no ``GRAPH_SERVICE_ENDPOINTS`` the packaged-local path writes directly.
     """
-    from agent_utilities.core.config import setting
+    from agent_utilities.core.config import AgentConfig, setting
 
     role = setting("KG_DAEMON_ROLE", "auto")
     if role == "client":
         return True
-    endpoint = setting("GRAPH_ENGINE_ENDPOINT") or setting("EPISTEMIC_GRAPH_ENDPOINT")
-    return bool(endpoint and ("://" in endpoint or ":" in endpoint))
+    return bool(AgentConfig().graph_service_endpoints)
 
 
-def collect_local_sessions(*, only_changed: bool = True) -> dict:
+def collect_local_sessions(*, only_changed: bool = True, tenant_id: str = "") -> dict:
     """Discover + parse + sink all local sessions. Returns a summary dict.
 
     Local engine → write straight to the usage store. Remote engine → push the
     bundles to the central gateway (HTTP) so the server stays filesystem-blind.
     """
     if _engine_is_remote():
-        return push_local_sessions()
+        return push_local_sessions(tenant_id=tenant_id)
 
     from agent_utilities.usage import get_usage_backend
     from agent_utilities.usage.recorder import get_usage_recorder
@@ -88,6 +91,8 @@ def collect_local_sessions(*, only_changed: bool = True) -> dict:
     for path, mtime, size, bundle in iter_local_bundles(
         only_changed=only_changed, backend=backend
     ):
+        if tenant_id:
+            bundle.session.tenant_id = tenant_id
         if recorder.record_bundle(bundle):
             ingested += 1
         if path not in seen_files:
@@ -108,8 +113,8 @@ def push_local_sessions(
 ) -> dict:
     """Push locally-parsed bundles to a central gateway upload endpoint.
 
-    ``gateway_url`` defaults to ``USAGE_GATEWAY_URL`` (e.g.
-    ``https://graph-os.arpa``). Bundles are sent in batches to
+    ``gateway_url`` defaults to ``USAGE_GATEWAY_URL`` (for example,
+    ``https://graph-os.example.test``). Bundles are sent in batches to
     ``/api/observability/sessions/upload``.
     """
     import httpx
@@ -135,16 +140,24 @@ def push_local_sessions(
             resp.raise_for_status()
             pushed += int(resp.json().get("ingested", 0))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("upload push failed (%d bundles): %s", len(pending), exc)
+            logger.warning(
+                "session_upload_failed count=%d error_type=%s",
+                len(pending),
+                type(exc).__name__,
+            )
         pending.clear()
+
+    from agent_utilities.usage.privacy import normalize_bundle
 
     for path, _mtime, _size, bundle in iter_local_bundles(only_changed=False):
         files.add(path)
-        pending.append(bundle.model_dump())
+        if tenant_id:
+            bundle.session.tenant_id = tenant_id
+        pending.append(normalize_bundle(bundle).model_dump())
         if len(pending) >= batch:
             _flush()
     _flush()
-    return {"mode": "push", "files": len(files), "pushed": pushed, "gateway": url}
+    return {"mode": "push", "files": len(files), "pushed": pushed}
 
 
 def upload_local_sessions(
@@ -177,6 +190,8 @@ def upload_local_sessions(
     from ..protocols.source_connectors.connectors.mcp_tool import call_tool_once
 
     tenant_id = tenant_id or setting("USAGE_TENANT_ID", "")
+    from agent_utilities.usage.privacy import normalize_bundle
+
     pending: list[dict] = []
     files: set[str] = set()
     received = 0
@@ -219,14 +234,15 @@ def upload_local_sessions(
     for path, _mtime, _size, bundle in iter_local_bundles(only_changed=only_changed):
         files.add(path)
         agents.add(bundle.session.agent)
-        pending.append(bundle.model_dump())
+        if tenant_id:
+            bundle.session.tenant_id = tenant_id
+        pending.append(normalize_bundle(bundle).model_dump())
         if len(pending) >= batch:
             _flush()
     _flush()
     return {
         "mode": "upload",
         "transport": "mcp",
-        "server": server or url,
         "files": len(files),
         "received": received,
         "ingested": ingested,
@@ -236,7 +252,7 @@ def upload_local_sessions(
     }
 
 
-def collect_paths(paths: list[str | Path]) -> dict:
+def collect_paths(paths: list[str | Path], *, tenant_id: str = "") -> dict:
     """Parse explicit files/dirs (CLI/manual ingest) into the local store."""
     ensure_parsers_loaded()
     from agent_utilities.usage import get_usage_backend
@@ -257,6 +273,8 @@ def collect_paths(paths: list[str | Path]) -> dict:
                 matched = False
                 try:
                     for bundle in source.parse(fp):
+                        if tenant_id:
+                            bundle.session.tenant_id = tenant_id
                         if bundle.messages and recorder.record_bundle(bundle):
                             ingested += 1
                             matched = True

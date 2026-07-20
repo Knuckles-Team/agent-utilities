@@ -12,8 +12,9 @@ reasoning extrapolate across the **whole** cross-vendor crosswalk (a Camunda
 **persisted**.
 
 This module is that materializing twin: it runs an extractor by category and
-persists its batch through the one generic writer (``registry.write_batch``) —
-no new extraction logic, no second writer. The MCP/REST surface
+commits its uniform batch through the native ``ApplyChangeEnvelope`` graph-slice
+boundary — no new extraction logic and no second production writer. The MCP/REST
+surface
 (``graph_ingest action=materialize_source``) calls :func:`materialize_source`
 and then runs one reasoning cycle so the new process structure is reasoned over
 natively.
@@ -31,40 +32,72 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .registry import discover_extractors, get_source, write_batch
+from .models import ExtractionBatch
+from .registry import discover_extractors, get_source
 
 logger = logging.getLogger(__name__)
 
 
-def materialize_source(
-    backend: Any,
+def extract_source_batch(
     category: str,
     client: Any,
     *,
     config: dict[str, Any] | None = None,
-) -> tuple[int, int]:
-    """Run the registered ``category`` extractor over ``client`` and persist it.
-
-    Returns ``(nodes_written, edges_written)``. Reuses ``registry.get_source``
-    (auto-discovering extractor modules if the registry is cold) and the single
-    generic ``registry.write_batch`` writer, so this adds no source-specific
-    persistence code. A ``None`` backend is a clean no-op — the extractor still
-    runs (useful for a dry count) but nothing is written.
-    """
+) -> ExtractionBatch:
+    """Run the registered ``category`` extractor over an injected client."""
     src = get_source(category)
     if src is None:
         discover_extractors()  # lazy-import extractor modules, then retry
         src = get_source(category)
     if src is None:
         raise ValueError(f"unknown source extractor category {category!r}")
+    return src.extract({"client": client, **(config or {})})
 
-    batch = src.extract({"client": client, **(config or {})})
-    if backend is None:
+
+def materialize_source(
+    engine: Any,
+    category: str,
+    client: Any,
+    *,
+    config: dict[str, Any] | None = None,
+) -> tuple[int, int]:
+    """Run ``category`` and atomically persist its extracted graph slice.
+
+    Returns ``(nodes_written, edges_written)``. A ``None`` engine is a clean
+    extraction-only no-op. Runtime persistence uses the same governed native
+    envelope transaction as every source-sync connector.
+    """
+    batch = extract_source_batch(category, client, config=config)
+    if engine is None:
         return (0, 0)
-    # Stamp the shared provenance contract (source_system + domain) so materialized
-    # sources are uniform with the hydration path — they route into their own
-    # urn:source:<category> named graph on a SPARQL mirror.
-    n, e = write_batch(backend, batch, source=category)
+
+    entities = [
+        {
+            "id": node.id,
+            "node_type": node.type,
+            **{key: value for key, value in node.props.items() if value is not None},
+        }
+        for node in batch.nodes
+    ]
+    relationships = [
+        {
+            "source": edge.source,
+            "target": edge.target,
+            "relationship": edge.rel_type,
+            **{key: value for key, value in edge.props.items() if value is not None},
+        }
+        for edge in batch.edges
+    ]
+    from ..ingestion.envelope_ingest import ingest_graph_slice
+
+    ingest_graph_slice(
+        engine,
+        category,
+        entities,
+        relationships,
+        source_instance=category,
+    )
+    n, e = len(entities), len(relationships)
     logger.info("materialized source %s: %d nodes, %d edges", category, n, e)
     return n, e
 
@@ -201,8 +234,7 @@ def run_materialize_source(
             "reason": f"no source client for {category!r} (connector absent or creds unset)",
             "source": category,
         }
-    backend = getattr(engine, "backend", None)
-    nodes, edges = materialize_source(backend, category, client, config=config)
+    nodes, edges = materialize_source(engine, category, client, config=config)
     inferred = 0
     new_topics = 0
     try:

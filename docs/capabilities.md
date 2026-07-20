@@ -16,7 +16,7 @@ are exposed by the `graph-os` MCP server and mirrored 1:1 by the REST gateway
 
 | Group | Tools |
 |---|---|
-| Graph core (14) | `graph_query`, `graph_search`, `graph_write`, `graph_ingest`, `graph_analyze`, `graph_orchestrate`, `graph_configure`, `graph_context`, `graph_feedback`, `graph_goals`, `graph_hydrate`, `graph_message`, `graph_sessions`, `document_process` |
+| Graph core (13) | `graph_query`, `graph_search`, `graph_write`, `graph_ingest`, `graph_analyze`, `graph_orchestrate`, `graph_configure`, `graph_context`, `graph_feedback`, `graph_goals`, `graph_message`, `graph_sessions`, `document_process` |
 | Ontology (6) | `ontology_property_types`, `ontology_value_types`, `ontology_interface`, `ontology_function`, `ontology_derive`, `ontology_link_materialize` |
 | Objects (4) | `object_edits`, `object_index`, `object_permissioning`, `object_set` |
 | Connectors (1) | `source_connector` |
@@ -88,17 +88,19 @@ the `kg-ingest` consumer group from any host. See
 
 ```python
 # Decompose a goal into a coordinated team at runtime
-await kg_server._execute_tool("graph_orchestrate", action="execute_agent",
+await kg_server._execute_tool("graph_orchestrate",
     agent_name="researcher", task="Summarize Q3 incident trends")
 ```
 
-`graph_orchestrate` actions: `dispatch`, `execute_agent`, `swarm`, `consensus`,
-`start_debate`, `compile_workflow`, `compile_process`, `execute_workflow`,
-`request_approval`, `grant_approval`, `submit_risk_veto`, `publish_proposal`.
+`graph_orchestrate` delegates one named agent. Focused current surfaces own the
+rest: `graph_agents` (swarm, computer use, runtime orgs), `graph_jobs` (dispatch
+and status), `graph_workflows` (compile, execute, dispatch, inspect, export),
+`graph_governance` (approvals, vetoes, policy checks), `graph_evolution`,
+`graph_rlm`, and `graph_domain_ops`.
 Recursive nesting, circuit breakers, cognitive-scheduler quotas, and
 blast-radius scoping are built in (pillar 1).
 
-With `AGENT_DISPATCH_BACKEND=queue`, agent turns dispatch through a
+Agent turns always dispatch through a
 session-partitioned durable queue (`AgentTurnEnvelope`) consumed by a stateless
 `agent-dispatch-worker` fleet on any host — per-session serial execution,
 crash-safe at-least-once claims, and worker placement visible at
@@ -141,10 +143,24 @@ Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,
 
 ## Analysis & reasoning
 
-`graph_analyze` actions: `synthesize`, `deep_extract`, `blast_radius`, `inspect`,
-`causal`, `invariant`, `forecast`, `security_scan`, `evaluate`. Plus OWL/RDFS
-forward-chaining reasoning in the Rust engine (`reason()` over the
-`epistemic-graph` client).
+`graph_analyze` is the strict structural/operations surface: `inspect`,
+`enrichment_coverage`, `process_writeback`, `placement_plan`, `infra_sweep`, and
+`security_scan`. Analysis in other domains uses the focused tools:
+`graph_code` for code intelligence and blast radius, `graph_research` for
+synthesis and extraction, `graph_evaluate` for evaluation/causal/forecast work,
+`graph_explain` for grounded context, and `graph_observe` for trace analytics.
+OWL/RDFS forward-chaining reasoning remains native to the Rust engine
+(`reason()` over the `epistemic-graph` client).
+
+**Enterprise operations causal graph** (Codex X-2) is a separate, more specific
+tool: `graph_ops_causal` (`join`/`root_cause`/`blast_radius`/`change_risk`/
+`control_evidence` actions, `mcp/tools/ops_causal_tools.py`) joins the connector
+fleet's own entities (Langfuse trace/generation → agent/tool/model → service →
+deployment → commit/merge-request → incident/change → LeanIX capability →
+policy/control/evidence) into one causal chain and reasons over it with the
+existing causal-reasoning engine — distinct from `graph_evaluate`'s general
+causal analysis and `graph_code`'s code blast-radius analysis. See the
+`graph-research-and-analysis` skill.
 
 **Enterprise operations causal graph** (Codex X-2) is a separate, more specific
 tool: `graph_ops_causal` (`join`/`root_cause`/`blast_radius`/`change_risk`/
@@ -162,7 +178,7 @@ arbitrary graph structure rather than this specific ops entity chain. See the
 Beyond the graph-os surface, the agent harness gives coding agents the machinery to
 edit code reliably and drive long-horizon work:
 
-- **Apply code edits** — `apply_edits(edits, root, fmt)` (`tools/developer_tools.py`)
+- **Apply code edits** — governed DevWorkspace `edit_file`, backed by the shared edit engine
   parses SEARCH/REPLACE blocks or unified diffs and applies them with fuzzy matching
   (so edits land despite whitespace drift) plus a reflection loop on failure. See
   [Edit-Application Engine](architecture/edit_application_engine.md) (CONCEPT:AU-ORCH.execution.robust-multi-format-edit).
@@ -180,10 +196,17 @@ edit code reliably and drive long-horizon work:
 Every gateway request passes through server-minted identity (OS-5.14): JWT
 bearer tokens are validated and scoped into an `ActorContext`
 (`agent_utilities/security/request_identity.py`), permission checks fail
-closed, and engine connections authenticate with an HMAC shared secret. With
-`KG_AUTH_REQUIRED` set, unauthenticated requests are rejected with 401. In
+closed, and engine connections authenticate with an HMAC shared secret.
+Unauthenticated requests are always rejected with 401 outside health probes. In
 sharded deployments the ambient tenant also drives graph placement (see below).
 Walkthrough: [identity & JWT example](examples/identity-jwt.md).
+
+The unauthenticated health exception is liveness only: the response is
+`{"status":"ok"}` with `Cache-Control: no-store` and contains no component,
+readiness, version, endpoint, or topology detail. Detailed operational health
+remains behind authenticated doctor and fleet surfaces. Only the explicit or
+identity-mapped `kg:admin` capability grants graph administration; a generic
+application role named `admin` does not.
 
 ## Scale out: shards, workers, and one shared state store
 
@@ -192,9 +215,9 @@ all byte-for-byte unchanged at defaults:
 
 | Plane | Mechanism | Flag / entry point |
 |---|---|---|
-| KG engine | Tenant-sharded engines behind client-side HRW routing, per-shard reachability at `/api/dashboard/daemon/shards` | `GRAPH_SERVICE_ENDPOINTS` (2+ endpoints), `docker/engine-shards.compose.yml` |
+| KG engine | Engine-authoritative placement catalog routes tenant graphs to fenced MultiRaft groups | one stable coordinator in `GRAPH_SERVICE_ENDPOINTS`; optional strict `GRAPH_RAFT_GROUP_ENDPOINTS` map for group-specific endpoints |
 | Ingestion | Kafka `kg_tasks` keyed partitions + `kg-ingest` consumer group | `TASK_QUEUE_BACKEND=kafka`, `kg-ingest-worker` |
-| Agent execution | Session-keyed `agent_turns` queue + dispatch-worker fleet | `AGENT_DISPATCH_BACKEND=queue`, `agent-dispatch-worker` |
+| Agent execution | Session-keyed `agent_turns` queue + dispatch-worker fleet | `agent-dispatch-worker` |
 | Gateway | Pre-forked workers, per-tenant token-bucket rate limiting, engine circuit breaker | `GATEWAY_WORKERS`, `GATEWAY_RATE_LIMIT` |
 | Durable state | One shared Postgres store with SKIP LOCKED queue claims + advisory-lock daemon leadership | `STATE_DB_URI` |
 
@@ -237,7 +260,7 @@ Catalog: [metrics reference](reference/metrics.md) ·
 Any `agent-packages/agents/*` connector follows the same template
 (`create_mcp_server()` in `agent_utilities/mcp/server_factory.py`) and can run
 as a streamable-http container — see [Day-0](guides/day0.md) and the
-[ecosystem map](ecosystem.md). The `mcp-multiplexer` that aggregates the fleet
+[ecosystem map](ecosystem.md). GraphOS's embedded gateway that aggregates the fleet
 is hardened per child: concurrency limits, session pools, restart-on-crash,
 circuit breakers, and a `multiplexer_status` health tool (AU-ECO.mcp.profile-differences-from-client,
 `agent_utilities/mcp/child_resilience.py`).
@@ -247,4 +270,4 @@ circuit breakers, and a `multiplexer_status` health tool (AU-ECO.mcp.profile-dif
 **Full runnable examples:** `examples/reference_agent/`
 (`basic_agent.py`, `graph_agent.py`, `knowledge_graph_agent.py`, `mcp_agent.py`,
 `memory_agent.py`, `protocol_agent.py`) and the operational walkthroughs under
-[docs/examples/](examples/).
+[documentation examples](examples/mcp-consumption.md).

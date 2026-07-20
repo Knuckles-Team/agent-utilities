@@ -16,25 +16,25 @@ async def execute_mro(
     # Map of class name to node ID
     class_map = {}
     for node, data in graph.nodes(data=True):
-        if data.get("type") == "symbol" and data.get("subtype") == "Class":
+        if data.get("node_type") == "symbol" and data.get("subtype") == "Class":
             class_map[data.get("name")] = node
         # Handle cases where subtype is not set but type is Class from metadata
-        elif data.get("type") == "Class":
+        elif data.get("node_type") == "Class":
             class_map[data.get("name")] = node
 
     mro_count = 0
     for node, data in list(graph.nodes(data=True)):
-        if data.get("type") == "symbol" and data.get("subtype") == "Class":
+        if data.get("node_type") == "symbol" and data.get("subtype") == "Class":
             bases = data.get("args", [])
             for base in bases:
                 if base in class_map:
-                    graph.add_edge(node, class_map[base], type="inherits_from")
+                    graph.add_edge(node, class_map[base], relationship="inherits_from")
                     mro_count += 1
-        elif data.get("type") == "Class":
+        elif data.get("node_type") == "Class":
             bases = data.get("args", [])
             for base in bases:
                 if base in class_map:
-                    graph.add_edge(node, class_map[base], type="inherits_from")
+                    graph.add_edge(node, class_map[base], relationship="inherits_from")
                     mro_count += 1
 
     return {"resolved_mro": mro_count}

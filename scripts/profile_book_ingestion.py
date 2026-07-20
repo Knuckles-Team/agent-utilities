@@ -2,19 +2,18 @@
 """Profile document ingestion over a corpus of (large) PDFs — books by default.
 
 Times each stage so the bottleneck is obvious:
-  * read   — PDF → text (PyMuPDF fast path in read_document_text)
+  * read   — PDF → text (bounded pypdf path in read_document_text)
   * chunk  — text → chunks (the retrieval/enrichment substrate)
   * ingest — full IngestionEngine.ingest (structural + enrichment), if --ingest
              and a live engine/backend are reachable.
 
-Stages degrade gracefully: if PyMuPDF/pypdf or a live engine is absent (e.g. a
+Stages degrade gracefully: if pypdf or a live engine is absent (e.g. a
 bare sandbox), that stage reports "unavailable" rather than failing. Run it on
-the deployed stack (engine + vLLM + pymupdf) for the full end-to-end picture.
+the deployed stack (engine + vLLM + pypdf) for the full end-to-end picture.
 
 Usage::
 
-    python scripts/profile_book_ingestion.py                       # read+chunk only
-    python scripts/profile_book_ingestion.py --dir /path/to/pdfs
+    python scripts/profile_book_ingestion.py --dir CORPUS_DIR      # read+chunk only
     python scripts/profile_book_ingestion.py --ingest              # full e2e (needs engine)
     python scripts/profile_book_ingestion.py --ingest --no-enrich  # structural only
     python scripts/profile_book_ingestion.py --limit 3 --json
@@ -27,8 +26,6 @@ import asyncio
 import json
 import time
 from pathlib import Path
-
-DEFAULT_DIR = "/home/apps/workspace/prompts/books"
 
 
 def _read(path: str) -> tuple[str, float]:
@@ -78,7 +75,7 @@ async def _ingest(path: str, enrich: bool) -> tuple[dict, float]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Profile book/PDF ingestion stages.")
-    ap.add_argument("--dir", default=DEFAULT_DIR)
+    ap.add_argument("--dir", required=True)
     ap.add_argument("--limit", type=int, default=0, help="Only the N smallest files.")
     ap.add_argument(
         "--ingest", action="store_true", help="Run full ingest (needs engine)."

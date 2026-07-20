@@ -81,8 +81,8 @@ to its lineage system of record — e.g. egeria-mcp's ``assert_lineage``::
         )
     )
 
-The sink is best-effort (exceptions are logged, never raised) and the
-default ``None`` keeps the legacy behavior bit-for-bit.
+The sink is best-effort (exceptions are logged, never raised); without one,
+close-out remains graph-local.
 """
 
 from __future__ import annotations
@@ -371,7 +371,7 @@ class WorkflowRunner:
 
         CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Plan Execution
         """
-        session_id = trace_session or f"wf-{uuid.uuid4().hex[:8]}"
+        session_id = trace_session or f"wf-{uuid.uuid4().hex}"
 
         exec_res = await self.execute_via_parallel_engine(
             plan=plan,
@@ -509,20 +509,66 @@ class WorkflowRunner:
 
             import time as _time
 
+            from agent_utilities.observability.trace_ontology import (
+                OUTCOME_NODE_LABEL,
+                TRACE_NODE_LABEL,
+                TRACE_PRODUCED_OUTCOME_EDGE,
+                next_event_sequence,
+                outcome_id,
+                outcome_properties,
+                trace_properties,
+            )
+            from agent_utilities.observability.trace_ontology import (
+                trace_id as canonical_trace_id,
+            )
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
             ts = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime())
-            trace_id = f"trace:{result.session_id}"
+            trace_id = canonical_trace_id(result.session_id)
+            event_sequence = next_event_sequence()
+            properties = trace_properties(
+                run_id=result.session_id,
+                agent_name="workflow-runner",
+                task="workflow execution",
+                status=result.status,
+                timestamp=ts,
+                duration_ms=result.total_duration_ms,
+                event_sequence=event_sequence,
+            )
+            properties.update(
+                {
+                    "workflow_ref": persistence_reference(
+                        "workflow",
+                        workflow_id or workflow_name,
+                        namespace="execution-trace",
+                    ),
+                    "workflow_id": workflow_id,
+                }
+            )
             # Upsert the workflow-level RunTrace (agent_runner's per-step
             # traces use their own run ids; this is the run's umbrella node).
             engine.add_node(
                 trace_id,
-                "RunTrace",
-                properties={
-                    "workflow_name": workflow_name,
-                    "workflow_id": workflow_id,
-                    "status": result.status,
-                    "duration_ms": round(result.total_duration_ms, 1),
-                    "timestamp": ts,
-                },
+                TRACE_NODE_LABEL,
+                properties=properties,
+            )
+            outcome_node_id = outcome_id(result.session_id)
+            engine.add_node(
+                outcome_node_id,
+                OUTCOME_NODE_LABEL,
+                properties=outcome_properties(
+                    run_id=result.session_id,
+                    status=result.status,
+                    timestamp=ts,
+                    event_sequence=event_sequence,
+                ),
+            )
+            engine.link_nodes(
+                trace_id,
+                outcome_node_id,
+                TRACE_PRODUCED_OUTCOME_EDGE,
             )
             engine.link_nodes(
                 trace_id,
@@ -573,7 +619,7 @@ class WorkflowRunner:
         MCP toolset and runs the tool-calling loop on the LOCAL LLM, with each step's
         RunTrace + :ToolCall provenance (KG-2.296) written for free. This is the
         execution half of "ingested workflow → executed", routed here from
-        ``graph_orchestrate action=execute_workflow``.
+        ``graph_workflows action=execute``.
         """
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
 
@@ -829,7 +875,7 @@ class WorkflowRunner:
 
         from agent_utilities.orchestration.agent_runner import run_agent
 
-        session_id = trace_session or f"wf-{uuid.uuid4().hex[:8]}"
+        session_id = trace_session or f"wf-{uuid.uuid4().hex}"
         wf_started = _time.monotonic()
 
         steps = list(plan.steps)

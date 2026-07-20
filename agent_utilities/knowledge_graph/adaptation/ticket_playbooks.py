@@ -16,7 +16,7 @@ and the same way across Jira and *both* Plane instances:
 2. **Dispatches a workflow** — when a workflow name is configured
    (``JIRA_TICKET_WORKFLOW`` / ``PLANE_TICKET_WORKFLOW``), runs it via the orchestrator
    with the ticket as context. This is the seam where a concrete ticket→PR pipeline
-   (intake-gate → coder → reviewer → CI, defined as a graph_orchestrate workflow) plugs
+   (intake-gate → coder → reviewer → CI, defined as a graph_workflows DAG) plugs
    in — the playbook stays generic; the pipeline is data.
 3. **Notifies the operator** — a Telegram (last-active channel) message via
    ``MessagingService.reach_user`` — the cockpit for the loop.
@@ -63,7 +63,7 @@ def _notify(engine: Any, text: str) -> None:
 def _dispatch_workflow(
     engine: Any, workflow: str, ticket: str, source: str
 ) -> str | None:
-    """Run the configured graph_orchestrate workflow for this ticket (or None)."""
+    """Run the configured graph_workflows DAG for this ticket (or None)."""
     if not workflow:
         return None
     try:

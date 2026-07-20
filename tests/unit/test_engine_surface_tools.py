@@ -133,6 +133,31 @@ def test_kg_2_310_broker_degrades_when_surface_absent(monkeypatch, tools):
     assert "not available" in out["error"]
 
 
+def test_engine_surface_failure_redacts_transport_exception(monkeypatch, caplog):
+    sensitive = "https://identity:credential@private.invalid/local/path"
+
+    def _fail(_graph):
+        raise RuntimeError(sensitive)
+
+    monkeypatch.setattr(engine_surface_tools, "_client", _fail)
+    out = json.loads(
+        engine_surface_tools._invoke(
+            surface="broker",
+            action="publish",
+            graph="",
+            candidates=(("broker", "publish"),),
+            params={},
+        )
+    )
+
+    assert out["surface"] == "broker"
+    assert out["action"] == "publish"
+    assert out["error"]["code"] == "dependency_unavailable"
+    assert sensitive not in json.dumps(out)
+    assert sensitive not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 # ── graph_kvcache ────────────────────────────────────────────────────────────
 class _FakeKV:
     def __init__(self, store=None) -> None:
@@ -454,7 +479,7 @@ def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
 
     monkeypatch.setattr(engine_surface_tools, "_client", _boom)
     out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
-    assert "engine unavailable" in out["error"]
+    assert out["error"]["code"] == "dependency_unavailable"
 
 
 # ── graph_mine_deep (CONCEPT:AU-KG.mining.dsm-forecast-delegation — Phase 6) ─────────────────
@@ -656,7 +681,7 @@ def test_graph_mine_deep_degrades_when_data_science_mcp_unreachable(monkeypatch,
     )
     assert out["available"] is False
     assert out["delegated"] is True
-    assert "delegated-unavailable" in out["error"]
+    assert out["error"]["code"] == "dependency_unavailable"
 
 
 def test_graph_mine_deep_passes_through_torch_unavailable(monkeypatch, tools):
@@ -747,4 +772,4 @@ def test_graph_mine_deep_missing_input_is_reported(tools):
             action="autoencoder_anomaly", params_json="{}", graph=""
         )
     )
-    assert "provide" in out["error"]
+    assert out["error"]["code"] == "operation_failed"

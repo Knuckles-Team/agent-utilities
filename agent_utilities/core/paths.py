@@ -16,16 +16,10 @@ Architecture:
     - ``cache_dir()``: ``~/.cache/agent-utilities/`` — embedding caches,
       similarity indexes, skill graph cache
 
-All paths can be overridden via environment variables:
+Directory roots can be overridden via environment variables:
     - ``AGENT_UTILITIES_CONFIG_DIR``
     - ``AGENT_UTILITIES_DATA_DIR``
     - ``AGENT_UTILITIES_CACHE_DIR``
-    - ``GRAPH_DB_PATH`` (specific KG database override)
-
-Backward Compatibility:
-    If a ``knowledge_graph.db`` exists in the workspace root, it takes
-    priority over the XDG data directory. This ensures existing setups
-    continue to work without migration.
 """
 
 from __future__ import annotations
@@ -52,13 +46,23 @@ def config_dir() -> Path:
     Contains:
         - ``mcp_config.json`` — MCP server discovery (cross-IDE)
         - ``a2a_config.json`` — A2A agent discovery
-        - ``agent.env`` — Global environment overrides
+        - ``config.json`` — typed, reference-only runtime configuration
+        - ``runtime-secrets.json`` — optional private ``env://`` value source
         - ``policies/`` — Global policy overrides
     """
     override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+
+
+def runtime_secrets_path() -> Path:
+    """Return the implicit private source for referenced runtime secret values.
+
+    The filename is fixed beneath :func:`config_dir`; there is intentionally no
+    setting for a machine-specific file path.
+    """
+    return config_dir() / "runtime-secrets.json"
 
 
 def data_dir() -> Path:
@@ -106,10 +110,12 @@ def skills_dir() -> Path:
     Override via ``AGENT_UTILITIES_SKILLS_DIR`` environment variable.
 
     This is the standard drop-in location for skills the agent should have at its
-    disposal beyond the packaged ``universal-skills`` / ``skill-graphs``: the
-    ``skill-installer`` installs here, and the agent factory loads every ``SKILL.md``
-    directory found here (in addition to the discovered packages). Set
-    ``custom_skills_directory`` / ``CUSTOM_SKILLS_DIRECTORY`` to point elsewhere.
+    disposal beyond packaged providers. Operator-owned skills use the flat
+    ``skills/<skill>/SKILL.md`` form. Nested provider roots contain immutable
+    ``skills/<provider>/.generations/<digest>/`` trees selected by a closed v2
+    marker. They load only when registration, source, marker, and content digests
+    agree. Set ``custom_skills_directory`` / ``CUSTOM_SKILLS_DIRECTORY`` for a
+    separate operator-managed tree. Duplicate skill identities fail closed.
     """
     override = os.environ.get("AGENT_UTILITIES_SKILLS_DIR")
     if override:
@@ -144,9 +150,10 @@ def unified_prompts_dir() -> Path:
 
     CONCEPT:AU-OS.governance.concept-2 — one leg of the unified install tree. The
     ``agent-utilities install`` command materializes every ``prompt_providers``
-    contribution (plus the hub's own base prompts) here as
-    ``prompts/<provider>/*.json``, and the prompt ``registry_builder`` reads it
-    first (falling back to live entry-point discovery when unpopulated).
+    contribution (plus the hub's own base prompts) here as content-addressed
+    ``prompts/<provider>/.generations/<digest>/*.json``. The prompt registry uses a
+    generation only when it exactly matches the current distribution-owned source;
+    otherwise it reads that validated current source directly.
 
     Distinct from :func:`prompts_dir` (the *config*-dir operator override layer):
     this is the runtime materialization sink under the *data* dir, alongside
@@ -155,47 +162,16 @@ def unified_prompts_dir() -> Path:
     return data_dir() / "prompts"
 
 
-def kg_db_path(workspace: Path | str | None = None) -> Path:
-    """Resolve the Knowledge Graph database path with priority chain.
+def kg_db_path() -> Path:
+    """Return the canonical XDG path for the embedded graph database.
 
-    Resolution order:
-        1. ``GRAPH_DB_PATH`` environment variable (explicit override)
-        2. XDG data directory ``~/.local/share/agent-utilities/kg/knowledge_graph.db``
-           (shared KG — canonical location for all agents)
-        3. Workspace-local ``knowledge_graph.db`` (deprecated, emits warning)
-
-    Args:
-        workspace: Optional workspace root path. If provided and a
-            ``knowledge_graph.db`` exists there, a deprecation warning
-            is emitted. Set ``GRAPH_DB_PATH`` explicitly to use a
-            workspace-local database.
-
-    Returns:
-        Resolved path to the KG database file.
+    External and custom database locations are supplied through
+    ``GRAPH_DB_CONNECTION_PROFILE_REF``.  The embedded default intentionally
+    has no independent path override so every non-default connection follows
+    the same secret-reference contract.
     """
-    # Priority 1: Explicit environment override
-    env_path = os.environ.get("GRAPH_DB_PATH")
-    if env_path:
-        return Path(env_path).expanduser()
-
-    # Priority 2: XDG data directory (shared KG — canonical location)
     xdg_path = data_dir() / "kg" / "knowledge_graph.db"
     xdg_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Priority 3: Workspace-local fallback (deprecated, warn if found)
-    if workspace:
-        ws = Path(workspace)
-        local_db = ws / "knowledge_graph.db"
-        if local_db.exists():
-            logger.warning(
-                "DEPRECATED: Found workspace-local knowledge_graph.db at %s. "
-                "Set GRAPH_DB_PATH=%s to use it explicitly, or remove it to "
-                "use the shared XDG database at %s.",
-                local_db,
-                local_db,
-                xdg_path,
-            )
-
     return xdg_path
 
 

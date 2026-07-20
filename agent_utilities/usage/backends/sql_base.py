@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from agent_utilities.pricing import ModelPricing
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 from ..backend import UsageBackend
 from ..models import (
@@ -28,6 +29,13 @@ from ..models import (
     UsageSummary,
     UsageToolCall,
 )
+from ..privacy import (
+    normalize_bundle,
+    normalize_run_id,
+    normalize_tenant_id,
+    normalize_tool_call,
+    normalize_usage_event,
+)
 
 _SESSION_FILTER_COLS = {
     "project": "project",
@@ -37,6 +45,9 @@ _SESSION_FILTER_COLS = {
     "health_grade": "health_grade",
     "outcome": "outcome",
 }
+_SESSION_ORDER_BY = frozenset(
+    {"COALESCE(SUM(e.cost_usd),0) DESC", "s.started_at DESC"}
+)
 
 
 def _now() -> str:
@@ -71,10 +82,14 @@ class SqlUsageBackend(UsageBackend):
 
     # ── helpers ─────────────────────────────────────────────────────────
     def _ph(self) -> str:
+        if self.placeholder not in {"?", "%s"}:
+            raise ValueError("unsupported SQL parameter placeholder")
         return self.placeholder
 
     def _where(self, filters: dict, *, alias: str = "") -> tuple[str, list]:
         """Build a WHERE clause from session-scoped filters + date range."""
+        if alias not in {"", "s"}:
+            raise ValueError("unsupported SQL query alias")
         prefix = f"{alias}." if alias else ""
         clauses: list[str] = []
         params: list = []
@@ -82,6 +97,8 @@ class SqlUsageBackend(UsageBackend):
         for key, col in _SESSION_FILTER_COLS.items():
             val = filters.get(key)
             if val:
+                if key == "tenant_id":
+                    val = normalize_tenant_id(str(val))
                 clauses.append(f"{prefix}{col} = {ph}")
                 params.append(val)
         if filters.get("from_date"):
@@ -99,6 +116,7 @@ class SqlUsageBackend(UsageBackend):
 
     # ── writes ──────────────────────────────────────────────────────────
     def write_bundle(self, bundle: ParsedSessionBundle) -> None:
+        bundle = normalize_bundle(bundle)
         s = bundle.session
         ph = self._ph()
         with self._connect() as conn:
@@ -173,6 +191,7 @@ class SqlUsageBackend(UsageBackend):
             self._index_messages(conn, s.id, bundle.messages)
 
     def _insert_tool_call(self, conn, t: UsageToolCall) -> None:
+        t = normalize_tool_call(t)
         ph = self._ph()
         conn.execute(
             f"""INSERT INTO tool_calls
@@ -199,6 +218,7 @@ class SqlUsageBackend(UsageBackend):
         )
 
     def _insert_usage_event(self, conn, e: UsageEvent) -> None:
+        e = normalize_usage_event(e)
         ph = self._ph()
         # Dedup-aware: skip when (session, source, dedup_key) already present.
         if e.dedup_key:
@@ -270,10 +290,12 @@ class SqlUsageBackend(UsageBackend):
 
     # ── sync skip cache ─────────────────────────────────────────────────
     def should_sync(self, path: str, mtime: int, size: int) -> bool:
+        path_ref = persistence_reference("usage_source_file", path)
         ph = self._ph()
         with self._connect() as conn:
             cur = conn.execute(
-                f"SELECT mtime, size FROM skipped_files WHERE path = {ph}", (path,)
+                f"SELECT mtime, size FROM skipped_files WHERE path = {ph}",
+                (path_ref,),
             )
             row = cur.fetchone()
         if row is None:
@@ -281,13 +303,14 @@ class SqlUsageBackend(UsageBackend):
         return int(row[0]) != int(mtime) or int(row[1]) != int(size)
 
     def mark_synced(self, path: str, mtime: int, size: int) -> None:
+        path_ref = persistence_reference("usage_source_file", path)
         ph = self._ph()
         with self._connect() as conn:
-            conn.execute(f"DELETE FROM skipped_files WHERE path = {ph}", (path,))
+            conn.execute(f"DELETE FROM skipped_files WHERE path = {ph}", (path_ref,))
             conn.execute(
                 f"INSERT INTO skipped_files (path, mtime, size) "
                 f"VALUES ({ph}, {ph}, {ph})",
-                (path, mtime, size),
+                (path_ref, mtime, size),
             )
 
     # ── queries ─────────────────────────────────────────────────────────
@@ -424,6 +447,8 @@ class SqlUsageBackend(UsageBackend):
         return sorted(cells.values(), key=lambda c: (c.day_of_week, c.hour))
 
     def _session_rows(self, where: str, params: list, order: str, limit: int):
+        if order not in _SESSION_ORDER_BY:
+            raise ValueError("unsupported session ordering")
         ph = self._ph()
         with self._connect() as conn:
             cur = conn.execute(
@@ -465,10 +490,14 @@ class SqlUsageBackend(UsageBackend):
         where, params = self._where(filters, alias="s")
         return self._session_rows(where, params, "s.started_at DESC", limit)
 
-    def session_detail(self, session_id: str) -> SessionDetail | None:
-        rows = self._session_rows(
-            f"WHERE s.id = {self._ph()}", [session_id], "s.started_at DESC", 1
-        )
+    def session_detail(self, session_id: str, **filters) -> SessionDetail | None:
+        raw_tenant = str(filters.get("tenant_id") or "")
+        session_id = normalize_run_id(session_id, tenant_id=raw_tenant)
+        where, params = self._where(filters, alias="s")
+        conjunction = " AND " if where else " WHERE "
+        where = f"{where}{conjunction}s.id = {self._ph()}"
+        params.append(session_id)
+        rows = self._session_rows(where, params, "s.started_at DESC", 1)
         if not rows:
             return None
         ph = self._ph()

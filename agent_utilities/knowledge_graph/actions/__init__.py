@@ -38,8 +38,8 @@ Governance integration (reuses the existing fabric — nothing reinvented):
     *reasoned* to be eligible to invoke it — the OWL-substrate dividend.
 
 A module-level :data:`DEFAULT_REGISTRY` is populated at import with real
-built-in actions (``kg.search``, ``finance.forensic_screen``) and a
-:data:`DEFAULT_EXECUTOR` is bound to it — a live path, not an empty shell.
+built-in actions (``kg.search``, ``finance.forensic_screen``). Executors are
+created only with an explicitly injected permissions kernel.
 """
 
 from .builtins import register_builtins
@@ -73,14 +73,12 @@ from .models import (
 )
 from .registry import ActionHandler, ActionRegistry
 
-# CONCEPT:AU-KG.ontology.ontology-action-system — the default registry is populated at import, not an empty
-# shell. A value stored but never invoked is a bug per AGENTS.md, so the
-# DEFAULT_EXECUTOR below binds these registered actions to a live governed path.
+# CONCEPT:AU-KG.ontology.ontology-action-system — the default registry is
+# populated at import, not an empty shell. Runtime callers bind it to an
+# ActionExecutor using the central verified permissions context.
 DEFAULT_REGISTRY = ActionRegistry()
 register_builtins(DEFAULT_REGISTRY)
 register_fleet_writeback(DEFAULT_REGISTRY)
-
-DEFAULT_EXECUTOR = ActionExecutor(DEFAULT_REGISTRY)
 
 __all__ = [
     "ActionEffect",
@@ -107,7 +105,6 @@ __all__ = [
     "apply_side_effects",
     "evaluate_submission_criteria",
     "DEFAULT_REGISTRY",
-    "DEFAULT_EXECUTOR",
     "register_builtins",
     "reset_persistence_cache",
 ]

@@ -48,8 +48,10 @@ from collections.abc import Callable
 from typing import Any
 
 from agent_utilities.core.config import config
+from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 logger = logging.getLogger(__name__)
+_TRACE_PRIVACY = PersistencePrivacyGuard()
 
 # Context variables for trace propagation
 _current_trace_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -83,10 +85,14 @@ def get_kg_trace_sink() -> Any:
 
 
 def _tracing_active() -> bool:
-    """Trace when EITHER a Langfuse key OR a KG-native sink is configured. So the
-    KG-native path makes tracing always-on without requiring any vendor key, while a
-    bare process with neither configured still short-circuits (zero overhead)."""
-    return bool(config.langfuse_secret_key) or _kg_trace_sink is not None
+    """Trace for an installed KG sink or explicitly authorized Langfuse export.
+
+    Credentials alone never authorize external emission. A bare process with no
+    local sink and no authorized export short-circuits with zero overhead.
+    """
+    return _kg_trace_sink is not None or bool(
+        config.trace_export_enabled and config.langfuse_secret_key_ref
+    )
 
 
 _TRACING_MODEL_CLS: Any = None
@@ -391,17 +397,29 @@ def _safe_serialize(data: Any, max_length: int = 10000) -> Any:
     Prevents trace ingestion failures from non-serializable or
     excessively large payloads.
     """
-    if data is None:
+    clean, report = _TRACE_PRIVACY.sanitize(data)
+    if clean is None:
         return None
     try:
         import json
 
-        serialized = json.dumps(data, default=str)
+        serialized = json.dumps(clean, default=str)
         if len(serialized) > max_length:
-            return {"_truncated": True, "preview": serialized[:max_length]}
-        return data
+            return {
+                "_truncated": True,
+                "preview": serialized[:max_length],
+                "privacy": report.as_dict(),
+            }
+        if report.changed and isinstance(clean, dict):
+            clean = dict(clean)
+            clean.setdefault("_privacy", report.as_dict())
+        return clean
     except (TypeError, ValueError):
-        return {"_type": type(data).__name__, "repr": repr(data)[:1000]}
+        return {
+            "_type": type(data).__name__,
+            "_privacy": report.as_dict(),
+            "value": "[REDACTED_UNSERIALIZABLE]",
+        }
 
 
 def _emit_trace(
@@ -446,13 +464,54 @@ def _emit_trace(
         session_id: Optional session ID for grouping.
         is_root: Whether this is a root trace (vs child span).
     """
+    # Identifiers are join keys and cannot be safely rewritten without breaking
+    # the trace graph. Refuse persistence when the privacy guard detects
+    # personal or machine-specific content in one of them.
+    for identifier in (trace_id, span_id, parent_span_id):
+        if identifier is None:
+            continue
+        _, identifier_report = _TRACE_PRIVACY.sanitize_text(identifier)
+        if identifier_report.changed:
+            logger.debug("Trace emission skipped: unsafe identifier")
+            return
+
+    name = str(_safe_serialize(name))
+    input_data = _safe_serialize(input_data)
+    output_data = _safe_serialize(output_data)
+    metadata = _safe_serialize(metadata or {})
+    if not isinstance(metadata, dict):
+        metadata = {"value": metadata}
+    status_message = (
+        str(_safe_serialize(status_message)) if status_message is not None else None
+    )
+    tags = [str(_safe_serialize(tag)) for tag in (tags or [])]
+    session_id = str(_safe_serialize(session_id)) if session_id is not None else None
+
+    capture_content = bool(config.langfuse_capture_content)
+    export_metadata = metadata
+    if not capture_content:
+        export_metadata = {
+            key: metadata[key]
+            for key in (
+                "model",
+                "provider",
+                "input_tokens",
+                "output_tokens",
+            )
+            if key in metadata
+        }
+        export_metadata["content_retention"] = "metadata"
+    exported_status_message = status_message if capture_content else None
+    if level == "ERROR" and status_message and not capture_content:
+        exported_status_message = "error"
+
     # Always-on KG-native sink (CONCEPT:AU-OS.config.model-factory-passthrough): persist a Trace/Span/Generation node
     # independent of Langfuse, so every traced call is graph-queryable. Best-effort —
     # a sink failure never breaks the traced function.
     sink = _kg_trace_sink
     if sink is not None and hasattr(sink, "record_event"):
         try:
-            md = metadata or {}
+            md = metadata
             kind = "llm" if "generation" in (trace_type or "").lower() else "general"
             sink.record_event(
                 trace_id=trace_id,
@@ -462,21 +521,28 @@ def _emit_trace(
                 kind=kind,
                 parent_span_id=parent_span_id,
                 session_id=session_id,
-                error=status_message if level == "ERROR" else None,
+                error=exported_status_message if level == "ERROR" else None,
                 model=md.get("model"),
                 provider=md.get("provider"),
                 input_tokens=int(md.get("input_tokens", 0) or 0),
                 output_tokens=int(md.get("output_tokens", 0) or 0),
                 tags=tags,
-                # Root input/output text — what online-scoring/regression judges against.
-                input_text=str(input_data)[:4000] if is_root else "",
-                output_text=str(output_data)[:4000] if is_root else "",
+                # Content retention is a single explicit opt-in across both sinks.
+                # Metadata-only mode must not persist arguments or results locally
+                # while the optional external fan-out remains disabled by default.
+                input_text=(
+                    str(input_data)[:4000] if is_root and capture_content else ""
+                ),
+                output_text=(
+                    str(output_data)[:4000] if is_root and capture_content else ""
+                ),
             )
         except Exception as e:  # pragma: no cover - tracing must never break callers
-            logger.debug("KG trace emit failed: %s", e)
+            logger.debug("KG trace emit failed (%s)", type(e).__name__)
 
-    # Optional Langfuse fan-out (only when a Langfuse key is configured).
-    if not config.langfuse_secret_key:
+    # Credentials identify the destination; TRACE_EXPORT_ENABLED separately
+    # authorizes external emission. Neither one may implicitly enable the other.
+    if not config.trace_export_enabled or not config.langfuse_secret_key_ref:
         return
     try:
         from agent_utilities.harness.trace_backend import (
@@ -493,18 +559,19 @@ def _emit_trace(
 
         if is_root:
             # Create the parent trace first
+            trace_body: dict[str, Any] = {
+                "id": trace_id,
+                "name": name,
+                "metadata": export_metadata,
+                "tags": tags,
+            }
+            if capture_content:
+                trace_body.update({"input": input_data, "output": output_data})
             trace_event: dict[str, Any] = {
                 "id": str(uuid.uuid4()),
                 "type": "trace-create",
                 "timestamp": start_time,
-                "body": {
-                    "id": trace_id,
-                    "name": name,
-                    "input": input_data,
-                    "output": output_data,
-                    "metadata": metadata or {},
-                    "tags": tags or [],
-                },
+                "body": trace_body,
             }
             if session_id:
                 trace_event["body"]["sessionId"] = session_id
@@ -516,30 +583,31 @@ def _emit_trace(
             # Root traces don't need an additional span
             pass
         else:
+            span_body: dict[str, Any] = {
+                "id": span_id,
+                "traceId": trace_id,
+                "name": name,
+                "startTime": start_time,
+                "endTime": end_time,
+                "level": level,
+                "metadata": export_metadata,
+            }
+            if capture_content:
+                span_body.update({"input": input_data, "output": output_data})
             span_event: dict[str, Any] = {
                 "id": str(uuid.uuid4()),
                 "type": actual_type,
                 "timestamp": start_time,
-                "body": {
-                    "id": span_id,
-                    "traceId": trace_id,
-                    "name": name,
-                    "startTime": start_time,
-                    "endTime": end_time,
-                    "input": input_data,
-                    "output": output_data,
-                    "level": level,
-                    "metadata": metadata or {},
-                },
+                "body": span_body,
             }
             if parent_span_id:
                 span_event["body"]["parentObservationId"] = parent_span_id
-            if status_message:
-                span_event["body"]["statusMessage"] = status_message
+            if exported_status_message:
+                span_event["body"]["statusMessage"] = exported_status_message
             batch.append(span_event)
 
         if batch:
             api.ingestion_batch(batch=batch)
 
     except Exception as e:
-        logger.debug("Failed to emit Langfuse trace: %s", e)
+        logger.debug("Failed to emit Langfuse trace (%s).", type(e).__name__)

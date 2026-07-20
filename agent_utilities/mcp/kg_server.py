@@ -21,19 +21,19 @@ Security:
 
 Usage:
     # Start as stdio MCP server (default):
-    uv run agent-utilities-kg
+    graph-os --transport stdio
 
     # Start as HTTP transport:
-    uv run agent-utilities-kg --transport streamable-http --port 8100
+    graph-os --transport streamable-http --host 127.0.0.1 --port 8004
 
 Cross-IDE Discovery:
     Register in ``~/.config/agent-utilities/mcp_config.json``::
 
         {
           "mcpServers": {
-            "agent-utilities-kg": {
-              "command": "uv",
-              "args": ["run", "agent-utilities-kg"]
+            "graph-os": {
+              "command": "graph-os",
+              "args": ["--transport", "stdio"]
             }
           }
         }
@@ -42,15 +42,21 @@ Cross-IDE Discovery:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
+import re
 import threading
-import time as _time
+import time
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime
+from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
+from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
@@ -81,96 +87,60 @@ def _build_dummy_request(path_params=None, json_body=None):
     return req
 
 
-# Server-side identity for stdio MCP (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): minted once at startup
-# from a validated KG_AUTH_TOKEN. None = no validated process identity.
-_PROCESS_ACTOR: Any = None
+# Server-side authority for stdio MCP, minted once from configured runtime
+# secret-reference/OAuth2 identity. Network requests receive their session from middleware and
+# never fall back to this process authority.
+_PROCESS_SESSION: Any = None
+_PROCESS_SESSION_REFRESH_LOCK = threading.Lock()
+_PROCESS_AUTHORITY_STOP = threading.Event()
+_PROCESS_AUTHORITY_THREAD: threading.Thread | None = None
 
-# Tools an UNAUTHENTICATED caller may still use when KG_AUTH_REQUIRED is on
-# (stdio without a valid KG_AUTH_TOKEN). Deliberately a conservative read-only
-# surface: pure reads with no graph mutation side effects.
-ANONYMOUS_READ_TOOLS: frozenset[str] = frozenset(
-    {"graph_query", "graph_search", "graph_context", "graph_analyze"}
-)
-
-
-def _kg_auth_required() -> bool:
-    """Whether server-validated identity is mandatory (KG_AUTH_REQUIRED)."""
-    from agent_utilities.core.config import config
-
-    return bool(getattr(config, "kg_auth_required", False))
+_CALLER_AUTHORITY_FIELDS = frozenset({"_actor", "_roles", "_tenant"})
 
 
-def _actor_from_mcp_token() -> Any:
-    """Mint an actor from FastMCP's validated access token, when present.
+def _reject_caller_authority(kwargs: dict[str, Any]) -> None:
+    """Reject legacy tool fields that attempted to self-assert authority."""
+    if _CALLER_AUTHORITY_FIELDS.intersection(kwargs):
+        raise PermissionError("Caller-supplied graph authority is forbidden")
 
-    On the streamable-http transport FastMCP's own auth provider (configured
-    via ``create_mcp_server``) validates the Bearer token; its claims are the
-    same server-side trust root the gateway middleware uses. Returns None
-    outside a token-authenticated MCP request.
+
+@contextlib.contextmanager
+def verified_tool_session_scope():
+    """Scope one served tool call to middleware/process-minted authority.
+
+    Identity, tenant, audience, and policy revision are validated before tool
+    dispatch. The error surface deliberately omits principal, tenant, token,
+    endpoint, and policy values.
     """
-    try:
-        from fastmcp.server.dependencies import get_access_token
-
-        token = get_access_token()
-        claims = getattr(token, "claims", None)
-        if claims:
-            from ..security.request_identity import actor_from_claims
-
-            return actor_from_claims(dict(claims))
-    except Exception:  # noqa: BLE001 — no request context / no auth configured
-        return None
-    return None
-
-
-def _actor_from_kwargs(kwargs: dict) -> Any:
-    """Resolve the actor a tool call runs as (CONCEPT:AU-KG.research.research-pipeline-runner / OS-5.14).
-
-    Always pops ``_actor``/``_roles``/``_tenant`` so they are not forwarded to
-    the tool. Server-minted identity wins over caller-supplied kwargs:
-
-    1. An ``authenticated`` ambient actor (set by the gateway's
-       ``ActorIdentityMiddleware``) is kept — caller kwargs are ignored.
-    2. A validated FastMCP access token (streamable-http transport) is minted.
-    3. The validated stdio process identity (``KG_AUTH_TOKEN``) is used.
-    4. With ``KG_AUTH_REQUIRED`` on, caller kwargs are ignored entirely
-       (server-side identity only) — the ambient default applies.
-    5. Otherwise (legacy honor-system mode) the caller-supplied kwargs build
-       the actor, exactly as before.
-
-    Returns None when the ambient actor should be kept.
-    """
-    actor_id = kwargs.pop("_actor", None)
-    roles = kwargs.pop("_roles", None)
-    tenant = kwargs.pop("_tenant", None)
-
-    from ..security.brain_context import current_actor
-
-    if current_actor().authenticated:
-        return None  # gateway middleware already scoped this request
-
-    token_actor = _actor_from_mcp_token()
-    if token_actor is not None:
-        return token_actor
-
-    if _PROCESS_ACTOR is not None:
-        return _PROCESS_ACTOR
-
-    if _kg_auth_required():
-        return None  # server-side identity only; honor-system kwargs ignored
-
-    if not actor_id and not roles and not tenant:
-        return None
-    from ..models.company_brain import ActorType
-    from ..security.brain_context import ActorContext
-
-    if isinstance(roles, str):
-        roles = [r.strip() for r in roles.split(",") if r.strip()]
-    return ActorContext(
-        actor_id=str(actor_id or "mcp:caller"),
-        actor_type=ActorType.AI_AGENT,
-        roles=tuple(roles or ()),
-        tenant_id=str(tenant or ""),
+    from ..knowledge_graph.core.session import current_session, use_session
+    from ..security.brain_context import (
+        IdentityRequiredError,
+        current_actor,
+        use_actor,
     )
+
+    ambient = current_session()
+    session = ambient or _PROCESS_SESSION
+    if session is None:
+        raise PermissionError("Verified GraphSession required")
+    try:
+        session.engine_verified_context()
+    except PermissionError:
+        raise PermissionError("Verified GraphSession authority is incomplete") from None
+
+    try:
+        actor = current_actor()
+    except IdentityRequiredError:
+        actor = None
+    if actor is not None and actor.authenticated and actor != session.actor:
+        raise PermissionError("Verified actor and GraphSession authority differ")
+
+    with contextlib.ExitStack() as stack:
+        if ambient is None:
+            stack.enter_context(use_session(session))
+        if actor is None or actor != session.actor:
+            stack.enter_context(use_actor(session.actor))
+        yield session
 
 
 async def _execute_tool(tool_name: str, **kwargs) -> Any:
@@ -180,7 +150,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
     import inspect
 
-    from ..security.brain_context import use_actor
+    _reject_caller_authority(kwargs)
 
     # Tool functions declare params as ``name: T = Field(default=...)``. When the tool is
     # invoked through FastMCP, the schema layer resolves those defaults. Calling the raw
@@ -217,25 +187,17 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
             f"{', '.join(_missing_required)}."
         )
 
-    actor = _actor_from_kwargs(kwargs)
+    import asyncio
 
-    # CONCEPT:AU-OS.identity.authenticated-identity-enforcement — with KG_AUTH_REQUIRED on, an unauthenticated caller
-    # (stdio without a validated KG_AUTH_TOKEN) is restricted to the read-only
-    # tool surface. HTTP callers never reach here unauthenticated — the
-    # gateway middleware already rejected them with 401.
-    if _kg_auth_required():
-        from ..security.brain_context import current_actor
-
-        effective = actor if actor is not None else current_actor()
-        if (
-            not getattr(effective, "authenticated", False)
-            and tool_name not in ANONYMOUS_READ_TOOLS
-        ):
-            raise PermissionError(
-                f"KG_AUTH_REQUIRED=1: tool {tool_name!r} needs an authenticated "
-                "identity (JWT Bearer token, or KG_AUTH_TOKEN for stdio). "
-                f"Unauthenticated callers may only use: {sorted(ANONYMOUS_READ_TOOLS)}."
-            )
+    # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
+    # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
+    # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
+    # surface, a bad action, a wedged backend) freezes the whole graph-os child and
+    # disconnects EVERY connected MCP client. Run sync tools on a worker thread and bound
+    # every call with a timeout so a hung tool FAILS LOUD and frees the loop instead of taking
+    # the gateway down. The timeout is > the delegation wall-clock so execute_agent isn't
+    # killed. Threads propagate the current contextvars (actor/session) via to_thread.
+    _TOOL_CALL_TIMEOUT_S = 320.0
 
     import asyncio
 
@@ -260,9 +222,8 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
 
     async def _guarded() -> Any:
         try:
-            if actor is None:
-                return await _run()
-            with use_actor(actor):
+            await _ensure_process_authority_current()
+            with verified_tool_session_scope():
                 return await _run()
         except TimeoutError:
             return {
@@ -278,6 +239,61 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     return await _guarded()
 
 
+def build_native_graphos_toolset(
+    tool_names: list[str], *, toolset_id: str
+) -> Any:
+    """Bind registered GraphOS tools for one governed in-process delegation.
+
+    Native delegation must not connect GraphOS back to its own HTTP endpoint or
+    call raw registered functions directly.  Each generated PydanticAI tool
+    preserves the registered function's schema but dispatches through
+    :func:`_execute_tool`, which reuses the verified caller session, rejects
+    caller-supplied authority, resolves FastMCP defaults, and preserves bounded
+    dispatch isolation.  The marker is consumed by the mandatory identity-policy
+    wrapper before a specialist receives the toolset.
+    """
+
+    from pydantic_ai import Tool
+    from pydantic_ai.toolsets.function import FunctionToolset
+
+    if not tool_names or len(tool_names) != len(set(tool_names)):
+        raise ValueError("native GraphOS tool names must be non-empty and unique")
+    if not toolset_id or len(toolset_id) > 128:
+        raise ValueError("native GraphOS toolset id is invalid")
+
+    registered: list[tuple[str, Any]] = []
+    for name in tool_names:
+        if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", name or "") is None:
+            raise ValueError("native GraphOS tool name is invalid")
+        function = REGISTERED_TOOLS.get(name)
+        if function is None:
+            raise RuntimeError("requested native GraphOS tool is unavailable")
+        registered.append((name, function))
+
+    tools: list[Any] = []
+    for name, function in registered:
+        schema_source = Tool(function, name=name)
+
+        async def dispatch(_tool_name: str = name, **kwargs: Any) -> Any:
+            return await _execute_tool(_tool_name, **kwargs)
+
+        tools.append(
+            Tool.from_schema(
+                dispatch,
+                name=name,
+                description=schema_source.description,
+                json_schema=schema_source.function_schema.json_schema,
+                sequential=schema_source.sequential,
+            )
+        )
+
+    return FunctionToolset(
+        tools,
+        id=toolset_id,
+        metadata={"graphos_native": True},
+    )
+
+
 def get_existing_disabled(engine, node_id: str) -> bool:
     try:
         # 1. Try in-memory graph cache first
@@ -286,7 +302,8 @@ def get_existing_disabled(engine, node_id: str) -> bool:
                 return engine.graph_compute.graph.nodes[node_id].get("disabled", False)
         # 2. Try Cypher match as a fallback
         res = engine.query_cypher(
-            f"MATCH (n) WHERE n.id = '{node_id}' RETURN n.disabled AS disabled"
+            "MATCH (n) WHERE n.id = $node_id RETURN n.disabled AS disabled",
+            {"node_id": node_id},
         )
         if res and isinstance(res, list) and len(res) > 0:
             return bool(res[0].get("disabled", False))
@@ -296,6 +313,8 @@ def get_existing_disabled(engine, node_id: str) -> bool:
 
 
 def safe_json_load(s: Any) -> Any:
+    if hasattr(s, "model_dump"):
+        return s.model_dump()
     if isinstance(s, str):
         try:
             return json.loads(s)
@@ -341,18 +360,19 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
             "domain": domain,
             "tags": tags,
             "enabled": True,
-            "file_path": str(path_obj),
+            "file_path": f"skill://{name}",
         }
     except Exception as e:
-        logger.error(f"Failed to parse SKILL.md at {path_obj}: {e}")
+        logger.error("Failed to parse SKILL.md (%s)", type(e).__name__)
+        name = path_obj.parent.name
         return {
-            "id": path_obj.parent.name,
-            "name": path_obj.parent.name,
+            "id": name,
+            "name": name,
             "description": "",
             "domain": "",
             "tags": [],
             "enabled": True,
-            "file_path": str(path_obj),
+            "file_path": f"skill://{name}",
         }
 
 
@@ -363,12 +383,16 @@ def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
     pref_id = f"preference:toggle:{item_type}:{item_id}"
     try:
         res = engine.query_cypher(
-            f"MATCH (p:Preference) WHERE p.id = '{pref_id}' RETURN p.value as value"
+            "MATCH (p:Preference) WHERE p.id = $pref_id RETURN p.value as value",
+            {"pref_id": pref_id},
         )
         if res and len(res) > 0:
             return res[0].get("value") == "enabled"
-    except Exception as e:
-        logger.error(f"Failed to query toggle state for {pref_id}: {e}")
+    except Exception as exc:
+        logger.error(
+            "Failed to query toggle state (exception_type=%s)",
+            type(exc).__name__,
+        )
     return True  # Enabled by default
 
 
@@ -405,7 +429,8 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
 
         if node_id:
             engine.query_cypher(
-                f"MATCH (n) WHERE n.id = '{node_id}' SET n.disabled = {str(not enabled).lower()}"
+                "MATCH (n) WHERE n.id = $node_id SET n.disabled = $disabled",
+                {"node_id": node_id, "disabled": not enabled},
             )
             # Also update in-memory graph cache if active
             if (
@@ -415,18 +440,51 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
             ):
                 if node_id in engine.graph_compute.graph.nodes:
                     engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
-    except Exception as e:
-        logger.error(f"Failed to save toggle state for {pref_id}: {e}")
+    except Exception as exc:
+        logger.error(
+            "Failed to save toggle state (exception_type=%s)",
+            type(exc).__name__,
+        )
 
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+from agent_utilities.security.error_surface import public_error_payload
+
+
+def _external_failure_payload(
+    exc: BaseException, *, code: str = "operation_failed"
+) -> dict[str, str]:
+    """Return a correlation-safe public error without exception details.
+
+    Driver and tool exceptions routinely embed credentials, endpoints, local
+    paths, queries, or request payloads.  External surfaces receive only a
+    stable code/message and an opaque correlation identifier.  The matching
+    log entry deliberately records the exception *type* only.
+    """
+
+    return public_error_payload(exc, logger=logger, code=code)
+
+
+def _external_error_response(
+    exc: BaseException, *, status_code: int = 500, code: str = "operation_failed"
+) -> JSONResponse:
+    """Build the canonical exception-safe REST error response."""
+
+    return JSONResponse(
+        _external_failure_payload(exc, code=code), status_code=status_code
+    )
 
 
 async def get_tools_endpoint(request: Request) -> JSONResponse:
     """Retrieve all MCP tools, built-in tools, skills, skill graphs, and workflows categorized."""
     import json
     from pathlib import Path
+
+    from ..knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope="kg:read")
 
     engine = _get_engine()
 
@@ -462,20 +520,19 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                     {
                         "name": name,
                         "type": "MCP Server",
-                        "command": cfg.get("command", ""),
-                        "args": cfg.get("args", []),
+                        "launch_mode": "subprocess" if cfg.get("command") else "remote",
+                        "command": "[configured]" if cfg.get("command") else "",
+                        "args": ["[configured]"] if cfg.get("args") else [],
                         "status": "active" if mcp_enabled else "disabled",
                         "enabled": mcp_enabled,
                     }
                 )
         except Exception as e:
-            logger.error(f"Failed to parse mcp config: {e}")
+            logger.error("Failed to parse MCP config (%s)", type(e).__name__)
 
     # 2. Built-in Agent Tools
     builtin_tools = []
-    tools_dir = Path(
-        "/home/apps/workspace/agent-packages/agent-utilities/agent_utilities/tools"
-    )
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
     if tools_dir.exists() and tools_dir.is_dir():
         for f in tools_dir.glob("*.py"):
             if f.name.startswith("_"):
@@ -485,7 +542,7 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                 {
                     "name": f.stem,
                     "type": "Built-in Tool",
-                    "file_path": str(f),
+                    "file_path": f"tool://{f.stem}",
                     "status": "enabled" if builtin_enabled else "disabled",
                     "enabled": builtin_enabled,
                 }
@@ -494,10 +551,18 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
     # 3. Skills & Workflows
     skills = []
     workflows = []
-    univ_skills_dir = Path(
-        "/home/apps/workspace/agent-packages/skills/universal-skills/universal_skills"
+    workspace_value = (setting("WORKSPACE_PATH", "") or "").strip()
+    workspace_root = Path(workspace_value) if workspace_value else None
+    univ_skills_dir = (
+        workspace_root
+        / "agent-packages"
+        / "skills"
+        / "universal-skills"
+        / "universal_skills"
+        if workspace_root is not None
+        else None
     )
-    if univ_skills_dir.exists():
+    if univ_skills_dir is not None and univ_skills_dir.exists():
         for p in univ_skills_dir.glob("**/SKILL.md"):
             skill_info = _parse_skill_md(p)
             if "workflows" in p.parts:
@@ -515,10 +580,12 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
 
     # 4. Skill Graphs
     graphs = []
-    graphs_dir = Path(
-        "/home/apps/workspace/agent-packages/skills/skill-graphs/skill_graphs"
+    graphs_dir = (
+        workspace_root / "agent-packages" / "skills" / "skill-graphs" / "skill_graphs"
+        if workspace_root is not None
+        else None
     )
-    if graphs_dir.exists():
+    if graphs_dir is not None and graphs_dir.exists():
         for p in graphs_dir.glob("**/SKILL.md"):
             skill_info = _parse_skill_md(p)
             skill_info["type"] = "Skill Graph"
@@ -542,6 +609,9 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
 
 async def toggle_tool_endpoint(request: Request) -> JSONResponse:
     """Toggle the enabled status of an item (mcp_server, mcp_tool, builtin_tool, skill, etc.) in the graph."""
+    from ..knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope="kg:write")
     try:
         data = await request.json()
     except Exception:
@@ -591,7 +661,6 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_configure": "/graph/configure",
     "graph_context": "/graph/context",
     "graph_feedback": "/graph/feedback",
-    "graph_hydrate": "/graph/hydrate",
     "graph_sessions": "/graph/sessions",
     "graph_goals": "/graph/goals",
     "graph_message": "/graph/message",
@@ -622,7 +691,6 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_share": "/graph/share",
     "usage_query": "/usage/query",
     "ingest_sessions": "/usage/ingest-sessions",
-    "quant": "/quant",
     "research_artifact": "/research/artifact",
     "graph_loops": "/graph/loops",
     "graph_schedules": "/graph/schedules",
@@ -630,6 +698,11 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_sandbox": "/graph/sandbox",
     "graph_runvcs": "/graph/runvcs",
 }
+
+# Immutable seed used by deterministic catalog generators. Runtime registrars
+# extend ``ACTION_TOOL_ROUTES`` with their own twins, but a generator must never
+# inherit routes left behind by an earlier server build in the same process.
+BASE_ACTION_TOOL_ROUTES = MappingProxyType(dict(ACTION_TOOL_ROUTES))
 
 
 def _make_tool_endpoint(tool_name: str):
@@ -652,7 +725,7 @@ def _make_tool_endpoint(tool_name: str):
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+            return _external_error_response(e)
 
     _handler.__name__ = f"{tool_name}_endpoint"
     return _handler
@@ -667,7 +740,7 @@ async def graph_query_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_query", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_search_endpoint(request: Request) -> JSONResponse:
@@ -679,7 +752,7 @@ async def graph_search_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_search", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_endpoint(request: Request) -> JSONResponse:
@@ -691,7 +764,7 @@ async def graph_write_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_write", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_endpoint(request: Request) -> JSONResponse:
@@ -703,7 +776,7 @@ async def graph_ingest_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_endpoint(request: Request) -> JSONResponse:
@@ -715,7 +788,7 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_analyze", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 #: The graph_mine actions with a natural-body REST twin (CONCEPT:EG-KG.mining.frequent-itemset-mining).
@@ -785,7 +858,7 @@ def _make_mining_deep_endpoint(action: str):
             )
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+            return _external_error_response(e)
 
     return _endpoint
 
@@ -819,10 +892,8 @@ def _make_graphlearn_endpoint(action: str):
                 graph=graph,
             )
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
-        except Exception as exc:  # noqa: BLE001 — surface engine/core errors as data
-            return JSONResponse(
-                {"status": "error", "message": str(exc)}, status_code=500
-            )
+        except Exception as exc:  # noqa: BLE001 — canonical safe error surface
+            return _external_error_response(exc)
 
     return _endpoint
 
@@ -863,7 +934,7 @@ def _make_mining_endpoint(action: str):
             )
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+            return _external_error_response(e)
 
     return _endpoint
 
@@ -881,7 +952,7 @@ def _make_action_endpoint(tool_name: str):
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
         except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+            return _external_error_response(e)
 
     return _endpoint
 
@@ -902,7 +973,7 @@ async def graph_orchestrate_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_orchestrate", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_endpoint(request: Request) -> JSONResponse:
@@ -914,7 +985,7 @@ async def graph_configure_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_configure", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 def _to_json_str(val: Any) -> str:
@@ -939,27 +1010,10 @@ async def graph_query_federated_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # 2. Granular Graph Search endpoints
-async def graph_search_hybrid_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_search",
-            query=body.get("query", ""),
-            mode="hybrid",
-            top_k=int(body.get("top_k", 10)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
 async def graph_search_concept_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -974,7 +1028,7 @@ async def graph_search_concept_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_search_analogy_endpoint(request: Request) -> JSONResponse:
@@ -991,7 +1045,7 @@ async def graph_search_analogy_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_search_memory_endpoint(request: Request) -> JSONResponse:
@@ -1008,7 +1062,7 @@ async def graph_search_memory_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_search_discover_endpoint(request: Request) -> JSONResponse:
@@ -1022,7 +1076,7 @@ async def graph_search_discover_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_search_dci_endpoint(request: Request) -> JSONResponse:
@@ -1039,7 +1093,7 @@ async def graph_search_dci_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # 3. Granular Graph Write endpoints
@@ -1058,7 +1112,7 @@ async def graph_write_node_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
@@ -1067,7 +1121,7 @@ async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_write", action="delete_node", id=node_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_edge_endpoint(request: Request) -> JSONResponse:
@@ -1086,7 +1140,7 @@ async def graph_write_edge_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
@@ -1104,7 +1158,7 @@ async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_external_endpoint(request: Request) -> JSONResponse:
@@ -1121,7 +1175,7 @@ async def graph_write_external_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_bulk_endpoint(request: Request) -> JSONResponse:
@@ -1137,7 +1191,7 @@ async def graph_write_bulk_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_memory_endpoint(request: Request) -> JSONResponse:
@@ -1156,7 +1210,7 @@ async def graph_write_memory_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
@@ -1173,7 +1227,7 @@ async def graph_write_memory_recall_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONResponse:
@@ -1188,7 +1242,51 @@ async def graph_ontology_sync_packages_endpoint(request: Request) -> JSONRespons
         res = await _execute_tool("graph_ontology", action="sync_packages")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
+
+
+async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
+    """REST twin of ``graph_ontology action='publish_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
+
+    Push the platform's authoritative bundled TBox to a Stardog triplestore, overwriting
+    the target named graph by default so an updated ontology updates the catalog.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_ontology",
+            action="publish_stardog",
+            named_graph=body.get("named_graph", ""),
+            overwrite=bool(body.get("overwrite", True)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return _external_error_response(e)
+
+
+async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONResponse:
+    """REST twin of ``graph_ontology action='import_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-import).
+
+    Consume the TBox already living in a Stardog database / named graph back into the
+    engine, activating it for reasoning.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        res = await _execute_tool(
+            "graph_ontology",
+            action="import_stardog",
+            named_graph=body.get("named_graph", ""),
+            activate=bool(body.get("activate", True)),
+        )
+        return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except Exception as e:
+        return _external_error_response(e)
 
 
 async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
@@ -1249,7 +1347,7 @@ async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
@@ -1266,7 +1364,7 @@ async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_write_execution_endpoint(request: Request) -> JSONResponse:
@@ -1282,7 +1380,7 @@ async def graph_write_execution_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # 4. Granular Graph Ingest endpoints
@@ -1301,7 +1399,7 @@ async def graph_ingest_submit_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_corpus_endpoint(request: Request) -> JSONResponse:
@@ -1319,7 +1417,7 @@ async def graph_ingest_corpus_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
@@ -1327,7 +1425,7 @@ async def graph_ingest_jobs_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", action="jobs")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def connector_sources_endpoint(request: Request) -> JSONResponse:
@@ -1336,7 +1434,7 @@ async def connector_sources_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("source_connector", action="list")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def connector_run_endpoint(request: Request) -> JSONResponse:
@@ -1357,7 +1455,7 @@ async def connector_run_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_job_status_endpoint(request: Request) -> JSONResponse:
@@ -1366,7 +1464,7 @@ async def graph_ingest_job_status_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", action="job_status", job_id=job_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_rebuild_indexes_endpoint(request: Request) -> JSONResponse:
@@ -1374,7 +1472,7 @@ async def graph_ingest_rebuild_indexes_endpoint(request: Request) -> JSONRespons
         res = await _execute_tool("graph_ingest", action="rebuild_indexes")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_observe_endpoint(request: Request) -> JSONResponse:
@@ -1391,7 +1489,7 @@ async def graph_ingest_observe_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_materialize_endpoint(request: Request) -> JSONResponse:
@@ -1399,7 +1497,7 @@ async def graph_ingest_materialize_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", action="materialize")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_materialize_source_endpoint(request: Request) -> JSONResponse:
@@ -1420,7 +1518,7 @@ async def graph_ingest_materialize_source_endpoint(request: Request) -> JSONResp
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_sync_endpoint(request: Request) -> JSONResponse:
@@ -1428,7 +1526,7 @@ async def graph_ingest_sync_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", action="sync")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_reflect_endpoint(request: Request) -> JSONResponse:
@@ -1436,7 +1534,7 @@ async def graph_ingest_reflect_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_ingest", action="reflect")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_agent_toolkit_endpoint(request: Request) -> JSONResponse:
@@ -1453,7 +1551,7 @@ async def graph_ingest_agent_toolkit_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_ingest_knowledge_pack_endpoint(request: Request) -> JSONResponse:
@@ -1469,7 +1567,7 @@ async def graph_ingest_knowledge_pack_endpoint(request: Request) -> JSONResponse
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # 5. Granular Graph Analyze endpoints
@@ -1480,14 +1578,14 @@ async def graph_analyze_synthesize_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_research",
             action="synthesize",
             query=body.get("query", ""),
             top_k=int(body.get("top_k", 10)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_process_writeback_endpoint(request: Request) -> JSONResponse:
@@ -1510,7 +1608,7 @@ async def graph_analyze_process_writeback_endpoint(request: Request) -> JSONResp
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_deep_extract_endpoint(request: Request) -> JSONResponse:
@@ -1520,14 +1618,14 @@ async def graph_analyze_deep_extract_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_research",
             action="deep_extract",
             query=body.get("query", ""),
             top_k=int(body.get("top_k", 10)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_background_research_endpoint(request: Request) -> JSONResponse:
@@ -1537,14 +1635,14 @@ async def graph_analyze_background_research_endpoint(request: Request) -> JSONRe
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_research",
             action="background_research",
             query=body.get("query", ""),
             top_k=int(body.get("top_k", 10)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_relevance_sweep_endpoint(request: Request) -> JSONResponse:
@@ -1554,29 +1652,26 @@ async def graph_analyze_relevance_sweep_endpoint(request: Request) -> JSONRespon
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_research",
             action="relevance_sweep",
             query=body.get("query", ""),
             top_k=int(body.get("top_k", 10)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_blast_radius_endpoint(request: Request) -> JSONResponse:
     try:
-        # The endpoint contract uses ``id`` (accept legacy ``node_id`` as a fallback).
-        node_id = request.query_params.get("id") or request.query_params.get(
-            "node_id", ""
-        )
+        node_id = request.query_params.get("id", "")
         depth = int(request.query_params.get("depth", "2"))
         res = await _execute_tool(
-            "graph_analyze", action="blast_radius", id=node_id, depth=depth
+            "graph_code", action="blast_radius", node_id=node_id, depth=depth
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_inspect_endpoint(request: Request) -> JSONResponse:
@@ -1585,7 +1680,7 @@ async def graph_analyze_inspect_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_analyze", action="inspect", target=target)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
@@ -1593,18 +1688,16 @@ async def graph_analyze_call_graph_endpoint(request: Request) -> JSONResponse:
     type/scope-resolved call/inheritance graph for a symbol. ``id`` = symbol id;
     ``direction`` = callees | callers | inherits."""
     try:
-        node_id = request.query_params.get("id") or request.query_params.get(
-            "node_id", ""
-        )
+        node_id = request.query_params.get("id", "")
         direction = request.query_params.get("direction") or request.query_params.get(
             "target", "callees"
         )
         res = await _execute_tool(
-            "graph_analyze", action="call_graph", node_id=node_id, target=direction
+            "graph_code", action="call_graph", node_id=node_id, target=direction
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
@@ -1612,26 +1705,24 @@ async def graph_analyze_similar_code_endpoint(request: Request) -> JSONResponse:
     symbol's model-free MinHash/LSH near-clone neighbours (embedder-free).
     ``id`` = symbol id; ``top_k`` optional."""
     try:
-        node_id = request.query_params.get("id") or request.query_params.get(
-            "node_id", ""
-        )
+        node_id = request.query_params.get("id", "")
         top_k = int(request.query_params.get("top_k", "10"))
         res = await _execute_tool(
-            "graph_analyze", action="similar_code", node_id=node_id, top_k=top_k
+            "graph_code", action="similar_code", node_id=node_id, top_k=top_k
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_routes_endpoint(request: Request) -> JSONResponse:
     """REST twin of graph_analyze action=routes (CONCEPT:AU-KG.compute.http-route-graph): the HTTP route
     graph — each Route, its handler, and the Service that serves it."""
     try:
-        res = await _execute_tool("graph_analyze", action="routes")
+        res = await _execute_tool("graph_code", action="routes")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONResponse:
@@ -1643,14 +1734,14 @@ async def graph_analyze_change_coupling_endpoint(request: Request) -> JSONRespon
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_code",
             action="change_coupling",
             target=body.get("repo", ""),
             depth=int(body.get("min_support", 3)),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONResponse:
@@ -1664,7 +1755,7 @@ async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONRespons
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_code",
             action="code_evolution",
             target=body.get("mode", "file"),
             query=body.get("target", ""),
@@ -1672,7 +1763,7 @@ async def graph_analyze_code_evolution_endpoint(request: Request) -> JSONRespons
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
@@ -1684,7 +1775,7 @@ async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_code",
             action="adr",
             query=body.get("title", ""),
             target=body.get("status", ""),
@@ -1692,7 +1783,7 @@ async def graph_analyze_adr_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
@@ -1707,11 +1798,11 @@ async def graph_analyze_harness_gate_endpoint(request: Request) -> JSONResponse:
         import json as _json
 
         res = await _execute_tool(
-            "graph_analyze", action="harness_gate", query=_json.dumps(body)
+            "graph_evaluate", action="harness_gate", query=_json.dumps(body)
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
@@ -1727,7 +1818,7 @@ async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
         if body.get("cross_repo"):
             intent = f"{intent}+xrepo"
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_code",
             action="code_context",
             query=body.get("query", ""),
             target=intent,
@@ -1737,11 +1828,11 @@ async def graph_analyze_code_context_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
-    """REST twin of graph_analyze action=explain (CONCEPT:AU-KG.retrieval.route-question-its-domain): the universal
+    """REST twin of graph_explain action=explain (CONCEPT:AU-KG.retrieval.route-question-its-domain): the universal
     context plane. Body: ``{query, domain?, intent?, node_id?, top_k?, depth?}`` —
     routes to the domain provider (code | ops | …) and returns the cited answer."""
     try:
@@ -1753,7 +1844,7 @@ async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
         intent = str(body.get("intent", ""))
         target = f"{domain}:{intent}" if domain else intent
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_explain",
             action="explain",
             query=body.get("query", ""),
             target=target,
@@ -1763,7 +1854,7 @@ async def graph_analyze_explain_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResponse:
@@ -1776,11 +1867,11 @@ async def graph_analyze_cross_repo_usages_endpoint(request: Request) -> JSONResp
         )
         top_k = int(request.query_params.get("top_k", "200"))
         res = await _execute_tool(
-            "graph_analyze", action="cross_repo_usages", query=symbol, top_k=top_k
+            "graph_code", action="cross_repo_usages", query=symbol, top_k=top_k
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
@@ -1794,11 +1885,11 @@ async def graph_analyze_code_metrics_endpoint(request: Request) -> JSONResponse:
         )
         top_k = int(request.query_params.get("top_k", "10"))
         res = await _execute_tool(
-            "graph_analyze", action="code_metrics", target=scope, top_k=top_k
+            "graph_code", action="code_metrics", target=scope, top_k=top_k
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
@@ -1811,11 +1902,11 @@ async def graph_analyze_arch_report_endpoint(request: Request) -> JSONResponse:
         )
         top_k = int(request.query_params.get("top_k", "10"))
         res = await _execute_tool(
-            "graph_analyze", action="arch_report", target=scope, top_k=top_k
+            "graph_code", action="arch_report", target=scope, top_k=top_k
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
@@ -1825,7 +1916,7 @@ async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze",
+            "graph_explain",
             action="context",
             target=body.get("target", ""),
             query=body.get("query", ""),
@@ -1833,7 +1924,7 @@ async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_evaluate_alpha_endpoint(request: Request) -> JSONResponse:
@@ -1843,11 +1934,11 @@ async def graph_analyze_evaluate_alpha_endpoint(request: Request) -> JSONRespons
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze", action="evaluate_alpha", target=body.get("target", "")
+            "graph_evaluate", action="evaluate_alpha", target=body.get("target", "")
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_evaluate_endpoint(request: Request) -> JSONResponse:
@@ -1857,43 +1948,43 @@ async def graph_analyze_evaluate_endpoint(request: Request) -> JSONResponse:
         body = {}
     try:
         res = await _execute_tool(
-            "graph_analyze", action="evaluate", target=body.get("target", "")
+            "graph_evaluate", action="evaluate", target=body.get("target", "")
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_evolve_model_endpoint(request: Request) -> JSONResponse:
     try:
-        res = await _execute_tool("graph_analyze", action="evolve_model")
+        res = await _execute_tool("graph_evaluate", action="evolve_model")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_forecast_endpoint(request: Request) -> JSONResponse:
     try:
-        res = await _execute_tool("graph_analyze", action="forecast")
+        res = await _execute_tool("graph_evaluate", action="forecast")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_causal_endpoint(request: Request) -> JSONResponse:
     try:
-        res = await _execute_tool("graph_analyze", action="causal")
+        res = await _execute_tool("graph_evaluate", action="causal")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_invariant_endpoint(request: Request) -> JSONResponse:
     try:
-        res = await _execute_tool("graph_analyze", action="invariant")
+        res = await _execute_tool("graph_evaluate", action="invariant")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_analyze_security_scan_endpoint(request: Request) -> JSONResponse:
@@ -1907,341 +1998,7 @@ async def graph_analyze_security_scan_endpoint(request: Request) -> JSONResponse
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-# 6. Granular Graph Orchestrate endpoints
-async def graph_orchestrate_dispatch_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="dispatch",
-            task=body.get("task", ""),
-            dependencies=_to_json_str(body.get("dependencies", [])),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_status_endpoint(request: Request) -> JSONResponse:
-    try:
-        job_id = request.path_params.get("job_id", "")
-        res = await _execute_tool("graph_orchestrate", action="status", job_id=job_id)
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_request_approval_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="request_approval",
-            job_id=body.get("job_id", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_grant_approval_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="grant_approval",
-            job_id=body.get("job_id", ""),
-            approval_status=body.get("approval_status", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_execute_agent_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="execute_agent",
-            agent_name=body.get("agent_name", ""),
-            task=body.get("task", ""),
-            max_steps=int(body.get("max_steps", 30)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_consensus_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate", action="consensus", task=body.get("task", "")
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_start_debate_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="start_debate",
-            job_id=body.get("job_id", ""),
-            task=body.get("task", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_submit_risk_veto_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="submit_risk_veto",
-            job_id=body.get("job_id", ""),
-            task=body.get("task", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_list_cron_jobs_endpoint(request: Request) -> JSONResponse:
-    try:
-        res = await _execute_tool("graph_orchestrate", action="list_cron_jobs")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_trigger_cron_job_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate", action="trigger_cron_job", task=body.get("task", "")
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_compile_workflow_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="compile_workflow",
-            agent_name=body.get("agent_name", ""),
-            task=body.get("task", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_compile_process_endpoint(request: Request) -> JSONResponse:
-    """CONCEPT:AU-ORCH.planning.compile-process-rest-twin — REST twin of graph_orchestrate compile_process."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="compile_process",
-            task=body.get("process_id", body.get("task", "")),
-            agent_name=body.get("name", body.get("agent_name", "")),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_publish_proposal_endpoint(
-    request: Request,
-) -> JSONResponse:
-    """CONCEPT:AU-AHE.harness.publish-proposal-rest — REST twin of graph_orchestrate publish_proposal."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="publish_proposal",
-            task=body.get("proposal_id", body.get("task", "")),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_distill_skills_endpoint(
-    request: Request,
-) -> JSONResponse:
-    """CONCEPT:AU-KG.ontology.connector-agnostic-proposal/2.83 — REST twin of graph_orchestrate distill_skills.
-
-    Connector → skill synthesis: turn the mapped processes of ALL connected
-    systems (egeria/leanix/aris/camunda) into propose-only atomic-skill +
-    skill-workflow PROPOSALS, connector-agnostic over the ontology. Pass
-    ``{"draft": true}`` to also render reviewable SKILL.md staging artifacts.
-    Dispatches into the SAME action core as the MCP tool.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="distill_skills",
-            task="draft" if body.get("draft") else "",
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_list_workflows_endpoint(request: Request) -> JSONResponse:
-    try:
-        res = await _execute_tool("graph_orchestrate", action="list_workflows")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_execute_workflow_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="execute_workflow",
-            agent_name=body.get("agent_name", ""),
-            task=body.get("task", ""),
-            max_steps=int(body.get("max_steps", 30)),
-            completion_state=body.get("completion_state", ""),
-            max_fan_out=int(body.get("max_fan_out", 5)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_synthesize_org_endpoint(request: Request) -> JSONResponse:
-    """CONCEPT:AU-ORCH.org.recruiter — REST twin of graph_orchestrate synthesize_org."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="synthesize_org",
-            task=body.get("task", "") or body.get("goal", ""),
-            dependencies=body.get("dependencies", "[]"),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_run_org_endpoint(request: Request) -> JSONResponse:
-    """CONCEPT:AU-ORCH.org.work-item-dag — REST twin of graph_orchestrate run_org."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="run_org",
-            task=body.get("task", "") or body.get("goal", ""),
-            dependencies=body.get("dependencies", "[]"),
-            max_steps=int(body.get("max_steps", 20)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_dispatch_workflow_endpoint(
-    request: Request,
-) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="dispatch_workflow",
-            agent_name=body.get("agent_name", ""),
-            task=body.get("task", ""),
-            max_steps=int(body.get("max_steps", 30)),
-            completion_state=body.get("completion_state", ""),
-            max_fan_out=int(body.get("max_fan_out", 5)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_workflow_status_endpoint(request: Request) -> JSONResponse:
-    try:
-        job_id = request.path_params.get("job_id", "")
-        res = await _execute_tool(
-            "graph_orchestrate", action="workflow_status", job_id=job_id
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_orchestrate_export_workflow_endpoint(request: Request) -> JSONResponse:
-    try:
-        res = await _execute_tool("graph_orchestrate", action="export_workflow")
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # 7. Granular Graph Configure endpoints
@@ -2259,7 +2016,7 @@ async def graph_configure_secret_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_vault_sync_endpoint(request: Request) -> JSONResponse:
@@ -2277,7 +2034,7 @@ async def graph_configure_vault_sync_endpoint(request: Request) -> JSONResponse:
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_register_mcp_endpoint(request: Request) -> JSONResponse:
@@ -2294,7 +2051,7 @@ async def graph_configure_register_mcp_endpoint(request: Request) -> JSONRespons
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_install_hooks_endpoint(request: Request) -> JSONResponse:
@@ -2310,7 +2067,7 @@ async def graph_configure_install_hooks_endpoint(request: Request) -> JSONRespon
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_uninstall_hooks_endpoint(request: Request) -> JSONResponse:
@@ -2326,7 +2083,7 @@ async def graph_configure_uninstall_hooks_endpoint(request: Request) -> JSONResp
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 async def graph_configure_doctor_endpoint(request: Request) -> JSONResponse:
@@ -2334,13 +2091,12 @@ async def graph_configure_doctor_endpoint(request: Request) -> JSONResponse:
         res = await _execute_tool("graph_configure", action="doctor")
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        return _external_error_response(e)
 
 
 # Default agent identity for provenance tracking
-_AGENT_ID = setting("AGENT_ID", f"mcp-client-{uuid.uuid4().hex[:8]}")
+_AGENT_ID = setting("AGENT_ID", f"mcp-client-{uuid.uuid4().hex}")
 _SESSION_ID = setting("SESSION_ID", uuid.uuid4().hex)
-_WORKSPACE_PATH = setting("WORKSPACE_PATH", os.getcwd())
 
 
 _ENGINE_LOCK = threading.Lock()
@@ -2362,12 +2118,13 @@ def _get_extraction_manager(engine: Any) -> Any:
 def _get_engine():
     """Lazily initialize and return the IntelligenceGraphEngine singleton.
 
-    Thread-safe (double-checked lock): the server now builds the engine in a
-    background bootstrap thread so ``mcp.run()`` can start serving immediately
-    (under Claude Code's 30s connect deadline); a concurrent first tool call
-    must therefore not race a second engine into existence. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
+    Thread-safe double-checked locking prevents concurrent runtime callers from
+    racing a second authority into existence. Direct GraphOS startup resolves
+    this engine synchronously only through the bounded packaged-skill readiness
+    barrier; noncritical bootstrap work remains asynchronous.
+    (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
     """
-    from agent_utilities.core.paths import ensure_dirs, kg_db_path
+    from agent_utilities.core.paths import ensure_dirs
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -2381,12 +2138,12 @@ def _get_engine():
             return engine
         # First-run: ensure XDG dirs exist and create backend
         ensure_dirs()
-        db_path = str(kg_db_path())
-        logger.info("KG MCP Server using database: %s", db_path)
-        backend_type = setting("GRAPH_BACKEND")
-        backend = create_backend(backend_type=backend_type, db_path=db_path)
-        engine = IntelligenceGraphEngine(backend=backend)
-        return engine
+
+        def _factory():
+            backend = create_backend()
+            return IntelligenceGraphEngine(backend=backend)
+
+        return IntelligenceGraphEngine.get_or_create(factory=_factory)
 
 
 # ── CONCEPT:AU-KG.backend.multi-connection-registry — Named multi-connection graph registry ────────────────
@@ -2397,9 +2154,10 @@ _REGISTRY_LOCK = threading.Lock()
 def get_connection_registry():
     """Process-wide :class:`ConnectionRegistry` singleton.
 
-    Seeds its ``"default"`` connection from the legacy ``_get_engine`` singleton
-    (so the default is never duplicated) and from ``config.kg_connections``
-    (CONCEPT:AU-KG.backend.multi-connection-registry) on first build.
+    The reserved ``"default"`` target resolves only the process-active authority;
+    registry construction never creates or seeds a second engine. Reference-only
+    ``config.external_graph_connectors`` and ``config.kg_connections`` are
+    registered on first build.
     """
     global _CONNECTION_REGISTRY
     if _CONNECTION_REGISTRY is not None:
@@ -2411,10 +2169,29 @@ def get_connection_registry():
             ConnectionRegistry,
         )
 
-        registry = ConnectionRegistry(default_engine_provider=_get_engine)
-        # Seed declarative connections from config (KG_CONNECTIONS).
+        registry = ConnectionRegistry()
+        # Seed reference-only external sources first, then let an explicit
+        # KG_CONNECTIONS declaration with the same alias take precedence.
         try:
             from agent_utilities.core.config import config as _cfg
+
+            for declared in _cfg.external_graph_connectors or []:
+                value = (
+                    declared.model_dump()
+                    if hasattr(declared, "model_dump")
+                    else dict(declared)
+                )
+                name = str(value.pop("name", "") or "")
+                if not name:
+                    continue
+                value["role"] = "read"
+                try:
+                    registry.register(name, value)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Skipping invalid external source declaration (%s)",
+                        type(exc).__name__,
+                    )
 
             for spec in _cfg.kg_connections or []:
                 spec = dict(spec)
@@ -2424,10 +2201,14 @@ def get_connection_registry():
                         registry.register(name, spec)
                     except Exception as e:  # noqa: BLE001
                         logger.warning(
-                            "Skipping invalid kg_connections entry %r: %s", name, e
+                            "Skipping invalid graph connection declaration (%s)",
+                            type(e).__name__,
                         )
-        except Exception:  # noqa: BLE001 — config-less environments
-            logger.debug("No kg_connections to seed", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 — config-less environments
+            logger.debug(
+                "Graph connection declarations were not seeded (%s)",
+                type(exc).__name__,
+            )
         _CONNECTION_REGISTRY = registry
         return _CONNECTION_REGISTRY
 
@@ -2479,7 +2260,7 @@ def _resolve_read_engines(
     is_implicit_default = target is None or (
         isinstance(target, str) and target.strip().lower() in ("", "default")
     )
-    if not (is_implicit_default and ingest_routing.routing_enabled()):
+    if not is_implicit_default:
         return _resolve_target_engines(target)
 
     read_graphs = ingest_routing.read_graph_targets()
@@ -2565,26 +2346,79 @@ def fanout_execute(entries, fn, *, timeout=None):
         name = futures[fut]
         try:
             results[name] = fut.result()
-        except Exception as e:  # noqa: BLE001 — partial-success contract
-            errors[name] = str(e)
+        except Exception as exc:  # noqa: BLE001 — partial-success contract
+            logger.warning(
+                "Graph fan-out target failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+            errors[name] = "target_operation_failed"
     for fut in not_done:
-        errors[
-            futures[fut]
-        ] = f"timed out after {timeout:.0f}s (target slow/unreachable)"
+        errors[futures[fut]] = "target_timeout"
     # Never block on a hung backend's thread; let it finish in the background.
     ex.shutdown(wait=False, cancel_futures=True)
     return results, errors
 
 
 def _provenance_props(agent_id: str | None = None) -> dict[str, Any]:
-    """Build standard provenance metadata for multi-agent write tracking."""
+    """Build persistence-safe provenance without host or principal material."""
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     return {
-        "agent_id": agent_id or _AGENT_ID,
-        "session_id": _SESSION_ID,
-        "workspace_path": _WORKSPACE_PATH,
+        "agent_ref": persistence_reference(
+            "agent", agent_id or _AGENT_ID, namespace="mcp-provenance"
+        ),
+        "session_ref": persistence_reference(
+            "session", _SESSION_ID, namespace="mcp-provenance"
+        ),
         "timestamp": datetime.now(UTC).isoformat(),
         "source": "mcp",
     }
+
+
+def _neutral_capability_name(value: object, *, fallback_ref: str) -> str:
+    """Return a bounded service alias, never an arbitrary config key."""
+    from agent_utilities.security.persistence_privacy import sanitize_for_persistence
+
+    rendered = str(value or "").strip().lower()
+    sanitized, report = sanitize_for_persistence(rendered)
+    if not report.changed and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,62}", rendered):
+        return rendered
+    return f"external-{fallback_ref.rsplit('_', 1)[-1][:12]}"
+
+
+def _mcp_capability_declaration(
+    server_name: object, server_details: dict[str, Any]
+) -> tuple[str, dict[str, Any]]:
+    """Project one MCP runtime declaration into privacy-safe KG metadata."""
+    from agent_utilities.knowledge_graph.core.source_sync import (
+        derive_capability_synonyms,
+    )
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    server_ref = persistence_reference(
+        "mcp_server", server_name, namespace="capability-ingestion"
+    )
+    neutral_name = _neutral_capability_name(server_name, fallback_ref=server_ref)
+    configuration_ref = persistence_reference(
+        "mcp_configuration",
+        json.dumps(server_details, sort_keys=True, separators=(",", ":")),
+        namespace=server_ref,
+    )
+    capabilities = [
+        str(value).lower()
+        for value in server_details.get("capabilities", [])
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}", str(value))
+    ]
+    return (
+        f"mcp_server:{server_ref}",
+        {
+            "name": neutral_name,
+            "server_ref": server_ref,
+            "configuration_ref": configuration_ref,
+            "capabilities": sorted(set(capabilities)),
+            "synonyms": derive_capability_synonyms(neutral_name),
+        },
+    )
 
 
 def _ontology_system():
@@ -2606,21 +2440,239 @@ def _ontology_system():
     return kg.ontology
 
 
-def _ingest_capabilities(engine):
+class GraphOSStartupReadinessError(RuntimeError):
+    """Stable, environment-free failure raised before GraphOS starts serving."""
+
+
+def _read_skill_capability(skill_md) -> tuple[str, str, str]:
+    """Read one bounded skill declaration without retaining its discovery path."""
+    import yaml
+
+    path = Path(skill_md)
+    payload = path.read_bytes()
+    if not payload or len(payload) > 512 * 1024:
+        raise ValueError("skill declaration size is invalid")
+    content = payload.decode("utf-8")
+    frontmatter: dict = {}
+    instructions = content
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) == 3:
+            parsed = yaml.safe_load(parts[1].strip()) or {}
+            if not isinstance(parsed, dict):
+                raise ValueError("skill frontmatter must be an object")
+            frontmatter = parsed
+            instructions = parts[2].strip()
+    fallback_name = path.parent.name
+    name = str(frontmatter.get("name") or fallback_name).strip()
+    description = str(frontmatter.get("description") or "").strip()
+    if not name or not instructions.strip():
+        raise ValueError("skill declaration is incomplete")
+    return name, description, instructions
+
+
+def _ingest_skill_capabilities(
+    engine,
+    provider: str,
+    skills_path,
+    *,
+    include_names: frozenset[str] | None = None,
+    skip_names: frozenset[str] = frozenset(),
+) -> int:
+    """Persist provider skills as runnable resources without retaining paths."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        ingest_runnable_skill,
+        skill_reference,
+    )
+
+    root = Path(skills_path)
+    if not root.is_dir():
+        return 0
+
+    ingested = 0
+    skill_files = (
+        [root / "SKILL.md"]
+        if (root / "SKILL.md").is_file()
+        else sorted(root.rglob("SKILL.md"))
+    )
+    for skill_md in skill_files:
+        skill_dir = skill_md.parent
+        fallback_name = skill_dir.name
+        stage = "declaration"
+        try:
+            name, description, instructions = _read_skill_capability(skill_md)
+            if include_names is not None and name not in include_names:
+                continue
+            if name in skip_names:
+                continue
+            skill_slug = skill_reference(name).removeprefix("skill://")
+            resource_id = f"resource:skill:{skill_slug}"
+            stage = "state"
+            disabled = get_existing_disabled(engine, resource_id)
+            stage = "write"
+            ingest_runnable_skill(
+                engine,
+                name=name,
+                description=description,
+                instructions=instructions,
+                provider=provider,
+                disabled=disabled,
+            )
+            ingested += 1
+        except Exception as exc:  # noqa: BLE001 - one malformed skill cannot block boot
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
+            logger.error(
+                "Failed to ingest %s (stage=%s exception_type=%s)",
+                persistence_reference(
+                    "skill", fallback_name, namespace="skill-provider-ingest"
+                ),
+                stage,
+                type(exc).__name__,
+            )
+    return ingested
+
+
+def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
+    """Load the exact current packaged-skill digest contract."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+    )
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    if len(BUNDLED_SKILLS) != 10 or len(set(BUNDLED_SKILLS)) != 10:
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
+    root = Path(__file__).resolve().parents[1] / "skills"
+    guard = PersistencePrivacyGuard()
+    expected: dict[str, str] = {}
+    try:
+        for bundled_name in BUNDLED_SKILLS:
+            name, _description, instructions = _read_skill_capability(
+                root / bundled_name / "SKILL.md"
+            )
+            if name != bundled_name:
+                raise ValueError("bundled skill identity mismatch")
+            body, _privacy = guard.sanitize_text(instructions.strip())
+            if not body:
+                raise ValueError("bundled skill body is empty")
+            expected[bundled_name] = runnable_skill_digest(body)
+    except Exception as exc:
+        logger.error(
+            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+    return root, expected
+
+
+def _ready_bundled_skill_names(
+    engine: Any, expected_digests: dict[str, str]
+) -> frozenset[str]:
+    """Return exact packaged skills already ready for delegated execution."""
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        runnable_skill_digest,
+        skill_reference,
+    )
+
+    query = getattr(engine, "query_cypher", None)
+    if not callable(query):
+        return frozenset()
+    rows = query(
+        "MATCH (n:CallableResource) WHERE n.name IN $names "
+        "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
+        "n.system_prompt AS system_prompt, "
+        "n.instruction_digest AS instruction_digest, "
+        "n.source_ref AS source_ref, n.runnable_bound AS runnable_bound",
+        {"names": sorted(expected_digests)},
+    )
+    candidates: dict[str, list[dict[str, Any]]] = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if name in expected_digests:
+            candidates.setdefault(name, []).append(row)
+
+    ready: set[str] = set()
+    for name, expected_digest in expected_digests.items():
+        matches = candidates.get(name, [])
+        if len(matches) != 1:
+            continue
+        row = matches[0]
+        body = str(row.get("system_prompt") or "").strip()
+        digest = str(row.get("instruction_digest") or "")
+        expected_ref = skill_reference(name)
+        if (
+            row.get("id") == f"resource:skill:{name}"
+            and row.get("rtype") == "AGENT_SKILL"
+            and row.get("runnable_bound") is True
+            and row.get("source_ref") == expected_ref
+            and body
+            and digest == expected_digest
+            and runnable_skill_digest(body) == digest
+        ):
+            ready.add(name)
+    return frozenset(ready)
+
+
+def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
+    """Synchronously establish the packaged delegation contract before serving."""
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    try:
+        root, expected = _bundled_skill_contract()
+        ready_before = _ready_bundled_skill_names(engine, expected)
+        missing = frozenset(BUNDLED_SKILLS) - ready_before
+        ingested = 0
+        if missing:
+            ingested = _ingest_skill_capabilities(
+                engine,
+                "agent-utilities",
+                root,
+                include_names=missing,
+            )
+        ready_after = _ready_bundled_skill_names(engine, expected)
+        if ready_after != frozenset(BUNDLED_SKILLS):
+            logger.error(
+                "GraphOS packaged-skill readiness incomplete "
+                "(ready_before=%d ingested=%d ready_after=%d required=%d)",
+                len(ready_before),
+                ingested,
+                len(ready_after),
+                len(BUNDLED_SKILLS),
+            )
+            raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
+    except GraphOSStartupReadinessError:
+        raise
+    except Exception as exc:
+        logger.error(
+            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+    return {
+        "required": len(BUNDLED_SKILLS),
+        "already_ready": len(ready_before),
+        "ingested": ingested,
+        "ready": len(ready_after),
+    }
+
+
+def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset()):
     """Natively ingest MCP configurations, Native Tools, and Skills into the KG on startup."""
     import importlib
     import inspect
     import json
-    import os
     import pkgutil
     from pathlib import Path
 
     import platformdirs
-    import yaml
 
-    from agent_utilities.knowledge_graph.core.source_sync import (
-        derive_capability_synonyms,
-        sync_source,
+    from agent_utilities.security.persistence_privacy import (
+        sanitize_for_persistence,
     )
 
     # 1. mcp_config.json
@@ -2630,27 +2682,34 @@ def _ingest_capabilities(engine):
         cfg_dir = Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
         mcp_config_path = cfg_dir / "mcp_config.json"
 
-        if mcp_config_path.exists():
-            with open(mcp_config_path) as f:
-                data = json.load(f)
-                mcp_servers = data.get("mcpServers", {})
-                for server_name, server_details in mcp_servers.items():
-                    node_id = f"mcp_server_{server_name}"
-                    disabled = get_existing_disabled(engine, node_id)
-                    engine.add_node(
-                        node_id,
-                        "MCPServer",
-                        {
-                            "name": server_name,
-                            "command": server_details.get("command"),
-                            "args": json.dumps(server_details.get("args", [])),
-                            "synonyms": derive_capability_synonyms(server_name),
-                            "disabled": disabled,
-                        },
-                    )
-            logger.info("Ingested mcp_config.json")
-    except Exception as e:
-        logger.error(f"Failed to ingest mcp_config.json: {e}")
+        if mcp_config_path.is_file() and not mcp_config_path.is_symlink():
+            payload = mcp_config_path.read_bytes()
+            if len(payload) > 4 * 1024 * 1024:
+                raise ValueError("MCP configuration exceeds its ingestion bound")
+            data = json.loads(payload)
+            mcp_servers = data.get("mcpServers", {})
+            if not isinstance(mcp_servers, dict):
+                raise ValueError("MCP server registry must be an object")
+            ingested = 0
+            for server_name, server_details in mcp_servers.items():
+                if not isinstance(server_details, dict):
+                    continue
+                node_id, declaration = _mcp_capability_declaration(
+                    server_name, server_details
+                )
+                disabled = get_existing_disabled(engine, node_id)
+                engine.add_node(
+                    node_id,
+                    "MCPServer",
+                    {**declaration, "disabled": disabled},
+                )
+                ingested += 1
+            logger.info("Ingested %d MCP capability declarations", ingested)
+    except Exception as exc:
+        logger.error(
+            "Failed to ingest MCP configuration (exception_type=%s)",
+            type(exc).__name__,
+        )
 
     # 2. Native Tools
     try:
@@ -2667,187 +2726,330 @@ def _ingest_capabilities(engine):
                         if hasattr(obj, "__agentic_version__"):
                             node_id = f"native_tool_{name}"
                             disabled = get_existing_disabled(engine, node_id)
+                            description, _privacy = sanitize_for_persistence(
+                                (obj.__doc__ or "")[:8192]
+                            )
                             engine.add_node(
                                 node_id,
                                 "NativeTool",
                                 {
                                     "name": name,
-                                    "description": obj.__doc__ or "",
+                                    "description": str(description),
                                     "version": obj.__agentic_version__,
                                     "module": modname,
                                     "disabled": disabled,
                                 },
                             )
-                except Exception as e:
-                    logger.debug(f"Failed to ingest native tools from {modname}: {e}")
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to ingest a native-tool module (exception_type=%s)",
+                        type(exc).__name__,
+                    )
         logger.info("Ingested Native Tools")
-    except Exception as e:
-        logger.error(f"Failed to scan native tools: {e}")
+    except Exception as exc:
+        logger.error(
+            "Failed to scan native tools (exception_type=%s)",
+            type(exc).__name__,
+        )
 
     # 3. Skills
     try:
         from agent_utilities.core.config import config
+        from agent_utilities.core.providers import resolve_skill_provider_dirs
 
-        skills_dir = config.custom_skills_directory or os.path.expanduser(
-            "~/.gemini/antigravity/skills"
+        sources = resolve_skill_provider_dirs()
+        if config.custom_skills_directory:
+            sources.append(("configured-overlay", Path(config.custom_skills_directory)))
+        ingested = sum(
+            _ingest_skill_capabilities(
+                engine,
+                provider,
+                root,
+                skip_names=skip_skill_names,
+            )
+            for provider, root in sources
         )
-        skills_path = Path(skills_dir)
-        if skills_path.exists() and skills_path.is_dir():
-            for skill_dir in skills_path.iterdir():
-                if skill_dir.is_dir():
-                    skill_md = skill_dir / "SKILL.md"
-                    if skill_md.exists():
-                        try:
-                            content = skill_md.read_text()
-                            if content.startswith("---"):
-                                end_idx = content.find("---", 3)
-                                if end_idx != -1:
-                                    frontmatter_str = content[3:end_idx].strip()
-                                    frontmatter = yaml.safe_load(frontmatter_str) or {}
-                                    name = frontmatter.get("name", skill_dir.name)
-                                    desc = frontmatter.get("description", "")
-                                    node_id = f"skill_{name}"
-                                    disabled = get_existing_disabled(engine, node_id)
-                                    engine.add_node(
-                                        node_id,
-                                        "Skill",
-                                        {
-                                            "name": name,
-                                            "description": desc,
-                                            "path": str(skill_md),
-                                            "disabled": disabled,
-                                            **{
-                                                k: v
-                                                for k, v in frontmatter.items()
-                                                if k not in ["name", "description"]
-                                            },
-                                        },
-                                    )
-                        except Exception as e:
-                            logger.error(f"Failed to ingest skill from {skill_md}: {e}")
-            logger.info("Ingested Skills")
+        if ingested:
+            logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
-        logger.error(f"Failed to ingest skills: {e}")
+        logger.error("Failed to ingest skills (%s)", type(e).__name__)
 
-    # 4. Fleet MCP-server tools → Tool capability nodes (CONCEPT:AU-KG.ontology.capability-node-aliases-lexical).
-    # Steps 1-3 ingest graph-os's OWN servers/native-tools/skills; the ~62 fleet
-    # MCP servers' tools were never elevated, so the KG lacked the fleet
-    # capability vocabulary the classification gate and dispatcher specialist
-    # routing query. This probes the served multiplexer catalog and writes each
-    # fleet tool as a Tool node. Native/default-on; unreachable servers are
-    # skipped. Goes through the same `source_sync` path as the MCP/REST surface.
-    try:
-        result = sync_source(engine, "fleet", mode="full")
-        logger.info("Ingested fleet capabilities: %s", result)
-    except Exception as e:
-        logger.error(f"Failed to ingest fleet capabilities: {e}")
+    # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
+    # server declaration above; probing every child here would launch the whole
+    # fleet and contend with an operator's targeted ``list_catalog`` call.
+    # Explicit ``source_sync(source="fleet")`` remains the governed full-scan
+    # path when an operator wants every live tool schema elevated into the KG.
 
 
-def _mint_stdio_identity() -> None:
-    """Resolve the process identity for a directly-served MCP server.
+def _mint_process_session(transport: str) -> Any:
+    """Mint the process's verified graph authority.
 
-    CONCEPT:AU-OS.identity.authenticated-identity-enforcement — stdio has no Authorization header, so when
-    ``KG_AUTH_REQUIRED`` is on the identity comes from a validated JWT in the
-    MCP server's environment (``KG_AUTH_TOKEN``, validated against
-    ``AUTH_JWT_JWKS_URI`` exactly like a gateway request). Without a valid
-    token the process stays unauthenticated and ``_execute_tool`` restricts it
-    to :data:`ANONYMOUS_READ_TOOLS`. With ``KG_AUTH_REQUIRED`` off this only
-    emits the one-time honor-system warning.
+    Tiny packaged-local stdio uses an in-memory asymmetric authority. Every
+    other topology resolves a token reference or performs OAuth2 client
+    credentials, then validates the result through the same JWKS path as HTTP.
+    The authority scopes background engine bootstrap for every transport and is
+    additionally used for stdio tool calls, which have no request Authorization
+    header.
     """
-    global _PROCESS_ACTOR
     from agent_utilities.core.config import config
     from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        local_process_authority_enabled,
         mint_actor_from_token_sync,
-        warn_unauthenticated_identity_once,
+        mint_graph_session,
+        mint_local_process_session,
     )
 
-    if not getattr(config, "kg_auth_required", False):
-        warn_unauthenticated_identity_once()
+    if transport == "stdio" and local_process_authority_enabled(config):
+        session = mint_local_process_session()
+    else:
+        token = acquire_process_identity_token(config)
+        actor = mint_actor_from_token_sync(token)
+        from agent_utilities.security.brain_context import CredentialLease
+
+        expires_at = getattr(actor, "credential_expires_at", None)
+        if expires_at is None:
+            raise RuntimeError("Graph process identity has no bounded expiry")
+        actor = replace(
+            actor,
+            credential_lease=CredentialLease(int(expires_at)),
+        )
+        session = mint_graph_session(actor)
+    session.engine_verified_context()
+    logger.info("Verified graph process authority minted")
+    return session
+
+
+def _same_process_authority(left: Any, right: Any) -> bool:
+    """Return whether a renewed token preserves the original authority."""
+    fields = (
+        "actor_id",
+        "actor_type",
+        "roles",
+        "tenant_id",
+        "authenticated",
+        "groups",
+    )
+    return all(
+        getattr(left, name, None) == getattr(right, name, None) for name in fields
+    )
+
+
+def _refresh_process_authority(session: Any) -> Any:
+    """Renew one external process lease without replacing captured sessions.
+
+    The token exists only inside this call. After validation, only its bounded
+    expiry is copied into the shared in-memory lease. Identity, roles, tenant,
+    route, and policy may not change during renewal.
+    """
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.core.session import SessionExpiredError
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        mint_actor_from_token_sync,
+    )
+
+    lease = getattr(getattr(session, "actor", None), "credential_lease", None)
+    if lease is None:
+        raise RuntimeError("Graph process authority is not renewable")
+    with _PROCESS_SESSION_REFRESH_LOCK:
+        try:
+            session.ensure_authority_current(minimum_ttl_seconds=30)
+            return session
+        except SessionExpiredError:
+            pass
+        token = acquire_process_identity_token(config)
+        renewed_actor = mint_actor_from_token_sync(token)
+        del token
+        if not _same_process_authority(session.actor, renewed_actor):
+            raise RuntimeError("Graph process authority changed during renewal")
+        expires_at = getattr(renewed_actor, "credential_expires_at", None)
+        if expires_at is None or int(expires_at) <= int(time.time()) + 30:
+            raise RuntimeError("Graph process authority renewal is too short-lived")
+        lease.renew(int(expires_at))
+        session.ensure_authority_current(minimum_ttl_seconds=30)
+        return session
+
+
+async def _ensure_process_authority_current() -> Any:
+    """Ensure request/process authority without blocking the MCP event loop."""
+    from agent_utilities.knowledge_graph.core.session import (
+        SessionExpiredError,
+        current_session,
+    )
+
+    ambient = current_session()
+    if ambient is not None:
+        ambient.ensure_authority_current()
+        return ambient
+    session = _PROCESS_SESSION
+    if session is None:
+        raise PermissionError("Verified GraphSession required")
+    try:
+        session.ensure_authority_current(minimum_ttl_seconds=30)
+    except SessionExpiredError:
+        session = await asyncio.to_thread(_refresh_process_authority, session)
+    session.ensure_authority_current(minimum_ttl_seconds=30)
+    return session
+
+
+def _process_authority_refresh_loop(session: Any) -> None:
+    """Keep a renewable process lease current for all captured worker sessions."""
+    lease = getattr(getattr(session, "actor", None), "credential_lease", None)
+    if lease is None:
         return
-    token = getattr(config, "kg_auth_token", None)
-    if token:
-        _PROCESS_ACTOR = mint_actor_from_token_sync(token)
-        if _PROCESS_ACTOR is not None:
-            logger.info(
-                "KG MCP identity minted from KG_AUTH_TOKEN: actor=%s roles=%s",
-                _PROCESS_ACTOR.actor_id,
-                list(_PROCESS_ACTOR.roles),
+    while not _PROCESS_AUTHORITY_STOP.is_set():
+        seconds_left = lease.expires_at - int(time.time())
+        if seconds_left > 30:
+            _PROCESS_AUTHORITY_STOP.wait(min(60.0, max(1.0, seconds_left - 30.0)))
+            continue
+        try:
+            _refresh_process_authority(session)
+        except Exception as exc:  # noqa: BLE001 - retry; expiry remains fail-closed
+            logger.error(
+                "Graph process authority renewal failed (exception_type=%s)",
+                type(exc).__name__,
             )
-            return
-    logger.warning(
-        "KG_AUTH_REQUIRED=1 but no valid KG_AUTH_TOKEN: this MCP process is "
-        "restricted to the read-only tool surface %s.",
-        sorted(ANONYMOUS_READ_TOOLS),
+            _PROCESS_AUTHORITY_STOP.wait(5.0)
+
+
+def _start_process_authority_supervisor(session: Any) -> None:
+    """Start the sole external-authority renewal supervisor when required."""
+    global _PROCESS_AUTHORITY_THREAD
+    if getattr(getattr(session, "actor", None), "credential_lease", None) is None:
+        return
+    _stop_process_authority_supervisor()
+    _PROCESS_AUTHORITY_STOP.clear()
+    thread = threading.Thread(
+        target=_process_authority_refresh_loop,
+        args=(session,),
+        daemon=True,
+        name="GraphProcessAuthority",
+    )
+    _PROCESS_AUTHORITY_THREAD = thread
+    thread.start()
+
+
+def _stop_process_authority_supervisor() -> None:
+    """Stop and forget the process-authority supervisor."""
+    global _PROCESS_AUTHORITY_THREAD
+    _PROCESS_AUTHORITY_STOP.set()
+    thread = _PROCESS_AUTHORITY_THREAD
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=2.0)
+    _PROCESS_AUTHORITY_THREAD = None
+
+
+def _start_engine_bootstrap(session: Any) -> None:
+    """Establish critical skill readiness, then start noncritical services."""
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _authorized_background_thread,
+        _require_verified_background_session,
+    )
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    verified_session = _require_verified_background_session(session)
+    try:
+        with (
+            use_actor(verified_session.actor),
+            use_session(verified_session),
+        ):
+            engine = _get_engine()
+            readiness = _ensure_bundled_skills_ready(engine)
+    except Exception as exc:
+        logger.error(
+            "GraphOS critical startup readiness failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+
+    logger.info(
+        "GraphOS packaged-skill readiness established (%d/%d)",
+        readiness["ready"],
+        readiness["required"],
     )
 
+    def _bootstrap_engine() -> None:
+        try:
+            if (
+                engine
+                and engine.backend
+                and not getattr(engine.backend, "read_only", False)
+            ):
+                engine.start_task_workers()
+            # The listener barrier already reconciled the exact packaged skill
+            # contract. Continue all broader discovery asynchronously, but do
+            # not rewrite or overlay those ten resources a second time.
+            _ingest_capabilities(
+                engine,
+                skip_skill_names=frozenset(BUNDLED_SKILLS),
+            )
+            try:
+                from agent_utilities.knowledge_graph.ontology.lifecycle import (
+                    OntologyLifecycle,
+                )
+                from agent_utilities.mcp.tools.ontology_tools import (
+                    _sync_package_ontologies,
+                )
 
-def _build_server(bootstrap: bool = True):
+                report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
+                if report.get("providers_loaded"):
+                    logger.info(
+                        "Ontology federation: loaded %d package ontolog(ies) at boot",
+                        report["providers_loaded"],
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Ontology federation sync at boot failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
+        except Exception as exc:
+            logger.error(
+                "KG engine background bootstrap failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+
+    try:
+        _authorized_background_thread(
+            verified_session,
+            _bootstrap_engine,
+            name="KGEngineBootstrap",
+        ).start()
+    except Exception as exc:
+        # Packaged delegation is already ready. Optional workers, provider
+        # discovery, and ontology federation remain retryable operational work.
+        logger.error(
+            "GraphOS noncritical bootstrap launch failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
+def _build_server(
+    bootstrap: bool = True,
+    *,
+    tool_profile: str | None = None,
+    canonical_surface: bool = False,
+):
     """Build the KG MCP server with all tools registered.
 
     Args:
-        bootstrap: When True (default) start the background engine bootstrap
-            thread (engine init, task workers, capability ingest). The API
-            gateway calls this with ``bootstrap=False`` (via
+        bootstrap: Whether this is a directly served process. The caller starts
+            background engine bootstrap only after process identity is minted.
+            The API gateway calls this with ``bootstrap=False`` (via
             :func:`ensure_tools_registered`) because it owns the engine/daemon
             lifecycle itself and only needs ``REGISTERED_TOOLS`` populated so the
             centralized REST handlers can dispatch.
+        tool_profile: Explicit tool mode for deterministic catalog generation.
+            ``None`` uses the configured runtime mode.
+        canonical_surface: Register every condensed domain regardless of
+            deployment toggles. This is reserved for catalog/gate construction;
+            served processes continue to honor their configured toggles.
     """
-    import sys
-
     from agent_utilities.mcp.server_factory import create_mcp_server
 
     is_readonly = False
-
-    if bootstrap:
-        # Directly-served MCP process (stdio/streamable-http): resolve the
-        # server-side identity (or warn that identity is honor-system).
-        _mint_stdio_identity()
-
-    if bootstrap and not any(arg in sys.argv for arg in ["--help", "-h"]):
-        # Build the engine + start daemons/workers + ingest capabilities in a
-        # BACKGROUND thread so mcp.run() can start serving (and the multiplexer
-        # can list tools) immediately — engine init is ~30s and was blocking the
-        # MCP handshake past Claude Code's 30s connect deadline. Tools are
-        # registered below regardless; the first tool call's _get_engine() (now
-        # lock-safe) returns the same singleton the bootstrap builds. (CONCEPT:EG-KG.storage.nonblocking-checkpoint)
-        def _bootstrap_engine() -> None:
-            try:
-                engine = _get_engine()
-                if hasattr(engine, "start_sdd_watcher"):
-                    engine.start_sdd_watcher()
-                if (
-                    engine
-                    and engine.backend
-                    and not getattr(engine.backend, "read_only", False)
-                ):
-                    engine.start_task_workers()
-                _ingest_capabilities(engine)
-                # CONCEPT:AU-KG.ontology.federation-runtime — federation: load every ontology contributed by
-                # installed fleet packages into the live reasoner at boot, alongside
-                # the bundled TBox distribution. Failure-isolated so a bad or absent
-                # provider never blocks engine bootstrap.
-                try:
-                    from agent_utilities.knowledge_graph.ontology.lifecycle import (
-                        OntologyLifecycle,
-                    )
-                    from agent_utilities.mcp.tools.ontology_tools import (
-                        _sync_package_ontologies,
-                    )
-
-                    report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
-                    if report.get("providers_loaded"):
-                        logger.info(
-                            "Ontology federation: loaded %d package ontolog(ies) at boot",
-                            report["providers_loaded"],
-                        )
-                except Exception:
-                    logger.exception("Ontology federation sync at boot failed")
-            except Exception:
-                logger.exception("KG engine background bootstrap failed")
-
-        threading.Thread(
-            target=_bootstrap_engine, daemon=True, name="KGEngineBootstrap"
-        ).start()
 
     def _check_readonly():
         if is_readonly:
@@ -2865,7 +3067,7 @@ def _build_server(bootstrap: bool = True):
     # flags (pytest/uvicorn args) with SystemExit.
     args, mcp, middlewares = create_mcp_server(
         name="graph-os",
-        version="0.1.0",
+        version=__version__,
         instructions=(
             "Knowledge Graph MCP Server for agent-utilities. "
             "Provides access to the shared unified Knowledge Graph that powers "
@@ -2888,28 +3090,18 @@ def _build_server(bootstrap: bool = True):
             "doesn't exist."
         ),
         command_args=None if bootstrap else [],
+        transport_choices=("stdio", "streamable-http"),
     )
 
-    # Liveness endpoint for streamable-http/sse deployments (container
-    # healthchecks). Does not touch the engine so it stays fast and lock-free;
-    # the shard summary is config-only (no probe) — full per-shard
-    # reachability lives on the gateway's /daemon/shards route and in the
-    # unified daemon status. (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)
+    # Unauthenticated liveness for HTTP deployments. Keep this response
+    # status-only so a probe cannot fingerprint the server or its topology;
+    # authenticated readiness detail remains available through system_doctor,
+    # multiplexer_status, and the gateway daemon/shards surface.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
-        from agent_utilities.core.config import config as _config
-        from agent_utilities.knowledge_graph.core.shard_topology import (
-            resolve_endpoints,
-        )
-
-        endpoints = resolve_endpoints(_config)
         return JSONResponse(
-            {
-                "status": "ok",
-                "server": "graph-os",
-                "shard_mode": "sharded" if len(endpoints) > 1 else "single",
-                "shard_count": len(endpoints),
-            }
+            {"status": "ok"},
+            headers={"Cache-Control": "no-store"},
         )
 
     # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the
@@ -2943,24 +3135,31 @@ def _build_server(bootstrap: bool = True):
         )
         return JSONResponse(result)
 
-    # ═══ Synthesized Tools (7 tools, action-routed) ═══
+    # ═══ Grouped action-routed tools ═══
 
     from agent_utilities.mcp.tools import (
+        register_agent_execution_tools,
         register_analysis_tools,
         register_analyze_suite_tools,
         register_audit_tools,
         register_bus_tools,
         register_compliance_tools,
+        register_domain_ops_tools,
         register_engine_surface_tools,
         register_engine_tools,
         register_epistemic_tools,
+        register_evolution_tools,
+        register_governance_tools,
         register_incident_tools,
+        register_job_tools,
         register_ontology_tools,
         register_ops_causal_tools,
         register_query_tools,
         register_reach_tools,
+        register_rlm_tools,
         register_secret_tools,
         register_state_tools,
+        register_workflow_tools,
         register_write_ingest_tools,
     )
     from agent_utilities.mcp.verbose_tools import register_tool_surface, tool_mode
@@ -2969,7 +3168,7 @@ def _build_server(bootstrap: bool = True):
     # condensed surface is the per-domain action tools (gated by `<DOMAIN>TOOL`); the
     # verbose surface is one 1:1 tool per gateway CRUD action, both dispatching through
     # the same `_execute_tool` core. register_tool_surface owns the MCP_TOOL_MODE
-    # selection (condensed default / verbose / both / intent) for both.
+    # selection (intent default / condensed / verbose / both) for both.
     register_tool_surface(
         mcp,
         service="graph-os",
@@ -2977,6 +3176,7 @@ def _build_server(bootstrap: bool = True):
             register_query_tools,
             register_write_ingest_tools,
             register_analysis_tools,
+            register_agent_execution_tools,
             register_analyze_suite_tools,
             register_state_tools,
             register_ontology_tools,
@@ -2985,22 +3185,30 @@ def _build_server(bootstrap: bool = True):
             register_secret_tools,
             register_engine_tools,
             register_engine_surface_tools,
+            register_domain_ops_tools,
+            register_evolution_tools,
+            register_governance_tools,
             register_ops_causal_tools,
             register_audit_tools,
             register_epistemic_tools,
             register_incident_tools,
+            register_job_tools,
             register_compliance_tools,
+            register_rlm_tools,
+            register_workflow_tools,
         ],
         verbose_register=register_graphos_verbose_tools,
+        mode_override=tool_profile,
+        force_condensed_registration=canonical_surface,
     )
 
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8, Phases 2-3) — the ADDITIONAL, small
-    # "ask/find/write/act/manage/why" intent surface, opt-in via MCP_TOOL_MODE=intent
-    # (the condensed default above is completely unaffected). Every granular tool the
+    # "ask/find/write/act/manage/why" intent surface, selected by the default
+    # MCP_TOOL_MODE=intent. Every granular tool the
     # condensed surface just registered stays reachable via load_tools (verbose_tools
     # tagged them GATED_TAG); the intent verbs dispatch through the SAME
     # REGISTERED_TOOLS/_execute_tool core.
-    if tool_mode() == "intent":
+    if (tool_profile or tool_mode()) == "intent":
         from agent_utilities.mcp.tools.intent_tools import register_intent_tools
 
         register_intent_tools(mcp)
@@ -3072,209 +3280,6 @@ def register_graphos_verbose_tools(mcp) -> None:
 
 
 # ══════════════════════════════════════════════════════════════════
-
-
-class CentralizedCypherMiddleware:
-    """ASGI middleware to intercept and route /cypher requests directly to the active database engine.
-
-    Exposes:
-      - POST /cypher: Executes a Cypher query (read/write) or chunked batch query directly,
-        completely bypassing SQLite file locking contention between parallel client processes.
-
-    Features:
-      - G5: Backpressure via asyncio.Semaphore (max_concurrent configurable).
-      - G6: TTL-based read query deduplication cache for identical read-only queries.
-    """
-
-    # G6: Module-level read query cache (shared across middleware instances)
-    _READ_CACHE: dict[str, tuple[Any, float]] = {}
-    _READ_CACHE_TTL = 2.0  # seconds
-
-    def __init__(self, app, max_concurrent: int = 50):
-        self.app = app
-        # G5: Backpressure semaphore to limit concurrent query execution
-        self._semaphore: asyncio.Semaphore | None = None
-        self._max_concurrent = max_concurrent
-
-    def _get_semaphore(self) -> asyncio.Semaphore:
-        """Lazily create the semaphore inside the running event loop."""
-        if self._semaphore is None:
-            self._semaphore = asyncio.Semaphore(self._max_concurrent)
-        return self._semaphore
-
-    @staticmethod
-    def _is_read_only(query: str) -> bool:
-        """Check if a Cypher query is read-only (no write operations)."""
-        q = query.upper().strip()
-        write_keywords = {"CREATE", "MERGE", "DELETE", "SET", "REMOVE", "DROP"}
-        return not any(kw in q for kw in write_keywords)
-
-    @classmethod
-    def _get_cached_read(cls, cache_key: str) -> list[dict[str, Any]] | None:
-        """Return cached read results if within TTL, else None."""
-        cached = cls._READ_CACHE.get(cache_key)
-        if cached is None:
-            return None
-        results, ts = cached
-        if (_time.monotonic() - ts) < cls._READ_CACHE_TTL:
-            return results
-        # Expired — remove stale entry
-        cls._READ_CACHE.pop(cache_key, None)
-        return None
-
-    @classmethod
-    def _set_cached_read(cls, cache_key: str, results: list[dict[str, Any]]) -> None:
-        """Cache read query results with TTL."""
-        cls._READ_CACHE[cache_key] = (results, _time.monotonic())
-        # Evict old entries if cache grows too large (prevent unbounded memory)
-        if len(cls._READ_CACHE) > 1000:
-            now = _time.monotonic()
-            expired = [
-                k
-                for k, (_, ts) in cls._READ_CACHE.items()
-                if (now - ts) >= cls._READ_CACHE_TTL
-            ]
-            for k in expired:
-                cls._READ_CACHE.pop(k, None)
-
-    async def __call__(self, scope, receive, send):
-        if (
-            scope["type"] == "http"
-            and scope["path"] == "/cypher"
-            and scope["method"] == "POST"
-        ):
-            # G5: Acquire backpressure semaphore
-            sem = self._get_semaphore()
-            async with sem:
-                await self._handle_cypher(scope, receive, send)
-            return
-
-        # Pass through to the standard FastMCP Starlette app
-        await self.app(scope, receive, send)
-
-    async def _handle_cypher(self, scope, receive, send):
-        """Handle a /cypher POST request with safety guardrails and caching."""
-        # 1. Extract headers for agent and session attribution
-        agent_id = "anonymous_agent"
-        session_id = "default_session"
-        for k, v in scope.get("headers", []):
-            if k.lower() == b"x-agent-id":
-                agent_id = v.decode("utf-8")
-            elif k.lower() == b"x-session-id":
-                session_id = v.decode("utf-8")
-
-        # 2. Read the HTTP request body
-        body = b""
-        more_body = True
-        while more_body:
-            message = await receive()
-            body += message.get("body", b"")
-            more_body = message.get("more_body", False)
-
-        # 3. Parse request JSON and execute
-        import json
-
-        try:
-            data = json.loads(body.decode("utf-8")) if body else {}
-            query = data.get("query")
-            params = data.get("params")
-            batch = data.get("batch")
-            chunk_size = data.get("chunk_size", 500)
-
-            if not query:
-                raise ValueError("A 'query' Cypher string is required.")
-
-            # Cypher safety check: reject global destructive wipes
-            query_upper = query.upper()
-            if (
-                "DELETE" in query_upper
-                and "WHERE" not in query_upper
-                and "LIMIT" not in query_upper
-            ):
-                if "MATCH" in query_upper and (
-                    "DETACH" in query_upper or "DELETE" in query_upper
-                ):
-                    # Ensure it's not a global delete
-                    # Matches deleting all nodes or relations without bounds
-                    raise ValueError(
-                        "Query rejected: Global DETACH/DELETE without WHERE filters "
-                        "is banned by epistemic safety guardrails (CONCEPT:AU-OS.config.secrets-authentication)."
-                    )
-
-            logger.info(
-                f"[KG Gateway] Query from agent '{agent_id}' (session: '{session_id}'): "
-                f"{query[:100]}..."
-            )
-
-            # G6: Check read cache for read-only queries without batch
-            is_read = self._is_read_only(query) and batch is None
-            cache_key = ""
-            if is_read:
-                import hashlib
-
-                cache_key = hashlib.md5(
-                    f"{query}|{json.dumps(params or {}, sort_keys=True)}".encode(),
-                    usedforsecurity=False,
-                ).hexdigest()
-                cached = self._get_cached_read(cache_key)
-                if cached is not None:
-                    logger.debug(
-                        f"[KG Gateway] Cache HIT for read query (key={cache_key[:8]})"
-                    )
-                    resp_data = {"status": "success", "results": cached}
-                    await self._send_json(send, resp_data, 200)
-                    return
-
-            engine = _get_engine()
-            if not engine or not engine.backend:
-                raise RuntimeError(
-                    "IntelligenceGraphEngine backend not active on central server."
-                )
-
-            # If batch is present, run execute_batch, otherwise run execute
-            if batch is not None:
-                results = engine.backend.execute_batch(query, batch, chunk_size)
-            else:
-                results = engine.backend.execute(query, params)
-
-            # G6: Cache read results
-            if is_read and cache_key:
-                self._set_cached_read(cache_key, results)
-
-            resp_data = {"status": "success", "results": results}
-            status_code = 200
-        except Exception as e:
-            logger.error(
-                f"CentralizedCypherMiddleware execution error: {e}", exc_info=True
-            )
-            resp_data = {"status": "error", "message": str(e)}
-            status_code = 500
-
-        await self._send_json(send, resp_data, status_code)
-
-    @staticmethod
-    async def _send_json(send, data: dict, status_code: int) -> None:
-        """Send a JSON HTTP response."""
-        import json
-
-        response_body = json.dumps(data, default=str).encode("utf-8")
-        await send(
-            {
-                "type": "http.response.start",
-                "status": status_code,
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"content-length", str(len(response_body)).encode("ascii")),
-                ],
-            }
-        )
-        await send(
-            {
-                "type": "http.response.body",
-                "body": response_body,
-            }
-        )
-        return
 
 
 def ensure_tools_registered() -> None:
@@ -3353,7 +3358,6 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/query/federated", graph_query_federated_endpoint, ["POST"])
 
     # ── Granular search ──
-    route("/graph/search/hybrid", graph_search_hybrid_endpoint, ["POST"])
     route("/graph/search/concept", graph_search_concept_endpoint, ["POST"])
     route("/graph/search/analogy", graph_search_analogy_endpoint, ["POST"])
     route("/graph/search/memory", graph_search_memory_endpoint, ["POST"])
@@ -3471,103 +3475,6 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         "/graph/analyze/security-scan", graph_analyze_security_scan_endpoint, ["POST"]
     )
 
-    # ── Granular orchestrate ──
-    route("/graph/orchestrate/dispatch", graph_orchestrate_dispatch_endpoint, ["POST"])
-    route("/graph/orchestrate/job/{job_id}", graph_orchestrate_status_endpoint, ["GET"])
-    route(
-        "/graph/orchestrate/request-approval",
-        graph_orchestrate_request_approval_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/grant-approval",
-        graph_orchestrate_grant_approval_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/execute-agent",
-        graph_orchestrate_execute_agent_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/consensus", graph_orchestrate_consensus_endpoint, ["POST"]
-    )
-    route(
-        "/graph/orchestrate/start-debate",
-        graph_orchestrate_start_debate_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/submit-risk-veto",
-        graph_orchestrate_submit_risk_veto_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/cron-jobs",
-        graph_orchestrate_list_cron_jobs_endpoint,
-        ["GET"],
-    )
-    route(
-        "/graph/orchestrate/trigger-cron-job",
-        graph_orchestrate_trigger_cron_job_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/compile-workflow",
-        graph_orchestrate_compile_workflow_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/compile-process",
-        graph_orchestrate_compile_process_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/publish-proposal",
-        graph_orchestrate_publish_proposal_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/distill-skills",
-        graph_orchestrate_distill_skills_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/workflows",
-        graph_orchestrate_list_workflows_endpoint,
-        ["GET"],
-    )
-    route(
-        "/graph/orchestrate/execute-workflow",
-        graph_orchestrate_execute_workflow_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/synthesize-org",
-        graph_orchestrate_synthesize_org_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/run-org",
-        graph_orchestrate_run_org_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/dispatch-workflow",
-        graph_orchestrate_dispatch_workflow_endpoint,
-        ["POST"],
-    )
-    route(
-        "/graph/orchestrate/workflow-status/{job_id}",
-        graph_orchestrate_workflow_status_endpoint,
-        ["GET"],
-    )
-    route(
-        "/graph/orchestrate/export-workflow",
-        graph_orchestrate_export_workflow_endpoint,
-        ["POST"],
-    )
-
     # ── Granular configure ──
     route("/graph/configure/secret", graph_configure_secret_endpoint, ["POST"])
     route("/graph/configure/vault-sync", graph_configure_vault_sync_endpoint, ["POST"])
@@ -3587,7 +3494,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/configure/doctor", graph_configure_doctor_endpoint, ["POST"])
 
     # ── Collapsed action-routed twins (full MCP⇄REST parity) ──
-    # The seven core graph_* tools above already have bespoke endpoints; every
+    # The core graph_* tools above already have bespoke endpoints; every
     # other MCP tool in ACTION_TOOL_ROUTES (context, feedback, hydrate, sessions,
     # goals, document_process, source_connector, ontology_*, object_*) is served
     # by the generic factory so the REST surface reaches everything MCP can.
@@ -3671,19 +3578,37 @@ def _fleet_embed_fn():
     return _embed
 
 
+def _configure_graphos_otel() -> None:
+    """Activate the canonical metadata-only OTLP pipeline when configured."""
+
+    if not setting("ENABLE_OTEL", False):
+        return
+    try:
+        from agent_utilities.observability.custom_observability import setup_otel
+
+        setup_otel(service_name="graph-os")
+    except Exception as exc:  # noqa: BLE001 - observability cannot prevent serving
+        logger.warning(
+            "GraphOS OTLP setup failed; trace export is disabled (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
     Thin FastMCP wrapper following the standard ``mcp_server.py`` template: it
-    serves ONLY the MCP tool surface, over ``stdio`` or ``streamable-http`` (or
-    legacy ``sse``), selected by the standard ``--transport/--host/--port`` args
+    serves ONLY the MCP tool surface, over ``stdio`` or ``streamable-http``,
+    selected by the standard ``--transport/--host/--port`` args
     from :func:`create_mcp_server`. The REST API (``/graph/*``, ``/sessions``,
     ``/goals``, ``/tools``) is centralized in the API gateway
     (``agent_utilities.gateway``) — see :func:`_mount_rest_routes`.
     """
+    global _PROCESS_SESSION
     from agent_utilities.core.config import load_config
 
     load_config()  # resolve settings through the one shared XDG config.json
+    _configure_graphos_otel()
     os.environ["IS_KG_SERVER"] = "true"
     args, mcp, middlewares = _build_server()
 
@@ -3702,51 +3627,71 @@ def mcp_server() -> None:
 
         # Inject graph-os's own embedding model so find_tools ranks fleet tools by
         # query↔description MEANING (semantic), not just literal token overlap.
-        fleet_mux = attach_fleet_loader(mcp, embed_fn=_fleet_embed_fn())
-    except Exception:
-        logger.exception("graph-os fleet loader attach failed (fleet tools disabled)")
+        fleet_mux = attach_fleet_loader(
+            mcp,
+            embed_fn=_fleet_embed_fn(),
+            authority_scope=verified_tool_session_scope,
+        )
+    except Exception as exc:
+        logger.error(
+            "graph-os fleet loader attach failed; fleet tools disabled "
+            "(exception_type=%s)",
+            type(exc).__name__,
+        )
 
     transport = getattr(args, "transport", "stdio")
-    host = getattr(args, "host", "0.0.0.0")
+    host = getattr(args, "host", "127.0.0.1")
     port = int(getattr(args, "port", 8000))
 
-    logger.info(
-        "Starting graph-os MCP Server (transport=%s, host=%s, port=%s)",
-        transport,
-        host,
-        port,
-    )
-
-    from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
-    from agent_utilities.security.request_identity import apply_served_security_profile
-
-    # Network transports serve many clients at once: enforce server-validated
-    # identity + tenant scoping, or fail loud (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). No-op for stdio.
-    apply_served_security_profile(transport)
+    bootstrap_session = _mint_process_session(transport)
+    _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
+    _start_process_authority_supervisor(bootstrap_session)
 
     try:
+        logger.info("Starting graph-os MCP server (transport=%s)", transport)
+
+        from agent_utilities.mcp.server_factory import (
+            mcp_network_run_kwargs,
+            protect_stdio_jsonrpc,
+        )
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        # Network transports serve many clients at once: enforce server-validated
+        # identity + tenant scoping, or fail loud (CONCEPT:AU-OS.identity.authenticated-identity-enforcement). No-op for stdio.
+        apply_served_security_profile(
+            transport,
+            transport_auth_configured=(
+                str(getattr(args, "auth_type", "none") or "none").lower() != "none"
+            ),
+        )
+        _start_engine_bootstrap(bootstrap_session)
+
         if transport == "stdio":
             protect_stdio_jsonrpc()
             mcp.run(transport="stdio")
         elif transport == "streamable-http":
-            mcp.run(transport="streamable-http", host=host, port=port)
-        elif transport == "sse":
-            mcp.run(transport="sse", host=host, port=port)
+            mcp.run(
+                transport="streamable-http",
+                host=host,
+                port=port,
+                **mcp_network_run_kwargs(args),
+            )
         else:
-            protect_stdio_jsonrpc()
-            mcp.run(transport="stdio")
+            raise ValueError("graph-os transport must be 'stdio' or 'streamable-http'")
     finally:
+        _PROCESS_SESSION = None
+        _stop_process_authority_supervisor()
         # Best-effort teardown of any lazily-mounted fleet children.
         if fleet_mux is not None:
             try:
                 asyncio.run(fleet_mux.aclose())
-            except Exception:
-                logger.debug("fleet loader aclose failed", exc_info=True)
-
-
-# Back-compat alias — the previous console_scripts entry and some docs/tooling
-# reference ``main``; keep it pointing at the new thin entry point.
-main = mcp_server
+            except Exception as exc:
+                logger.debug(
+                    "fleet loader close failed (exception_type=%s)",
+                    type(exc).__name__,
+                )
 
 
 if __name__ == "__main__":

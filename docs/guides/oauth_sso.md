@@ -38,7 +38,7 @@ sequenceDiagram
     User->>MCP: MCP Tool Call + Bearer [IdP-token]
     MCP->>MCP: OIDCProxy validates token against IdP JWKS
     MCP->>MW: Pass validated request
-    MW->>MW: Extract Bearer token → threading.local()
+    MW->>MW: Bind verified token + claims → request ContextVars
 
     Note over User,API: Phase 3: Tool handler creates API client
     MCP->>Auth: get_client(config)
@@ -59,7 +59,7 @@ graph TB
         SF["server_factory.py<br/>OIDCProxy + CLI parser"]
         MW["middlewares.py<br/>UserTokenMiddleware"]
         DA["delegated_auth.py<br/>get_delegated_token<br/>get_3lo_authorization_url<br/>exchange_authorization_code"]
-        MU["mcp_utilities.py<br/>config re-export"]
+        CH["context_helpers.py<br/>progress, elicitation, logging,<br/>state, and sampling"]
         CFG["core/config.py<br/>AgentConfig with OIDC fields<br/>(XDG config.json)"]
     end
 
@@ -83,7 +83,7 @@ graph TB
     CFG --> SF
     SF --> MW
     MW --> DA
-    MU --> DA
+    CH -.->|"tool context utilities"| GL & GH & SN & AT & LX & AN & MS
 
     DA --> GL & GH & SN & AT & LX & AN & MS
     MW -.->|"user identity audit"| LF
@@ -101,7 +101,8 @@ is executed.
 
 - Configured via `--auth-type oidc-proxy` on the MCP CLI
 - Uses FastMCP's built-in `OIDCProxy` / `OAuthProxy` / `JWTVerifier`
-- `UserTokenMiddleware` extracts the Bearer token into `threading.local()`
+- `UserTokenMiddleware` binds the verified Bearer token and claims to
+  request-scoped context variables
 
 ### Layer 2: Downstream API Delegation (this module)
 
@@ -111,7 +112,7 @@ downstream API.
 
 - Centralized in `agent_utilities.mcp.delegated_auth`
 - Shared helper `get_delegated_token()` eliminates code duplication
-- Falls back to env-var credentials when delegation is disabled
+- Uses an explicitly configured typed credential reference when delegation is disabled
 
 ## Quick Start
 
@@ -122,7 +123,7 @@ downstream API.
 export AUTH_TYPE=oidc-proxy
 export OIDC_CONFIG_URL=https://your-idp.example.com/.well-known/openid-configuration
 export OIDC_CLIENT_ID=your-client-id
-export OIDC_CLIENT_SECRET=your-client-secret
+export OIDC_CLIENT_SECRET_REF=vault://platform/oidc#client_secret
 export ENABLE_DELEGATION=True
 export AUDIENCE=https://api.downstream-service.com
 export DELEGATED_SCOPES="api read write"
@@ -135,7 +136,7 @@ Or add them to the XDG config file at
 {
     "oidc_config_url": "https://your-idp.example.com/.well-known/openid-configuration",
     "oidc_client_id": "your-client-id",
-    "oidc_client_secret": "your-client-secret",
+    "oidc_client_secret_ref": "vault://platform/oidc#client_secret",
     "enable_delegation": true,
     "delegation_audience": "https://api.downstream-service.com",
     "delegated_scopes": "api read write"
@@ -151,7 +152,7 @@ python -m gitlab_api.mcp_server \
   --auth-type oidc-proxy \
   --oidc-config-url $OIDC_CONFIG_URL \
   --oidc-client-id $OIDC_CLIENT_ID \
-  --oidc-client-secret $OIDC_CLIENT_SECRET \
+  --oidc-client-secret-ref "$OIDC_CLIENT_SECRET_REF" \
   --enable-delegation
 ```
 
@@ -172,23 +173,27 @@ curl -X POST http://localhost:8000/mcp/tools/call \
 | `AUTH_TYPE` | No | `none` | Auth type: `none`, `oidc-proxy`, `oauth-proxy`, `jwt`, `remote` |
 | `OIDC_CONFIG_URL` | For OIDC | — | OIDC discovery URL (`.well-known/openid-configuration`) |
 | `OIDC_CLIENT_ID` | For OIDC | — | OAuth 2.0 client ID from your IdP |
-| `OIDC_CLIENT_SECRET` | For OIDC | — | OAuth 2.0 client secret from your IdP |
+| `OIDC_CLIENT_SECRET_REF` | For OIDC | — | `env://`, `vault://`, or `secret://` reference resolved only at runtime |
 | `ENABLE_DELEGATION` | No | `False` | Enable RFC 8693 token exchange for downstream APIs |
 | `AUDIENCE` | For delegation | — | Target audience for the delegated token |
 | `DELEGATED_SCOPES` | No | `api` | Space-separated scopes for the delegated token |
 
-### Per-Agent Variables (fallback when delegation is disabled)
+### Provider Credentials When Delegation Is Not Used
 
-| Agent | Variables |
-|-------|-----------|
-| **gitlab-api** | `GITLAB_URL`, `GITLAB_TOKEN`, `GITLAB_SSL_VERIFY` |
-| **github-agent** | `GITHUB_URL`, `GITHUB_TOKEN`, `GITHUB_VERIFY` |
-| **servicenow-api** | `SERVICENOW_INSTANCE`, `SERVICENOW_USERNAME`, `SERVICENOW_PASSWORD` |
-| **atlassian-agent** | `ATLASSIAN_AGENT_URL`, `ATLASSIAN_AGENT_USER`, `ATLASSIAN_AGENT_TOKEN` |
-| **leanix-agent** | `LEANIX_WORKSPACE`, `LEANIX_TOKEN` |
-| **ansible-tower-mcp** | `ANSIBLE_BASE_URL`, `ANSIBLE_USERNAME`, `ANSIBLE_PASSWORD` |
-| **microsoft-agent** | `OIDC_CLIENT_ID` (for MSAL) |
-| **langfuse-agent** | `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` |
+Provider endpoints and non-secret client identifiers remain ordinary
+configuration. Every token, password, cookie, and OAuth client secret is a
+typed `SOURCE_CREDENTIALS` descriptor whose secret-bearing fields contain only
+`env://`, `vault://`, or `secret://` references:
+
+| Credential kind | Typical providers | Reference-bearing fields |
+|-----------------|-------------------|--------------------------|
+| API key / bearer | GitLab, GitHub, LeanIX | `secret` |
+| Basic auth | ServiceNow, Ansible Tower | `username_secret`, `password_secret` |
+| Cookie session | Browser-backed providers | `secret` |
+| OAuth 2.0 | Atlassian, Microsoft, Langfuse | `secret`, `refresh_token_secret`, `client_secret_secret` |
+
+Raw token/password environment credentials are not a supported path. A
+connector that cannot resolve its selected credential reference fails closed.
 
 ## Auth Patterns in Detail
 
@@ -213,8 +218,14 @@ def get_client():
         )
         return Api(url=instance, token=token)
 
-    # Fallback to env-var credentials
-    return Api(url=instance, token=os.getenv("GITLAB_TOKEN"))
+    # Non-delegated mode uses the typed provider; its descriptor contains only
+    # a runtime secret reference and materializes the header in memory.
+    from agent_utilities.security.credential_provider import get_credential_provider
+
+    material = get_credential_provider().get("gitlab").materialize()
+    if not material.headers:
+        raise RuntimeError("GitLab credential reference is unavailable")
+    return Api(url=instance, headers=material.headers)
 ```
 
 ### Three-Legged OAuth (3LO)
@@ -228,6 +239,14 @@ from agent_utilities.mcp.delegated_auth import (
     exchange_authorization_code,
     refresh_access_token,
 )
+from agent_utilities.security.secrets_client import create_secrets_client
+
+secrets = create_secrets_client()
+client_secret = secrets.resolve_ref(
+    "vault://platform/atlassian#client_secret"
+)
+if not client_secret:
+    raise RuntimeError("Atlassian client-secret reference is unavailable")
 
 # Step 1: Build authorization URL
 auth_url = get_3lo_authorization_url(
@@ -242,7 +261,7 @@ auth_url = get_3lo_authorization_url(
 tokens = exchange_authorization_code(
     token_endpoint="https://auth.atlassian.com/oauth/token",
     client_id="your-app-client-id",
-    client_secret="your-app-client-secret",
+    client_secret=client_secret,
     code=authorization_code,
     redirect_uri="http://localhost:8080/callback",
 )
@@ -251,7 +270,7 @@ tokens = exchange_authorization_code(
 new_tokens = refresh_access_token(
     token_endpoint="https://auth.atlassian.com/oauth/token",
     client_id="your-app-client-id",
-    client_secret="your-app-client-secret",
+    client_secret=client_secret,
     refresh_token=tokens["refresh_token"],
 )
 ```
@@ -262,22 +281,15 @@ Used when the downstream API does not support OIDC at all (e.g. API key
 authentication only).  SSO still secures the MCP server.
 
 ```python
-from agent_utilities.mcp.delegated_auth import (
-    get_user_identity,
-    is_delegation_enabled,
-)
+from agent_utilities.security.credential_provider import get_credential_provider
 
 def get_client():
-    # Log SSO user identity for audit trail
-    if is_delegation_enabled():
-        identity = get_user_identity()
-        logger.info(
-            "Identity passthrough — MCP SSO-protected, downstream uses API keys",
-            extra={"sso_user": identity.get("email")},
-        )
-
-    # Always use API keys for the downstream service
-    return ServiceClient(api_key=os.getenv("SERVICE_API_KEY"))
+    # The provider resolves the descriptor's secret reference in memory. Do not
+    # log its value or attach user identity to the credential event.
+    material = get_credential_provider().get("service").materialize()
+    if not material.headers:
+        raise RuntimeError("Service credential reference is unavailable")
+    return ServiceClient(headers=material.headers)
 ```
 
 ### Hybrid (MSAL + OIDC)
@@ -337,22 +349,23 @@ export OIDC_CONFIG_URL=https://your-idp.example.com/.well-known/openid-configura
 **Cause**: The IdP rejected the token exchange request.
 
 **Fix**: Verify:
-1. `OIDC_CLIENT_ID` and `OIDC_CLIENT_SECRET` are correct
+1. `OIDC_CLIENT_ID` is correct and `OIDC_CLIENT_SECRET_REF` resolves at runtime
 2. The client is authorized for the `token-exchange` grant type in your IdP
 3. The `AUDIENCE` matches the service registered in your IdP
 4. The `DELEGATED_SCOPES` are valid for the target service
 
-### "OIDC delegation failed, falling back to credentials"
+### "OIDC delegation failed"
 
-**Info**: This is a warning, not an error.  The agent will try env-var
-credentials as a fallback.  If you want strict delegation (no fallback),
-ensure the IdP configuration is correct.
+**Info**: Delegation and source credentials fail closed. Correct the IdP
+configuration or configure an explicitly selected `SOURCE_CREDENTIALS`
+descriptor containing runtime references; the agent does not retry with raw
+environment credentials.
 
 ---
 
 ## Vault & OpenBao Integration
 
-The secrets engine (`agent_utilities.security.secrets_client`) integrates with HashiCorp Vault and OpenBao using the same OIDC identity infrastructure documented above. This means the SSO user token that protects the MCP server can also be used to **authenticate to Vault / OpenBao** — eliminating static `VAULT_TOKEN` secrets.
+The secrets engine (`agent_utilities.security.secrets_client`) integrates with HashiCorp Vault and OpenBao using the same OIDC identity infrastructure documented above. This means the SSO user token that protects the MCP server can also be used to **authenticate to Vault / OpenBao** without retaining a static Vault token.
 
 ### How It Works
 
@@ -367,7 +380,7 @@ sequenceDiagram
 
     Note over User,IdP: Phase 1: User authenticates to MCP (already done)
     User->>MW: Bearer [IdP-token]
-    MW->>MW: Store token in threading.local()
+    MW->>MW: Bind verified token + claims in request ContextVars
 
     Note over User,IdP: Phase 2: Agent needs a secret
     SC->>VB: get("gitlab/token")
@@ -385,7 +398,7 @@ sequenceDiagram
 
     VB->>Vault: GET /secret/data/{path_prefix}/gitlab/token
     Vault-->>VB: Secret value
-    VB-->>SC: "glpat-xxx"
+    VB-->>SC: Resolved secret value
 ```
 
 ### Config ↔ Path Mapping
@@ -416,30 +429,25 @@ Auth endpoint: POST /auth/oidc/login
 
 ### Authentication Strategies
 
-The `VaultBackend` supports four authentication methods, tried in priority
-order when `VAULT_AUTH_METHOD=auto` (the default):
+The documented profiles use workload identity and do not retain a static Vault
+credential:
 
-| Priority | Method | Use Case | Required Config |
-|----------|--------|----------|-----------------|
-| 1 | **OIDC/JWT** | User-scoped access via SSO token | `VAULT_ROLE`, `VAULT_AUTH_MOUNT` |
-| 2 | **AppRole** | CI/CD pipelines, service accounts | `VAULT_ROLE_ID`, `VAULT_SECRET_ID` |
-| 3 | **Static Token** | Legacy / development | `VAULT_TOKEN` |
-| 4 | **Kubernetes** | K8s pod workloads | `VAULT_ROLE`, SA token mount |
+| Method | Use Case | Required Config |
+|--------|----------|-----------------|
+| **OIDC/JWT** | User-scoped access via SSO token | `VAULT_ROLE`, `VAULT_AUTH_MOUNT` |
+| **Kubernetes** | Workload-scoped pod access | `VAULT_ROLE`, projected service-account token |
 
-### Vault Environment Variables
+### Non-secret Vault Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRETS_BACKEND` | No | `inmemory` | Set to `vault` to enable Vault |
+| `SECRETS_BACKEND` | No | `engine` | Set to `vault` to enable Vault |
 | `SECRETS_VAULT_URL` | For vault | `http://127.0.0.1:8200` | Vault cluster URL |
 | `SECRETS_VAULT_MOUNT` | No | `secret` | KV v2 mount point |
-| `VAULT_AUTH_METHOD` | No | `auto` | `auto`, `oidc`, `approle`, `token`, `kubernetes` |
+| `VAULT_AUTH_METHOD` | No | `auto` | `auto`, `oidc`, or `kubernetes` in documented profiles |
 | `VAULT_AUTH_MOUNT` | No | `jwt` | Auth method mount path (custom endpoints supported) |
 | `VAULT_ROLE` | For OIDC/K8s | `default` | Vault role name |
-| `VAULT_TOKEN` | For token auth | — | Static Vault token |
 | `VAULT_PATH_PREFIX` | No | — | Path prefix within the mount |
-| `VAULT_ROLE_ID` | For AppRole | — | AppRole role_id |
-| `VAULT_SECRET_ID` | For AppRole | — | AppRole secret_id |
 | `VAULT_K8S_SA_TOKEN_PATH` | For K8s | `/var/run/secrets/kubernetes.io/serviceaccount/token` | SA token path |
 
 ### Usage Examples
@@ -464,26 +472,6 @@ client = create_secrets_client()
 # automatically used to authenticate to Vault.
 gitlab_token = client.get("gitlab/token")
 # → reads: secret/data/agents/mcp/gitlab/token
-```
-
-#### AppRole Authentication (CI/CD)
-
-```bash
-export SECRETS_BACKEND=vault
-export SECRETS_VAULT_URL=https://vault.example.com
-export VAULT_AUTH_METHOD=approle
-export VAULT_ROLE_ID=your-role-id
-export VAULT_SECRET_ID=your-secret-id
-export VAULT_PATH_PREFIX=pipelines/
-```
-
-#### Static Token (Legacy)
-
-```bash
-export SECRETS_BACKEND=vault
-export SECRETS_VAULT_URL=https://vault.example.com
-export VAULT_AUTH_METHOD=token
-export VAULT_TOKEN=hvs.your-token-here
 ```
 
 #### CLI Usage
@@ -512,8 +500,11 @@ vault auth enable -path=oidc oidc
 vault write auth/oidc/config \
   oidc_discovery_url="https://your-idp.example.com" \
   oidc_client_id="vault-client-id" \
-  default_role="agent-reader" \
-  oidc_client_secret="vault-client-secret" # sanitizer:ignore # sanitizer:ignore
+  default_role="agent-reader"
+
+# For a confidential IdP client, an approved secret-aware provisioner resolves
+# vault://platform/vault-oidc#client_secret and sends the value to the Vault API
+# in memory. Never place the resolved value in this command or a committed file.
 
 # 3. Create a role that maps OIDC claims to Vault policies
 vault write auth/oidc/role/agent-reader \
@@ -573,7 +564,7 @@ graph TD
     subgraph AgentWorkspace ["Secure Remote Workspace (Container / VM)"]
         subgraph MCP_Layer ["1. MCP Transport & Verification"]
             Proxy["OIDCProxy / OAuthProxy / JWTVerifier<br/>(FastMCP Server)"]
-            MW["UserTokenMiddleware<br/>(Extracts JWT to thread-local context)"]
+            MW["UserTokenMiddleware<br/>(Binds verified JWT to request ContextVars)"]
         end
 
         subgraph AuthCore ["2. agent-utilities Shared Auth Engine"]

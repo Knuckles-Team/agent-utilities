@@ -1,77 +1,53 @@
 # CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Tenant-partitioned engine sharding with HRW graph-to-shard routing and tenant to named-graph placement over GRAPH_SERVICE_ENDPOINTS
-"""Engine placement-catalog consumer (DIST-P2-2b).
+"""Strict consumer of the epistemic-graph placement authority (DIST-P2-2b).
 
-The engine (epistemic-graph ``src/raft/placement.rs``, DIST-P2-1) now owns an
+The engine (epistemic-graph ``src/raft/placement.rs``, DIST-P2-1) owns an
 authoritative **PlacementCatalog**: a durable, versioned "this tenant's
 keyspace lives here" record with routing epochs, online move (snapshot →
 catch-up → fenced cutover), and virtual partitions (one tenant can span
-groups). AU must be a CONSUMER of that authority, never a second one — this
-module is the client-side seam that makes that true.
+groups). AU is a CONSUMER of that authority, never a second one — this module
+is the client-side seam that makes that true. The engine returns a complete
+route for every graph, including its current unplaced and single-node policy.
+This module caches that answer and maps the returned Raft group to deployment
+topology. It never hashes, guesses, disables the catalog, or treats an
+unreachable authority as permission to choose a shard.
 
 :func:`resolve_placement` is the ONE entrypoint (mirrors the "one resolver"
-discipline of :mod:`.engine_resolver`):
-
-1. **Cache** — a short-TTL ``(endpoint, epoch)`` answer for this partition key
-   (``(tenant, sub_key)`` — the same split the engine uses,
-   :func:`split_tenant_key`), so a hot path does not round-trip the catalog on
-   every call.
-2. **Engine catalog** — on a cache miss/expiry, ask the engine's placement
-   route op. ANY reachable configured endpoint can answer (the catalog is
-   cluster-wide, not per-shard), so every endpoint is tried in HRW-preference
-   order until one responds.
-3. **Static HRW ring** (:func:`.shard_topology.shard_endpoint_for`) — the
-   BOOTSTRAP/fallback, used only when the catalog is disabled, every contact
-   endpoint is unreachable, or the engine doesn't advertise one at all (an
-   older engine — see the wire-contract note below). Never a second
-   authority: this module makes no independent placement *decision*, it just
-   picks somewhere to ask when there is nobody left to ask.
+discipline of :mod:`.engine_resolver`): a short-TTL ``(endpoint, epoch)``
+answer is cached per partition key (``(tenant, sub_key)`` — the same split the
+engine uses, :func:`split_tenant_key`), so a hot path does not round-trip the
+catalog on every call; on a cache miss/expiry every configured contact is
+tried, in order, until one returns a validated, authoritative route.
 
 A caller that discovers its cached placement is stale (a request rejected for
 an epoch mismatch, i.e. the engine's ``redirect_if_stale``) re-resolves with
 ``resolve_placement(..., force_refresh=True)`` — this bypasses the cache,
 re-queries the catalog (presenting the previously-cached epoch so the engine
-can answer with a redirect), and returns the fresh ``(endpoint, epoch)`` to
-reconnect and retry against.
+can answer with a redirect), and returns the fresh route to reconnect and
+retry against.
 
-Wire contract (forward-looking). AU calls the engine's generic RPC dispatch
-with method name ``"PlacementRoute"`` and params ``{"tenant", "sub_key",
-"client_epoch"}`` — the same thin-namespace idiom the engine's own admin
-clients already use (``AdminClient.backup`` -> ``_send("Backup", ...)``,
-``ReshardingClient.catalog_list`` -> ``_send("CatalogList")``). **Today's
-shipped engine has no such wire ``Method`` yet** — ``PlacementCatalog::route``
-is presently consumed only INSIDE the engine, by ``MultiRaft``'s own
-cross-group dispatch (``src/raft/placement.rs`` documents AU-side consumption
-as the separate follow-up this module implements). So every real call here
-fails, and the fallback contract kicks in exactly as designed: ANY failure
-(missing attribute, RPC error, connection error, timeout) means "this engine
-doesn't advertise a catalog", and resolution falls back to the static HRW
-ring — today's deployments are byte-for-byte unaffected. The moment the
-engine adds the wire method, AU starts consuming it with no further AU-side
-change (a catalog-aware ``client.placement.route(...)`` namespace is tried
-first, ahead of the raw ``_send`` fallback, for a nicer typed client later).
-
-Hermetic under the unit suite: with ``AGENT_UTILITIES_TESTING`` set (the whole
-suite's default, ``tests/conftest.py``) and no explicit ``client_factory``
-override, :func:`resolve_placement` skips the real network round-trip and
-goes straight to HRW — the same hermetic-guard convention
-``engine_resolver.setting_autostart`` uses to keep the unit suite from ever
-touching a real engine. A test that wants to exercise the catalog path passes
-its own ``client_factory`` (a mock), which always bypasses the guard.
+AU calls the engine's typed ``client.placement.route(tenant, sub_key,
+client_epoch=...)`` — no raw-method alias, no fallback dialect. Every answer
+is validated (:func:`_validate_answer`) against the requested partition and
+against the engine's own fencing invariants before it is trusted or cached;
+an invalid, non-authoritative, or mismatched answer is a hard error
+(:class:`PlacementAuthorityError`), never a silently-accepted guess.
 """
 
 from __future__ import annotations
 
-import logging
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from agent_utilities.protocols.epistemic_operations import PlacementRoute
 
 __all__ = [
+    "PlacementAuthorityError",
     "PlacementResult",
+    "PlacementTopologyError",
     "invalidate",
     "resolve_placement",
     "split_tenant_key",
@@ -81,6 +57,14 @@ __all__ = [
 #: (e.g. a bare ``_config`` fake in a caller's tests) — short by design, per
 #: the task's guardrail: a moved partition must be discovered again quickly.
 _DEFAULT_TTL_S = 5.0
+
+
+class PlacementAuthorityError(RuntimeError):
+    """No configured engine returned a valid authoritative route."""
+
+
+class PlacementTopologyError(RuntimeError):
+    """An authoritative group cannot be mapped to a client endpoint."""
 
 
 def split_tenant_key(graph_name: str) -> tuple[str, str]:
@@ -101,19 +85,13 @@ def split_tenant_key(graph_name: str) -> tuple[str, str]:
 
 @dataclass(frozen=True)
 class PlacementResult:
-    """A resolved endpoint for one partition key.
-
-    ``source`` is ``"catalog"`` when the engine's PlacementCatalog answered
-    explicitly, or ``"hrw"`` when this is the static bootstrap/fallback ring
-    (catalog disabled, unreachable/unsupported, or it explicitly has no
-    placement for this tenant). ``epoch`` is ``0`` for an HRW answer — there is
-    no routing epoch outside the catalog.
-    """
+    """One engine-authoritative deployment route."""
 
     endpoint: str
     epoch: int
-    source: str
-    group: Any | None = None
+    group: int
+    fencing_token: int
+    placed: bool
 
 
 @dataclass
@@ -149,14 +127,9 @@ def invalidate(graph_name: str | None = None) -> None:
             del _cache[key]
 
 
-def _catalog_enabled(config: Any) -> bool:
-    return bool(getattr(config, "placement_catalog_enabled", True))
-
-
 def _catalog_ttl_s(config: Any) -> float:
-    ttl = getattr(config, "placement_catalog_ttl_s", _DEFAULT_TTL_S)
     try:
-        ttl = float(ttl)
+        ttl = float(getattr(config, "placement_catalog_ttl_s", _DEFAULT_TTL_S))
     except (TypeError, ValueError):
         return _DEFAULT_TTL_S
     return ttl if ttl > 0 else _DEFAULT_TTL_S
@@ -170,7 +143,9 @@ def _hermetic_testing_guard(client_factory: Callable[[str], Any] | None) -> bool
     real socket. A caller that explicitly injects ``client_factory`` (this
     module's own tests, or a caller that wants to exercise the catalog path
     against an in-process fake) opts back in — only the DEFAULT real-connect
-    path is guarded.
+    path is guarded. Tripping this guard fails closed
+    (:class:`PlacementAuthorityError`, see :func:`_query_catalog`) rather than
+    fabricating a placement answer — this module never guesses.
     """
     if client_factory is not None:
         return False
@@ -183,13 +158,27 @@ def _hermetic_testing_guard(client_factory: Callable[[str], Any] | None) -> bool
     }
 
 
-def _default_connect(endpoint: str, auth_secret: str | None) -> Any:
-    """Open a short-lived client to ``endpoint`` for a catalog query only."""
+def _default_connect(
+    endpoint: str,
+    auth_secret: str,
+    config: Any,
+    *,
+    verified_context: dict[str, Any],
+) -> Any:
     from epistemic_graph.client import SyncEpistemicGraphClient
 
-    kwargs: dict[str, Any] = {"auth_secret": auth_secret}
-    if endpoint.startswith("tcp://"):
-        kwargs["tcp_addr"] = endpoint[6:]
+    kwargs: dict[str, Any] = {
+        "auth_secret": auth_secret,
+        "verified_context": verified_context,
+    }
+    if endpoint.startswith(("tcp://", "tls://")):
+        from .engine_transport import (
+            engine_client_transport_kwargs,
+            native_endpoint_address,
+        )
+
+        kwargs["tcp_addr"] = native_endpoint_address(endpoint)[0]
+        kwargs.update(engine_client_transport_kwargs(endpoint, config=config))
     elif endpoint.startswith("unix://"):
         kwargs["socket_path"] = endpoint[7:]
     else:
@@ -198,86 +187,121 @@ def _default_connect(endpoint: str, auth_secret: str | None) -> Any:
 
 
 def _catalog_call(client: Any, tenant: str, sub_key: str, client_epoch: int) -> Any:
-    """Issue the placement-route RPC on an already-connected ``client``.
+    """Use the one current typed client contract; no raw-method alias."""
+    placement = getattr(client, "placement", None)
+    if placement is None or not hasattr(placement, "route"):
+        raise PlacementAuthorityError("engine client has no placement authority")
+    return placement.route(tenant, sub_key, client_epoch=client_epoch)
 
-    Tries a friendly ``client.placement.route(...)`` namespace first (the
-    shape a catalog-aware client will expose once the engine wires this up),
-    then the raw ``_send`` RPC every thin admin namespace in
-    ``epistemic_graph.client`` already uses this way. Raises on any failure —
-    the caller treats every exception identically (see module docstring).
-    """
-    placement_ns = getattr(client, "placement", None)
-    if placement_ns is not None and hasattr(placement_ns, "route"):
-        return placement_ns.route(tenant, sub_key, client_epoch=client_epoch)
-    return client._send(
-        "PlacementRoute",
-        {"tenant": tenant, "sub_key": sub_key, "client_epoch": client_epoch},
+
+def _validate_answer(answer: Any, tenant: str, sub_key: str) -> PlacementRoute:
+    try:
+        route = PlacementRoute.model_validate(answer)
+    except (TypeError, ValueError) as exc:
+        raise PlacementAuthorityError("engine returned an invalid placement route") from exc
+    if route.authoritative is not True:
+        raise PlacementAuthorityError("engine returned a non-authoritative route")
+    if route.tenant_ref != tenant or route.partition_ref != sub_key:
+        raise PlacementAuthorityError("engine returned a route for another partition")
+    if route.fencing_token != route.group or (route.placed and route.epoch == 0):
+        raise PlacementAuthorityError("engine returned an invalid placement fence")
+    return route
+
+
+def _map_endpoint(
+    group: int,
+    contacts: tuple[str, ...],
+    config: Any,
+) -> str:
+    topology = getattr(config, "graph_raft_group_endpoints", None) or {}
+    if isinstance(topology, dict):
+        target = topology.get(str(group), topology.get(group))
+        if target:
+            return str(target)
+    if len(contacts) == 1:
+        return contacts[0]
+    raise PlacementTopologyError(
+        "authoritative group has no configured client endpoint"
     )
+
+
+def _request_authority(config: Any) -> tuple[str, dict[str, Any]]:
+    from .session import current_session
+
+    session = current_session()
+    if session is None or not getattr(session.actor, "authenticated", False):
+        raise PlacementAuthorityError("placement lookup requires an authenticated session")
+    from .graph_compute import resolve_engine_auth
+
+    return resolve_engine_auth(config), session.engine_verified_context()
 
 
 def _query_catalog(
     tenant: str,
     sub_key: str,
-    contact_endpoints: list[str],
+    contacts: tuple[str, ...],
     config: Any,
     *,
     client_factory: Callable[[str], Any] | None,
     client_epoch: int,
-) -> PlacementResult | None:
-    """Ask the engine's placement catalog for ``(tenant, sub_key)``.
+) -> PlacementResult:
+    """Ask every configured contact for an authoritative route; never guess.
 
-    Returns ``None`` when the catalog cannot be consulted at all (every
-    contact endpoint unreachable/unsupported) or explicitly answers "no
-    placement for this tenant" — either way the caller falls back to HRW.
-    Tries each of ``contact_endpoints`` in order and stops at the first that
-    answers (any reachable member of a raft-replicated cluster can answer;
-    the catalog is cluster-wide, not per-shard).
+    Tries each of ``contacts`` in order and returns the first validated,
+    authoritative answer (any reachable member of a raft-replicated cluster
+    can answer; the catalog is cluster-wide, not per-shard). Under the
+    hermetic unit-testing guard (:func:`_hermetic_testing_guard`) with no
+    injected ``client_factory``, this fails closed immediately instead of
+    dialing a real socket.
     """
-    from .graph_compute import resolve_engine_auth  # local: avoid import cycle
+    if _hermetic_testing_guard(client_factory):
+        raise PlacementAuthorityError(
+            "placement catalog lookup skipped under the hermetic testing guard "
+            "(AGENT_UTILITIES_TESTING); inject client_factory to exercise it"
+        )
 
-    auth_secret, insecure = resolve_engine_auth(config)
-    auth_secret = None if insecure else auth_secret
+    auth_secret: str | None = None
+    verified_context: dict[str, Any] | None = None
+    if client_factory is None:
+        auth_secret, verified_context = _request_authority(config)
 
-    for endpoint in contact_endpoints:
+    failures = 0
+    for contact in contacts:
         client = None
         owns_client = client_factory is None
         try:
-            client = (
-                client_factory(endpoint)
-                if client_factory is not None
-                else _default_connect(endpoint, auth_secret)
-            )
+            if client_factory is not None:
+                client = client_factory(contact)
+            else:
+                assert auth_secret is not None and verified_context is not None
+                client = _default_connect(
+                    contact,
+                    auth_secret,
+                    config,
+                    verified_context=verified_context,
+                )
             answer = _catalog_call(client, tenant, sub_key, client_epoch)
-        except Exception as exc:  # noqa: BLE001 — best-effort: try next / HRW
-            logger.debug(
-                "placement-catalog query to %s failed (%s) — trying next "
-                "endpoint or falling back to HRW",
-                endpoint,
-                exc,
+            route = _validate_answer(answer, tenant, sub_key)
+            return PlacementResult(
+                endpoint=_map_endpoint(route.group, contacts, config),
+                epoch=route.epoch,
+                group=route.group,
+                fencing_token=route.fencing_token,
+                placed=route.placed,
             )
-            continue
+        except PlacementTopologyError:
+            raise
+        except Exception:  # noqa: BLE001 - try the next configured coordinator
+            failures += 1
         finally:
             if client is not None and owns_client:
                 try:
                     client.close()
-                except Exception:  # noqa: BLE001 — best-effort teardown
+                except Exception:  # noqa: BLE001 - best-effort teardown
                     pass
-
-        if not isinstance(answer, dict) or not answer.get("explicit"):
-            # A well-formed answer from a catalog-aware engine saying "no
-            # explicit placement for this tenant" — HRW is authoritative for
-            # it, definitively (not because the catalog is unreachable).
-            return None
-        target = answer.get("endpoint")
-        if not target:
-            return None
-        return PlacementResult(
-            endpoint=str(target),
-            epoch=int(answer.get("epoch") or 0),
-            source="catalog",
-            group=answer.get("group"),
-        )
-    return None
+    raise PlacementAuthorityError(
+        f"no configured engine returned an authoritative route ({failures} failed)"
+    )
 
 
 def resolve_placement(
@@ -288,76 +312,54 @@ def resolve_placement(
     force_refresh: bool = False,
     client_factory: Callable[[str], Any] | None = None,
 ) -> PlacementResult:
-    """Resolve ``graph_name``'s owning endpoint — the engine catalog first,
-    the static HRW ring as bootstrap/fallback only.
+    """Resolve ``graph_name``'s owning endpoint through the engine placement
+    authority only — never a client-side guess.
 
     ``force_refresh=True`` bypasses the cache and re-queries the catalog —
     call this after a data request comes back rejected for a stale epoch
-    (the engine's fenced-cutover redirect) to get the fresh
-    ``(endpoint, epoch)`` to reconnect and retry against.
+    (the engine's fenced-cutover redirect) to get the fresh route to
+    reconnect and retry against.
 
     ``client_factory``, when given, is called with an endpoint string and
     must return a connected client exposing the placement-route RPC (see
     :func:`_catalog_call`) — the injection seam tests use to mock the engine
     without a live connection; it also opts out of the hermetic testing guard
-    (see module docstring).
+    (see :func:`_hermetic_testing_guard`).
     """
-    eps = tuple(e for e in endpoints if e)
-    if not eps:
+    contacts = tuple(endpoint for endpoint in endpoints if endpoint)
+    if not contacts:
         raise ValueError("resolve_placement requires at least one endpoint")
-
-    from .shard_topology import shard_endpoint_for
-
-    if len(eps) == 1:
-        # Zero-infra / single-endpoint: identity, no catalog round trip —
-        # there is nowhere else the graph could live.
-        return PlacementResult(endpoint=eps[0], epoch=0, source="hrw")
-
     if config is None:
         from agent_utilities.core.config import AgentConfig
 
         config = AgentConfig()
 
     tenant, sub_key = split_tenant_key(graph_name)
-    key = _cache_key(eps, tenant, sub_key)
-
+    key = _cache_key(contacts, tenant, sub_key)
     if not force_refresh:
         with _cache_lock:
-            entry = _cache.get(key)
-            if entry is not None and entry.expires_at > time.monotonic():
-                return entry.result
+            cached = _cache.get(key)
+            if cached is not None and cached.expires_at > time.monotonic():
+                return cached.result
 
-    hrw_pick = shard_endpoint_for(graph_name, list(eps))
+    client_epoch = 0
+    if force_refresh:
+        with _cache_lock:
+            prior = _cache.get(key)
+        if prior is not None:
+            client_epoch = prior.result.epoch
 
-    if not _catalog_enabled(config) or _hermetic_testing_guard(client_factory):
-        result = PlacementResult(endpoint=hrw_pick, epoch=0, source="hrw")
-    else:
-        client_epoch = 0
-        if force_refresh:
-            with _cache_lock:
-                prior = _cache.get(key)
-            if prior is not None:
-                client_epoch = prior.result.epoch
-        # Bootstrap contact order: the static HRW pick first (most likely
-        # already reachable/local), then the rest of the configured ring —
-        # any reachable node can answer, so order is just a preference.
-        contact_order = [hrw_pick] + [e for e in eps if e != hrw_pick]
-        answer = _query_catalog(
-            tenant,
-            sub_key,
-            contact_order,
-            config,
-            client_factory=client_factory,
-            client_epoch=client_epoch,
-        )
-        result = (
-            answer
-            if answer is not None
-            else PlacementResult(endpoint=hrw_pick, epoch=0, source="hrw")
-        )
-
+    result = _query_catalog(
+        tenant,
+        sub_key,
+        contacts,
+        config,
+        client_factory=client_factory,
+        client_epoch=client_epoch,
+    )
     with _cache_lock:
         _cache[key] = _CacheEntry(
-            result=result, expires_at=time.monotonic() + _catalog_ttl_s(config)
+            result=result,
+            expires_at=time.monotonic() + _catalog_ttl_s(config),
         )
     return result

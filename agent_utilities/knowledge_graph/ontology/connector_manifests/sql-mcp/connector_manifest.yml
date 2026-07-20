@@ -1,0 +1,167 @@
+connector: sql-mcp
+ontology_source: database
+schema_version: '1'
+resources:
+- name: DatabaseColumn
+  label: Database Column
+  id_prefix: databasecolumn
+  relations:
+  - name: referencesColumn
+    label: references column
+    target: DatabaseColumn
+    lpg_rel_type: ''
+- name: DatabaseIndex
+  label: Database Index
+  id_prefix: databaseindex
+  relations: []
+- name: DatabaseSchema
+  label: Database Schema
+  id_prefix: databaseschema
+  relations:
+  - name: hasTable
+    label: has table
+    target: DatabaseTable
+    lpg_rel_type: ''
+  - name: hasView
+    label: has view
+    target: DatabaseView
+    lpg_rel_type: ''
+- name: DatabaseTable
+  label: Database Table
+  id_prefix: databasetable
+  relations:
+  - name: hasColumn
+    label: has column
+    target: DatabaseColumn
+    lpg_rel_type: ''
+  - name: hasIndex
+    label: has index
+    target: DatabaseIndex
+    lpg_rel_type: ''
+  - name: referencesTable
+    label: references table
+    target: DatabaseTable
+    lpg_rel_type: ''
+- name: DatabaseView
+  label: Database View
+  id_prefix: databaseview
+  relations:
+  - name: references
+    label: references
+    target: DatabaseTable
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field: {}
+  title_field: {}
+  text_field: {}
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  DatabaseColumn:
+    ontology_class: ApplicationLayer
+    fields:
+      dataType: xsd:string
+      isForeignKey: xsd:boolean
+      isNullable: xsd:boolean
+      isPrimaryKey: xsd:boolean
+      isUnique: xsd:boolean
+      sqlDialect: xsd:string
+  DatabaseIndex:
+    ontology_class: ApplicationLayer
+    fields:
+      dataType: xsd:string
+      isForeignKey: xsd:boolean
+      isNullable: xsd:boolean
+      isPrimaryKey: xsd:boolean
+      isUnique: xsd:boolean
+      sqlDialect: xsd:string
+  DatabaseSchema:
+    ontology_class: TechnologyLayer
+    fields:
+      dataType: xsd:string
+      isForeignKey: xsd:boolean
+      isNullable: xsd:boolean
+      isPrimaryKey: xsd:boolean
+      isUnique: xsd:boolean
+      sqlDialect: xsd:string
+  DatabaseTable:
+    ontology_class: ApplicationLayer
+    fields:
+      dataType: xsd:string
+      isForeignKey: xsd:boolean
+      isNullable: xsd:boolean
+      isPrimaryKey: xsd:boolean
+      isUnique: xsd:boolean
+      sqlDialect: xsd:string
+  DatabaseView:
+    ontology_class: ApplicationLayer
+    fields:
+      dataType: xsd:string
+      isForeignKey: xsd:boolean
+      isNullable: xsd:boolean
+      isPrimaryKey: xsd:boolean
+      isUnique: xsd:boolean
+      sqlDialect: xsd:string
+sync:
+- preset: sql-tables
+  server: sql-mcp
+  tool: sql_schema
+  action: tables
+  records_path: ''
+  id_field: ''
+  title_field: ''
+  text_field: ''
+  updated_field: null
+  pagination: null
+  doc_type: database_table
+  tool_schema_sha256: 081c70207e94b742b2f062a048b0c6b504271b404c6e24ac85e39134ce049897
+  raw:
+    server: sql-mcp
+    tool: sql_schema
+    action: tables
+    records_path: ''
+    id_field: ''
+    title_field: ''
+    text_field: ''
+    doc_type: database_table
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - sql_mcp/connectors/mcp_source_presets.json
+  - sql_mcp/connectors/tool_schema_fingerprints.json
+  - sql_mcp/ontology/database.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
+    triple_count: 70
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: c2IuiBNb7uDbod9hpWp3HdqzkfBzLrNiM7h314Ro6d4fe2mPeNK9GYMJOMqrLVzrutfIzo0y3zyf-XYcnDROBw
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.DatabaseColumn.ontology_class = 'ApplicationLayer' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseIndex.ontology_class = 'ApplicationLayer' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseSchema.ontology_class = 'TechnologyLayer' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseTable.ontology_class = 'ApplicationLayer' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DatabaseView.ontology_class = 'ApplicationLayer' [source ttl rdfs:subClassOf] \u2014\
+  \ verify manually before relying on this crosswalk for reasoning/joins."

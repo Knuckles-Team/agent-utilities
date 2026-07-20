@@ -359,7 +359,7 @@ class SubagentPatternRouter:
         try:
             import uuid
 
-            node_id = f"spd:{uuid.uuid4().hex[:8]}"
+            node_id = f"spd:{uuid.uuid4().hex}"
             node_data = {
                 "id": node_id,
                 "type": "subagent_pattern_decision",

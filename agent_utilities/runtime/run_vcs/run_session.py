@@ -67,7 +67,7 @@ class RunSession:
     async def commit(self, label: str = "") -> RunCommit:
         """Snapshot fs + messages + event frontier into ONE content-addressed commit."""
         snapshot = self.carrier.snapshot()
-        checkpoint_id = f"ckpt_{self.run_id}_{uuid.uuid4().hex[:8]}"
+        checkpoint_id = f"ckpt_{self.run_id}_{uuid.uuid4().hex}"
         checkpoint = Checkpoint(
             id=checkpoint_id,
             label=label or "run-commit",
@@ -150,7 +150,7 @@ class RunSession:
         history. The parent :class:`RunSession` is not mutated.
         """
         commit = self._resolve(commit)
-        child_id = new_run_id or f"{self.run_id}-fork-{uuid.uuid4().hex[:6]}"
+        child_id = new_run_id or f"{self.run_id}-fork-{uuid.uuid4().hex}"
         child_root = Path(new_root) if new_root else self.root.parent / child_id
         child = RunSession(
             child_id,

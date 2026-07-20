@@ -15,7 +15,8 @@ them. Three queries surface the differentiator:
   breaks ≥ N agents share), the pile-attack signal for triage.
 
 All read via ``backend.execute(<cypher>)`` (the same path the eval corpus uses), matching
-on the node ``type`` property. Degrade to empty results when no backend/query is available.
+on the canonical node ``node_type`` property. Degrade to empty results when no
+backend/query is available.
 """
 
 import logging
@@ -38,7 +39,7 @@ def _rows(backend: Any, cypher: str) -> list[dict[str, Any]]:
 def _trace_agents(backend: Any) -> dict[str, dict[str, Any]]:
     rows = _rows(
         backend,
-        "MATCH (t) WHERE t.type = 'trace' "
+        "MATCH (t) WHERE t.node_type = 'trace' "
         "RETURN t.id AS id, t.agent AS agent, t.status AS status, t.name AS name",
     )
     return {str(r.get("id")): r for r in rows if r.get("id")}
@@ -51,12 +52,12 @@ def trace_rootcause(
     traces = _trace_agents(backend)
     fails = _rows(
         backend,
-        "MATCH (a) WHERE a.type = 'assertion_result' AND a.status = 'failed' "
+        "MATCH (a) WHERE a.node_type = 'assertion_result' AND a.status = 'failed' "
         "RETURN a.trace_id AS trace_id, a.assertion AS assertion, a.reasoning AS reasoning",
     )
     lows = _rows(
         backend,
-        "MATCH (s) WHERE s.type = 'online_score' AND s.score < 0.5 "
+        "MATCH (s) WHERE s.node_type = 'online_score' AND s.score < 0.5 "
         "RETURN s.trace_id AS trace_id, s.dimension AS dimension, s.score AS score",
     )
     findings: list[dict[str, Any]] = []
@@ -97,12 +98,12 @@ def prompt_regression(backend: Any, top_k: int = 20) -> dict[str, Any]:
     """Mean online-score per prompt version (which version regressed) (KG-2.257)."""
     gens = _rows(
         backend,
-        "MATCH (g) WHERE g.type = 'generation' AND g.prompt_version_id <> '' "
+        "MATCH (g) WHERE g.node_type = 'generation' AND g.prompt_version_id <> '' "
         "RETURN g.prompt_version_id AS pv, g.trace_id AS trace_id",
     )
     scores = _rows(
         backend,
-        "MATCH (s) WHERE s.type = 'online_score' "
+        "MATCH (s) WHERE s.node_type = 'online_score' "
         "RETURN s.trace_id AS trace_id, s.score AS score",
     )
     score_by_trace: dict[str, list[float]] = defaultdict(list)
@@ -139,7 +140,7 @@ def failure_cluster(
     traces = _trace_agents(backend)
     fails = _rows(
         backend,
-        "MATCH (a) WHERE a.type = 'assertion_result' AND a.status = 'failed' "
+        "MATCH (a) WHERE a.node_type = 'assertion_result' AND a.status = 'failed' "
         "RETURN a.trace_id AS trace_id, a.assertion AS assertion",
     )
     clusters: dict[str, set[str]] = defaultdict(set)

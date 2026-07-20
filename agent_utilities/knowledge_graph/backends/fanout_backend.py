@@ -1,17 +1,17 @@
 #!/usr/bin/python
-# CONCEPT:AU-KG.backend.mirror-health-repair - Concurrent N-way mirrored graph backend: one configurable authority store serves reads and acks writes synchronously while every mutation fans out, lossless, to any set of durable mirrors (Postgres/AGE, Neo4j, FalkorDB, LadybugDB) via a durable per-mirror outbox with replay-on-reconnect and a reconcile drift-repair backstop.
+# CONCEPT:AU-KG.backend.mirror-health-repair - Concurrent N-way mirrored graph backend: the fixed epistemic-graph authority serves reads and acks writes synchronously while every mutation fans out, lossless, to durable external projections via an outbox with replay and reconciliation.
 """Fan-out (N-way mirror) graph backend.
 
 CONCEPT:AU-KG.backend.mirror-health-repair — Concurrent Multi-Store Mirroring.
 
-The **one-authority, N-mirror** store: a single configurable **authority** backend
-serves every read and acks every write synchronously, and each write is then
-mirrored — losslessly and asynchronously — to any number of durable backends.
+The **one-authority, N-mirror** store: the fixed ``EpistemicGraphBackend`` serves
+every read and acks every write synchronously, and each write is then mirrored —
+losslessly and asynchronously — to any number of durable external projections.
 
 The shape, and why each piece is here:
 
-* **One authority, reads + write-ack.** The authority (normally the epistemic-graph
-  engine — the one database) is the source of truth: reads and
+* **One authority, reads + write-ack.** The epistemic-graph engine is the source
+  of truth: reads and
   ``semantic_search`` go there, and a write returns as soon as the authority
   commits **and** the mutation is durably enqueued for the mirrors. Reads are
   therefore always consistent; mirrors are eventually-consistent (seconds of lag).
@@ -44,10 +44,10 @@ The shape, and why each piece is here:
   un-mirrorable window (a crash between the authority commit and the outbox
   append) and for a mirror whose outbox tail was lost.
 
-Selected via ``GRAPH_BACKEND=fanout`` with ``graph_authority`` +
-``graph_mirror_targets`` naming connections declared in ``kg_connections``
-(CONCEPT:AU-KG.backend.multi-connection-registry). The zero-infra default is unchanged: this backend is only
-built when an operator configures a mirror set.
+Built automatically when ``graph_mirror_targets`` names connections declared in
+``kg_connections`` (CONCEPT:AU-KG.backend.multi-connection-registry), or when a
+connection declares ``role=mirror``. The zero-infra default remains the bare
+authority when no projection is configured.
 """
 
 from __future__ import annotations
@@ -165,17 +165,27 @@ class _MirrorState:
     thread: Any = None
 
 
+def _new_epistemic_authority() -> GraphBackend:
+    """Construct the sole allowed fan-out authority.
+
+    Kept as a small private seam so unit tests can substitute an inert recording
+    implementation without exposing authority selection in the production API.
+    """
+    from .epistemic_graph_backend import EpistemicGraphBackend
+
+    return EpistemicGraphBackend()
+
+
 class FanOutBackend(GraphBackend):
-    """One authority backend mirrored, losslessly, to N durable backends."""
+    """The epistemic-graph authority mirrored to N external projections."""
 
     def __init__(
         self,
-        authority: GraphBackend,
         mirrors: dict[str, GraphBackend],
         *,
         outbox_path: str,
     ) -> None:
-        self._authority = authority
+        self._authority = _new_epistemic_authority()
         self._mirrors: dict[str, GraphBackend] = dict(mirrors)
         # Cached per-mirror portable writers (lazy) for structural edge replay.
         self._writers: dict[int, Any] = {}
@@ -214,7 +224,7 @@ class FanOutBackend(GraphBackend):
                 t.start()
         logger.info(
             "FanOutBackend initialized (authority=%s, mirrors=[%s], handoff_ring=%d)",
-            type(authority).__name__,
+            type(self._authority).__name__,
             ", ".join(self._mirrors) or "none",
             self._handoff.maxsize if self._handoff is not None else 0,
         )
@@ -355,6 +365,20 @@ class FanOutBackend(GraphBackend):
             self._enqueue("execute", {"query": query, "params": params})
         return result
 
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Route public reads only through the authority's read-only contract."""
+        return self._authority.execute_read(
+            query,
+            params,
+            include_epistemic=include_epistemic,
+        )
+
     def execute_batch(
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
@@ -363,6 +387,67 @@ class FanOutBackend(GraphBackend):
         self._authority_writes += 1
         self._enqueue("execute_batch", {"query": query, "batch": batch})
         return result
+
+    def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
+        """Commit one typed node mutation and mirror its structured payload.
+
+        The native authority accepts the full MessagePack property domain.  Keeping
+        this operation structured avoids lossy Cypher literal rendering while the
+        mirror drainer still uses its backend-aware portable writer.
+        """
+        node_type = str(properties.get("node_type") or label).strip()
+        if not node_type:
+            raise ValueError("node_type is required")
+        payload = {
+            **properties,
+            "id": node_id,
+            "node_type": node_type,
+        }
+        typed_add = getattr(self._authority, "add_node", None)
+        if not callable(typed_add):
+            raise RuntimeError(
+                "fan-out authority does not support typed node mutations"
+            )
+        typed_add(node_id, **payload)
+        self._authority_writes += 1
+        self._enqueue(
+            "upsert_node",
+            {
+                "node_id": node_id,
+                "label": node_type,
+                "properties": payload,
+            },
+        )
+
+    def add_edge(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str = "",
+        /,
+        **properties: Any,
+    ) -> None:
+        """Commit one typed edge mutation and mirror its structured payload."""
+        relationship = str(properties.get("relationship") or rel_type).strip()
+        if not relationship:
+            raise ValueError("relationship is required")
+        payload = {**properties, "relationship": relationship}
+        typed_add = getattr(self._authority, "add_edge", None)
+        if not callable(typed_add):
+            raise RuntimeError(
+                "fan-out authority does not support typed edge mutations"
+            )
+        typed_add(source_id, target_id, **payload)
+        self._authority_writes += 1
+        self._enqueue(
+            "upsert_edge",
+            {
+                "source_id": source_id,
+                "target_id": target_id,
+                "rel_type": relationship,
+                "props": payload,
+            },
+        )
 
     def create_schema(self) -> None:
         self._authority.create_schema()
@@ -393,6 +478,12 @@ class FanOutBackend(GraphBackend):
         op = entry.op
         if op == "execute":
             backend.execute(p["query"], p.get("params"))
+        elif op == "upsert_node":
+            self._node_writer(backend)._upsert_node(
+                p["label"],
+                p["node_id"],
+                p.get("properties") or {},
+            )
         elif op == "upsert_edge":
             # Dialect-correct edge write per backend (reuses the engine's
             # backend-aware _upsert_edge: native props for Neo4j/FalkorDB/AGE,
@@ -422,6 +513,10 @@ class FanOutBackend(GraphBackend):
             w = _portable_writer(backend)
             self._writers[key] = w
         return w
+
+    def _node_writer(self, backend: GraphBackend) -> Any:
+        """Return the cached portable writer used for structured node replay."""
+        return self._edge_writer(backend)
 
     def _drain(self, mirror: str) -> None:
         """Background loop: apply this mirror's outbox tail, in order, with
@@ -602,6 +697,11 @@ class FanOutBackend(GraphBackend):
     # SPARQL / Cypher capability — delegate to the authority
     # ------------------------------------------------------------------
     @property
+    def typed_mutation_support(self) -> str:
+        """Expose typed writes only when the authority explicitly declares them."""
+        return str(getattr(self._authority, "typed_mutation_support", ""))
+
+    @property
     def cypher_support(self) -> str:
         return getattr(self._authority, "cypher_support", "full")
 
@@ -621,8 +721,13 @@ class FanOutBackend(GraphBackend):
         )
 
     # ------------------------------------------------------------------
-    # Facade compatibility — expose the authority compute graph + delegate
+    # Facade surface — expose the authority compute graph + delegate
     # ------------------------------------------------------------------
+    @property
+    def authority(self) -> GraphBackend:
+        """Return the fixed operational authority for health introspection."""
+        return self._authority
+
     @property
     def graph(self) -> Any:
         return getattr(self._authority, "graph", None)
@@ -630,8 +735,8 @@ class FanOutBackend(GraphBackend):
     def __getattr__(self, name: str) -> Any:
         """Delegate backend-specific helpers to the authority store.
 
-        Mirrors :class:`TieredGraphBackend`: the facade/engine sometimes call
-        EpistemicGraph-specific helpers (``save_to_json`` …); anything not defined
+        The facade/engine sometimes call authority-specific helpers
+        (``save_to_json`` …); anything not defined
         here resolves against the authority. ``__getattr__`` only fires for names
         not found normally, so the explicit methods above take priority.
         """

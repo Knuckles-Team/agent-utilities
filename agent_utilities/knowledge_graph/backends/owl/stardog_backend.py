@@ -109,7 +109,7 @@ class StardogBackend(OWLBackend):
             conn.add(content)
             conn.commit()
             self._ontology_loaded = True
-            logger.info("Loaded ontology into Stardog from %s", ontology_path)
+            logger.info("Loaded configured ontology into Stardog")
         except Exception as e:
             conn.rollback()
             logger.error("Failed to load ontology into Stardog: %s", e)
@@ -125,7 +125,7 @@ class StardogBackend(OWLBackend):
 
         triples = []
         for node in stable_nodes:
-            node_type = node.get("type", "")
+            node_type = node.get("node_type", "")
             owl_class = _NODE_TYPE_TO_OWL_CLASS.get(node_type)
             if not owl_class:
                 continue
@@ -176,7 +176,7 @@ class StardogBackend(OWLBackend):
 
         triples = []
         for edge in edges:
-            prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge.get("type", ""))
+            prop_name = _EDGE_TYPE_TO_OWL_PROP.get(edge.get("relationship", ""))
             if not prop_name:
                 continue
 
@@ -282,9 +282,9 @@ class StardogBackend(OWLBackend):
             Path(output_path).write_bytes(
                 data if isinstance(data, bytes) else data.encode("utf-8")
             )
-            logger.info("Exported Stardog RDF to %s", output_path)
+            logger.info("Exported Stardog RDF")
         except Exception as e:
-            logger.error("Stardog RDF export failed: %s", e)
+            logger.error("Stardog RDF export failed (%s)", type(e).__name__)
         finally:
             conn.close()
 

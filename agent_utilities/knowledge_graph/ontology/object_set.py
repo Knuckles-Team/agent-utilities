@@ -30,11 +30,11 @@ retrieval. It binds to a live
 :class:`~agent_utilities.knowledge_graph.facade.KnowledgeGraph` facade and reads
 through that facade's already-built layers:
 
-  - **traversal / property access** through the L1 compute graph
+  - **traversal / property access** through the native graph authority
     (:pyattr:`KnowledgeGraph.compute` — a ``GraphComputeEngine``-shaped object
     exposing ``node_ids`` / ``_get_node_properties`` / ``get_successors`` /
     ``out_edges(data=True)`` / ``_get_edge_properties``);
-  - **property/full scans** preferentially through the L0 store's Cypher
+  - **property/full scans** through the authority's Cypher surface
     (:pyattr:`KnowledgeGraph.store` ``.execute``) when present, falling back to
     the compute graph;
   - **semantic / hybrid search** through
@@ -273,7 +273,7 @@ class GraphView:
     """A uniform read view over whatever graph the facade exposes (CONCEPT:AU-KG.ontology.link-type-pivot).
 
     Normalizes the small read surface :class:`ObjectSet` needs across the three
-    shapes the facade may hand us — a ``GraphComputeEngine`` (the facade's L1
+    shapes the facade may hand us — a ``GraphComputeEngine`` (the facade's native
     :pyattr:`KnowledgeGraph.compute`), an ``IntelligenceGraphEngine`` (exposing a
     ``.graph`` compute engine and optional ``.backend`` store), and a minimal
     duck-typed in-memory graph used in tests. Every method degrades gracefully
@@ -302,7 +302,7 @@ class GraphView:
 
     @property
     def store(self) -> Any:
-        """The L0 Cypher store, if reachable (else ``None``)."""
+        """The configured Cypher store, if reachable (else ``None``)."""
         return self._store
 
     # ── nodes / properties ───────────────────────────────────────────────────
@@ -427,16 +427,7 @@ def _unpack_edge(triple: Any) -> tuple[str | None, str | None, dict[str, Any]]:
 
 
 def _edge_type(props: Mapping[str, Any]) -> Any:
-    return (
-        props.get("type")
-        or props.get("_type")
-        or props.get("edge_type")
-        # The live L1 compute graph stores the edge type under ``rel_type``
-        # (matching backend.add_edge(..., rel_type=...)); recognise it so typed
-        # SEARCH_AROUND / pivot work on the real graph, not just test duck-graphs.
-        or props.get("rel_type")
-        or props.get("label")
-    )
+    return props.get("relationship")
 
 
 class ObjectSet:

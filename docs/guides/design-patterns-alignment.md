@@ -73,8 +73,8 @@ routing with configurable industry-standard defaults.
 **Module**: `agent_utilities/harness/continuous_evaluation_engine.py`
 
 Multi-dimensional evaluation with LLM-as-Judge rubrics, trend monitoring,
-and quality alerting. Backward-compatible with existing verifier gate
-through composite score.
+and quality alerting. The weighted composite score is the current verifier-gate
+currency.
 
 **Key Classes**:
 - `EvaluationDimension` — Single dimension score with rubric and evidence

@@ -3831,5 +3831,5 @@
       "txn_participation": "Snapshot"
     }
   },
-  "source_path": "/home/apps/workspace/agent-packages/epistemic-graph/docs/capabilities.generated.md"
+  "source_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md"
 }

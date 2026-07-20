@@ -273,6 +273,35 @@ def test_run_one_cycle_mine_discovery_defaults_true_and_can_disable(monkeypatch)
     assert rep_disabled["mine_discovery"] is None
 
 
+def test_run_one_cycle_placement_control_uses_typed_opt_in(monkeypatch):
+    import agent_utilities.knowledge_graph.research.placement_mining as placement
+    from agent_utilities.core.config import config
+
+    calls: list[tuple[object, bool]] = []
+
+    def fake_placement_control(engine, *, enabled, **_kwargs):
+        calls.append((engine, enabled))
+        return {"enabled": True, "proposals": 0}
+
+    monkeypatch.setattr(placement, "placement_control_loop", fake_placement_control)
+    monkeypatch.setattr(config, "placement_control_loop_enabled", True)
+
+    eng = _StubEngine([], [])
+    report = LoopController(eng).run_one_cycle(
+        assimilate=False,
+        synthesize=False,
+        distill=False,
+        reason=False,
+        breadth=False,
+        mine_discovery=False,
+        belief_revision=False,
+        insight_validation=False,
+        trace_mining=False,
+    )
+    assert calls == [(eng, True)]
+    assert report["placement_control"] == {"enabled": True, "proposals": 0}
+
+
 # ── Belief revision / confidence propagation stage (CONCEPT:AU-KG.maintenance.
 # confidence-propagation-belief-revision, workstream C2) ──────────────────────────
 

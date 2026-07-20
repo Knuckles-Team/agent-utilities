@@ -11,7 +11,6 @@ from agent_utilities.harness.baseline_overfit_gate import (
     overfit_smoke_gate,
 )
 
-
 # --- baseline_gate ----------------------------------------------------------
 
 

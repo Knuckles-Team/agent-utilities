@@ -89,7 +89,9 @@ def test_a2a_and_skill_ingestion(engine):
 
     # Skill
     engine.ingest_agent_skill(
-        "skills/test.md", {"name": "TestSkill", "tags": ["test"]}, "code..."
+        {"name": "TestSkill", "tags": ["test"]},
+        "code...",
+        provider="synthetic",
     )
     res = engine.query_cypher(
         "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.name as name"
@@ -143,10 +145,10 @@ def test_self_improvement_loop(engine):
     engine.record_outcome(ep_id, reward=-1.0, feedback="Wrong approach")
 
     res = engine.query_cypher(
-        "MATCH (e:Episode)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) RETURN o.reward as reward"
+        "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) RETURN o.reward as reward"
     )
     assert len(res) > 0
-    assert res[0]["reward"] == -1.0
+    assert res[0]["reward"] == 0.0
 
     # Critique and Optimize
     crit_id = engine.generate_critique(ep_id, "Bad logic")

@@ -33,6 +33,7 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_payload
 
 
 def _incident_engine() -> Any | None:
@@ -60,8 +61,8 @@ def _list_incidents(*, status: str, limit: int) -> dict[str, Any]:
         return {
             "surface": "incident",
             "action": "list",
-            "error": str(exc),
             "incidents": [],
+            **public_error_payload(exc),
         }
     status_filter = (status or "").strip()
     items: list[dict[str, Any]] = []
@@ -98,7 +99,7 @@ def _get_incident(incident_id: str) -> dict[str, Any]:
             "surface": "incident",
             "action": "get",
             "incident_id": incident_id,
-            "error": str(exc),
+            **public_error_payload(exc),
         }
     for node_id, props in rows:
         if node_id == incident_id:

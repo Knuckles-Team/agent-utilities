@@ -18,7 +18,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.COMMUNICATION
     description = "Team messaging — streams, topics, and threaded discussions"
     env_prefix = "ZULIP"
-    default_url = "https://zulip.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [

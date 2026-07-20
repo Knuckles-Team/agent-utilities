@@ -193,7 +193,7 @@ re-validating through the mux.
 - **Add it to `mcp_config*.json`** (and reconnect) so the multiplexer mounts it.
 - **Connector needs its working data mounted.** Tools that operate on host state need the data
   bind-mounted into the editable container: repository-manager needs the workspace
-  (`/home/apps/workspace` + `WORKSPACE_PATH`); container-manager/tunnel-manager need
+  (`${WORKSPACE_ROOT}` + `WORKSPACE_PATH`); container-manager/tunnel-manager need
   `~/.config/agent-utilities/inventory.yaml` + `~/.ssh`. A missing **dependency module**
   (e.g. container-manager importing `tunnel_manager`) is a packaging fix — add the dep + rebuild;
   a volume mount alone won't satisfy an absent import.

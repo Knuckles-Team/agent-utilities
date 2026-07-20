@@ -10,19 +10,12 @@
   off to the guided deployment skill.
 
   It does NOT fabricate the *-mcp fleet config or secrets — that is the
-  agent-utilities-deployment / agent-os-genesis skill's job (it reads genesis.yaml).
+  agent-utilities-deployment skill's job (it reads genesis.yaml).
 
 .EXAMPLE
   # From a clone:
   .\scripts\install.ps1 -DeployProfile single-node-prod -Component agent-webui
 
-.EXAMPLE
-  # Piped (uses defaults / env vars AU_PROFILE, AU_COMPONENTS):
-  irm https://knuckles-team.github.io/agent-utilities/install.ps1 | iex
-
-.EXAMPLE
-  # Piped with arguments:
-  & ([scriptblock]::Create((irm https://knuckles-team.github.io/agent-utilities/install.ps1))) -DeployProfile enterprise
 #>
 [CmdletBinding()]
 param(
@@ -43,8 +36,18 @@ function Write-Step($msg) { Write-Host "[install] $msg" -ForegroundColor Cyan }
 function Write-Warn($msg) { Write-Host "[install] $msg" -ForegroundColor Yellow }
 function Write-Err($msg)  { Write-Host "[install] $msg" -ForegroundColor Red }
 
-function Invoke-Step($cmd) {
-  if ($DryRun) { Write-Host "  > $cmd" } else { Invoke-Expression $cmd }
+function Invoke-Step {
+  param(
+    [Parameter(Mandatory = $true)][string]$Executable,
+    [string[]]$Arguments = @()
+  )
+  if ($DryRun) {
+    $rendered = @($Executable) + ($Arguments | ForEach-Object { '"' + ($_ -replace '"', '\"') + '"' })
+    Write-Host "  > $($rendered -join ' ')"
+    return
+  }
+  & $Executable @Arguments
+  if ($LASTEXITCODE -ne 0) { throw "command failed" }
 }
 
 # Components from env (comma-separated) merged with -Component.
@@ -66,15 +69,23 @@ $pyVer = & $pyExe -c 'import sys; print("%d.%d" % sys.version_info[:2])'
 Write-Step "Python $pyVer"
 if ($rc -ne 0) { Write-Err 'agent-utilities needs Python >=3.11,<3.15.'; exit 1 }
 
-# 2. Ensure uv (preferred installer). Auto-install if missing.
+# 2. Require a separately verified uv installation. Never execute a downloaded
+# script from a privileged bootstrap.
 if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-  Write-Warn 'uv not found — installing it (https://astral.sh/uv)...'
-  Invoke-Step 'irm https://astral.sh/uv/install.ps1 | iex'
-  $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+  Write-Err 'uv not found — install a verified uv release, then rerun this script.'
+  exit 1
 }
 
-# Package spec — extras by profile.
-$pkg = if ($Extras -eq 'all') { 'agent-utilities[all]' } else { 'agent-utilities' }
+# Published bootstraps are exact at the project boundary. Release automation
+# updates these defaults; controlled mirrors may inject another exact version.
+$auVersion = if ($env:AGENT_UTILITIES_VERSION) { $env:AGENT_UTILITIES_VERSION } else { '1.27.1' }
+$skillsVersion = if ($env:UNIVERSAL_SKILLS_VERSION) { $env:UNIVERSAL_SKILLS_VERSION } else { '1.2.1' }
+$versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.+-]*$'
+if ($auVersion -notmatch $versionPattern -or $skillsVersion -notmatch $versionPattern) {
+  Write-Err 'invalid exact package version'
+  exit 2
+}
+$pkg = if ($Extras -eq 'all') { "agent-utilities[all]==$auVersion" } else { "agent-utilities==$auVersion" }
 
 # Detect running inside a clone (editable install path).
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -85,45 +96,50 @@ if ($repoRoot -and (Test-Path "$repoRoot\pyproject.toml")) {
 
 Write-Step "Installing $pkg + universal-skills..."
 if ($Editable -and $inRepo) {
-  Invoke-Step "uv pip install --system -e `"$repoRoot`""
+  $editableSpec = if ($Extras -eq 'all') { "$repoRoot[all]" } else { $repoRoot }
+  Invoke-Step 'uv' @('pip', 'install', '--system', '-e', $editableSpec)
 } else {
-  Invoke-Step "uv tool install `"$pkg`""
-  Invoke-Step 'uv tool install universal-skills'
+  Invoke-Step 'uv' @('tool', 'install', $pkg)
+  Invoke-Step 'uv' @('tool', 'install', "universal-skills==$skillsVersion")
 }
 
 # 3. Host dependency preflight.
-$pfArgs = "--preflight --profile $DeployProfile"
-foreach ($c in $Component) { $pfArgs += " --component $c" }
+$pfArgs = @('--preflight', '--profile', $DeployProfile)
+foreach ($c in $Component) { $pfArgs += @('--component', $c) }
 Write-Step 'Running host preflight...'
 if (Get-Command agent-utilities-doctor -ErrorAction SilentlyContinue) {
-  Invoke-Step "agent-utilities-doctor $pfArgs"
+  Invoke-Step 'agent-utilities-doctor' $pfArgs
 } else {
-  Invoke-Step "$pyExe -m agent_utilities.deployment.doctor $pfArgs"
+  Invoke-Step $pyExe (@('-m', 'agent_utilities.deployment.doctor') + $pfArgs)
 }
 
 # 4. Install the skill toolkit into every agent tool present, wire graph-os MCP.
 if (-not $NoSkills) {
   Write-Step 'Installing skills into every detected agent tool (--all-detected)...'
   if (Get-Command install-skills -ErrorAction SilentlyContinue) {
-    Invoke-Step 'install-skills --all-detected --symlink'
+    Invoke-Step 'install-skills' @('--all-detected', '--symlink')
   } else {
     Write-Warn 'install-skills not on PATH — skipping (pip install universal-skills).'
   }
 }
 
 if (-not $NoMcp) {
-  Write-Step 'Wiring the graph-os MCP server into every detected agent tool...'
+  if ((Get-Command codex -ErrorAction SilentlyContinue) -and (Get-Command setup-config -ErrorAction SilentlyContinue)) {
+    Write-Step 'Registering the portable graph-os stdio launcher with Codex...'
+    Invoke-Step 'setup-config' @('codex')
+  }
+  Write-Step 'Wiring graph-os into detected JSON-config MCP clients...'
   $mcpSrc = Join-Path $env:TEMP "graphos-mcp-$([System.IO.Path]::GetRandomFileName()).json"
   @'
 {
   "mcpServers": {
-    "graph-os": { "command": "graph-os", "args": [], "env": {"GRAPH_BACKEND": "tiered"} }
+    "graph-os": { "command": "graph-os", "args": ["--transport", "stdio"] }
   }
 }
 '@ | Set-Content -Path $mcpSrc -Encoding utf8
   $mcpInstall = & $pyExe -c 'import importlib.util as u,os;s=u.find_spec("universal_skills");print(os.path.join(os.path.dirname(s.origin),"agent-tools","mcp-installer","scripts","install.py") if s else "")'
   if ($mcpInstall -and (Test-Path $mcpInstall)) {
-    Invoke-Step "$pyExe `"$mcpInstall`" --config `"$mcpSrc`" --all-detected"
+    Invoke-Step $pyExe @($mcpInstall, '--config', $mcpSrc, '--all-detected')
   } else {
     Write-Warn 'mcp-installer not found — skipping graph-os MCP wiring.'
   }
@@ -131,7 +147,7 @@ if (-not $NoMcp) {
 }
 
 # 5. Hand off to the deployment skill.
-$skill = if ($DeployProfile -eq 'enterprise') { 'agent-os-genesis' } else { 'agent-utilities-deployment' }
+$skill = 'agent-utilities-deployment'
 Write-Host ''
 Write-Step 'Done. Your agent now has the KG tools + the genesis skills.'
 Write-Host @"
@@ -146,6 +162,7 @@ It will run the '$skill' skill, read genesis.yaml, generate the full config
 
 Manual path:
     setup-config generate --profile $DeployProfile
+    setup-config codex             # native Codex config.toml registration
     graph-os                       # stdio MCP for your IDE
     graph-os-daemon                # REST gateway (:8100)
     agent-utilities-doctor         # verify

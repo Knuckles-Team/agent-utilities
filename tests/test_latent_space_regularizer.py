@@ -60,7 +60,7 @@ class TestDiversityMetrics:
     def test_isotropic_distribution(self, regularizer):
         rng = np.random.default_rng(42)
         embeddings = rng.standard_normal((200, 10))
-        metrics = regularizer.compute_diversity_metrics(embeddings)
+        metrics = regularizer.compute_diversity(embeddings)
         assert metrics.isotropy_score > 0.1
         assert metrics.participation_ratio > 3.0
         assert metrics.entropy > 0.0
@@ -68,13 +68,13 @@ class TestDiversityMetrics:
     def test_collapsed_distribution(self, regularizer):
         # Very low variance → near-zero mean pairwise distance
         embeddings = np.ones((50, 10)) + np.random.randn(50, 10) * 1e-8
-        metrics = regularizer.compute_diversity_metrics(embeddings)
+        metrics = regularizer.compute_diversity(embeddings)
         assert metrics.mean_pairwise_distance < 1e-5  # Nearly zero distance
 
     def test_mean_pairwise_distance(self, regularizer):
         rng = np.random.default_rng(42)
         embeddings = rng.standard_normal((30, 5))
-        metrics = regularizer.compute_diversity_metrics(embeddings)
+        metrics = regularizer.compute_diversity(embeddings)
         assert metrics.mean_pairwise_distance > 0.0
 
 
@@ -86,7 +86,7 @@ class TestDiversityPreservingConsolidation:
         new = [0.0, 1.0, 0.0, 0.0, 0.0]
         fisher = [0.5, 0.5, 0.1, 0.1, 0.1]
         all_emb = np.random.randn(20, 5)
-        result = regularizer.diversity_preserving_consolidation(
+        result = regularizer.synthesize_ewc(
             old,
             new,
             fisher,
@@ -102,7 +102,7 @@ class TestDiversityPreservingConsolidation:
         new = [0.0, 1.0, 0.0]
         fisher = [10.0, 0.0, 0.0]  # High Fisher on dim 0 → resist change
         all_emb = np.random.randn(20, 3)
-        result = regularizer.diversity_preserving_consolidation(
+        result = regularizer.synthesize_ewc(
             old,
             new,
             fisher,

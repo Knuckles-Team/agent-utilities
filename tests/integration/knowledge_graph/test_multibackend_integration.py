@@ -148,7 +148,7 @@ class TestMultiBackendIntegration:
         self, backend_type, compose_file, port, conn_kwargs
     ):
         # Locate correct absolute path of compose file
-        workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
+        workspace_dir = "/home/agent-user/workspace/agent-packages/agent-utilities"
         abs_compose = os.path.join(workspace_dir, compose_file)
 
         print(
@@ -304,7 +304,7 @@ class TestMultiBackendIntegration:
             from unittest.mock import MagicMock, patch
 
             with tempfile.TemporaryDirectory(
-                dir="/home/apps/workspace/agent-packages/agent-utilities"
+                dir="/home/agent-user/workspace/agent-packages/agent-utilities"
             ) as tmp_dir:
                 # Write a dummy python file so the scan/parse phases run instantly
                 dummy_file = Path(tmp_dir) / "dummy_agent.py"
@@ -398,7 +398,7 @@ class TestMultiConnectionRegistryLive:
             ConnectionRegistry,
         )
 
-        workspace_dir = "/home/apps/workspace/agent-packages/agent-utilities"
+        workspace_dir = "/home/agent-user/workspace/agent-packages/agent-utilities"
         IntelligenceGraphEngine._ACTIVE_ENGINE = None
         set_active_backend(None)
 

@@ -363,7 +363,7 @@ class FakeScaleEngine:
         (locks, in-flight asyncio tasks, worker registries) is gone, but everything
         the durable store persisted (every WorkItem/BusMessage/BusAgent node) comes
         back exactly as it was — the same guarantee the real tiered engine gives via
-        its L3 durable mirror (``tenant_engine_pool.py``'s eviction-is-never-lossy
+        its durable authority (``tenant_engine_pool.py``'s eviction-is-never-lossy
         contract).
         """
         engine = cls(latency=latency, pace_mode=pace_mode)

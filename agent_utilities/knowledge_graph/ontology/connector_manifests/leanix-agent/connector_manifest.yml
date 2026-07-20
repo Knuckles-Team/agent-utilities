@@ -144,8 +144,8 @@ schema_mappings:
 sync:
 - preset: leanix-factsheets
   server: leanix-agent
-  tool: leanix_ingest_factsheets
-  action: get_factsheets
+  tool: leanix_source_factsheets
+  action: null
   records_path: data.data
   id_field: id
   title_field: name
@@ -153,10 +153,11 @@ sync:
   updated_field: updatedAt
   pagination: cursor
   doc_type: factsheet
+  tool_schema_sha256: 8b0e11b3245d5adbe4afed628922a4438f084fb6600f163d3bd12c61d32787cf
   raw:
     server: leanix-agent
-    tool: leanix_ingest_factsheets
-    action: get_factsheets
+    tool: leanix_source_factsheets
+    params_style: json
     records_path: data.data
     id_field: id
     title_field: name
@@ -164,21 +165,25 @@ sync:
     updated_field: updatedAt
     pagination: cursor
     page_kind: cursor
-    page_param: cursor
+    cursor_param: cursor
+    cursor_path: data.cursor
     page_size_param: pageSize
     doc_type: factsheet
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T00:00:00Z'
   source_artifacts:
   - leanix_agent/connectors/mcp_source_presets.json
+  - leanix_agent/connectors/tool_schema_fingerprints.json
   - leanix_agent/ontology/leanix.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: 4ece7b7daed1c977a2f4a3eefc00f825fcc74a477a3da9a2dd72d6c241167354
     triple_count: 66
   signer: ontology-manifest-generator
-  signature: 13d9f5d3cd8bcc18d2a940228ef72996e19c257989d331ba8e3f37f9c30c8099
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: XfenPvvOZ4Cz0OiLmFiQQCkfckMr5gqSJXeW0vpgwN4c2M2A86GyXxlx4sKvsKK7WsZfhhZwUMr6sED2HXV3Dg
 policy:
   pii_fields: {}
   tenant_boundary: null

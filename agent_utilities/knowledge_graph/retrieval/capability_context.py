@@ -10,8 +10,8 @@ Surfaces the generated Capability Power Descriptors (CPDs — see
 REST route: ``graph_explain(action="explain", target="capability:<id>")`` (or
 ``target="capability:list"``) is both surfaces for free, since
 ``graph_explain``/``graph_context`` are already mounted on MCP
-(``/graph/explain``) AND REST. Reads the checked-in, gate-kept-fresh
-``docs/capabilities-power.json`` — never rebuilds the tool registry per
+(``/graph/explain``) AND REST. Reads the checked-in, gate-kept-fresh packaged
+``capabilities-power.json`` — never rebuilds the tool registry per
 request (that's ``scripts/gen_capability_power.py``'s job, run at commit time).
 """
 
@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-_JSON_PATH = Path(__file__).resolve().parents[3] / "docs" / "capabilities-power.json"
+_JSON_PATH = Path(__file__).with_name("capabilities-power.json")
 
 __all__ = ["capability_power_context", "load_cpds"]
 
@@ -33,7 +33,7 @@ def _load_raw() -> dict[str, Any]:
 
 
 def load_cpds() -> dict[str, dict[str, Any]]:
-    """``{capability_id: cpd_dict}`` from the checked-in generated CPD set."""
+    """``{capability_id: cpd_dict}`` from the packaged generated CPD set."""
     return {c["id"]: c for c in _load_raw().get("capabilities", [])}
 
 

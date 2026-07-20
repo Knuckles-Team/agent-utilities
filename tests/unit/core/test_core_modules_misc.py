@@ -7,7 +7,7 @@ Targets 0%-covered and low-covered modules:
 - ``interfaces.py`` - protocol isinstance checks
 - ``event_aggregator.py`` - find_package_data_dir candidates
 - ``__init__.py`` lazy-load ``__getattr__`` branches
-- ``agent_utilities.py`` facade
+- package ``__init__.py`` facade
 - ``graph/integration.py`` - outcome recording
 - ``custom_observability.py`` - environment branches
 - ``discovery.py`` - missing module fallbacks
@@ -15,6 +15,7 @@ Targets 0%-covered and low-covered modules:
 """
 
 
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -399,11 +400,11 @@ def test_init_lazy_create_model():
 
 
 # ---------------------------------------------------------------------------
-# agent_utilities.py facade
+# Package __init__.py facade
 # ---------------------------------------------------------------------------
 
 
-def test_agent_utilities_facade_imports():
+def test_package_facade_imports():
     # Importing the facade should not raise
     import agent_utilities
 
@@ -416,13 +417,24 @@ def test_agent_utilities_facade_imports():
 
 
 def test_custom_observability_disabled(monkeypatch):
-    monkeypatch.setenv("OTEL_ENABLE_OTEL", "false")
+    monkeypatch.setenv("ENABLE_OTEL", "false")
     import importlib
 
     import agent_utilities.observability.custom_observability as obs
 
     importlib.reload(obs)
     assert True, "Disabled observability handled gracefully"
+
+
+def test_typed_otel_policy_is_the_only_sdk_switch(monkeypatch):
+    from agent_utilities.core.config import _apply_otel_sdk_policy
+
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    _apply_otel_sdk_policy(False)
+    assert os.environ["OTEL_SDK_DISABLED"] == "true"
+
+    _apply_otel_sdk_policy(True)
+    assert "OTEL_SDK_DISABLED" not in os.environ
 
 
 def test_custom_observability_initialize_function(monkeypatch):
@@ -474,7 +486,7 @@ def test_discover_agents_filters(monkeypatch):
     agent_b = SimpleNamespace(
         name="beta",
         description="d",
-        agent_type="mcp",
+        agent_type="specialist",
         capabilities=[],
         endpoint_url=None,
         mcp_server="mcp://x",

@@ -43,7 +43,6 @@ import hashlib
 import json
 import logging
 import time
-import urllib.request
 from typing import Any
 
 from agent_utilities.observability import health_ingest
@@ -66,8 +65,8 @@ LAYER_DEPTH: dict[str, int] = {
 }
 
 # Producer entity-id namespace prefix -> layer. Every producer stamps entity
-# ids as ``<namespace>:<host|node|...>:<slug>`` (``fan:host:r510``,
-# ``systems:host:r510``, ``cm:node:r820``, ...) — the prefix is the one stable
+# ids as ``<namespace>:<host|node|...>:<slug>`` (``fan:host:node-a``,
+# ``systems:host:node-a``, ``cm:node:node-b``, ...) — the prefix is the one stable
 # signal of which layer wrote the anomaly.
 _LAYER_PREFIXES: dict[str, str] = {
     "fan": "hardware",
@@ -124,7 +123,7 @@ def _layer_of(entity_id: str) -> str:
 
 def _asset_key(entity_id: str) -> str:
     """The shared host/node slug an entity id concerns — its last ``:`` segment,
-    so ``fan:host:r510`` and ``systems:host:r510`` join on ``r510``."""
+    so ``fan:host:node-a`` and ``systems:host:node-a`` join on ``node-a``."""
     parts = (entity_id or "").split(":")
     return parts[-1] if parts and parts[-1] else (entity_id or "")
 
@@ -145,7 +144,7 @@ def _iso(ts: float) -> str:
 def _signature(asset: str, layers: list[str], signals: list[str]) -> str:
     """Stable dedupe key: same asset + same set of contributing layers/signals."""
     raw = f"{asset}|{','.join(sorted(set(layers)))}|{','.join(sorted(set(signals)))}"
-    return hashlib.sha1(raw.encode(), usedforsecurity=False).hexdigest()[:16]
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
 def _severity_for(layers: list[str]) -> str:
@@ -182,21 +181,25 @@ def _notify(message: str) -> None:
     """Best-effort push to the operator notification endpoint
     (``INCIDENT_NOTIFY_URL``), mirroring ``systems_manager.os_health._notify`` /
     ``fan_manager.kg_control``'s notify convention."""
-    from agent_utilities.core.config import setting
+    from agent_utilities.core.config import config, setting
+    from agent_utilities.protocols.source_connectors.http_safety import safe_post_json
 
     logger.info(message)
     url = str(setting("INCIDENT_NOTIFY_URL", "") or "").strip()
     if not url:
         return
     try:
-        req = urllib.request.Request(
+        safe_post_json(
             url,
-            data=json.dumps({"source": "incident-brain", "message": message}).encode(),
-            headers={"Content-Type": "application/json"},
+            {"source": "incident-brain", "message": message},
+            timeout=5,
+            max_bytes=64 * 1024,
+            max_request_bytes=64 * 1024,
+            allowed_private_hosts=config.source_http_allowed_private_hosts,
+            tls_service="incident-notify",
         )
-        urllib.request.urlopen(req, timeout=5)  # noqa: S310  # nosec B310 — operator-configured URL
-    except Exception as e:  # noqa: BLE001 — notification is best-effort
-        logger.debug("incident notify skipped: %s", e)
+    except Exception as exc:  # noqa: BLE001 — notification is best-effort
+        logger.debug("incident notify skipped: error_type=%s", type(exc).__name__)
 
 
 def _synthesize_and_write(

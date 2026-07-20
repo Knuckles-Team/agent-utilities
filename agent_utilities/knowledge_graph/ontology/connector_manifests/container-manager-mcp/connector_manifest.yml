@@ -407,9 +407,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: container
+  tool_schema_sha256: a977a24486bb17afc52241d14551d486a382b1d18dd8ae68c8079eb14f5bbeeb
   raw:
     server: container-manager-mcp
     tool: cm_container_operations
+    params_style: args
     action: list_containers
     params:
       all_containers: true
@@ -430,9 +432,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: container-image
+  tool_schema_sha256: 42724d6685092e1bd1ac36dc8b460182fac87d70a8e171608efb8ca490f925b0
   raw:
     server: container-manager-mcp
     tool: cm_image_operations
+    params_style: args
     action: list_images
     records_path: ''
     id_field: id
@@ -451,9 +455,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: k8s-deployment
+  tool_schema_sha256: 1869d52a5bfbecc70965e51cfcd9c896b161d714d9d2b76bfb3f57077caf95ef
   raw:
     server: container-manager-mcp
     tool: cm_k8s_workloads
+    params_style: args
     action: list_services
     records_path: ''
     id_field: id
@@ -472,9 +478,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: k8s-namespace
+  tool_schema_sha256: 7e58e8c86ac219c4d31f3e89af16360bf5f92075fec0735f2df8626ccb070a3b
   raw:
     server: container-manager-mcp
     tool: cm_k8s_config
+    params_style: args
     action: list_namespaces
     records_path: ''
     id_field: name
@@ -493,9 +501,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: k8s-pod
+  tool_schema_sha256: 1869d52a5bfbecc70965e51cfcd9c896b161d714d9d2b76bfb3f57077caf95ef
   raw:
     server: container-manager-mcp
     tool: cm_k8s_workloads
+    params_style: args
     action: list_pods
     records_path: ''
     id_field: name
@@ -514,9 +524,11 @@ sync:
   updated_field: created
   pagination: null
   doc_type: k8s-service
+  tool_schema_sha256: 5f80b42a40bf2da0def9c9a8749778fb65e9292dab4d319ae3244c4f59c61bf9
   raw:
     server: container-manager-mcp
     tool: cm_k8s_networking
+    params_style: args
     action: list_k8s_services
     records_path: ''
     id_field: name
@@ -526,17 +538,20 @@ sync:
     doc_type: k8s-service
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T15:00:00Z'
   source_artifacts:
   - a2a.json
   - container_manager_mcp/connectors/mcp_source_presets.json
+  - container_manager_mcp/connectors/tool_schema_fingerprints.json
   - container_manager_mcp/ontology/container.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: 97169902bf7ed616fa48999907841f6a9a38b68d8443513613fd700dcfec4da1
     triple_count: 114
   signer: ontology-manifest-generator
-  signature: dc36a855e6ae508454de0243ff91ee5bc6439c31d426089f025954391afed730
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 004sYGCape6oJGeKnGKkQCFbNBLiUPip_XjEhtdAO0pB28bEAs1iloucO1fVzohedrpBq7r4CsbZS9Ohtp_VCg
 policy:
   pii_fields: {}
   tenant_boundary: null
@@ -545,6 +560,8 @@ review_todos:
 - "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
   \ for this connector."
 - "relation 'attachedToNetwork' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'builtFrom' has no declared rdfs:domain resolving to a known resource in this connector's\
   \ ontology \u2014 not attached to any resource; verify its true domain manually."
 - "relation 'hostsResource' has no declared rdfs:domain resolving to a known resource in this connector's\
   \ ontology \u2014 not attached to any resource; verify its true domain manually."
@@ -582,29 +599,3 @@ review_todos:
 - "schema_mappings.SwarmService.ontology_class = 'System' [DRAFT \u2014 nearest hub-canonical-class-by-name\
   \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
   \ on this crosswalk for reasoning/joins."
-- "auth: local socket/kubeconfig \u2014 no remote API credential of its own. Docker via docker.from_env()/unix\
-  \ or tcp socket; K8s via in-cluster config or ~/.kube/config. Env: CONTAINER_MANAGER_TYPE/HOST, CONTAINER_MANAGER_PODMAN_BASE_URL,\
-  \ CONTAINER_MANAGER_KUBECONTEXT, KUBECONFIG, KUBERNETES_SERVICE_HOST, K8S_CONTEXTS/DOCKER_CONTEXTS/SWARM_CONTEXTS.\
-  \ required_scopes: none \u2014 access is whatever the local socket/kubeconfig RBAC identity already\
-  \ grants; remote hosts are reached via an SSH tunnel from tunnel-manager, not an exposed Docker TCP\
-  \ port. Shape: shared host/cluster credential per named context, not per-user."
-- "change_support: none \u2014 this connector is NOT wired into any source_sync delta/hydrate/materialize\
-  \ ingestion path today (see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory,\
-  \ which omits it entirely); it is an action/ops MCP connector (control-plane calls), not a KG data-ingestion\
-  \ source. cdc: none. webhook: none (any 'webhook' hits in this package's source manage webhooks/admission-hooks\
-  \ IN THE REMOTE SYSTEM \u2014 they are not an inbound push-ingestion receiver into this KG)."
-- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
-  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
-  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
-  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
-  \ above for the one heuristic that IS populated)."
-- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
-  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
-  \ SLA is authored and referenced here."
-- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
-  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
-  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
-  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
-  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
-  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
-  \ manifest should be treated as fully authoritative."

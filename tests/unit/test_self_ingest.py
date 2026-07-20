@@ -6,18 +6,18 @@ Covers:
   expects (no live engine required),
 * a mock endpoint receiving batched records through the sink + log handler,
 * RunTrace / ToolCall provenance emission,
-* durability (CONCEPT:AU-OS.observability.durable-telemetry-pipeline): failed drains
-  REQUEUE instead of dropping, backpressure/exhausted-retries SPILL to a
-  durable buffer instead of vanishing, and the one true-loss case (buffer
-  itself unavailable/full) is loudly counted — never silent,
-* per-tenant identity stamping on every emitted record.
+* write-ahead/ack-after-send durability: every emitted record is persisted
+  before network delivery and remains replayable until acknowledgment,
+* opaque per-tenant identity plus PII/local-path sanitization.
 
 @pytest.mark.concept("AU-KG.ingest.attaching-this-root-logger")
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
+from io import StringIO
 
 import pytest
 
@@ -77,11 +77,9 @@ def _enabled_config(**over) -> SelfIngestConfig:
         mode="otlp",
         batch_size=100,
         flush_interval=0.05,
-        # Tests that never hit backpressure/failure paths never touch the
-        # spill buffer at all (it's constructed lazily); tests that do force
-        # failures override this with a tmp_path-scoped file so they never
-        # touch the real XDG data dir.
-        spill_path="",
+        # Every enabled emission is now write-ahead. Keep ordinary unit tests
+        # in-memory; crash/restart cases override this with tmp_path.
+        spill_path=":memory:",
     )
     base.update(over)
     return SelfIngestConfig(**base)
@@ -204,8 +202,24 @@ class TestDelivery:
         url, payload = transport.calls[0]
         assert url == "http://obs.test:4318/v1/logs"
         records = payload["resourceLogs"][0]["scopeLogs"][0]["logRecords"]
-        assert [r["body"]["stringValue"] for r in records] == ["m0", "m1", "m2"]
+        assert [r["body"]["stringValue"] for r in records] == [
+            "event:log",
+            "event:log",
+            "event:log",
+        ]
+        refs = [
+            next(
+                attr["value"]["stringValue"]
+                for attr in record["attributes"]
+                if attr["key"] == "message.ref"
+            )
+            for record in records
+        ]
+        assert len(set(refs)) == 3
+        assert all(ref.startswith("pref_telemetry_message_") for ref in refs)
         assert sink.sent == 3
+        assert sink.persisted == 3
+        assert sink.spill_depth() == 0
 
     def test_batch_size_splits_into_multiple_sends(self):
         transport = _CapturingTransport()
@@ -251,9 +265,11 @@ class TestDelivery:
         assert sink.dropped == 0
         assert sink.spilled == 3
         assert sink.emitted == 5
-        assert sink.spill_depth() == 3
+        # All five records are write-ahead; three could not enter the delivery
+        # accelerator but remain in the same durable backlog.
+        assert sink.spill_depth() == 5
 
-    def test_dropped_only_when_spill_buffer_itself_saturated(self, tmp_path, caplog):
+    def test_dropped_only_when_spill_buffer_itself_saturated(self, tmp_path):
         """The one true-loss case: durable buffer AND queue are both full.
 
         Even then it must be loudly counted + logged, never silent.
@@ -267,11 +283,19 @@ class TestDelivery:
             ),
             transport=transport,
         )
-        with caplog.at_level(logging.ERROR):
+        from agent_utilities.observability import self_ingest as module
+
+        emergency = StringIO()
+        handler = logging.StreamHandler(emergency)
+        previous = list(module._emergency_logger.handlers)
+        module._emergency_logger.handlers[:] = [handler]
+        try:
             for i in range(4):
                 sink.emit_log(body=f"m{i}")
+        finally:
+            module._emergency_logger.handlers[:] = previous
         assert sink.dropped >= 1
-        assert any("DROPPED" in r.message for r in caplog.records)
+        assert "write_ahead_rejected" in emergency.getvalue()
 
     def test_requeue_then_success_never_drops(self):
         """A transient failure retries in-process and eventually sends — no loss."""
@@ -302,8 +326,24 @@ class TestDelivery:
 
         # Endpoint recovers.
         transport.ok = True
-        sink._redeem_spill(10)
+        assert sink._redeem_spill(10) == 1
         assert sink.sent == 1
+        assert sink.spill_depth() == 0
+
+    def test_failed_redeem_keeps_row_until_ack(self, tmp_path):
+        transport = _CapturingTransport(ok=False)
+        sink = SelfIngestSink(
+            _enabled_config(queue_max=1, spill_path=str(tmp_path / "spill.db")),
+            transport=transport,
+        )
+        sink.emit_log(body="durable")
+        # Remove the accelerator entry to exercise direct WAL redemption.
+        sink._drain(10)
+        assert sink._redeem_spill(10) == 0
+        assert sink.spill_depth() == 1
+
+        transport.ok = True
+        assert sink._redeem_spill(10) == 1
         assert sink.spill_depth() == 0
 
     def test_log_handler_forwards_records(self):
@@ -319,9 +359,11 @@ class TestDelivery:
             lg.removeHandler(handler)
         assert sink.flush() == 1
         rec = transport.calls[0][1]["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-        assert rec["body"]["stringValue"] == "hello from logger"
+        assert rec["body"]["stringValue"] == "event:log"
         attrs = {a["key"] for a in rec["attributes"]}
         assert "logger.name" in attrs
+        assert "message.ref" in attrs
+        assert "hello from logger" not in str(rec)
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +392,7 @@ class TestProvenanceStream:
         assert "tool_call" in by_type
         # error status maps to ERROR severity
         assert by_type["tool_call"]["severityNumber"] == 17
+        assert "run-9" not in str(recs)
 
 
 # ---------------------------------------------------------------------------
@@ -378,8 +421,10 @@ class TestTenantStamping:
 
         assert sink.flush() == 1
         attrs = self._attrs_of(transport)
-        assert attrs["tenant.id"]["stringValue"] == "acme"
-        assert attrs["actor.id"]["stringValue"] == "agent:marketing"
+        assert attrs["tenant.ref"]["stringValue"].startswith("pref_tenant_")
+        assert attrs["actor.ref"]["stringValue"].startswith("pref_actor_")
+        assert "acme" not in str(transport.calls)
+        assert "agent:marketing" not in str(transport.calls)
 
     def test_run_trace_and_tool_call_are_stamped_too(self):
         """Stamping happens at the single ``emit`` choke-point, not just logs."""
@@ -399,33 +444,53 @@ class TestTenantStamping:
 
         assert sink.flush() == 1
         attrs = self._attrs_of(transport)
-        assert attrs["tenant.id"]["stringValue"] == "acme-2"
-        assert attrs["actor.id"]["stringValue"] == "agent:ops"
+        assert attrs["tenant.ref"]["stringValue"].startswith("pref_tenant_")
+        assert attrs["actor.ref"]["stringValue"].startswith("pref_actor_")
+        assert "acme-2" not in str(transport.calls)
+        assert "agent:ops" not in str(transport.calls)
 
-    def test_default_system_actor_stamps_empty_tenant(self):
-        """No ambient actor scoped ⇒ the privileged SYSTEM_ACTOR (tenant_id="")."""
+    def test_missing_actor_stamps_no_identity(self):
+        """No ambient actor means no identity reference is synthesized."""
         transport = _CapturingTransport()
         sink = SelfIngestSink(_enabled_config(), transport=transport)
-        sink.emit_log(body="unscoped")
-        assert sink.flush() == 1
+        def emit_unscoped():
+            sink.emit_log(body="unscoped")
+            assert sink.flush() == 1
+
+        contextvars.Context().run(emit_unscoped)
         attrs = self._attrs_of(transport)
-        assert attrs["tenant.id"]["stringValue"] == ""
-        assert attrs["actor.id"]["stringValue"] == "system"
+        assert "tenant.ref" not in attrs
+        assert "actor.ref" not in attrs
+
+    def test_local_path_and_personal_identity_are_redacted(self):
+        transport = _CapturingTransport()
+        sink = SelfIngestSink(_enabled_config(), transport=transport)
+        sink.emit_log(
+            body="failed under /home/example/private/file.txt",
+            attributes={"user_name": "Example Person", "endpoint": "https://private"},
+        )
+        assert sink.flush() == 1
+        payload = str(transport.calls)
+        assert "/home/example" not in payload
+        assert "Example Person" not in payload
+        assert "https://private" not in payload
 
 
 # ---------------------------------------------------------------------------
 # SpillBuffer — durable, crash-safe overflow store
 # ---------------------------------------------------------------------------
 class TestSpillBuffer:
-    def test_append_and_pop_round_trips(self, tmp_path):
+    def test_peek_requires_explicit_ack(self, tmp_path):
         buf = SpillBuffer(str(tmp_path / "spill.db"))
         assert buf.available
         assert buf.append({"body": "a"})
         assert buf.append({"body": "b"})
         assert buf.count() == 2
 
-        popped = buf.pop_batch(10)
-        assert [r["body"] for r in popped] == ["a", "b"]
+        pending = buf.peek_batch(10)
+        assert [row.record["body"] for row in pending] == ["a", "b"]
+        assert buf.count() == 2
+        assert buf.ack([row.durable_id for row in pending]) == 2
         assert buf.count() == 0
         buf.close()
 
@@ -438,13 +503,13 @@ class TestSpillBuffer:
 
         buf2 = SpillBuffer(path)
         assert buf2.count() == 1
-        assert buf2.pop_batch(10)[0]["body"] == "durable"
+        assert buf2.peek_batch(10)[0].record["body"] == "durable"
         buf2.close()
 
     def test_bounded_capacity_rejects_beyond_max(self, tmp_path):
         buf = SpillBuffer(str(tmp_path / "spill.db"), max_records=1)
         assert buf.append({"body": "first"})
-        assert buf.append({"body": "second"}) is False
+        assert buf.append({"body": "second"}) is None
         assert buf.count() == 1
 
     def test_unwritable_path_degrades_to_unavailable(self, tmp_path):
@@ -454,6 +519,6 @@ class TestSpillBuffer:
         blocker.write_text("x")
         buf = SpillBuffer(str(blocker / "nested" / "spill.db"))
         assert buf.available is False
-        assert buf.append({"body": "x"}) is False
-        assert buf.pop_batch(10) == []
+        assert buf.append({"body": "x"}) is None
+        assert buf.peek_batch(10) == []
         assert buf.count() == 0

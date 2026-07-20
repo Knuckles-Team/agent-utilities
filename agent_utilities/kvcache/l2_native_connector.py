@@ -102,7 +102,8 @@ class EpistemicGraphL2Connector:
             the HTTP connection-pool ceiling to at least ``2 × num_workers``.
         max_connections: Explicit pooled-connection ceiling (overrides the
             ``num_workers``-derived default).
-        verify_tls: TLS verification toggle (plain-http loopback is unaffected).
+        tls_profile: Runtime TLS profile name for HTTPS endpoints.
+        tls_profile_ref: Secret reference containing the runtime TLS profile.
     """
 
     def __init__(
@@ -114,7 +115,8 @@ class EpistemicGraphL2Connector:
         timeout_s: float | None = None,
         num_workers: int = 8,
         max_connections: int | None = None,
-        verify_tls: bool | None = None,
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
     ) -> None:
         workers = max(int(num_workers), 1)
         cfg = self._resolve_config(
@@ -123,7 +125,8 @@ class EpistemicGraphL2Connector:
             token=token,
             timeout_s=timeout_s,
             max_connections=max_connections,
-            verify_tls=verify_tls,
+            tls_profile=tls_profile,
+            tls_profile_ref=tls_profile_ref,
             workers=workers,
         )
         self._backend = EpistemicGraphKVBackend(cfg)
@@ -160,7 +163,8 @@ class EpistemicGraphL2Connector:
         token: str | None,
         timeout_s: float | None,
         max_connections: int | None,
-        verify_tls: bool | None,
+        tls_profile: str | None,
+        tls_profile_ref: str | None,
         workers: int,
     ) -> KvCacheConfig:
         """Layer explicit ``adapter_params`` over the EG-187 environment defaults."""
@@ -174,8 +178,10 @@ class EpistemicGraphL2Connector:
             updates["token"] = token
         if timeout_s is not None:
             updates["timeout_s"] = float(timeout_s)
-        if verify_tls is not None:
-            updates["verify_tls"] = bool(verify_tls)
+        if tls_profile is not None:
+            updates["tls_profile"] = tls_profile
+        if tls_profile_ref is not None:
+            updates["tls_profile_ref"] = tls_profile_ref
         # The pool must not choke the I/O workers: give httpx at least 2 conns
         # per worker unless the caller pinned an explicit ceiling.
         if max_connections is not None:

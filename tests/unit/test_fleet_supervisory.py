@@ -171,17 +171,17 @@ class _ApprovalEngine:
                 "status": "pending",
             }
         }
-        outer = self
+        self.graph_compute = self
 
-        class _Backend:
-            def execute(self, query, params=None):
-                params = params or {}
-                node = outer.nodes.get(params.get("id"))
-                if node is not None and node.get("status") == "pending":
-                    node["status"] = params.get("status")
-                return []
+    def for_graph(self, _graph):
+        return self
 
-        self.backend = _Backend()
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        node = self.nodes.get(node_id)
+        if node is None or any(node.get(k) != v for k, v in conditions.items()):
+            return False
+        node.update(updates)
+        return True
 
     def query_cypher(self, query, params=None):
         if "ActionApproval" in query:
@@ -309,8 +309,8 @@ async def test_platform_admin_sees_whole_fleet(tenant_session_db):
 
 
 @pytest.mark.asyncio
-async def test_legacy_unscoped_caller_sees_all(tenant_session_db):
-    # No actor in scope (ambient SYSTEM_ACTOR, tenant="") → unfiltered, preserving
-    # single-tenant/local behaviour.
-    data = await _payload(await fleet.fleet_health(_Req()))
-    assert data["sessions"]["total"] == 3
+async def test_tenantless_caller_fails_closed(tenant_session_db):
+    from agent_utilities.security.brain_context import use_actor
+
+    with use_actor(_actor(tenant="")), pytest.raises(PermissionError):
+        await fleet.fleet_health(_Req())

@@ -56,7 +56,7 @@ def correlate_event(engine: Any, event: dict[str, Any]) -> list[dict[str, Any]]:
             {"subject": subject},
         )
     except Exception as e:  # noqa: BLE001 — correlation is best-effort
-        logger.debug("fleet event correlation failed: %s", e)
+        logger.debug("fleet event correlation failed (%s)", type(e).__name__)
         return []
     return [r for r in rows or [] if isinstance(r, dict) and r.get("id")]
 
@@ -71,15 +71,15 @@ def _file_gap(engine: Any, event: dict[str, Any]) -> dict[str, Any] | None:
         file_gap_topic,
     )
 
-    subject = str(event.get("subject") or "unknown")
-    summary = str(event.get("summary") or "")
+    subject_ref = str(event.get("subject_ref") or "fleet-subject")
+    summary_ref = str(event.get("summary_ref") or "fleet-summary")
     pattern = FailurePattern(
-        signature=_sig(subject, "fleet_event", _normalize_detail(summary)),
-        name=subject,
+        signature=_sig(subject_ref, "fleet_event", _normalize_detail(summary_ref)),
+        name="fleet-event",
         kind="fleet_event",
         anomaly_type=ANOMALY_ERROR,
         count=1,
-        sample_detail=summary,
+        sample_detail=summary_ref,
     )
     return file_gap_topic(
         engine, pattern, anomaly_id=event.get("id"), source="fleet_event_triage"
@@ -105,7 +105,7 @@ def default_playbook(engine: Any, event: dict[str, Any]) -> dict[str, Any]:
                     properties={"source": "fleet_event_triage"},
                 )
             except Exception as e:  # noqa: BLE001
-                logger.debug("OBSERVED_ON edge failed: %s", e)
+                logger.debug("OBSERVED_ON edge failed (%s)", type(e).__name__)
 
     severity = str(event.get("severity") or "info")
     status = str(event.get("status") or "unknown")
@@ -168,13 +168,14 @@ def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
         }
 
     playbook = _resolve_playbook(
-        str(event.get("source") or "generic"), str(event.get("severity") or "info")
+        str(event.get("source_type") or event.get("source") or "generic"),
+        str(event.get("severity") or "info"),
     )
     try:
         report = playbook(engine, event) or {}
     except Exception as e:  # noqa: BLE001 — a playbook bug never kills the worker
-        logger.warning("fleet event playbook failed for %s: %s", event_node_id, e)
-        report = {"playbook_error": str(e)}
+        logger.warning("fleet event playbook failed (%s)", type(e).__name__)
+        report = {"playbook_error": type(e).__name__}
 
     try:
         engine.backend.execute(
@@ -183,7 +184,7 @@ def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
             {"id": event_node_id, "ts": _now_iso()},
         )
     except Exception as e:  # noqa: BLE001
-        logger.debug("fleet event triage stamp failed: %s", e)
+        logger.debug("fleet event triage stamp failed (%s)", type(e).__name__)
 
     return {"triaged": True, "event_id": event_node_id, **report}
 

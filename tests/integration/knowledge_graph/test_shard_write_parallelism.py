@@ -26,6 +26,13 @@ import subprocess
 import time
 
 import pytest
+from _test_engine import (
+    TEST_AGENT_ID,
+    TEST_SIGNER_KEY,
+    bootstrap_context,
+    request_context,
+    strict_server_env,
+)
 
 pytestmark = pytest.mark.concept("AU-KG.ingest.floor-codebase-admission-cap")
 
@@ -53,13 +60,6 @@ def _find_engine_binary() -> str | None:
             if os.path.exists(cand):
                 return cand
         cur = os.path.dirname(cur)
-    # Canonical workspace location as a final concrete candidate.
-    canonical = (
-        "/home/apps/workspace/agent-packages/epistemic-graph/"
-        "target/release/epistemic-graph-server"
-    )
-    if os.path.exists(canonical):
-        return canonical
     # Last resort — an on-PATH build (may be stale; the test asserts sharding so a
     # non-sharded build simply fails loudly rather than silently passing).
     return shutil.which("epistemic-graph-server")
@@ -139,7 +139,6 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
     # env so neither the engine subprocess nor the client picks up a foreign socket,
     # endpoint, or auth secret (which would make us talk to a different engine).
     for var in (
-        "GRAPH_SERVICE_SOCKET",
         "GRAPH_SERVICE_AUTH_SECRET",
         "GRAPH_SERVICE_ENDPOINTS",
         "GRAPH_SERVICE_PERSIST_DIR",
@@ -157,19 +156,15 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
         port = _s.getsockname()[1]
     persist = tmp_path / "data"
     persist.mkdir()
+    auth_secret = "shard-" + "parallelism-test-secret"  # nosec B105 - test only
     env = dict(os.environ)
     env["EPISTEMIC_GRAPH_REDB_SHARDS"] = str(_K)
-    env["EPISTEMIC_GRAPH_ALLOW_INSECURE"] = "1"
+    env.update(strict_server_env(str(tmp_path / "security"), auth_secret=auth_secret))
     # Force the durable K-way sharded redb backend (the subject under test); the
     # test env may otherwise select the snapshot/WAL backend (per-graph ``.wal``
     # files, no ``graph-<i>.redb`` shards).
     env["EPISTEMIC_GRAPH_PERSIST_BACKEND"] = "redb"
     env["EPISTEMIC_GRAPH_REDB_AUTHORITATIVE"] = "1"
-    # A stray host-engine UDS socket in the shared XDG runtime dir could collide;
-    # give this throwaway engine its own socket. It must be a SHORT path — a UDS
-    # path under pytest's long tmp basetemp blows the ~108-char ``SUN_LEN`` limit.
-    sock_path = f"/tmp/eg-test-{port}.sock"
-    env["GRAPH_SERVICE_SOCKET"] = sock_path
     # Route engine logs to a FILE, not a PIPE: the engine logs verbosely, and an
     # undrained ``subprocess.PIPE`` deadlocks it once the 64 KB buffer fills.
     log_path = tmp_path / "engine.log"
@@ -181,9 +176,8 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
             f"127.0.0.1:{port}",
             "--persist-dir",
             str(persist),
-            "--checkpoint-interval",
-            "300",
-            "--allow-insecure",
+            "--auth-secret",
+            auth_secret,
         ],
         env=env,
         stdout=subprocess.DEVNULL,
@@ -194,8 +188,27 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
 
         async def _conn(g: str):
             return await EpistemicGraphClient.connect(
-                tcp_addr=ep, auth_secret="", graph_name=g
+                tcp_addr=ep,
+                auth_secret=auth_secret,
+                graph_name=g,
+                verified_context=request_context(),
             )
+
+        async def _bootstrap_identity() -> None:
+            client = await EpistemicGraphClient.connect(
+                tcp_addr=ep,
+                auth_secret=auth_secret,
+                graph_name="__commons__",
+                verified_context=bootstrap_context(),
+            )
+            try:
+                await client.consensus.bootstrap_system_identity(
+                    agent_id=TEST_AGENT_ID,
+                    signer_id=TEST_AGENT_ID,
+                    signer_key=TEST_SIGNER_KEY,
+                )
+            finally:
+                await client.close()
 
         async def _wait_ready() -> None:
             last: Exception | None = None
@@ -259,6 +272,7 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
 
         async def _run() -> tuple[int, int]:
             await _wait_ready()
+            await _bootstrap_identity()
             distinct, same = _names_for_shards()
             cross_active = await _write_concurrent(distinct, 20000)
             same_active = await _write_concurrent(same, 20000)

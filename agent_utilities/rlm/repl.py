@@ -7,7 +7,6 @@ from pydantic_ai.messages import ModelRequest, UserPromptPart
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
-from ..graph.client import get_graph_client
 from ..graph.state import GraphDeps
 from .config import RLMConfig
 from .prompts import (
@@ -15,7 +14,6 @@ from .prompts import (
 )
 from .sandboxes import (  # CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox
     HELPER_NAMES,
-    LocalSandbox,
     SandboxEnv,
     SandboxRejected,
 )
@@ -129,10 +127,6 @@ class RLMEnvironment:
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
 
-        # We don't await get_graph_client() here because __init__ is synchronous.
-        # Instead, we provide it as an async helper in the globals.
-        self._get_graph_client = get_graph_client
-
         # The global namespace for the REPL
         self.globals_dict = {
             "__builtins__": __builtins__,
@@ -203,9 +197,9 @@ class RLMEnvironment:
     ) -> list[dict[str, Any]]:
         """Run a Cypher query against a specific ephemeral graph namespace."""
         try:
-            # We instantiate a GraphComputeEngine connected to the ephemeral namespace
-            # It should have been hydrated by OWLBridge previously.
-            ephemeral_engine = GraphComputeEngine(graph_name=namespace)
+            # A graph-scoped view shares the process transport; OWLBridge has
+            # already hydrated this namespace.
+            ephemeral_engine = GraphComputeEngine.get_or_create(namespace)
             if hasattr(ephemeral_engine._client, "cypher"):
                 result = ephemeral_engine._client.cypher.query(cypher, params or {})
                 import json
@@ -299,9 +293,9 @@ class RLMEnvironment:
         # This is tricky because we need a StepContext.
         # If we don't have it, we fallback to a direct Agent call.
 
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
-        agent = Agent(
+        agent = create_context_agent(
             model=self.config.sub_llm_model_small,
             system_prompt=f"You are a specialized sub-agent for: {agent_id or 'general'}",
         )
@@ -386,17 +380,17 @@ class RLMEnvironment:
             # single Python type to hand pydantic-ai, so it's conveyed as prompt
             # text instead (the caller still gets back whatever the model wrote —
             # there's no post-hoc ``.validate()`` at this recursion floor).
-            from pydantic_ai import Agent
+            from agent_utilities.core.contextual_model import create_context_agent
 
             model_type = contract.model_type if contract else None
             if model_type is not None:
-                agent = Agent(
+                agent = create_context_agent(
                     model=self.config.sub_llm_model_small,
                     system_prompt="Answer the sub-task directly.",
                     output_type=model_type,
                 )
             elif contract is not None:
-                agent = Agent(
+                agent = create_context_agent(
                     model=self.config.sub_llm_model_small,
                     system_prompt=(
                         "Answer the sub-task directly. Respond with JSON matching "
@@ -404,7 +398,7 @@ class RLMEnvironment:
                     ),
                 )
             else:
-                agent = Agent(
+                agent = create_context_agent(
                     model=self.config.sub_llm_model_small,
                     system_prompt="Answer the sub-task directly.",
                 )
@@ -417,25 +411,18 @@ class RLMEnvironment:
         """Snapshot the REPL state into the cross-backend :class:`SandboxEnv` (ORCH-1.38).
 
         ``helpers`` is the host-callback subset of the REPL namespace (the ``HELPER_NAMES``
-        bound methods); ``local_globals`` are live refs only the in-process ``local`` backend
-        can inject. Isolated backends ignore ``local_globals`` and wire ``helpers`` over their
-        own bridge (monty's ``external_functions``, Docker's UDS).
+        bound methods). Confined backends wire ``helpers`` through their governed callback
+        boundary (monty's ``external_functions`` or Docker's UDS bridge).
         """
         helpers = {
             name: self.globals_dict[name]
             for name in HELPER_NAMES
             if name in self.globals_dict
         }
-        local_globals = {
-            "GraphComputeEngine": GraphComputeEngine,
-            "json": json,
-            "asyncio": asyncio,
-        }
         return SandboxEnv(
             vars=self.vars,
             tool_sources=self.tool_sources,
             helpers=helpers,
-            local_globals=local_globals,
         )
 
     def _get_sandbox_router(self) -> SandboxRouter:
@@ -447,7 +434,8 @@ class RLMEnvironment:
             from .sandboxes.reward import SandboxRewardTracker
 
             router = SandboxRouter(
-                default_sandboxes(), reward_fn=SandboxRewardTracker.get().reward
+                default_sandboxes(),
+                reward_fn=SandboxRewardTracker.get().reward,
             )
             self._sandbox_router = router
         return router
@@ -465,11 +453,11 @@ class RLMEnvironment:
           (ORCH-1.29 semantics, unchanged — deliberately not caught here).
         * success — sync the namespace back into ``self.vars`` and return ``(vars, stdout)``.
 
-        The ``local`` floor anchors every chain, so there is always a backend that accepts the
-        code. Returns the same ``(updated_vars, stdout)`` shape as the legacy path.
+        Secure/default routing fails closed when no isolated backend can accept the
+        code. Unsafe local execution requires an explicit configuration opt-in.
         """
         env = self._build_sandbox_env()
-        forced = self.config.resolved_sandbox()
+        forced = self.config.sandbox
         chain = self._get_sandbox_router().select(
             code, force=None if forced == "auto" else forced
         )
@@ -504,18 +492,12 @@ class RLMEnvironment:
                 logger.debug("RLM snippet ran on escalated backend %s", backend.name)
             return self.vars, result.stdout
 
-        # Unreachable while ``local`` is registered (it accepts everything); defensive only.
-        # Reached only when an explicit ``sandbox`` override pinned a single backend that then
-        # rejected the snippet (auto-routing always anchors the chain with the ``local`` floor).
-        # Fall back to the local floor so a forced-but-incompatible pin never wedges the loop.
+        # Every approved backend rejected the snippet. Do not silently cross the
+        # isolation boundary by evaluating model code in this process.
         reason = last_reject.reason if last_reject else "no available backend"
-        logger.warning(
-            "Pinned sandbox rejected snippet (%s); falling back to the local floor.",
-            reason,
+        raise SandboxFatalError(
+            f"no approved RLM sandbox accepted the snippet ({reason})"
         )
-        result = await LocalSandbox().execute(code, env)
-        self.vars.update(result.updated_vars)
-        return self.vars, result.stdout
 
     def _validate_outputs(self) -> str | None:
         """Validate the agent's output(s). Returns an error string if invalid, None if valid.
@@ -657,7 +639,7 @@ class RLMEnvironment:
         Returns:
             The final result string from ``FINAL_VAR``.
         """
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
         model_id = (
             self.config.sub_llm_model_large
@@ -667,17 +649,17 @@ class RLMEnvironment:
 
         # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client — family-aware system prompt (the paper's "one prompt fails across
         # model families" failure mode); 'auto' infers the family from the root model id.
-        agent = Agent(
+        agent = create_context_agent(
             model=model_id,
             system_prompt=build_system_prompt(self.config.prompt_family, model_id),
         )
 
-        # CONCEPT:AU-ORCH.routing.depth-tiered-sampling — depth-tiered sampling. The root is the strong proposer/reasoner
+        # CONCEPT:AU-ORCH.routing.depth-tiered-sampling — depth-tiered sampling. The root is the strong reasoner
         # (higher temperature for exploration); recursive sub-calls are deterministic executors
         # writing/running code (low temp + tight top_k). Mirrors the model_id depth split above.
         from agent_utilities.agent.sampling_profile import resolve_sampling_profile
 
-        _profile_role = "rlm-proposer" if self.depth == 0 else "rlm-executor"
+        _profile_role = "rlm-root" if self.depth == 0 else "rlm-executor"
         _profile_settings = resolve_sampling_profile(
             role=_profile_role
         ).to_model_settings({})
@@ -685,8 +667,8 @@ class RLMEnvironment:
         history: list[Any] = []
         max_turns = self.max_turns
 
-        # CONCEPT:AU-ORCH.execution.typed-failure-classification — populate a structured RunTrace as the live loop runs, so the GEPA
-        # proposer gets classified per-iteration feedback (not just the free-text ReasoningTraceNode).
+        # CONCEPT:AU-ORCH.execution.typed-failure-classification — populate a
+        # structured RunTrace as the live loop runs for canonical outcome analysis.
         run_trace = RunTrace()
         self.last_run_trace = run_trace
 

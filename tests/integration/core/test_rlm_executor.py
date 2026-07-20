@@ -16,7 +16,6 @@ async def test_executor_rlm_summary():
     state = GraphState(query="What was the result of the massive tool?")
     state.step_cursor = 0
     state.results_registry = {}
-    state.results = {}
     state.error = None
 
     deps = MagicMock()
@@ -28,7 +27,6 @@ async def test_executor_rlm_summary():
     deps.agent_model = MagicMock()
     deps.base_url = None
     deps.api_key = "fake-key"
-    deps.ssl_verify = True
     deps.mcp_toolsets = []
     deps.tag_prompts = {}
     deps.tag_env_vars = {}
@@ -52,8 +50,11 @@ async def test_executor_rlm_summary():
     mock_agent = MagicMock()
     mock_agent.run = AsyncMock(return_value=mock_res)
 
-    # Patch create_agent AND pydantic_ai.Agent
-    with patch("agent_utilities.graph.executor.Agent", return_value=mock_agent):
+    # Patch the governed constructor boundary.
+    with patch(
+        "agent_utilities.graph.executor.create_context_agent",
+        return_value=mock_agent,
+    ):
         # Patch recursive_reasoner_tool
         with patch(
             "agent_utilities.rlm.specialist.recursive_reasoner_tool",
@@ -68,9 +69,9 @@ async def test_executor_rlm_summary():
             with patch(
                 "agent_utilities.rlm.config.RLMConfig", return_value=mock_config
             ):
-                # Patch load_node_agents_registry
+                # Patch the canonical discovery registry.
                 with patch(
-                    "agent_utilities.graph.executor.load_node_agents_registry",
+                    "agent_utilities.graph.executor.get_discovery_registry",
                     return_value=MagicMock(),
                 ):
                     # Patch on_enter/exit

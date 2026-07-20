@@ -9,11 +9,15 @@ but with full Pydantic typing.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+_CREDENTIAL_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}\Z")
+_SECRET_REF_PREFIXES = ("env://", "secret://", "vault://")
 
 
 class ServiceCategory(StrEnum):
@@ -79,48 +83,91 @@ class ServiceConfig(BaseModel):
     Mirrors Homepage's per-service YAML structure.
     """
 
-    id: str = Field(description="Unique service ID, e.g. 'portainer-1'")
-    name: str = Field(description="Display name, e.g. 'Portainer'")
+    id: str = Field(min_length=1, max_length=128, description="Unique service ID")
+    name: str = Field(min_length=1, max_length=256, description="Display name")
     widget_type: str = Field(
+        min_length=1,
+        max_length=128,
         description="Widget type key from registry, e.g. 'portainer'"
     )
-    url: str = Field(default="", description="Service base URL")
+    url: str = Field(default="", max_length=8192, description="Service base URL")
     icon: str = Field(
-        default="", description="Icon identifier (Lucide name, URL, or emoji)"
+        default="",
+        max_length=512,
+        description="Icon identifier (Lucide name, URL, or emoji)",
     )
-    description: str = Field(default="", description="Short description")
+    description: str = Field(default="", max_length=2048, description="Short description")
     category: ServiceCategory = Field(default=ServiceCategory.CUSTOM)
 
-    # Auth — mirrors the env-var pattern from each agent-package's auth.py
-    api_key: str = Field(default="", description="API key or token")
-    username: str = Field(default="")
-    password: str = Field(default="")
+    # Runtime-only compatibility fields. These may be supplied to an in-memory
+    # ServiceConfig by a trusted embedding application, but Pydantic excludes
+    # them from every serialization surface and ConfigManager never reads them
+    # from persistent YAML. Durable configuration must use ``credential_refs``.
+    api_key: str = Field(default="", max_length=65536, exclude=True, repr=False)
+    username: str = Field(default="", max_length=65536, exclude=True, repr=False)
+    password: str = Field(default="", max_length=65536, exclude=True, repr=False)
+    credential_refs: dict[str, str] = Field(
+        default_factory=dict,
+        max_length=32,
+        description="Runtime secret references keyed by credential field name",
+    )
     env_prefix: str = Field(
         default="",
+        max_length=64,
         description="Env var prefix for auto-resolving credentials, e.g. 'PORTAINER'",
     )
 
     # Widget display
     fields: list[str] | None = Field(
         default=None,
+        max_length=128,
         description="Specific fields to show (None = all available)",
     )
-    refresh_interval: int = Field(default=30, description="Polling interval in seconds")
+    refresh_interval: int = Field(
+        default=30, ge=1, le=86400, description="Polling interval in seconds"
+    )
     websocket: bool = Field(
         default=False, description="Use WebSocket for real-time updates if available"
     )
 
     # Layout
-    column_span: int = Field(default=1, description="Grid column span (1-4)")
-    row_span: int = Field(default=1, description="Grid row span")
+    column_span: int = Field(default=1, ge=1, le=4, description="Grid column span")
+    row_span: int = Field(default=1, ge=1, le=100, description="Grid row span")
     visible: bool = Field(default=True, description="Whether the widget is shown")
     order: int = Field(default=0, description="Sort order within group")
 
     # Service link
     href: str = Field(
-        default="", description="URL to open when clicking the service card header"
+        default="",
+        max_length=8192,
+        description="URL to open when clicking the service card header",
     )
-    target: str = Field(default="_blank", description="Link target (_blank, _self)")
+    target: str = Field(
+        default="_blank", pattern=r"^_(?:blank|self)$", description="Link target"
+    )
+
+    @field_validator("credential_refs")
+    @classmethod
+    def _validate_credential_refs(cls, value: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_key, raw_ref in value.items():
+            key = str(raw_key).strip().lower()
+            ref = str(raw_ref).strip()
+            if not _CREDENTIAL_KEY_RE.fullmatch(key):
+                raise ValueError("credential reference keys must be simple identifiers")
+            if len(ref) > 2048 or not ref.startswith(_SECRET_REF_PREFIXES):
+                raise ValueError(
+                    "credential values must use a supported runtime secret reference"
+                )
+            normalized[key] = ref
+        return normalized
+
+    @field_validator("fields")
+    @classmethod
+    def _validate_fields(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and any(not field or len(field) > 128 for field in value):
+            raise ValueError("widget field names must contain 1..128 characters")
+        return value
 
 
 class ServiceGroup(BaseModel):
@@ -129,11 +176,11 @@ class ServiceGroup(BaseModel):
     Mirrors Homepage's YAML group structure.
     """
 
-    name: str = Field(description="Group name, e.g. 'Infrastructure'")
-    services: list[ServiceConfig] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=256, description="Group name")
+    services: list[ServiceConfig] = Field(default_factory=list, max_length=512)
     order: int = Field(default=0)
     collapsed: bool = Field(default=False)
-    icon: str = Field(default="")
+    icon: str = Field(default="", max_length=512)
 
 
 class DashboardLayout(BaseModel):
@@ -142,8 +189,8 @@ class DashboardLayout(BaseModel):
     Persisted to YAML at the XDG config path.
     """
 
-    groups: list[ServiceGroup] = Field(default_factory=list)
-    columns: int = Field(default=4, description="Number of grid columns")
+    groups: list[ServiceGroup] = Field(default_factory=list, max_length=128)
+    columns: int = Field(default=4, ge=1, le=12, description="Number of grid columns")
     theme: str = Field(
         default="system", description="Theme: system, dark, light, glass"
     )
@@ -154,7 +201,10 @@ class DashboardLayout(BaseModel):
     show_status_indicators: bool = Field(default=True)
     auto_refresh: bool = Field(default=True)
     refresh_interval: int = Field(
-        default=30, description="Global default refresh interval in seconds"
+        default=30,
+        ge=1,
+        le=86400,
+        description="Global default refresh interval in seconds",
     )
 
 
@@ -171,7 +221,4 @@ class WidgetRegistration(BaseModel):
     env_prefix: str = Field(
         default="",
         description="Default env var prefix for credential auto-discovery",
-    )
-    default_url: str = Field(
-        default="", description="Default URL to try for auto-discovery"
     )

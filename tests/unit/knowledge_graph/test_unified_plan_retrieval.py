@@ -4,7 +4,7 @@
 CONCEPT:AU-KG.compute.kg-2 / KG-2.238. The hand-orchestrated hybrid retriever's vector arm
 is collapsed onto the engine: the vector neighbourhood is computed by the engine's
 native ANN inside a single costed cross-modal plan (``query.unified``, falling to
-the native ``semantic_search`` ANN primitive on a lean engine), NEVER by an O(N)
+the native ``semantic_search`` ANN primitive if unified planning is unavailable), NEVER by an O(N)
 Python ``cosine_similarity`` scan over the whole graph.
 
 These tests run against the REAL ephemeral epistemic-graph engine via the

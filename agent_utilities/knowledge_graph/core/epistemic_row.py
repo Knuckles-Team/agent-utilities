@@ -185,9 +185,7 @@ class EpistemicRow:
 
     Constructed via :meth:`from_wire` from the raw dict
     ``client.query.explain_provenance_by_ids(...)`` (or ``explain_provenance``)
-    returns — see ``ExplainProvenanceRowWire`` in
-    ``epistemic-graph/crates/eg-types/src/protocol.rs`` for the authoritative wire
-    shape this mirrors field-for-field.
+    returns by projecting the authoritative protocol ``EvidenceBundle`` claims.
     """
 
     id: str
@@ -202,7 +200,7 @@ class EpistemicRow:
     #: SURPASS gap-closure ("wire `proof_ids`/`contradiction_ids` from the Arrow
     #: `KnowledgeBatch` into `EpistemicRow`") — ids this row CONTRADICTS/ATTACKS or is
     #: contradicted/attacked BY (SYMMETRIC), straight off the wire's
-    #: ``ExplainProvenanceRowWire.contradiction_ids`` (same column
+    #: ``EvidenceClaim.contradiction_refs`` (same column
     #: ``eg_plan::KnowledgeBatch``'s Arrow-columnar surface already carries — this
     #: row-shaped path is the one that actually reaches a Python caller). Empty when
     #: the engine's ``epistemic`` feature is off, or the row has no classified
@@ -210,7 +208,7 @@ class EpistemicRow:
     contradiction_ids: list[str] = field(default_factory=list)
     #: SURPASS gap-closure (see ``contradiction_ids`` above) — the transitive
     #: justification/premise chain underneath this row's belief, deduped, excluding
-    #: the row's own id, off ``ExplainProvenanceRowWire.proof_ids``. Empty when
+    #: the row's own id, off ``EvidenceClaim.proof_refs``. Empty when
     #: ``epistemic`` is off or the row has no evidence neighbourhood.
     proof_ids: list[str] = field(default_factory=list)
     #: The plain node-property dict the ORIGINAL (non-epistemic) query projected
@@ -253,8 +251,8 @@ class EpistemicRow:
         cls, row: dict[str, Any], *, properties: dict[str, Any] | None = None
     ) -> EpistemicRow:
         """Build one :class:`EpistemicRow` from a raw
-        ``ExplainProvenanceRowWire``-shaped dict (a single entry of
-        ``client.query.explain_provenance_by_ids(ids)["rows"]``).
+        row projection derived from one protocol ``EvidenceClaim`` returned by
+        ``client.query.explain_provenance_by_ids(ids)``.
 
         ``valid_time``/``tx_time`` arrive over msgpack as 2-element lists (Rust
         tuples have no native msgpack tuple type) — normalized to a real Python
@@ -286,11 +284,10 @@ def row_ids_from_plain_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Extract ``(id, properties)`` pairs out of plain Cypher result ``rows``.
 
     A plain-dict row from :meth:`KnowledgeGraph.query` is keyed by RETURN
-    alias; a bare ``RETURN n`` column holds the FULL node dict with an injected
-    ``"id"`` key (see ``EpistemicGraphBackend._project``'s ``_project_item``), while
-    a projection like ``RETURN n.id AS id`` yields a top-level ``"id"`` key whose
-    value is the bare id string. Both shapes are recognized here; a row matching
-    neither contributes nothing (never a guess). Returns one dict per DISTINCT id
+    alias. Backends that return an object may place a node dict with an ``"id"``
+    key under that alias, while the native Epistemic Graph contract projects
+    identity explicitly as ``RETURN n.id AS id``. Both shapes are recognized;
+    a row matching neither contributes nothing (never a guess). Returns one dict per DISTINCT id
     found, first-occurrence order preserved, each shaped
     ``{"id": str, "properties": dict}`` — ``properties`` is the nested node dict
     when found, else ``{}`` (the ``RETURN n.id AS id`` shape has no properties to
@@ -519,7 +516,6 @@ def attach_epistemic_columns(
             continue
         rid = _row_id(row)
         wr = wire_by_id.get(rid) if rid else None
-        resolved = wr is not None
         if wr is not None:
             confidence = float(
                 wr.get("confidence", NEUTRAL_CONFIDENCE) or NEUTRAL_CONFIDENCE

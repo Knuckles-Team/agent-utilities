@@ -11,6 +11,7 @@ triage handler (correlation, failure_gap escalation, playbook dispatch seam).
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,10 +34,11 @@ class _Req:
         self.headers = {k.lower(): v for k, v in (headers or {}).items()}
         self.query_params = query or {}
 
-    async def json(self):
-        if self._body is None:
-            raise ValueError("no body")
-        return self._body
+    async def stream(self):
+        if isinstance(self._body, bytes):
+            yield self._body
+        elif self._body is not None:
+            yield json.dumps(self._body).encode("utf-8")
 
 
 class _Backend:
@@ -102,6 +104,18 @@ def engine(monkeypatch):
     return eng
 
 
+@pytest.fixture(autouse=True)
+def webhook_auth_policy(monkeypatch):
+    monkeypatch.delenv("FLEET_EVENTS_TOKEN_REF", raising=False)
+    from agent_utilities.security import brain_context
+
+    monkeypatch.setattr(
+        brain_context,
+        "current_actor",
+        lambda: SimpleNamespace(authenticated=True),
+    )
+
+
 async def _payload(resp):
     return json.loads(resp.body)
 
@@ -128,7 +142,7 @@ def _alertmanager_payload():
             },
             {
                 "status": "resolved",
-                "labels": {"alertname": "DiskFull", "instance": "r820:9100"},
+                "labels": {"alertname": "DiskFull", "instance": "node-a:9100"},
                 "annotations": {"description": "disk back under threshold"},
             },
         ],
@@ -152,17 +166,20 @@ class TestNormalization:
     def test_uptime_kuma_down(self):
         payload = {
             "heartbeat": {"status": 0, "msg": "timeout"},
-            "monitor": {"name": "langfuse.arpa"},
-            "msg": "[langfuse.arpa] is down",
+            "monitor": {"name": "telemetry.example.test"},
+            "msg": "[telemetry.example.test] is down",
         }
         (ev,) = fleet_events.normalize_payload(payload)
         assert ev.source == "uptime-kuma"
         assert ev.severity == "critical"
         assert ev.status == "down"
-        assert ev.subject == "langfuse.arpa"
+        assert ev.subject == "telemetry.example.test"
 
     def test_uptime_kuma_up_is_info(self):
-        payload = {"heartbeat": {"status": 1}, "monitor": {"name": "egeria.arpa"}}
+        payload = {
+            "heartbeat": {"status": 1},
+            "monitor": {"name": "catalog.example.test"},
+        }
         (ev,) = fleet_events.normalize_payload(payload)
         assert ev.severity == "info"
         assert ev.status == "up"
@@ -198,6 +215,12 @@ class TestReceiveEndpoint:
         fleet_nodes = [n for n in engine.nodes.values() if n["type"] == "FleetEvent"]
         assert len(fleet_nodes) == 2
         assert fleet_nodes[0]["triage_status"] == "pending"
+        assert "raw" not in fleet_nodes[0]
+        assert "subject" not in fleet_nodes[0]
+        assert "summary" not in fleet_nodes[0]
+        assert fleet_nodes[0]["subject_ref"].startswith("pref_")
+        assert "kg-gateway" not in repr(fleet_nodes)
+        assert "error rate above" not in repr(fleet_nodes)
         assert {t["task_type"] for t in engine.submitted} == {"fleet_event_triage"}
         # the queued target is the persisted FleetEvent node id
         assert engine.submitted[0]["target"] in engine.nodes
@@ -209,7 +232,9 @@ class TestReceiveEndpoint:
         assert data["events"][0]["source"] == "portainer"
 
     async def test_token_required_when_configured(self, engine, monkeypatch):
-        monkeypatch.setenv("FLEET_EVENTS_TOKEN", "s3cret")
+        monkeypatch.setattr(
+            fleet_events, "_resolve_webhook_secret", lambda cfg: "s3cret"
+        )
         resp = await fleet_events.fleet_events_receive(_Req({"msg": "x"}))
         assert resp.status_code == 401
         ok = await fleet_events.fleet_events_receive(
@@ -218,11 +243,29 @@ class TestReceiveEndpoint:
         assert ok.status_code == 200
 
     async def test_wrong_token_rejected(self, engine, monkeypatch):
-        monkeypatch.setenv("FLEET_EVENTS_TOKEN", "s3cret")
+        monkeypatch.setattr(
+            fleet_events, "_resolve_webhook_secret", lambda cfg: "s3cret"
+        )
         resp = await fleet_events.fleet_events_receive(
             _Req({"msg": "x"}, headers={"X-Fleet-Events-Token": "nope"})
         )
         assert resp.status_code == 401
+
+    async def test_unconfigured_auth_is_default_deny(self, engine, monkeypatch):
+        from agent_utilities.security import brain_context
+
+        monkeypatch.setattr(
+            brain_context,
+            "current_actor",
+            lambda: SimpleNamespace(authenticated=False),
+        )
+        resp = await fleet_events.fleet_events_receive(_Req({"msg": "x"}))
+        assert resp.status_code == 401
+
+    async def test_request_body_is_bounded(self, engine, monkeypatch):
+        monkeypatch.setenv("MAX_UPLOAD_SIZE", "8")
+        resp = await fleet_events.fleet_events_receive(_Req(b"123456789"))
+        assert resp.status_code == 413
 
     async def test_invalid_json_is_400(self, engine):
         resp = await fleet_events.fleet_events_receive(_Req(None))

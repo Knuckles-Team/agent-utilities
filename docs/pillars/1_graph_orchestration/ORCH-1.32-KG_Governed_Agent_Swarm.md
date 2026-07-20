@@ -18,7 +18,7 @@ is **transparent, KG-grounded, and verifiable** — the way it surpasses a train
 
 | | Delta | Where |
 |---|---|---|
-| **SWARM-1** | **One-shot `graph_orchestrate(action="swarm")`** — a one-line goal → `Planner.decompose` → `ExecutionManifest.from_graph_plan` → `ParallelEngine.execute` → verify → synthesize → single deliverable. Governance ON by default (`verify=True`, `max_retries=2`). | `mcp/kg_server.py` |
+| **SWARM-1** | **One-shot `graph_agents(action="swarm")`** — a one-line goal → `Planner.decompose` → `ExecutionManifest.from_graph_plan` → `ParallelEngine.execute` → verify → synthesize → single deliverable. Governance ON by default (`verify=True`, `max_retries=2`). | `mcp/tools/agent_execution_tools.py` |
 | **SWARM-2** | **Planner→execute→verify loop** — each leaf with `success_criteria` judged against it; failures get one bounded re-dispatch with the judge's feedback before assembly. "The loop only closes when something with real judgment signs off." | `parallel_engine._verify_and_redispatch` |
 | **SWARM-3** | **Critical-path metric** — report the longest dependency chain (true wall-clock floor) + parallelism ratio, not raw wave count (the PARL insight: optimize critical steps, not total). | `parallel_engine._schedule_waves` |
 | **SWARM-4** | **Per-agent structured-output contract** — `AgentSpec.output_schema` forces JSON; a violation is a soft failure (retried/quarantined) so prose never poisons synthesis (Kimi guardrail #3). | `parallel_engine.enforce_structured_output` |
@@ -37,7 +37,7 @@ SWARM-8 (native PDF/PPT/Excel/web rendering) is deferred to an AU-ECO.connector.
 
 ## Wiring (Wire-First)
 
-`graph_orchestrate(action="swarm")` → `Planner.decompose` → `ExecutionManifest.from_graph_plan` →
+`graph_agents(action="swarm")` → `Planner.decompose` → `ExecutionManifest.from_graph_plan` →
 `ParallelEngine.execute` (waves → verify → synthesize). All engine deltas live on the single
 `execute()` path every caller (`workflows/runner`, `orchestration/engine`, `agent_runner`) already
 uses, so they apply everywhere, not just the new action. Verified by

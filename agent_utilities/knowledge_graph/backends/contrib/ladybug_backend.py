@@ -11,7 +11,6 @@ import atexit
 import logging
 import os
 import re
-import sys
 import time as _time
 import typing
 import weakref
@@ -27,8 +26,6 @@ _REL_TYPE_RE = re.compile(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?\s*\]\s*->")
 # drainer recovers promptly once the lock frees, instead of over-sleeping into a
 # multi-minute stall (an uncapped 2**n*0.1s reached 400s+ after ~13 attempts).
 _LOCK_BACKOFF_MAX_S = 30.0
-
-import httpx
 
 from agent_utilities.core.config import setting
 
@@ -93,53 +90,6 @@ def _throttled_gc() -> None:
 
             gc.collect()
             _LAST_GC_TIME = now
-
-
-# ── G1: TTL-cached gateway health state ──────────────────────────────────
-# Avoids per-query TCP+HTTP health check overhead. At 1000 agents × 100 qps,
-# this reduces health checks from ~100K/sec to 1 every _HEALTH_TTL seconds.
-_HEALTH_CACHE: dict[str, tuple[bool, float]] = {}
-_HEALTH_TTL = 5.0  # seconds
-
-
-def _is_gateway_healthy(host: str, port: int) -> bool:
-    """TTL-cached health check for the centralized KG gateway."""
-    key = f"{host}:{port}"
-    cached = _HEALTH_CACHE.get(key)
-    now = _time.monotonic()
-    if cached and (now - cached[1]) < _HEALTH_TTL:
-        return cached[0]
-    try:
-        from agent_utilities.mcp.kg_coordinator import KGCoordinator
-
-        healthy = KGCoordinator.is_server_healthy(host=host, port=port)
-    except Exception:
-        healthy = False
-    _HEALTH_CACHE[key] = (healthy, now)
-    return healthy
-
-
-# ── G2: Persistent httpx connection pool ─────────────────────────────────
-# Reuses TCP connections across queries instead of creating a new connection
-# per execute() call. HTTP keepalive yields 10-50x faster routing at scale.
-_HTTP_CLIENT: httpx.Client | None = None
-
-
-def _get_http_client(timeout: float = 30.0) -> httpx.Client:
-    """Get or create a persistent httpx client with connection pooling."""
-    from agent_utilities.core.http_client import create_http_client
-
-    global _HTTP_CLIENT
-    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
-        _HTTP_CLIENT = create_http_client(
-            timeout=timeout,
-            limits=httpx.Limits(
-                max_connections=100,
-                max_keepalive_connections=20,
-                keepalive_expiry=30.0,
-            ),
-        )
-    return _HTTP_CLIENT
 
 
 class LadybugLockContentionError(ConnectionError):
@@ -289,7 +239,7 @@ class LadybugBackend(GraphBackend):
             try:
                 self.close()
             except Exception as e:
-                logger.debug(f"Error during self-healing close: {e}")
+                logger.debug("Error during self-healing close (%s)", type(e).__name__)
 
             # Run Python garbage collection to clean up C++ object wrappers
             import gc
@@ -319,9 +269,7 @@ class LadybugBackend(GraphBackend):
 
         for attempt in range(retries):
             try:
-                buffer_size = setting("LADYBUG_MAX_DB_SIZE") or setting(
-                    "LADYBUG_BUFFER_SIZE"
-                )
+                buffer_size = setting("LADYBUG_MAX_DB_SIZE")
                 from typing import Any
 
                 db_params: dict[str, Any] = {}
@@ -526,7 +474,7 @@ class LadybugBackend(GraphBackend):
             if p.exists():
                 try:
                     p.unlink()
-                    logger.info(f"Cleaned up corrupted file: {p}")
+                    logger.info("Cleaned up corrupted database artifact")
                 except Exception as e:
                     logger.error(f"Failed to cleanup {p}: {e}")
 
@@ -561,7 +509,7 @@ class LadybugBackend(GraphBackend):
             backup_path = base_path.with_name(f"{base_path.name}.{timestamp}.bak")
 
             shutil.copy2(self.db_path, backup_path)
-            logger.info(f"Database backed up to {backup_path}")
+            logger.info("Database backup completed")
 
             # Prune old backups (keep N most recent)
             backups = sorted(
@@ -575,77 +523,6 @@ class LadybugBackend(GraphBackend):
         except Exception as e:
             # Don't crash the server if backup fails, just log it
             logger.warning(f"Database backup failed: {e}")
-
-    # ── G3: Extracted gateway routing helper ──────────────────────────────
-    def _route_to_gateway(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None,
-        batch: list[dict[str, Any]] | None = None,
-        chunk_size: int = 500,
-    ) -> list[dict[str, Any]] | None:
-        """Attempt to route a query to the centralized KG gateway.
-
-        Returns results on success, or None if the query should fall back
-        to local SQLite execution. Uses TTL-cached health checks (G1) and
-        a persistent connection pool (G2) for minimal overhead.
-        """
-        is_testing = (
-            setting("AGENT_UTILITIES_TESTING") == "true"
-            or "pytest" in sys.modules
-            or setting("PYTEST_CURRENT_TEST") is not None
-        )
-        is_validation = setting("DEFAULT_VALIDATION_MODE") == "true"
-        is_server = (
-            setting("IS_KG_SERVER") == "true"
-            or "agent_utilities.mcp.kg_server" in sys.modules
-        )
-
-        if is_testing or is_validation or is_server:
-            return None
-
-        try:
-            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = setting("KG_SERVER_PORT", 8100)
-            if not _is_gateway_healthy(kg_host, kg_port):
-                return None
-
-            url = f"http://{kg_host}:{kg_port}/cypher"
-            headers = {
-                "X-Agent-ID": setting("AGENT_NAME")
-                or setting("AGENT_ID")
-                or "anonymous_agent",
-                "X-Session-ID": setting("SESSION_ID")
-                or setting("CHAT_SESSION_ID")
-                or "default_session",
-            }
-
-            # Build payload — batch mode vs single query
-            payload: dict[str, Any] = {"query": query}
-            if batch is not None:
-                payload["batch"] = batch
-                payload["chunk_size"] = chunk_size
-            else:
-                payload["params"] = params or {}
-
-            timeout = 60.0 if batch is not None else 30.0
-            client = _get_http_client(timeout=timeout)
-            resp = client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("status") == "error":
-                raise RuntimeError(data.get("message"))
-            return data.get("results") or []
-        except Exception as e:
-            logger.debug(
-                f"Routing query to centralized KG server failed: {e}. "
-                f"Falling back to local SQLite execution."
-            )
-            # Invalidate health cache on failure to trigger re-check next time
-            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = setting("KG_SERVER_PORT", 8100)
-            _HEALTH_CACHE.pop(f"{kg_host}:{kg_port}", None)
-            return None
 
     def execute(
         self,
@@ -663,10 +540,6 @@ class LadybugBackend(GraphBackend):
                 "envelope primitive; returning []"
             )
             return []
-        # G1+G2+G3: Attempt centralized gateway routing with cached health + pooled client
-        routed = self._route_to_gateway(query, params=params)
-        if routed is not None:
-            return routed
 
         import random
 
@@ -787,6 +660,43 @@ class LadybugBackend(GraphBackend):
             )
             return []
 
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute inside a Ladybug/Kuzu read-only transaction."""
+        if include_epistemic:
+            return []
+        with self._get_lock():
+            self._ensure_connection()
+            connection = self.conn
+            if connection is None:
+                raise RuntimeError("LadybugDB read connection is unavailable")
+            try:
+                connection.execute("BEGIN TRANSACTION READ ONLY")
+                result = connection.execute(query, params or {})
+                connection.execute("COMMIT")
+            except Exception:
+                try:
+                    connection.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+            finally:
+                if self.transient:
+                    self.close()
+        if isinstance(result, list):
+            result_sets = result
+        else:
+            result_sets = [result]
+        rows: list[dict[str, Any]] = []
+        for result_set in result_sets:
+            rows.extend(result_set.rows_as_dict().get_all())
+        return rows
+
     @staticmethod
     def _unwind_to_per_row(query: str) -> str:
         """Strip an ``UNWIND $batch AS row`` header and rewrite ``row.<k>`` /
@@ -808,10 +718,6 @@ class LadybugBackend(GraphBackend):
         self, query: str, batch: list[dict[str, Any]], chunk_size: int = 500
     ) -> list[dict[str, Any]]:
         """Execute a batch query in chunks to avoid blocking the DB for too long."""
-        # G1+G2+G3: Attempt centralized gateway routing with cached health + pooled client
-        routed = self._route_to_gateway(query, batch=batch, chunk_size=chunk_size)
-        if routed is not None:
-            return routed
 
         import secrets
         import time

@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.BUSINESS
     description = "ERP — orders, invoices, inventory, and HR"
     env_prefix = "ERPNEXT"
-    default_url = "https://erpnext.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -43,8 +42,8 @@ class Widget(BaseWidget):
             info = client.get_info() or {}
             status_text = "Online" if info else "Unknown"
         except Exception as e:
-            logger.debug("ERPNext fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("ERPNext fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

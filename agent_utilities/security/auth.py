@@ -1,39 +1,65 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""JWT and API Key Authentication Module.
+"""JWT bearer authentication for HTTP and WebSocket boundaries.
 
 CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 
-Provides FastAPI security dependencies for authenticating requests to the
-agent server.  Supports two modes that can be used independently or combined:
-
-- **API Key** (legacy): Static shared secret via ``X-API-Key`` header.
-- **JWT Bearer** (recommended): Validates tokens against a JWKS endpoint or
-  static public key.  Compatible with any OIDC provider (Azure AD, Okta,
-  Keycloak, Auth0, etc.).
-
-When both are configured, a request is accepted if *either* credential is
-valid (logical OR), allowing gradual migration from API keys to JWT.
+Validates bearer tokens against a configured JWKS endpoint. Compatible with
+OIDC providers including Azure AD, Okta, Keycloak, and Auth0. Loopback-only
+listeners may run without authentication; non-loopback listeners require this
+JWT boundary.
 """
 
 
+import json
 import logging
 import time
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
 
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 bearer_scheme = HTTPBearer(auto_error=False)
 
-# In-memory JWKS cache with TTL (seconds)
-_jwks_cache: dict[str, Any] = {}
-_jwks_cache_expiry: float = 0.0
+# In-memory JWKS cache keyed by endpoint. A single global value can otherwise
+# validate against the wrong issuer after a runtime configuration change.
+_jwks_cache: dict[str, tuple[dict[str, Any], float]] = {}
 _JWKS_CACHE_TTL: float = 300.0  # 5 minutes
+_JWKS_MAX_BYTES = 1024 * 1024
+_MAX_CREDENTIAL_BYTES = 16_384
+
+
+def parse_bearer_authorization(authorization: list[bytes]) -> str | None:
+    """Parse one unambiguous ASGI ``Authorization: Bearer`` credential.
+
+    The raw-header boundary is intentionally shared by every HTTP/MCP caller.
+    Duplicate, oversized, non-ASCII, unsupported, and whitespace-ambiguous
+    credentials fail closed before any prevalidated identity can be reused.
+    """
+    if len(authorization) > 1:
+        raise PermissionError("ambiguous credentials")
+    if not authorization:
+        return None
+    value = authorization[0]
+    if not isinstance(value, bytes) or len(value) > _MAX_CREDENTIAL_BYTES:
+        raise PermissionError("invalid credential size")
+    try:
+        raw = value.decode("ascii")
+    except UnicodeDecodeError:
+        raise PermissionError("malformed authorization") from None
+    scheme, separator, token = raw.partition(" ")
+    if (
+        scheme.lower() != "bearer"
+        or not separator
+        or not token
+        or any(ord(character) < 33 or ord(character) == 127 for character in token)
+    ):
+        raise PermissionError("malformed authorization")
+    return token
 
 
 # ---------------------------------------------------------------------------
@@ -50,31 +76,53 @@ async def _fetch_jwks(jwks_uri: str) -> Any:
     Returns:
         The parsed JWKS dict.
     """
-    global _jwks_cache, _jwks_cache_expiry  # noqa: PLW0603
-
     now = time.monotonic()
-    if _jwks_cache and now < _jwks_cache_expiry:
-        return _jwks_cache
+    cached = _jwks_cache.get(jwks_uri)
+    if cached is not None and now < cached[1]:
+        return cached[0]
+
+    parsed = urlsplit(jwks_uri)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise RuntimeError("AUTH_JWT_JWKS_URI must be an absolute HTTP(S) URL")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise RuntimeError(
+            "AUTH_JWT_JWKS_URI cannot contain credentials or a fragment"
+        )
+    if parsed.scheme != "https" and parsed.hostname.lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
+        raise RuntimeError("JWKS transport requires HTTPS outside loopback")
 
     try:
-        from agent_utilities.core.http_client import create_async_http_client
+        from agent_utilities.security.oidc_discovery import oidc_async_http_client
 
-        async with create_async_http_client(timeout=10) as client:
-            resp = await client.get(jwks_uri)
-            resp.raise_for_status()
-            _jwks_cache = resp.json()
-            _jwks_cache_expiry = now + _JWKS_CACHE_TTL
-            logger.debug(
-                "JWKS refreshed from %s (%d keys)",
-                jwks_uri,
-                len(_jwks_cache.get("keys", [])),
-            )
-            return _jwks_cache
+        async with oidc_async_http_client(timeout=10) as client:
+            body = bytearray()
+            async with client.stream("GET", jwks_uri) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > _JWKS_MAX_BYTES:
+                        raise RuntimeError(
+                            "JWKS response exceeds the configured safety bound"
+                        )
+            document = json.loads(body)
+            keys = document.get("keys") if isinstance(document, dict) else None
+            if (
+                not isinstance(keys, list)
+                or not 1 <= len(keys) <= 100
+                or not all(isinstance(key, dict) for key in keys)
+            ):
+                raise RuntimeError("JWKS response has an invalid shape")
+            _jwks_cache[jwks_uri] = (document, now + _JWKS_CACHE_TTL)
+            logger.debug("JWKS refreshed (%d keys)", len(document["keys"]))
+            return document
     except Exception:
-        logger.warning("Failed to fetch JWKS from %s", jwks_uri, exc_info=True)
-        # Return stale cache if available rather than failing hard
-        if _jwks_cache:
-            return _jwks_cache
+        # Endpoint details and response bodies can contain deployment-specific
+        # identifiers. Keep logs stable and fail closed once a cache entry expires.
+        logger.warning("Failed to refresh the configured JWKS endpoint")
         raise
 
 
@@ -118,11 +166,17 @@ def _decode_jwt(
         key_set = KeySet.import_key_set(cast(Any, jwks))
 
         # Decode with signature verification
-        token_obj = jwt.decode(token, key_set)  # type: ignore
+        from agent_utilities.core.config import config
+
+        token_obj = jwt.decode(  # type: ignore
+            token,
+            key_set,
+            algorithms=config.auth_jwt_algorithms,
+        )
         claims = token_obj.claims
 
         # Build validation options
-        options: dict[str, Any] = {}
+        options: dict[str, Any] = {"exp": {"essential": True}}
         if issuer:
             options["iss"] = {"essential": True, "value": issuer}
         if audience:
@@ -156,14 +210,14 @@ def _decode_jwt(
             detail="Invalid token signature",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
-    except InvalidClaimError as e:
+    except InvalidClaimError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token claim: {e}",
+            detail="Invalid token claims",
             headers={"WWW-Authenticate": "Bearer"},
-        ) from e
+        ) from None
     except Exception as e:
-        logger.warning("JWT validation failed: %s", e, exc_info=True)
+        logger.warning("JWT validation failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token validation failed",
@@ -174,25 +228,6 @@ def _decode_jwt(
 # ---------------------------------------------------------------------------
 # FastAPI Security Dependencies
 # ---------------------------------------------------------------------------
-
-
-async def verify_api_key_only(
-    api_key: str | None = Depends(api_key_header),
-) -> dict[str, Any] | None:
-    """Verify a static API key from the ``X-API-Key`` header.
-
-    Returns ``None`` if API key auth is not configured.  Raises
-    ``HTTPException(403)`` if the key is invalid.
-
-    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-    """
-    from agent_utilities.core.config import config
-
-    if not config.enable_api_auth or not config.agent_api_key:
-        return None  # API key auth not configured
-    if api_key and api_key == config.agent_api_key:
-        return {"auth_type": "api_key", "sub": "api-key-user"}
-    return None  # Not authenticated via API key (may still pass via JWT)
 
 
 async def verify_jwt_only(
@@ -211,7 +246,7 @@ async def verify_jwt_only(
         return None  # JWT auth not configured
 
     if not credentials:
-        return None  # No token present (may still pass via API key)
+        return None
 
     jwks = await _fetch_jwks(config.auth_jwt_jwks_uri)
     claims = _decode_jwt(
@@ -221,56 +256,62 @@ async def verify_jwt_only(
         audience=config.auth_jwt_audience,
     )
 
-    logger.info(
-        "JWT authentication successful",
-        extra={"sub": claims.get("sub"), "iss": claims.get("iss")},
-    )
-    return {"auth_type": "jwt", **claims}
+    logger.info("JWT authentication successful")
+    return {**claims, "auth_type": "jwt"}
 
 
 async def verify_credentials(
     request: Request,
-    api_key: str | None = Depends(api_key_header),
     bearer: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict[str, Any] | None:
-    """Combined security dependency: accepts API key OR JWT Bearer token.
+    """Authenticate one request with the configured JWT bearer policy.
 
     This is the primary authentication dependency for agent server endpoints.
-    Authentication is enforced only when at least one auth mechanism is
-    configured (``ENABLE_API_AUTH=true`` or ``AUTH_JWT_JWKS_URI`` is set).
-
-    Order of evaluation:
-    1. JWT Bearer token (if configured and present)
-    2. API key (if configured and present)
-    3. If neither auth mechanism is configured → allow (open mode)
-    4. If auth is configured but no valid credential → reject
+    Authentication is enforced when ``AUTH_JWT_JWKS_URI`` is configured.
 
     CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
     """
+    authorization = [f"Bearer {bearer.credentials}".encode()] if bearer else []
+    try:
+        result = await authenticate_header_values(authorization=authorization)
+    except PermissionError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    if result is not None:
+        request.state.user_claims = result
+    return result
+
+
+async def authenticate_header_values(
+    *,
+    authorization: list[bytes],
+) -> dict[str, Any] | None:
+    """Authenticate raw ASGI credential headers without route dependencies.
+
+    This is shared by the FastAPI dependency and the outer ASGI boundary that
+    also protects mounted A2A/ACP/custom applications and WebSockets. Duplicate,
+    oversized, malformed, or unsupported credential headers fail closed.
+    """
     from agent_utilities.core.config import config
 
-    auth_configured = config.enable_api_auth or config.auth_jwt_jwks_uri
+    token = parse_bearer_authorization(authorization)
+    if not config.auth_jwt_jwks_uri:
+        return None
 
-    if not auth_configured:
-        return None  # No auth configured — open mode
+    if token is not None:
+        jwks = await _fetch_jwks(config.auth_jwt_jwks_uri)
+        try:
+            claims = _decode_jwt(
+                token,
+                jwks,
+                issuer=config.auth_jwt_issuer,
+                audience=config.auth_jwt_audience,
+            )
+        except HTTPException:
+            raise PermissionError("invalid bearer token") from None
+        return {**claims, "auth_type": "jwt"}
 
-    # Try JWT first (preferred)
-    if bearer and config.auth_jwt_jwks_uri:
-        jwt_result = await verify_jwt_only(bearer)
-        if jwt_result:
-            # Store claims on request state for downstream use
-            request.state.user_claims = jwt_result
-            return jwt_result
-
-    # Try API key
-    if api_key:
-        api_result = await verify_api_key_only(api_key)
-        if api_result:
-            return api_result
-
-    # Auth is configured but no valid credential provided
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required. Provide a valid API key or JWT Bearer token.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    raise PermissionError("authentication required")

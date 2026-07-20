@@ -62,11 +62,13 @@ __all__ = [
 # actor holds ``marking:connector-unconfigured-acl`` by default, so
 # ``permission_sync.sync_access`` restricts the document to nobody until an
 # operator explicitly reviews it and grants the marking — the fail-closed
-# counterpart to the old ``ExternalAccess.public()`` default. A quarantined
-# document with ``is_public=False`` and empty ``group_ids``/``user_emails``
-# would otherwise register NO discretionary ACL at all (``sync_access`` only
-# builds one when ``roles`` is non-empty) and silently fall through to the
-# default-allow read gate — the marking is what actually closes that gap.
+# counterpart to a verified ``ExternalAccess.public()`` grant. Every supplied
+# descriptor now creates an explicit ACL — a quarantined document with
+# ``is_public=False`` and empty ``group_ids``/``user_emails`` would otherwise
+# register NO discretionary ACL at all (``sync_access`` only builds one when
+# ``roles`` is non-empty) and silently fall through to a default-allow read
+# gate; the marking remains the mandatory quarantine control and never relies
+# on an absent-policy interpretation.
 CONNECTOR_UNCONFIGURED_MARKING = "connector-unconfigured-acl"
 
 
@@ -79,15 +81,20 @@ class ExternalAccess(BaseModel):
     additionally carry mandatory compartment markings.
 
     Attributes:
-        is_public: When true the document is readable by anyone (no ACL applied).
+        is_public: When true the document receives an explicit public ACL.
         user_emails: Individual principals granted read access.
         group_ids: Group principals granted read access.
+        read_roles: Provider-neutral authorization roles granted read access.
+            These are useful for internal machine sources whose governing role
+            is already a stable platform capability rather than an external
+            user or directory group.
         markings: Mandatory-control compartment names (KG-2.46 ``Marking``).
     """
 
     is_public: bool = False
     user_emails: list[str] = Field(default_factory=list)
     group_ids: list[str] = Field(default_factory=list)
+    read_roles: list[str] = Field(default_factory=list)
     markings: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -111,16 +118,9 @@ class ExternalAccess(BaseModel):
 def default_external_access() -> ExternalAccess:
     """The connector default when a source reports no ACL at all (CONCEPT:AU-P0-4).
 
-    Fail-closed: "unknown" must never silently mean "public". Returns
-    :meth:`ExternalAccess.quarantined` unless the deployment has explicitly
-    opted into the legacy public-by-default behavior via
-    ``CONNECTOR_DEFAULT_PUBLIC=true`` (a dev/local convenience toggle — default
-    ``False`` so enterprise/unknown deployments fail closed).
+    Fail-closed: "unknown" never means "public". A public grant is accepted only
+    when a certified source deliberately supplies it as record data.
     """
-    from agent_utilities.core.config import setting
-
-    if setting("CONNECTOR_DEFAULT_PUBLIC", default=False):
-        return ExternalAccess.public()
     return ExternalAccess.quarantined()
 
 

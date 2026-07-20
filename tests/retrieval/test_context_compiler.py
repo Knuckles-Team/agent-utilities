@@ -50,11 +50,14 @@ class FakeRetriever:
 
 
 def _actor(**kw) -> ActorContext:
-    return ActorContext(actor_id="agent:test", actor_type=ActorType.AI_AGENT, **kw)
+    kw.setdefault("tenant_id", "tenant-test")
+    kw.setdefault("authenticated", True)
+    return ActorContext(actor_id="principal:test", actor_type=ActorType.AI_AGENT, **kw)
 
 
 def _session(**kw) -> GraphSession:
-    return GraphSession(actor=_actor(**kw))
+    actor = _actor(**kw)
+    return GraphSession(actor=actor, tenant=actor.tenant_id)
 
 
 # --------------------------------------------------------------------------

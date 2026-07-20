@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 
+from agent_utilities.observability.trace_ontology import trace_id
 from agent_utilities.orchestration.agent_runner import (
     _extract_tool_call_target,
     _persist_tool_calls,
@@ -88,7 +89,7 @@ def test_persist_tool_calls_links_acted_on_when_target_exists():
     tcs = [_tc(args={"incident_id": "incident:INC1"})]
     written = _persist_tool_calls(engine, "run:1", "agent-x", "server-y", tcs)
     assert written == 1
-    tc_id = "toolcall:1:0"
+    tc_id = f"toolcall:{trace_id('run:1').removeprefix('trace:')}:0"
     assert (tc_id, "incident:INC1", "ACTED_ON") in engine.edge_calls
 
 
@@ -105,8 +106,8 @@ def test_persist_tool_calls_no_candidate_writes_no_acted_on_edge():
     tcs = [_tc(args={"unrelated_field": "x"})]
     _persist_tool_calls(engine, "run:1", "agent-x", "server-y", tcs)
     assert not any(e[2] == "ACTED_ON" for e in engine.edge_calls)
-    # The MADE_TOOL_CALL provenance edge still lands regardless.
-    assert any(e[2] == "MADE_TOOL_CALL" for e in engine.edge_calls)
+    # The canonical USED_TOOL provenance edge still lands regardless.
+    assert any(e[2] == "USED_TOOL" for e in engine.edge_calls)
 
 
 def test_persist_tool_calls_best_effort_on_has_node_error():
@@ -117,6 +118,6 @@ def test_persist_tool_calls_best_effort_on_has_node_error():
     engine = _FakeEngine()
     engine.graph = _RaisingGraph()
     tcs = [_tc(args={"incident_id": "incident:INC1"})]
-    # Must not raise — the ToolCall + MADE_TOOL_CALL write still succeeds.
+    # Must not raise — the ToolCall + USED_TOOL write still succeeds.
     written = _persist_tool_calls(engine, "run:1", "agent-x", "server-y", tcs)
     assert written == 1

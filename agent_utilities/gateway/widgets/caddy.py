@@ -25,7 +25,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.INFRASTRUCTURE
     description = "Reverse proxy — routes, TLS certificates, and upstream health"
     env_prefix = "CADDY"
-    default_url = "https://caddy.local.example.com:2019"
     supports_websocket = False
 
     def get_fields(self) -> list[WidgetField]:
@@ -52,7 +51,11 @@ class Widget(BaseWidget):
         url = self._resolve_url(config)
         token = self._resolve_token(config)
 
-        client = CaddyApi(base_url=url, token=token, verify=False)
+        client = CaddyApi(
+            base_url=url,
+            token=token,
+            verify=self._requests_tls_verify(config),
+        )
 
         routes = 0
         upstreams_healthy = 0
@@ -78,7 +81,7 @@ class Widget(BaseWidget):
                     subjects = policy.get("subjects", [])
                     tls_certificates += len(subjects)
         except Exception as e:
-            logger.debug("Caddy config fetch: %s", e)
+            logger.debug("Caddy config fetch: %s", type(e).__name__)
 
         try:
             upstreams = client.get_reverse_proxy_upstreams()
@@ -89,7 +92,7 @@ class Widget(BaseWidget):
                     else:
                         upstreams_unhealthy += 1
         except Exception as e:
-            logger.debug("Caddy upstreams fetch: %s", e)
+            logger.debug("Caddy upstreams fetch: %s", type(e).__name__)
 
         return WidgetData(
             fields={

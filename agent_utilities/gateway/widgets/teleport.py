@@ -18,7 +18,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.SECURITY
     description = "Access proxy — SSH, Kubernetes, database, and app access"
     env_prefix = "TELEPORT"
-    default_url = "https://teleport.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [

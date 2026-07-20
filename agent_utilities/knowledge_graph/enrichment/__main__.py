@@ -61,14 +61,14 @@ def main() -> int:
     from ..backends.epistemic_graph_backend import EpistemicGraphBackend
     from ..core.graph_compute import GraphComputeEngine
 
-    gc = GraphComputeEngine(graph_name="kg_enrich_oneshot")
-    backend = EpistemicGraphBackend()
+    gc = GraphComputeEngine.get_or_create(graph_name="kg_enrich_oneshot")
+    backend = EpistemicGraphBackend().for_graph("kg_enrich_oneshot")
     backend._graph = gc
 
     community_fn = None
     comm = None
     if args.features:
-        comm = GraphComputeEngine(graph_name="kg_enrich_comm")
+        comm = GraphComputeEngine.get_or_create(graph_name="kg_enrich_comm")
         community_fn = make_community_fn(comm)
     llm_fn = None
     if args.cards:

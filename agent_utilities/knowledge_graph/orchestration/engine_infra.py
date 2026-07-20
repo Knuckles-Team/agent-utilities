@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import logging
-import os
+import math
 import time
 import typing
 import uuid
 from pathlib import Path
 
 import yaml
+
+from agent_utilities.core.config import setting
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
@@ -20,13 +23,16 @@ from ...models.domains.infrastructure import (
     CrossTenantInsightNode,
     GPUAcceleratorNode,
     MCPServerPackageNode,
-    PlatformServiceNode,
     PullRequestNode,
     StorageArrayNode,
 )
 from ...models.knowledge_graph import HostNode
 
 logger = logging.getLogger(__name__)
+
+_MAX_INVENTORY_BYTES = 16 * 1024 * 1024
+_MAX_INVENTORY_GROUPS = 10_000
+_MAX_INVENTORY_HOSTS = 100_000
 
 
 class InfrastructureEngineMixin(_Base):
@@ -36,7 +42,7 @@ class InfrastructureEngineMixin(_Base):
         self, name: str, protocol_version: str, transport: str
     ) -> str:
         """Register an MCP server package into the KG."""
-        pkg_id = f"mcp:{uuid.uuid4().hex[:8]}"
+        pkg_id = f"mcp:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = MCPServerPackageNode(
@@ -57,7 +63,7 @@ class InfrastructureEngineMixin(_Base):
         self, pr_number: int, repo_id: str, status: str = "open"
     ) -> str:
         """Record a pull request associated with a software project."""
-        pr_id = f"pr:{uuid.uuid4().hex[:8]}"
+        pr_id = f"pr:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         node = PullRequestNode(
@@ -81,13 +87,16 @@ class InfrastructureEngineMixin(_Base):
 
     def share_cross_tenant_insight(self, source_tenant: str, insight_id: str) -> str:
         """Promote an anonymized insight across tenants."""
-        cross_id = f"cross:{uuid.uuid4().hex[:8]}"
+        cross_id = f"cross:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        source_tenant_ref = persistence_reference(
+            "tenant", source_tenant, namespace="cross-tenant-insight"
+        )
 
         node = CrossTenantInsightNode(
             id=cross_id,
-            name=f"Insight from {source_tenant}",
-            source_tenant_id=source_tenant,
+            name="Anonymized cross-tenant insight",
+            source_tenant_id=source_tenant_ref,
             anonymized=True,
             timestamp=ts,
         )
@@ -106,76 +115,150 @@ class InfrastructureEngineMixin(_Base):
     def ingest_hosts_from_inventory(
         self, inventory_path: str | None = None
     ) -> list[str]:
-        """Parse hosts from Ansible-style inventory.yaml and ingest them into the KG."""
+        """Parse a generic Ansible inventory into pseudonymous host nodes.
+
+        Inventory location is runtime configuration. Group names, account names,
+        addresses, and key paths are never persisted; the topology stores stable
+        HMAC-backed references and only a small OOTB hardware/capability field set.
+        """
         if inventory_path is None:
-            inventory_path = os.path.expanduser(
-                "~/.config/agent-utilities/inventory.yaml"
-            )
+            inventory_path = str(setting("INFRA_INVENTORY_PATH", "") or "").strip()
+        if not inventory_path:
+            logger.warning("Infrastructure inventory path is not configured")
+            return []
 
-        path = Path(inventory_path)
+        path = Path(inventory_path).expanduser()
         if not path.exists():
-            logger.warning(f"Inventory file not found: {inventory_path}")
+            logger.warning("Configured infrastructure inventory is unavailable")
             return []
-
-        with open(path) as f:
-            data = yaml.safe_load(f)
-
         try:
-            homelab = data["all"]["children"]["homelab"]
-            hosts_dict = homelab.get("hosts", {})
-            vars_dict = homelab.get("vars", {})
-        except KeyError as e:
-            logger.error(f"Failed to parse inventory.yaml: missing key {e}")
+            if not path.is_file() or path.stat().st_size > _MAX_INVENTORY_BYTES:
+                logger.warning(
+                    "Configured infrastructure inventory is not a bounded file"
+                )
+                return []
+            with open(path) as f:
+                data = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError) as exc:
+            logger.warning(
+                "Configured infrastructure inventory could not be read (%s)",
+                type(exc).__name__,
+            )
             return []
 
-        ansible_user = vars_dict.get("ansible_user", "genius")
-        key_file = vars_dict.get("ansible_ssh_private_key_file", "~/.ssh/id_rsa")
+        root = data.get("all", data) if isinstance(data, dict) else {}
+        if not isinstance(root, dict):
+            logger.error("Infrastructure inventory root must be a mapping")
+            return []
 
-        ingested_ids = []
+        discovered: list[tuple[str, dict[str, typing.Any], dict[str, typing.Any]]] = []
+        seen_groups: set[int] = set()
+        pending: list[tuple[dict[str, typing.Any], dict[str, typing.Any]]] = [
+            (root, {})
+        ]
+        while pending and len(seen_groups) < _MAX_INVENTORY_GROUPS:
+            group, inherited = pending.pop()
+            marker = id(group)
+            if marker in seen_groups:
+                continue
+            seen_groups.add(marker)
+            group_vars = group.get("vars", {})
+            merged = {
+                **inherited,
+                **(group_vars if isinstance(group_vars, dict) else {}),
+            }
+            hosts = group.get("hosts", {})
+            if isinstance(hosts, dict):
+                for alias, raw in hosts.items():
+                    if len(discovered) >= _MAX_INVENTORY_HOSTS:
+                        break
+                    info = raw if isinstance(raw, dict) else {}
+                    discovered.append((str(alias), info, merged))
+            children = group.get("children", {})
+            if isinstance(children, dict):
+                for child in children.values():
+                    if isinstance(child, dict):
+                        pending.append((child, merged))
+
+        ingested_ids: list[str] = []
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-        for alias, host_info in hosts_dict.items():
-            ansible_host = host_info.get("ansible_host")
+        for alias, host_info, vars_dict in discovered:
+            ansible_host = host_info.get("ansible_host") or vars_dict.get("ansible_host")
             if not ansible_host:
                 continue
 
-            host_id = f"host:{alias}"
-
-            # Map hardware details based on host names/classes
-            labels = {"role": "compute", "environment": "homelab"}
-            if alias == "r510":
-                labels["role"] = "storage"
-                labels["capacity_tb"] = "24.0"
-                labels["storage_type"] = "HDD-SAS"
-            elif alias == "r710" or alias == "rw710":
-                labels["role"] = "compute"
-                labels["cores"] = "8"
-                labels["ram_gb"] = "32"
-            elif alias == "r820":
-                labels["role"] = "compute_high"
-                labels["cores"] = "32"
-                labels["ram_gb"] = "128"
-            elif alias == "gr1080":
-                labels["role"] = "gpu"
-                labels["gpu"] = "GTX1080"
-                labels["vram_gb"] = "8"
-            elif alias == "gb10":
-                labels["role"] = "gpu"
-                labels["gpu"] = "RTX4080"
-                labels["vram_gb"] = "16"
+            namespace = "ansible-inventory"
+            host_ref = persistence_reference(
+                "host", f"{alias}\0{ansible_host}", namespace=namespace
+            )
+            host_id = f"host:{host_ref}"
+            merged_info = {**vars_dict, **host_info}
+            role = str(merged_info.get("role") or "compute").strip().lower()
+            if role not in {"compute", "compute_high", "gpu", "storage"}:
+                role = "compute"
+            labels = {"role": role}
+            for key, upper in (
+                ("cores", 1_000_000),
+                ("ram_gb", 1_000_000),
+                ("capacity_tb", 1_000_000_000),
+                ("vram_gb", 1_000_000),
+            ):
+                try:
+                    number = float(merged_info.get(key))
+                except (TypeError, ValueError):
+                    continue
+                if math.isfinite(number) and 0 < number <= upper:
+                    labels[key] = f"{number:g}"
+            storage_type = str(merged_info.get("storage_type") or "").lower()
+            if storage_type in {"hdd", "hybrid", "nvme", "object", "sas", "ssd"}:
+                labels["storage_type"] = storage_type
+            if merged_info.get("gpu") not in (None, "", False):
+                labels["gpu"] = "present"
+            account_ref = persistence_reference(
+                "account", merged_info.get("ansible_user", ""), namespace=host_ref
+            )
+            try:
+                port = int(merged_info.get("ansible_port", 22))
+            except (TypeError, ValueError):
+                port = 22
+            if not 1 <= port <= 65535:
+                port = 22
+            os_type = str(merged_info.get("os_type") or "unknown").lower()
+            if os_type not in {"darwin", "freebsd", "linux", "unix", "windows"}:
+                os_type = "unknown"
+            arch = str(merged_info.get("arch") or "unknown").lower()
+            if arch not in {
+                "aarch64",
+                "amd64",
+                "arm64",
+                "ppc64le",
+                "riscv64",
+                "x86_64",
+            }:
+                arch = "unknown"
+            gpu_vendor = str(merged_info.get("gpu_vendor") or "unknown").lower()
+            if gpu_vendor not in {"amd", "apple", "intel", "nvidia"}:
+                gpu_vendor = "unknown"
+            docker_value = merged_info.get("docker_host", False)
+            docker_host = (
+                docker_value
+                if isinstance(docker_value, bool)
+                else str(docker_value).strip().lower() in {"1", "true", "yes", "on"}
+            )
 
             node = HostNode(
                 id=host_id,
-                name=alias,
-                hostname=ansible_host,
-                alias=alias,
-                port=22,
-                user=ansible_user,
-                identity_file_ref=key_file,
-                os_type="linux",
-                arch="x86_64",
+                name=host_ref,
+                hostname=host_ref,
+                alias=host_ref,
+                port=port,
+                user=account_ref,
+                identity_file_ref="",
+                os_type=os_type,
+                arch=arch,
                 labels=labels,
-                docker_host=True,
+                docker_host=docker_host,
                 timestamp=ts,
             )
 
@@ -190,13 +273,13 @@ class InfrastructureEngineMixin(_Base):
             ingested_ids.append(host_id)
 
             # Create sub-assets (GPU or Storage Array) and link them!
-            if "gpu" in labels:
-                gpu_id = f"gpu:{alias}"
+            if "gpu" in labels and "vram_gb" in labels:
+                gpu_id = f"gpu:{host_ref}"
                 gpu_node = GPUAcceleratorNode(
                     id=gpu_id,
-                    name=f"{alias}-gpu",
+                    name=f"{host_ref}-gpu",
                     vram_gb=float(labels["vram_gb"]),
-                    vendor="Nvidia",
+                    vendor=gpu_vendor,
                     timestamp=ts,
                 )
                 self.graph.add_node(gpu_node.id, **gpu_node.model_dump())
@@ -205,7 +288,7 @@ class InfrastructureEngineMixin(_Base):
                     self._upsert_node("GPUAccelerator", gpu_id, s_gpu)
 
                 # Add edge has_accelerator
-                self.graph.add_edge(host_id, gpu_id, type="has_accelerator")
+                self.graph.add_edge(host_id, gpu_id, relationship="has_accelerator")
                 if self.backend:
                     self.backend.execute(
                         "MATCH (h:Host {id: $hid}), (g:GPUAccelerator {id: $gid}) "
@@ -213,13 +296,13 @@ class InfrastructureEngineMixin(_Base):
                         {"hid": host_id, "gid": gpu_id},
                     )
 
-            if labels["role"] == "storage":
-                storage_id = f"storage:{alias}"
+            if labels["role"] == "storage" and "capacity_tb" in labels:
+                storage_id = f"storage:{host_ref}"
                 storage_node = StorageArrayNode(
                     id=storage_id,
-                    name=f"{alias}-storage",
+                    name=f"{host_ref}-storage",
                     capacity_tb=float(labels["capacity_tb"]),
-                    storage_type="SAS",
+                    storage_type=str(labels.get("storage_type", "unknown")),
                     timestamp=ts,
                 )
                 self.graph.add_node(storage_node.id, **storage_node.model_dump())
@@ -228,7 +311,7 @@ class InfrastructureEngineMixin(_Base):
                     self._upsert_node("StorageArray", storage_id, s_storage)
 
                 # Add edge attached_storage
-                self.graph.add_edge(host_id, storage_id, type="attached_storage")
+                self.graph.add_edge(host_id, storage_id, relationship="attached_storage")
                 if self.backend:
                     self.backend.execute(
                         "MATCH (h:Host {id: $hid}), (s:StorageArray {id: $sid}) "
@@ -236,7 +319,7 @@ class InfrastructureEngineMixin(_Base):
                         {"hid": host_id, "sid": storage_id},
                     )
 
-        logger.info(f"Ingested {len(ingested_ids)} hosts from {inventory_path}.")
+        logger.info("Ingested %d pseudonymous inventory hosts", len(ingested_ids))
         return ingested_ids
 
     def generate_matchmaking_recommendations(
@@ -246,61 +329,10 @@ class InfrastructureEngineMixin(_Base):
         # 1. Ensure hosts from inventory are ingested
         self.ingest_hosts_from_inventory(inventory_path)
 
-        # 2. Add some representative platform services to ensure we have a robust fleet to match
-        # (if they don't already exist in the graph)
-        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        services_to_ensure = [
-            (
-                "ollama",
-                "ollama-service",
-                {
-                    "requires_gpu": "true",
-                    "description": "Local LLM inference server requiring GPU acceleration",
-                },
-            ),
-            (
-                "postgres-replica",
-                "postgres",
-                {
-                    "requires_storage": "true",
-                    "required_capacity_tb": "5.0",
-                    "description": "Primary transactional database requiring large attached storage",
-                },
-            ),
-            (
-                "cognitive-reasoning-worker",
-                "reasoner",
-                {
-                    "requires_high_compute": "true",
-                    "description": "Heavy planning worker requiring high CPU core count",
-                },
-            ),
-            (
-                "gateway-proxy",
-                "nginx",
-                {
-                    "description": "Lightweight ingress controller with basic CPU/RAM needs"
-                },
-            ),
-        ]
+        # Evaluate only PlatformService nodes supplied by runtime discovery or a
+        # standard provider connector. Do not inject a site-specific service profile.
 
-        for s_id, s_name, labels in services_to_ensure:
-            full_id = f"service:{s_id}"
-            if full_id not in self.graph:
-                node = PlatformServiceNode(
-                    id=full_id,
-                    name=s_name,
-                    endpoint=f"http://{s_name}.local",
-                    labels=labels,
-                    description=labels.get("description", ""),
-                    timestamp=ts,
-                )
-                self.graph.add_node(node.id, **node.model_dump())
-                if self.backend:
-                    serialized = self._serialize_node(node, label="PlatformService")
-                    self._upsert_node("PlatformService", full_id, serialized)
-
-        # 3. Create the OWL bridge and run the cycle to populate OWL/RDF triples!
+        # 2. Create the OWL bridge and run the cycle to populate OWL/RDF triples.
         from ..backends.owl import create_owl_backend
         from ..core.owl_bridge import OWLBridge
 

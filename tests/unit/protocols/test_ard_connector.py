@@ -145,6 +145,19 @@ def test_sync_ard_live_path_writes_typed_nodes(monkeypatch: pytest.MonkeyPatch) 
     """
     from agent_utilities.knowledge_graph.core.source_sync import _sync_ard
 
+    def capture(engine, envelope):
+        row = envelope.to_entity_dict()
+        relationships = row.pop("_links", [])
+        auxiliary = row.pop("_nodes", [])
+        engine.ingest_external_batch(
+            envelope.connector, [row, *auxiliary], relationships
+        )
+        return {"status": "success", "watermark_advanced": bool(envelope.checkpoint)}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
+        capture,
+    )
     monkeypatch.setenv(
         "ARD_REGISTRIES",
         json.dumps(

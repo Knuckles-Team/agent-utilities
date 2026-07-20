@@ -10,19 +10,14 @@ registration, and the definition of the graph's dynamic routing topology.
 
 
 import logging
-import os
 from typing import Any, Literal
 
-from pydantic_ai import Agent
 from pydantic_graph import End
-
-try:
-    from pydantic_graph.graph_builder import Graph, GraphBuilder
-    from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import Graph, GraphBuilder, StepContext
+from pydantic_graph.graph_builder import Graph, GraphBuilder
+from pydantic_graph.step import StepContext
 
 from agent_utilities.agent.discovery import discover_agents, discover_all_specialists
+from agent_utilities.agent.registry_builder import ingest_prompts_to_graph
 from agent_utilities.core.config import (
     DEFAULT_KNOWLEDGE_GRAPH_SYNC_BACKGROUND,
     DEFAULT_LITE_LLM_MODEL_ID,
@@ -34,18 +29,20 @@ from agent_utilities.core.config import (
     DEFAULT_MIN_CONFIDENCE,
     DEFAULT_ROUTER_MODEL,
     DEFAULT_ROUTING_STRATEGY,
-    DEFAULT_SSL_VERIFY,
     DEFAULT_VALIDATION_MODE,
     get_discovery_registry,
+    load_mcp_servers_from_config,
 )
 from agent_utilities.core.workspace import get_agent_workspace, resolve_mcp_config_path
 from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
-from agent_utilities.mcp_utilities import load_mcp_config
 
 from ..base_utilities import (
     is_loopback_url,
 )
+from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+from ..knowledge_graph.pipeline import RegistryPipeline
 from ..models import GraphResponse
+from ..models.knowledge_graph import PipelineConfig
 from .executor import (
     agent_package_step,
 )
@@ -76,19 +73,6 @@ from .verification import (
     wide_search_joiner_step,
 )
 
-try:
-    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
-    from ..knowledge_graph.pipeline import RegistryPipeline
-    from ..models.knowledge_graph import PipelineConfig
-except ImportError:
-    # These might be missing if the extra is not installed, but we want them at top level for patching
-    IntelligenceGraphEngine = None  # type: ignore
-    PipelineConfig = None  # type: ignore
-    RegistryPipeline = None  # type: ignore
-from agent_utilities.agent.registry_builder import ingest_prompts_to_graph
-
-_PYDANTIC_GRAPH_AVAILABLE = True
-
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +81,7 @@ class _BuiltGraphCache:
 
     ``create_graph_agent`` rebuilt the entire topology + ``discover_agents()`` on EVERY
     turn. The topology is a pure function of (tag_prompts, models, routing strategy, sub
-    agents, custom nodes), so we memoize the structural build keyed by a hash of that
+    agents), so we memoize the structural build keyed by a hash of that
     config and reuse a warm graph. Toolset connections stay per-run (built outside the
     cache). Small cap — distinct routing configs are few — and thread-safe for concurrent
     gateway turns.
@@ -141,14 +125,13 @@ def _graph_cache_key(
     agent_model: str | None,
     routing_strategy: str,
     sub_agents: dict[str, Any] | None,
-    custom_nodes: list[Any] | None,
 ) -> str:
     """A stable hash of the STRUCTURAL graph inputs (CONCEPT:AU-ORCH.routing.structural-build-reuse).
 
     Keys on what changes the built graph's identity: the graph ``name`` (which the
     builder stamps onto the returned graph, so two same-topology graphs with
     different names are distinct objects), the set of routing tags, the models, the
-    routing strategy, the sub-agent tags, and whether custom nodes are present. A
+        routing strategy and the sub-agent tags. A
     change in discovery (new agent registered) changes the tag/sub-agent set and so
     invalidates the key naturally. Excludes per-run values (toolsets, timeouts, api
     keys, the query).
@@ -162,12 +145,8 @@ def _graph_cache_key(
         str(agent_model),
         str(routing_strategy),
         "|".join(sorted((sub_agents or {}).keys())),
-        # custom nodes are uncacheable-shaped; only their presence matters to the topology.
-        str(bool(custom_nodes)),
     ]
-    return hashlib.sha1(
-        "\x1e".join(parts).encode("utf-8"), usedforsecurity=False
-    ).hexdigest()
+    return hashlib.sha256("\x1e".join(parts).encode("utf-8")).hexdigest()
 
 
 def build_tag_env_map(tag_names: list[str]) -> dict[str, str]:
@@ -201,7 +180,6 @@ def initialize_graph_from_workspace(
     base_url: str | None = None,
     workspace: str | None = None,
     custom_headers: dict[str, Any] | None = None,
-    ssl_verify: bool | None = True,
     router_timeout: float | None = None,
     verifier_timeout: float | None = None,
 ) -> tuple[Graph, dict]:
@@ -219,7 +197,6 @@ def initialize_graph_from_workspace(
         base_url: Optional override for the LLM base URL.
         workspace: Optional explicit path to the agent workspace.
         custom_headers: Optional HTTP headers for provider requests.
-        ssl_verify: Whether to enforce SSL certificate verification.
         router_timeout: Per-request timeout for the router node.
         verifier_timeout: Per-request timeout for the verifier node.
 
@@ -228,15 +205,15 @@ def initialize_graph_from_workspace(
         its configuration dictionary (GraphDeps source).
 
     """
-    logger.info(f"Initializing graph from workspace: {os.getcwd()}")
+    logger.info("Initializing graph from configured workspace")
 
     if workspace:
         from ..core import workspace as _ws_mod
 
         _ws_mod.WORKSPACE_DIR = workspace
-        logger.info(f"Initializing Graph: workspace pinned to {workspace}")
+        logger.info("Initializing graph with pinned workspace")
 
-    # load_node_agents_registry is in this module
+    # get_discovery_registry is imported from the canonical config registry.
     # build_tag_env_map is in this module
 
     _mcp_cfg_path = resolve_mcp_config_path(mcp_config) if mcp_config else None
@@ -337,16 +314,7 @@ def initialize_graph_from_workspace(
         tag_prompts = {s.tag: s.description for s in all_specialists}
 
         if not tag_prompts:
-            from agent_utilities.agent.discovery import discover_agents
-
-            logger.debug(
-                "No domain tags discovered, falling back to legacy agent discovery..."
-            )
-            discovered_legacy = discover_agents()
-            tag_prompts = {
-                tag: meta.get("description", "A2A Specialist")
-                for tag, meta in discovered_legacy.items()
-            }
+            raise RuntimeError("no specialist metadata is available")
     else:
         tag_prompts = {"validation": "dummy"}
 
@@ -356,7 +324,7 @@ def initialize_graph_from_workspace(
 
     # Initialize Graph & Deps
     logger.info("Initializing Graph: Building graph topology...")
-    graph, config = create_agent(
+    graph, config = create_graph_agent(
         tag_prompts=tag_prompts,
         tag_env_vars=tag_env_vars,
         mcp_url=DEFAULT_MCP_URL,
@@ -370,7 +338,6 @@ def initialize_graph_from_workspace(
         base_url=base_url,
         workspace=workspace,
         custom_headers=custom_headers,
-        ssl_verify=ssl_verify,
     )
     logger.info("Initializing Graph: Topology built successfully.")
 
@@ -418,15 +385,22 @@ def create_master_graph(
                 "description", f"Specialized skill agent for {tag}"
             )
 
-    sub_agents: dict[str, str | Agent] = {
-        name: str(package_meta.get("package", name))
+    sub_agents: dict[str, Any] = {
+        name: {
+            "description": tag_prompts[name],
+            "tags": list(package_meta.get("skills") or [name]),
+            "package": str(package_meta.get("package", name)),
+        }
         for name, package_meta in agents.items()
     }
-    for tag in _skill_agents.keys():
+    for tag, agent_cfg in _skill_agents.items():
         if tag not in sub_agents:
-            sub_agents[tag] = tag
+            sub_agents[tag] = {
+                "description": tag_prompts[tag],
+                "tags": list(agent_cfg.get("tags") or [tag]),
+            }
 
-    return create_agent(
+    return create_graph_agent(
         tag_prompts=tag_prompts,
         name=name,
         sub_agents=sub_agents,
@@ -434,7 +408,7 @@ def create_master_graph(
     )
 
 
-def create_agent(
+def create_graph_agent(
     tag_prompts: dict[str, str],
     tag_env_vars: dict[str, str] | None = None,
     mcp_url: str | None = DEFAULT_MCP_URL,
@@ -443,12 +417,11 @@ def create_agent(
     router_model: str | None = DEFAULT_ROUTER_MODEL,
     agent_model: str | None = DEFAULT_LITE_LLM_MODEL_ID,
     min_confidence: float = DEFAULT_MIN_CONFIDENCE,
-    sub_agents: dict[str, str | Agent] | None = None,
+    sub_agents: dict[str, str | Any] | None = None,
     mcp_toolsets: list[Any] | None = None,
     routing_strategy: str = DEFAULT_ROUTING_STRATEGY,
     router_timeout: float | None = None,
     verifier_timeout: float | None = None,
-    custom_nodes: list[Any] | None = None,
     workspace: str | None = None,
     **kwargs,
 ) -> tuple[Graph, dict]:
@@ -472,7 +445,6 @@ def create_agent(
         routing_strategy: The logic used for routing ('hybrid', 'llm', 'rules').
         router_timeout: Per-node timeout for the router (seconds).
         verifier_timeout: Per-node timeout for the verifier (seconds).
-        custom_nodes: Optional list of additional Starlette/FastAPI nodes to register.
         workspace: Path to the persistent storage directory.
         **kwargs: Additional low-level configuration overrides.
 
@@ -480,15 +452,12 @@ def create_agent(
         A tuple containing the configured Graph and its execution dictionary.
 
     """
-    if not _PYDANTIC_GRAPH_AVAILABLE:
-        raise ImportError("pydantic-graph is required for graph agents.")
-
     if tag_env_vars is None:
         tag_env_vars = build_tag_env_map(list(tag_prompts.keys()))
 
     # CONCEPT:AU-ORCH.routing.structural-build-reuse — cache the built graph TOPOLOGY per routing-config. The topology +
     # ``discover_agents()`` are a pure function of (tag_prompts, models, routing strategy,
-    # sub-agents, custom nodes), rebuilt on EVERY turn before this. We memoize the structural
+    # sub-agents), rebuilt on EVERY turn before this. We memoize the structural
     # build keyed by a hash of that config, so a turn reuses a warm graph. Toolset *connections*
     # (mcp_url/mcp_config/mcp_toolsets) stay per-run and are built fresh below — so we only
     # serve the cache when the structure is toolset-free (the messaging chat default). When a
@@ -500,24 +469,22 @@ def create_agent(
         agent_model=agent_model,
         routing_strategy=routing_strategy,
         sub_agents=sub_agents,
-        custom_nodes=custom_nodes,
     )
-    # Cache only when there are no per-run toolset connections AND no custom nodes (whose
-    # identity the structural key only approximates by presence). The messaging chat default
-    # — the hot path this targets — is exactly toolset-free with no custom nodes.
-    _cacheable = (
-        not mcp_url and not mcp_config and not mcp_toolsets and not custom_nodes
-    )
+    # Cache only when there are no per-run toolset connections.
+    _cacheable = not mcp_url and not mcp_config and not mcp_toolsets
     _toolset_free = _cacheable
     _cached = _GRAPH_CACHE.get(_cache_key) if _cacheable else None
     if _cached is not None:
         # Warm graph hit (CONCEPT:AU-ORCH.routing.structural-build-reuse): reuse the structural topology + node registry
         # + registry engine; build only the cheap per-run config. No toolsets on this path
         # (toolset-free by the cache guard above), so connections never get reused.
-        logger.debug("create_agent: reusing cached graph topology (key=%s)", _cache_key)
+        logger.debug(
+            "create_graph_agent: reusing cached graph topology (key=%s)", _cache_key
+        )
         return _cached["graph"], _build_graph_config(
             graph_nodes=_cached["nodes_registry"],
             knowledge_engine=_cached["knowledge_engine"],
+            agent_subject=name,
             mcp_toolsets=[],
             tag_prompts=tag_prompts,
             tag_env_vars=tag_env_vars,
@@ -549,8 +516,9 @@ def create_agent(
             # Engine-only (CONCEPT:AU-KG.compute.graph-builder): the registry graph persists as
             # nodes/edges ON THE ONE epistemic-graph engine authority — never a
             # local ladybug ``registry_graph.db`` beside it. Resolve the engine
-            # backend (the OS-5.63 resolver auto-starts the pi-tier engine in prod;
-            # the KG-2.238 fixture provides a real ephemeral one in tests), raising
+            # backend (the OS-5.63 resolver auto-starts the mandatory full engine
+            # artifact in prod; the KG-2.238 fixture provides a real ephemeral one
+            # in tests), raising
             # a clear error if the engine is genuinely unreachable.
             active_backend = require_engine_authority_backend(
                 "agent registry graph (CONCEPT:AU-KG.compute.graph-builder)"
@@ -581,10 +549,8 @@ def create_agent(
                 try:
                     logger.info("Running RegistryPipeline sync...")
                     asyncio.run(reg_pipeline.run())
-                    knowledge_engine = IntelligenceGraphEngine(
-                        backend=active_backend,
-                        graph=reg_pipeline.graph,
-                        db_path=None,
+                    knowledge_engine = IntelligenceGraphEngine.get_or_create(
+                        backend=active_backend
                     )
                 except Exception as e:
                     logger.debug(f"Knowledge engine initialization failed: {e}")
@@ -851,14 +817,6 @@ def create_agent(
         g.edge_from(_onboarding).to(g.end_node),
     )
 
-    # Add custom nodes if provided (legacy support via wrapping)
-    if custom_nodes:
-        for node in custom_nodes:
-            logger.warning(
-                f"Custom node {node} detected. Functional steps are preferred in Beta API."
-            )
-            # We could wrap them here if needed, but for now we prioritize functional steps.
-
     graph = g.build()
 
     # MCP Setup (same as before)
@@ -876,7 +834,6 @@ def create_agent(
                 _mcp_toolsets.append(
                     build_http_toolset(
                         mcp_url,
-                        verify=kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
                         timeout=60,
                     )
                 )
@@ -886,8 +843,9 @@ def create_agent(
             if _mcp_cfg_path:
                 # Load MCP servers individually so that a single undefined env-var
                 # does not prevent the rest of the toolsets from loading.
-                # Standardized loading via mcp_utilities (handles parallel probing and robust expansion)
-                _mcp_toolsets = load_mcp_config(_mcp_cfg_path)
+                # The canonical config loader validates commands, expands
+                # environment references, and constructs each MCP toolset.
+                _mcp_toolsets = load_mcp_servers_from_config(_mcp_cfg_path)
                 for ts in _mcp_toolsets:
                     srv_id = getattr(ts, "id", getattr(ts, "name", "unknown"))
                     logger.info(f"MCP Startup: Registered server '{srv_id}'")
@@ -897,6 +855,7 @@ def create_agent(
     config = _build_graph_config(
         graph_nodes=nodes_registry,
         knowledge_engine=knowledge_engine,
+        agent_subject=name,
         mcp_toolsets=_mcp_toolsets,
         tag_prompts=tag_prompts,
         tag_env_vars=tag_env_vars,
@@ -913,7 +872,8 @@ def create_agent(
     )
 
     logger.debug(
-        f"create_agent: returning config with mcp_toolsets of len: {len(config['mcp_toolsets'])}"
+        "create_graph_agent: returning config with mcp_toolsets of len: "
+        f"{len(config['mcp_toolsets'])}"
     )
 
     # CONCEPT:AU-ORCH.routing.structural-build-reuse — store the toolset-free structural build for reuse next turn.
@@ -934,6 +894,7 @@ def _build_graph_config(
     *,
     graph_nodes: dict[str, Any],
     knowledge_engine: Any,
+    agent_subject: str,
     mcp_toolsets: list[Any],
     tag_prompts: dict[str, str],
     tag_env_vars: dict[str, str],
@@ -944,7 +905,7 @@ def _build_graph_config(
     router_timeout: float | None,
     verifier_timeout: float | None,
     min_confidence: float,
-    sub_agents: dict[str, str | Agent] | None,
+    sub_agents: dict[str, str | Any] | None,
     routing_strategy: str,
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
@@ -958,9 +919,25 @@ def _build_graph_config(
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
     )
+    from agent_utilities.core.config import (
+        config as agent_config,
+    )
+    from agent_utilities.security.permissions_kernel import (
+        resolve_permission_context,
+    )
+    from agent_utilities.security.tool_guard import is_identity_governed_toolset
 
     _api_key = kwargs.get("api_key")
     _base_url = kwargs.get("base_url")
+    permission_context = resolve_permission_context(
+        agent_config,
+        permissions_kernel=kwargs.get("permissions_kernel"),
+        agent_identity=kwargs.get("agent_identity"),
+        required=any(is_identity_governed_toolset(toolset) for toolset in mcp_toolsets),
+        engine=knowledge_engine,
+        agent_subject=agent_subject,
+        capabilities=kwargs.get("capabilities") or (),
+    )
     return {
         "tag_prompts": tag_prompts,
         "tag_env_vars": tag_env_vars,
@@ -984,15 +961,16 @@ def _build_graph_config(
         "provider": kwargs.get("provider") or DEFAULT_LLM_PROVIDER,
         "base_url": _base_url if _base_url is not None else DEFAULT_LLM_BASE_URL,
         "api_key": _api_key if _api_key is not None else DEFAULT_LLM_API_KEY,
-        "ssl_verify": kwargs.get("ssl_verify", DEFAULT_SSL_VERIFY),
         "custom_headers": kwargs.get("custom_headers"),
         "sub_agents": sub_agents or {},
         "routing_strategy": routing_strategy,
         "nodes": graph_nodes,
         "discovery_metadata": kwargs.get("discovery_metadata") or {},
         "knowledge_engine": knowledge_engine,
+        "permissions_kernel": (
+            permission_context.kernel if permission_context is not None else None
+        ),
+        "agent_identity": (
+            permission_context.identity if permission_context is not None else None
+        ),
     }
-
-
-# Alias for backward compatibility
-create_graph_agent = create_agent

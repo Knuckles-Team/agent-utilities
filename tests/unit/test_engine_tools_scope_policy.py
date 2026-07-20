@@ -1,14 +1,14 @@
-"""Tests for AU-P0-6: per-action scope/policy gating + bounded engine client pool
+"""Tests for AU-P0-6: per-action scope/policy gating + bounded graph-view pool
 on the low-level ``engine_<domain>`` MCP tools (``mcp/tools/engine_tools.py``).
 
 Covers:
   (a) an ADMIN action (tenants/resharding/consensus/rbac/admin family) invoked
       by a non-admin actor is DENIED (raises ``PermissionError``, fail-closed).
   (b) a normal read/write action by a normal (non-admin) actor is ALLOWED.
-  (c) an admin actor (role OR an explicit GraphSession ``kg:admin`` scope) IS
-      allowed to invoke an admin action.
-  (d) the low-level engine client pool is bounded: exceeding capacity evicts
-      the least-recently-used connection instead of growing without limit.
+  (c) only an explicit GraphSession ``kg:admin`` scope allows an admin action;
+      a role alone never bypasses session authority.
+  (d) low-level graph views are bounded and eviction never closes the process
+      transport.
   (e) fail-closed classification for a hypothetical un-classified domain.
 
 No live engine is required — the wire client is monkeypatched exactly like
@@ -64,11 +64,23 @@ def _fresh_client_pool(monkeypatch):
 
 
 NON_ADMIN_ACTOR = ActorContext(
-    actor_id="agent:marketing",
+    actor_id="principal:marketing",
     actor_type=ActorType.AI_AGENT,
     roles=("marketing",),
     tenant_id="acme",
+    authenticated=True,
 )
+
+
+def _session(actor: ActorContext, *scopes: str) -> GraphSession:
+    return GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset(scopes),
+        graph="tenant-acme-graph",
+        policy_version="policy-v1",
+        audience="agent-services",
+    )
 
 
 # ── (a) admin action denied for a non-admin actor ────────────────────────────
@@ -92,8 +104,9 @@ def test_admin_action_denied_for_non_admin_actor(monkeypatch, domain, action, pa
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
     tool = kg_server.REGISTERED_TOOLS[f"engine_{domain}"]
-    with use_actor(NON_ADMIN_ACTOR):
-        with pytest.raises(PermissionError, match="ADMIN-only"):
+    session = _session(NON_ADMIN_ACTOR, "kg:read", "kg:write")
+    with use_actor(NON_ADMIN_ACTOR), use_session(session):
+        with pytest.raises(PermissionError, match="kg:admin"):
             asyncio.run(
                 tool(action=action, params_json=json.dumps(params), graph="")
             )
@@ -123,7 +136,8 @@ def test_normal_action_allowed_for_non_admin_actor(monkeypatch, domain, action, 
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
     tool = kg_server.REGISTERED_TOOLS[f"engine_{domain}"]
-    with use_actor(NON_ADMIN_ACTOR):
+    session = _session(NON_ADMIN_ACTOR, "kg:read", "kg:write")
+    with use_actor(NON_ADMIN_ACTOR), use_session(session):
         out = json.loads(
             asyncio.run(tool(action=action, params_json=json.dumps(params), graph=""))
         )
@@ -131,37 +145,68 @@ def test_normal_action_allowed_for_non_admin_actor(monkeypatch, domain, action, 
     assert calls == [(domain, action, params)]
 
 
+def test_served_profile_enforces_read_write_scope_for_normal_domains(monkeypatch):
+    from agent_utilities.knowledge_graph.core.session import ScopeError
+
+    client, calls = _fake_client_factory()
+    monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
+    actor = ActorContext(
+        actor_id="principal:opaque",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:read",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    reader = GraphSession(
+        actor=actor,
+        tenant="tenant-a",
+        graph="tenant-a-graph",
+        scopes=frozenset({"kg:read"}),
+    )
+    with use_actor(actor), use_session(reader):
+        out = json.loads(engine_tools._dispatch("nodes", {"has"}, "has", "{}", ""))
+        assert out["ok"] is True
+        with pytest.raises(ScopeError):
+            engine_tools._dispatch("nodes", {"add"}, "add", "{}", "")
+
+    writer = _session(actor, "kg:read", "kg:write")
+    with use_actor(actor), use_session(writer):
+        out = json.loads(engine_tools._dispatch("nodes", {"add"}, "add", "{}", ""))
+        assert out["ok"] is True
+    assert [call[:2] for call in calls] == [("nodes", "has"), ("nodes", "add")]
+
+
 # ── (c) admin actor / admin GraphSession scope IS allowed ────────────────────
-def test_admin_action_allowed_for_admin_role_actor(monkeypatch):
+def test_admin_role_without_admin_scope_is_denied(monkeypatch):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
     admin_actor = ActorContext(
-        actor_id="agent:ops",
+        actor_id="principal:ops",
         actor_type=ActorType.AI_AGENT,
         roles=("admin",),
-        tenant_id="",
+        tenant_id="tenant-ops",
+        authenticated=True,
     )
     tool = kg_server.REGISTERED_TOOLS["engine_tenants"]
-    with use_actor(admin_actor):
-        out = json.loads(
-            asyncio.run(tool(action="list", params_json="{}", graph=""))
-        )
-    assert out.get("ok") is True, out
-    assert calls == [("tenants", "list", {})]
+    session = _session(admin_actor, "kg:read", "kg:write")
+    with use_actor(admin_actor), use_session(session), pytest.raises(
+        PermissionError, match="kg:admin"
+    ):
+        asyncio.run(tool(action="list", params_json="{}", graph=""))
+    assert calls == []
 
 
 def test_admin_action_allowed_via_graph_session_scope(monkeypatch):
     """A non-admin-role actor with an explicit GraphSession ``kg:admin`` scope
-    is also let through (GraphSession.scopes is the other authority AU-P0-6
-    checks — see ``_enforce_admin_scope``)."""
+    is also let through because GraphSession scopes are the sole authority."""
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
     tool = kg_server.REGISTERED_TOOLS["engine_resharding"]
-    session = GraphSession(actor=NON_ADMIN_ACTOR, scopes=frozenset({"kg:admin"}))
+    session = _session(NON_ADMIN_ACTOR, "kg:admin")
     with use_actor(NON_ADMIN_ACTOR), use_session(session):
         out = json.loads(
             asyncio.run(
@@ -186,11 +231,9 @@ def test_new_namespaces_registered_and_admin_flagged():
     assert engine_tools._is_admin_domain("graphlearn") is False
 
 
-# ── (d) bounded client pool ───────────────────────────────────────────────────
+# ── (d) bounded graph-view pool over one process client ──────────────────────
 def test_client_pool_is_bounded_lru_and_evicts(monkeypatch):
-    """Exceeding pool capacity evicts the LRU connection (closing it) instead
-    of letting the resident connection count grow without bound (audited
-    gap #2)."""
+    """Capacity evicts an LRU graph view without closing shared transport."""
     from agent_utilities.knowledge_graph.core.tenant_engine_pool import (
         TenantEnginePool,
     )
@@ -217,7 +260,7 @@ def test_client_pool_is_bounded_lru_and_evicts(monkeypatch):
     engine_tools._client_for("g3")  # over capacity → evicts g1 (LRU)
 
     assert created == ["g1", "g2", "g3"]
-    assert closed == ["g1"]
+    assert closed == []
     assert set(pool.warm_tenants()) == {"g2", "g3"}
 
     # Touching many more distinct graphs never grows the warm set past capacity.
@@ -268,3 +311,23 @@ def test_client_pool_empty_graph_uses_stable_sentinel_key(monkeypatch):
     b = engine_tools._client_for("")
     assert a is b
     assert created == [engine_tools._DEFAULT_GRAPH_POOL_KEY]
+
+
+def test_method_graph_parameter_inherits_verified_session_graph(monkeypatch):
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.security.brain_context import ActorContext
+
+    session = GraphSession(
+        actor=ActorContext(
+            actor_id="principal:opaque",
+            tenant_id="tenant-a",
+            authenticated=True,
+        ),
+        tenant="tenant-a",
+        graph="tenant-a-graph",
+        scopes=frozenset({"kg:read"}),
+    )
+    with use_session(session):
+        assert engine_tools._resolve_graph_name("") == "tenant-a-graph"
+        with pytest.raises(PermissionError, match="retarget"):
+            engine_tools._resolve_graph_name("tenant-b-graph")

@@ -922,6 +922,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "engine_query_resolve_conflict",
     },
     {"tool": "engine_query", "action": "sql", "name": "engine_query_sql"},
+    {
+        "tool": "engine_query",
+        "action": "stale_materializations",
+        "name": "engine_query_stale_materializations",
+    },
     {"tool": "engine_query", "action": "unified", "name": "engine_query_unified"},
     {"tool": "engine_query", "action": "uql", "name": "engine_query_uql"},
     {
@@ -1111,6 +1116,18 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "engine_txn_unified_query_plan",
     },
     {"tool": "find", "action": None, "name": "find"},
+    {
+        "tool": "graph_agents",
+        "action": "computer_use",
+        "name": "graph_agents_computer_use",
+    },
+    {"tool": "graph_agents", "action": "run_org", "name": "graph_agents_run_org"},
+    {"tool": "graph_agents", "action": "swarm", "name": "graph_agents_swarm"},
+    {
+        "tool": "graph_agents",
+        "action": "synthesize_org",
+        "name": "graph_agents_synthesize_org",
+    },
     {"tool": "graph_analyze", "action": "adr", "name": "graph_analyze_adr"},
     {
         "tool": "graph_analyze",
@@ -1423,6 +1440,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
+        "action": "approve_connection_mapping",
+        "name": "graph_configure_approve_connection_mapping",
+    },
+    {
+        "tool": "graph_configure",
         "action": "config_doctor",
         "name": "graph_configure_config_doctor",
     },
@@ -1431,7 +1453,22 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "config_reference",
         "name": "graph_configure_config_reference",
     },
+    {
+        "tool": "graph_configure",
+        "action": "connection_mapping_status",
+        "name": "graph_configure_connection_mapping_status",
+    },
+    {
+        "tool": "graph_configure",
+        "action": "discover_connection_schema",
+        "name": "graph_configure_discover_connection_schema",
+    },
     {"tool": "graph_configure", "action": "doctor", "name": "graph_configure_doctor"},
+    {
+        "tool": "graph_configure",
+        "action": "external_graph_doctor",
+        "name": "graph_configure_external_graph_doctor",
+    },
     {
         "tool": "graph_configure",
         "action": "generate_config",
@@ -1451,6 +1488,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_configure",
         "action": "imprint_connection",
         "name": "graph_configure_imprint_connection",
+    },
+    {
+        "tool": "graph_configure",
+        "action": "ingest_connection",
+        "name": "graph_configure_ingest_connection",
     },
     {
         "tool": "graph_configure",
@@ -1481,6 +1523,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_configure",
         "action": "profile_connection",
         "name": "graph_configure_profile_connection",
+    },
+    {
+        "tool": "graph_configure",
+        "action": "propose_connection_mapping",
+        "name": "graph_configure_propose_connection_mapping",
     },
     {
         "tool": "graph_configure",
@@ -1591,10 +1638,55 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "structure",
         "name": "graph_document_tree_structure",
     },
+    {
+        "tool": "graph_domain_ops",
+        "action": "allocate_budget",
+        "name": "graph_domain_ops_allocate_budget",
+    },
+    {
+        "tool": "graph_domain_ops",
+        "action": "fit_markov_regime",
+        "name": "graph_domain_ops_fit_markov_regime",
+    },
+    {
+        "tool": "graph_domain_ops",
+        "action": "register_rlm_actor",
+        "name": "graph_domain_ops_register_rlm_actor",
+    },
     {"tool": "graph_epistemic", "action": None, "name": "graph_epistemic"},
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
     {"tool": "graph_evaluate", "action": None, "name": "graph_evaluate"},
+    {
+        "tool": "graph_evolution",
+        "action": "assimilate",
+        "name": "graph_evolution_assimilate",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "distill_skills",
+        "name": "graph_evolution_distill_skills",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "failure_ingest",
+        "name": "graph_evolution_failure_ingest",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "optimize_component",
+        "name": "graph_evolution_optimize_component",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "publish_proposal",
+        "name": "graph_evolution_publish_proposal",
+    },
+    {
+        "tool": "graph_evolution",
+        "action": "standardize",
+        "name": "graph_evolution_standardize",
+    },
     {"tool": "graph_explain", "action": None, "name": "graph_explain"},
     {
         "tool": "graph_federated_search",
@@ -1612,6 +1704,21 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_goals", "action": "create", "name": "graph_goals_create"},
     {"tool": "graph_goals", "action": "iterations", "name": "graph_goals_iterations"},
     {"tool": "graph_goals", "action": "list", "name": "graph_goals_list"},
+    {
+        "tool": "graph_governance",
+        "action": "grant_approval",
+        "name": "graph_governance_grant_approval",
+    },
+    {
+        "tool": "graph_governance",
+        "action": "submit_risk_veto",
+        "name": "graph_governance_submit_risk_veto",
+    },
+    {
+        "tool": "graph_governance",
+        "action": "verify_action",
+        "name": "graph_governance_verify_action",
+    },
     {"tool": "graph_hydrate", "action": None, "name": "graph_hydrate"},
     {"tool": "graph_incident", "action": None, "name": "graph_incident"},
     {
@@ -1630,6 +1737,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ingest_build_skill_graph",
     },
     {"tool": "graph_ingest", "action": "cancel", "name": "graph_ingest_cancel"},
+    {
+        "tool": "graph_ingest",
+        "action": "classify_topics",
+        "name": "graph_ingest_classify_topics",
+    },
     {"tool": "graph_ingest", "action": "clear", "name": "graph_ingest_clear"},
     {
         "tool": "graph_ingest",
@@ -1648,6 +1760,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ingest_curate_wiki",
     },
     {"tool": "graph_ingest", "action": "distill", "name": "graph_ingest_distill"},
+    {
+        "tool": "graph_ingest",
+        "action": "enrich_pending_documents",
+        "name": "graph_ingest_enrich_pending_documents",
+    },
     {
         "tool": "graph_ingest",
         "action": "extract_jobs",
@@ -1748,6 +1865,8 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_ingest", "action": "status", "name": "graph_ingest_status"},
     {"tool": "graph_ingest", "action": "sync", "name": "graph_ingest_sync"},
+    {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
+    {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
     {"tool": "graph_kvcache", "action": "contains", "name": "graph_kvcache_contains"},
     {"tool": "graph_kvcache", "action": "exists", "name": "graph_kvcache_exists"},
     {"tool": "graph_kvcache", "action": "get", "name": "graph_kvcache_get"},
@@ -1845,6 +1964,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "root_cause",
         "name": "graph_ops_causal_root_cause",
     },
+    {"tool": "graph_orchestrate", "action": None, "name": "graph_orchestrate"},
     {
         "tool": "graph_orchestrate",
         "action": "assimilate",
@@ -2033,6 +2153,8 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_reach", "action": "send", "name": "graph_reach_send"},
     {"tool": "graph_reach", "action": "status", "name": "graph_reach_status"},
     {"tool": "graph_research", "action": None, "name": "graph_research"},
+    {"tool": "graph_rlm", "action": "benchmark", "name": "graph_rlm_benchmark"},
+    {"tool": "graph_rlm", "action": "run", "name": "graph_rlm_run"},
     {"tool": "graph_runvcs", "action": "commit", "name": "graph_runvcs_commit"},
     {"tool": "graph_runvcs", "action": "discard", "name": "graph_runvcs_discard"},
     {"tool": "graph_runvcs", "action": "fork", "name": "graph_runvcs_fork"},
@@ -2109,6 +2231,21 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_table", "action": "rows", "name": "graph_table_rows"},
     {"tool": "graph_traces", "action": "get", "name": "graph_traces_get"},
     {"tool": "graph_traces", "action": "search", "name": "graph_traces_search"},
+    {"tool": "graph_workflows", "action": "compile", "name": "graph_workflows_compile"},
+    {
+        "tool": "graph_workflows",
+        "action": "compile_process",
+        "name": "graph_workflows_compile_process",
+    },
+    {
+        "tool": "graph_workflows",
+        "action": "dispatch",
+        "name": "graph_workflows_dispatch",
+    },
+    {"tool": "graph_workflows", "action": "execute", "name": "graph_workflows_execute"},
+    {"tool": "graph_workflows", "action": "export", "name": "graph_workflows_export"},
+    {"tool": "graph_workflows", "action": "list", "name": "graph_workflows_list"},
+    {"tool": "graph_workflows", "action": "status", "name": "graph_workflows_status"},
     {"tool": "graph_write", "action": "add_edge", "name": "graph_write_add_edge"},
     {"tool": "graph_write", "action": "add_node", "name": "graph_write_add_node"},
     {"tool": "graph_write", "action": "bulk_ingest", "name": "graph_write_bulk_ingest"},
@@ -2338,6 +2475,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "top_sessions",
         "name": "usage_query_top_sessions",
     },
+    {"tool": "usage_query", "action": "traces", "name": "usage_query_traces"},
     {"tool": "why", "action": None, "name": "why"},
     {"tool": "write", "action": None, "name": "write"},
 ]

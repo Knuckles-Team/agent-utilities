@@ -1,107 +1,39 @@
-#!/usr/bin/python
-from __future__ import annotations
-
-"""Codex Gap-6 Agent-OS named objects: AgentCapabilityGrant, AgentPolicyDecision,
-AgentTrace, and the claim->execute->outcome orchestration wiring.
-
-CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Graph-Native Agent-OS Objects
-
-Reuse audit (see class docstrings in ``models/knowledge_graph.py`` for the full
-rationale):
-
-* ``AgentCapabilityGrantNode`` — genuinely NEW. The ``AUTHORIZED_FOR`` edge
-  (and its ``MATCH`` in ``orchestration/engine.py``'s team synthesis) existed
-  with nothing writing it; this is the write/read pair that completes it.
-* ``AgentPolicyDecisionNode`` — EXTENDS the existing ``ActionDecision`` audit
-  ``action_policy.ActionPolicy._audit()`` already writes (no new node type;
-  same persisted label, same rate/blast ledger reads). Formalizes it as a
-  typed schema entry for the first time.
-* ``AgentTrace`` — NOT a new type at all: it IS the existing ``TraceNode``
-  (aliased as ``AgentTraceNode``), extended with ``task_id``/``tool_calls``/
-  ``outcome`` fields.
-* Observation/Claim/Action (the wiring's writeback) reuse the EXISTING
-  ``ObservationNode``/``ClaimNode``/``ActionNode`` — no new types.
-* "AgentOutcome" reuses the EXISTING ``OutcomeEvaluationNode`` (already
-  carrying ``lease_id``/``dag_id`` from C3/Phase 3a) — no new type.
-
-@pytest.mark.concept("AU-OS.state.cognitive-scheduler-preemption")
-"""
+"""Current capability, policy-decision, and trace object contracts."""
 
 import time
-
-import pytest
 
 from agent_utilities.models.knowledge_graph import (
     AgentCapabilityGrantNode,
     AgentPolicyDecisionNode,
-    AgentTraceNode,
     RegistryNodeType,
     TraceNode,
 )
 from agent_utilities.orchestration import action_policy
 from agent_utilities.orchestration import agent_dispatch_worker as worker
 
-pytestmark = pytest.mark.concept("AU-OS.state.cognitive-scheduler-preemption")
 
-
-# ---------------------------------------------------------------------------
-# Reuse audit — exactly 2 new enum members; no duplicate types for the rest
-# ---------------------------------------------------------------------------
-
-
-def test_exactly_two_new_node_types_this_phase() -> None:
-    names = {m.name for m in RegistryNodeType}
+def test_reuse_audit_keeps_only_named_grant_and_decision_types() -> None:
+    names = {member.name for member in RegistryNodeType}
     assert "AGENT_CAPABILITY_GRANT" in names
     assert "AGENT_POLICY_DECISION" in names
-    # Reuse audit: AgentTrace/AgentOutcome/AgentObservation/AgentClaim/
-    # AgentAction were NOT introduced as second node types — they alias or
-    # extend existing ones instead.
-    for not_expected in (
-        "AGENT_TRACE",
-        "AGENT_OUTCOME",
-        "AGENT_OBSERVATION",
-        "AGENT_CLAIM",
-        "AGENT_ACTION",
-    ):
-        assert not_expected not in names
+    assert "AGENT_TASK" not in names
+    assert "AGENT_LEASE" not in names
 
 
-def test_agent_trace_node_is_the_existing_trace_node_not_a_new_type() -> None:
-    assert AgentTraceNode is TraceNode
-
-
-# ---------------------------------------------------------------------------
-# AgentCapabilityGrantNode
-# ---------------------------------------------------------------------------
-
-
-def test_agent_capability_grant_node_defaults() -> None:
-    node = AgentCapabilityGrantNode(id="grant:1", name="Grant: x")
-    assert node.type == RegistryNodeType.AGENT_CAPABILITY_GRANT
-    assert node.agent_id == ""
-    assert node.capability == ""
-    assert node.issuer == ""
-    assert node.granted_at == 0.0
-    assert node.expires_at is None
-    assert node.revoked is False
-    assert node.is_active() is True
-
-
-def test_agent_capability_grant_node_expiry_and_revocation() -> None:
-    node = AgentCapabilityGrantNode(
-        id="grant:2",
-        name="Grant: agent-1",
-        agent_id="agent-1",
-        capability="agent_task.execute",
-        issuer="system",
-        granted_at=1000.0,
-        expires_at=2000.0,
+def test_work_item_execution_grant_round_trip_and_expiry() -> None:
+    grant = AgentCapabilityGrantNode(
+        id="grant:opaque",
+        name="grant",
+        agent_id="agent-ref",
+        capability="work_item.execute",
+        issuer="issuer-ref",
+        granted_at=100.0,
+        expires_at=200.0,
     )
-    assert node.is_active(now=1500.0) is True
-    assert node.is_active(now=2500.0) is False
-
-    revoked = node.model_copy(update={"revoked": True})
-    assert revoked.is_active(now=1500.0) is False
+    restored = AgentCapabilityGrantNode.model_validate_json(grant.model_dump_json())
+    assert restored == grant
+    assert restored.is_active(now=150.0)
+    assert not restored.is_active(now=250.0)
 
 
 def test_agent_capability_grant_node_round_trips_json() -> None:
@@ -144,7 +76,7 @@ def test_agent_policy_decision_node_allowed_property() -> None:
 def test_agent_policy_decision_node_from_action_decision_reuses_audit_id() -> None:
     """The wrapper keys off the ALREADY-PERSISTED ActionDecision audit_id —
     same graph node, no second write (the reuse-audit's load-bearing property)."""
-    req = action_policy.ActionRequest(
+    request = action_policy.ActionRequest(
         kind="agent_task.execute",
         target="task-1",
         source="agent-dispatch",
@@ -153,50 +85,59 @@ def test_agent_policy_decision_node_from_action_decision_reuses_audit_id() -> No
     decision = action_policy.ActionDecision(
         decision="allow_notify",
         tier="auto_notify",
-        request=req,
-        reason="tier auto_notify",
+        request=request,
+        reason="policy",
         rule_origin="file",
-        audit_id="action_decision:abc123",
+        audit_id="action_decision:opaque",
     )
-    node = AgentPolicyDecisionNode.from_action_decision(decision, agent_id="agent-1")
-    assert node.id == "action_decision:abc123"
+    node = AgentPolicyDecisionNode.from_action_decision(
+        decision, agent_id="agent-ref"
+    )
+    assert node.id == decision.audit_id
     assert node.kind == "agent_task.execute"
-    assert node.target == "task-1"
-    assert node.tier == "auto_notify"
-    assert node.decision == "allow_notify"
-    assert node.agent_id == "agent-1"
-    assert node.allowed is True
+    assert node.allowed
 
 
-# ---------------------------------------------------------------------------
-# TraceNode / AgentTraceNode extension (task_id / tool_calls / outcome)
-# ---------------------------------------------------------------------------
-
-
-def test_trace_node_agentos_fields_default() -> None:
-    node = TraceNode(id="trace:1", name="run")
-    assert node.task_id is None
-    assert node.tool_calls == 0
-    assert node.outcome is None
-
-
-def test_trace_node_agentos_fields_explicit_round_trip() -> None:
-    node = AgentTraceNode(
-        id="trace:2",
-        name="run",
-        agent="agent-1",
-        task_id="dag-1:task:a",
-        tool_calls=3,
-        outcome="completed",
+def test_policy_decision_wraps_existing_work_item_audit() -> None:
+    request = action_policy.ActionRequest(
+        kind="work_item.execute",
+        target="workitem-ref",
+        source="agent-dispatch",
+        actor_id="agent-ref",
     )
-    restored = TraceNode.model_validate_json(node.model_dump_json())
-    assert restored.task_id == "dag-1:task:a"
+    decision = action_policy.ActionDecision(
+        decision="allow_notify",
+        tier="auto_notify",
+        request=request,
+        reason="policy",
+        rule_origin="file",
+        audit_id="action_decision:opaque",
+    )
+    node = AgentPolicyDecisionNode.from_action_decision(
+        decision, agent_id="agent-ref"
+    )
+    assert node.id == decision.audit_id
+    assert node.kind == "work_item.execute"
+    assert node.allowed
+
+
+def test_trace_extension_round_trip_is_evidence_only() -> None:
+    trace = TraceNode(
+        id="trace:opaque",
+        name="run",
+        agent="agent-ref",
+        task_id="workitem-ref",
+        tool_calls=3,
+        outcome="succeeded",
+    )
+    restored = TraceNode.model_validate_json(trace.model_dump_json())
+    assert restored.task_id == "workitem-ref"
     assert restored.tool_calls == 3
-    assert restored.outcome == "completed"
+    assert restored.outcome == "succeeded"
 
 
 # ---------------------------------------------------------------------------
-# Codex Gap-6 orchestration flow: execute_agent_task_turn
+# Gap-6 orchestration flow: execute_agent_task_turn
 # ---------------------------------------------------------------------------
 
 
@@ -298,7 +239,7 @@ def test_execute_agent_task_turn_allowed_path_writes_full_provenance() -> None:
     # Claim -> lease.
     assert engine.by_type("AgentLease")
 
-    # Capability grant (Codex Gap-6) — self-issued + AUTHORIZED_FOR edge.
+    # Capability grant (Gap-6) — self-issued + AUTHORIZED_FOR edge.
     grants = engine.by_type("AgentCapabilityGrant")
     assert len(grants) == 1
     assert grants[0]["agent_id"] == "agent-1"
@@ -306,7 +247,7 @@ def test_execute_agent_task_turn_allowed_path_writes_full_provenance() -> None:
     grant_id = next(nid for nid, n in engine.nodes.items() if n is grants[0])
     assert ("agent-1", grant_id, "AUTHORIZED_FOR") in engine.edges
 
-    # Policy decision audit (Codex Gap-6 formalization over ActionDecision).
+    # Policy decision audit (Gap-6 formalization over ActionDecision).
     decisions = engine.by_type("ActionDecision")
     assert len(decisions) == 1
     assert decisions[0]["kind"] == "agent_task.execute"

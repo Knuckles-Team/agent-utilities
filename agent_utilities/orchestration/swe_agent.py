@@ -17,8 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic_ai import Agent
-
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.core.model_factory import create_model
 from agent_utilities.models import AgentDeps
 from agent_utilities.runtime.events import CmdRunAction
@@ -44,14 +43,14 @@ class SweResult:
 
 def build_swe_agent(
     model: Any | None = None, *, extra_tools: list[Any] | None = None
-) -> Agent[AgentDeps, str]:
+) -> Any:
     """Assemble the SWE agent: graph tools + workspace tools + graph-first system prompt.
 
     ``model`` may be a Pydantic-AI model object (or ``None`` to resolve the configured default).
     """
     mdl = model if model is not None else create_model()
     tools = [*resolve_capabilities(SWE_CAPABILITIES), *(extra_tools or [])]
-    return Agent(
+    return create_context_agent(
         model=mdl,
         deps_type=AgentDeps,
         system_prompt=SWE_SYSTEM_PROMPT,
@@ -65,7 +64,7 @@ async def run_swe_task(
     deps: AgentDeps,
     *,
     model: Any | None = None,
-    agent: Agent[AgentDeps, str] | None = None,
+    agent: Any | None = None,
 ) -> SweResult:
     """Run the SWE agent on ``task`` inside ``deps.workspace`` and return the result + patch.
 

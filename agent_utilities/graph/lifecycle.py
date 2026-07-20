@@ -18,8 +18,9 @@ Extracted from the monolithic steps.py for maintainability.
 import logging
 from typing import Any, cast
 
-from pydantic_ai import Agent
 from pydantic_graph import End
+
+from agent_utilities.core.contextual_model import create_context_agent
 
 try:
     from pydantic_graph.step import StepContext
@@ -96,21 +97,17 @@ async def usage_guard_step(
             usage=usage.model_dump(),
         )
 
-    # Policy enforcement (Optional, based on tool_guard_mode / the per-job shape).
+    # Policy enforcement. A lean per-job shape may skip this extra policy-LLM
+    # round, but tool authorization remains mandatory at every binding boundary.
     # CONCEPT:AU-ORCH.execution.direct-completion-shape — the policy check is a full LLM round; a lean shape (a trivial chat
     # turn) skips it so the turn never pays an extra LLM round before the router. Mutating
     # fleet actions are still governed downstream by the fail-closed ActionPolicy gate, so a
     # passed-through trivial Q&A is not ungoverned.
     _shape = getattr(cast(GraphDeps, ctx.deps), "execution_shape", None)
-    _guard_off = cast(GraphDeps, ctx.deps).tool_guard_mode == "off"
-    if _guard_off or (
-        _shape is not None and getattr(_shape, "skip_usage_guard", False)
-    ):
+    if _shape is not None and getattr(_shape, "skip_usage_guard", False):
         logger.info(
-            "UsageGuard: bypassing policy LLM round (%s).",
-            "tool guard off"
-            if _guard_off
-            else "lean shape — CONCEPT:AU-ORCH.execution.direct-completion-shape",
+            "UsageGuard: bypassing policy LLM round for lean shape — "
+            "CONCEPT:AU-ORCH.execution.direct-completion-shape.",
         )
         _emit_node_lifecycle(
             cast(GraphDeps, ctx.deps).event_queue,
@@ -121,7 +118,7 @@ async def usage_guard_step(
         return "router"
 
     safety_policy = load_specialized_prompts("safety_policy")
-    checker = Agent(
+    checker = create_context_agent(
         model=cast(GraphDeps, ctx.deps).router_model,
         system_prompt=(
             "You are a security guard. Evaluate the user query against the "

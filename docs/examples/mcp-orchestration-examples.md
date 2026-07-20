@@ -22,10 +22,10 @@ graph TB
     end
 
     subgraph "External Consumption"
-        J["graph_orchestrate<br/>(MCP Tool)"] -->|"list_workflows"| D
-        J -->|"execute_workflow"| F
-        J -->|"compile_workflow"| K["WorkflowCompiler"]
-        J -->|"export_workflow"| L["JSON Export"]
+        J["graph_workflows<br/>(MCP Tool)"] -->|"list"| D
+        J -->|"execute"| F
+        J -->|"compile"| K["WorkflowCompiler"]
+        J -->|"export"| L["JSON Export"]
         K -->|"NL → GraphPlan"| C
     end
 ```
@@ -44,9 +44,9 @@ async def main():
 
     # Define paths to skill directories and MCP configurations
     sources = [
-        "/home/apps/workspace/agent-packages/skills/universal-skills",
-        "/home/apps/workspace/agent-packages/skills/skill-graphs",
-        "/home/apps/workspace/agent-packages/agent-utilities/docs/examples/example_mcp_config.json"
+        "${WORKSPACE_ROOT}/agent-packages/skills/universal-skills",
+        "${WORKSPACE_ROOT}/agent-packages/skills/skill-graphs",
+        "${WORKSPACE_ROOT}/agent-packages/agent-utilities/docs/examples/example_mcp_config.json"
     ]
 
     # Ingest the toolkit into the Graph
@@ -72,7 +72,7 @@ the maintenance scheduler. Re-submitting an unchanged source is skipped by the
 ```python
 # Codebase Ingestion
 engine.submit_task(
-    target_path="/home/apps/workspace/my-repo",
+    target_path="${WORKSPACE_ROOT}/my-repo",
     is_codebase=True,
     provenance={"agent_id": "orchestrator"},
     task_type="codebase",
@@ -80,7 +80,7 @@ engine.submit_task(
 
 # Document Chunking (PDFs, Word Docs)
 engine.submit_task(
-    target_path="/home/apps/workspace/docs/architecture.pdf",
+    target_path="${WORKSPACE_ROOT}/docs/architecture.pdf",
     is_codebase=False,
     provenance={"agent_id": "orchestrator"},
     task_type="document",
@@ -88,7 +88,7 @@ engine.submit_task(
 
 # Research Paper Parsing
 engine.submit_task(
-    target_path="/home/apps/workspace/papers/attention_is_all_you_need.pdf",
+    target_path="${WORKSPACE_ROOT}/papers/attention_is_all_you_need.pdf",
     is_codebase=False,
     provenance={"agent_id": "orchestrator"},
     task_type="paper",
@@ -170,20 +170,20 @@ for step in result.step_results:
 
 ```
 # List all available workflows
-graph_orchestrate(action="list_workflows")
+graph_workflows(action="list")
 
 # Execute a stored workflow
-graph_orchestrate(action="execute_workflow", agent_name="container_health_check")
+graph_workflows(action="execute", workflow="container_health_check")
 
 # Compile a new workflow from natural language
-graph_orchestrate(
-    action="compile_workflow",
-    agent_name="my_research_flow",
+graph_workflows(
+    action="compile",
+    name="my_research_flow",
     task="Search for papers on transformers, summarize top 3, then create a report"
 )
 
 # Export a workflow as JSON
-graph_orchestrate(action="export_workflow", agent_name="container_health_check")
+graph_workflows(action="export", workflow="container_health_check", export_format="json")
 ```
 
 ## 5. Dynamic Agent Execution (`run_agent`)

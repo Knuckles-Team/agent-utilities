@@ -1,16 +1,9 @@
-"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime / ORCH-1.13 — RLM-GEPA live entry-point glue.
+"""CONCEPT:AU-ORCH.execution.predict-rlm-runtime — live Predict-RLM entry point.
 
-`gepa.py` (`GEPAOptimizer`) and `predict_rlm.py` (`PredictRLM`) were previously library-only —
-invoked manually, with no MCP/CLI/agent path reaching them (a Wire-First violation that left the
-RLM-GEPA optimization features unreachable). This module is the thin, import-connecting entry point:
-
-- :func:`run_rlm` — run the Predict-RLM runtime on an ad-hoc ``task`` over free-form ``input_text``,
-  building a dynamic single-output signature so the RLM is callable without a hand-written schema.
-- :func:`optimize_rlm_skill` — drive the GEPA loop over a small in-memory dataset with a default
-  pass/contains evaluator, returning the best candidate prompt.
-
-Both are reached from `graph_orchestrate(action="rlm_run" | "rlm_optimize")` (and a CLI), putting
-`PredictRLM` and `GEPAOptimizer` ≤3 hops from a live entry point.
+The RLM runtime executes bounded recursive inference through :func:`run_rlm`.
+Program optimization is a separate native epistemic-graph responsibility exposed
+through ``graph_evolution action=optimize_component``; this module contains no prompt
+optimizer or alternate model stack.
 """
 
 from __future__ import annotations
@@ -98,81 +91,3 @@ async def run_rlm(
         failure = classify_failure(e)
         logger.debug("run_rlm failed (%s): %s", failure, e)
         return {"ok": False, "error": str(e), "failure_class": failure, "task": task}
-
-
-def _default_evaluator(instance: Any, prediction: Any, prompt: str) -> dict[str, Any]:
-    """Default GEPA evaluator: substring/exact match of the reference in the prediction.
-
-    Returns ``{"score": float, "feedback": str}`` — the textual feedback the proposer reflects on.
-    """
-    ref = str(getattr(instance, "reference_output", "") or "")
-    pred = str(prediction)
-    hit = bool(ref) and ref.lower() in pred.lower()
-    return {
-        "accuracy": 1.0 if hit else 0.0,
-        "efficiency": 1.0 / (1 + len(prompt) / 1000.0),
-        "feedback": "matched reference" if hit else f"missing reference {ref[:40]!r}",
-    }
-
-
-async def optimize_rlm_skill(
-    base_prompt: str,
-    dataset: list[dict[str, Any]],
-    *,
-    signature: type[BaseModel] | None = None,
-    iterations: int = 2,
-    batch_size: int = 5,
-    config: RLMConfig | None = None,
-    graph_deps: Any = None,
-    agent_spec: Any = None,
-    dev_fraction: float = 0.3,
-    persist_run_id: str | None = None,
-) -> dict[str, Any]:
-    """Optimize a skill prompt via the GEPA loop (CONCEPT:AU-ORCH.optimization.optimize-skill-prompt-gepa entry point).
-
-    ``dataset`` rows are ``{"input": ..., "reference": ...}``. By default this **enables the
-    generalizing-GEPA held-out split** (``dev_fraction=0.3``, ORCH-1.30) so the returned candidate is
-    selected on unseen data, threads an optional ``agent_spec`` (ORCH-1.30 grounding), and — when
-    ``persist_run_id`` is given — **persists the Pareto frontier** to the epistemic-graph for
-    resumable optimization (ORCH-1.31). Best-effort: failures return ``{"ok": False, "error": ...}``.
-    """
-    from .gepa import GEPAInstance, GEPAOptimizer
-
-    sig = signature or _dynamic_signature(base_prompt)
-    try:
-        instances = [
-            GEPAInstance(
-                id=str(row.get("id", i)),
-                input_data={"input_text": row.get("input", "")},
-                reference_output=row.get("reference", ""),
-            )
-            for i, row in enumerate(dataset)
-        ]
-        opt = GEPAOptimizer(
-            signature_class=sig,
-            base_prompt=base_prompt,
-            evaluator_fn=_default_evaluator,
-            config=config or RLMConfig(),
-            graph_deps=graph_deps,
-            agent_spec=agent_spec,  # ORCH-1.30 anti-overfit grounding
-        )
-        if persist_run_id:  # ORCH-1.31 — resume a prior frontier if one exists
-            await opt.resume_frontier(persist_run_id)
-        best = await opt.optimize(
-            instances,
-            iterations=iterations,
-            batch_size=batch_size,
-            dev_fraction=dev_fraction,  # ORCH-1.30 held-out selection (on by default)
-        )
-        if persist_run_id:  # ORCH-1.31 — persist the resulting frontier
-            await opt.persist_frontier(persist_run_id)
-        return {
-            "ok": True,
-            "best_prompt": best.prompt_text,
-            "scores": best.scores,
-            "generation": best.generation,
-            "dev_fraction": dev_fraction,
-        }
-    except Exception as e:  # noqa: BLE001 - entry surface must not raise
-        logger.debug("optimize_rlm_skill failed: %s", e)
-        return {"ok": False, "error": str(e)}

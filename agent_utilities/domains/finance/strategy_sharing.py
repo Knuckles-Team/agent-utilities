@@ -227,7 +227,7 @@ class StrategyRegistry:
         import uuid
 
         forked = StrategyCard(
-            card_id=f"fork:{uuid.uuid4().hex[:8]}",
+            card_id=f"fork:{uuid.uuid4().hex}",
             name=f"{original.name} (Fork)",
             author=new_author,
             description=f"Forked from {original.author}'s {original.name}",

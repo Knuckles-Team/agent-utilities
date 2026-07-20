@@ -56,8 +56,8 @@ continuity model (recall + persist), without a parallel orchestrator. See
 
 | Surface | Entry | Reaches the seam via | Through `run_agent`? | Memory + provenance |
 |---|---|---|---|---|
-| **graph-os MCP** | `graph_orchestrate(action='execute_agent')` | `mcp/tools/analysis_tools.py:1886` → `Orchestrator.execute_agent` (`orchestration/manager.py:103`) → `run_agent` | ✅ direct | ✅ full (prime + RunTrace + ToolCall) |
-| **graph-os MCP (workflow)** | `graph_orchestrate(action='execute_workflow')` | `analysis_tools.py:2034` → `Orchestrator.execute_workflow` → `workflows/runner.py::WorkflowRunner` → `run_agent` per step | ✅ per step | ✅ full per step |
+| **graph-os MCP** | `graph_orchestrate(...)` | `mcp/tools/analysis_tools.py` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full (prime + RunTrace + ToolCall) |
+| **graph-os MCP (workflow)** | `graph_workflows(action='execute')` | `mcp/tools/workflow_tools.py` → `Orchestrator.execute_workflow` → `workflows/runner.py::WorkflowRunner` → `run_agent` per step | ✅ per step | ✅ full per step |
 | **messaging** (Telegram live; Mattermost, Discord, Slack, Signal, Teams, Matrix, IRC, … 18 backends) | `Backend.listen()` → `InboundRouter._dispatch` (`messaging/router.py:273`) → planner default handler (`daemon.py:47`) | `messaging/router.py:880` → `Orchestrator.execute_agent` → `run_agent` | ✅ direct | ✅ full + `_persist_and_enrich` writes the per-channel memento (`router.py:447/596`) |
 | **agent-webui / agent-terminal-ui** (separate repos) | `POST /ag-ui`, `POST /stream` on the gateway | `server/routers/agent_ui.py` → `execute_graph_iter` → `AgentOrchestrationEngine.iter_graph` (the **same** graph) | ⚠️ **No** (streaming) — but now joins the same continuity seam via **`session_continuity`** (ORCH-1.104) | ✅ after ORCH-1.104: `prime_session_context` (recall) + `persist_session_turn` (RunTrace + memento) |
 | **dedicated `agent_server.py`** | `server/__init__.py::create_agent_server` / `_run_agent_server` | This **is** the gateway that hosts `/ag-ui` + the MCP — it does **not** duplicate orchestration; it serves the routers above | — | inherits the surfaces' wiring |

@@ -10,5 +10,5 @@ generation (`flux.2` and Stable Diffusion 3.5, selectable backends), and video g
 - **Source Code**: `agent_utilities/ecosystem/media/gateway.py`,
   `agent_utilities/tools/media_tools.py`
 - **Services**: `services/xtts`, `services/flux.2`, `services/stable-diffusion`,
-  `services/hunyuanvideo` (GB10, swarm-launcher pattern)
+  a runtime-configured video service (swarm-launcher pattern)
 - **Pillar**: ECO

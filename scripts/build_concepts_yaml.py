@@ -3,14 +3,14 @@
 
 This is the *reproducible generator* for the single source of truth
 ``docs/concepts.yaml``. It walks ``agent_utilities/`` for ``*.py`` and ``*.rs``
-files, extracts every ``CONCEPT:<PILLAR>-<n>[.<m>]`` marker, and emits one entry
+files, extracts every canonical OKF-CIS marker, and emits one entry
 per unique concept id:
 
     {id, name, pillar, status: live, code_paths: [...], doc: "<one-line>"}
 
-The pillar is derived mechanically from the id prefix (the ``<PILLAR>-<n>``
-segment, e.g. ``ORCH-1``, ``KG-2``, ``AHE-3``). ``doc`` is a best-effort
-one-liner taken from the nearest descriptive text attached to a marker.
+The pillar is derived mechanically from ``<SLUG>-<PILLAR>``. ``doc`` is a
+best-effort one-liner taken from the nearest descriptive text attached to a
+marker.
 
 Run:  python scripts/build_concepts_yaml.py
 """
@@ -32,15 +32,15 @@ OUT_PATH = ROOT / "docs" / "concepts.yaml"
 # Adding ROOT lets this resolve to the local source even without an install.
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
-from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    observed_project_namespaces,
-    parse_concept_id,
-)
+from agent_utilities.governance.concept_hierarchy import parse_okf_id  # noqa: E402
 
-# Pillar is the leading "<LETTERS>-<digits>" segment of the id.
-# OKF-CIS (CONCEPT:AU-OS.governance.concept-2): the pillar group of an id is its SLUG-PILLAR prefix
-# (e.g. AU-KG, EG-KG), so concepts.yaml groups by owning-repo + global pillar.
-PILLAR_RE = re.compile(r"^([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT))")
+_PRIVATE_DOC_PATTERNS = (
+    re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+    re.compile(r"\b[A-Za-z]:\\"),
+    re.compile(r"(?:^|\s)/(?:home|Users|mnt|root|tmp|var|srv|opt|etc|workspace)/"),
+    re.compile(r"\b(?:https?|wss?|tcp|udp|ssh|unix)://", re.IGNORECASE),
+    re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
+)
 
 
 def _clean_doc(rest: str) -> str:
@@ -57,6 +57,11 @@ def _clean_doc(rest: str) -> str:
         if idx != -1:
             text = text[:idx]
     text = text.strip(" .,—-–\t")
+    # Concept documentation is persisted and distributed. If the nearest
+    # source comment contains an endpoint, machine path, address, or identity
+    # shape, discard that prose and let the caller use the neutral concept id.
+    if any(pattern.search(text) for pattern in _PRIVATE_DOC_PATTERNS):
+        return ""
     return text
 
 
@@ -78,8 +83,8 @@ def collect() -> dict[str, dict]:
             # descriptive text is the remainder of the same line.
             rest = content[m.end() :].split("\n", 1)[0]
             doc = _clean_doc(rest)
-            pillar_match = PILLAR_RE.match(cid)
-            pillar = pillar_match.group(1) if pillar_match else cid
+            parsed = parse_okf_id(cid)
+            pillar = f"{parsed.slug}-{parsed.pillar}"
             entry = concepts.setdefault(
                 cid,
                 {
@@ -95,38 +100,18 @@ def collect() -> dict[str, dict]:
             # Prefer the longest, most descriptive doc string seen.
             if len(doc) > len(entry["doc"]):
                 entry["doc"] = doc
-    # Finalize: derive name from doc (or id), sort code_paths, and project the
-    # 3-level hierarchy (CONCEPT:AU-OS.governance.concept-hierarchy-standardization / B5). The dotted/alias/canonical_pillar
-    # keys are ADDITIVE — existing consumers that read only ``id`` are unaffected.
-    observed = observed_project_namespaces(list(concepts))
+    # Finalize deterministic current-schema entries.
     for cid, entry in concepts.items():
         entry["code_paths"] = sorted(entry["code_paths"])
         entry["name"] = entry["doc"] if entry["doc"] else cid
         if not entry["doc"]:
             entry["doc"] = cid
-        try:
-            parsed = parse_concept_id(cid, observed_project_ns=observed)
-            entry["dotted"] = parsed.canonical
-            entry["aliases"] = list(parsed.aliases)
-            entry["canonical_pillar"] = (
-                f"{parsed.namespace}-{parsed.pillar}"
-                if parsed.is_project
-                else parsed.namespace
-            )
-            entry["needs_curation"] = parsed.needs_curation
-        except ValueError:
-            entry["dotted"] = cid
-            entry["aliases"] = [cid]
-            entry["canonical_pillar"] = entry["pillar"]
-            entry["needs_curation"] = False
     return concepts
 
 
 def _concept_sort_key(cid: str):
-    pillar_match = PILLAR_RE.match(cid)
-    pillar = pillar_match.group(1) if pillar_match else cid
-    nums = re.findall(r"\d+", cid)
-    return (pillar, [int(n) for n in nums], cid)
+    parsed = parse_okf_id(cid)
+    return (parsed.slug, parsed.pillar, *parsed.segments)
 
 
 def build() -> dict:

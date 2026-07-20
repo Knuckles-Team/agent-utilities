@@ -80,11 +80,16 @@ class FakeKVBackend:
 
 
 def _actor(**kw) -> ActorContext:
-    return ActorContext(actor_id="agent:test", actor_type=ActorType.AI_AGENT, **kw)
+    kw.setdefault("tenant_id", "tenant-test")
+    kw.setdefault("authenticated", True)
+    return ActorContext(actor_id="principal:test", actor_type=ActorType.AI_AGENT, **kw)
 
 
 def _session(*, policy_version: str = "v1", **kw) -> GraphSession:
-    return GraphSession(actor=_actor(**kw), policy_version=policy_version)
+    actor = _actor(**kw)
+    return GraphSession(
+        actor=actor, tenant=actor.tenant_id, policy_version=policy_version
+    )
 
 
 _NODES = [

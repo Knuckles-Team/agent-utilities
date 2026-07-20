@@ -277,7 +277,7 @@ class BaseBrowserAuthManager:
             try:
                 tokens = self.refresh_tokens(tokens)
             except Exception as exc:
-                logger.error("Proactive token refresh failed: %s", exc)
+                logger.error("Proactive token refresh failed (%s)", type(exc).__name__)
                 return None
 
         return tokens.get("access_token")

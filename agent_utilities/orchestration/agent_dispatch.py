@@ -14,7 +14,7 @@ orchestrator job) onto the SAME durable task-queue stack the KG ingest plane
 already scales on (CONCEPT:AU-KG.backend.selectable-queue-backend/2.56/2.57):
 
 * the queue carries a small typed :class:`AgentTurnEnvelope` — REFERENCES only
-  (``payload_ref`` points at the goal/Task record in the shared state store or
+  (``payload_ref`` points at the goal/WorkItem in the shared state store or
   graph); large bodies never ride the queue;
 * the partition key is the **session id** (see
   :func:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.partition_key_for`)
@@ -35,10 +35,8 @@ serialization and uniform load spreading, so a placer would add a coordination
 point and a failure mode without adding correctness. Affinity-aware placement
 (HRW on warm caches) is future work layered on the same envelope.
 
-Selection is one AgentConfig flag — ``agent_dispatch_backend``
-(``AGENT_DISPATCH_BACKEND``): ``inline`` (default — the existing in-process
-behavior, byte-for-byte) or ``queue`` (dispatch returns a job handle and a
-worker fleet executes). The queue *transport* reuses the KG-2.55 resolution
+Agent dispatch is always queue-backed: dispatch returns a job handle and a
+worker fleet executes it. The queue *transport* reuses the KG-2.55 resolution
 (``TASK_QUEUE_BACKEND``/auto): Kafka topic ``agent_turns``, Postgres SKIP
 LOCKED table ``agent_dispatch_queue``, or the zero-infra per-host SQLite file.
 """
@@ -60,20 +58,21 @@ logger = logging.getLogger(__name__)
 AGENT_TURNS_TOPIC = "agent_turns"
 DISPATCH_GROUP = "agent-dispatch"
 
-#: Accepted ``AGENT_DISPATCH_BACKEND`` values.
-AGENT_DISPATCH_BACKENDS = ("inline", "queue")
-
 #: Envelope kinds the dispatch workers know how to execute.
 KIND_GOAL_LOOP = "goal_loop"
 KIND_ORCHESTRATOR_TASK = "orchestrator_task"
+
+
+class DispatchQueueFull(RuntimeError):
+    """The bounded dispatch queue rejected a new turn."""
 
 
 class AgentTurnEnvelope(BaseModel):
     """One dispatched agent turn on the ``agent_turns`` queue.
 
     CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the queue carries references, not bodies: the durable
-    record (the ``goals``/``sessions`` rows for a goal run, the ``:Task`` graph
-    node for an orchestrator job) is the payload's source of truth, addressed
+    record (the ``goals``/``sessions`` rows for a goal run, the WorkItem for an
+    orchestrator job) is the payload's source of truth, addressed
     by ``payload_ref``. ``job_id`` doubles as the idempotency key — redelivery
     of an already-claimed/finished job is skipped by the worker's claim check
     (at-least-once delivery, idempotent claims).
@@ -95,14 +94,9 @@ class AgentTurnEnvelope(BaseModel):
     payload_ref: str = ""
     agent_name: str = ""
     tenant: str = ""
-    #: Claim priority as the ONE discrete bucket (0=critical .. 3=background),
-    #: identical to a ``:Task``'s ``prio_bucket`` (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task). Replaces
-    #: the former bespoke ``priority: str = "normal"``; the validator coerces an
-    #: int, a numeric string, or the legacy ``critical``/``high``/``normal``/
-    #: ``background``/``low`` strings through the single shared normalizer, so a
-    #: dispatched turn and an ingest task speak the same priority language and a
-    #: turn promoted to a ``:Task`` (e.g. an orchestrator job) carries the bucket
-    #: straight into the engine-CAS claim. No string-only path remains.
+    #: Claim priority as the ONE discrete integer bucket (0=critical ..
+    #: 3=background), identical to the WorkItem ``prio_bucket``
+    #: (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
     prio_bucket: int = 2
     deadline_unix: float | None = None
     attempt: int = 0
@@ -111,7 +105,7 @@ class AgentTurnEnvelope(BaseModel):
     @field_validator("prio_bucket", mode="before")
     @classmethod
     def _coerce_prio(cls, v: Any) -> int:
-        """Normalize any priority spec to the shared 0..3 bucket.
+        """Validate the shared integer priority bucket.
 
         Lazy-imports ``_coerce_prio_bucket`` (the single normalizer) to avoid a
         construction-time import cycle with the engine module — the same pattern
@@ -133,26 +127,6 @@ class AgentTurnEnvelope(BaseModel):
         return cls.model_validate(item)
 
 
-def resolve_dispatch_backend(config: Any = None) -> str:
-    """Resolve ``agent_dispatch_backend`` to ``inline`` or ``queue``."""
-    if config is None:
-        from agent_utilities.core.config import config as _cfg
-
-        config = _cfg
-    raw = str(getattr(config, "agent_dispatch_backend", "inline") or "inline")
-    choice = raw.strip().lower()
-    if choice not in AGENT_DISPATCH_BACKENDS:
-        raise ValueError(
-            f"AGENT_DISPATCH_BACKEND={choice!r} is not one of {AGENT_DISPATCH_BACKENDS}"
-        )
-    return choice
-
-
-def dispatch_queue_enabled(config: Any = None) -> bool:
-    """True when agent dispatch is queue-backed (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch)."""
-    return resolve_dispatch_backend(config) == "queue"
-
-
 # ── queue construction ─────────────────────────────────────────────────────
 
 _queue_lock = threading.Lock()
@@ -166,8 +140,7 @@ def create_dispatch_queue(config: Any = None) -> Any:
     queue technology: the SAME ``TASK_QUEUE_BACKEND``/auto resolution picks
     kafka (keyed ``agent_turns`` topic), postgres (SKIP LOCKED claims on the
     ``agent_dispatch_queue`` table of the shared state store), or the per-host
-    SQLite file. Fail-loud semantics follow the ingest queue: an explicitly
-    selected kafka/postgres transport that is unreachable raises
+    SQLite file. A configured kafka/postgres transport that is unreachable raises
     :class:`~agent_utilities.knowledge_graph.core.queue_backend.TaskQueueUnavailable`.
     """
     from agent_utilities.knowledge_graph.core.queue_backend import (
@@ -179,8 +152,8 @@ def create_dispatch_queue(config: Any = None) -> Any:
 
         config = _cfg
 
-    choice, explicit = resolve_task_queue_backend(config)
-    fallback_db_path = _sqlite_queue_path()
+    choice = resolve_task_queue_backend(config)
+    sqlite_db_path = _sqlite_queue_path()
 
     if choice == "kafka":
         from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
@@ -188,9 +161,7 @@ def create_dispatch_queue(config: Any = None) -> Any:
         )
 
         return KafkaQueueBackend(
-            fallback_db_path=None if explicit else fallback_db_path,
             bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-            fail_loud=explicit,
             partitions=int(getattr(config, "agent_turns_partitions", 6) or 6),
             tasks_topic=AGENT_TURNS_TOPIC,
             consumer_group=DISPATCH_GROUP,
@@ -207,23 +178,15 @@ def create_dispatch_queue(config: Any = None) -> Any:
             )
 
             return PostgresTaskQueue(queue_table="agent_dispatch_queue")
-        except Exception as e:  # noqa: BLE001 — explicit ⇒ fail loud, auto ⇒ degrade
-            if explicit:
-                raise TaskQueueUnavailable(
-                    "TASK_QUEUE_BACKEND=postgres is explicitly selected but the "
-                    "agent dispatch queue cannot reach the state-store Postgres "
-                    f"({getattr(config, 'state_db_uri', None)!r}): {e}. Fix "
-                    "STATE_DB_URI / the database, or unset TASK_QUEUE_BACKEND."
-                ) from e
-            logger.warning(
-                "STATE_DB_URI set but the Postgres dispatch queue is unavailable "
-                "(%s) — falling back to the per-host SQLite dispatch queue.",
-                e,
-            )
+        except Exception as e:  # noqa: BLE001 - fail closed at the authority boundary
+            raise TaskQueueUnavailable(
+                "configured Postgres dispatch authority is unavailable "
+                f"(error_type={type(e).__name__})"
+            ) from None
 
     from agent_utilities.knowledge_graph.core.engine_tasks import SQLiteTaskQueue
 
-    return SQLiteTaskQueue(fallback_db_path)
+    return SQLiteTaskQueue(sqlite_db_path)
 
 
 def _sqlite_queue_path() -> str:
@@ -249,12 +212,16 @@ def reset_dispatch_queue_for_tests(queue: Any = None) -> None:
 
 
 def dispatch_queue_depth(queue: Any = None) -> int:
-    """Unclaimed ``agent_turns`` depth (Kafka = consumer-group lag)."""
+    """Return authoritative ``agent_turns`` depth.
+
+    Probe failures propagate. Treating an unavailable depth authority as zero
+    would disable admission control precisely when the queue is unhealthy.
+    """
     q = queue if queue is not None else get_dispatch_queue()
-    try:
-        return int(q.get_queue_size())
-    except Exception:  # noqa: BLE001 — depth probe is best-effort
-        return 0
+    depth = int(q.get_queue_size())
+    if depth < 0:
+        raise RuntimeError("dispatch queue returned a negative depth")
+    return depth
 
 
 # ── enqueue ────────────────────────────────────────────────────────────────
@@ -266,20 +233,72 @@ def enqueue_agent_turn(
     """Publish one agent turn and return its job handle.
 
     The handle is what queue-mode dispatch returns to the caller instead of
-    executing in-process: poll the existing ``graph_orchestrate action=status``
-    / ``/api/graph/orchestrate/job/{job_id}`` surface (orchestrator jobs) or
+    executing in-process: poll ``graph_jobs action=status`` or the collapsed
+    ``/api/graph/jobs`` REST surface (orchestrator jobs), or
     the goals API (goal runs) for progress and the executing worker/host.
     """
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+    from agent_utilities.orchestration.work_item import (
+        cancel_work_item,
+        submit_work_item,
+    )
+
+    session = resolve_session(required_scope="kg:write")
+    tenant = envelope.tenant or session.tenant
+    if envelope.tenant and envelope.tenant != session.tenant:
+        raise PermissionError("AgentTurnEnvelope tenant differs from GraphSession")
+    envelope.tenant = tenant
     q = queue if queue is not None else get_dispatch_queue()
-    q.put(envelope.to_item())
+    from agent_utilities.core.config import config
+
+    max_depth = int(config.agent_dispatch_max_depth)
+    if dispatch_queue_depth(q) >= max_depth:
+        raise DispatchQueueFull("agent dispatch queue is at its admission bound")
+
+    engine = IntelligenceGraphEngine.get_or_create()
+    work_item_id = f"workitem:dispatch:{envelope.job_id}"
+    submit_work_item(
+        engine,
+        kind="agent_turn",
+        payload_ref=envelope.payload_ref,
+        tenant=tenant,
+        priority=envelope.prio_bucket,
+        deadline_unix=envelope.deadline_unix,
+        resource_class="agent_dispatch",
+        fairness_group=envelope.session_id,
+        work_item_id=work_item_id,
+        idempotency_key=envelope.job_id,
+    )
+    try:
+        accepted = q.put_if_below(envelope.to_item(), max_depth)
+    except Exception:
+        if not cancel_work_item(
+            engine, work_item_id, reason="dispatch_queue_admission_failed"
+        ):
+            raise RuntimeError(
+                "dispatch queue admission failed and WorkItem rollback was rejected"
+            ) from None
+        raise
+    if not accepted:
+        if not cancel_work_item(
+            engine, work_item_id, reason="dispatch_queue_capacity_rejected"
+        ):
+            raise RuntimeError(
+                "dispatch queue capacity rejection could not cancel its WorkItem"
+            )
+        raise DispatchQueueFull("agent dispatch queue is at its admission bound")
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
     logger.info(
-        "Agent turn enqueued: job=%s session=%s kind=%s",
-        envelope.job_id,
-        envelope.session_id,
+        "Agent turn enqueued: job_ref=%s session_ref=%s kind=%s",
+        bus_reference("dispatch_job", envelope.job_id, tenant=tenant),
+        bus_reference("session", envelope.session_id, tenant=tenant),
         envelope.kind,
     )
     return {
         "job_id": envelope.job_id,
+        "work_item_id": work_item_id,
         "session_id": envelope.session_id,
         "kind": envelope.kind,
         "dispatch": "queued",
@@ -350,9 +369,9 @@ def record_dispatch_worker_heartbeat(
     workers). ``/api/fleet/topology`` surfaces these rows.
     """
     import json as _json
-    import socket as _socket
 
     from agent_utilities.core import sessions as _sessions
+    from agent_utilities.messaging.bus_privacy import bus_reference
 
     now = time.time()
     conn = _sessions._connect_db()
@@ -373,7 +392,7 @@ def record_dispatch_worker_heartbeat(
             """,
             (
                 worker_id,
-                host or _socket.gethostname(),
+                bus_reference("dispatch_host", host or worker_id),
                 int(capacity),
                 _json.dumps(list(active_sessions)),
                 queue_backend,

@@ -56,6 +56,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import random
 import time
 from collections import deque
@@ -230,6 +231,32 @@ def _cfg_value(cfg: dict[str, Any], key: str, fallback: Any) -> Any:
     return fallback if value is None else value
 
 
+def _bounded_int(value: Any, *, field: str, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} is outside the safety boundary")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} is outside the safety boundary") from None
+    if not minimum <= parsed <= maximum:
+        raise ValueError(f"{field} is outside the safety boundary")
+    return parsed
+
+
+def _bounded_float(
+    value: Any, *, field: str, minimum: float, maximum: float
+) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} is outside the safety boundary")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{field} is outside the safety boundary") from None
+    if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+        raise ValueError(f"{field} is outside the safety boundary")
+    return parsed
+
+
 class ChildRuntime:
     """Hardened call path + lifecycle supervisor for ONE child MCP server.
 
@@ -256,54 +283,88 @@ class ChildRuntime:
         self.name = name
         self.cfg = dict(cfg or {})
 
-        self.max_concurrency = int(
+        self.max_concurrency = _bounded_int(
             max_concurrency
             if max_concurrency is not None
             else _cfg_value(
                 self.cfg, "max_concurrency", config.mcp_child_max_concurrency
-            )
+            ),
+            field="max_concurrency",
+            minimum=1,
+            maximum=128,
         )
-        self.queue_timeout = float(
+        self.queue_timeout = _bounded_float(
             queue_timeout
             if queue_timeout is not None
-            else _cfg_value(self.cfg, "queue_timeout", config.mcp_child_queue_timeout)
+            else _cfg_value(self.cfg, "queue_timeout", config.mcp_child_queue_timeout),
+            field="queue_timeout",
+            minimum=0.001,
+            maximum=300.0,
         )
         # Per-call ceiling: reuses the server entry's existing ``timeout`` key
         # (historically the connect/handshake budget) unless a dedicated
         # ``call_timeout`` is given. <=0 disables the ceiling.
-        self.call_timeout = float(
-            _cfg_value(self.cfg, "call_timeout", self.cfg.get("timeout", 300.0))
+        self.call_timeout = _bounded_float(
+            _cfg_value(self.cfg, "call_timeout", self.cfg.get("timeout", 300.0)),
+            field="call_timeout",
+            minimum=0.001,
+            maximum=3_600.0,
         )
-        self.connect_timeout = float(self.cfg.get("timeout", 300.0))
-        self.max_restarts = int(
-            _cfg_value(self.cfg, "max_restarts", config.mcp_child_max_restarts)
+        self.connect_timeout = _bounded_float(
+            self.cfg.get("timeout", 300.0),
+            field="connect_timeout",
+            minimum=0.001,
+            maximum=3_600.0,
         )
-        self.restart_window = float(
-            _cfg_value(self.cfg, "restart_window", config.mcp_child_restart_window)
+        self.max_restarts = _bounded_int(
+            _cfg_value(self.cfg, "max_restarts", config.mcp_child_max_restarts),
+            field="max_restarts",
+            minimum=0,
+            maximum=100,
         )
-        self.restart_backoff_base = float(restart_backoff_base)
-        self.restart_backoff_cap = float(restart_backoff_cap)
+        self.restart_window = _bounded_float(
+            _cfg_value(self.cfg, "restart_window", config.mcp_child_restart_window),
+            field="restart_window",
+            minimum=0.001,
+            maximum=86_400.0,
+        )
+        self.restart_backoff_base = _bounded_float(
+            restart_backoff_base,
+            field="restart_backoff_base",
+            minimum=0.001,
+            maximum=300.0,
+        )
+        self.restart_backoff_cap = _bounded_float(
+            restart_backoff_cap,
+            field="restart_backoff_cap",
+            minimum=self.restart_backoff_base,
+            maximum=3_600.0,
+        )
 
         # Per-child circuit breaker (shared OS-5.23 state machine; thread-safe
         # by construction, trivially so on the multiplexer's single loop).
         self.breaker = ChildCircuitBreaker(
             name,
-            threshold=int(
+            threshold=_bounded_int(
                 _cfg_value(
                     self.cfg, "breaker_threshold", config.mcp_child_breaker_threshold
-                )
+                ),
+                field="breaker_threshold",
+                minimum=0,
+                maximum=100,
             ),
-            cooldown=float(
+            cooldown=_bounded_float(
                 _cfg_value(
                     self.cfg, "breaker_cooldown", config.mcp_child_breaker_cooldown
-                )
+                ),
+                field="breaker_cooldown",
+                minimum=0.001,
+                maximum=3_600.0,
             ),
         )
 
-        self._semaphore: asyncio.Semaphore | None = (
-            asyncio.Semaphore(self.max_concurrency)
-            if self.max_concurrency > 0
-            else None
+        self._semaphore: asyncio.Semaphore | None = asyncio.Semaphore(
+            self.max_concurrency
         )
         self._sessions: list[Any] = []
         self._rr_index = 0
@@ -326,7 +387,16 @@ class ChildRuntime:
         # service-authenticated child session is authed once at connect and its
         # result stream then stays open, so it must reconnect before the token
         # TTL elapses or in-flight calls wedge (CONCEPT:AU-OS.identity.so-jwt-protected-children).
-        self.session_max_age = session_max_age
+        self.session_max_age = (
+            None
+            if session_max_age is None
+            else _bounded_float(
+                session_max_age,
+                field="session_max_age",
+                minimum=0.001,
+                maximum=86_400.0,
+            )
+        )
         self._generation_started_at = 0.0
         # Set when a generation is torn down for a PLANNED token recycle (not a
         # crash): the supervisor then reconnects immediately without counting it
@@ -439,10 +509,8 @@ class ChildRuntime:
                     first.set_exception(e)
                     return
                 logger.warning(
-                    "Reconnect to child server '%s' failed: %s: %s",
-                    self.name,
+                    "Reconnect to child server failed (exception_type=%s)",
                     type(e).__name__,
-                    e,
                 )
             finally:
                 self._ready.clear()
@@ -725,9 +793,9 @@ class ChildRuntime:
         """One forwarding attempt (the body the retry loop wraps)."""
         try:
             self.breaker.before_call()
-        except _BreakerOpenSignal as signal:
+        except _BreakerOpenSignal:
             self._record("short_circuited")
-            raise MCPChildCircuitOpenError(self.name, str(signal)) from None
+            raise MCPChildCircuitOpenError(self.name, "circuit_open") from None
         # before_call() claims the single half-open probe slot when the
         # breaker is recovering; if this call dies before reaching the child
         # (busy/unavailable), the slot must be returned — as a failed probe,

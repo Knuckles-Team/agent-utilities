@@ -12,6 +12,7 @@ changed/new files are re-processed, saving both I/O and LLM tokens.
 
 import hashlib
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -38,6 +39,7 @@ from .extractor import KBExtractor
 from .parser import KBDocumentParser
 
 logger = logging.getLogger(__name__)
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _now() -> str:
@@ -56,6 +58,13 @@ def _article_id(kb_id: str, title: str) -> str:
 def _source_id(file_path: str) -> str:
     h = hashlib.sha256(file_path.encode()).hexdigest()[:12]
     return f"raw:{h}"
+
+
+def _canonical_node_dump(node: object) -> dict:
+    data = node.model_dump()  # type: ignore[attr-defined]
+    node_type = data.pop("type")
+    data["node_type"] = getattr(node_type, "value", node_type)
+    return data
 
 
 class KBIngestionEngine:
@@ -199,7 +208,7 @@ class KBIngestionEngine:
         sources_to_check = [
             n
             for n in self.graph.predecessors(kb_id)
-            if self.graph.nodes[n].get("type") == RegistryNodeType.RAW_SOURCE
+            if self.graph.nodes[n].get("node_type") == RegistryNodeType.RAW_SOURCE
         ]
 
         updated = 0
@@ -214,7 +223,7 @@ class KBIngestionEngine:
             try:
                 new_source = self.parser.parse_file(file_path)
                 if new_source and new_source.content_hash != old_hash:
-                    logger.info(f"Re-ingesting changed source: {file_path}")
+                    logger.info("Re-ingesting changed knowledge source")
                     # Update the source node
                     self.graph.nodes[source_id][
                         "content_hash"
@@ -225,7 +234,7 @@ class KBIngestionEngine:
                     )
                     updated += 1
             except Exception as e:
-                logger.warning(f"Failed to update source {file_path}: {e}")
+                logger.warning("Failed to update knowledge source (%s)", type(e).__name__)
 
         # Refresh the KB index
         await self._refresh_kb_index(kb_id)
@@ -271,7 +280,7 @@ class KBIngestionEngine:
                 "tags": self.graph.nodes[n].get("tags", []),
             }
             for n in self.graph.predecessors(kb_id)
-            if self.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE
+            if self.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE
         ]
 
         return await self.extractor.run_health_check(
@@ -306,7 +315,7 @@ class KBIngestionEngine:
 
         for n in list(self.graph.predecessors(kb_id)):
             node_data = self.graph.nodes[n]
-            if node_data.get("type") != RegistryNodeType.ARTICLE:
+            if node_data.get("node_type") != RegistryNodeType.ARTICLE:
                 continue
 
             importance = node_data.get("importance_score", 1.0)
@@ -362,7 +371,7 @@ class KBIngestionEngine:
         results = []
 
         for n, data in self.graph.nodes(data=True):
-            if data.get("type") != RegistryNodeType.ARTICLE:
+            if data.get("node_type") != RegistryNodeType.ARTICLE:
                 continue
 
             if kb_id:
@@ -381,7 +390,7 @@ class KBIngestionEngine:
                     (
                         t
                         for t in self.graph.successors(n)
-                        if self.graph.nodes.get(t, {}).get("type")
+                        if self.graph.nodes.get(t, {}).get("node_type")
                         == RegistryNodeType.KNOWLEDGE_BASE
                     ),
                     None,
@@ -403,43 +412,15 @@ class KBIngestionEngine:
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def search(
-        self, query: str, kb_id: str | None = None, top_k: int = 5
-    ) -> list[dict]:
-        """Alias for search_knowledge_base."""
-        return self.search_knowledge_base(query, kb_id=kb_id, top_k=top_k)
-
-    async def health_check(self, kb_id: str) -> dict:
-        """Alias for run_health_check."""
-        report = await self.run_health_check(kb_id)
-        return report.model_dump() if report else {}
-
-    async def ingest(
-        self, kb_id: str, source: str, name: str | None = None, **kwargs
-    ) -> dict:
-        """Legacy ingest alias for compatibility."""
-        # result is not awaited in some places, so we return a sync-like dict if possible
-        # but ingest_directory is async.
-        await self.ingest_directory(source, kb_name=kb_id, topic=name, **kwargs)
-        return {"status": "success", "job_id": "sync"}
-
-    def list_bases(self) -> list[dict]:
-        """Alias for list_knowledge_bases."""
-        return self.list_knowledge_bases()
-
     def get_article(self, article_id: str) -> dict | None:
         """Retrieve a specific article by ID."""
         # Per-id fetch (CONCEPT:AU-KG.ingest.never-scan-whole-graph) — never scan the whole graph to find one node.
         from ..core.bounded_read import get_node_data
 
         data = get_node_data(self.graph, article_id)
-        if data and data.get("type") == RegistryNodeType.ARTICLE:
+        if data and data.get("node_type") == RegistryNodeType.ARTICLE:
             return {"id": article_id, **data}
         return None
-
-    async def update(self, kb_id: str, **kwargs):
-        """Alias for update_kb."""
-        await self.update_kb(kb_id)
 
     # ------------------------------------------------------------------
     # Internal ingestion pipeline
@@ -473,7 +454,7 @@ class KBIngestionEngine:
             timestamp=timestamp,
             metadata=extra_metadata or {},
         )
-        self.graph.add_node(kb_id, **kb_node.model_dump())
+        self.graph.add_node(kb_id, **_canonical_node_dump(kb_node))
 
         articles_written = 0
         for source in sources:
@@ -541,8 +522,8 @@ class KBIngestionEngine:
             importance_score=0.5,
             timestamp=_now(),
         )
-        self.graph.add_node(source_id, **raw_node.model_dump())
-        self.graph.add_edge(source_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
+        self.graph.add_node(source_id, **_canonical_node_dump(raw_node))
+        self.graph.add_edge(source_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
 
         # Extract article with Pydantic AI (or fallback if LLM unavailable)
         kb_name = self.graph.nodes[kb_id].get("name", kb_id)
@@ -590,12 +571,12 @@ class KBIngestionEngine:
             importance_score=0.6,
             timestamp=_now(),
         )
-        article_dump = article_node.model_dump()
+        article_dump = _canonical_node_dump(article_node)
         article_dump["content_hash"] = content_hash
         self.graph.add_node(article_id, **article_dump)
-        self.graph.add_edge(article_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
-        self.graph.add_edge(article_id, source_id, type=RegistryEdgeType.COMPILED_FROM)
-        self.graph.add_edge(article_id, source_id, type=RegistryEdgeType.CITES)
+        self.graph.add_edge(article_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
+        self.graph.add_edge(article_id, source_id, relationship=RegistryEdgeType.COMPILED_FROM)
+        self.graph.add_edge(article_id, source_id, relationship=RegistryEdgeType.CITES)
 
         # Write KBConcept nodes
         for concept_name in extracted.concepts:
@@ -608,11 +589,11 @@ class KBIngestionEngine:
                     importance_score=0.5,
                     timestamp=_now(),
                 )
-                self.graph.add_node(concept_id, **concept_node.model_dump())
+                self.graph.add_node(concept_id, **_canonical_node_dump(concept_node))
                 self.graph.add_edge(
-                    concept_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB
+                    concept_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
                 )
-            self.graph.add_edge(article_id, concept_id, type=RegistryEdgeType.ABOUT)
+            self.graph.add_edge(article_id, concept_id, relationship=RegistryEdgeType.ABOUT)
 
         # Write KBFact nodes
         for fact in extracted.facts:
@@ -631,11 +612,11 @@ class KBIngestionEngine:
                 importance_score=fact.certainty * 0.6,
                 timestamp=_now(),
             )
-            fact_dump = fact_node.model_dump()
+            fact_dump = _canonical_node_dump(fact_node)
             fact_dump["content_hash"] = fact_hash
             self.graph.add_node(fact_id, **fact_dump)
-            self.graph.add_edge(fact_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
-            self.graph.add_edge(fact_id, source_id, type=RegistryEdgeType.CITES)
+            self.graph.add_edge(fact_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
+            self.graph.add_edge(fact_id, source_id, relationship=RegistryEdgeType.CITES)
 
         # Write BACKLINKS edges (deferred — titles may not exist yet)
         # These are resolved in _refresh_kb_index after all articles are written
@@ -651,7 +632,7 @@ class KBIngestionEngine:
         # Collect articles
         articles_data = []
         for n in self.graph.predecessors(kb_id):
-            if self.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE:
+            if self.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE:
                 node_data = self.graph.nodes[n]
                 from ...models.knowledge_base import ExtractedArticle
 
@@ -707,14 +688,14 @@ class KBIngestionEngine:
             importance_score=0.9,
             timestamp=_now(),
         )
-        self.graph.add_node(index_id, **index_node.model_dump())
-        self.graph.add_edge(index_id, kb_id, type=RegistryEdgeType.BELONGS_TO_KB)
+        self.graph.add_node(index_id, **_canonical_node_dump(index_node))
+        self.graph.add_edge(index_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
 
         # Add INDEXES_KB edges to all articles
         for n in self.graph.predecessors(kb_id):
-            if self.graph.nodes[n].get("type") == RegistryNodeType.ARTICLE:
+            if self.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE:
                 if not self.graph.has_edge(index_id, n):
-                    self.graph.add_edge(index_id, n, type=RegistryEdgeType.INDEXES_KB)
+                    self.graph.add_edge(index_id, n, relationship=RegistryEdgeType.INDEXES_KB)
 
         if self.backend:
             self._persist_node(index_id)
@@ -724,7 +705,7 @@ class KBIngestionEngine:
         if not self.backend or node_id not in self.graph.nodes:
             return
         data = dict(self.graph.nodes[node_id])
-        node_type = data.get("type", "")
+        node_type = data.get("node_type", "")
         if isinstance(node_type, RegistryNodeType):
             node_type = node_type.value
         # Map to DDL table names
@@ -744,12 +725,15 @@ class KBIngestionEngine:
             fields = {
                 k: v
                 for k, v in data.items()
-                if isinstance(v, str | int | float | bool) and k != "id"
+                if isinstance(k, str)
+                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and isinstance(v, str | int | float | bool)
+                and k != "id"
             }
 
             # Structural Deduplication: Use content_hash for isomorphism
             if "content_hash" in fields and table in ("Article", "KBFact"):
-                merge_key = f"content_hash: '{fields['content_hash']}'"
+                merge_key = "content_hash: $content_hash"
                 # Keep ID to be updated via SET
                 fields["id"] = node_id
             else:
@@ -758,5 +742,5 @@ class KBIngestionEngine:
             set_clause = ", ".join(f"n.{k} = ${k}" for k in fields)
             query = f"MERGE (n:{table} {{{merge_key}}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
-        except Exception as e:
-            logger.debug(f"Backend persist failed for {node_id}: {e}")
+        except Exception as exc:
+            logger.debug("Backend persist failed: error_type=%s", type(exc).__name__)

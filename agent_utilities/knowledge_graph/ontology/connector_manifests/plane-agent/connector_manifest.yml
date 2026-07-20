@@ -1,0 +1,200 @@
+connector: plane-agent
+ontology_source: plane
+schema_version: '1'
+resources:
+- name: Cycle
+  label: Cycle
+  id_prefix: cycle
+  relations: []
+- name: Issue
+  label: Issue
+  id_prefix: issue
+  relations:
+  - name: assignedTo
+    label: assigned to
+    target: Person
+    lpg_rel_type: ''
+  - name: hasLabel
+    label: has label
+    target: Label
+    lpg_rel_type: ''
+  - name: hasState
+    label: has state
+    target: ProjectState
+    lpg_rel_type: ''
+  - name: inCycle
+    label: in cycle
+    target: Cycle
+    lpg_rel_type: ''
+  - name: inModule
+    label: in module
+    target: Module
+    lpg_rel_type: ''
+- name: Label
+  label: Label
+  id_prefix: label
+  relations: []
+- name: Module
+  label: Module
+  id_prefix: module
+  relations: []
+- name: ProjectState
+  label: Project State
+  id_prefix: projectstate
+  relations: []
+- name: SoftwareProject
+  label: Software Project
+  id_prefix: softwareproject
+  relations:
+  - name: inWorkspace
+    label: in workspace
+    target: Workspace
+    lpg_rel_type: ''
+- name: Workspace
+  label: Workspace
+  id_prefix: workspace
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: plane-projects.updated
+  resource: project
+  description: "Watermark event for 'plane-projects' \u2014 advances on updated_at (mcp_source_presets.json)."
+identity:
+  id_field:
+    project: id
+  title_field:
+    project: name
+  text_field:
+    project: description
+  updated_field:
+    project: updated_at
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Cycle:
+    ontology_class: null
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  Issue:
+    ontology_class: Incident
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  Label:
+    ontology_class: null
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  Module:
+    ontology_class: Module
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  ProjectState:
+    ontology_class: SoftwareProject
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  SoftwareProject:
+    ontology_class: SoftwareProject
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+  Workspace:
+    ontology_class: null
+    fields:
+      endDate: xsd:string
+      identifier: xsd:string
+      priority: xsd:string
+      sequenceId: xsd:integer
+      startDate: xsd:string
+sync:
+- preset: plane-projects
+  server: plane-agent
+  tool: plane_projects
+  action: list_projects
+  records_path: data
+  id_field: id
+  title_field: name
+  text_field: description
+  updated_field: updated_at
+  pagination: null
+  doc_type: project
+  tool_schema_sha256: d9f601a73357bfa53b4bc761c1d72175f8b0f15cfc707191b5be4c0e4342873b
+  raw:
+    server: plane-agent
+    tool: plane_projects
+    action: list_projects
+    records_path: data
+    id_field: id
+    title_field: name
+    text_field: description
+    updated_field: updated_at
+    doc_type: project
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - plane_agent/connectors/mcp_source_presets.json
+  - plane_agent/connectors/tool_schema_fingerprints.json
+  - plane_agent/ontology/plane.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 71d6341b5dac59b067677455503df358bc0ad6c692237c54e35110b2623cea61
+    triple_count: 68
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: ZN_lBU8FNukZUdO-3p7gaAEi5cGmNkg8mNUk___q4hp31YsOviHV8t1JTVOoQLvJnvFhpiYYXQ6_lzS8UtgEDQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'belongsToProject' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Cycle.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Issue.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Label.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Module.ontology_class = 'Module' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ProjectState.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.SoftwareProject.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Workspace.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

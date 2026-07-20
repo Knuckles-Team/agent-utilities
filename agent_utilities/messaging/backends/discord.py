@@ -168,8 +168,8 @@ class DiscordBackend(MessagingBackend):
         @self._client.event
         async def on_ready() -> None:
             logger.info(
-                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] Discord connected as %s",
-                self._client.user,
+                "[CONCEPT:AU-ECO.messaging.native-backend-abstraction] "
+                "Discord connected"
             )
 
         # Start the bot in a background task

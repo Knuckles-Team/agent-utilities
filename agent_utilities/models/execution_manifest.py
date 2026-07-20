@@ -126,7 +126,7 @@ class ExecutionManifest(BaseModel):
         kg_template_id: If materialized from a KG SwarmTemplate.
     """
 
-    manifest_id: str = Field(default_factory=lambda: f"manifest:{uuid.uuid4().hex[:8]}")
+    manifest_id: str = Field(default_factory=lambda: f"manifest:{uuid.uuid4().hex}")
     name: str = ""
     agents: list[AgentSpec]
     synthesis: SynthesisSpec = Field(default_factory=SynthesisSpec)

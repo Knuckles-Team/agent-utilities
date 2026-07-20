@@ -8,6 +8,8 @@ is degraded, not a clean success.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent_utilities.orchestration.agent_runner import (
     _bind_skill_to_owning_server,
     _delegation_degraded,
@@ -65,7 +67,10 @@ def test_skill_binds_to_owning_server_with_mcp_suffix():
     _bind_skill_to_owning_server(
         eng,
         meta,
-        "/home/apps/workspace/agent-packages/agents/tunnel-manager/tunnel_manager/skills/tunnel-manager-remote-execution/SKILL.md",
+        str(
+            Path(__file__).resolve().parents[4]
+            / "agent-packages/agents/tunnel-manager/tunnel_manager/skills/tunnel-manager-remote-execution/SKILL.md"
+        ),
         "tunnel-manager-remote-execution",
     )
     assert meta["type"] == "server"  # now routes single-server (F1 selection applies)

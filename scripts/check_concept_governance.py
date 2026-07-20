@@ -39,23 +39,22 @@ Exit codes: 0 = governance OK (or no new concepts), 1 = violation(s).
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 DESIGN_DIR = ROOT / ".specify" / "design"
 
-# Same id grammar as the CI workflow / canonical marker regex: a dotless id
-# (SAFE-1), a dotted id (KG-2.101), or a letter-suffix id (KG-2.20g).
-# OKF-CIS cutover (CONCEPT:AU-OS.governance.concept-2): word-pillar grammar, >=2 dotted segments
-# (fixes the old single-segment `?` bug that dropped .concept.facet ids).
-CONCEPT_RE = re.compile(
-    r"(?<=CONCEPT:)([A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9]+(?:-[a-z0-9]+)*)+)"
+sys.path.insert(0, str(ROOT))
+from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
+    OKF_MARKER_RE,
+    is_valid_domain,
+    load_slug_registry,
+    parse_okf_id,
 )
-PILLAR_RE = re.compile(r"^[A-Z]+")
+
+CONCEPT_RE = OKF_MARKER_RE
 
 
 def _git(*args: str) -> str:
@@ -80,12 +79,12 @@ def _ref_exists(ref: str) -> bool:
     )
 
 
-def _merge_base(ref: str) -> "str | None":
+def _merge_base(ref: str) -> str | None:
     mb = _git("merge-base", ref, "HEAD")
     return mb or None
 
 
-def resolve_base(explicit: "str | None") -> "str | None":
+def resolve_base(explicit: str | None) -> str | None:
     """Pick the diff base: explicit override, else the nearest available trunk."""
     if explicit:
         if not _ref_exists(explicit):
@@ -99,8 +98,8 @@ def resolve_base(explicit: "str | None") -> "str | None":
     if not bases:
         return None
 
-    best_ref, best_mb = bases[0]
-    for ref, mb in bases[1:]:
+    best_mb = bases[0][1]
+    for _ref, mb in bases[1:]:
         is_ancestor = (
             subprocess.run(
                 ["git", "merge-base", "--is-ancestor", best_mb, mb],
@@ -111,22 +110,13 @@ def resolve_base(explicit: "str | None") -> "str | None":
             == 0
         )
         if is_ancestor:
-            best_ref, best_mb = ref, mb
+            best_mb = mb
     return best_mb
 
 
-def valid_pillars() -> "set[str]":
-    """Derive valid pillar prefixes from docs/concepts.yaml (self-maintaining)."""
-    try:
-        import yaml
-
-        data = yaml.safe_load(CONCEPTS_PATH.read_text(encoding="utf-8")) or {}
-        pillars = {p.split("-")[0] for p in data.get("pillars", [])}
-        if pillars:
-            return pillars
-    except Exception:  # noqa: BLE001 — fall back to documented defaults
-        pass
-    return {"ORCH", "KG", "AHE", "ECO", "OS", "SAFE", "EE", "ML"}
+def valid_slugs() -> set[str]:
+    """Return the exact registered repository slug set."""
+    return set(load_slug_registry().values())
 
 
 def _exists_at_base(concept: str, base: str) -> bool:
@@ -142,9 +132,9 @@ def _exists_at_base(concept: str, base: str) -> bool:
     )
 
 
-def new_concepts(base: str) -> "list[str]":
+def new_concepts(base: str) -> list[str]:
     diff = _git("diff", f"{base}...HEAD", "--unified=0")
-    added: "set[str]" = set()
+    added: set[str] = set()
     for line in diff.splitlines():
         if line.startswith("+") and not line.startswith("+++"):
             added.update(CONCEPT_RE.findall(line))
@@ -179,17 +169,20 @@ def main() -> int:
         print("No new CONCEPT: tags found. Governance check passed.")
         return 0
 
-    valid = valid_pillars()
-    violations: "list[str]" = []
+    slugs = valid_slugs()
+    violations: list[str] = []
     for concept in concepts:
-        m = PILLAR_RE.match(concept)
-        pillar = m.group(0) if m else ""
+        parsed = parse_okf_id(concept)
         if not has_design_doc(concept):
             violations.append(f"  {concept} - No design document references this concept")
-        if pillar not in valid:
+        if parsed.slug not in slugs:
             violations.append(
-                f"  {concept} - Invalid pillar prefix: {pillar} "
-                f"(must be one of: {' '.join(sorted(valid))})"
+                f"  {concept} - Unregistered repository slug: {parsed.slug}"
+            )
+        if not is_valid_domain(parsed.pillar, parsed.domain):
+            violations.append(
+                f"  {concept} - Domain {parsed.domain!r} is not registered "
+                f"for pillar {parsed.pillar}"
             )
 
     if violations:

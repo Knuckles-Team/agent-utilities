@@ -4,7 +4,6 @@ from agent_utilities.knowledge_graph.core.engine import (
     FocusedSubgraph,
     IntelligenceGraphEngine,
 )
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.codemap import CodemapArtifact, CodemapEdge, CodemapNode
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
 from agent_utilities.models.sdd import ImplementationPlan, Task, Tasks, TaskStatus
@@ -126,7 +125,7 @@ def test_implementation_plan_to_mermaid():
 def test_codemap_artifact_to_mermaid():
     artifact = CodemapArtifact(
         id="test-map",
-        prompt="Visualize code",
+        prompt_ref="pref:visualize",
         mode="smart",
         nodes=[
             CodemapNode(
@@ -153,19 +152,34 @@ def test_codemap_artifact_to_mermaid():
         edges=[CodemapEdge(source="f1", target="c1", type="contains")],
     )
     mermaid = artifact.to_mermaid()
-    assert "Codemap: Visualize code" in mermaid
+    # ``prompt_ref`` is an opaque persistence reference, not recoverable prompt
+    # content; the current renderer therefore uses the privacy-safe fixed title.
+    assert "title: Codemap" in mermaid
     # Account for sanitization
     assert 'f1[("main.py\n&#40;file&#41;")]' in mermaid
     assert 'f1 --> |"contains"| c1' in mermaid
 
 
 def test_kg_mermaid_generation():
-    graph = GraphComputeEngine(backend_type="rust")
-    graph.add_node("agent1", type="agent", name="Agent 1")
-    graph.add_node("mem1", type="memory", description="Some memory")
-    graph.add_edge("agent1", "mem1", type="CREATED")
+    class _GraphView:
+        def node_ids(self):
+            return ["agent1", "mem1"]
 
-    engine = IntelligenceGraphEngine(db_path=":memory:", graph=graph)
+        def _get_node_properties(self, node_id):
+            return {
+                "agent1": {"node_type": "agent", "name": "Agent 1"},
+                "mem1": {"node_type": "memory", "description": "Some memory"},
+            }[node_id]
+
+        def _get_all_edges(self):
+            return [("agent1", "mem1")]
+
+        def _get_edge_properties(self, source, target):
+            assert (source, target) == ("agent1", "mem1")
+            return {"relationship": "CREATED"}
+
+    engine = IntelligenceGraphEngine.__new__(IntelligenceGraphEngine)
+    engine.graph = _GraphView()
     mermaid = engine.generate_mermaid_graph()
 
     # Account for sanitization
@@ -265,7 +279,7 @@ def test_graph_plan_to_mermaid_failure():
 def test_codemap_artifact_to_mermaid_extended():
     artifact = CodemapArtifact(
         id="test-map",
-        prompt="Visualize code",
+        prompt_ref="pref:visualize",
         mode="smart",
         nodes=[
             CodemapNode(
@@ -343,7 +357,11 @@ def test_flowchart_builder_no_label():
 
 def test_codemap_json_methods():
     artifact = CodemapArtifact(
-        id="test-json", prompt="json test", mode="fast", nodes=[], edges=[]
+        id="test-json",
+        prompt_ref="pref:json",
+        mode="fast",
+        nodes=[],
+        edges=[],
     )
     json_str = artifact.to_json()
     assert "test-json" in json_str

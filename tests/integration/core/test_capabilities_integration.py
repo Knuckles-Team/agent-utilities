@@ -72,25 +72,29 @@ async def test_stuck_loop_repeated(mock_deps):
 
 
 @pytest.mark.asyncio
-async def test_hooks_tracing(mock_deps):
-    cap = HooksCapability(auto_graph_trace=True)
+async def test_hooks_are_in_process_only(mock_deps):
+    observed = []
+
+    def observe(input):
+        observed.append((input.event.value, input.args, input.result))
+
+    cap = HooksCapability(hooks=[observe])
     ctx = MagicMock(spec=RunContext)
     ctx.deps = mock_deps
 
     tool_def = ToolDefinition(name="test_tool", description="test")
     call = ToolCallPart(tool_name="test_tool", args={"a": 1}, tool_call_id="1")
 
-    # Before
     await cap.before_tool_execute(ctx, call=call, tool_def=tool_def, args={"a": 1})
-    mock_deps.graph_engine.graph.add_node.assert_called()
-    assert mock_deps.graph_engine.graph.add_node.call_args[0][0] == "1"
-
-    # After
     await cap.after_tool_execute(
         ctx, call=call, tool_def=tool_def, args={"a": 1}, result="done"
     )
-    # Verify result update
-    assert mock_deps.graph_engine.graph.nodes["1"]["result"] == "done"
+    assert observed == [
+        ("pre_tool_use", {"a": 1}, None),
+        ("post_tool_use", {"a": 1}, "done"),
+    ]
+    mock_deps.graph_engine.graph.add_node.assert_not_called()
+    assert mock_deps.graph_engine.graph.nodes == {}
 
 
 @pytest.mark.asyncio

@@ -13,10 +13,15 @@ clients, and SSL verification settings.
 
 
 import logging
-import os
-from typing import TYPE_CHECKING, Any, cast
+import math
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import config, setting
+from agent_utilities.core.model_runtime_auth import (
+    resolve_model_api_key,
+    resolve_model_headers,
+    validate_model_headers,
+)
 
 if TYPE_CHECKING:
     pass
@@ -47,6 +52,9 @@ GoogleModel = _load_model_class(
     ("pydantic_ai.models.google", "GoogleModel"),
     ("pydantic_ai.models.gemini", "GeminiModel"),
 )
+GoogleProvider = _load_model_class(
+    ("pydantic_ai.providers.google", "GoogleProvider"),
+)
 AnthropicModel = _load_model_class(
     ("pydantic_ai.models.anthropic", "AnthropicModel"),
     ("pydantic_ai.providers.anthropic", "AnthropicModel"),
@@ -59,9 +67,15 @@ MistralModel = _load_model_class(
     ("pydantic_ai.models.mistral", "MistralModel"),
     ("pydantic_ai.providers.mistral", "MistralModel"),
 )
+MistralProvider = _load_model_class(
+    ("pydantic_ai.providers.mistral", "MistralProvider"),
+)
 HuggingFaceModel = _load_model_class(
     ("pydantic_ai.models.huggingface", "HuggingFaceModel"),
     ("pydantic_ai.providers.huggingface", "HuggingFaceModel"),
+)
+HuggingFaceProvider = _load_model_class(
+    ("pydantic_ai.providers.huggingface", "HuggingFaceProvider"),
 )
 
 
@@ -88,6 +102,22 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
+
+def _validated_http_options(
+    timeout: float,
+    headers: dict | None,
+) -> tuple[float, dict[str, str] | None]:
+    """Bound model transport controls before any provider client is built."""
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+        or not 0 < float(timeout) <= 3_600
+    ):
+        raise ValueError("model timeout must be finite and between 0 and 3600 seconds")
+    if headers is None:
+        return float(timeout), None
+    return float(timeout), validate_model_headers(headers)
 
 
 def get_model_config(model_id: str | None = None) -> dict | None:
@@ -139,8 +169,8 @@ def _resolve_role_model(role: str):
         from agent_utilities.core.model_router import pick_adaptive
 
         return pick_adaptive(registry, role) or registry.pick_for_role(role)
-    except Exception as e:  # pragma: no cover - defensive
-        logging.getLogger(__name__).debug("Role resolution failed for %r: %s", role, e)
+    except Exception:  # pragma: no cover - defensive
+        logging.getLogger(__name__).debug("Role resolution failed")
         return None
 
 
@@ -150,7 +180,6 @@ def create_model(
     base_url: str | None = None,
     api_key: str | None = None,
     custom_headers: dict | None = None,
-    ssl_verify: bool | str = True,
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
@@ -181,7 +210,6 @@ def create_model(
         base_url=base_url,
         api_key=api_key,
         custom_headers=custom_headers,
-        ssl_verify=ssl_verify,
         timeout=timeout,
         role=role,
         reasoning_effort=reasoning_effort,
@@ -190,9 +218,14 @@ def create_model(
     try:
         from agent_utilities.harness.tracing import wrap_model_for_tracing
 
-        return wrap_model_for_tracing(model)
+        model = wrap_model_for_tracing(model)
     except Exception:  # pragma: no cover - never break model construction
-        return model
+        pass
+    # Context compilation is the outer, mandatory model boundary. Tracing is
+    # nested inside it so each generation observes the governed request.
+    from agent_utilities.core.contextual_model import wrap_model_with_context
+
+    return wrap_model_with_context(model)
 
 
 def _openai_reasoning_settings(effort: str | None) -> Any | None:
@@ -237,7 +270,6 @@ def _create_model_impl(
     base_url: str | None = None,
     api_key: str | None = None,
     custom_headers: dict | None = None,
-    ssl_verify: bool | str = True,
     timeout: float = 300.0,
     role: str | None = None,
     reasoning_effort: str | None = "none",
@@ -257,13 +289,13 @@ def _create_model_impl(
         base_url: Optional API endpoint override.
         api_key: Optional API key.
         custom_headers: Optional dictionary of HTTP headers for the LLM requests.
-        ssl_verify: Whether to verify SSL certificates for requests.
         timeout: Request timeout in seconds.
 
     Returns:
         A configured pydantic_ai.models.Model instance.
 
     """
+    timeout, custom_headers = _validated_http_options(timeout, custom_headers)
     if setting("AGENT_UTILITIES_TESTING") == "true":
         from pydantic_ai.models.test import TestModel
 
@@ -272,7 +304,6 @@ def _create_model_impl(
     # Per-model static headers + TLS accumulate here (registry ModelDefinition and/or
     # config.chat_models), applied to the client below. Empty/None ⇒ inherit the caller.
     _model_headers: dict[str, str] = {}
-    _model_ssl_verify: bool | str | None = None
     # Per-model reasoning-effort: starts as the caller's value; a config/registry override
     # (anything other than the ``"inherit"`` sentinel) replaces it — including an explicit
     # ``None`` that opts the model back into its native reasoning.
@@ -289,8 +320,6 @@ def _create_model_impl(
                 base_url = _resolved.base_url
             if getattr(_resolved, "headers", None):
                 _model_headers = dict(_resolved.headers)
-            if getattr(_resolved, "ssl_verify", None) is not None:
-                _model_ssl_verify = _resolved.ssl_verify
             if getattr(_resolved, "reasoning_effort", "inherit") != "inherit":
                 _reasoning_effort = _resolved.reasoning_effort
 
@@ -315,34 +344,62 @@ def _create_model_impl(
         # The model registry is the source of truth for WHERE a model is served:
         # a registered per-model base_url MUST win over a graph-level default that
         # the caller threads through for all roles. Otherwise a split deployment
-        # (e.g. router 'qwen-lite' on vllm-lite.arpa vs KG model on vllm.arpa) collapses
+        # (e.g. a lightweight router endpoint versus a KG model endpoint) collapses
         # onto one endpoint and the lite model 404s. Only honor a caller's base_url for
         # models the registry doesn't know about.
         if model_info.get("base_url"):
             base_url = model_info["base_url"]
-        if "api_key" in model_info and api_key is None:
-            api_key = model_info["api_key"]
+        if model_info.get("api_key_ref") and api_key is None:
+            api_key = model_info["api_key_ref"]
         if oauth2 is None and model_info.get("oauth2"):
             oauth2 = model_info["oauth2"]
         # Per-model static headers + TLS. config.chat_models is the source of truth for
         # WHERE/HOW a model is served (mirroring base_url above), so its values win over a
         # role-resolved ModelDefinition's; the caller's per-call custom_headers still win
         # over both (merged below).
-        if model_info.get("headers"):
-            _model_headers = {**_model_headers, **model_info["headers"]}
-        if model_info.get("ssl_verify") is not None:
-            _model_ssl_verify = model_info["ssl_verify"]
+        if model_info.get("headers_ref"):
+            _model_headers = {
+                **_model_headers,
+                **resolve_model_headers(reference=model_info["headers_ref"]),
+            }
         # Per-model reasoning-effort override (config.chat_models wins over the registry).
         # "inherit" (the default sentinel) leaves the caller's value; any other value —
         # including an explicit null/None to re-enable native reasoning — replaces it.
         if model_info.get("reasoning_effort", "inherit") != "inherit":
             _reasoning_effort = model_info["reasoning_effort"]
 
-    # Apply the resolved per-model TLS + static headers. Per-model ssl_verify (when set)
-    # overrides the caller/global default for THIS endpoint only; per-model headers sit
-    # UNDER any explicit call-site custom_headers.
-    if _model_ssl_verify is not None:
-        ssl_verify = _model_ssl_verify
+    api_key = resolve_model_api_key(value=api_key)
+
+    if _provider not in {
+        "anthropic",
+        "custom",
+        "deepseek",
+        "google",
+        "groq",
+        "huggingface",
+        "mistral",
+        "ollama",
+        "openai",
+        "proxy",
+    }:
+        raise ValueError("unsupported model provider")
+
+    # Apply the runtime TLS profile and static headers. Boolean/path TLS
+    # overrides are retired; trust anchors belong in the selected profile.
+    from agent_utilities.core.transport_security import (
+        TransportSecurityError,
+        resolve_configured_tls_profile,
+    )
+
+    tls_profile = resolve_configured_tls_profile(
+        "model",
+        profile_name=config.model_tls_profile,
+        profile_ref=config.model_tls_profile_ref,
+        config=config,
+    )
+    if tls_profile.proxy_url:
+        raise TransportSecurityError("model_proxy_incompatible_with_dns_pinning")
+    tls_context = tls_profile.ssl_context
     if _model_headers:
         custom_headers = {**_model_headers, **(custom_headers or {})}
 
@@ -374,40 +431,33 @@ def _create_model_impl(
         # (Dependency discipline). It is only needed once a model is actually built.
         import httpx
 
-        from agent_utilities.core.http_client import airgap_guard_transport
+        from agent_utilities.core.http_client import create_async_http_client
 
         limits = httpx.Limits(max_keepalive_connections=20, max_connections=100)
         timeout_obj = httpx.Timeout(timeout, connect=30.0)
-        # CONCEPT:AU-OS.deployment.airgap-mode — a no-op (returns None) unless
-        # AIRGAP_MODE is set; when set, this is the model-call egress path
-        # (the sovereign guide's "one external dependency"), so it gets the
-        # same fail-closed host guard as the fleet HTTP client library.
-        _transport = cast(
-            "httpx.AsyncBaseTransport | None",
-            airgap_guard_transport(
-                None, is_async=True, verify=ssl_verify, limits=limits
-            ),
-        )
         # ``auth=_oauth2_auth`` (None when no oauth2 is configured — zero behaviour change)
         # mints/renews the bearer transparently on every request this client sends, which is
         # exactly ONE model's worth of client since this factory builds a single model per call.
-        http_client = httpx.AsyncClient(
-            verify=ssl_verify,
+        # CONCEPT:AU-OS.deployment.airgap-mode — create_async_http_client applies the
+        # fail-closed air-gap host guard internally (a no-op unless AIRGAP_MODE is
+        # set) as the outermost transport wrap, and DNS-pinned egress
+        # (pin_egress=True) is the model-call egress boundary (the sovereign
+        # guide's "one external dependency").
+        http_client = create_async_http_client(
+            verify=tls_context,
             timeout=timeout_obj,
             limits=limits,
             auth=_oauth2_auth,
-            transport=_transport,
+            pin_egress=True,
+            allowed_private_hosts=config.model_http_allowed_private_hosts,
+            allow_loopback=False,
+            trust_env=False,
+            follow_redirects=False,
         )
 
     if _provider == "openai":
         target_base_url = base_url or config.openai_base_url
         target_api_key = api_key if api_key is not None else config.openai_api_key
-
-        # Propagate to environment for downstream pydantic-ai inference
-        if target_base_url:
-            os.environ["OPENAI_BASE_URL"] = target_base_url
-        if target_api_key:
-            os.environ["OPENAI_API_KEY"] = target_api_key
 
         if AsyncOpenAI is not None and OpenAIProvider is not None:
             openai_client = AsyncOpenAI(
@@ -422,14 +472,12 @@ def _create_model_impl(
                 settings=_rsettings, model_name=_model_id, provider=openai_provider
             )
 
-        return OpenAIChatModel(
-            settings=_rsettings, model_name=_model_id, provider="openai"
-        )
+        raise RuntimeError("OpenAI's DNS-pinned client runtime is unavailable")
 
     elif _provider == "ollama":
-        target_base_url = (
-            base_url or config.openai_base_url or "http://localhost:11434/v1"
-        )
+        target_base_url = base_url or config.openai_base_url
+        if not target_base_url:
+            raise ValueError("ollama provider requires a configured base_url")
         target_api_key = api_key or "ollama"
 
         if http_client and AsyncOpenAI is not None and OpenAIProvider is not None:
@@ -444,16 +492,12 @@ def _create_model_impl(
                 settings=_rsettings, model_name=_model_id, provider=openai_provider
             )
 
-        os.environ["OPENAI_BASE_URL"] = target_base_url
-        os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(
-            settings=_rsettings, model_name=_model_id, provider="openai"
-        )
+        raise RuntimeError("Ollama's DNS-pinned client runtime is unavailable")
 
     elif _provider == "deepseek":
-        target_base_url = (
-            base_url or config.deepseek_base_url or "https://api.deepseek.com"
-        )
+        target_base_url = base_url or config.deepseek_base_url
+        if not target_base_url:
+            raise ValueError("deepseek provider requires a configured base_url")
         target_api_key = api_key or config.deepseek_api_key
 
         try:
@@ -474,20 +518,10 @@ def _create_model_impl(
         except ImportError:
             pass
 
-        # fallback to standard OpenAI driver
-        if target_api_key:
-            os.environ["OPENAI_API_KEY"] = target_api_key
-        if target_base_url:
-            os.environ["OPENAI_BASE_URL"] = target_base_url
-        return OpenAIChatModel(
-            settings=_rsettings, model_name=_model_id, provider="openai"
-        )
+        raise RuntimeError("DeepSeek's DNS-pinned client runtime is unavailable")
 
     elif _provider == "anthropic":
         target_api_key = api_key or config.anthropic_api_key
-        if target_api_key:
-            os.environ["ANTHROPIC_API_KEY"] = target_api_key
-
         try:
             if (
                 http_client
@@ -496,6 +530,7 @@ def _create_model_impl(
             ):
                 anthropic_client = AsyncAnthropic(
                     api_key=target_api_key,
+                    base_url=base_url,
                     http_client=http_client,
                 )
                 anthropic_provider = AnthropicProvider(
@@ -505,49 +540,74 @@ def _create_model_impl(
         except ImportError:
             pass
 
-        return AnthropicModel(model_name=_model_id)
+        raise RuntimeError("Anthropic's DNS-pinned client runtime is unavailable")
 
     elif _provider == "google":
         target_api_key = api_key or config.gemini_api_key
-        if target_api_key:
-            os.environ["GEMINI_API_KEY"] = target_api_key
-        return GoogleModel(model_name=_model_id)
+        if GoogleProvider is None:
+            raise RuntimeError("Google's DNS-pinned client runtime is unavailable")
+        return GoogleModel(
+            model_name=_model_id,
+            provider=GoogleProvider(
+                api_key=target_api_key,
+                base_url=base_url,
+                http_client=http_client,
+            ),
+        )
 
     elif _provider == "groq":
         target_api_key = api_key or config.groq_api_key
-        if target_api_key:
-            os.environ["GROQ_API_KEY"] = target_api_key
-
         if http_client and AsyncGroq is not None and GroqProvider is not None:
             groq_client = AsyncGroq(
                 api_key=target_api_key,
+                base_url=base_url,
                 http_client=http_client,
             )
             groq_provider = GroqProvider(groq_client=groq_client)
             return GroqModel(model_name=_model_id, provider=groq_provider)
 
-        return GroqModel(model_name=_model_id)
+        raise RuntimeError("Groq's DNS-pinned client runtime is unavailable")
 
     elif _provider == "mistral":
         target_api_key = api_key or config.mistral_api_key
-        if target_api_key:
-            os.environ["MISTRAL_API_KEY"] = target_api_key
-
-        return MistralModel(model_name=_model_id)
+        if MistralProvider is None:
+            raise RuntimeError("Mistral's DNS-pinned client runtime is unavailable")
+        return MistralModel(
+            model_name=_model_id,
+            provider=MistralProvider(
+                api_key=target_api_key,
+                base_url=base_url,
+                http_client=http_client,
+            ),
+        )
 
     elif _provider == "huggingface":
         target_api_key = api_key or config.hugging_face_api_key
-        if target_api_key:
-            os.environ["HUGGING_FACE_API_KEY"] = target_api_key
-        return HuggingFaceModel(model_name=_model_id)
+        if HuggingFaceProvider is None:
+            raise RuntimeError(
+                "Hugging Face's DNS-pinned client runtime is unavailable"
+            )
+        return HuggingFaceModel(
+            model_name=_model_id,
+            provider=HuggingFaceProvider(
+                api_key=target_api_key,
+                base_url=base_url,
+                http_client=http_client,
+            ),
+        )
 
     elif _provider in ("custom", "proxy"):
         # CONCEPT:AU-ORCH.adapter.byok-provider-proxy — BYOK custom endpoint. The provider proxy emits OpenAI-compatible
         # canonical streams, so a custom endpoint is reached via an OpenAI-compatible client pointed at
         # the resolved base_url. Credentials resolve env > file > none; the base_url passes the
         # DNS-resolved SSRF egress guard before any client is constructed.
+        from urllib.parse import urlsplit
+
         from agent_utilities.core.credentials import CredentialResolver
-        from agent_utilities.security.egress import validate_base_url_resolved
+        from agent_utilities.security.egress import (
+            validate_base_url,
+            validate_base_url_resolved,
+        )
 
         creds = CredentialResolver().resolve("openai")
         target_base_url = base_url or creds.base_url or config.openai_base_url
@@ -558,11 +618,18 @@ def _create_model_impl(
             raise ValueError(
                 "custom/proxy provider requires a base_url (BYOK endpoint)"
             )
-        decision = validate_base_url_resolved(target_base_url)
+        target_host = (urlsplit(target_base_url).hostname or "").lower().rstrip(".")
+        configured_private_hosts = {
+            str(host).strip().lower().rstrip(".")
+            for host in config.model_http_allowed_private_hosts
+        }
+        decision = (
+            validate_base_url(target_base_url, allow_loopback=True)
+            if target_host in configured_private_hosts
+            else validate_base_url_resolved(target_base_url, allow_loopback=False)
+        )
         if not decision.allowed:
-            raise ValueError(
-                f"custom/proxy base_url rejected by egress guard: {decision.reason}"
-            )
+            raise ValueError("custom/proxy base_url rejected by egress policy")
 
         if AsyncOpenAI is not None and OpenAIProvider is not None:
             custom_client = AsyncOpenAI(
@@ -577,11 +644,6 @@ def _create_model_impl(
                 model_name=_model_id,
                 provider=OpenAIProvider(openai_client=custom_client),
             )
-        os.environ["OPENAI_BASE_URL"] = target_base_url
-        if target_api_key:
-            os.environ["OPENAI_API_KEY"] = target_api_key
-        return OpenAIChatModel(
-            settings=_rsettings, model_name=_model_id, provider="openai"
-        )
+        raise RuntimeError("Custom provider DNS-pinned client runtime is unavailable")
 
-    return OpenAIChatModel(settings=_rsettings, model_name=_model_id, provider="openai")
+    raise ValueError("unsupported model provider")

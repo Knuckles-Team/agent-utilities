@@ -1,0 +1,282 @@
+connector: gramps-mcp
+ontology_source: gramps
+schema_version: '1'
+resources:
+- name: Citation
+  label: Citation
+  id_prefix: citation
+  relations:
+  - name: citesSource
+    label: cites source
+    target: Source
+    lpg_rel_type: ''
+- name: Event
+  label: Event
+  id_prefix: event
+  relations:
+  - name: occurredAtPlace
+    label: occurred at place
+    target: Place
+    lpg_rel_type: ''
+- name: Family
+  label: Family
+  id_prefix: family
+  relations:
+  - name: hasChild
+    label: has child
+    target: Person
+    lpg_rel_type: ''
+  - name: hasFather
+    label: has father
+    target: Person
+    lpg_rel_type: ''
+  - name: hasMother
+    label: has mother
+    target: Person
+    lpg_rel_type: ''
+- name: Place
+  label: Place
+  id_prefix: place
+  relations: []
+- name: Repository
+  label: Repository
+  id_prefix: repository
+  relations: []
+- name: Source
+  label: Source
+  id_prefix: source
+  relations:
+  - name: heldByRepository
+    label: held by repository
+    target: Repository
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: gramps-events.updated
+  resource: event
+  description: "Watermark event for 'gramps-events' \u2014 advances on change (mcp_source_presets.json)."
+- name: gramps-families.updated
+  resource: family
+  description: "Watermark event for 'gramps-families' \u2014 advances on change (mcp_source_presets.json)."
+- name: gramps-people.updated
+  resource: person
+  description: "Watermark event for 'gramps-people' \u2014 advances on change (mcp_source_presets.json)."
+identity:
+  id_field:
+    event: handle
+    family: handle
+    person: handle
+  title_field:
+    event: gramps_id
+    family: gramps_id
+    person: gramps_id
+  text_field:
+    event: description
+    family: gramps_id
+    person: gramps_id
+  updated_field:
+    event: change
+    family: change
+    person: change
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Citation:
+    ontology_class: null
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+  Event:
+    ontology_class: Event
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+  Family:
+    ontology_class: null
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+  Place:
+    ontology_class: Place
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+  Repository:
+    ontology_class: SoftwareProject
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+  Source:
+    ontology_class: null
+    fields:
+      eventDate: xsd:string
+      eventType: xsd:string
+      familyRelType: xsd:string
+      gender: xsd:string
+      grampsId: xsd:string
+      handle: xsd:string
+sync:
+- preset: gramps-events
+  server: gramps-mcp
+  tool: gramps_events
+  action: get_events
+  records_path: data
+  id_field: handle
+  title_field: gramps_id
+  text_field: description
+  updated_field: change
+  pagination: page
+  doc_type: event
+  tool_schema_sha256: 0bacef97a3338bc3e2f68f956bbc17df376baadd5f3f21688b24bb8b0ec48388
+  raw:
+    server: gramps-mcp
+    tool: gramps_events
+    action: get_events
+    params_style: json
+    params:
+      pagesize: 100
+    records_path: data
+    id_field: handle
+    title_field: gramps_id
+    text_field: description
+    updated_field: change
+    pagination: page
+    page_kind: number
+    page_param: page
+    page_size_param: pagesize
+    page_size: 100
+    start_page: 1
+    doc_type: event
+- preset: gramps-families
+  server: gramps-mcp
+  tool: gramps_families
+  action: get_families
+  records_path: data
+  id_field: handle
+  title_field: gramps_id
+  text_field: gramps_id
+  updated_field: change
+  pagination: page
+  doc_type: family
+  tool_schema_sha256: 523983a3055fa1b483fa9f91d2f54490826b4b4e37bcd34152c4d261a4d5646a
+  raw:
+    server: gramps-mcp
+    tool: gramps_families
+    action: get_families
+    params_style: json
+    params:
+      pagesize: 100
+    records_path: data
+    id_field: handle
+    title_field: gramps_id
+    text_field: gramps_id
+    updated_field: change
+    pagination: page
+    page_kind: number
+    page_param: page
+    page_size_param: pagesize
+    page_size: 100
+    start_page: 1
+    doc_type: family
+- preset: gramps-people
+  server: gramps-mcp
+  tool: gramps_people
+  action: get_people
+  records_path: data
+  id_field: handle
+  title_field: gramps_id
+  text_field: gramps_id
+  updated_field: change
+  pagination: page
+  doc_type: person
+  tool_schema_sha256: bdde859672e50c0ea1a552f97f8a189fc97897a67af81d95f68b486fb6d69a52
+  raw:
+    server: gramps-mcp
+    tool: gramps_people
+    action: get_people
+    params_style: json
+    params:
+      pagesize: 100
+    records_path: data
+    id_field: handle
+    title_field: gramps_id
+    text_field: gramps_id
+    updated_field: change
+    pagination: page
+    page_kind: number
+    page_param: page
+    page_size_param: pagesize
+    page_size: 100
+    start_page: 1
+    doc_type: person
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T14:21:05Z'
+  source_artifacts:
+  - a2a.json
+  - gramps_mcp/connectors/mcp_source_presets.json
+  - gramps_mcp/connectors/tool_schema_fingerprints.json
+  - gramps_mcp/ontology/gramps.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 7897b6a649b5f9100cb32ffbde864e155c153d1e51a884fe714ddcd3a70f926d
+    triple_count: 67
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: 4PcMd-vPl2_GJCOvHoU4kzXp4BW8h5RjbrluR3botVxlPmfdhJw9Ig0VrvCH_K3cQII8MrgZXA0sEAwXzlf4Cg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'childInFamily' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'hasMedia' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'participatedInEvent' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'spouseInFamily' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.Citation.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Event.ontology_class = 'Event' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Family.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Place.ontology_class = 'Place' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Repository.ontology_class = 'SoftwareProject' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Source.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

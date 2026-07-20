@@ -75,6 +75,15 @@ def mock_engine():
         yield engine
 
 
+@pytest.mark.asyncio
+async def test_graphos_health_is_status_only(server_tools):
+    """Unauthenticated liveness must not disclose GraphOS topology or identity."""
+    response = await server_tools["health_check"](MagicMock())
+
+    assert json.loads(response.body) == {"status": "ok"}
+    assert response.headers["cache-control"] == "no-store"
+
+
 # ── graph_ingest: ingestion ──────────────────────────────────────────
 
 
@@ -198,9 +207,12 @@ async def test_graph_ingest_explicit_document_content_type_still_async(
 async def test_graph_ingest_jobs_list(mock_engine, server_tools):
     """Test listing jobs via graph_ingest action=jobs."""
     graph_ingest = server_tools["graph_ingest"]
-    mock_engine.query_cypher.return_value = [
-        {"id": "job-1", "status": "running", "meta": json.dumps({"target": "/a"})},
-    ]
+    mock_engine.list_tasks.return_value = {
+        "running": [{"job_id": "job-1", "target": "source-a"}],
+        "pending": [],
+        "completed": [],
+        "failed": [],
+    }
 
     res_str = await graph_ingest(
         target_path=".",
@@ -219,9 +231,10 @@ async def test_graph_ingest_jobs_list(mock_engine, server_tools):
 async def test_graph_ingest_job_status(mock_engine, server_tools):
     """Test getting status of a specific job via graph_ingest action=job_status."""
     graph_ingest = server_tools["graph_ingest"]
-    mock_engine.query_cypher.return_value = [
-        {"status": "running", "meta": json.dumps({"target": "/a"})}
-    ]
+    mock_engine.get_task_status.return_value = {
+        "status": "running",
+        "metadata": {"target": "source-a"},
+    }
 
     res_str = await graph_ingest(
         target_path=".",
@@ -259,52 +272,51 @@ async def test_graph_ingest_job_status_not_found(mock_engine, server_tools):
 
 
 def test_graph_query_basic(mock_engine, server_tools):
-    """Test graph_query executes a Cypher query."""
+    """Test graph_query returns the current typed EvidenceBundle contract."""
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
     graph_query = server_tools["graph_query"]
     mock_engine.query_cypher.return_value = [{"type": "MemoryNode", "count": 50}]
 
-    res_str = graph_query(
-        cypher="MATCH (n) RETURN labels(n)[0] AS type, count(n) AS count",
-        params="{}",
-        scope="local",
-        reference_id="",
-    )
-    res = json.loads(res_str)
-    assert isinstance(res, list)
-    assert res[0]["count"] == 50
-
-
-def test_graph_query_blocks_writes(mock_engine, server_tools):
-    """Test graph_query blocks write operations."""
-    graph_query = server_tools["graph_query"]
-
-    res_str = graph_query(
-        cypher="CREATE (n:Test) RETURN n", params="{}", scope="local", reference_id=""
-    )
-    res = json.loads(res_str)
-    assert "error" in res
-    assert "CREATE" in res["error"]
-
-
-def test_kg_server_watcher_delegation():
-    """Test that kg_server thin-wraps the watcher by calling engine.start_sdd_watcher()."""
-    mock_mcp = MockMCP()
-    build_engine = MagicMock()
-    build_engine.backend = MagicMock()
-    build_engine.backend.read_only = False
-
-    with (
-        patch(
-            "agent_utilities.mcp.server_factory.create_mcp_server",
-            return_value=(None, mock_mcp, []),
-        ),
-        patch("agent_utilities.mcp.kg_server._get_engine", return_value=build_engine),
+    with patch(
+        "agent_utilities.mcp.kg_server._resolve_read_engines",
+        return_value=([("default", mock_engine)], {}, False),
     ):
-        from agent_utilities.mcp.kg_server import _build_server
+        result = graph_query(
+            cypher="MATCH (n) RETURN labels(n)[0] AS type, count(n) AS count",
+            params="{}",
+            scope="local",
+            reference_id="",
+        )
 
-        _build_server()
+    assert isinstance(result, EvidenceBundle)
+    assert result.reasoning_trace[-1]["payload"]["rows"][0]["count"] == 50
 
-        build_engine.start_sdd_watcher.assert_called_once()
+
+def test_graph_query_surfaces_backend_write_rejection_as_typed_error(
+    mock_engine, server_tools
+):
+    """The authoritative read-only backend rejects writes without leaking detail."""
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+    graph_query = server_tools["graph_query"]
+    mock_engine.query_cypher.side_effect = PermissionError("read-only query required")
+
+    with patch(
+        "agent_utilities.mcp.kg_server._resolve_read_engines",
+        return_value=([("default", mock_engine)], {}, False),
+    ):
+        result = graph_query(
+            cypher="CREATE (n:Test) RETURN n",
+            params="{}",
+            scope="local",
+            reference_id="",
+        )
+
+    assert isinstance(result, EvidenceBundle)
+    assert result.claims[0]["status"] == "failed"
+    assert result.claims[0]["error"]["code"] == "operation_failed"
+    assert result.next_actions
 
 
 # ── graph_analyze: SAI factory specialize action (AHE-3.29) ──────────────
@@ -335,20 +347,20 @@ class _FakeSpecializeEngine:
 async def test_graph_analyze_specialize_action_is_gateway_reachable(
     server_tools, monkeypatch
 ):
-    """The SAI factory is reachable through the graph_analyze tool (the gateway path)."""
+    """The SAI factory is reachable through the focused evaluation tool."""
     from agent_utilities.mcp import kg_server
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
 
-    assert "graph_analyze" in kg_server.REGISTERED_TOOLS  # tool is registered
+    assert "graph_evaluate" in kg_server.REGISTERED_TOOLS
     eng = _FakeSpecializeEngine()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: eng)
 
-    # _execute_tool is exactly what the REST /graph/analyze route and the MCP tool call.
-    out = await kg_server._execute_tool("graph_analyze", action="specialize")
-    data = json.loads(out)
+    out = await kg_server._execute_tool("graph_evaluate", action="specialize")
 
-    assert data["status"] == "ok"
-    assert "final_specialist_reward" in data
-    assert data["transitions"] == 32
+    assert isinstance(out, EvidenceBundle)
+    assert out.claims[0]["status"] == "ok"
+    assert "final_specialist_reward" in out.claims[0]
+    assert out.claims[0]["transitions"] == 32
     # a queryable SaiFactoryCycle node was persisted by the live run
     assert any(label == "SaiFactoryCycle" for _, label, _ in eng.nodes)
 
@@ -358,11 +370,13 @@ async def test_graph_analyze_specialize_noops_without_history(
     server_tools, monkeypatch
 ):
     from agent_utilities.mcp import kg_server
+    from agent_utilities.models.evidence_bundle import EvidenceBundle
 
     class _Empty:
         def query_cypher(self, *_a, **_k):
             return []
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: _Empty())
-    out = await kg_server._execute_tool("graph_analyze", action="specialize")
-    assert json.loads(out)["status"] == "noop"
+    out = await kg_server._execute_tool("graph_evaluate", action="specialize")
+    assert isinstance(out, EvidenceBundle)
+    assert out.claims[0]["status"] == "noop"

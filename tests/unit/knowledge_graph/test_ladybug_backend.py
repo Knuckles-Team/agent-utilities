@@ -270,3 +270,38 @@ def test_lock_backoff_is_capped():
     )
 
     assert 0 < _LOCK_BACKOFF_MAX_S <= 60.0
+
+
+def test_execute_read_uses_engine_enforced_read_only_transaction():
+    """A public read can never smuggle a write through lexical disguises."""
+    backend = LadybugBackend(":memory:")
+    try:
+        with pytest.raises(RuntimeError, match="read-only transaction"):
+            backend.execute_read(
+                "CREATE NODE TABLE Forbidden(id STRING, PRIMARY KEY(id))"
+            )
+    finally:
+        backend.close()
+
+
+def test_execute_read_rolls_back_and_propagates_query_failure():
+    """Read failures are visible to callers and leave no open transaction."""
+    connection = MagicMock()
+    connection.execute.side_effect = [
+        MagicMock(),
+        RuntimeError("query rejected"),
+        MagicMock(),
+    ]
+    backend = LadybugBackend(":memory:")
+    backend.conn = connection
+    try:
+        with pytest.raises(RuntimeError, match="query rejected"):
+            backend.execute_read("MATCH (n) RETURN n")
+    finally:
+        backend.close()
+
+    assert [call.args[0] for call in connection.execute.call_args_list] == [
+        "BEGIN TRANSACTION READ ONLY",
+        "MATCH (n) RETURN n",
+        "ROLLBACK",
+    ]

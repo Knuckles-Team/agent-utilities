@@ -23,6 +23,7 @@ from agent_utilities.gateway.models import (
     WidgetData,
 )
 from agent_utilities.gateway.registry import Registry, get_registry
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +75,15 @@ class Aggregator:
                 [s for s in services if s.id not in results], fetched, strict=False
             ):
                 if isinstance(result, BaseException):
-                    logger.error("Widget %s failed: %s", svc.id, result)
-                    results[svc.id] = WidgetData(status="error", error=str(result))
+                    payload = public_error_payload(result, logger=logger)
+                    results[svc.id] = WidgetData(
+                        status="error",
+                        error=payload["message"],
+                        raw={
+                            "code": payload["code"],
+                            "correlation_id": payload["correlation_id"],
+                        },
+                    )
                 else:
                     results[svc.id] = result
                     self._set_cached(svc.id, result)
@@ -87,7 +95,7 @@ class Aggregator:
         services = self.config_manager.get_all_services()
         svc = next((s for s in services if s.id == service_id), None)
         if not svc:
-            return WidgetData(status="error", error=f"Service '{service_id}' not found")
+            return WidgetData(status="error", error="service not found")
         return await self._fetch_one(svc)
 
     async def _fetch_one(self, config: ServiceConfig) -> WidgetData:
@@ -96,7 +104,7 @@ class Aggregator:
         if not widget:
             return WidgetData(
                 status="error",
-                error=f"No widget registered for type '{config.widget_type}'",
+                error="widget type is unavailable",
             )
 
         loop = asyncio.get_event_loop()

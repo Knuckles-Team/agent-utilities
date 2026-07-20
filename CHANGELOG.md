@@ -258,7 +258,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 
 ## [1.20.0] - 2026-07-11 — Trustworthy Core (Phase 0)
 
-Assimilates the Codex 5.6 audit's P0 findings for the control plane: one session currency, native
+Assimilates the P0 audit findings for the control plane: one session currency, native
 query authority, fail-closed connectors, atomic work claiming, end-to-end tenant isolation, and
 scoped admin tooling. (Versioned 1.20.0 — `main` advanced to 1.19.0 via concurrent delegation-hardening
 work; this release stacks on it. Staged locally, not yet pushed.)
@@ -335,6 +335,373 @@ work; this release stacks on it. Staged locally, not yet pushed.)
     failed/skipped fetch (`fetch_ok=False`, always skips) so a transient upstream error can never
     be mistaken for "everything was deleted".
 
+No unreleased changes.
+
+## [1.27.1] - 2026-07-18 — Exact release and connector hardening
+
+### Added
+- **Source-owned Epistemic Operations Protocol v1.** Twelve strict, current-only
+  JSON Schemas now also make PlacementRoute, ClaimWorkItem, EvidenceBundle, and
+  OperationResult authoritative. Schema-generated Pydantic DTOs reject unknown
+  fields; a deterministic digest/ordered-field generator binds all 23 root/nested
+  objects to epistemic-graph's generated serde projection while
+  rejecting credentials, endpoints, personal fields, and local-path fields.
+  Placement, atomic claiming, evidence, and public operation failures consume
+  the projections directly; WorkItem exposes only its eight current states and
+  Artifact carries occurrence/rendition/segment/feature/derivation identities.
+- **Self-contained Langfuse observability runtime.** The serving artifact now
+  installs Logfire and the governed Langfuse provider, launches that exact
+  provider with the current Python interpreter, and performs no child-side
+  package bootstrap. Standard platform CA stores and named AgentConfig TLS
+  profiles share the same mandatory-verification boundary; doctor validates the
+  installed provider module instead of unrelated PATH tools.
+
+## [1.27.0] - 2026-07-15 — Ecosystem-utilization gap-fill
+
+### Breaking
+- **The ecosystem release floor is now `agent-utilities>=1.27.0,<2.0.0`.**
+  Distribution metadata and every bundled server expose the single version in
+  `agent_utilities._version`; stale per-module versions and bump-version mirrors
+  are removed rather than retained as compatibility aliases.
+
+### Added
+- **Light epistemic layer, default-on.** `KnowledgeGraph.query` / `GraphComputeEngine.
+  query_unified` / `IntelligenceGraphEngine.uql` now attach the light epistemic envelope
+  (`confidence`/`source_refs`/`evidence_refs`/`policy_labels`/`provenance`) onto every plain
+  `list[dict]` read by default (`epistemic_row.attach_epistemic_columns`, additive —
+  NEVER changes the return type, unlike the pre-existing opt-in `include_epistemic=True`
+  path which stays untouched). Governed by the new `config.epistemic_light_default`
+  (`KG_EPISTEMIC_LIGHT_DEFAULT`, default `true`); a contested/low-confidence row forces the
+  attach even when an operator opts the default off. Degrades cleanly to a neutral prior
+  (`confidence=0.5`, empty ref lists, `provenance={"resolved": false}`) when a backend has no
+  `explain_provenance_by_ids` — never an error, never an emptied result set.
+- **Epistemic OTel span attributes.** `observability.TelemetryEngine.annotate_epistemic`
+  (+ process-wide `get_telemetry_engine()` singleton) stamps `epistemic.confidence`/
+  `epistemic.status`/`epistemic.contradiction_count`/`epistemic.policy_labels` +
+  `gen_ai.response.source_count`/`gen_ai.request.model` onto the CURRENT active OTel span —
+  wired into the light-epistemic-layer attach above and into the A2A remote-agent execution
+  path (`graph/executor.py`). No-op when no OTel pipeline is configured anywhere (reads the
+  ambient current span via the OTel API rather than requiring its own provider).
+- **AgentCard epistemic capability + A2A envelope.** Every `agent-utilities` A2A server now
+  advertises an `epistemic-answer` `Skill` on its AgentCard (`epistemic_status`/`why`/
+  `what_changed` over the shared KG). `A2AClient.execute_task_with_epistemic` (additive
+  sibling of `execute_task`) surfaces a peer's response `metadata` — including any epistemic
+  fields it attached — instead of silently discarding it.
+- **`EvidenceBundle.from_engine_wire` wired onto a live path.** `graph_query` (the Cypher MCP
+  tool / `/graph/query` REST twin, same dispatch core) gains the same additive `envelope`
+  toggle `graph_ask`/`nl_query`/`graph_analyze action=code_context` already use:
+  `envelope='bundle'` (single-connection local Cypher only) currency-upgrades the plain rows
+  via `engine.graph.explain_provenance_by_ids` (`Method::ExplainProvenanceByIds`, mirroring
+  `KnowledgeGraph._attach_epistemic`'s per-row path) and folds the result into ONE aggregate
+  `EvidenceBundle` via `EvidenceBundle.from_engine_wire`, attached under `evidence_bundle`.
+  Previously `from_engine_wire` was implemented + unit-tested (D11) but had no caller anywhere
+  on a real path. `envelope='raw'` (the default) stays byte-identical.
+
+### Fixed
+- **The raw `/cypher` route and Python-side Cypher engine are removed.** The sole
+  public query surface is `graph_query` and its REST twin, under a
+  middleware-minted `GraphSession`, tenant scoping, row policy, audit, placement,
+  and the engine's explicit `cypher_read` mode. Internal query-language writes
+  require `kg:write` and use native durable `cypher_write`; raw batches are
+  rejected in favor of atomic `ApplyChangeEnvelope`. The Python backend no
+  longer contains pattern, traversal, scan, aggregation, MERGE, or UNWIND logic.
+  MCP and tool modules cannot call backend execute primitives; their reads use
+  the guarded facade and typed writes use `add_node`/`link_nodes`. Public result
+  rows must retain a governed node id so ACL filtering and audit name the same
+  objects, and the architecture gate enforces this single-boundary design.
+
+## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
+
+Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/
+ingestion onto one engine-native model (`WorkItem`, `AgentBus` partitioned log,
+`ChangeEnvelope`, `AssetOccurrence`, engine-native capability index); Phase 2 starts
+making the engine (not the client) the placement/analytics authority and proves it
+under a defined, measured workload contract; the Exceed track (Codex X-series) adds
+an enterprise operations causal graph, an epistemic mining flywheel, ontology-driven
+routing, workload-aware placement mining, a policy-aware context compiler, and an
+agent digital twin. Also closes a fail-open gap flagged as a known follow-up in
+1.20.0. (Two Phase-2 items from the original 13-workstream plan — Arrow Flight
+external heavy-compute and an analytics job **scheduler** beyond the registries below
+— are not present in this codebase and are **not** claimed here.)
+
+### Fixed
+- **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
+  previously failed OPEN when the engine was unavailable or the fence-check query
+  raised — a worker unable to confirm it still held the lease could still commit.
+  It now branches on `_claim_backend`: the engine-native path fails **closed**
+  (rejects the commit), while the KG best-effort dev path stays fail-open as
+  before. Closes the exact gap called out as a known follow-up in the 1.20.0
+  entry above.
+- **Self-ingest telemetry is durable and non-lossy (OBS-P1-1).** `self_ingest.py`'s
+  bounded queue used to silently drop records on backpressure and count-and-move-on
+  on a failed drain. Failed sends now requeue in-process (bounded retries +
+  backoff), and backpressure/exhausted-retries spill to a durable SQLite (WAL)
+  `SpillBuffer` (mirrors the existing `GraphOutbox` pattern) instead of vanishing;
+  the only remaining loss case (the durable buffer itself unavailable/at its bound)
+  is now counted (`dropped`) and logged at ERROR — loss is never silent. Every
+  record is stamped with the ambient actor's `tenant.id`/`actor.id` at the single
+  `emit` choke-point.
+- **Real OpenTelemetry wiring (L24).** Replaces the OS-5.8 observability
+  placeholder with a real Tracer/Meter provider exporting via OTLP to the engine
+  collector (opt-in; instrumentation failures never break the business path).
+- **`USES_SKILL` provenance edge was silently dropped (F8).** The
+  `(RunTrace)-[:USES_SKILL]->(:CallableResource)` edge matched the skill by
+  `name`, which the engine can't resolve on a write (only `id` works), so the
+  edge silently never wrote even though `skill_used`/`EXECUTED_ON` looked correct.
+  Now matches by id (resolved `skill_id`, falling back to `skill:<name>`), same as
+  `EXECUTED_ON`.
+
+### Added — Phase 1: one Agent-OS work/identity/ingestion model
+- **Unified engine-native `WorkItem` state machine (AU-P1-1).** Consolidates the
+  four independently-evolved status vocabularies (`:Task` ingestion queue,
+  `:AgentTask` dispatch, Loop/Goal, the dispatch envelope) onto one versioned
+  lifecycle: `submitted → ready → leased(fencing_token) → running(heartbeat,
+  attempt) → succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter`.
+  Reuses AU-P0-3's engine-native CAS rather than a second claim mechanism; the
+  `:AgentTask`/agent-dispatch claim path can opt in via
+  `AGENT_CLAIM_BACKEND=workitem`, with read-only `WorkItemStatus` projections for
+  Goal/Loop/the ingestion queue so observability shows one vocabulary before a
+  full migration.
+- **Partitioned-log `AgentBus` delivery plane (AU-P1-2).** `send`/`receive` now
+  resolve a durable partitioned log (`messaging/bus_log.py`: the engine's native
+  broker, or Kafka, in that preference order) as the hot delivery path for
+  message bodies — real offsets/consumer cursors, a DLQ for poison messages,
+  backpressure via queue depth — instead of one `:BusMessage` graph node per
+  message. The KG keeps only the low-churn semantic registry (presence, topic
+  membership, subscriptions); falls back to the original graph-node model only
+  when no broker is configured (zero-infra dev path, never the default once a
+  broker exists).
+- **Engine-native capability index — filtered ANN + CDC (AU-P1-3).** Capability-
+  aware `designate()` is now authoritative in the engine:
+  `retrieval/engine_capability_search.py` composes capability/tenant/policy
+  filters with the vector `Rank` leg in one `query_unified` plan, falling back to
+  native `semantic_search` ANN + a bounded post-filter when the engine has no
+  `query` feature. The in-process `CapabilityIndex` (HNSW/numpy) is now a
+  **bounded, non-authoritative cache** (LRU-evicted, kept fresh by CDC deltas)
+  used only as a dev/lean-engine fallback and for reward write-back
+  (`record_outcome`).
+- **Distinct `AssetOccurrence` identity over deduped `Blob` (AU-P1-4).** Fixes a
+  real bug: `MediaStore` derived both the blob id and the media-asset id from the
+  content digest, so identical bytes from a second message/tenant silently
+  collapsed onto one node and overwrote its provenance. New identity chain
+  `Blob(digest) ← Rendition ← AssetOccurrence ← Message/Document`: only immutable
+  bytes dedup (`:Blob`); every `store_media()` call mints a distinct uuid-keyed
+  `:AssetOccurrence` owning its own source/tenant/owner/acl/event_time/retention/
+  legal_hold/provenance. Includes a `store_rendition()` API for derived forms and
+  a bulk migration CLI for legacy `MediaAsset` nodes.
+- **`ChangeEnvelope` — one canonical unit-of-change (AU-P1-5/AU-P1-6).** Every
+  connector shape (push, MCP pull, fleet-package pull, CDC/webhook, bulk
+  snapshot) can now emit (or be bridged into, via `from_connector_record`) one
+  typed `ChangeEnvelope`: identity/idempotency-key, provenance/lineage
+  (connector, source instance, source version, schema/mapping version),
+  bitemporal timestamps (event/valid/observed time), typed payload, and
+  governance (ACL, classification, retention, legal hold). Consumed by one
+  atomic `ingest_envelope()` transaction (validate → resolve identity → write →
+  lineage+checkpoint → CDC → watermark advance, crash-resume safe). A first wave
+  of `source_sync` handlers (`leanix`, `claude_memory`, plus 14 more this
+  release) migrated onto it. A baked-in `MANDATORY_NAMED_CONNECTOR_SOURCES` list
+  (12 identifiers: `jira`/`confluence`, `gitlab`, `servicenow`, `leanix`,
+  `langfuse`, `tunnel_manager`, `microsoft-agent`, `container-manager-mcp`,
+  `documentdb-mcp`, `repository-manager`, `systems-manager`, `vector-mcp`) is
+  **unconditionally** required to pass the connector-manifest gate — no operator
+  opt-in needed, layered under the existing opt-in
+  `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` allowlist from 1.20.0.
+
+### Added — Phase 2: engine-authoritative placement + analytics, measured at scale
+- **AU consumes the engine's placement catalog (DIST-P2-2b).** New
+  `knowledge_graph/core/placement_catalog.resolve_placement` asks the engine's
+  authoritative `PlacementCatalog` for a graph/tenant's owning endpoint before
+  falling back to the static client-side HRW ring, caching the `(endpoint,
+  epoch)` answer for a short TTL and re-resolving on a stale-epoch redirect.
+  **Honest caveat:** the engine does not yet expose a wire RPC for
+  `PlacementRoute` (today it's consumed only inside the engine's own MultiRaft
+  dispatch), so every current deployment still falls back to HRW byte-for-byte —
+  this ships the AU-side consumer half of a two-sided contract; the engine-side
+  wire RPC is a follow-up.
+- **Analytics feature/model/experiment registries (L41/INT-P2-1b).** Queryable
+  registries indexing engine analytics-job result Claims by `AlgoVersion` lineage
+  (family/algorithm/params_digest/code_version/env_version) + input-snapshot —
+  "jobs for model X" / "runs of experiment Z" queries with reproducibility
+  lineage, over the engine's existing store-of-record claims (no second store).
+- **Defined, measured workload contract + soak/chaos harness (SCALE-P2-1).**
+  Replaces `capacity_model.md`'s prior linear-arithmetic "1M residents" claim
+  with a machine-readable contract (`docs/scaling/workload_contract.yml`):
+  registered agents, concurrent sessions/turns, five independent rate axes,
+  tenant count + Zipf skew + one elephant tenant, per-agent footprint,
+  interactive/background mix, availability + RPO/RTO, and p50/p95/p99/p99.9 SLO
+  targets — cross-checked against `capacity_model.py` by
+  `tests/scale/test_workload_contract.py` so the two docs can't drift. A new
+  load generator (`scripts/scale/loadgen.py`) drives the contract's workload
+  against the real engine-native `WorkItem` path.
+- **`ActionPolicy` per-engine caching (L42).** Fixes a real 300ms/`decide()` cost
+  in the fail-closed autonomy gate by caching the policy per engine instance
+  instead of reloading it on every decision.
+
+### Added — Exceed track (Codex X-series)
+- **X-2 — Enterprise operations causal graph + `graph_ops_causal` MCP tool.**
+  Joins entities already ingested by the connector fleet (Langfuse, GitLab/
+  repository-manager, ServiceNow/Atlassian, LeanIX, container-manager-mcp) into
+  one causal chain: trace/generation → agent/tool/model → service → deployment
+  → commit/merge-request → incident/change → capability/owner → policy/control/
+  evidence. `root_cause_rank`/`blast_radius_analysis`/`change_risk_score`/
+  `control_evidence_chain` are thin compositions over the causal-reasoning engine
+  already shipped (`StructuralCausalModel`, `CausalVerifier`,
+  `SpuriousnessDetector`) — no new traversal algorithm. New `graph_ops_causal`
+  MCP tool (`join`/`root_cause`/`blast_radius`/`change_risk`/`control_evidence`
+  actions) + `kg-ops-causal` skill.
+- **X-3 — Epistemic mining flywheel + closed loops.** New `ClaimFlywheel`: a
+  governed `proposed → validated → accepted → deprecated → retracted` state
+  machine over mining-produced Claims, layered on the existing
+  promotion-governance/`ActionPolicy`/`GovernedAutoMerger` pipeline (no new
+  governance surface). `RETRACTED` is terminal and sticky, so a rejected mined
+  finding is never silently re-proposed. Closes two loops end-to-end: an
+  accepted ontology-gap claim now materializes as a real KG edge, and an
+  accepted routing-quality claim's outcome feeds back through the durable
+  contextual-bandit spine so the learned preference survives a restart.
+- **X-4 — Ontology-driven tool/agent routing.** Extends AU-P1-3's engine-native
+  capability retrieval with ontology-`rdfs:subClassOf` subsumption-aware
+  selection (a tool declaring a narrower capability now satisfies a request for
+  the broader one), a versioned `CapabilityDescriptor` (typed I/O schema, side
+  effects, cost/latency/locality, policy/approval class), and full eligibility
+  explainability (`explain_routing_eligibility()` computes the WHY-eligible dict
+  engine-native-first). Default (`capability_hierarchy=None`) is byte-identical
+  to pre-X-4 behavior.
+- **X-5 — Workload-aware placement mining.** Mines agent-trace co-occurrence
+  (tenant/tool/entity/modality access skew) into typed placement proposals
+  (virtual-shard split/replica/cache-prewarm/materialized-join/embedding-refresh/
+  index-change) with evidence + expected benefit; governed
+  (promotion-governance) and canary-measured (apply small, measure SLO delta,
+  promote or roll back) — no auto-apply. Accepted changes target the
+  `PlacementCatalog` admin path.
+- **X-7 — Policy-aware context compiler (CONCEPT:EPI-P3-1 universal epistemic
+  columns).** New `ContextCompiler` replaces the ad-hoc "flatten retrieval hits
+  into a text block" pattern with one selection/assembly layer scoring
+  relevance + MMR diversity + evidence quality + bi-temporal freshness + token
+  budget. Evidence quality reads one common `KnowledgeBatch`-shaped column set
+  when a result carries it — `confidence`/`source_refs`/`evidence_refs`/
+  `proof_ids`/`contradiction_ids`/`policy_labels` (an `"epistemic:contested"`
+  label flags a disputed claim) — degrading to a neutral prior when absent
+  (additive, not a breaking schema change). Every candidate passes through the
+  SAME fine-grained permissioning gate the live read path uses
+  (`ontology/permissioning.enforce`: row-level drop, column-level redaction — no
+  new permission system) before returning a `ContextBundle`: citations, a
+  `proof_graph` of supports/contradicts/alternative-to edges, and a `decisions`
+  log recording every selection/rejection with its scores.
+- **X-8 — Agent digital twin + deterministic replay.** New `AgentDigitalTwin`: a
+  durable, queryable projection over a run's existing `WorkItem` DAG, `:ToolCall`
+  provenance, and `AgentPolicyDecision` audit (never a new provenance store),
+  pinning the exact model/prompt/tool/skill/policy versions + catalog epoch a
+  run executed under. `replay_twin()` deterministically replays a recorded run
+  (tool calls/model responses mocked from the record, never re-executed);
+  `counterfactual_replay()` swaps a policy version (genuinely re-invokes the
+  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-supplied
+  alternate responses) and reports the delta; `twin_incident_steps()` is a
+  read-only step-through for incident investigation.
+
+### Security-relevant behavior (continuing the 1.20.0 posture)
+- Fail-closed connector ACLs, the fail-closed connector-manifest gate, and
+  never-silent-tombstone reconcile (all shipped in 1.20.0) now sit under a
+  second, **unconditional** layer: 12 named connectors must pass the manifest
+  gate with no operator opt-in (AU-P1-6).
+- The engine-native work-claim fencing check — which could fail OPEN on an
+  engine error as of 1.20.0 — now fails **closed** (L15): a worker that can't
+  prove it still holds the lease can no longer commit.
+- `GraphSession` scopes are now actually consumed by the admin-scope gate on
+  low-level engine tools (AU-P0-6) and by the tenant-scoped authorization caches
+  (AU-P0-5, both shipped in 1.20.0) — closing the "wired but not yet consumed"
+  gap called out in that entry.
+- No behavior change is silent: a task with no bound executor still resolves
+  `unroutable`/`failed`, never `completed`/`reward=1.0` (1.20.0, AU-P0-3); the
+  new `WorkItem` state machine (AU-P1-1) carries that same discipline forward
+  (`dead_letter`, not silent completion, once retries are exhausted).
+
+### Docs
+- Reconciled `AGENTS.md`'s Architecture Reference to shipped reality: `GraphSession`
+  scopes are now consumed (AU-P0-5/AU-P0-6, previously described as "still
+  open"); the capability index's in-process HNSW is now documented as a
+  bounded, non-authoritative cache behind the engine-native authority (AU-P1-3);
+  engine placement now prefers the catalog before falling back to HRW
+  (DIST-P2-2b), with the engine-side wire-RPC caveat stated explicitly.
+- Added an "honest caveat" section to `docs/architecture/engine_sharding.md`
+  documenting the DIST-P2-2b placement-catalog consumer and why it doesn't yet
+  change observed routing behavior.
+
+## [1.20.0] - 2026-07-11 — Trustworthy Core (Phase 0)
+
+Assimilates the P0 audit findings for the control plane: one session currency, native
+query authority, fail-closed connectors, atomic work claiming, end-to-end tenant isolation, and
+scoped admin tooling. (Versioned 1.20.0 — `main` advanced to 1.19.0 via concurrent delegation-hardening
+work; this release stacks on it. Staged locally, not yet pushed.)
+
+### Added (Phase-0 Wave 2)
+- **Engine-native work claiming + fencing (AU-P0-3).** Dispatch ids are now full 128-bit (was an
+  8-hex/32-bit truncation with ~50% collision near 77k ids). The previously-unwired
+  `orchestration/engine_claim.py` `ClaimNext`/CAS/lease is wired into the live worker
+  (`AGENT_CLAIM_BACKEND=engine`; the KG best-effort claim stays the dev default), with a monotonic
+  fencing token (`lease_epoch`) threaded through execution and a commit-time CAS. A task with no bound
+  executor now resolves `unroutable`/`failed` — never `completed` with reward 1.0. (Known follow-up: the
+  commit-time fence check fails open on engine-query error; the engine-native path should fail closed.)
+- **Scoped low-level engine tools + bounded pools (AU-P0-6).** Admin-family engine domains
+  (tenants/resharding/consensus/rbac/admin) now require the `kg:admin` scope or an admin role,
+  enforced fail-closed (`PermissionError` raised before dispatch, checking both `ActorContext` and
+  `GraphSession` scopes); reads and normal writes stay open. The previously-missing namespaces
+  (graph-learning, broker, rbac, admin) are exposed — with the admin ones gated *before* exposure —
+  and the unbounded per-graph client cache is replaced by a bounded LRU endpoint/session pool.
+
+### Fixed (Phase-0 Wave 2)
+- **Tenant isolation end-to-end (AU-P0-5).** Authorization-sensitive caches (derived-property
+  read-through, marking registry) are re-keyed by tenant + actor + policy-version + graph so one
+  tenant's derived value/permission decision can never be returned to another (fixing a latent
+  registry-bypass bug). The dead `set_request_tenant` GUC hook is wired into every Postgres and
+  state-store connection checkout — **fail-closed** for a real tenant (a failed `SET` aborts the
+  checkout rather than serving an unscoped/stale connection; `SET LOCAL` auto-resets on return);
+  `sessions` gained a real `tenant_id` column with the predicate pushed into SQL.
+- **Deployment defaults made topology-neutral (OPS-P0-1).** `genesis.yaml` and
+  `gen_genesis_manifest.py` now select capabilities from the requested deployment profile while
+  leaving the concrete scheduler, identity provider, secret backend, and ontology service to
+  operator-owned configuration.
+
+### Added (Phase-0 Wave 1)
+- **`GraphSession` — one explicit session currency (AU-P0-1).** New
+  `knowledge_graph/core/session.py`: a frozen dataclass (`actor`, `tenant`, `scopes`, `graph`,
+  `endpoint`, `catalog_epoch`, `txn`, `policy_version`, `trace_context`) that *wraps* — not
+  replaces — the three today-ambient authorities (`ActorContext`, the correlation traceparent,
+  per-call policy) into one value a caller can thread and log. `GraphSession.from_ambient()`
+  bridges today's ambient state; `use_session()`/`current_session()` mirror
+  `use_actor()`/`current_actor()`; `require_scope()` raises `ScopeError`. Threaded as a defaulted
+  `session: GraphSession | None = None` param through `facade.query`/`designate`,
+  `engine.add_node`/`add_edge`/`link_nodes`, `engine_query.query_cypher`, and
+  `media_store.store_media` — existing callers are unaffected. Not yet threaded through every
+  internal writer (~40 remain) and not yet consumed by a policy/routing authority (AU-P0-5/AU-P0-6).
+
+### Changed
+- **Native Cypher routing for `EpistemicGraphBackend` (AU-P0-2).** `execute()` now hands
+  label/property-scoped `MATCH` queries with a real `WHERE` predicate (`=`, `IN`, `CONTAINS`,
+  `IS [NOT] NULL`, `OR`, aggregates, `DISTINCT`) to `GraphComputeEngine.query_cypher` — the
+  engine's own `eg-query` parser/executor — instead of a client-side regex scan-and-eval. A
+  query the engine rejects, or a value its literal grammar can't express (`None`, negative
+  numbers), now raises (`CypherEngineError`/`NotImplementedError`/`ValueError`) instead of
+  silently returning `[]`. This transitional split was subsequently removed in
+  the current contract: every typed node stores `id`, every edge stores
+  `relationship`, and all Cypher shapes use the native server modes.
+
+### Fixed
+- **Fail-closed connector permissions (AU-P0-4).** Unknown/unconfigured connector ACL state can
+  no longer silently mean public, and reconcile can no longer tombstone data on an unproven
+  signal:
+  - `ExternalAccess.quarantined()` / `default_external_access()` — the fail-closed default the
+    generic `mcp_package`/`mcp_tool` connectors now report when no `acl_*` fields are configured
+    (previously `ExternalAccess.public()`). New `CONNECTOR_DEFAULT_PUBLIC` flag (default `false`)
+    is the explicit dev/local opt-in back to the old behavior.
+  - New `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` flag (default empty): an operator can name a
+    source whose missing `connector_manifest.yml` should fail closed
+    (`connector_manifest_gate.precheck_source`) instead of the default silent pass-through, without
+    retroactively blocking the ~40 fleet sources that have no manifest yet.
+  - New `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` flag (default empty): `source_sync._reconcile` now
+    distinguishes an authoritatively-empty live-id snapshot (opt-in tombstone) from a
+    failed/skipped fetch (`fetch_ok=False`, always skips) so a transient upstream error can never
+    be mistaken for "everything was deleted".
+
 ## [1.13.0] - 2026-07-10 — MCP fleet-auth (Basic + OIDC) & connector defaults
 
 ### Added
@@ -345,18 +712,17 @@ work; this release stacks on it. Staged locally, not yet pushed.)
   than a Keycloak JWT. The two entry points are renamed to `child_auth()` /
   `child_auth_header()` (they now serve Bearer **or** Basic); `child_auth()` returns an
   `httpx.Auth` (`ClientCredentialsAuth` for OIDC, `httpx.BasicAuth` for basic).
-- **graph-os outbound fleet-auth deploy env.** `deploy/k8s/graphos.yaml` and
-  `deploy/swarm/graphos.stack.yml` now carry the `MCP_CLIENT_AUTH` + `OIDC_*` /
-  `MCP_BASIC_AUTH_*` env on the front tier (sourced from OpenBao `apps/mcp-multiplexer/oidc`)
-  — the missing piece that left the absorbed-multiplexer fleet gateway 401ing every
-  `*-mcp` child.
+- **graph-os outbound fleet-auth deployment contract.** Deployment assets now carry
+  `MCP_CLIENT_AUTH` plus the required OIDC or Basic fields through runtime configuration and
+  secret references. No secret-store mount, path, provider, or namespace is prescribed by the
+  repository.
 
 ### Changed
 - **openai is the default LLM connector.** `[mcp]` now ships `pydantic-ai-slim[openai]`
   (local LLMs speak the OpenAI API), so a bare `agent-utilities[mcp]` can drive the local
-  model. `[agent]` / `[agent-headless]` drop the hard-bundled `anthropic`; other providers
+  model. `[agent-runtime]` / `[agent-headless]` drop the hard-bundled `anthropic`; other providers
   are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …); `[all]` unchanged.
-- **Engine pin → `epistemic-graph[full]`.** Base dep + `[engine]` extra bumped from
+- **Engine pin → `epistemic-graph[full]`.** The hard base dependency was upgraded from
   `[numeric]` to `epistemic-graph[full]>=2.15.0` (= `[owl,lmcache,numeric]` — pyoxigraph
   SPARQL/RDF interop + httpx accel), published since v2.15.0. Not `[full-extras]` (engine
   GPU/ROS2 cargo layer — external toolchain, not a pip extra).
@@ -690,22 +1056,23 @@ run it at saturation:
   and `cryptography<49` (both capped by `mlflow` via `data-science-mcp[tracking]`).
 
 ### Added
-- **Concurrent N-way mirrored writes (CONCEPT:KG-2.74).** `GRAPH_BACKEND=fanout`
-  turns mirroring into the default for every write: one configurable **authority**
-  store (`GRAPH_AUTHORITY`) serves reads and acks writes, and each mutation is
-  replicated — losslessly and asynchronously — to any set of durable mirrors
-  (`GRAPH_MIRROR_TARGETS`, named against `KG_CONNECTIONS`). New
+- **Concurrent N-way mirrored writes (CONCEPT:KG-2.74).** Declaring one or more
+  `role=mirror` connections (or naming them in `GRAPH_MIRROR_TARGETS`)
+  automatically wraps the fixed `epistemic-graph` authority in fan-out. The
+  engine always serves reads and acknowledges writes; each committed mutation
+  is replicated — losslessly and asynchronously — to the declared mirrors.
+  New
   `knowledge_graph/backends/fanout_backend.py` (`FanOutBackend`) generalizes the
-  two-tier `TieredGraphBackend` into one-authority-N-mirror; new
+  former explicit-selector topology into one-authority-N-mirror; new
   `backends/outbox.py` (`GraphOutbox`) is a durable sqlite/WAL per-mirror append
   log, so a mirror that is offline or slow **keeps its unapplied tail and replays
   from a persisted cursor on reconnect / restart — no write is lost**. One drainer
   thread per mirror serialises a single-writer store (LadybugDB) for free.
-  `reconcile()` (reusing `TieredGraphBackend.reconcile_to_durable`) is the
+  `reconcile()` (reusing the native cross-backend copy primitive) is the
   drift-repair backstop. Operated on both surfaces:
   `graph_configure(action="mirror_status"|"reconcile")` (MCP) and the
   `/graph/configure` REST twin. Default-on once configured; the zero-infra default
-  is unchanged. Deploy stacks: `services/{neo4j,falkordb}` (R710). Docs:
+  is unchanged. Deploy stacks: `services/{neo4j,falkordb}` (deployment profile). Docs:
   `docs/architecture/graph_backends_architecture.md` (“Mirror every write to N
   stores at once”).
 - **Shortcut-resistant search-task synthesis (CONCEPT:KG-2.70/2.71/2.72, AHE-3.30).**
@@ -783,13 +1150,12 @@ run it at saturation:
   boundary, overridable to `approval_required`). Exposed over `/api/runtime/*`
   (session → act → SSE event stream). New ontology classes `:WorkspaceAction` /
   `:WorkspaceObservation` in `ontology_software.ttl`.
-- **Durable execution wired into the live path (CONCEPT:OS-5.16).** The
-  `DurableExecutionManager` was built but uninvoked; it now runs on the real async
-  paths via the new `arun_durable_action`. `run_goal_loop` resumes from the last
-  in-flight checkpoint on restart and wraps each iteration's validation under an
-  idempotency key `{goal_id}:{iteration}`; the dispatch worker wraps the agent
-  invocation under the turn `job_id` — a crash-resume or at-least-once redelivery
-  never re-applies an effect that already ran.
+- **Durable execution converged on the native WorkItem (CONCEPT:OS-5.16).**
+  Loop and dispatch execution keep lease, retry, idempotency, opaque
+  `checkpoint_id`, and terminal result on the same engine-native WorkItem. A
+  checkpoint update and terminal commit are fenced by tenant, owner, lease
+  epoch, and fencing token; crash recovery and queue redelivery resume from the
+  authoritative record without a checkpoint sidecar.
 - **Queryable cross-agent correlation / blast-radius (CONCEPT:OS-5.11).**
   `persist_event` stamps `correlation_id` (+ actor/tenant) onto `FleetEvent`
   nodes, and the dispatch worker stamps it onto executed `Task` nodes. New
@@ -855,8 +1221,8 @@ run it at saturation:
     = legacy behaviour (backward compatible); a single name targets one
     connection; `all`/list/`a,b` fans out to per-connection labeled results with
     partial success. **Writes only fan out on an explicit multi-target value.**
-  - `graph_configure` actions: `add_connection`, `remove_connection`,
-    `list_connections`, `set_default_connection`.
+  - `graph_configure` actions: `add_connection`, `remove_connection`, and
+    `list_connections`.
   - `KG_CONNECTIONS` (`AgentConfig.kg_connections`): declarative JSON list of
     named connections, seeded into the registry at first use. Zero-infra default
     fully preserved.
@@ -1204,8 +1570,8 @@ run it at saturation:
   engine threads a single graph-level `base_url` into `create_model` for every role
   (`engine.py` router/agent/embedding deps), and `create_model` only applied a model's
   registered `base_url` when the caller passed none — so a router model served on a *separate*
-  host (e.g. `qwen-lite` on `vllm-lite.arpa`) was sent to the KG model's endpoint
-  (`vllm.arpa`), 404ing on every routing/planning call. `create_model`
+  host (for example, a lightweight-model backend) was sent to a different KG model
+  backend, 404ing on every routing/planning call. `create_model`
   (`agent_utilities/core/model_factory.py`) now treats the model registry as the source of
   truth for *where* a model is served: a registered per-model `base_url` wins over a
   caller-supplied default; unregistered models still honor an explicit `base_url`. Regression
@@ -1287,7 +1653,7 @@ run it at saturation:
   transcription (`faster-whisper`) via lazy-`httpx` clients in `agent_utilities/ecosystem/media/`,
   exposed as agent tools under the `MEDIA_TOOLS` gate. The `flux.2`/`hunyuanvideo` stale
   compose templates were rewritten and a `stable-diffusion` (SD3.5) service added, all targeting
-  the GB10 host via the swarm-launcher pattern with a light, on-demand footprint.
+  a configured accelerator host via the launcher pattern with a light, on-demand footprint.
 
 - **Ontology System — Palantir-Foundry-parity, graph-native (CONCEPT:KG-2.26 / KG-2.38–KG-2.48 + KG-2.42)** —
   a first-class object/link/function/action layer at `agent_utilities/knowledge_graph/ontology/`,
@@ -1393,7 +1759,7 @@ run it at saturation:
   passes: pass 1 dedups (O(1) id-keyed) and collects new chunks; pass 2 embeds them all via
   `get_text_embedding_batch` in sub-batches of 64 (with a per-chunk fallback when the model
   lacks the batch API). Dedup, stale-delete, node properties, and metrics are unchanged.
-- **L1 epistemic-graph Cypher: `WHERE … OR …` and inline-literal relationship ids now work** —
+- **Epistemic-graph Cypher: `WHERE … OR …` and inline-literal relationship ids now work** —
   the in-memory interpreter's `_parse_where` split only on `AND`, and `_exec_rel_match` required
   `{id:$param}`; both silently fell through to the read-only legacy reader and returned `[]` for
   any `OR` clause or a relationship anchored by a quoted literal id — a footgun where "I can't
@@ -2060,7 +2426,10 @@ run it at saturation:
 - **CONCEPT:KG-2.3**: Cognitive Trap Defense for topological vulnerability mitigation.
 - **CONCEPT:KG-2.3**: Experience Alignment for natively managed few-shot adaptation.
 - Domain-driven knowledge_graph refactoring with zero-stub parity.
-- **CONCEPT:ECO-4.0: Graph-Native Durable Execution** — Fault-tolerant, resumable state execution by persisting graph execution traces natively into the Knowledge Graph (LadybugDB) for high-assurance multi-leg trading. New module: `agent_utilities/orchestration/durable_execution.py`.
+- **CONCEPT:ECO-4.0: Graph-Native Durable Execution** — Fault-tolerant,
+  resumable execution through the engine-native WorkItem lifecycle. Opaque
+  checkpoints, idempotency, leases, fencing, retry, and terminal results share
+  one authoritative record.
 - **CONCEPT:ECO-4.0: Secure Jupyter Sandbox** — Isolated code generation sandbox with Vectorized Topology AST validation and State Machine Invariant checks (MCS Ch 6). Blocks unsafe OS commands. New modules: `agent_utilities/tools/jupyter_adapter.py`, `agent_utilities/tools/sandbox_executor.py`.
 - **CONCEPT:AHE-3.4: OWL-Driven AgentSpecs** — Compiles dynamic agent topologies into exportable JSON AgentSpec catalogs, strongly typed by OWL ontologies for reproducibility. New module: `agent_utilities/core/agentspec_catalog.py`.
 - **CONCEPT:KG-2.6: Research Intelligence Sub-Agent** — Isolated research context with citation graph traversal (Semantic Scholar API), doom-loop detection, and KG persistence. Adapted from ml-intern's research_tool.py sub-agent pattern. New module: `agent_utilities/knowledge_graph/orchestration/research_subagent.py`.

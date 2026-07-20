@@ -1,0 +1,275 @@
+connector: lgtm-mcp
+ontology_source: grafana
+schema_version: '1'
+resources:
+- name: Alert
+  label: Alert
+  id_prefix: alert
+  relations:
+  - name: routedTo
+    label: routed to
+    target: Receiver
+    lpg_rel_type: ''
+  - name: silencedBy
+    label: silenced by
+    target: Silence
+    lpg_rel_type: ''
+- name: AlertGroup
+  label: Alert Group
+  id_prefix: alertgroup
+  relations: []
+- name: Dashboard
+  label: Dashboard
+  id_prefix: dashboard
+  relations: []
+- name: DataSource
+  label: Data Source
+  id_prefix: datasource
+  relations: []
+- name: Generation
+  label: LLM Generation
+  id_prefix: generation
+  relations: []
+- name: HeartbeatStat
+  label: Heartbeat Stat
+  id_prefix: heartbeatstat
+  relations: []
+- name: Panel
+  label: Panel
+  id_prefix: panel
+  relations:
+  - name: monitors
+    label: monitors
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: partOf
+    label: part of
+    target: Dashboard
+    lpg_rel_type: ''
+- name: Receiver
+  label: Receiver
+  id_prefix: receiver
+  relations: []
+- name: Silence
+  label: Silence
+  id_prefix: silence
+  relations: []
+- name: Topic
+  label: Topic
+  id_prefix: topic
+  relations: []
+- name: Trace
+  label: LLM Trace
+  id_prefix: trace
+  relations: []
+- name: UptimeMonitor
+  label: Uptime Monitor
+  id_prefix: uptimemonitor
+  relations: []
+actions: []
+events: []
+identity:
+  id_field:
+    dashboard: uid
+  title_field:
+    dashboard: title
+  text_field:
+    dashboard: title
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  Alert:
+    ontology_class: Incident
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  AlertGroup:
+    ontology_class: System
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Dashboard:
+    ontology_class: null
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  DataSource:
+    ontology_class: null
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Generation:
+    ontology_class: Observation
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  HeartbeatStat:
+    ontology_class: Observation
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Panel:
+    ontology_class: null
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Receiver:
+    ontology_class: System
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Silence:
+    ontology_class: System
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Topic:
+    ontology_class: DataSource
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  Trace:
+    ontology_class: Episode
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+  UptimeMonitor:
+    ontology_class: System
+    fields:
+      alertState: xsd:string
+      dashboardTitle: xsd:string
+      dataSourceType: xsd:string
+      endsAt: xsd:dateTime
+      severity: xsd:string
+      silenceComment: xsd:string
+      startsAt: xsd:dateTime
+sync:
+- preset: lgtm-dashboards
+  server: lgtm-mcp
+  tool: lgtm_mcp_grafana
+  action: get_dashboards
+  records_path: ''
+  id_field: uid
+  title_field: title
+  text_field: title
+  updated_field: ''
+  pagination: none
+  doc_type: dashboard
+  tool_schema_sha256: b0d7d43b791e0fe8c4b482e07616d05e088f4ee00011077ae68ecfca622a6a83
+  raw:
+    server: lgtm-mcp
+    tool: lgtm_mcp_grafana
+    action: get_dashboards
+    records_path: ''
+    id_field: uid
+    title_field: title
+    text_field: title
+    updated_field: ''
+    pagination: none
+    doc_type: dashboard
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - lgtm_mcp/connectors/mcp_source_presets.json
+  - lgtm_mcp/connectors/tool_schema_fingerprints.json
+  - lgtm_mcp/ontology/grafana.ttl
+  - lgtm_mcp/ontology/observability.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: 665de7f07f2c74ef87ac27e3d6f6bc285b3f82e1c50bfd2eb0fe0bee4b407787
+    triple_count: 86
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: yd-8WJjrHWuOxmRhhRhYjCa0WrVDecjWHB2QCem1oRo6p1KaBkAL2t-1_PgT8TLmczpVo1paTk6RZJb2qm_QDQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.Alert.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.AlertGroup.ontology_class = 'System' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Dashboard.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.DataSource.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Generation.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.HeartbeatStat.ontology_class = 'Observation' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Panel.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Receiver.ontology_class = 'System' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Silence.ontology_class = 'System' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Topic.ontology_class = 'DataSource' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.Trace.ontology_class = 'Episode' [source ttl rdfs:subClassOf] \u2014 verify manually\
+  \ before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.UptimeMonitor.ontology_class = 'System' [source ttl rdfs:subClassOf] \u2014 verify\
+  \ manually before relying on this crosswalk for reasoning/joins."

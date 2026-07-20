@@ -79,10 +79,13 @@ class KvCacheConfig(BaseModel):
         description="Upper bound on pooled keep-alive connections for reuse across "
         "the many small get/put calls an inference worker issues.",
     )
-    verify_tls: bool = Field(
-        default=True,
-        description="TLS verification. Only disable for an explicit, justified "
-        "insecure (e.g. plain-http loopback is unaffected).",
+    tls_profile: str | None = Field(
+        default=None,
+        description="Optional runtime TLS profile name for HTTPS endpoints.",
+    )
+    tls_profile_ref: str | None = Field(
+        default=None,
+        description="Optional secret reference containing the runtime TLS profile.",
     )
 
     @classmethod
@@ -96,7 +99,8 @@ class KvCacheConfig(BaseModel):
           base URL via :func:`_addr_to_base_url`.
         * ``EPISTEMIC_GRAPH_KVCACHE_TOKEN`` — bearer token.
         * ``EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S`` — per-request timeout override.
-        * ``EPISTEMIC_GRAPH_KVCACHE_TLS_VERIFY`` — TLS verification toggle.
+        * ``EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE`` — runtime TLS profile name.
+        * ``EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF`` — profile secret reference.
         """
         explicit_url = setting("EPISTEMIC_GRAPH_KVCACHE_URL", "")
         if explicit_url:
@@ -110,5 +114,8 @@ class KvCacheConfig(BaseModel):
             token=setting("EPISTEMIC_GRAPH_KVCACHE_TOKEN", None),
             timeout_s=setting("EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S", 2.0),
             max_connections=setting("EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS", 32),
-            verify_tls=setting("EPISTEMIC_GRAPH_KVCACHE_TLS_VERIFY", True),
+            tls_profile=setting("EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE", None),
+            tls_profile_ref=setting(
+                "EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF", None
+            ),
         )

@@ -179,7 +179,7 @@ class EcosystemTopologyBuilder:
 
     Example::
 
-        builder = EcosystemTopologyBuilder("/home/apps/workspace/agent-packages")
+        builder = EcosystemTopologyBuilder("./agent-packages")
         packages = builder.discover_packages()
         dep_graph = builder.build_dependency_graph(packages)
         impact = builder.get_impact_radius("agent-utilities", dep_graph)
@@ -240,7 +240,7 @@ class EcosystemTopologyBuilder:
             with open(toml_path, "rb") as f:
                 data = tomllib.load(f)
         except Exception as exc:
-            logger.debug("Failed to parse %s: %s", toml_path, exc)
+            logger.debug("Failed to parse topology metadata (%s)", type(exc).__name__)
             return None
 
         project = data.get("project", {})

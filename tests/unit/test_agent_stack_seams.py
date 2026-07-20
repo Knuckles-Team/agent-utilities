@@ -1,6 +1,6 @@
 """Execution-seam robustness for the agent/workflow stack.
 
-Three live-path defects observed through the ``graph_orchestrate`` MCP tool:
+Three live-path defects observed through the ``graph_workflows`` MCP tool:
 
 * **Symptom 1** — ``execute_workflow`` hung to the caller's 300s timeout because a
   spawned agent awaiting an unresponsive MCP tool advances zero ``max_steps`` yet
@@ -33,44 +33,20 @@ from agent_utilities.orchestration.engine import (
     _is_agent_error,
 )
 
-
 # --------------------------------------------------------------------------- #
 # Symptom 1 — wall-clock timeout on spawned agents
 # --------------------------------------------------------------------------- #
 
 
 @pytest.mark.asyncio
-async def test_execute_workflow_spawned_agent_timeout():
-    """A spawned agent that hangs must resolve to a structured timeout, not block.
-
-    The whole workflow must return promptly even though every fan-out child would
-    otherwise await forever — proving the gather no longer hangs to the outer
-    300s budget.
-    """
+async def test_execute_workflow_requires_completion_state():
     engine = AgentOrchestrationEngine()
-
-    async def _hang(*_a, **_k):
-        await asyncio.Event().wait()  # never completes
-
-    with patch(
-        "agent_utilities.orchestration.agent_runner.run_agent",
-        new=_hang,
-    ):
-        # Tiny budget so the test is fast; the fallback (no completion_state) path
-        # exercises a single bounded spawn.
-        result = await asyncio.wait_for(
-            engine.execute_workflow(
-                workflow_id="wf_timeout",
-                task="do a thing",
-                agent_timeout_s=0.2,
-            ),
-            timeout=5.0,
+    with pytest.raises(ValueError, match="completion_state is required"):
+        await engine.execute_workflow(
+            workflow_id="wf_timeout",
+            task="do a thing",
+            completion_state="",
         )
-
-    assert result["status"] == "executed"
-    payload = json.loads(result["output"])
-    assert "timed out" in payload["error"]
-    assert payload["agent"] == "dynamic_worker"
 
 
 @pytest.mark.asyncio
@@ -203,7 +179,6 @@ class _FakeToolset:
 @pytest.mark.asyncio
 async def test_allowed_tools_bound_as_real_callable_toolset():
     """The filtered toolset reaches create_agent — not just the system prompt."""
-    from agent_utilities.orchestration import agent_runner
 
     ts = _FakeToolset("portainer")
     captured: dict = {}

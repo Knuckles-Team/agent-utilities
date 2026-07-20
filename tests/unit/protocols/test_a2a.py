@@ -19,7 +19,7 @@ Targets remaining 0%-coverage and low-coverage modules:
 import importlib
 import os
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,25 +32,10 @@ def test_a2a_client_fetch_card_sync_success():
     from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
-    fake_resp = MagicMock()
-    fake_resp.status_code = 200
-    fake_resp.json.return_value = {"name": "alpha"}
-
-    class _HttpxSync:
-        def __init__(self, *a, **k):
-            self.args = a
-            self.kwargs = k
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def get(self, url):
-            return fake_resp
-
-    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
+    with patch(
+        "agent_utilities.protocols.a2a.safe_get_json",
+        return_value={"name": "alpha"},
+    ):
         card = client.fetch_card_sync("http://agent")
     assert card == {"name": "alpha"}
 
@@ -60,21 +45,10 @@ def test_a2a_client_fetch_card_sync_failure():
 
     client = A2AClient()
 
-    class _HttpxSync:
-        def __init__(self, *a, **k):
-            self.args = a
-            self.kwargs = k
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def get(self, url):
-            raise RuntimeError("conn error")
-
-    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
+    with patch(
+        "agent_utilities.protocols.a2a.safe_get_json",
+        side_effect=RuntimeError("conn error"),
+    ):
         assert client.fetch_card_sync("http://x") is None
 
 
@@ -82,25 +56,10 @@ def test_a2a_client_fetch_card_sync_non_200():
     from agent_utilities.protocols.a2a import A2AClient
 
     client = A2AClient()
-    fake_resp = MagicMock()
-    fake_resp.status_code = 500
-    fake_resp.json.return_value = {}
-
-    class _HttpxSync:
-        def __init__(self, *a, **k):
-            self.args = a
-            self.kwargs = k
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *a):
-            return False
-
-        def get(self, url):
-            return fake_resp
-
-    with patch("agent_utilities.core.http_client.httpx.Client", _HttpxSync):
+    with patch(
+        "agent_utilities.protocols.a2a.safe_get_json",
+        side_effect=RuntimeError("non-success response"),
+    ):
         assert client.fetch_card_sync("http://x") is None
 
 
@@ -110,25 +69,10 @@ async def test_a2a_client_fetch_card_async_success():
 
     client = A2AClient()
 
-    fake_resp = MagicMock()
-    fake_resp.status_code = 200
-    fake_resp.json.return_value = {"name": "a"}
-
-    class _HttpxAsync:
-        def __init__(self, *a, **k):
-            self.args = a
-            self.kwargs = k
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def get(self, url):
-            return fake_resp
-
-    with patch("agent_utilities.core.http_client.httpx.AsyncClient", _HttpxAsync):
+    with patch(
+        "agent_utilities.protocols.a2a.safe_get_json_async",
+        new=AsyncMock(return_value={"name": "a"}),
+    ):
         card = await client.fetch_card("http://x")
     assert card == {"name": "a"}
 
@@ -139,50 +83,11 @@ async def test_a2a_client_fetch_card_async_exception():
 
     client = A2AClient()
 
-    class _HttpxAsync:
-        def __init__(self, *a, **k):
-            self.args = a
-            self.kwargs = k
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def get(self, url):
-            raise RuntimeError("bad")
-
-    with patch("agent_utilities.core.http_client.httpx.AsyncClient", _HttpxAsync):
+    with patch(
+        "agent_utilities.protocols.a2a.safe_get_json_async",
+        new=AsyncMock(side_effect=RuntimeError("bad")),
+    ):
         assert await client.fetch_card("http://x") is None
-
-
-class _HttpxAsyncSequence:
-    """Minimal ``httpx.AsyncClient`` stand-in that returns queued responses
-    for successive ``post()`` calls, mirroring the message/send → tasks/get
-    polling ``A2AClient.execute_task*`` performs."""
-
-    def __init__(self, responses):
-        self._responses = list(responses)
-
-    def __call__(self, *a, **k):
-        return self
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def post(self, url, json=None):
-        return self._responses.pop(0)
-
-
-def _fake_response(status_code=200, json_data=None):
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.json.return_value = json_data or {}
-    return resp
 
 
 @pytest.mark.asyncio
@@ -193,30 +98,28 @@ async def test_execute_task_with_epistemic_surfaces_peer_metadata():
     A2A projection)."""
     from agent_utilities.protocols.a2a import A2AClient
 
-    send_resp = _fake_response(json_data={"result": {"id": "task-1"}})
-    poll_resp = _fake_response(
-        json_data={
-            "result": {
-                "status": {"state": "completed"},
-                "history": [
-                    {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
-                    {
-                        "role": "agent",
-                        "parts": [{"kind": "text", "text": "the answer"}],
-                        "metadata": {
-                            "confidence": 0.42,
-                            "status": "confirmed",
-                            "policy_labels": ["epistemic:contested"],
-                            "unrelated_field": "ignored-by-epistemic-subset",
-                        },
+    send_resp = {"result": {"id": "task-1"}}
+    poll_resp = {
+        "result": {
+            "status": {"state": "completed"},
+            "history": [
+                {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
+                {
+                    "role": "agent",
+                    "parts": [{"kind": "text", "text": "the answer"}],
+                    "metadata": {
+                        "confidence": 0.42,
+                        "status": "confirmed",
+                        "policy_labels": ["epistemic:contested"],
+                        "unrelated_field": "ignored-by-epistemic-subset",
                     },
-                ],
-            }
+                },
+            ],
         }
-    )
-    client = A2AClient(timeout=1.0)
-    sequence = _HttpxAsyncSequence([send_resp, poll_resp])
-    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
+    }
+    client = A2AClient(timeout=5.0)
+    client._post = AsyncMock(side_effect=[send_resp, poll_resp])
+    with patch("agent_utilities.protocols.a2a.asyncio.sleep", new=AsyncMock()):
         envelope = await client.execute_task_with_epistemic("http://peer", "q")
 
     assert envelope["content"] == "the answer"
@@ -235,21 +138,19 @@ async def test_execute_task_with_epistemic_degrades_to_empty_when_peer_sends_non
     agent) yields `epistemic: {}` — never fabricated."""
     from agent_utilities.protocols.a2a import A2AClient
 
-    send_resp = _fake_response(json_data={"result": {"id": "task-1"}})
-    poll_resp = _fake_response(
-        json_data={
-            "result": {
-                "status": {"state": "completed"},
-                "history": [
-                    {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
-                    {"role": "agent", "parts": [{"kind": "text", "text": "plain"}]},
-                ],
-            }
+    send_resp = {"result": {"id": "task-1"}}
+    poll_resp = {
+        "result": {
+            "status": {"state": "completed"},
+            "history": [
+                {"role": "user", "parts": [{"kind": "text", "text": "q"}]},
+                {"role": "agent", "parts": [{"kind": "text", "text": "plain"}]},
+            ],
         }
-    )
-    client = A2AClient(timeout=1.0)
-    sequence = _HttpxAsyncSequence([send_resp, poll_resp])
-    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
+    }
+    client = A2AClient(timeout=5.0)
+    client._post = AsyncMock(side_effect=[send_resp, poll_resp])
+    with patch("agent_utilities.protocols.a2a.asyncio.sleep", new=AsyncMock()):
         envelope = await client.execute_task_with_epistemic("http://peer", "q")
 
     assert envelope["content"] == "plain"
@@ -261,14 +162,13 @@ async def test_execute_task_with_epistemic_degrades_to_empty_when_peer_sends_non
 async def test_execute_task_with_epistemic_reports_error_on_bad_status():
     from agent_utilities.protocols.a2a import A2AClient
 
-    client = A2AClient(timeout=1.0)
-    sequence = _HttpxAsyncSequence([_fake_response(status_code=500)])
-    with patch("agent_utilities.core.http_client.httpx.AsyncClient", sequence):
-        envelope = await client.execute_task_with_epistemic("http://peer", "q")
+    client = A2AClient(timeout=5.0)
+    client._post = AsyncMock(side_effect=RuntimeError("remote failure"))
+    envelope = await client.execute_task_with_epistemic("http://peer", "q")
 
     assert envelope["content"] == ""
     assert envelope["epistemic"] == {}
-    assert "500" in envelope["error"]
+    assert "RuntimeError" in envelope["error"]
 
 
 def test_register_a2a_peer_no_engine(monkeypatch):
@@ -395,15 +295,35 @@ def test_setup_otel_with_public_secret_keys(monkeypatch):
     import agent_utilities.observability.custom_observability as obs
 
     monkeypatch.setattr(obs, "HAS_LOGFIRE", True)
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_PUBLIC_KEY", "pk")
-    monkeypatch.setenv("OTEL_EXPORTER_OTLP_SECRET_KEY", "sk")
+    monkeypatch.setenv("TEST_OTEL_PUBLIC_KEY", "pk")
+    monkeypatch.setenv("TEST_OTEL_SECRET_KEY", "sk")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF", "env://TEST_OTEL_PUBLIC_KEY"
+    )
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_SECRET_KEY_REF", "env://TEST_OTEL_SECRET_KEY"
+    )
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "https://telemetry.example.test/otel"
+    )
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_HEADERS", raising=False)
 
     fake_logfire = MagicMock()
     monkeypatch.setattr(obs, "logfire", fake_logfire)
 
-    fake_agent = MagicMock()
-    monkeypatch.setattr(obs, "Agent", fake_agent)
+    monkeypatch.setattr(
+        obs,
+        "instrument_context_agents",
+        MagicMock(
+            return_value=MagicMock(
+                include_content=False,
+                include_binary_content=False,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        obs, "disable_context_agent_instrumentation", MagicMock()
+    )
 
     obs.setup_otel(service_name="svc")
     assert "OTEL_EXPORTER_OTLP_HEADERS" in os.environ
@@ -415,7 +335,6 @@ def test_setup_otel_already_initialized(monkeypatch):
     monkeypatch.setattr(obs, "HAS_LOGFIRE", True)
     monkeypatch.setattr(obs, "_otel_initialized", True)
     monkeypatch.setattr(obs, "logfire", MagicMock())
-    monkeypatch.setattr(obs, "Agent", MagicMock())
     obs.setup_otel(service_name="svc")
     assert True, "setup_otel already initialized is idempotent"
 

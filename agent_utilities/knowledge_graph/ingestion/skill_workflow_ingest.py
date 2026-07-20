@@ -14,8 +14,9 @@ orchestrator had nothing to dispatch. This module closes that gap: it parses
 each ``SKILL.md`` and lands a ``WorkflowDefinition`` (+ ``WorkflowStep`` DAG +
 ``Skill`` links) in the **exact** shape
 :class:`~agent_utilities.knowledge_graph.workflow_store.WorkflowStore` writes,
-so ``graph_orchestrate action=execute_workflow`` / the ``kg-delegate``
-skill can discover them by ``name`` and dispatch them.
+so ``graph_workflows action=execute`` and the
+``graph-orchestration-and-automation`` skill can discover them by ``name`` and
+dispatch them.
 
 Node / edge shape (mirrors ORCH-1.22 ``WorkflowStore`` + ORCH-1.41 compiler)::
 
@@ -75,6 +76,118 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_") or "step"
 
 
+def skill_reference(name: str) -> str:
+    """Return a stable, repository-independent reference for a skill.
+
+    Filesystem locations are runtime discovery details and must never be written
+    to graph nodes, reports, logs, traces, or delegated context.
+    """
+    return f"skill://{_slug(name).replace('_', '-')}"
+
+
+def runnable_skill_digest(instructions: str) -> str:
+    """Return the stable digest used to prove which skill instructions ran."""
+    return hashlib.sha256(instructions.strip().encode("utf-8")).hexdigest()
+
+
+def ingest_runnable_skill(
+    engine: IntelligenceGraphEngine,
+    *,
+    name: str,
+    description: str,
+    instructions: str,
+    provider: str,
+    disabled: bool = False,
+) -> str:
+    """Persist one skill and its executable resource without local paths.
+
+    This is the canonical atomic-skill ingestion seam used at GraphOS boot and
+    by programmatic skill ingestion.  The full instruction body is graph state;
+    the discovery path is not.  A distinct ``CallableResource`` keeps the
+    searchable ``Skill`` and runnable object explicit while ``BINDS_RUNNABLE``
+    and ``DERIVED_FROM`` retain provenance.
+
+    Returns the runnable resource id.
+    """
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+    from agent_utilities.models.company_brain import DataClassification
+    from agent_utilities.protocols.source_connectors.base import ExternalAccess
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
+
+    session = resolve_session(required_scope="kg:write")
+
+    guard = PersistencePrivacyGuard()
+    normalized_name, name_privacy = guard.sanitize_text(str(name).strip())
+    safe_provider, provider_privacy = guard.sanitize_text(str(provider).strip())
+    safe_description, description_privacy = guard.sanitize_text(
+        str(description).strip()
+    )
+    body, body_privacy = guard.sanitize_text(str(instructions).strip())
+    if name_privacy.changed or provider_privacy.changed:
+        raise ValueError("skill identity failed the persistence privacy policy")
+    if not normalized_name or not body:
+        raise ValueError("runnable skills require a name and instruction body")
+    source_ref = skill_reference(normalized_name)
+    slug = source_ref.removeprefix("skill://")
+    digest = runnable_skill_digest(body)
+    provider_ref = f"provider://{_slug(safe_provider)}"
+    skill_id = f"skill:{slug}"
+    resource_id = f"resource:{skill_id}"
+    provenance_id = f"provenance:skill:{digest}"
+    governance = {
+        "tenant_id": session.tenant,
+        "classification": DataClassification.PUBLIC.value,
+        "external_access": ExternalAccess(is_public=True).model_dump(mode="json"),
+    }
+    common = {
+        **governance,
+        "name": normalized_name,
+        "description": safe_description,
+        "source_ref": source_ref,
+        "provider_ref": provider_ref,
+        "instruction_digest": digest,
+        "disabled": bool(disabled),
+        "privacy_redactions": description_privacy.redactions + body_privacy.redactions,
+    }
+    with use_actor(session.actor):
+        engine._upsert_node(
+            "Skill",
+            skill_id,
+            {**common, "body": body, "instruction": body},
+        )
+        engine._upsert_node(
+            "CallableResource",
+            resource_id,
+            {
+                **common,
+                "resource_type": "AGENT_SKILL",
+                "system_prompt": body,
+                "runnable_bound": True,
+            },
+        )
+        engine._upsert_node(
+            "Provenance",
+            provenance_id,
+            {
+                **governance,
+                "kind": "installed-skill-provider",
+                "source_ref": source_ref,
+                "provider_ref": provider_ref,
+                "content_digest": digest,
+            },
+        )
+        engine.link_nodes(skill_id, resource_id, "BINDS_RUNNABLE", session=session)
+        engine.link_nodes(skill_id, provenance_id, "DERIVED_FROM", session=session)
+        engine.link_nodes(resource_id, provenance_id, "DERIVED_FROM", session=session)
+    return resource_id
+
+
+def _error_kind(exc: BaseException) -> str:
+    """Describe a failure without retaining path-bearing exception text."""
+    return type(exc).__name__
+
+
 def _looks_like_skill_name(component: str) -> bool:
     """A kebab/snake token (one word-group, no spaces) is an atomic-skill ref."""
     return bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", component.strip()))
@@ -92,7 +205,11 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
     try:
         content = skill_md.read_text(encoding="utf-8")
     except OSError as exc:
-        logger.warning("[KG-2.97] cannot read %s: %s", skill_md, exc)
+        logger.warning(
+            "[KG-2.97] cannot read %s (%s)",
+            skill_reference(skill_md.parent.name),
+            _error_kind(exc),
+        )
         return None
 
     frontmatter: dict[str, Any] = {}
@@ -106,7 +223,11 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
 
                 frontmatter = yaml.safe_load(parts[1]) or {}
             except Exception as exc:  # noqa: BLE001 — degrade to dir-name defaults
-                logger.warning("[KG-2.97] YAML parse failed for %s: %s", skill_md, exc)
+                logger.warning(
+                    "[KG-2.97] YAML parse failed for %s (%s)",
+                    skill_reference(skill_md.parent.name),
+                    _error_kind(exc),
+                )
                 frontmatter = {}
 
     team_config = frontmatter.get("team_config") or {}
@@ -167,7 +288,7 @@ def parse_workflow_skill(skill_md: Path) -> dict[str, Any] | None:
 
     name = str(frontmatter.get("name") or skill_md.parent.name)
     return {
-        "path": str(skill_md),
+        "source_ref": skill_reference(name),
         "name": name,
         "description": str(frontmatter.get("description") or "").strip(),
         "domain": str(frontmatter.get("domain") or skill_md.parent.parent.name),
@@ -207,7 +328,9 @@ def discover_workflow_skill_files(root: str | None = None) -> list[Path]:
                 if "/workflows/" in str(p):
                     roots.append(Path(p))
         except Exception as exc:  # noqa: BLE001 — package may be absent
-            logger.warning("[KG-2.97] universal_skills not importable: %s", exc)
+            logger.warning(
+                "[KG-2.97] universal_skills not importable (%s)", _error_kind(exc)
+            )
         # Fallback: resolve the package root directly when the enable-flag
         # discovery above returns nothing (editable installs can yield []).
         if not roots:
@@ -218,7 +341,10 @@ def discover_workflow_skill_files(root: str | None = None) -> list[Path]:
                 if pkg.is_dir():
                     roots.append(pkg)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("[KG-2.97] package-path fallback failed: %s", exc)
+                logger.warning(
+                    "[KG-2.97] package discovery fallback failed (%s)",
+                    _error_kind(exc),
+                )
 
     seen: set[Path] = set()
     files: list[Path] = []
@@ -276,15 +402,25 @@ def _chunk_workflow_body(
         # clobbered (process() writes a Document at its document_id); link it back.
         body_id = f"{wf_id}::body"
         backend = getattr(engine, "backend", None) or engine
-        DocumentProcessor(backend, chunking=ChunkingConfig()).process(
-            body, document_id=body_id, title=title, doc_type="skill_workflow"
+        DocumentProcessor(
+            backend,
+            engine=engine,
+            chunking=ChunkingConfig(),
+        ).process(
+            body,
+            document_id=body_id,
+            title=title,
+            doc_type="skill_workflow",
+            connector="skill-workflow",
+            source_instance="workflow-body",
+            extra_edges=[{"source": wf_id, "target": body_id, "type": "HAS_BODY"}],
         )
-        try:
-            engine.link_nodes(wf_id, body_id, "HAS_BODY", properties={})
-        except Exception:  # noqa: BLE001 — linking is best-effort
-            pass
     except Exception as exc:  # noqa: BLE001 — enrichment must not block ingest
-        logger.debug("[KG-2.97] workflow body chunking skipped for %s: %s", wf_id, exc)
+        logger.debug(
+            "[KG-2.97] workflow body chunking skipped for %s (%s)",
+            wf_id,
+            _error_kind(exc),
+        )
 
 
 def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
@@ -327,7 +463,7 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         "nl_spec": nl_spec,
         "step_count": len(steps),
         "content_hash": chash,
-        "source_path": parsed["path"],
+        "source_ref": parsed["source_ref"],
         "last_used": ts,
         "use_count": 0,
         "version": 1,
@@ -416,7 +552,11 @@ def ingest_one(engine: IntelligenceGraphEngine, parsed: dict[str, Any]) -> str:
         engine.add_node(
             skill_id,
             "Skill",
-            properties={"name": s["skill_name"], "source": "universal-skills"},
+            properties={
+                "name": s["skill_name"],
+                "source": "universal-skills",
+                "source_ref": skill_reference(s["skill_name"]),
+            },
         )
         engine.link_nodes(step_id, skill_id, "USES_SKILL")
 
@@ -458,7 +598,9 @@ def ingest_skill_workflows(
             parsed = parse_workflow_skill(f)
             if parsed is None:
                 report["errors"] += 1
-                report["error_detail"].append(f"{f}: parse returned None")
+                report["error_detail"].append(
+                    f"{skill_reference(f.parent.name)}: parse failed"
+                )
                 continue
             outcome = ingest_one(engine, parsed)
             if outcome == "skipped":
@@ -469,8 +611,9 @@ def ingest_skill_workflows(
                 report["skill_links"] += len(parsed["steps"])
         except Exception as exc:  # noqa: BLE001 — one bad file must not abort the run
             report["errors"] += 1
-            report["error_detail"].append(f"{f}: {exc}")
-            logger.exception("[KG-2.97] ingest failed for %s", f)
+            ref = skill_reference(f.parent.name)
+            report["error_detail"].append(f"{ref}: {_error_kind(exc)}")
+            logger.error("[KG-2.97] ingest failed for %s (%s)", ref, _error_kind(exc))
 
     logger.info(
         "[KG-2.97] skill-workflow ingest: %d workflows, %d steps, %d skill links, "

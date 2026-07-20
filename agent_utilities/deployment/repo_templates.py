@@ -81,7 +81,7 @@ _INVENTORY_YAML = """\
 # Ansible-style; consumed by agent-utilities (engine_infra.ingest_hosts_from_inventory).
 all:
   children:
-    homelab:
+    managed_hosts:
       hosts:
         <host-1>:
           ansible_host: <ip-or-dns>
@@ -130,7 +130,7 @@ _CONFIG_JSON_EXAMPLE = """\
 {
   "_comment": "Secret-redacted example. Genesis writes the real config.json with vault:// / engine://__secrets__ references — NEVER plaintext secrets.",
   "APP_PROFILE": "<dev|production>",
-  "GRAPH_BACKEND": "<epistemic_graph|fanout>"
+  "GRAPH_MIRROR_TARGETS": []
 }
 """
 
@@ -547,7 +547,7 @@ def manifest_summary() -> dict:
         "git_mode": dict(_GIT_MODE),
         "ci_templates": sorted(CI_TEMPLATES),
         "runners": {p: _RUNNER_COUNT[p] for p in PROFILES},
-        "step": "agent-os-genesis Step 9b (CONCEPT:AU-OS.deployment.concept-2)",
+        "step": "agent-utilities-deployment enterprise workflow (CONCEPT:AU-OS.deployment.concept-2)",
         "tokens": list(PLACEHOLDER_TOKENS),
     }
 

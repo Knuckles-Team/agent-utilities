@@ -46,7 +46,7 @@ class DockerWorkspace:
         pids_limit: int = 1024,
         network: str = "bridge",
     ) -> None:
-        self.run_id = run_id or uuid.uuid4().hex[:12]
+        self.run_id = run_id or uuid.uuid4().hex
         self.image = image
         self.memory = memory
         self.cpus = cpus
@@ -85,7 +85,9 @@ class DockerWorkspace:
         if runtime is None:
             raise RuntimeError("docker/podman runtime unavailable for DockerWorkspace")
         self.root.mkdir(parents=True, exist_ok=True)
-        self.root.chmod(0o777)  # nosec B103 - container uid may differ from host uid
+        # ``mkdtemp`` creates an owner-only directory. Container root (or rootless
+        # Podman's host-UID mapping) can use the bind mount without making the host
+        # workspace world-writable to unrelated local users.
         argv = [
             runtime,
             "run",

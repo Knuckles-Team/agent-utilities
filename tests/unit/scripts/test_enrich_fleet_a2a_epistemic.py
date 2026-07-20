@@ -32,8 +32,8 @@ _BOILERPLATE = {
     "license": "MIT",
     "capabilities": [
         {
-            "id": "run_graph_flow",
-            "name": "Graph Flow Execution",
+            "id": "execute_graph",
+            "name": "Graph Execution",
             "description": "Execute a workflow through the agent's graph orchestration engine",
         }
     ],
@@ -64,7 +64,7 @@ def test_enrich_manifest_appends_epistemic_capability():
     updated, changed = enrich.enrich_manifest(_BOILERPLATE)
     assert changed is True
     ids = [c["id"] for c in updated["capabilities"]]
-    assert ids == ["run_graph_flow", "epistemic-answer"]  # additive, order preserved
+    assert ids == ["execute_graph", "epistemic-answer"]  # additive, order preserved
     # Original capability untouched.
     assert updated["capabilities"][0] == _BOILERPLATE["capabilities"][0]
     # Every non-capabilities field untouched.

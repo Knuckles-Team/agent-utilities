@@ -12,7 +12,9 @@ def test_load_specialized_prompts(tmp_path):
     mock_agent = MCPAgent(name="test", description="desc", agent_type="specialist")
     mock_registry = MCPAgentRegistryModel(agents=[mock_agent])
 
-    prompt_content = json.dumps({"task": "test", "input": "# Real Prompt"})
+    prompt_content = json.dumps(
+        {"task": "test", "instructions": {"core_directive": "# Real Prompt"}}
+    )
 
     with patch(
         "agent_utilities.core.config.get_discovery_registry",

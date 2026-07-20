@@ -103,12 +103,12 @@ by Python. There are exactly two engine-native vector paths, in preference order
    CONCEPT:AU-KG.compute.vector). ONE costed round-trip the engine sequences over a single
    off-lock snapshot, composing the vector `Rank` leg with optional `Filter`
    (DataFusion) / `Traverse` (petgraph BFS) / `FuseRrf` (native reciprocal-rank
-   fusion of a vector + lexical leg, CONCEPT:AU-KG.query.text-spatial-time). Requires a `query`-feature
-   engine (`node` tier and up).
+   fusion of a vector + lexical leg, CONCEPT:AU-KG.query.text-spatial-time). The
+   mandatory full engine artifact includes this `query` feature.
 2. **Native ANN primitive** (`graph.semantic_search`, the engine's IVF-PQ/HNSW).
-   The same engine vector index, reached directly when the connected engine was
-   built **without** the `query` feature (the lean `pi` tier). The unified call's
-   "unknown variant / not available" error is the trigger to use it.
+   The same engine vector index, reached directly as a bounded operational fallback
+   if unified planning is unavailable. The unified call's "unknown variant / not
+   available" error is the trigger to use it.
 
 The returned `{id, score}` rows are hydrated to full node dicts in **one batched
 property fetch** (`nodes.properties_batch`, CONCEPT:EG-KG.compute.graph-compute-engine). Corpus / target-path
@@ -118,7 +118,7 @@ candidate pool the engine returned** — never a full-graph scan.
 | Tier | When Active | Performance | Method |
 |------|------------|-------------|--------|
 | **Unified plan** | `query`-feature engine | O(log N) + costed compose | `client.query.unified` (Scan/Filter/Traverse/`Rank`/FuseRrf/Limit) |
-| **Native ANN** | lean (`pi`) engine, no `query` | O(log N) | `graph.semantic_search` (IVF-PQ/HNSW) |
+| **Native ANN** | unified planning unavailable | O(log N) | `graph.semantic_search` (IVF-PQ/HNSW) |
 | **Keyword** | no engine embeddings | bounded | `engine._search_keyword` (degrade, not a vector path) |
 | **Unbounded O(N) Python cosine** | **Never (deleted)** | 80K+ comparisons | ~~`_vector_search_native` label-scoped scan + `cosine_similarity`~~ |
 
@@ -177,8 +177,9 @@ just not optimal).
    daemon thread so worker threads aren't blocked.
 
 4. **One engine vector index for retrieval**: `retrieve_hybrid` no longer keeps a
-   Python vector path. The engine's ANN is the single source of vector ranking
-   (unified plan, or the native `semantic_search` primitive on a lean engine).
+   Python vector path. The mandatory full engine artifact's ANN is the single
+   source of vector ranking (unified plan, or the native `semantic_search`
+   primitive when unified planning is unavailable).
 
 ## The capability designation index stays in-RAM — and why (CONCEPT:AU-KG.compute.kg-2)
 

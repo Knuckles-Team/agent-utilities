@@ -22,28 +22,37 @@ from collections.abc import Callable, Iterator
 from agent_utilities.core.config import setting
 
 from ..base import (
-    ExternalAccess,
     LoadConnector,
     SourceDocument,
+    default_external_access,
+)
+from ..http_safety import (
+    normalize_allowed_hosts,
+    require_safe_source_url,
+    safe_get_text,
 )
 from ..registry import register_source
 
 FetchFn = Callable[[str], str]
 
 
-def _jina_read(url: str, api_key: str) -> tuple[str, str] | None:
+def _jina_read(
+    url: str, api_key: str, *, max_response_bytes: int
+) -> tuple[str, str] | None:
     """Fetch clean markdown via Jina Reader; ``None`` on any failure."""
     try:
-        import httpx
-    except ImportError:  # pragma: no cover - environment without httpx
-        return None
-    try:
+        # Never ask an external reader proxy to dereference an unvalidated
+        # destination. Private sources are handled only by the local tier.
+        require_safe_source_url(url, allowed_private_hosts=(), resolve_dns=True)
         headers = {"Accept": "text/markdown"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        resp = httpx.get(f"https://r.jina.ai/{url}", headers=headers, timeout=60.0)
-        resp.raise_for_status()
-        text = resp.text
+        text = safe_get_text(
+            f"https://r.jina.ai/{url}",
+            headers=headers,
+            timeout=60.0,
+            max_bytes=max_response_bytes,
+        )
         title = ""
         for line in text.strip().split("\n")[:5]:
             if line.startswith("Title:"):
@@ -81,19 +90,6 @@ def _local_read(url: str, fetch: FetchFn) -> tuple[str, str]:
     return re.sub(r"\s+", " ", text).strip(), title
 
 
-def _default_fetch(url: str) -> str:
-    try:
-        import httpx
-    except ImportError as exc:  # pragma: no cover - environment without httpx
-        raise RuntimeError(
-            "ReaderConnector needs 'httpx' to fetch URLs. "
-            "Install it, or pass a fetch_fn for offline use."
-        ) from exc
-    resp = httpx.get(url, timeout=60.0, follow_redirects=True)
-    resp.raise_for_status()
-    return resp.text
-
-
 @register_source("reader")
 class ReaderConnector(LoadConnector):
     """Read a single URL into clean markdown (readability), one document.
@@ -115,16 +111,41 @@ class ReaderConnector(LoadConnector):
         url: str = "",
         api_key: str | None = None,
         fetch_fn: FetchFn | None = None,
+        allowed_private_hosts: list[str] | None = None,
+        allowed_redirect_hosts: list[str] | None = None,
+        max_response_bytes: int = 10 * 1024 * 1024,
         **_: object,
     ) -> None:
         if not url:
             raise ValueError("ReaderConnector requires a 'url'")
+        self._allowed_private_hosts = normalize_allowed_hosts(allowed_private_hosts)
+        self._url_host = require_safe_source_url(
+            url,
+            allowed_private_hosts=self._allowed_private_hosts,
+            resolve_dns=False,
+        )
         self.url = url
         # config-discipline: the key is a deployment secret read through the
         # sanctioned accessor, never bare os.environ.
         self.api_key = api_key if api_key is not None else setting("JINA_API_KEY", "")
-        self._fetch: FetchFn = fetch_fn or _default_fetch
+        if fetch_fn is not None:
+            self._fetch = fetch_fn
+        else:
+            redirect_hosts = list(allowed_redirect_hosts or [])
+
+            def _safe_fetch(target: str) -> str:
+                return safe_get_text(
+                    target,
+                    timeout=60.0,
+                    max_bytes=max_response_bytes,
+                    allowed_private_hosts=self._allowed_private_hosts,
+                    allowed_redirect_hosts=redirect_hosts,
+                )
+
+            self._fetch = _safe_fetch
         self._offline = fetch_fn is not None
+        self._max_response_bytes = max_response_bytes
+        self.external_access = default_external_access()
 
     def health_check(self) -> bool:
         return bool(self.url)
@@ -132,8 +153,16 @@ class ReaderConnector(LoadConnector):
     def _read(self) -> tuple[str, str]:
         # Skip the network Jina tier when a fetch_fn is injected (offline tests)
         # or no key is configured; otherwise prefer it for best readability.
-        if not self._offline and self.api_key:
-            result = _jina_read(self.url, self.api_key)
+        if (
+            not self._offline
+            and self.api_key
+            and self._url_host not in self._allowed_private_hosts
+        ):
+            result = _jina_read(
+                self.url,
+                self.api_key,
+                max_response_bytes=self._max_response_bytes,
+            )
             if result is not None:
                 return result
         return _local_read(self.url, self._fetch)
@@ -151,5 +180,5 @@ class ReaderConnector(LoadConnector):
             metadata={
                 "reader": "jina" if (self.api_key and not self._offline) else "local"
             },
-            external_access=ExternalAccess.public(),
+            external_access=self.external_access.model_copy(deep=True),
         )

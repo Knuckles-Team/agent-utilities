@@ -53,8 +53,8 @@ class UsageService:
     def sessions(self, *, limit: int = 100, **filters) -> list[SessionRow]:
         return self.backend.list_sessions(limit=limit, **filters)
 
-    def session_detail(self, session_id: str) -> SessionDetail | None:
-        return self.backend.session_detail(session_id)
+    def session_detail(self, session_id: str, **filters) -> SessionDetail | None:
+        return self.backend.session_detail(session_id, **filters)
 
     def search(self, query: str, *, limit: int = 50, **filters) -> list[SearchHit]:
         return self.backend.search(query, limit=limit, **filters)

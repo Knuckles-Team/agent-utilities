@@ -45,12 +45,11 @@ async def extract_and_ingest_triples(
 
     try:
         # We use an LLM to extract triples
-        from pydantic_ai import Agent
-
+        from agent_utilities.core.contextual_model import create_context_agent
         from agent_utilities.core.model_factory import create_model
 
         model = create_model()
-        agent = Agent(
+        agent = create_context_agent(
             model=model,
             system_prompt="Extract key knowledge triples in the format: Entity1|Relation|Entity2. Return one triple per line.",
         )
@@ -66,21 +65,10 @@ async def extract_and_ingest_triples(
                 e1_id = f"entity:{e1.lower().replace(' ', '_')}"
                 e2_id = f"entity:{e2.lower().replace(' ', '_')}"
 
-                # Ensure entities exist
-                if engine.backend:
-                    engine.backend.execute(
-                        "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name",
-                        {"id": e1_id, "name": e1},
-                    )
-                    engine.backend.execute(
-                        "MERGE (n:Entity {id: $id}) ON CREATE SET n.name = $name",
-                        {"id": e2_id, "name": e2},
-                    )
-                else:
-                    if e1_id not in engine.graph:
-                        engine.graph.add_node(e1_id, name=e1, type="Entity")
-                    if e2_id not in engine.graph:
-                        engine.graph.add_node(e2_id, name=e2, type="Entity")
+                # Entity persistence uses the guarded typed write surface; the
+                # graph backend is never exposed to a public tool.
+                engine.add_node(e1_id, "Entity", {"name": e1})
+                engine.add_node(e2_id, "Entity", {"name": e2})
 
                 # Create relation
                 engine.link_nodes(
@@ -92,9 +80,9 @@ async def extract_and_ingest_triples(
                 triples_added += 1
 
         return f"Successfully extracted and ingested {triples_added} triples."
-    except Exception as e:
-        logger.error(f"Failed to ingest triples: {e}")
-        return f"Failed to ingest triples: {e}"
+    except Exception as exc:
+        logger.error("Triple ingestion failed (%s)", type(exc).__name__)
+        return f"Triple ingestion failed ({type(exc).__name__})."
 
 
 kg_evolution_tools = [extract_and_ingest_triples]

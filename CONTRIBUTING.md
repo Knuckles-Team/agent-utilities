@@ -20,13 +20,13 @@ needs no external services. For an optional pg-age mirror set `GRAPH_BACKEND=fan
 ## Branch / worktree workflow
 
 Multiple agents and people work this repo concurrently. **Do not edit the
-canonical checkout** at `/home/apps/workspace/agent-packages/agent-utilities` — a
+canonical checkout** at `agent-packages/agent-utilities` — a
 background sync can reset its working tree. Take your own git worktree on your own
 branch (one branch per worktree keeps concurrent sessions from colliding):
 
 ```bash
 rm_worktree add agent-utilities <your-branch>     # repository-manager MCP, or:
-git worktree add /home/apps/worktrees/agent-utilities/<branch> -b <branch> main
+git worktree add ${XDG_STATE_HOME}/repository-worktrees/agent-utilities/<branch> -b <branch> main
 ```
 
 Commit early and often (commits survive a working-tree reset); merge to `main`
@@ -46,7 +46,7 @@ egeria/py3.12 dependency pin — validate with the system `python -m pytest` if 
 
 `pre-commit run --all-files` runs the guardrail gates in your **full** install.
 CI's `Guardrails` job runs them in a deliberately **lean** install (`pip install
--e .` + `numpy pyyaml pytest rdflib pyshacl owlrl` — no `[agent]`/`[all]` extras).
+-e .` + `numpy pyyaml pytest rdflib pyshacl owlrl` — no `[agent-runtime]`/`[all]` extras).
 A gate that transitively imports an extra-only dependency (`pydantic_ai`, `httpx`,
 `fastmcp`, …) therefore **passes locally but dies in CI**. To catch that class
 locally, reproduce CI's lean env and run every gate inside it:

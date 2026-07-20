@@ -88,9 +88,11 @@ sync:
   updated_field: null
   pagination: null
   doc_type: documentdb_document
+  tool_schema_sha256: e19b7a81f9c4758fc908a0c0942045b144c78439e8dceb3fd705ac85b1ec901d
   raw:
     server: documentdb-mcp
     tool: documentdb_crud
+    params_style: args
     action: find
     params:
       database_name: app
@@ -104,17 +106,20 @@ sync:
     doc_type: documentdb_document
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T00:00:00Z'
   source_artifacts:
   - a2a.json
   - documentdb_mcp/connectors/mcp_source_presets.json
+  - documentdb_mcp/connectors/tool_schema_fingerprints.json
   - documentdb_mcp/ontology/documentdb.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: a1bfde343fa2d6d3712ede2d1aea31bdded7424c3268dbee32f12023ba81b8c9
     triple_count: 41
   signer: ontology-manifest-generator
-  signature: b2cb009a5d06e0cf43f4edafd3bacc868bc7c12685283752ff29125d2de0f8e0
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: _VQtXSmMirfyRpGci76cKwnkIXyaYFPDzaiZ2m3OCn3aoehZYLWAmTxydmwiVEHJBX1mKMicYpzYnOsD6ZsNBw
 policy:
   pii_fields: {}
   tenant_boundary: null

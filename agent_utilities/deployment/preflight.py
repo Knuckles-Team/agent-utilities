@@ -121,13 +121,11 @@ def _engine_binary_path() -> str | None:
     return shutil.which("epistemic-graph-server")
 
 
-def _engine_binary_tier(server_path: str) -> str:
-    """Probe the engine binary's tier/capabilities (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision).
+def _engine_binary_contract(server_path: str) -> str:
+    """Validate the current engine launch contract.
 
-    A too-lean wheel may lack the supervised idle-shutdown contract the resolver
-    relies on. Introspect ``--help`` once and report whether
-    ``--idle-shutdown-secs`` is advertised so an older/leaner binary is flagged.
-    Best-effort: returns ``"unknown"`` if the binary can't be introspected.
+    The packaged binary must advertise ``--idle-shutdown-secs``. There is no
+    alternate launch path for a partial engine artifact.
     """
     try:
         out = subprocess.run(  # nosec B603 — fixed argv, our own binary
@@ -138,10 +136,10 @@ def _engine_binary_tier(server_path: str) -> str:
         )
         haystack = f"{out.stdout}\n{out.stderr}"
     except Exception:  # noqa: BLE001
-        return "unknown"
+        return "invalid"
     if "--idle-shutdown-secs" in haystack:
-        return "supervised"
-    return "lean"
+        return "current"
+    return "invalid"
 
 
 def _check_engine() -> dict[str, Any]:
@@ -149,26 +147,18 @@ def _check_engine() -> dict[str, Any]:
     found = _engine_binary_path()
     cargo = shutil.which("cargo")
     if found:
-        tier = _engine_binary_tier(found)
-        if tier == "lean":
+        contract = _engine_binary_contract(found)
+        if contract != "current":
             return _result(
                 "engine_binary",
-                "warn",
-                f"epistemic-graph-server present ({found}) but does NOT advertise "
-                "`--idle-shutdown-secs` — reference-counted idle shutdown "
-                "(CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) is unavailable; an autostarted engine will run "
-                "persistently. Upgrade the wheel for supervised idle shutdown.",
-                remediation="upgrade: `pip install -U agent-utilities` (lean/older engine binary)",
+                "fail",
+                "epistemic-graph-server does not satisfy the current launch contract",
+                remediation="install an approved current agent-utilities artifact",
             )
-        suffix = (
-            "; supports supervised idle shutdown"
-            if tier == "supervised"
-            else " (tier not introspectable)"
-        )
         return _result(
             "engine_binary",
             "ok",
-            f"epistemic-graph-server present ({found}); no Rust needed{suffix}",
+            "epistemic-graph-server present; current launch contract verified; no Rust needed",
         )
     # Not installed yet — that's expected pre-install. The wheel provides it.
     cargo_note = (

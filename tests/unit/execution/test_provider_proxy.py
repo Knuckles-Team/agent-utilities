@@ -57,7 +57,8 @@ def test_public_dns_to_private_ip_blocked():
         "https://evil.example.com/v1", resolver=fake_resolver
     )
     assert d.allowed is False
-    assert "blocked IP" in d.reason
+    assert d.reason == "resolves to blocked address"
+    assert d.resolved_ips == ()
 
 
 def test_public_dns_to_public_ip_allowed():
@@ -66,6 +67,31 @@ def test_public_dns_to_public_ip_allowed():
 
     d = validate_base_url_resolved("https://api.openai.com/v1", resolver=fake_resolver)
     assert d.allowed is True
+
+
+def test_dns_answer_count_is_bounded():
+    def fake_resolver(host, _port=None):
+        return [(2, 1, 6, "", ("93.184.216.34", 0))] * 65
+
+    decision = validate_base_url_resolved(
+        "https://public.example.test/v1", resolver=fake_resolver
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "too many addresses resolved"
+
+
+def test_dns_failure_does_not_echo_resolver_detail():
+    def fake_resolver(host, _port=None):
+        raise OSError("private resolver diagnostic")
+
+    decision = validate_base_url_resolved(
+        "https://public.example.test/v1", resolver=fake_resolver
+    )
+
+    assert decision.allowed is False
+    assert decision.reason == "DNS resolution failed"
+    assert "private resolver diagnostic" not in decision.reason
 
 
 def test_check_egress_no_custom_url_allows():
@@ -140,6 +166,16 @@ def test_malformed_chunk_skipped_not_raised():
     assert normalize_chunk("openai", ": comment") == []
 
 
+def test_provider_error_does_not_reflect_upstream_message():
+    events = normalize_chunk(
+        "anthropic",
+        'data: {"type":"error","error":{"message":"secret endpoint detail"}}',
+    )
+    assert len(events) == 1
+    assert events[0].type is ExecEventType.ERROR
+    assert events[0].text == "provider error"
+
+
 # ── live-path: route rejects SSRF before fetch ──────────────────────
 
 
@@ -171,3 +207,69 @@ def test_proxy_route_unsupported_provider():
     client = TestClient(app)
     resp = client.post("/api/proxy/bogus/stream", json={"model": "x", "messages": []})
     assert resp.status_code == 400
+
+
+def test_proxy_route_rejects_request_body_credentials():
+    fastapi = pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    app = fastapi.FastAPI()
+    from agent_utilities.server.routers import proxy
+
+    app.include_router(proxy.router)
+    client = TestClient(app)
+    resp = client.post(
+        "/api/proxy/openai/stream",
+        json={
+            "api_key": "must-not-enter-request-capture",
+            "model": "x",
+            "messages": [],
+        },
+    )
+    assert resp.status_code == 400
+    assert resp.json() == {"error": "request credentials are not permitted"}
+
+
+def test_proxy_messages_are_compiled_at_raw_http_boundary(monkeypatch):
+    from agent_utilities.server.routers import proxy
+
+    observed = {}
+
+    class Bundle:
+        def as_text(self):
+            return "[1] governed fact"
+
+    def compile_context(query):
+        observed["query"] = query
+        return Bundle()
+
+    monkeypatch.setattr(proxy, "compile_model_context", compile_context)
+    messages, system = proxy._govern_proxy_messages(
+        "openai", [{"role": "user", "content": "What changed?"}]
+    )
+
+    assert observed["query"] == "What changed?"
+    assert system is None
+    assert messages[0]["role"] == "system"
+    assert proxy._CONTEXT_MARKER in messages[0]["content"]
+    assert "governed fact" in messages[0]["content"]
+
+
+def test_anthropic_proxy_uses_governed_top_level_system(monkeypatch):
+    from agent_utilities.server.routers import proxy
+
+    class Bundle:
+        def as_text(self):
+            return "trusted evidence"
+
+    monkeypatch.setattr(proxy, "compile_model_context", lambda _query: Bundle())
+    messages, system = proxy._govern_proxy_messages(
+        "anthropic",
+        [{"role": "user", "content": [{"type": "text", "text": "question"}]}],
+        "format concisely",
+    )
+
+    assert messages[0]["role"] == "user"
+    assert system is not None
+    assert proxy._CONTEXT_MARKER in system
+    assert "format concisely" in system

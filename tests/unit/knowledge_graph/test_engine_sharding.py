@@ -1,10 +1,7 @@
-"""Tenant-partitioned engine sharding tests (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw / OS-5.28).
+"""Engine-authoritative placement topology tests.
 
-Covers HRW routing determinism (and parity with ``epistemic_graph.pool``'s
-``ShardRouter``), single-endpoint back-compat, the tenant→graph naming
-discipline, the fail-loud unreachable-shard contract (autostart never applies
-to remote shards), and the status/metrics visibility surfaces. No live
-engines: clients are injected fakes.
+Covers ordered coordinator contacts, tenant→graph naming, fail-loud remote
+contacts, and topology visibility. No live engines: clients are injected fakes.
 """
 
 from __future__ import annotations
@@ -20,7 +17,6 @@ from agent_utilities.knowledge_graph.core.shard_topology import (
     is_local_endpoint,
     resolve_endpoints,
     resolve_routing_graph,
-    shard_endpoint_for,
     shard_topology_status,
     tenant_graph_name,
 )
@@ -49,8 +45,6 @@ def _build_engine_unwrapped(graph_name=None):
 class _FakeConfig:
     def __init__(self, **overrides):
         self.graph_service_endpoints = overrides.get("graph_service_endpoints")
-        self.graph_service_tcp_addr = overrides.get("graph_service_tcp_addr")
-        self.graph_service_socket = overrides.get("graph_service_socket")
         self.kg_default_graph = overrides.get("kg_default_graph", "__commons__")
 
 
@@ -64,17 +58,8 @@ def test_resolve_endpoints_default_single():
     assert resolve_endpoints(cfg) == [DEFAULT_LOCAL_ENDPOINT]
 
 
-def test_resolve_endpoints_socket_and_tcp_precedence():
-    assert resolve_endpoints(_FakeConfig(graph_service_socket="/tmp/x.sock")) == [
-        "unix:///tmp/x.sock"
-    ]
-    assert resolve_endpoints(_FakeConfig(graph_service_tcp_addr="h:9100")) == [
-        "tcp://h:9100"
-    ]
-    # The endpoint list overrides socket/tcp_addr.
-    cfg = _FakeConfig(
-        graph_service_endpoints=THREE_SHARDS, graph_service_socket="/tmp/x.sock"
-    )
+def test_resolve_endpoints_explicit_topology():
+    cfg = _FakeConfig(graph_service_endpoints=THREE_SHARDS)
     assert resolve_endpoints(cfg) == THREE_SHARDS
 
 
@@ -95,43 +80,21 @@ def test_endpoints_env_accepts_comma_and_json(monkeypatch):
     assert AgentConfig().graph_service_endpoints is None
 
 
-# ---------------------------------------------------------------------------
-# HRW routing
-# ---------------------------------------------------------------------------
+def test_group_endpoint_map_is_typed_and_fails_closed(monkeypatch):
+    from agent_utilities.core.config import AgentConfig
 
-
-def test_shard_selection_deterministic_and_order_independent():
-    reordered = [THREE_SHARDS[2], THREE_SHARDS[0], THREE_SHARDS[1]]
-    for key in ("__commons__", "tenant__acme____commons__", "kg_enrich_comm", "alpha"):
-        first = shard_endpoint_for(key, THREE_SHARDS)
-        assert first in THREE_SHARDS
-        assert first == shard_endpoint_for(key, THREE_SHARDS)  # stable
-        assert first == shard_endpoint_for(key, reordered)  # HRW order-free
-
-
-def test_shard_selection_matches_shard_router():
-    """Sync placement must agree with epistemic_graph.pool.ShardRouter."""
-    from epistemic_graph.pool import ShardRouter
-
-    router = ShardRouter(list(THREE_SHARDS))
-    for key in ("a", "b", "c", "__commons__", "tenant__t1____commons__", "graph-42"):
-        assert shard_endpoint_for(key, THREE_SHARDS) == router._get_shard_endpoint(key)
-
-
-def test_shard_selection_spreads_keys():
-    chosen = {shard_endpoint_for(f"graph_{i}", THREE_SHARDS) for i in range(64)}
-    assert chosen == set(THREE_SHARDS)
-
-
-def test_single_endpoint_is_identity():
-    assert shard_endpoint_for("anything", ["unix:///tmp/only.sock"]) == (
-        "unix:///tmp/only.sock"
+    monkeypatch.setenv(
+        "GRAPH_RAFT_GROUP_ENDPOINTS",
+        '{"01": "tls://group-one.invalid:9443", "2": "tcp://group-two.invalid:9100"}',
     )
+    assert AgentConfig().graph_raft_group_endpoints == {
+        "1": "tls://group-one.invalid:9443",
+        "2": "tcp://group-two.invalid:9100",
+    }
 
-
-def test_shard_selection_requires_endpoints():
+    monkeypatch.setenv("GRAPH_RAFT_GROUP_ENDPOINTS", '{"group": "https://invalid"}')
     with pytest.raises(ValueError):
-        shard_endpoint_for("g", [])
+        AgentConfig()
 
 
 # ---------------------------------------------------------------------------
@@ -196,10 +159,9 @@ def _fake_connect_recorder(connects: list):
 def quiet_engine_env(monkeypatch):
     """Keep engine construction hermetic: no event bridge, no autostart."""
     monkeypatch.setenv("KAFKA_BOOTSTRAP_SERVERS", "test-suite:9092")
-    monkeypatch.delenv("EPISTEMIC_GRAPH_AUTOSTART", raising=False)
 
 
-def test_engine_routes_to_hrw_shard(monkeypatch, quiet_engine_env):
+def test_engine_connects_to_first_coordinator_contact(monkeypatch, quiet_engine_env):
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
@@ -213,9 +175,8 @@ def test_engine_routes_to_hrw_shard(monkeypatch, quiet_engine_env):
     )
 
     engine = GraphComputeEngine(graph_name="shard_routing_probe")
-    expected = shard_endpoint_for("shard_routing_probe", THREE_SHARDS)
     assert connects, "engine never connected"
-    assert connects[-1]["tcp_addr"] == expected.removeprefix("tcp://")
+    assert connects[-1]["tcp_addr"] == THREE_SHARDS[0].removeprefix("tcp://")
     assert engine.graph_name == "shard_routing_probe"
 
 
@@ -234,16 +195,15 @@ def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         engine = _build_engine_unwrapped(graph_name="__commons__")
     assert engine.graph_name == "tenant__acme____commons__"
-    expected = shard_endpoint_for("tenant__acme____commons__", THREE_SHARDS)
-    assert connects[-1]["tcp_addr"] == expected.removeprefix("tcp://")
+    assert connects[-1]["tcp_addr"] == THREE_SHARDS[0].removeprefix("tcp://")
 
 
-def test_engine_single_endpoint_backcompat(monkeypatch, quiet_engine_env):
+def test_engine_packaged_local_endpoint_identity(monkeypatch, quiet_engine_env):
     """One endpoint: no tenant mapping, no routing surprises (zero-infra)."""
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     monkeypatch.delenv("GRAPH_SERVICE_ENDPOINTS", raising=False)
-    monkeypatch.setenv("GRAPH_SERVICE_SOCKET", "/tmp/backcompat.sock")
+    monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", "unix:///tmp/packaged-local.sock")
     connects: list = []
     monkeypatch.setattr(
         SyncEpistemicGraphClient,
@@ -254,7 +214,7 @@ def test_engine_single_endpoint_backcompat(monkeypatch, quiet_engine_env):
         engine = _build_engine_unwrapped(graph_name="__commons__")
     # Single-endpoint mode must NOT remap the graph for the ambient tenant.
     assert engine.graph_name == "__commons__"
-    assert connects[-1]["socket_path"] == "/tmp/backcompat.sock"
+    assert connects[-1]["socket_path"] == "/tmp/packaged-local.sock"
 
     # And the no-argument default resolves to the configured default graph.
     engine_default = _build_engine_unwrapped()
@@ -265,14 +225,12 @@ def test_unreachable_remote_shard_fails_loud_without_autostart(
     monkeypatch, quiet_engine_env
 ):
     """A configured remote shard that is down is a hard error naming the shard;
-    EPISTEMIC_GRAPH_AUTOSTART must never spawn a stand-in for it."""
+    the configured external topology must never spawn a stand-in for it."""
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     from agent_utilities.knowledge_graph.core import graph_compute
 
     monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", ",".join(THREE_SHARDS))
-    monkeypatch.setenv("EPISTEMIC_GRAPH_AUTOSTART", "1")
-
     def _refuse(**kwargs):
         raise ConnectionRefusedError("connection refused")
 
@@ -283,19 +241,21 @@ def test_unreachable_remote_shard_fails_loud_without_autostart(
     )
 
     graph = "fail_loud_probe"
-    expected = shard_endpoint_for(graph, THREE_SHARDS)
     with pytest.raises(ConnectionError) as excinfo:
         graph_compute.GraphComputeEngine(graph_name=graph)
-    assert expected in str(excinfo.value)
-    assert graph in str(excinfo.value)
+    assert "configured engine coordinator is unreachable" in str(excinfo.value)
     assert not spawned, "autostart must not spawn engines for remote shards"
 
 
 def test_local_endpoint_detection():
     assert is_local_endpoint("unix:///tmp/a.sock")
     assert is_local_endpoint("/tmp/a.sock")
-    assert not is_local_endpoint("tcp://127.0.0.1:9100")
+    assert is_local_endpoint("tcp://127.0.0.1:9100")
+    assert is_local_endpoint("tcp://localhost:9100")
+    assert is_local_endpoint("tcp://[::1]:9100")
     assert not is_local_endpoint("tcp://shard-a:9100")
+    assert not is_local_endpoint("tcp://0.0.0.0:9100")
+    assert not is_local_endpoint("tls://127.0.0.1:9100")
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +282,7 @@ def test_shard_topology_status_reports_per_shard_reachability(monkeypatch):
 
 
 def test_shard_topology_status_single_mode(monkeypatch):
-    cfg = _FakeConfig(graph_service_socket="/tmp/solo.sock")
+    cfg = _FakeConfig(graph_service_endpoints=["unix:///tmp/solo.sock"])
     monkeypatch.setattr(shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True)
     status = shard_topology_status(cfg)
     assert status["mode"] == "single"

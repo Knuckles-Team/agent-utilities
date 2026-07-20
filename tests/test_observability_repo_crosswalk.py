@@ -148,7 +148,8 @@ def test_run_repo_crosswalk_writes_samesas_and_aliasof_edges(monkeypatch):
     assert len(cap.calls) == 1
     rel_types = {r["type"] for r in cap.calls[0]["relationships"]}
     assert rel_types == {"aliasOf", "sameAs"}
-    # aliasOf points alias -> canonical (the numeric-id node)
+    # aliasOf points the transport identifier (alias) to the authoritative
+    # repository node (canonical — the numeric-id node).
     alias_edge = next(
         r for r in cap.calls[0]["relationships"] if r["type"] == "aliasOf"
     )

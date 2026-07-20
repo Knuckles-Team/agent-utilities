@@ -20,11 +20,12 @@ from urllib.parse import urldefrag, urljoin, urlparse
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
-    ExternalAccess,
     LoadConnector,
     PollConnector,
     SourceDocument,
+    default_external_access,
 )
+from ..http_safety import require_safe_source_url, safe_get_text
 from ..registry import register_source
 
 FetchFn = Callable[[str], str]
@@ -52,20 +53,6 @@ def _html_to_text(html: str) -> str:
         return re.sub(r"\s+", " ", text).strip()
 
 
-def _default_fetch(url: str) -> str:
-    """Fetch a URL with lazy ``httpx`` (raises a clear error if unavailable)."""
-    try:
-        import httpx
-    except ImportError as exc:  # pragma: no cover - environment without httpx
-        raise RuntimeError(
-            "WebCrawlerConnector needs 'httpx' to fetch URLs. "
-            "Install it, or pass a fetch_fn for offline use."
-        ) from exc
-    resp = httpx.get(url, timeout=60.0, follow_redirects=True)
-    resp.raise_for_status()
-    return resp.text
-
-
 @register_source("web")
 class WebCrawlerConnector(LoadConnector, PollConnector):
     """Recursively crawl a website, same-domain, into documents.
@@ -90,22 +77,47 @@ class WebCrawlerConnector(LoadConnector, PollConnector):
         max_pages: int = 50,
         same_domain: bool = True,
         fetch_fn: FetchFn | None = None,
+        allowed_private_hosts: list[str] | None = None,
+        allowed_redirect_hosts: list[str] | None = None,
+        max_response_bytes: int = 10 * 1024 * 1024,
         **_: object,
     ) -> None:
         if not base_url:
             raise ValueError("WebCrawlerConnector requires a 'base_url'")
+        allowed_private_hosts = list(allowed_private_hosts or [])
+        self._host = require_safe_source_url(
+            base_url,
+            allowed_private_hosts=allowed_private_hosts,
+            resolve_dns=False,
+        )
         self.base_url = base_url
-        self.max_depth = max(0, int(max_depth))
-        self.max_pages = max(1, int(max_pages))
+        self.max_depth = min(10, max(0, int(max_depth)))
+        self.max_pages = min(10_000, max(1, int(max_pages)))
         self.same_domain = same_domain
-        self._fetch: FetchFn = fetch_fn or _default_fetch
-        self._host = urlparse(base_url).netloc
+        self.external_access = default_external_access()
+        if fetch_fn is not None:
+            self._fetch = fetch_fn
+        else:
+            redirect_hosts = list(allowed_redirect_hosts or [])
+
+            def _safe_fetch(url: str) -> str:
+                return safe_get_text(
+                    url,
+                    timeout=60.0,
+                    max_bytes=max_response_bytes,
+                    allowed_private_hosts=allowed_private_hosts,
+                    allowed_redirect_hosts=redirect_hosts,
+                )
+
+            self._fetch = _safe_fetch
 
     def health_check(self) -> bool:
         return bool(self.base_url)
 
     def _same_domain(self, url: str) -> bool:
-        return (not self.same_domain) or urlparse(url).netloc == self._host
+        return (not self.same_domain) or (
+            (urlparse(url).hostname or "").lower().rstrip(".") == self._host
+        )
 
     def _extract_links(self, base: str, html: str) -> list[str]:
         out: list[str] = []
@@ -147,7 +159,7 @@ class WebCrawlerConnector(LoadConnector, PollConnector):
                     text=text,
                     doc_type="webpage",
                     metadata={"depth": depth},
-                    external_access=ExternalAccess.public(),
+                    external_access=self.external_access.model_copy(deep=True),
                 )
             if depth < self.max_depth:
                 for link in self._extract_links(url, html):

@@ -106,7 +106,7 @@ phase('Design handlers')
 const specs = await parallel(
   MODULES.map(([module, host, action]) => () =>
     agent(
-      `${CONVENTIONS}\n\nMODULE TO WIRE: ${module}\nHOST TOOL: ${host}\nREQUIRED action_name: "${action}"\n\nRead the module at that path (it's under /home/apps/workspace/agent-packages/agent-utilities/). Identify the best public entry point and produce the elif branch.`,
+      `${CONVENTIONS}\n\nMODULE TO WIRE: ${module}\nHOST TOOL: ${host}\nREQUIRED action_name: "${action}"\n\nRead the module at that path (it's under ${WORKSPACE_ROOT}/agent-packages/agent-utilities/). Identify the best public entry point and produce the elif branch.`,
       { label: `wire:${action}`, phase: 'Design handlers', schema: SCHEMA, agentType: 'Explore' },
     ),
   ),

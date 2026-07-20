@@ -8,60 +8,137 @@ from __future__ import annotations
 
 from typing import Any
 
+import msgpack
 import pytest
 
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.memory.native_ingest import (
+    NativeIngestError,
     enrich_pending_documents,
     ingest_documents,
     ingest_entities,
 )
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
-class _FakeTxn:
-    def __init__(self):
-        self.nodes = {}
-        self.committed = False
+@pytest.fixture(autouse=True)
+def _governed_session():
+    actor = ActorContext(
+        actor_id="subject:opaque:synthetic",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=(),
+        tenant_id="tenant:opaque:synthetic",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:write"}),
+        graph="graph:opaque:synthetic",
+        policy_version="policy:opaque:synthetic",
+        audience="epistemic-graph",
+    )
+    with use_actor(actor), use_session(session):
+        yield
 
-    def begin(self, graph=None):
-        return "t"
 
-    def add_node(self, txn, node_id, props):
-        self.nodes[node_id] = props
+class _FakeNodes:
+    def __init__(self) -> None:
+        self.values: dict[str, dict[str, Any]] = {}
 
-    def commit(self, txn):
-        self.committed = True
-        return True
+    def properties(self, node_id: str) -> dict[str, Any] | None:
+        return self.values.get(node_id)
+
+    def list(self) -> list[tuple[str, dict[str, Any]]]:
+        return list(self.values.items())
 
 
-class _FakeEdges:
-    def __init__(self):
-        self.edges = []
+class _FakeChanges:
+    def __init__(self, nodes: _FakeNodes) -> None:
+        self.nodes = nodes
+        self.edges: list[tuple[str, str, dict[str, Any]]] = []
+        self.applied: list[dict[str, Any]] = []
+        self.records: dict[str, dict[str, Any]] = {}
+        self.versions: dict[str, dict[str, Any]] = {}
 
-    def add(self, s, d, p):
-        self.edges.append((s, d, p))
+    def get(self, envelope_id: str) -> dict[str, Any] | None:
+        return self.records.get(envelope_id)
+
+    def content_version(self, object_id: str) -> dict[str, Any] | None:
+        return self.versions.get(object_id)
+
+    def cursor(self, _source: str, _partition: str = "") -> None:
+        return None
+
+    def apply(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        self.applied.append(envelope)
+        mutation = envelope["mutation"]
+        for operation in mutation["operations"]:
+            method = operation["method"]
+            params = method["params"]
+            properties = msgpack.unpackb(params["properties_msgpack"], raw=False)
+            if method["method"] == "AddNode":
+                self.nodes.values[params["node_id"]] = properties
+            elif method["method"] == "AddEdge":
+                self.edges.append(
+                    (params["source_id"], params["target_id"], properties)
+                )
+        version = envelope["content_version"]
+        self.versions[version["object_id"]] = version
+        self.records[envelope["envelope_id"]] = envelope
+        return {
+            "batch_id": mutation["batch_id"],
+            "replayed": False,
+            "projection_pending": False,
+        }
+
+
+class _FakeRdf:
+    def validate_shacl(self, _shapes: str, _data_graph: str) -> dict[str, Any]:
+        return {"conforms": True, "results": []}
 
 
 class _FakeClient:
-    def __init__(self):
-        self.txn = _FakeTxn()
-        self.edges = _FakeEdges()
+    def __init__(self) -> None:
+        self.nodes = _FakeNodes()
+        self.changes = _FakeChanges(self.nodes)
+        self.rdf = _FakeRdf()
+
+    @staticmethod
+    def supports(operation: str) -> bool:
+        return operation == "ApplyChangeEnvelope"
+
+
+class _RawTxnOnlyClient:
+    def __init__(self) -> None:
+        self.txn = object()
 
 
 def test_ingest_entities_writes_typed_nodes_and_stamps_provenance():
     c = _FakeClient()
     res = ingest_entities(
-        [{"id": "erpnext:so:1", "type": "SalesOrder", "total": 10}],
-        [{"source": "erpnext:so:1", "target": "erpnext:cust:1", "type": "orderedBy"}],
+        [{"id": "erpnext:so:1", "node_type": "SalesOrder", "total": 10}],
+        [
+            {
+                "source": "erpnext:so:1",
+                "target": "erpnext:cust:1",
+                "relationship": "orderedBy",
+            }
+        ],
         source="erpnext-agent",
         domain="erpnext",
         client=c,
-        graph="__commons__",
     )
     assert res == {"nodes": 1, "edges": 1}
-    n = c.txn.nodes["erpnext:so:1"]
-    assert n["type"] == "SalesOrder"
+    n = c.nodes.values["erpnext:so:1"]
+    assert n["node_type"] == "SalesOrder"
     assert n["source"] == "erpnext-agent" and n["domain"] == "erpnext"
-    assert c.edges.edges[0] == ("erpnext:so:1", "erpnext:cust:1", {"type": "orderedBy"})
+    assert c.changes.edges[0] == (
+        "erpnext:so:1",
+        "erpnext:cust:1",
+        {"relationship": "orderedBy"},
+    )
 
 
 def test_ingest_documents_writes_document_nodes():
@@ -73,30 +150,103 @@ def test_ingest_documents_writes_document_nodes():
         client=c,
     )
     assert res == {"nodes": 1, "edges": 0}
-    d = c.txn.nodes["sn:kb:1"]
-    assert d["type"] == "Document"
+    d = c.nodes.values["sn:kb:1"]
+    assert d["node_type"] == "Document"
     assert d["text"] == "reset vpn"
     assert d["title"] == "VPN"
     assert d["source"] == "servicenow-api"
 
 
+def test_ingest_documents_commits_canonical_relationships_with_documents():
+    client = _FakeClient()
+    result = ingest_documents(
+        [{"id": "mm:post:1", "text": "hello"}],
+        [
+            {
+                "source": "mm:post:1",
+                "target": "mm:channel:1",
+                "relationship": "postedInChannel",
+            }
+        ],
+        source="mattermost-mcp",
+        domain="mattermost",
+        client=client,
+    )
+
+    assert result == {"nodes": 1, "edges": 1}
+    assert len(client.changes.applied) == 1
+    assert client.changes.edges == [
+        ("mm:post:1", "mm:channel:1", {"relationship": "postedInChannel"})
+    ]
+
+
+def test_ingest_documents_rejects_retired_edge_alias_before_transaction():
+    client = _FakeClient()
+    with pytest.raises(NativeIngestError, match="canonical relationship"):
+        ingest_documents(
+            [{"id": "doc:1", "text": "hello"}],
+            [{"source": "doc:1", "target": "topic:1", "type": "about"}],
+            source="source",
+            domain="domain",
+            client=client,
+        )
+    assert client.changes.applied == []
+
+
 def test_documents_without_text_are_skipped():
     c = _FakeClient()
-    assert ingest_documents([{"id": "x"}], source="s", domain="d", client=c) is None
+    with pytest.raises(NativeIngestError, match="at least one document"):
+        ingest_documents([{"id": "x"}], source="s", domain="d", client=c)
 
 
-def test_noop_without_engine(monkeypatch):
+def test_engine_failure_is_not_acknowledged(monkeypatch):
     # Simulate no reachable engine so the test is deterministic regardless of
     # whether a live engine happens to be reachable from the test host.
     import agent_utilities.knowledge_graph.memory.native_ingest as ni
 
-    monkeypatch.setattr(ni, "native_client", lambda: (None, ""))
-    assert ingest_entities([{"id": "a", "type": "T"}], source="s", domain="d") is None
-    assert ingest_documents([{"id": "a", "text": "t"}], source="s", domain="d") is None
+    def unavailable():
+        raise NativeIngestError("unavailable")
+
+    monkeypatch.setattr(ni, "native_authority", unavailable)
+    with pytest.raises(NativeIngestError, match="unavailable"):
+        ingest_entities([{"id": "a", "node_type": "T"}], source="s", domain="d")
+    with pytest.raises(NativeIngestError, match="unavailable"):
+        ingest_documents([{"id": "a", "text": "t"}], source="s", domain="d")
 
 
-def test_empty_is_noop():
-    assert ingest_entities([], source="s", domain="d", client=_FakeClient()) is None
+def test_empty_is_rejected():
+    with pytest.raises(NativeIngestError, match="at least one entity"):
+        ingest_entities([], source="s", domain="d", client=_FakeClient())
+
+
+def test_retired_structural_aliases_are_rejected_before_transaction():
+    client = _FakeClient()
+    with pytest.raises(NativeIngestError, match="canonical node_type"):
+        ingest_entities(
+            [{"id": "a", "type": "RetiredAlias"}],
+            source="s",
+            domain="d",
+            client=client,
+        )
+    with pytest.raises(NativeIngestError, match="canonical relationship"):
+        ingest_entities(
+            [{"id": "a", "node_type": "Thing"}],
+            [{"source": "a", "target": "b", "type": "RetiredAlias"}],
+            source="s",
+            domain="d",
+            client=client,
+        )
+    assert client.changes.applied == []
+
+
+def test_raw_transaction_only_client_is_rejected() -> None:
+    with pytest.raises(NativeIngestError, match="support ChangeEnvelope"):
+        ingest_entities(
+            [{"id": "a", "node_type": "Thing"}],
+            source="source",
+            domain="domain",
+            client=_RawTxnOnlyClient(),
+        )
 
 
 def test_ingest_documents_stamps_provenance_and_needs_enrichment_flag():
@@ -110,11 +260,48 @@ def test_ingest_documents_stamps_provenance_and_needs_enrichment_flag():
         client=c,
     )
     assert res == {"nodes": 1, "edges": 0}
-    d = c.txn.nodes["searxng:result:1"]
+    d = c.nodes.values["searxng:result:1"]
     assert d["needs_enrichment"] is True
-    assert d["fetched_at"]
+    assert "created_at" not in d
+    assert "fetched_at" not in d
     assert d["backend"] == "native_ingest"
     assert d["content_hash"]
+
+
+def test_identical_document_redelivery_applies_one_change_envelope() -> None:
+    client = _FakeClient()
+    document = {"id": "source:document:opaque", "text": "stable content"}
+
+    first = ingest_documents(
+        [document], source="source", domain="domain", client=client
+    )
+    second = ingest_documents(
+        [document], source="source", domain="domain", client=client
+    )
+
+    assert first == second == {"nodes": 1, "edges": 0}
+    assert len(client.changes.applied) == 1
+
+
+def test_source_document_timestamps_are_preserved() -> None:
+    client = _FakeClient()
+    ingest_documents(
+        [
+            {
+                "id": "source:document:timestamped",
+                "text": "stable content",
+                "created_at": "2026-01-02T03:04:05Z",
+                "fetched_at": "2026-01-02T03:05:06Z",
+            }
+        ],
+        source="source",
+        domain="domain",
+        client=client,
+    )
+
+    node = client.nodes.values["source:document:timestamped"]
+    assert node["created_at"] == "2026-01-02T03:04:05Z"
+    assert node["fetched_at"] == "2026-01-02T03:05:06Z"
 
 
 class _FakeBackend:
@@ -136,8 +323,6 @@ class _FakeEngineForSweep:
 
 @pytest.mark.asyncio
 async def test_enrich_pending_documents_processes_and_clears_flag(monkeypatch):
-    import agent_utilities.knowledge_graph.memory.native_ingest as ni
-
     rows = [
         {"d": {"id": "doc:a", "text": "hello world", "title": "A"}},
         {"d": {"id": "doc:b", "text": "goodbye world", "title": "B"}},
@@ -145,6 +330,7 @@ async def test_enrich_pending_documents_processes_and_clears_flag(monkeypatch):
     engine = _FakeEngineForSweep(rows)
 
     processed: list[str] = []
+    processed_metadata: list[dict[str, Any]] = []
     enriched_calls: list[str] = []
 
     class _FakeProcessor:
@@ -153,6 +339,7 @@ async def test_enrich_pending_documents_processes_and_clears_flag(monkeypatch):
 
         def process(self, _text: str, *, document_id: str, **_kw: Any) -> None:
             processed.append(document_id)
+            processed_metadata.append(dict(_kw.get("metadata") or {}))
 
     class _FakeIngestionEngine:
         def __init__(self, *_a: Any, **_kw: Any) -> None:
@@ -177,10 +364,11 @@ async def test_enrich_pending_documents_processes_and_clears_flag(monkeypatch):
 
     assert result == {"scanned": 2, "enriched": 2, "failed": 0}
     assert processed == ["doc:a", "doc:b"]
+    assert processed_metadata == [
+        {"needs_enrichment": False},
+        {"needs_enrichment": False},
+    ]
     assert enriched_calls == ["doc:a", "doc:b"]
-    cleared = {nid: props for nid, props in engine.backend.add_node_calls}
-    assert cleared["doc:a"]["needs_enrichment"] is False
-    assert cleared["doc:b"]["needs_enrichment"] is False
 
 
 @pytest.mark.asyncio

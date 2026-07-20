@@ -2,8 +2,7 @@
 
 The launcher must be secure by default: a per-install secret is generated
 once, persisted with 0600 perms under the XDG data dir, shared by every
-process, and passed to spawned engines — with KG_ENGINE_INSECURE as the
-explicit dev opt-out.
+process, and passed to spawned engines. No unauthenticated branch exists.
 """
 
 from __future__ import annotations
@@ -27,7 +26,6 @@ def data_dir(tmp_path, monkeypatch):
 
 def _cfg(**overrides):
     cfg = MagicMock()
-    cfg.kg_engine_insecure = overrides.get("kg_engine_insecure", False)
     cfg.graph_service_auth_secret = overrides.get("graph_service_auth_secret", None)
     return cfg
 
@@ -57,22 +55,14 @@ def test_existing_secret_file_wins(data_dir):
 
 @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_resolve_uses_configured_secret_verbatim(data_dir):
-    secret, insecure = resolve_engine_auth(_cfg(graph_service_auth_secret="configured"))
-    assert (secret, insecure) == ("configured", False)
+    secret = resolve_engine_auth(_cfg(graph_service_auth_secret="configured"))
+    assert secret == "configured"
     # Nothing is generated when the secret is configured explicitly.
     assert not (data_dir / "engine_secret").exists()
 
 
 @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
 def test_resolve_generates_persisted_secret_by_default(data_dir):
-    secret, insecure = resolve_engine_auth(_cfg())
-    assert insecure is False
+    secret = resolve_engine_auth(_cfg())
     assert secret
     assert (data_dir / "engine_secret").read_text().strip() == secret
-
-
-@pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
-def test_insecure_opt_out(data_dir):
-    secret, insecure = resolve_engine_auth(_cfg(kg_engine_insecure=True))
-    assert (secret, insecure) == (None, True)
-    assert not (data_dir / "engine_secret").exists()

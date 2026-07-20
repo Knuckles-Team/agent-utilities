@@ -11,8 +11,11 @@ duplicate XDG logic.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,19 @@ from agent_utilities.gateway.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MAX_CONFIG_BYTES = 4 * 1024 * 1024
+_MAX_MCP_SERVERS = 512
+_INLINE_CREDENTIAL_FIELDS = frozenset(
+    {
+        "api_key",
+        "password",
+        "public_key",
+        "secret_key",
+        "token",
+        "username",
+    }
+)
 
 # Map MCP server names to widget types + metadata
 _MCP_TO_WIDGET: dict[str, dict[str, Any]] = {
@@ -189,18 +205,12 @@ _MCP_TO_WIDGET: dict[str, dict[str, Any]] = {
 
 
 def services_config_path() -> Path:
-    """Path to the services configuration YAML file.
-
-    Default: ``~/.config/agent-utilities/services.yaml``
-    """
+    """Return the XDG-managed services configuration path."""
     return config_dir() / "services.yaml"
 
 
 def dashboard_layout_path() -> Path:
-    """Path to the persisted dashboard layout.
-
-    Default: ``~/.local/share/agent-utilities/layout.yaml``
-    """
+    """Return the XDG-managed persisted dashboard layout path."""
     return data_dir() / "layout.yaml"
 
 
@@ -225,7 +235,7 @@ class ConfigManager:
         return self._auto_discover()
 
     def save(self, layout: DashboardLayout) -> None:
-        """Save current layout to YAML."""
+        """Atomically save layout metadata; credential material is never serialized."""
         self._config_path.parent.mkdir(parents=True, exist_ok=True)
 
         data: dict[str, Any] = {
@@ -250,27 +260,67 @@ class ConfigManager:
                 "services": [],
             }
             for svc in group.services:
-                svc_data = svc.model_dump(mode="json", exclude_defaults=True)
+                svc_data = svc.model_dump(
+                    mode="json",
+                    exclude_defaults=True,
+                    exclude=_INLINE_CREDENTIAL_FIELDS,
+                )
                 group_data["services"].append(svc_data)
             data["groups"].append(group_data)
 
-        with open(self._config_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        rendered = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
+        if len(rendered.encode("utf-8")) > _MAX_CONFIG_BYTES:
+            raise ValueError("dashboard configuration exceeds its size boundary")
+        fd, temporary_name = tempfile.mkstemp(
+            dir=self._config_path.parent,
+            prefix=".services-",
+            suffix=".tmp",
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(rendered)
+                handle.flush()
+                os.fsync(handle.fileno())
+            with contextlib.suppress(OSError):
+                os.chmod(temporary_name, 0o600)
+            os.replace(temporary_name, self._config_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary_name)
 
-        logger.info("Dashboard config saved to %s", self._config_path)
+        logger.info("Dashboard config saved")
 
     def _load_yaml(self) -> DashboardLayout:
         """Load layout from existing YAML file."""
-        with open(self._config_path) as f:
-            data = yaml.safe_load(f) or {}
+        raw = self._config_path.read_bytes()
+        if len(raw) > _MAX_CONFIG_BYTES:
+            raise ValueError("dashboard configuration exceeds its size boundary")
+        data = yaml.safe_load(raw.decode("utf-8")) or {}
+        if not isinstance(data, dict):
+            raise ValueError("dashboard configuration must be an object")
 
         settings = data.get("settings", {})
         groups_data = data.get("groups", [])
 
+        if not isinstance(settings, dict) or not isinstance(groups_data, list):
+            raise ValueError("dashboard configuration has an invalid shape")
+
         groups = []
         for g in groups_data:
+            if not isinstance(g, dict):
+                raise ValueError("dashboard group entries must be objects")
             services = []
-            for s in g.get("services", []):
+            raw_services = g.get("services", [])
+            if not isinstance(raw_services, list):
+                raise ValueError("dashboard services must be a list")
+            for s in raw_services:
+                if not isinstance(s, dict):
+                    raise ValueError("dashboard service entries must be objects")
+                if _INLINE_CREDENTIAL_FIELDS.intersection(s):
+                    raise ValueError(
+                        "persistent inline credentials are forbidden; use credential_refs"
+                    )
                 services.append(ServiceConfig(**s))
             groups.append(
                 ServiceGroup(
@@ -297,29 +347,47 @@ class ConfigManager:
         """
         mcp_path = mcp_config_path()
         if not mcp_path.exists():
-            logger.info("No mcp_config.json found at %s", mcp_path)
+            logger.info("No MCP catalog configured for dashboard discovery")
             return DashboardLayout()
 
-        with open(mcp_path) as f:
-            mcp_config = json.load(f)
+        raw = mcp_path.read_bytes()
+        if len(raw) > _MAX_CONFIG_BYTES:
+            raise ValueError("MCP catalog exceeds its size boundary")
+        mcp_config = json.loads(raw.decode("utf-8"))
+        if not isinstance(mcp_config, dict):
+            raise ValueError("MCP catalog must be an object")
 
         servers = mcp_config.get("mcpServers", mcp_config.get("servers", {}))
+        if not isinstance(servers, dict) or len(servers) > _MAX_MCP_SERVERS:
+            raise ValueError("MCP server catalog has an invalid shape or size")
 
         # Group services by category
         category_groups: dict[ServiceCategory, list[ServiceConfig]] = {}
 
         for server_name, server_config in servers.items():
+            if not isinstance(server_name, str) or len(server_name) > 128:
+                continue
+            if not isinstance(server_config, dict):
+                continue
             mapping = _MCP_TO_WIDGET.get(server_name)
             if not mapping:
-                logger.debug("No widget mapping for MCP server: %s", server_name)
                 continue
 
             # Extract URL from server config env vars or args
             env_vars = server_config.get("env", {})
+            if not isinstance(env_vars, dict) or len(env_vars) > 256:
+                env_vars = {}
             url = ""
             env_prefix = mapping.get("env_prefix", "")
             if env_prefix:
-                url = env_vars.get(f"{env_prefix}_URL", "")
+                candidate = env_vars.get(f"{env_prefix}_URL", "")
+                # Persisted catalogs are parsed literally. Runtime templates and
+                # secret references stay unresolved here; environment lookup is
+                # the only source of concrete discovery values.
+                if isinstance(candidate, str) and not candidate.startswith(
+                    ("${", "env://", "secret://", "vault://")
+                ):
+                    url = candidate[:8192]
                 if not url:
                     url = setting(f"{env_prefix}_URL", "")
 

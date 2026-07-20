@@ -45,8 +45,8 @@ flowchart LR
     AM --> AE[extractors/aris.py\nEPC lift]
     CE --> B[ExtractionBatch\nBusinessProcess / BusinessTask / FLOWS_TO]
     AE --> B
-    B --> MS[materialize_source\nregistry.write_batch]
-    MS --> KG[(Knowledge Graph\nengine authority + compute)]
+    B --> MS[materialize_source\nnative graph-slice ChangeEnvelope]
+    MS --> KG[(Knowledge Graph\none atomic governed commit)]
     KG --> RD[OntologyReasoningDriver\nOWLBridge.run_cycle]
     RD --> KG
 ```
@@ -55,9 +55,11 @@ flowchart LR
   `ExtractionBatch`. `camunda.py` parses BPMN 2.0 XML; `aris.py` lifts the EPC
   (functions → `BusinessTask`, rule operators → gateway `BusinessTask`, events
   collapsed, connections → `FLOWS_TO` with branch conditions).
-- **`materialize_source(backend, category, client)`**
+- **`materialize_source(engine, category, client)`**
   (`enrichment/materialize.py`) runs the registered extractor and persists the
-  batch through the single generic writer. It chooses *materialize* over the
+  complete batch through native `ApplyChangeEnvelope`, including policy,
+  lineage, content version, and outbox in the same commit. It chooses
+  *materialize* over the
   query-time `register_rest_source` virtualization because cross-source
   reasoning (the `ALIGNED_WITH` crosswalk) needs the data persisted.
 - After the write, **`OntologyReasoningDriver.extrapolate()`** promotes the new
@@ -81,7 +83,7 @@ flowchart LR
 ```
 
 `gather_intelligence` assembles four payloads per process, read through the
-compute layer (the L1 `execute` is single-node-only, so edge reads go through
+native graph view (the bounded `execute` surface is single-node-only, so edge reads go through
 `GraphComputeReader`):
 
 1. **Capability / code lineage** — Workflows that `REALIZES` the process and
@@ -135,7 +137,7 @@ setup, use the **agent-utilities-process-integration** skill.
 
 ```bash
 # inbound, live (needs a Camunda 7 engine with a deployed definition)
-CAMUNDA7_URL=http://camunda.arpa/engine-rest pytest -m live \
+CAMUNDA7_URL=https://camunda.example.test/engine-rest pytest -m live \
     tests/integration/test_camunda_live.py
 
 # unit

@@ -319,7 +319,7 @@ graph TD
 
 > `_persist_execution()` currently writes a `ParallelExecution` node plus one
 > `AgentExecutionResult` node per agent (connected by `HAS_RESULT`/`DEPENDS_ON` edges).
-> A dedicated `SynthesisResult` node type (model: `core/analysis_models.py`) and an
+> A dedicated `SynthesisResult` node type and an
 > `ExecutionManifestTemplate` node for preset registration are not yet persisted by the
 > engine — synthesis output is stored inline on the `ParallelExecution` node.
 

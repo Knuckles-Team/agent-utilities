@@ -26,8 +26,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_utilities.core.config import setting
-
 logger = logging.getLogger(__name__)
 
 
@@ -129,16 +127,8 @@ _SERVICE_DEFINITIONS: list[dict[str, str]] = [
         "desc": "Subagent lifecycle patterns (ORCH-1.5)",
     },
     {
-        "module": "agent_utilities.security.execution_stability_engine",
-        "entry": "RetryManager",
-        "capability": "structured_retry",
-        "layer": "orchestration",
-        "domain": "general",
-        "desc": "Structured retry with hooks (AHE-3.11)",
-    },
-    {
-        "module": "agent_utilities.knowledge_graph.memory.elastic_context_manager",
-        "entry": "ElasticContextManager",
+        "module": "agent_utilities.knowledge_graph.memory.agent_context",
+        "entry": "AgentContextManager",
         "capability": "context_filtering",
         "layer": "orchestration",
         "domain": "general",
@@ -618,32 +608,6 @@ class ServiceRegistry:
                 description=defn.get("desc", ""),
             )
             self._services[desc.capability] = desc
-
-        # Load external legacy plugins
-        try:
-            import os
-
-            from agent_utilities.graph.adapters.external_plugin_adapter import (
-                ExternalPluginAdapter,
-            )
-
-            plugin_dir = setting(
-                "EXTERNAL_PLUGIN_DIR", os.path.join(os.getcwd(), "plugins")
-            )
-            external_plugins = ExternalPluginAdapter.load_plugins_from_directory(
-                plugin_dir
-            )
-            for plugin_desc in external_plugins:
-                self._services[plugin_desc.capability] = plugin_desc
-                logger.info(
-                    "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Registered external plugin: %s",
-                    plugin_desc.capability,
-                )
-        except Exception as e:
-            logger.warning(
-                "[CONCEPT:AU-ORCH.adapter.unified-service-discovery] Failed to load external plugins: %s",
-                e,
-            )
 
         self._initialized = True
         logger.info(

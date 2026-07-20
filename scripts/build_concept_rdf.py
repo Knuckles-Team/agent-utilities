@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """OKF-CIS RDF generator (CONCEPT:AU-OS.governance.concept-2) — populate the dead governance model.
 
-Reads the curated migration plan and emits ``ontology_concepts.ttl`` under the
+Reads the generated concept registry and emits ``ontology_concepts.ttl`` under the
 canonical ``http://knuckles.team/kg#`` namespace, populating the classes that
 ``ontology.ttl`` (OS-5.76) declares but nothing filled:
 
-* one ``:GovernedConcept`` individual per concept, with ``:dottedId`` and a
-  ``:flatId`` for each legacy id it absorbs (a formerly-collided id like ``KG-2.7``
-  appears as a ``:flatId`` on several distinct concepts — disambiguation in RDF);
+* one ``:GovernedConcept`` individual per canonical concept with ``:conceptId``;
 * ``:partOf`` mereology concept -> domain -> pillar -> repo-scheme
   (``okf_part_of_edges``), and the matching ``skos:broader``;
 * the 6 pillars as SHARED ``skos:Concept`` top nodes (no slug) so every repo's
@@ -23,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import yaml
@@ -49,16 +46,13 @@ def _lit(s: str) -> str:
     return '"' + str(s).replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def build(plan_path: Path) -> str:
-    plan = yaml.safe_load(plan_path.read_text(encoding="utf-8"))
-    entries = plan["entries"]
+def build(registry_path: Path) -> str:
+    registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    entries = registry.get("concepts", [])
 
-    # legacy ids per new concept (from the plan: each entry's old_id)
-    flat_ids: dict[str, set[str]] = defaultdict(set)
     parsed: dict[str, ch.OkfConceptId] = {}
     for e in entries:
-        nid = e["new_id"]
-        flat_ids[nid].add(e["old_id"])
+        nid = e["id"]
         if nid not in parsed:
             parsed[nid] = ch.parse_okf_id(nid)
 
@@ -72,9 +66,7 @@ def build(plan_path: Path) -> str:
         schemes.add(p.slug)
         domains.add(p.domain_iri)
         lines.append(f"<{p.iri}> a :GovernedConcept ;")
-        lines.append(f"    :dottedId {_lit(nid)} ;")
-        for fid in sorted(flat_ids[nid]):
-            lines.append(f"    :flatId {_lit(fid)} ;")
+        lines.append(f"    :conceptId {_lit(nid)} ;")
         lines.append(f"    skos:prefLabel {_lit(p.concept.replace('-', ' '))} ;")
         lines.append(f"    skos:inScheme <{p.scheme_iri}> ;")
         lines.append(f"    skos:broader <{p.domain_iri}> ;")
@@ -107,10 +99,14 @@ def build(plan_path: Path) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--plan", required=True)
+    ap.add_argument(
+        "--registry",
+        default="docs/concepts.yaml",
+        help="generated canonical concepts.yaml path",
+    )
     ap.add_argument("--out", required=True, help="output ontology_concepts.ttl path")
     args = ap.parse_args()
-    ttl = build(Path(args.plan))
+    ttl = build(Path(args.registry))
     Path(args.out).write_text(ttl, encoding="utf-8")
     n_gc = ttl.count("a :GovernedConcept")
     n_pil = ttl.count("a :Pillar")

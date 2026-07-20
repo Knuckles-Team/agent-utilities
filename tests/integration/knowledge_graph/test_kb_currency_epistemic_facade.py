@@ -4,8 +4,8 @@ per-row epistemic envelope (score/confidence/valid+tx time/source_refs/
 policy_labels) instead of flattening the result to a plain ``dict``.
 
 This test stands up a REAL, ephemeral ``epistemic-graph-server`` (the sibling
-``epistemic-graph`` checkout, which carries ``Method::ExplainProvenanceByIds`` /
-the widened ``ExplainProvenanceRowWire``, CONCEPT:EG-KB-CURRENCY), seeds a Claim +
+``epistemic-graph`` checkout, which carries ``Method::ExplainProvenanceByIds`` and
+the schema-bound ``EvidenceBundle`` projection, CONCEPT:EG-KB-CURRENCY), seeds a Claim +
 Evidence node pair with a real confidence + bitemporal window and a ``SUPPORTS``
 edge directly over the raw engine client, then asserts the values the facade
 returns via ``include_epistemic=True`` originated in the engine (the confidence,
@@ -28,6 +28,16 @@ import uuid
 from pathlib import Path
 
 import pytest
+from _test_engine import (
+    TEST_AGENT_ID,
+    TEST_AUDIENCE,
+    TEST_POLICY_VERSION,
+    TEST_SIGNER_KEY,
+    TEST_TENANT,
+    bootstrap_context,
+    request_context,
+    strict_server_env,
+)
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(120)]
 
@@ -38,8 +48,8 @@ def _find_engine_binary() -> str | None:
 
     Same discovery convention as ``test_shard_write_parallelism.py``: an explicit
     override, then a sibling ``epistemic-graph`` checkout's ``target/release``
-    (walking up from this file so a worktree layout resolves too), then the
-    canonical workspace location, then whatever is on ``PATH``.
+    (walking up from this file so a worktree layout resolves too), then whatever
+    is on ``PATH``. No machine-specific workspace path is embedded.
     """
     env = os.environ.get("EPISTEMIC_GRAPH_SERVER_BIN")
     if env and os.path.exists(env):
@@ -54,12 +64,6 @@ def _find_engine_binary() -> str | None:
             if os.path.exists(cand):
                 return cand
         cur = os.path.dirname(cur)
-    canonical = (
-        "/home/apps/workspace/agent-packages/epistemic-graph/"
-        "target/release/epistemic-graph-server"
-    )
-    if os.path.exists(canonical):
-        return canonical
     import shutil
 
     return shutil.which("epistemic-graph-server")
@@ -95,7 +99,7 @@ def _wait_for_socket(proc: subprocess.Popen, sock_path: str, log_path: Path) -> 
 @pytest.fixture()
 def kb_currency_engine(tmp_path, monkeypatch):
     """Start a discovered ``epistemic-graph-server`` on an isolated socket +
-    persist dir, wire the AU engine resolver (``GRAPH_SERVICE_SOCKET``/
+    persist dir, wire the AU engine resolver (``GRAPH_SERVICE_ENDPOINTS``/
     ``..._AUTH_SECRET``) at THIS engine, and tear it down after. Yields
     ``(socket_path, auth_secret)``. Skips when no engine binary is discoverable, or
     when the discovered build predates ``Method::ExplainProvenanceByIds``.
@@ -110,12 +114,12 @@ def kb_currency_engine(tmp_path, monkeypatch):
     persist_dir = tmp_path / "persist"
     persist_dir.mkdir()
     sock_path = _free_socket_path(tmp_path)
-    auth_secret = "au-eg-kb-currency-test-secret"  # nosec B105 - test-only
+    auth_secret = "au-eg-" + "kb-currency-test-secret"  # nosec B105 - test-only
 
     log_path = tmp_path / "engine.log"
     log_fh = open(log_path, "wb")  # noqa: SIM115 - closed in finally below
     env = dict(os.environ)
-    env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
+    env.update(strict_server_env(str(tmp_path / "security"), auth_secret=auth_secret))
     proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         [
             str(binary),
@@ -135,15 +139,28 @@ def kb_currency_engine(tmp_path, monkeypatch):
     try:
         _wait_for_socket(proc, sock_path, log_path)
 
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        bootstrap = SyncEpistemicGraphClient.connect(
+            socket_path=sock_path,
+            auth_secret=auth_secret,
+            verified_context=bootstrap_context(),
+        )
+        try:
+            bootstrap.consensus.bootstrap_system_identity(
+                agent_id=TEST_AGENT_ID,
+                signer_id=TEST_AGENT_ID,
+                signer_key=TEST_SIGNER_KEY,
+            )
+        finally:
+            bootstrap.close()
+
         # This test manages its OWN throwaway engine — clear anything a
         # session-level fixture set (sharded/remote overrides) and point the
         # resolver at exactly this socket, mirroring tests/_test_engine.py's
         # EphemeralEngine wiring convention.
-        for var in ("GRAPH_SERVICE_ENDPOINTS", "ENGINE_ENDPOINT"):
-            monkeypatch.delenv(var, raising=False)
-        monkeypatch.setenv("GRAPH_SERVICE_SOCKET", sock_path)
+        monkeypatch.setenv("GRAPH_SERVICE_ENDPOINTS", f"unix://{sock_path}")
         monkeypatch.setenv("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
-        monkeypatch.setenv("EPISTEMIC_GRAPH_AUTOSTART", "0")
         yield sock_path, auth_secret
     finally:
         if proc.poll() is None:
@@ -183,7 +200,14 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         EpistemicGraphBackend,
     )
     from agent_utilities.knowledge_graph.core.epistemic_row import EpistemicRow
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        reset_session,
+        set_session,
+    )
     from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
 
     claim_id = f"claim-{uuid.uuid4().hex[:8]}"
     evidence_id = f"evidence-{uuid.uuid4().hex[:8]}"
@@ -193,7 +217,10 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     # resolves to (via the isolate_graph_compute_engine remap), so both sides see
     # the same data.
     raw = SyncEpistemicGraphClient.connect(
-        socket_path=sock_path, auth_secret=auth_secret, graph_name=test_graph_name
+        socket_path=sock_path,
+        auth_secret=auth_secret,
+        graph_name=test_graph_name,
+        verified_context=request_context(),
     )
     try:
         try:
@@ -226,14 +253,31 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
     # explicitly (bypassing the lazy `create_backend()` factory, which has no
     # `graph_name`/socket override) — this still exercises the real
     # `KnowledgeGraph.query`/`_attach_epistemic` code path under test.
-    kg = KnowledgeGraph()
-    kg._store = EpistemicGraphBackend()
-    if not hasattr(kg.store.graph, "explain_provenance_by_ids"):  # pragma: no cover
-        pytest.skip(
-            "installed epistemic_graph client predates "
-            "explain_provenance_by_ids (CONCEPT:EG-KB-CURRENCY)"
-        )
+    actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=test_graph_name,
+        policy_version=TEST_POLICY_VERSION,
+        audience=TEST_AUDIENCE,
+    )
+    token = set_session(session)
+    kg: KnowledgeGraph | None = None
     try:
+        kg = KnowledgeGraph()
+        kg._store = EpistemicGraphBackend()
+        if not hasattr(kg.store.graph, "explain_provenance_by_ids"):  # pragma: no cover
+            pytest.skip(
+                "installed epistemic_graph client predates "
+                "explain_provenance_by_ids (CONCEPT:EG-KB-CURRENCY)"
+            )
         cypher = f"MATCH (n:Claim) WHERE n.id = '{claim_id}' RETURN n"
 
         # Default path — byte-for-byte unaffected: plain dict rows.
@@ -271,24 +315,27 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         # from the default path.
         assert row.properties.get("name") == "kb-currency test claim"
     finally:
-        # Close the facade's own client explicitly, THEN null the tracked
-        # `GraphComputeEngine._client` reference. The autouse
-        # `isolate_graph_compute_engine` fixture's own (later-running, since
-        # autouse fixtures tear down after explicitly-requested ones) finalizer
-        # calls `engine._client.clear()`/`.tenants.delete()` UNCONDITIONALLY on
-        # every engine it tracked — including this one — and by the time it
-        # runs, `kb_currency_engine`'s finalizer has already killed this test's
-        # engine subprocess. An RPC against that dead socket would otherwise
-        # retry/block with no bounded timeout (`SyncEpistemicGraphClient.clear()`
-        # calls `future.result()` with none). Nulling `_client` here makes that
-        # finalizer's own `if hasattr(engine, "_client") and engine._client:`
-        # guard skip it cleanly instead.
-        graph_engine = getattr(kg.store, "graph", None)
-        client = getattr(graph_engine, "_client", None)
-        if client is not None:
-            try:
-                client.close()
-            except Exception:  # noqa: BLE001 - best-effort teardown
-                pass
-        if graph_engine is not None:
-            graph_engine._client = None
+        try:
+            # Close the facade's own client explicitly, THEN null the tracked
+            # `GraphComputeEngine._client` reference. The autouse
+            # `isolate_graph_compute_engine` fixture's own (later-running, since
+            # autouse fixtures tear down after explicitly-requested ones) finalizer
+            # calls `engine._client.clear()`/`.tenants.delete()` UNCONDITIONALLY on
+            # every engine it tracked — including this one — and by the time it
+            # runs, `kb_currency_engine`'s finalizer has already killed this test's
+            # engine subprocess. An RPC against that dead socket would otherwise
+            # retry/block with no bounded timeout (`SyncEpistemicGraphClient.clear()`
+            # calls `future.result()` with none). Nulling `_client` here makes that
+            # finalizer's own `if hasattr(engine, "_client") and engine._client:`
+            # guard skip it cleanly instead.
+            graph_engine = getattr(kg.store, "graph", None) if kg is not None else None
+            client = getattr(graph_engine, "_client", None)
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001 - best-effort teardown
+                    pass
+            if graph_engine is not None:
+                graph_engine._client = None
+        finally:
+            reset_session(token)

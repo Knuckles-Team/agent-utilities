@@ -62,11 +62,20 @@ class _FakeGraph:
         return 1
 
 
+_CONNECTION = {
+    "endpoint": "https://graph.example.test:5820",
+    "database": "agent_kg",
+    "username": "service-account",
+    "password": "runtime-test-secret",
+}
+
+
 def test_push_overwrite_clears_named_graph_before_add(monkeypatch):
     log: list = []
     _install_fake_stardog(monkeypatch, log)
     res = OntologyPublisher().push_to_stardog(
         _FakeGraph(),
+        **_CONNECTION,
         named_graph="urn:source:ontology",
         overwrite=True,
     )
@@ -81,7 +90,9 @@ def test_push_overwrite_clears_named_graph_before_add(monkeypatch):
 def test_push_without_overwrite_does_not_clear(monkeypatch):
     log: list = []
     _install_fake_stardog(monkeypatch, log)
-    OntologyPublisher().push_to_stardog(_FakeGraph(), named_graph="g")
+    OntologyPublisher().push_to_stardog(
+        _FakeGraph(), **_CONNECTION, named_graph="urn:test:g"
+    )
     assert "clear" not in [op[0] for op in log]
     assert "update" not in [op[0] for op in log]
 
@@ -106,7 +117,9 @@ def test_import_pulls_turtle_and_loads_into_engine(monkeypatch):
     monkeypatch.setattr(lc, "OntologyLifecycle", _FakeLifecycle)
 
     engine = object()
-    res = import_ontology_from_stardog(named_graph="urn:source:ontology", engine=engine)
+    res = import_ontology_from_stardog(
+        **_CONNECTION, named_graph="urn:source:ontology", engine=engine
+    )
     assert res["status"] == "success"
     assert ("export", "urn:source:ontology") in log
     assert res["load"] == {"status": "ok", "activated": True}
@@ -117,7 +130,7 @@ def test_import_pulls_turtle_and_loads_into_engine(monkeypatch):
 def test_import_without_engine_returns_turtle(monkeypatch):
     log: list = []
     _install_fake_stardog(monkeypatch, log)
-    res = import_ontology_from_stardog()
+    res = import_ontology_from_stardog(**_CONNECTION)
     assert res["status"] == "success"
     assert "ex:Class" in res["turtle"]
     assert "load" not in res

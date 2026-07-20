@@ -12,7 +12,10 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.rlm.sandboxes.base import ParentHandle, SandboxEnv
-from agent_utilities.rlm.sandboxes.firecracker_backend import FirecrackerSandbox
+from agent_utilities.rlm.sandboxes.firecracker_backend import (
+    FirecrackerSandbox,
+    _ForkdClient,
+)
 from agent_utilities.rlm.sandboxes.registry import default_sandboxes
 from agent_utilities.rlm.telemetry import SandboxFatalError
 
@@ -89,3 +92,44 @@ async def test_branch_is_microvm_only_verb():
     assert isinstance(parent, ParentHandle)
     assert parent.ref == {"snapshot": "checkpoint-1"}
     assert any(p.endswith("/branch") for _, p, _ in mock.calls)
+
+
+def test_forkd_client_routes_methods_through_bounded_http_boundary(monkeypatch):
+    import agent_utilities.rlm.sandboxes.firecracker_backend as backend
+
+    calls = []
+
+    def capture(kind):
+        def invoke(url, *args, **kwargs):
+            calls.append((kind, url, args, kwargs))
+            return {"ok": True}
+
+        return invoke
+
+    monkeypatch.setattr(backend, "safe_get_json", capture("GET"))
+    monkeypatch.setattr(backend, "safe_post_json", capture("POST"))
+    monkeypatch.setattr(backend, "safe_delete_json", capture("DELETE"))
+    client = _ForkdClient("http://127.0.0.1:8889", "runtime-token", timeout=7)
+
+    client.request("GET", "/v1/snapshots")
+    client.request("POST", "/v1/sandboxes", {"snapshot_tag": "safe"})
+    client.request("DELETE", "/v1/sandboxes/child-1")
+
+    assert [call[0] for call in calls] == ["GET", "POST", "DELETE"]
+    assert all(call[3]["tls_service"] == "forkd" for call in calls)
+    assert all(call[3]["headers"]["Authorization"] == "Bearer runtime-token" for call in calls)
+    assert calls[0][3]["max_redirects"] == 0
+
+
+def test_forkd_client_rejects_path_confusion_and_unsupported_methods():
+    client = _ForkdClient("http://127.0.0.1:8889", "")
+
+    for path in (
+        "//attacker.invalid/v1/sandboxes",
+        "/v1/sandboxes/../secrets",
+        "/v1/sandboxes?id=secret",
+    ):
+        with pytest.raises(ValueError, match="path"):
+            client.request("GET", path)
+    with pytest.raises(ValueError, match="Unsupported"):
+        client.request("PATCH", "/v1/sandboxes")

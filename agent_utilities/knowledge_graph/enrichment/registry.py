@@ -4,9 +4,10 @@ Enables **conflict-free parallel development** of enterprise/source extractors:
 each source (infra, servicenow, leanix, erpnext, grafana, …) lives in its own
 module under ``extractors/`` and calls :func:`register_extractor` at import time, so
 adding a source touches NO shared hub file (no edits to ``__init__``/``pipeline``/
-``models``). The package auto-discovers and imports all extractor modules, and a
-single generic writer persists every ``ExtractionBatch`` through the one
-``GraphBackend`` interface.
+``models``). The package auto-discovers and imports all extractor modules.
+External-source materialization converts the resulting ``ExtractionBatch`` to a
+native ChangeEnvelope graph slice; :func:`write_batch` remains the shared
+internal/offline writer for finance, synthesis, and isolated test fixtures.
 
 Contract for a source extractor::
 
@@ -64,10 +65,12 @@ def list_sources() -> list[SourceExtractor]:
 def write_batch(
     backend: Any, batch: ExtractionBatch, source: str | None = None
 ) -> tuple[int, int]:
-    """Persist an ExtractionBatch via the single GraphBackend interface.
+    """Persist an internal/offline ExtractionBatch via GraphBackend.
 
-    Generic — works for every source, so new extractors never touch writer code.
-    Returns (nodes_written, edges_written).
+    Generic and retained for non-connector graph construction. Production
+    external sources use ``materialize_source`` / native ``ingest_graph_slice``
+    so policy, lineage, versions, and outbox commit atomically. Returns
+    ``(nodes_written, edges_written)``.
 
     ``source`` (the connector category, e.g. ``"egeria"``) stamps the shared
     provenance contract (``source_system`` + ``domain``) on every node/edge via
@@ -88,7 +91,7 @@ def write_batch(
     entities = [
         {
             "id": node.id,
-            "type": node.type,
+            "node_type": node.type,
             **{k: v for k, v in node.props.items() if v is not None},
         }
         for node in batch.nodes
@@ -97,7 +100,7 @@ def write_batch(
         {
             "source": edge.source,
             "target": edge.target,
-            "type": edge.rel_type,
+            "relationship": edge.rel_type,
             **{k: v for k, v in edge.props.items() if v is not None},
         }
         for edge in batch.edges
@@ -122,5 +125,5 @@ def discover_extractors() -> int:
             importlib.import_module(f"{_pkg.__name__}.{mod.name}")
             count += 1
         except Exception as exc:  # pragma: no cover - optional source deps
-            logger.debug("extractor %s not loaded: %s", mod.name, exc)
+            logger.debug("Configured extractor not loaded (%s)", type(exc).__name__)
     return count

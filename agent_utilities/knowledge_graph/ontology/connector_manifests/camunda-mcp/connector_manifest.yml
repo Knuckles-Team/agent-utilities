@@ -1,0 +1,259 @@
+connector: camunda-mcp
+ontology_source: camunda
+schema_version: '1'
+resources:
+- name: BusinessProcess
+  label: Business Process
+  id_prefix: businessprocess
+  relations:
+  - name: deployedIn
+    label: deployed in
+    target: Deployment
+    lpg_rel_type: ''
+- name: Deployment
+  label: Deployment
+  id_prefix: deployment
+  relations: []
+- name: ExternalTask
+  label: External Task
+  id_prefix: externaltask
+  relations: []
+- name: Incident
+  label: Incident
+  id_prefix: incident
+  relations: []
+- name: Job
+  label: Job
+  id_prefix: job
+  relations: []
+- name: ProcessInstance
+  label: Process Instance
+  id_prefix: processinstance
+  relations:
+  - name: hasIncident
+    label: has incident
+    target: Incident
+    lpg_rel_type: ''
+  - name: hasTask
+    label: has task
+    target: Task
+    lpg_rel_type: ''
+  - name: instanceOf
+    label: instance of
+    target: BusinessProcess
+    lpg_rel_type: ''
+- name: ProcessStep
+  label: Process Step
+  id_prefix: processstep
+  relations: []
+- name: ProcessVariable
+  label: Process Variable
+  id_prefix: processvariable
+  relations: []
+- name: Task
+  label: User Task
+  id_prefix: task
+  relations:
+  - name: assignedTo
+    label: assigned to
+    target: Person
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: camunda-process-definitions.updated
+  resource: business_process
+  description: "Watermark event for 'camunda-process-definitions' \u2014 advances on version (mcp_source_presets.json)."
+identity:
+  id_field:
+    business_process: id
+  title_field:
+    business_process: name
+  text_field:
+    business_process: key
+  updated_field:
+    business_process: version
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  BusinessProcess:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  Deployment:
+    ontology_class: null
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  ExternalTask:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  Incident:
+    ontology_class: Incident
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  Job:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  ProcessInstance:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  ProcessStep:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  ProcessVariable:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+  Task:
+    ontology_class: Action
+    fields:
+      activityId: xsd:string
+      assignee: xsd:string
+      bpmnVersion: xsd:integer
+      businessKey: xsd:string
+      incidentType: xsd:string
+      processDefinitionKey: xsd:string
+      processState: xsd:string
+      suspended: xsd:boolean
+sync:
+- preset: camunda-process-definitions
+  server: camunda-mcp
+  tool: camunda_process
+  action: list
+  records_path: ''
+  id_field: id
+  title_field: name
+  text_field: key
+  updated_field: version
+  pagination: null
+  doc_type: business_process
+  tool_schema_sha256: 8c9e157ea2927d13823adc88470fef2a46f969fda551371fcdf7e2ab2fc5fa87
+  raw:
+    server: camunda-mcp
+    tool: camunda_process
+    action: list
+    params:
+      platform: '7'
+    records_path: ''
+    id_field: id
+    title_field: name
+    text_field: key
+    updated_field: version
+    doc_type: business_process
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - camunda_mcp/connectors/mcp_source_presets.json
+  - camunda_mcp/connectors/tool_schema_fingerprints.json
+  - camunda_mcp/ontology/camunda.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: c0c1ebacb6c9e2c3f881505b2d9c15f8ebf04f693da1076978bbab4311af5e84
+    triple_count: 83
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: AA6AfObfpHFt7KJPtUswAxV_xDjaWEoM0JVmIfak31SBO3Gy4s24zvbLN_mdX7f0WmEHkOkF97VFqpHwL1CJAg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'hasStep' has no declared rdfs:domain resolving to a known resource in this connector's ontology\
+  \ \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'partOfInstance' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.BusinessProcess.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Deployment.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.ExternalTask.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Incident.ontology_class = 'Incident' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Job.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.ProcessInstance.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ProcessStep.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.ProcessVariable.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.Task.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."

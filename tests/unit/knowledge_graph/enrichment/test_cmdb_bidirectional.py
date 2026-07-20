@@ -23,8 +23,8 @@ class FakeSnowClient:
         return [
             {
                 "sys_id": "m1",
-                "display_name": "PowerEdge R740",
-                "manufacturer": "Dell",
+                "display_name": "Synthetic Compute Appliance",
+                "manufacturer": "Example Vendor",
                 "end_of_life": "2027-01-01",
             }
         ]

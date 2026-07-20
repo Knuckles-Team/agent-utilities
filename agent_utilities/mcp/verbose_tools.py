@@ -32,7 +32,6 @@ CONCEPT:AU-ECO.mcp.tool-mode-standardization — MCP tool-mode standardization (
 from __future__ import annotations
 
 import inspect
-import json
 import keyword
 import logging
 import re
@@ -42,8 +41,13 @@ from fastmcp import Context
 from fastmcp.dependencies import Depends
 from pydantic import Field
 
-from agent_utilities.mcp.action_dispatch import DISCOVERY_ACTIONS, public_actions
-from agent_utilities.mcp.concurrency import run_blocking
+from agent_utilities.mcp.action_dispatch import (
+    DISCOVERY_ACTIONS,
+    is_destructive_action,
+    parse_json_object,
+    public_actions,
+)
+from agent_utilities.mcp.concurrency import invoke_client_method
 from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 
 logger = logging.getLogger(__name__)
@@ -79,18 +83,6 @@ _PY_TYPES: dict[str, type] = {
     "array": list,
     "object": dict,
 }
-
-#: Method-name prefixes that mark a write that destroys data (used when a
-#: manifest doesn't carry explicit ``http``/``destructive`` metadata).
-_DESTRUCTIVE_PREFIXES = (
-    "delete_",
-    "remove_",
-    "destroy_",
-    "purge_",
-    "drop_",
-    "deactivate_",
-)
-
 
 #: Reserved parameter names a synthesized verbose signature already uses.
 _RESERVED_PARAM_NAMES = frozenset({"client", "ctx", "self"})
@@ -130,20 +122,6 @@ def _is_typeable_param(param: dict) -> bool:
         and not keyword.iskeyword(name)
         and name not in _RESERVED_PARAM_NAMES
     )
-
-
-def _is_destructive(method_name: str, op: dict | None) -> bool:
-    """Whether an operation destroys data — gates a Context elicitation guard.
-
-    Prefers explicit manifest metadata (``destructive`` flag, then an HTTP
-    ``DELETE``); otherwise falls back to the method-name prefix.
-    """
-    if op:
-        if op.get("destructive") is not None:
-            return bool(op["destructive"])
-        if str(op.get("http", "")).upper() == "DELETE":
-            return True
-    return method_name.startswith(_DESTRUCTIVE_PREFIXES)
 
 
 def tool_mode() -> str:
@@ -275,11 +253,11 @@ def _build_params_json_tool(method_name: str, get_client: Any, *, destructive: b
         client=Depends(get_client),
         ctx: Context | None = None,
     ) -> Any:
-        kwargs = json.loads(params_json) if params_json else {}
+        kwargs = parse_json_object(params_json)
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         if destructive and not await ctx_confirm_destructive(ctx, method_name):
             return {"cancelled": True, "operation": method_name}
-        return await run_blocking(getattr(client, method_name), **kwargs)
+        return await invoke_client_method(getattr(client, method_name), **kwargs)
 
     return _tool
 
@@ -303,7 +281,7 @@ def _build_typed_tool(
         kwargs = {k: v for k, v in call.items() if v is not None}
         if destructive and not await ctx_confirm_destructive(ctx, method_name):
             return {"cancelled": True, "operation": method_name}
-        return await run_blocking(getattr(client, method_name), **kwargs)
+        return await invoke_client_method(getattr(client, method_name), **kwargs)
 
     sig_params: list[inspect.Parameter] = []
     annotations: dict[str, Any] = {}
@@ -363,10 +341,11 @@ def register_verbose_tools(
     """Register one verbose MCP tool per public domain method of ``client_cls``.
 
     Each tool is named ``<prefix>_<method>``, tagged ``{"verbose", <domain>}`` and
-    dispatches to ``getattr(client, method)(**params)`` off the event loop via
-    :func:`run_blocking`. The live client is bound per-call through
-    ``Depends(get_client)`` — the class is introspected only for names, docs, and
-    domain grouping, so no credentials are needed at registration time.
+    dispatches through :func:`invoke_client_method`, which awaits asynchronous
+    SDK methods and offloads synchronous methods. The live client is bound
+    per-call through ``Depends(get_client)`` — the class is introspected only for
+    names, docs, and domain grouping, so no credentials are needed at
+    registration time.
 
     **Fidelity is hybrid, decided per method:**
 
@@ -434,7 +413,7 @@ def register_verbose_tools(
         else:
             tool_name = f"{prefix}_{method_name}"
         params = (op or {}).get("params") or []
-        destructive = _is_destructive(method_name, op)
+        destructive = is_destructive_action(method_name, op)
 
         # Typed tier only when every param name is a usable Python identifier — some
         # specs carry body fields like ``urn:ietf:...:Group`` (SCIM) that cannot be a
@@ -537,7 +516,10 @@ def _resolve_action_provider(provider: Any) -> list[str]:
             candidates = provider
         names = [str(a) for a in (candidates or []) if isinstance(a, str) and a]
     except Exception as exc:  # pragma: no cover - defensive per-provider
-        logger.warning("verbose autowire: action provider failed: %s", exc)
+        logger.warning(
+            "verbose autowire: action provider failed (exception_type=%s)",
+            type(exc).__name__,
+        )
         return []
     # Drop discovery keywords (list_actions/help/actions) and de-dup, stable-sorted.
     return sorted({n for n in names if n not in _NON_OPERATION_ACTIONS})
@@ -623,7 +605,9 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
         from fastmcp.tools.tool_transform import ArgTransform
     except Exception as exc:  # pragma: no cover - defensive (older FastMCP)
         logger.warning(
-            "autowire_verbose_from_condensed: FastMCP transforms unavailable: %s", exc
+            "autowire_verbose_from_condensed: FastMCP transforms unavailable "
+            "(exception_type=%s)",
+            type(exc).__name__,
         )
         return []
 
@@ -656,9 +640,9 @@ def autowire_verbose_from_condensed(mcp: Any) -> list[str]:
                 mcp.add_tool(verbose_tool)
             except Exception as exc:  # pragma: no cover - defensive per-action
                 logger.warning(
-                    "autowire_verbose_from_condensed: could not derive %s: %s",
-                    verbose_name,
-                    exc,
+                    "autowire_verbose_from_condensed: could not derive tool "
+                    "(exception_type=%s)",
+                    type(exc).__name__,
                 )
                 continue
             derived.append(verbose_name)
@@ -745,6 +729,8 @@ def register_tool_surface(
     verbose_register: Any = None,
     autowire_condensed: bool = True,
     action_providers: dict[str, Any] | None = None,
+    mode_override: str | None = None,
+    force_condensed_registration: bool = False,
 ) -> list[str]:
     """Register an agent's MCP tool surface per ``MCP_TOOL_MODE`` — the one place.
 
@@ -790,7 +776,11 @@ def register_tool_surface(
     """
     from agent_utilities.core.config import setting
 
-    mode = tool_mode()
+    if mode_override is not None and mode_override not in VALID_TOOL_MODES:
+        raise ValueError(
+            f"mode_override must be one of {VALID_TOOL_MODES}, got {mode_override!r}"
+        )
+    mode = mode_override or tool_mode()
     registered_tags: list[str] = []
 
     targets = verbose_targets
@@ -820,7 +810,7 @@ def register_tool_surface(
         for tag, env_var, register_fn in _condensed_entries(
             tool_registry, tools_module, registrars
         ):
-            if not setting(env_var, True):
+            if not force_condensed_registration and not setting(env_var, True):
                 continue
             before = set(_provider_tools(mcp))
             register_fn(mcp)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.core import model_factory
 from agent_utilities.core.model_factory import create_model
 
 pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.byok-provider-proxy")
@@ -30,9 +31,15 @@ def test_custom_provider_rejects_internal_ip(monkeypatch):
         create_model(provider="custom", model_id="m", base_url="http://10.0.0.5/v1")
 
 
-def test_custom_provider_builds_model_for_public_url(monkeypatch):
+def test_custom_provider_builds_model_for_explicitly_allowed_loopback(monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
-    # Loopback is allowed by the egress guard → local proxy / local LLM works.
+    monkeypatch.setattr(
+        model_factory.config,
+        "model_http_allowed_private_hosts",
+        ["127.0.0.1"],
+        raising=False,
+    )
+    # Local model egress is available only through the exact AgentConfig host allow-list.
     model = create_model(
         provider="custom",
         model_id="gpt-x",

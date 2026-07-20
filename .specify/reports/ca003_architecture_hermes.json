@@ -1,7 +1,7 @@
 {
   "domain": "CA-003",
   "domain_name": "Architecture",
-  "project": "/home/apps/workspace/open-source-libraries/hermes-agent",
+  "project": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent",
   "protocols": {
     "MCP": true,
     "ACP": true,
@@ -53,7 +53,7 @@
     "has_c4": false,
     "diagram_count": 0,
     "auto_generated": true,
-    "generated_path": "/home/apps/workspace/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md"
+    "generated_path": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md"
   },
   "hot_paths": {
     "entry_points": [
@@ -204,7 +204,7 @@
       "strategy": []
     }
   },
-  "generated_c4_path": "/home/apps/workspace/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md",
+  "generated_c4_path": "${WORKSPACE_ROOT}/open-source-libraries/hermes-agent/.specify/reports/generated_c4.md",
   "scoring": {
     "score": 85,
     "grade": "B",

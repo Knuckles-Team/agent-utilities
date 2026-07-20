@@ -1,13 +1,18 @@
-"""run_blocking offloads sync work off the event loop."""
+"""Provider client invocation preserves async and sync concurrency."""
 
 from __future__ import annotations
 
 import threading
+from unittest.mock import AsyncMock
 
 import anyio
 import pytest
 
-from agent_utilities.mcp.concurrency import _wrap_data_kwargs, run_blocking
+from agent_utilities.mcp.concurrency import (
+    _wrap_data_kwargs,
+    invoke_client_method,
+    run_blocking,
+)
 from agent_utilities.mcp_utilities import run_blocking as run_blocking_reexport
 
 
@@ -38,6 +43,62 @@ def test_run_blocking_propagates_exceptions():
 
 def test_reexport_is_same_callable():
     assert run_blocking_reexport is run_blocking
+
+
+def test_run_blocking_rejects_async_callable():
+    async def main():
+        async def work():
+            return "unexpected"
+
+        with pytest.raises(TypeError, match="requires a synchronous callable"):
+            await run_blocking(work)
+
+    anyio.run(main)
+
+
+def test_invoke_client_method_awaits_async_method_on_event_loop():
+    async def main():
+        loop_thread = threading.current_thread().name
+
+        async def work(*, value):
+            return threading.current_thread().name, value
+
+        method = AsyncMock(side_effect=work)
+        execution_thread, value = await invoke_client_method(method, value=7)
+
+        assert execution_thread == loop_thread
+        assert value == 7
+        method.assert_awaited_once_with(value=7)
+
+    anyio.run(main)
+
+
+def test_invoke_client_method_offloads_sync_method():
+    async def main():
+        loop_thread = threading.current_thread().name
+
+        def work(*, value):
+            return threading.current_thread().name, value
+
+        execution_thread, value = await invoke_client_method(work, value=11)
+
+        assert execution_thread != loop_thread
+        assert value == 11
+
+    anyio.run(main)
+
+
+def test_invoke_client_method_awaits_hidden_async_result():
+    async def main():
+        async def result():
+            return "complete"
+
+        def decorated_callable():
+            return result()
+
+        assert await invoke_client_method(decorated_callable) == "complete"
+
+    anyio.run(main)
 
 
 class _Api:
@@ -92,6 +153,23 @@ def test_run_blocking_applies_data_wrap_end_to_end():
     async def main():
         result = await run_blocking(
             _Api().create_work_item, project_id="P", name="T", description="D"
+        )
+        assert result == {"project_id": "P", "data": {"name": "T", "description": "D"}}
+
+    anyio.run(main)
+
+
+def test_invoke_client_method_applies_data_wrap_to_async_method():
+    class _AsyncApi:
+        async def create_work_item(self, project_id, data):
+            return {"project_id": project_id, "data": data}
+
+    async def main():
+        result = await invoke_client_method(
+            _AsyncApi().create_work_item,
+            project_id="P",
+            name="T",
+            description="D",
         )
         assert result == {"project_id": "P", "data": {"name": "T", "description": "D"}}
 

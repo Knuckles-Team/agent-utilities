@@ -20,18 +20,14 @@ The standard flow is: **API Wrapper** → **MCP Server** → **Agent Server**
 
 ### Step 1: Create the Server
 
-Use `create_mcp_server()` from `agent_utilities.mcp_utilities` to bootstrap a fully configured FastMCP server with authentication, middleware, and CLI parsing:
+Use `create_mcp_server()` from `agent_utilities.mcp.server_factory` to bootstrap a fully configured FastMCP server with authentication, middleware, and CLI parsing:
 
 ```python
 #!/usr/bin/env python
 import logging
 import os
-import warnings
 
-warnings.filterwarnings("ignore", message=".*urllib3.*or chardet.*")
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="fastmcp")
-
-from agent_utilities.mcp_utilities import create_mcp_server
+from agent_utilities.mcp.server_factory import create_mcp_server
 from fastmcp import Context
 from pydantic import Field
 
@@ -111,10 +107,10 @@ if __name__ == "__main__":
 
 ## Context Helpers (`ctx_*`)
 
-The `agent_utilities.mcp_utilities` module provides standardized context helpers that make your MCP tools consistent across the ecosystem. **All helpers are safe when `ctx` is `None`** -- they become no-ops in headless/test mode.
+The `agent_utilities.mcp.context_helpers` module provides standardized context helpers that make your MCP tools consistent across the ecosystem. Read-only helpers become no-ops when `ctx` is `None`; destructive confirmation denies the operation.
 
 ```python
-from agent_utilities.mcp_utilities import (
+from agent_utilities.mcp.context_helpers import (
     ctx_progress,
     ctx_confirm_destructive,
     ctx_log,
@@ -138,8 +134,8 @@ Standard elicitation guard for destructive operations. Asks the user to confirm 
 if not await ctx_confirm_destructive(ctx, "delete all records"):
     return {"status": "cancelled", "message": "Operation cancelled by user"}
 ```
-- Returns `True` if confirmed or no context available (headless mode)
-- Returns `False` if the user cancels
+- Returns `True` only after affirmative confirmation
+- Returns `False` when the user cancels, context is absent, or elicitation fails
 
 ### `ctx_log(ctx, logger, level, message)`
 Dual-log to **both** the server-side logger and the MCP client:
@@ -174,7 +170,11 @@ For agents that wrap a REST API, create a clean Python SDK class:
 ```python
 import os
 import requests
-from agent_utilities.base_utilities import to_boolean
+from agent_utilities.core.config import config
+from agent_utilities.core.transport_security import (
+    resolve_tls_profile,
+    tls_environment_from_config,
+)
 
 class MyServiceAPI:
     """Python wrapper for the My Service REST API."""
@@ -183,23 +183,19 @@ class MyServiceAPI:
         self,
         base_url: str | None = None,
         api_token: str | None = None,
-        ssl_verify: bool | None = None,
     ):
         self.base_url = (
             base_url or os.environ.get("SERVICE_URL", "http://localhost:8080")
         ).rstrip("/")
         self.api_token = api_token or os.environ.get("SERVICE_TOKEN", "")
-        self.ssl_verify = (
-            ssl_verify
-            if ssl_verify is not None
-            else to_boolean(os.environ.get("SSL_VERIFY", "True"))
-        )
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json",
         })
-        self.session.verify = self.ssl_verify
+        resolve_tls_profile(
+            "my-service", environ=tls_environment_from_config(config)
+        ).configure_requests_session(self.session)
 
     def list_resources(self, filter_type: str = "") -> list[dict]:
         """List all resources."""
@@ -232,17 +228,35 @@ class MyServiceAPI:
 | Auth Type | Flag | Use Case |
 |---|---|---|
 | `none` | `--auth-type none` | No authentication (default, local dev) |
-| `static` | `--auth-type static` | Hardcoded test tokens |
+| `static` | `--auth-type static --static-tokens-ref env://MCP_STATIC_TOKENS` | Secret-reference JSON token map (internal use) |
 | `jwt` | `--auth-type jwt --token-jwks-uri ... --token-issuer ... --token-audience ...` | JWT verification via JWKS |
 | `oauth-proxy` | `--auth-type oauth-proxy` | OAuth 2.0 proxy (upstream IdP) |
 | `oidc-proxy` | `--auth-type oidc-proxy` | OIDC proxy with token delegation |
 | `remote-oauth` | `--auth-type remote-oauth` | Remote OAuth with authorization servers |
 
 ### Eunomia Policy Enforcement
-Add authorization policies to your MCP server:
+Add authorization policies to your MCP server. The middleware is native to
+`agent-utilities`; it evaluates `eunomia-core` policy documents directly and
+does not require the legacy Eunomia SDK.
+
 ```bash
-my-service-mcp --eunomia-type embedded --eunomia-policy-file mcp_policies.json
+my-service-mcp \
+  --eunomia-type embedded \
+  --eunomia-policy-file "${XDG_CONFIG_HOME}/agent-utilities/policies/mcp.json"
 ```
+
+For a remote policy decision point, configure `EUNOMIA_REMOTE_URL`, an optional
+`EUNOMIA_API_KEY_REF`, and a runtime `EUNOMIA_TLS_PROFILE` or
+`EUNOMIA_TLS_PROFILE_REF`, then select `--eunomia-type remote`. Private or
+loopback destinations also require an exact `EUNOMIA_ALLOWED_PRIVATE_HOSTS`
+entry. Requests are DNS-pinned, redirect-free, size-bounded, and fail closed.
+TLS verification is controlled only by the runtime profile; no call site
+hardcodes a CA path or disables verification.
+
+Authenticated listeners derive the policy principal from the already verified
+access token. Client-supplied identity headers are accepted only for local
+stdio deployments without an authentication provider. Tool argument values
+are never sent to the policy service; only bounded argument names are exposed.
 
 ---
 
@@ -266,7 +280,7 @@ name = "my-agent"
 version = "1.0.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agent-utilities[agent]>=0.2.40",
+    "agent-utilities[agent-runtime]>=1.27.1,<2.0.0",
     "requests>=2.32.0",
 ]
 
@@ -279,10 +293,10 @@ my-agent-mcp = "my_agent.mcp_server:mcp_server"
 
 ```bash
 # MCP Server (stdio - for agent consumption)
-uv run graph-os -t stdio
+graph-os -t stdio
 
-# MCP Server (HTTP - for remote access)
-uv run graph-os -t streamable-http --host 0.0.0.0 --port 8001
+# MCP Server (HTTP - local loopback; remote binds require JWT/OIDC + TLS ingress)
+graph-os -t streamable-http --host 127.0.0.1 --port 8001
 
 # MCP Server (with JWT auth)
 uv run my-agent-mcp -t streamable-http --auth-type jwt \

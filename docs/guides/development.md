@@ -34,12 +34,11 @@ Default: `pytest -m "not live"` runs unit + integration.
 
 ## Runtime Prerequisites
 
-**Required Environment Variables:**
+**Core runtime settings:**
 
 | Variable | Purpose | Default |
 |---|---|---|
 | `PROVIDER` | LLM provider name (e.g., `openai`, `anthropic`, `groq`) | `openai` |
-| `GRAPH_DB_PATH` | Path to knowledge graph database | `knowledge_graph.db` |
 
 **Optional Variables:**
 
@@ -47,21 +46,21 @@ Default: `pytest -m "not live"` runs unit + integration.
 |---|---|---|
 | `DEFAULT_AGENT_NAME` | Override agent display name | Loaded from `main_agent.json` |
 | `AGENT_SYSTEM_PROMPT` | Override system prompt | Built from workspace |
-| `TOOL_GUARD_MODE` | `on`, `off`, `custom` | `on` |
-| `DISABLE_TOOL_GUARD` | Boolean to disable tool guard | `False` |
+| `TOOL_GUARD_MODE` | `on` or `strict` | `strict` |
+| `PERMISSIONS_SIGNING_KEY_REF` | Runtime secret reference for the stable identity-signing authority | None |
 | `ENABLE_DELEGATION` | Enable OIDC token delegation | `False` |
-| `GRAPH_BACKEND` | Backend type: `memory`, `file`, `epistemic_graph`, `postgresql` (contrib opt-in: `ladybug`, `falkordb`, `neo4j`) | `memory` (prod uses `postgresql`) |
-| `GRAPH_DIRECT_EXECUTION` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) | `True` |
-| `SECRETS_BACKEND` | Secrets storage backend: `inmemory`, `sqlite`, `vault` | `inmemory` |
-| `SECRETS_SQLITE_PATH` | SQLite secrets database path | `~/.agent-utilities/secrets.db` |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | Runtime secret reference for an optional external graph connection; the engine authority needs no external database profile | None |
+| `GRAPH_MIRROR_TARGETS` | Neutral `KG_CONNECTIONS` aliases that receive the governed mirror stream; declaring mirrors automatically wraps the engine authority in fan-out | None |
+| `SECRETS_BACKEND` | Secrets storage backend: encrypted `engine` or `vault` | `engine` |
 | `SECRETS_VAULT_URL` | HashiCorp Vault URL | None |
 | `SECRETS_VAULT_MOUNT` | Vault KV v2 mount point | `secret` |
-| `AGENT_SECRETS_MASTER_KEY` | Fernet encryption key (base64) | *(auto-generated)* |
 | `AUTH_JWT_JWKS_URI` | JWKS URI for JWT Bearer token verification | None |
 | `AUTH_JWT_ISSUER` | Expected JWT issuer claim | None |
 | `AUTH_JWT_AUDIENCE` | Expected JWT audience claim | None |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins | `*` |
-| `ALLOWED_HOSTS` | Comma-separated trusted hosts | `*` |
+| `KG_POLICY_VERSION` | Required GraphSession policy revision | None |
+| `ALLOWED_ORIGINS` | Exact CORS origins; unset disables CORS | None |
+| `CORS_ALLOW_CREDENTIALS` | Allow credentials for exact configured origins | `false` |
+| `ALLOWED_HOSTS` | Comma-separated trusted hosts | loopback authorities |
 | `AGENT_USER_TOKEN` | Session token forwarded to MCP subprocesses | None |
 
 ## Validation & Diagnostics
@@ -88,9 +87,7 @@ If tests fail unexpectedly:
 ```
 agent_utilities/
 ├── __init__.py              # Public API re-exports
-├── agent_utilities.py       # Legacy exports and helper wrappers
 ├── base_utilities.py        # Shared utility functions (env expansion, type coercion)
-├── mcp_utilities.py         # MCP server creation and context helpers
 │
 ├── core/                    # Foundational Primitives
 │   ├── workspace.py         # Workspace discovery and initialization
@@ -102,6 +99,11 @@ agent_utilities/
 │   ├── factory.py           # CLI agent creation helpers
 │   ├── discovery.py         # Specialist discovery
 │   └── registry_builder.py  # Prompt → KG registry synchronization
+│
+├── mcp/                     # Model Context Protocol runtime
+│   ├── server_factory.py    # Server construction and authentication middleware
+│   ├── context_helpers.py   # Progress, elicitation, logging, state, and sampling
+│   └── kg_server.py         # GraphOS tool registration and governed dispatch
 │
 ├── protocols/               # External Interfaces
 │   ├── acp_adapter.py       # ACP protocol adapter
@@ -124,7 +126,7 @@ agent_utilities/
 │   ├── steps.py             # Orchestration nodes (router, verifier, etc.)
 │   └── state.py             # GraphState definitions
 │
-├── knowledge_graph/         # MAGMA Memory System
+├── knowledge_graph/         # Epistemic-graph authority facade and governance
 │   ├── core/engine.py       # IntelligenceGraphEngine
 │   ├── core/maintainer.py   # Pruning, decay, maintenance
 │   ├── retrieval/hybrid_retriever.py  # Vector + topological search
@@ -141,7 +143,7 @@ agent_utilities/
 │
 ├── tools/                   # Agent Tools
 │   ├── agent_tools.py       # Core agent tools
-│   ├── developer_tools.py   # File system tools
+│   ├── developer_tools.py   # Read-only code and KG discovery
 │   └── ...                  # 16 other tool categories
 │
 ├── models/                  # Pydantic Schemas
@@ -177,7 +179,9 @@ agent_utilities/
 
 > **⚠️ Pydantic AI VercelAIAdapter Note**: The `VercelAIAdapter` class in Pydantic AI is **internal and unstable**. Do NOT subclass or directly modify it. Any streaming or event-format changes should be made through composition and middleware, not by patching VercelAIAdapter.
 
-- **Do NOT commit real API keys, tokens, or credentials** -- use env vars and `.env.example`
+- **Do NOT commit real API keys, tokens, or credentials** -- use AgentConfig
+  reference fields plus the private XDG runtime-secret source or an external
+  secret backend.
 - **Do NOT add provider-specific auth code** to `agent-utilities` -- it is auth-agnostic
 - **Do NOT reference internal/proprietary project names, hostnames, or vendor codenames**
 - **Do NOT add `print()` for debugging** -- use `logger.debug()`
@@ -189,10 +193,14 @@ If agents timeout during "Ingesting MCP tools", ensure:
 1. All MCP servers are reachable and start within 10-15s individually.
 2. Parallel ingestion is not disabled (default is 5 concurrent connections).
 
-### Database Lock Contention
-When running multiple agents on the same host, LadybugDB (DuckDB) may encounter file locks if multiple processes try to sync to the same `knowledge_graph.db`.
-- **Recommendation**: Set a unique `GRAPH_DB_PATH` per agent (e.g., `GRAPH_DB_PATH=./agent_data/graph.db`).
-- **Resilience**: The backend includes a 5-attempt retry mechanism with exponential backoff and jitter to handle transient lock contention.
+### Mirror Lock Contention
+
+The epistemic-graph engine is the only primary authority in development and
+production. A file-backed LadybugDB/Kuzu connection is optional and may be used
+only as a governed mirror or read source. Its single-writer lock is owned by one
+mirror drainer; do not let agent processes open the mirror directly. Check
+`graph_configure action=mirror_status` and reconcile the named mirror after
+repairing its runtime connection profile.
 
 ## Adding New Modules
 
@@ -207,7 +215,9 @@ When running multiple agents on the same host, LadybugDB (DuckDB) may encounter 
 
 Key entry points for understanding the codebase:
 - `agent/factory.py` → `create_agent` implementation and CLI agent creation
-- `mcp_utilities.py` → MCP tool registration
+- `mcp/server_factory.py` → MCP server construction and authentication middleware
+- `mcp/context_helpers.py` → standardized per-tool context operations
+- `mcp/kg_server.py` → GraphOS tool registration and governed dispatch
 - `graph/builder.py` → Graph initialization and workspace discovery
 - `knowledge_graph/core/engine.py` → `IntelligenceGraphEngine` (Intelligence Graph API)
 

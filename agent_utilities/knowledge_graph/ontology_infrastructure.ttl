@@ -5,14 +5,14 @@
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix dc: <http://purl.org/dc/terms/> .
-@prefix : <https://agent-utilities.dev/ontology/infrastructure#> .
+@prefix : <http://knuckles.team/kg/infrastructure#> .
 @prefix au: <https://agent-utilities.dev/ontology#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
-<https://agent-utilities.dev/ontology/infrastructure> a owl:Ontology ;
+<http://knuckles.team/kg/infrastructure> a owl:Ontology ;
     rdfs:label "Agent-Utilities Infrastructure Ontology" ;
     rdfs:comment """
         Vendor-neutral infrastructure topology ontology covering compute,
@@ -196,7 +196,7 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
 
 :deploymentProfile a owl:DatatypeProperty ;
     rdfs:label "deployment profile" ;
-    rdfs:comment "Values: homelab, enterprise, minimal." ;
+    rdfs:comment "Values: tiny, single-node-prod, enterprise." ;
     rdfs:domain :DeploymentManifest ;
     rdfs:range xsd:string .
 
@@ -207,7 +207,7 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
 
 :dnsDomain a owl:DatatypeProperty ;
     rdfs:label "DNS domain" ;
-    rdfs:comment "Base domain for service DNS routing (e.g., home.lab)." ;
+    rdfs:comment "Base domain for service DNS routing (for example, a configured test or private DNS zone)." ;
     rdfs:domain :DeploymentManifest ;
     rdfs:range xsd:string .
 
@@ -478,8 +478,8 @@ to another (e.g., from direct container management to orchestrator-managed).""" 
 
 :DeploymentProfile a owl:Class ;
     rdfs:label "Deployment Profile" ;
-    rdfs:comment """A named deployment configuration template: homelab (all services),
-enterprise (ITIL + productivity), or minimal (core infrastructure only).
+    rdfs:comment """A named deployment configuration template: tiny (all-local),
+single-node-prod (one durable host), or enterprise (multi-host deployment).
 BFO:GenericallyDependentContinuant.""" ;
     rdfs:subClassOf bfo:0000031 .
 
@@ -607,7 +607,6 @@ BFO:Process — unfolds over time.""" ;
 :DeploymentManifest a owl:Class ;
     rdfs:label "Deployment Manifest" ;
     rdfs:comment """A complete deployment blueprint recording what was deployed,
-where, when, and under which profile (homelab/enterprise/minimal).
+where, when, and under which profile (tiny/single-node-prod/enterprise).
 BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:subClassOf bfo:0000031 .
-

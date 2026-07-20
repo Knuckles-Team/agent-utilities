@@ -66,9 +66,9 @@ flowchart TD
 > No dedicated concept ID — the behaviour is documented in the `create_model`
 > docstring and rides the per-call tracing chokepoint (CONCEPT:AU-OS.config.model-factory-passthrough).
 
-## RLM-GEPA extension (CONCEPT:AU-ORCH.adapter.composable-skills-environment–1.31)
+## Depth-specific RLM execution
 
-The registry also carries the RLM-GEPA roles — `rlm-executor` / `rlm-sublm` (cheap, run the skill) and
-`rlm-proposer` (strong, reflects on traces and rewrites the skill). A skill optimized with a cheap
-executor still lifts a strong one at eval (the AppWorld cost/quality trick), resolved via
-`rlm/roles.py:rlm_role_model`. The GEPA proposer (ORCH-1.30) binds to `rlm-proposer`.
+The registry carries `rlm-root` for the strong reasoning pass and
+`rlm-executor` / `rlm-sublm` for economical recursive work. Resolution is
+through `rlm/roles.py:rlm_role_model`; program optimization remains owned by
+the native epistemic-graph compiler.

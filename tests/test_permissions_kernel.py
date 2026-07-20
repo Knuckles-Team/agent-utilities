@@ -5,6 +5,7 @@ from __future__ import annotations
 
 
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,14 +14,26 @@ from agent_utilities.security.permissions_kernel import (
     AgentPolicy,
     AgentRole,
     AuthDecision,
+    PermissionBootstrapError,
+    PermissionPolicyError,
     PermissionsKernel,
+    resolve_permission_context,
 )
+
+TEST_SIGNING_KEY = "test-signing-authority-material-32b"
 
 
 @pytest.fixture
 def kernel() -> PermissionsKernel:
     """Create a kernel with default policies and a fixed signing key."""
-    return PermissionsKernel(signing_key="test-key-12345")
+    return PermissionsKernel(signing_key=TEST_SIGNING_KEY)
+
+
+def test_permissions_kernel_requires_explicit_strong_authority() -> None:
+    with pytest.raises(TypeError):
+        PermissionsKernel()  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="32 bytes"):
+        PermissionsKernel(signing_key="too-short")
 
 
 class TestAgentIdentity:
@@ -33,16 +46,22 @@ class TestAgentIdentity:
         assert identity.issued_at > 0
 
     def test_payload_string(self) -> None:
+        import json
+
         identity = AgentIdentity(
             agent_id="agent-a",
             role=AgentRole.ADMIN,
             capabilities=["code", "deploy"],
             issued_at=1000.0,
         )
-        payload = identity.payload_string()
-        assert "agent-a" in payload
-        assert "admin" in payload
-        assert "code,deploy" in payload
+        payload = json.loads(identity.payload_string())
+        assert payload == {
+            "agent_id": "agent-a",
+            "capabilities": ["code", "deploy"],
+            "expires_at": 0.0,
+            "issued_at": 1000.0,
+            "role": "admin",
+        }
 
 
 class TestAgentPolicy:
@@ -79,6 +98,11 @@ class TestIdentityLifecycle:
             "agent-a", AgentRole.SPECIALIST, ttl_seconds=0.001
         )
         time.sleep(0.01)  # Wait for expiry
+        assert kernel.verify_identity(identity) is False
+
+    def test_verify_tampered_expiry(self, kernel: PermissionsKernel) -> None:
+        identity = kernel.issue_identity("agent-a", AgentRole.SPECIALIST)
+        identity.expires_at = time.time() + 3_600
         assert kernel.verify_identity(identity) is False
 
     def test_get_identity(self, kernel: PermissionsKernel) -> None:
@@ -142,6 +166,47 @@ class TestAuthorization:
         identity.signature = "tampered"
         assert kernel.authorize_tool(identity, "read_file") == AuthDecision.DENY
 
+    def test_non_empty_capabilities_are_additional_closed_world_grants(
+        self, kernel: PermissionsKernel
+    ) -> None:
+        identity = kernel.issue_identity(
+            "scoped-agent",
+            AgentRole.SPECIALIST,
+            capabilities=["read_*"],
+        )
+
+        assert kernel.authorize_tool(identity, "read_file") == AuthDecision.ALLOW
+        assert kernel.authorize_tool(identity, "list_items") == AuthDecision.DENY
+
+    def test_semantic_required_capability_can_satisfy_identity_scope(
+        self, kernel: PermissionsKernel
+    ) -> None:
+        identity = kernel.issue_identity(
+            "scoped-agent",
+            AgentRole.SPECIALIST,
+            capabilities=["kg.read"],
+        )
+
+        assert (
+            kernel.authorize_tool(
+                identity,
+                "knowledge_query",
+                required_capability="kg.read",
+            )
+            == AuthDecision.ALLOW
+        )
+
+    def test_capability_grant_never_overrides_role_deny(
+        self, kernel: PermissionsKernel
+    ) -> None:
+        identity = kernel.issue_identity(
+            "scoped-agent",
+            AgentRole.SPECIALIST,
+            capabilities=["reboot_*"],
+        )
+
+        assert kernel.authorize_tool(identity, "reboot_server") == AuthDecision.DENY
+
 
 class TestPolicyManagement:
     """Test policy loading and management."""
@@ -171,10 +236,30 @@ class TestPolicyManagement:
         path = tmp_path / "agent_policies.json"
         path.write_text(json.dumps(policy_data))
 
-        kernel = PermissionsKernel(signing_key="test", policies_path=str(path))
+        kernel = PermissionsKernel(
+            signing_key=TEST_SIGNING_KEY, policies_path=str(path)
+        )
         policies = kernel.get_policies()
         assert len(policies) == 1
         assert policies[0].max_token_quota == 999999
+
+    def test_missing_configured_policy_fails_closed(self, tmp_path) -> None:
+        with pytest.raises(PermissionPolicyError, match="unavailable"):
+            PermissionsKernel(
+                signing_key=TEST_SIGNING_KEY,
+                policies_path=str(tmp_path / "missing.json"),
+            )
+
+    def test_malformed_policy_clears_existing_policy_set(
+        self, kernel, tmp_path
+    ) -> None:
+        path = tmp_path / "agent_policies.json"
+        path.write_text('{"policies": [{"role": "admin"}]}')
+
+        with pytest.raises(PermissionPolicyError, match="invalid"):
+            kernel.load_policies(str(path))
+
+        assert kernel.get_policies() == []
 
     def test_token_quota_for_role(self, kernel: PermissionsKernel) -> None:
         assert kernel.get_token_quota_for_role(AgentRole.ADMIN) == 500_000
@@ -201,3 +286,71 @@ class TestPatternMatching:
 
     def test_no_patterns(self) -> None:
         assert PermissionsKernel._matches_patterns("anything", []) is False
+
+
+class TestPermissionContextBootstrap:
+    def test_resolves_reference_and_returns_verified_pair(self) -> None:
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref="env://PERMISSION_TEST_KEY",
+            agent_policies_path=None,
+        )
+        context = resolve_permission_context(
+            cfg,
+            secret_resolver=lambda _reference: TEST_SIGNING_KEY,
+        )
+
+        assert context is not None
+        assert context.kernel.verify_identity(context.identity)
+        assert context.identity.agent_id.startswith("agent:")
+        assert "graph-runtime" not in context.identity.agent_id
+
+    def test_bootstrap_identity_is_stable_opaque_and_capability_bound(self) -> None:
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref="env://PERMISSION_TEST_KEY",
+            agent_policies_path=None,
+        )
+
+        first = resolve_permission_context(
+            cfg,
+            agent_subject="configured-display-name",
+            capabilities=("read_*",),
+            secret_resolver=lambda _reference: TEST_SIGNING_KEY,
+        )
+        second = resolve_permission_context(
+            cfg,
+            agent_subject="configured-display-name",
+            capabilities=("read_*",),
+            secret_resolver=lambda _reference: TEST_SIGNING_KEY,
+        )
+        other = resolve_permission_context(
+            cfg,
+            agent_subject="different-display-name",
+            capabilities=("read_*",),
+            secret_resolver=lambda _reference: TEST_SIGNING_KEY,
+        )
+
+        assert first is not None and second is not None and other is not None
+        assert first.identity.agent_id == second.identity.agent_id
+        assert first.identity.agent_id != other.identity.agent_id
+        assert "configured-display-name" not in first.identity.agent_id
+        assert first.identity.capabilities == ["read_*"]
+
+    def test_missing_reference_fails_without_process_authority(self) -> None:
+        cfg = SimpleNamespace(
+            permissions_signing_key_ref=None,
+            agent_policies_path=None,
+        )
+
+        with pytest.raises(PermissionBootstrapError, match="reference is required"):
+            resolve_permission_context(cfg)
+
+    def test_injected_context_must_verify(self, kernel: PermissionsKernel) -> None:
+        other = PermissionsKernel(signing_key="different-signing-authority-key-32b")
+        identity = other.issue_identity("graph-runtime")
+
+        with pytest.raises(PermissionBootstrapError, match="invalid"):
+            resolve_permission_context(
+                SimpleNamespace(),
+                permissions_kernel=kernel,
+                agent_identity=identity,
+            )

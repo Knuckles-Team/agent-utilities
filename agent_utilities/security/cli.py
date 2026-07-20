@@ -4,14 +4,15 @@
 CONCEPT:AU-OS.config.secrets-authentication
 
 Provides a command-line interface to manage secrets using the agent_utilities
-SecretsClient. Supports setting, getting, deleting, and listing keys across
-all backends (SQLite, Vault, InMemory).
+SecretsClient. Supports setting, getting, deleting, and listing keys in the
+encrypted engine store or Vault.
 """
 
 import argparse
 import sys
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.cli_secrets import RuntimeSecretReferenceAction
 from agent_utilities.security.secrets_client import SecretsConfig, create_secrets_client
 
 
@@ -20,11 +21,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Agent Utilities Secret Manager")
     parser.add_argument(
         "--backend",
-        help="Backend to use (sqlite, vault, inmemory). Overrides SECRETS_BACKEND env var.",
-    )
-    parser.add_argument(
-        "--sqlite-path",
-        help="Path for sqlite backend. Overrides SECRETS_SQLITE_PATH env var.",
+        choices=("engine", "vault"),
+        help="Backend to use (vault or encrypted engine storage). Overrides SECRETS_BACKEND.",
     )
     parser.add_argument(
         "--vault-url",
@@ -52,7 +50,13 @@ def main() -> None:
     # Set command
     set_parser = subparsers.add_parser("set", help="Set a secret")
     set_parser.add_argument("key", help="Key name (e.g., gitlab/token)")
-    set_parser.add_argument("value", help="Secret value")
+    set_parser.add_argument(
+        "--value-ref",
+        dest="value",
+        required=True,
+        action=RuntimeSecretReferenceAction,
+        help="Runtime env://, vault://, or secret:// reference to the value",
+    )
 
     # Get command
     get_parser = subparsers.add_parser("get", help="Get a secret")
@@ -74,11 +78,6 @@ def main() -> None:
         config_kwargs["backend"] = args.backend
     elif setting("SECRETS_BACKEND"):
         config_kwargs["backend"] = setting("SECRETS_BACKEND")
-
-    if args.sqlite_path:
-        config_kwargs["sqlite_path"] = args.sqlite_path
-    elif setting("SECRETS_SQLITE_PATH"):
-        config_kwargs["sqlite_path"] = setting("SECRETS_SQLITE_PATH")
 
     if args.vault_url:
         config_kwargs["vault_url"] = args.vault_url

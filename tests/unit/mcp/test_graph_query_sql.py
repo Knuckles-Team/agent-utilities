@@ -9,8 +9,6 @@ holds with no second handler.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
@@ -54,7 +52,7 @@ def test_sql_scope_routes_to_engine_sql(monkeypatch):
     out = graph_query(
         cypher="SELECT id, label FROM nodes LIMIT 5", scope="sql", params="{}"
     )
-    assert json.loads(out) == rows
+    assert out.model_dump()["claims"] == rows
     assert engine.seen == "SELECT id, label FROM nodes LIMIT 5"
 
 
@@ -67,13 +65,12 @@ def test_sql_scope_fans_out(monkeypatch):
         lambda target: ([("k1", e1), ("k2", e2)], {}, True),
     )
 
-    out = json.loads(
-        graph_query(
-            cypher="SELECT id FROM nodes", scope="sql", target="all", params="{}"
-        )
-    )
-    assert out["targets"] == {"k1": [{"id": "a"}], "k2": [{"id": "b"}]}
-    assert out["errors"] == {}
+    out = graph_query(
+        cypher="SELECT id FROM nodes", scope="sql", target="all", params="{}"
+    ).model_dump()
+    payload = out["reasoning_trace"][-1]["payload"]
+    assert payload["targets"] == {"k1": [{"id": "a"}], "k2": [{"id": "b"}]}
+    assert payload["errors"] == {}
 
 
 def test_sql_scope_surfaces_engine_error(monkeypatch):
@@ -88,8 +85,11 @@ def test_sql_scope_surfaces_engine_error(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("kg", _Boom())], {}, False),
     )
-    out = json.loads(graph_query(cypher="DELETE FROM nodes", scope="sql", params="{}"))
-    assert "error" in out and "SELECT" in out["error"]
+    out = graph_query(
+        cypher="DELETE FROM nodes", scope="sql", params="{}"
+    ).model_dump()
+    payload = out["reasoning_trace"][-1]["payload"]
+    assert "error" in payload and "SELECT" in payload["error"]
 
 
 # ── engine.sql() read-only guard + bridge (CONCEPT:AU-KG.query.read-only-sql-over) ──────────────────

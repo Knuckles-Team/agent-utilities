@@ -104,6 +104,7 @@ sync:
   updated_field: version
   pagination: null
   doc_type: confluence_page
+  tool_schema_sha256: 8c4bda7733728fb8a8ce53211edf69e5931212c088bb7c93ab342e19fdd3e173
   raw:
     server: atlassian-agent
     tool: atlassian_confluence_page
@@ -125,6 +126,7 @@ sync:
   updated_field: fields.updated
   pagination: null
   doc_type: jira_issue
+  tool_schema_sha256: e23246d14d338cc81acbb5920ea81c9ed743e87689e1303229fb0e02a81f93aa
   raw:
     server: atlassian-agent
     tool: atlassian_jira_issue
@@ -137,16 +139,19 @@ sync:
     doc_type: jira_issue
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T00:00:00Z'
   source_artifacts:
   - atlassian_agent/connectors/mcp_source_presets.json
+  - atlassian_agent/connectors/tool_schema_fingerprints.json
   - atlassian_agent/ontology/atlassian.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
     triple_count: 49
   signer: ontology-manifest-generator
-  signature: 63f352e41725af402c82a81856bbc0e5ac83c5f130ec2d5dbbc68cc77bb8f650
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: _L-LSzs7ahhpnMpxGw4SFGVkGZeX3dQKGcKo8UGtGCzW4jWwHRoPEv_51eyAk5ZxZbxjnn-vsG1rB_7tuHd7Cg
 policy:
   pii_fields: {}
   tenant_boundary: null
@@ -163,34 +168,3 @@ review_todos:
   \ on this crosswalk for reasoning/joins."
 - "schema_mappings.Sprint.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
   \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
-- 'auth: multi-path fallback (OIDC token-exchange -> OAuth 3LO bearer -> PAT bearer -> Basic email:token
-  [default]). Env: ATLASSIAN_AGENT_URL/USER/TOKEN/VERIFY, ATLASSIAN_BEARER_TOKEN, ATLASSIAN_OAUTH_TOKEN,
-  OIDC_CLIENT_ID/SECRET, ENABLE_DELEGATION, AUDIENCE, DELEGATED_SCOPES (default ''read:jira-work write:jira-work''),
-  per-suite override e.g. ATLASSIAN_JIRA_CLOUD_TOKEN. Shape: single shared PAT/service account by default;
-  OIDC delegation is an opt-in per-user path. required_scopes: read:jira-work, write:jira-work (DELEGATED_SCOPES
-  default; verify against the live Jira/Confluence app''s granted scopes).'
-- "change_support: snapshot/poll only, via mcp_source_presets.json (delta(jira,confluence)+writeback(jira)\
-  \ \u2014 see docs/architecture/kg_connectors_and_ingestion.md section 8 connector inventory for the\
-  \ real, already-shipped wiring). cdc: none (no change-data-capture/replication-log path). webhook: none\
-  \ (any 'webhook' hits in this package's source manage webhooks IN THE REMOTE SYSTEM as a tool capability\
-  \ \u2014 there is no inbound webhook RECEIVER wired to source_sync ingestion for this connector today)."
-- "policy.classification / policy.retention: UNKNOWN \u2014 this connector declares no data classification\
-  \ (e.g. public/internal/confidential/restricted) or retention/legal-hold policy anywhere in its shipped\
-  \ artifacts; do not assume a default. Treat both as manifest_status=draft until an operator reviews\
-  \ the actual data handled and states a classification + retention period explicitly (see policy.pii_fields\
-  \ above for the one heuristic that IS populated)."
-- "quality (SHACL shapes / freshness SLA): UNKNOWN \u2014 no SHACL shape set or freshness contract is\
-  \ declared for this connector's resources; manifest_status=draft for quality until a shape set + freshness\
-  \ SLA is authored and referenced here."
-- "manifest_status: draft \u2014 resources/schema_mappings/sync/actions/events were generated deterministically\
-  \ (zero LLM, zero network) from this connector's OWN shipped artifacts via scripts/generate_connector_manifests.py;\
-  \ the auth/required_scopes/change_support/policy/quality annotations above were added by a manual read-only\
-  \ code survey (not re-verified against a live deployment) as part of AU-P1-6 making this connector's\
-  \ manifest MANDATORY for enterprise activation \u2014 operator sign-off on the ontology_class crosswalks,\
-  \ PII/RLS policy, and the classification/retention/quality gaps above is still required before this\
-  \ manifest should be treated as fully authoritative."
-- "cross-connector note: atlassian-agent, gitlab-api, servicenow-api, microsoft-agent, and leanix-agent\
-  \ all layer a common OIDC_CLIENT_ID/SECRET + ENABLE_DELEGATION + DELEGATED_SCOPES + AUDIENCE RFC-8693-style\
-  \ token-exchange path on top of each connector's own native credential (a shared auth.py pattern across\
-  \ these agent-packages) \u2014 this is the per-user delegated-identity opt-in; the native credential\
-  \ above remains the system-to-system default."

@@ -12,7 +12,8 @@ thermal write/read path exactly, generalized from °C to any entity/signal pair.
 
 All I/O rides the shared fleet primitive
 (:mod:`agent_utilities.knowledge_graph.memory.native_ingest`) — the same lightweight
-engine client (``GraphComputeEngine()._client`` + ``txn``) every native connector uses.
+engine client (``GraphComputeEngine.get_or_create()._client`` + ``txn``) every
+native connector uses.
 Entirely best-effort and engine-guarded: with no reachable engine every entry point
 no-ops (returns ``None``/``[]``), so a producer keeps running with zero KG
 infrastructure. Node ids follow ``health:<class>:<entityId>:<signal>[:<at>]``.
@@ -44,7 +45,7 @@ def _engine() -> Any | None:
             GraphComputeEngine,
         )
 
-        return GraphComputeEngine()
+        return GraphComputeEngine.get_or_create()
     except Exception as e:  # noqa: BLE001 — KG stack absent / engine unreachable
         logger.debug("health KG read unavailable: %s", e)
         return None

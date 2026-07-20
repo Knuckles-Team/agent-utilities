@@ -195,7 +195,7 @@ class ObjectFunctionContext:
         elif object_type:
             rows = _run(
                 self.graph,
-                f"MATCH (n {{type: $t}}) RETURN n LIMIT {int(limit)}",
+                f"MATCH (n {{node_type: $t}}) RETURN n LIMIT {int(limit)}",
                 {"t": object_type},
             )
         else:

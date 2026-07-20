@@ -173,6 +173,41 @@ class TestIngestionResult:
         assert r.error == "Path not found"
 
 
+def test_document_file_uses_native_slice_and_opaque_source_reference(
+    engine, tmp_path, monkeypatch
+):
+    from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+    source = tmp_path / "private-input.md"
+    source.write_text("# Synthetic document\n\nGoverned content.", encoding="utf-8")
+    calls = []
+
+    def _apply(
+        _engine,
+        connector,
+        entities,
+        relationships=None,
+        **kwargs,
+    ):
+        calls.append((connector, entities, relationships or [], kwargs))
+        return {"status": "success"}
+
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", _apply)
+    manifest = IngestionManifest(
+        content_type=ContentType.DOCUMENT,
+        source_uri=str(source),
+        metadata={"extract_concepts": False, "chunk": False},
+    )
+
+    result = engine._ingest_document_file(manifest, source)
+
+    assert result.status == "success"
+    assert calls and calls[0][0] == "document"
+    primary = calls[0][1][0]
+    assert primary["source_reference"].startswith("pref_document_source_")
+    assert str(tmp_path) not in repr(calls)
+
+
 # ── Codebase Adaptor ─────────────────────────────────────────────────
 
 
@@ -192,15 +227,13 @@ class TestCodebaseIngestion:
 
     @pytest.mark.anyio
     async def test_routes_through_enrichment_pipeline(self, engine, tmp_path):
-        """Structural codebase ingest runs the per-file Rust parse path
-        (EnrichmentPipeline), not the old whole-repo parse_repository (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
-        """
+        """Structural ingest sends logical source names and bytes per file."""
         (tmp_path / "main.py").write_text("def hello():\n    return 1\n")
-        # Fake the Rust parser with a benign empty parse so no service is needed.
-        engine.kg.graph_compute.parse_file = MagicMock(return_value={})
-        # Pin the per-file path here; the batched ParseFiles routing (CONCEPT:EG-KG.compute.graph-compute-engine)
-        # is covered separately in test_ingestion_perf_optimizations.py.
-        engine.kg.graph_compute.supports_batch_parse = False
+        # Fake the current batched Rust parser with a benign empty result so no
+        # service is needed.
+        engine.kg.graph_compute.parse_files = MagicMock(
+            side_effect=lambda files: [{} for _ in files]
+        )
 
         result = await engine.ingest(
             IngestionManifest(
@@ -211,10 +244,9 @@ class TestCodebaseIngestion:
         )
 
         assert result.status == "success"
-        # New path uses parse_file per discovered file …
+        # The ingestion boundary performs policy-approved discovery; the native
+        # request receives only each logical source name and its bytes.
         engine.kg.graph_compute.parse_file.assert_called()
-        # … and the old whole-repo parser is gone (strangler).
-        engine.kg.graph_compute.parse_repository.assert_not_called()
 
 
 # ── Conversation Adaptor ─────────────────────────────────────────────

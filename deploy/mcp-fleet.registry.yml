@@ -22,418 +22,418 @@ defaults:
   transport: streamable-http
   host: 0.0.0.0
   container_port: 8000
-  image_registry: docker.io/knucklessg1
+  image_registry: docker.io/example
 services:
   - name: ansible-tower-mcp
     package: ansible-tower-mcp
     console_script: ansible-tower-mcp
-    image: knucklessg1/ansible-tower-mcp:latest
+    image: example/ansible-tower-mcp:latest
     container_port: 8000
     host_port: 8200
     profiles: [enterprise]
   - name: archimate-mcp
     package: archimate-mcp
     console_script: archimate-mcp
-    image: knucklessg1/archimate-mcp:latest
+    image: example/archimate-mcp:latest
     container_port: 8000
     host_port: 8201
     profiles: [enterprise]
   - name: archivebox-mcp
     package: archivebox-api
     console_script: archivebox-mcp
-    image: knucklessg1/archivebox-api:latest
+    image: example/archivebox-api:latest
     container_port: 8000
     host_port: 8202
     profiles: [enterprise]
   - name: aris-mcp
     package: aris-mcp
     console_script: aris-mcp
-    image: knucklessg1/aris-mcp:latest
+    image: example/aris-mcp:latest
     container_port: 8000
     host_port: 8253
     profiles: [enterprise]
   - name: arr-mcp
     package: arr-mcp
     console_script: arr-mcp
-    image: knucklessg1/arr-mcp:latest
+    image: example/arr-mcp:latest
     container_port: 8000
     host_port: 8203
     profiles: [enterprise]
   - name: atlassian-mcp
     package: atlassian-agent
     console_script: atlassian-mcp
-    image: knucklessg1/atlassian-agent:latest
+    image: example/atlassian-agent:latest
     container_port: 8000
     host_port: 8204
     profiles: [enterprise]
   - name: audio-transcriber-mcp
     package: audio-transcriber
     console_script: audio-transcriber-mcp
-    image: knucklessg1/audio-transcriber:latest
+    image: example/audio-transcriber:latest
     container_port: 8000
     host_port: 8205
     profiles: [enterprise]
   - name: caddy-mcp
     package: caddy-mcp
     console_script: caddy-mcp
-    image: knucklessg1/caddy-mcp:latest
+    image: example/caddy-mcp:latest
     container_port: 8000
     host_port: 8206
     profiles: [single-node-prod, enterprise]
   - name: camunda-mcp
     package: camunda-mcp
     console_script: camunda-mcp
-    image: knucklessg1/camunda-mcp:latest
+    image: example/camunda-mcp:latest
     container_port: 8000
     host_port: 8207
     profiles: [enterprise]
   - name: clarity-mcp
     package: clarity-api
     console_script: clarity-mcp
-    image: knucklessg1/clarity-api:latest
+    image: example/clarity-api:latest
     container_port: 8000
     host_port: 8208
     profiles: [enterprise]
   - name: container-manager-mcp
     package: container-manager-mcp
     console_script: container-manager-mcp
-    image: knucklessg1/container-manager-mcp:latest
+    image: example/container-manager-mcp:latest
     container_port: 8000
     host_port: 8209
     profiles: [single-node-prod, enterprise]
   - name: data-science-mcp
     package: data-science-mcp
     console_script: data-science-mcp
-    image: knucklessg1/data-science-mcp:latest
+    image: example/data-science-mcp:latest
     container_port: 8000
     host_port: 8210
     profiles: [enterprise]
   - name: documentdb-mcp
     package: documentdb-mcp
     console_script: documentdb-mcp
-    image: knucklessg1/documentdb-mcp:latest
+    image: example/documentdb-mcp:latest
     container_port: 8000
     host_port: 8211
     profiles: [enterprise]
   - name: egeria-mcp
     package: egeria-mcp
     console_script: egeria-mcp
-    image: knucklessg1/egeria-mcp:latest
+    image: example/egeria-mcp:latest
     container_port: 8000
     host_port: 8212
     profiles: [enterprise]
   - name: emerald-exchange-mcp
     package: emerald-exchange
     console_script: emerald-exchange-mcp
-    image: knucklessg1/emerald-exchange:latest
+    image: example/emerald-exchange:latest
     container_port: 8000
     host_port: 8213
     profiles: [enterprise]
   - name: erpnext-mcp
     package: erpnext-agent
     console_script: erpnext-mcp
-    image: knucklessg1/erpnext-agent:latest
+    image: example/erpnext-agent:latest
     container_port: 8000
     host_port: 8214
     profiles: [enterprise]
   - name: fan-manager-mcp
     package: fan-manager
     console_script: fan-manager-mcp
-    image: knucklessg1/fan-manager:latest
+    image: example/fan-manager:latest
     container_port: 8000
     host_port: 8215
     profiles: [enterprise]
   - name: github-mcp
     package: github-agent
     console_script: github-mcp
-    image: knucklessg1/github-agent:latest
+    image: example/github-agent:latest
     container_port: 8000
     host_port: 8216
     profiles: [enterprise]
   - name: gitlab-mcp
     package: gitlab-api
     console_script: gitlab-mcp
-    image: knucklessg1/gitlab-api:latest
+    image: example/gitlab-api:latest
     container_port: 8000
     host_port: 8217
     profiles: [enterprise]
   - name: home-assistant-mcp
     package: home-assistant-agent
     console_script: home-assistant-mcp
-    image: knucklessg1/home-assistant-agent:latest
+    image: example/home-assistant-agent:latest
     container_port: 8000
     host_port: 8218
     profiles: [enterprise]
   - name: jellyfin-mcp
     package: jellyfin-mcp
     console_script: jellyfin-mcp
-    image: knucklessg1/jellyfin-mcp:latest
+    image: example/jellyfin-mcp:latest
     container_port: 8000
     host_port: 8219
     profiles: [enterprise]
   - name: jena-mcp
     package: jena-mcp
     console_script: jena-mcp
-    image: knucklessg1/jena-mcp:latest
+    image: example/jena-mcp:latest
     container_port: 8000
     host_port: 8220
     profiles: [enterprise]
   - name: kafka-mcp
     package: kafka-mcp
     console_script: kafka-mcp
-    image: knucklessg1/kafka-mcp:latest
+    image: example/kafka-mcp:latest
     container_port: 8000
     host_port: 8221
     profiles: [enterprise]
   - name: keycloak-mcp
     package: keycloak-agent
     console_script: keycloak-mcp
-    image: knucklessg1/keycloak-agent:latest
+    image: example/keycloak-agent:latest
     container_port: 8000
     host_port: 8222
     profiles: [enterprise]
   - name: langfuse-mcp
     package: langfuse-agent
     console_script: langfuse-mcp
-    image: knucklessg1/langfuse-agent:latest
+    image: example/langfuse-agent:latest
     container_port: 8000
     host_port: 8223
     profiles: [enterprise]
   - name: leanix-mcp
     package: leanix-agent
     console_script: leanix-mcp
-    image: knucklessg1/leanix-agent:latest
+    image: example/leanix-agent:latest
     container_port: 8000
     host_port: 8224
     profiles: [enterprise]
   - name: legal-peripherals-mcp
     package: legal-peripherals-mcp
     console_script: legal-peripherals-mcp
-    image: knucklessg1/legal-peripherals-mcp:latest
+    image: example/legal-peripherals-mcp:latest
     container_port: 8000
     host_port: 8225
     profiles: [enterprise]
   - name: lgtm-mcp
     package: lgtm-mcp
     console_script: lgtm-mcp
-    image: knucklessg1/lgtm-mcp:latest
+    image: example/lgtm-mcp:latest
     container_port: 8000
     host_port: 8226
     profiles: [enterprise]
   - name: listmonk-mcp
     package: listmonk-api
     console_script: listmonk-mcp
-    image: knucklessg1/listmonk-api:latest
+    image: example/listmonk-api:latest
     container_port: 8000
     host_port: 8227
     profiles: [enterprise]
   - name: mattermost-mcp
     package: mattermost-mcp
     console_script: mattermost-mcp
-    image: knucklessg1/mattermost-mcp:latest
+    image: example/mattermost-mcp:latest
     container_port: 8000
     host_port: 8228
     profiles: [enterprise]
   - name: mealie-mcp
     package: mealie-mcp
     console_script: mealie-mcp
-    image: knucklessg1/mealie-mcp:latest
+    image: example/mealie-mcp:latest
     container_port: 8000
     host_port: 8229
     profiles: [enterprise]
   - name: media-downloader-mcp
     package: media-downloader
     console_script: media-downloader-mcp
-    image: knucklessg1/media-downloader:latest
+    image: example/media-downloader:latest
     container_port: 8000
     host_port: 8230
     profiles: [enterprise]
   - name: microsoft-mcp
     package: microsoft-agent
     console_script: microsoft-mcp
-    image: knucklessg1/microsoft-agent:latest
+    image: example/microsoft-agent:latest
     container_port: 8000
     host_port: 8231
     profiles: [enterprise]
   - name: nextcloud-mcp
     package: nextcloud-agent
     console_script: nextcloud-mcp
-    image: knucklessg1/nextcloud-agent:latest
+    image: example/nextcloud-agent:latest
     container_port: 8000
     host_port: 8232
     profiles: [enterprise]
   - name: openbao-mcp
     package: openbao-mcp
     console_script: openbao-mcp
-    image: knucklessg1/openbao-mcp:latest
+    image: example/openbao-mcp:latest
     container_port: 8000
     host_port: 8233
     profiles: [single-node-prod, enterprise]
   - name: owncast-mcp
     package: owncast-agent
     console_script: owncast-mcp
-    image: knucklessg1/owncast-agent:latest
+    image: example/owncast-agent:latest
     container_port: 8000
     host_port: 8234
     profiles: [enterprise]
   - name: plane-mcp
     package: plane-agent
     console_script: plane-mcp
-    image: knucklessg1/plane-agent:latest
+    image: example/plane-agent:latest
     container_port: 8000
     host_port: 8235
     profiles: [enterprise]
   - name: portainer-mcp
     package: portainer-agent
     console_script: portainer-mcp
-    image: knucklessg1/portainer-agent:latest
+    image: example/portainer-agent:latest
     container_port: 8000
     host_port: 8236
     profiles: [enterprise]
   - name: postiz-mcp
     package: postiz-agent
     console_script: postiz-mcp
-    image: knucklessg1/postiz-agent:latest
+    image: example/postiz-agent:latest
     container_port: 8000
     host_port: 8237
     profiles: [enterprise]
   - name: qbittorrent-mcp
     package: qbittorrent-agent
     console_script: qbittorrent-mcp
-    image: knucklessg1/qbittorrent-agent:latest
+    image: example/qbittorrent-agent:latest
     container_port: 8000
     host_port: 8238
     profiles: [enterprise]
   - name: repository-manager-mcp
     package: repository-manager
     console_script: repository-manager-mcp
-    image: knucklessg1/repository-manager:latest
+    image: example/repository-manager:latest
     container_port: 8000
     host_port: 8239
     profiles: [enterprise]
   - name: rom-manager-mcp
     package: rom-manager
     console_script: rom-manager-mcp
-    image: knucklessg1/rom-manager:latest
+    image: example/rom-manager:latest
     container_port: 8000
     host_port: 8240
     profiles: [enterprise]
   - name: scholarx-mcp
     package: scholarx
     console_script: scholarx-mcp
-    image: knucklessg1/scholarx:latest
+    image: example/scholarx:latest
     container_port: 8000
     host_port: 8241
     profiles: [enterprise]
   - name: searxng-mcp
     package: searxng-mcp
     console_script: searxng-mcp
-    image: knucklessg1/searxng-mcp:latest
+    image: example/searxng-mcp:latest
     container_port: 8000
     host_port: 8242
     profiles: [enterprise]
   - name: servicenow-mcp
     package: servicenow-api
     console_script: servicenow-mcp
-    image: knucklessg1/servicenow-api:latest
+    image: example/servicenow-api:latest
     container_port: 8000
     host_port: 8243
     profiles: [enterprise]
   - name: stirlingpdf-mcp
     package: stirlingpdf-agent
     console_script: stirlingpdf-mcp
-    image: knucklessg1/stirlingpdf-agent:latest
+    image: example/stirlingpdf-agent:latest
     container_port: 8000
     host_port: 8244
     profiles: [enterprise]
   - name: systems-manager-mcp
     package: systems-manager
     console_script: systems-manager-mcp
-    image: knucklessg1/systems-manager:latest
+    image: example/systems-manager:latest
     container_port: 8000
     host_port: 8245
     profiles: [enterprise]
   - name: technitium-dns-mcp
     package: technitium-dns-mcp
     console_script: technitium-dns-mcp
-    image: knucklessg1/technitium-dns-mcp:latest
+    image: example/technitium-dns-mcp:latest
     container_port: 8000
     host_port: 8246
     profiles: [single-node-prod, enterprise]
   - name: tunnel-manager-mcp
     package: tunnel-manager
     console_script: tunnel-manager-mcp
-    image: knucklessg1/tunnel-manager:latest
+    image: example/tunnel-manager:latest
     container_port: 8000
     host_port: 8247
     profiles: [enterprise]
   - name: twenty-mcp
     package: twenty-mcp
     console_script: twenty-mcp
-    image: knucklessg1/twenty-mcp:latest
+    image: example/twenty-mcp:latest
     container_port: 8000
     host_port: 8248
     profiles: [enterprise]
   - name: uptime-mcp
     package: uptime-kuma-agent
     console_script: uptime-mcp
-    image: knucklessg1/uptime-kuma-agent:latest
+    image: example/uptime-kuma-agent:latest
     container_port: 8000
     host_port: 8249
     profiles: [enterprise]
   - name: vector-mcp
     package: vector-mcp
     console_script: vector-mcp
-    image: knucklessg1/vector-mcp:latest
+    image: example/vector-mcp:latest
     container_port: 8000
     host_port: 8250
     profiles: [single-node-prod, enterprise]
   - name: wger-mcp
     package: wger-agent
     console_script: wger-mcp
-    image: knucklessg1/wger-agent:latest
+    image: example/wger-agent:latest
     container_port: 8000
     host_port: 8251
     profiles: [enterprise]
   - name: pulselink-mcp
     package: pulselink-mcp
     console_script: pulselink-mcp
-    image: knucklessg1/pulselink-mcp:latest
+    image: example/pulselink-mcp:latest
     container_port: 8000
     host_port: 8252
     profiles: [single-node-prod, enterprise]
   - name: freshrss-mcp
     package: freshrss-agent
     console_script: freshrss-mcp
-    image: knucklessg1/freshrss-agent:latest
+    image: example/freshrss-agent:latest
     container_port: 8000
     host_port: 8254
     profiles: [single-node-prod, enterprise]
   - name: audiobookshelf-mcp
     package: audiobookshelf-mcp
     console_script: audiobookshelf-mcp
-    image: knucklessg1/audiobookshelf-mcp:latest
+    image: example/audiobookshelf-mcp:latest
     container_port: 8000
     host_port: 8255
     profiles: [enterprise]
   - name: firefly-iii-mcp
     package: firefly-iii-mcp
     console_script: firefly-iii-mcp
-    image: knucklessg1/firefly-iii-mcp:latest
+    image: example/firefly-iii-mcp:latest
     container_port: 8000
     host_port: 8256
     profiles: [enterprise]
   - name: paperless-ngx-mcp
     package: paperless-ngx-mcp
     console_script: paperless-ngx-mcp
-    image: knucklessg1/paperless-ngx-mcp:latest
+    image: example/paperless-ngx-mcp:latest
     container_port: 8000
     host_port: 8257
     profiles: [enterprise]
   - name: gramps-mcp
     package: gramps-mcp
     console_script: gramps-mcp
-    image: knucklessg1/gramps-mcp:latest
+    image: example/gramps-mcp:latest
     container_port: 8000
     host_port: 8258
     profiles: [enterprise]

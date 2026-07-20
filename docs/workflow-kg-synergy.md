@@ -133,7 +133,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `ContainerStack --triggeredIncident--> Incident --selfHealedVia--> Action(container_restart) | DNSRewrite --resolvesDNSFor--> ContainerStack`
 
 **Example Inference**:
-> "ServiceNow INC0012345 correlates with ContainerStack `grafana` going down at 03:42 UTC, which broke DNSRewrite `grafana.home.lab`. The `uptime_self_healer` detected it via Uptime Kuma monitor #47 and restarted the container at 03:43 UTC. Incident auto-resolved in 68 seconds."
+> "ServiceNow INC0012345 correlates with ContainerStack `grafana` going down at 03:42 UTC, which broke DNSRewrite `grafana.example.test`. The `uptime_self_healer` detected it via Uptime Kuma monitor #47 and restarted the container at 03:43 UTC. Incident auto-resolved in 68 seconds."
 
 ---
 
@@ -210,7 +210,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `DeploymentManifest --hasPhase--> DeploymentPhase --deployedInPhase--> MCPServerDeployment --servesEndpoint--> PlatformService --deployedOn--> ContainerStack --runsOn--> HardwareNode`
 
 **Example Inference**:
-> "Ecosystem bootstrap completed on `homelab-01` using profile `homelab`. Deployed 36 MCP servers, 12 platform services, and 48 DNS rewrites across 3 tiers in 12 minutes. The `full_infrastructure_discovery` workflow auto-ingested the complete topology. The KG now tracks 196 infrastructure nodes. Portainer took over from container-manager-mcp at Tier 1."
+> "Ecosystem bootstrap completed on a configured deployment target. The `full_infrastructure_discovery` workflow ingested the available topology, and the KG now tracks the discovered infrastructure nodes without persisting local host identities."
 
 **Bootstrap Value**: After the first run, the KG knows the *entire* deployment topology. Subsequent `uptime_self_healer` runs can trace any failed service back to its `DeploymentManifest`, the `DeploymentProfile` that selected it, and the `DeploymentPrerequisite` versions it depends on — enabling root-cause analysis like: "Service X failed because Python 3.11.4 has a known bug with asyncio on this kernel version."
 

@@ -1,0 +1,148 @@
+connector: searxng-mcp
+ontology_source: searxng
+schema_version: '1'
+resources:
+- name: SearchEngine
+  label: Search Engine
+  id_prefix: searchengine
+  relations: []
+- name: SearchQuery
+  label: Search Query
+  id_prefix: searchquery
+  relations:
+  - name: servedByInstance
+    label: served by instance
+    target: SearxngInstance
+    lpg_rel_type: ''
+- name: SearchResult
+  label: Search Result
+  id_prefix: searchresult
+  relations:
+  - name: fromEngine
+    label: from engine
+    target: SearchEngine
+    lpg_rel_type: ''
+  - name: resultOf
+    label: result of
+    target: SearchQuery
+    lpg_rel_type: ''
+- name: SearxngInstance
+  label: SearXNG Instance
+  id_prefix: searxnginstance
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events:
+- name: searxng-web-search.updated
+  resource: search_result
+  description: "Watermark event for 'searxng-web-search' \u2014 advances on publishedDate (mcp_source_presets.json)."
+identity:
+  id_field:
+    search_result: url
+  title_field:
+    search_result: title
+  text_field:
+    search_result: content
+  updated_field:
+    search_result: publishedDate
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  SearchEngine:
+    ontology_class: null
+    fields:
+      category: xsd:string
+      language: xsd:string
+      publishedDate: xsd:string
+      queryText: xsd:string
+      resultUrl: xsd:anyURI
+      score: xsd:double
+      searxngId: xsd:string
+  SearchQuery:
+    ontology_class: null
+    fields:
+      category: xsd:string
+      language: xsd:string
+      publishedDate: xsd:string
+      queryText: xsd:string
+      resultUrl: xsd:anyURI
+      score: xsd:double
+      searxngId: xsd:string
+  SearchResult:
+    ontology_class: null
+    fields:
+      category: xsd:string
+      language: xsd:string
+      publishedDate: xsd:string
+      queryText: xsd:string
+      resultUrl: xsd:anyURI
+      score: xsd:double
+      searxngId: xsd:string
+  SearxngInstance:
+    ontology_class: null
+    fields:
+      category: xsd:string
+      language: xsd:string
+      publishedDate: xsd:string
+      queryText: xsd:string
+      resultUrl: xsd:anyURI
+      score: xsd:double
+      searxngId: xsd:string
+sync:
+- preset: searxng-web-search
+  server: searxng-mcp
+  tool: web_search
+  action: web_search
+  records_path: results
+  id_field: url
+  title_field: title
+  text_field: content
+  updated_field: publishedDate
+  pagination: null
+  doc_type: search_result
+  tool_schema_sha256: fbaeeeb62503a65feeaf040827756ef7ce22b2048d057b75a9da09619e8a63bc
+  raw:
+    server: searxng-mcp
+    tool: web_search
+    action: web_search
+    records_path: results
+    id_field: url
+    title_field: title
+    text_field: content
+    updated_field: publishedDate
+    doc_type: search_result
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - searxng_mcp/connectors/mcp_source_presets.json
+  - searxng_mcp/connectors/tool_schema_fingerprints.json
+  - searxng_mcp/ontology/searxng.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d63d239f764120d792b8219c831075e8b85f99f874a01fe46e8a7494d27cf01e
+    triple_count: 49
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: t2IokJM1wBrXR1RFIb5e6ozQhANJidaU3OLw0_WpW3OThJIw4fEY5pYMEgazYUgUq9eiFZ2u0pmYUHKH-cZzCQ
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "schema_mappings.SearchEngine.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchQuery.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearchResult.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SearxngInstance.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."

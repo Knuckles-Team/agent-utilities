@@ -13,7 +13,8 @@ import asyncio
 import pytest
 
 import agent_utilities.orchestration.agent_runner as ar
-
+from agent_utilities.observability.trace_ontology import trace_id
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 # --- Fix 1: wall-clock timeout ------------------------------------------------
 
@@ -61,6 +62,10 @@ class _CapturingEngine:
     def add_node(self, node_id, label, properties=None):
         self.nodes[node_id] = {"label": label, **(properties or {})}
 
+    def link_nodes(self, *_args, **_kwargs):
+        return None
+
+
 
 def test_runtrace_records_skill_and_bound_server_and_edge():
     eng = _CapturingEngine()
@@ -72,17 +77,27 @@ def test_runtrace_records_skill_and_bound_server_and_edge():
         status="completed",
         skill_used="container-manager-kubernetes-operations",
         bound_server="container-manager-mcp",
-        skill_id="skill:container-manager-kubernetes-operations",
+        skill_id="resource:skill:container-manager-kubernetes-operations",
     )
-    trace = eng.nodes["trace:run:abc"]
-    assert trace["skill_used"] == "container-manager-kubernetes-operations"
-    assert trace["bound_server"] == "container-manager-mcp"
+    trace = eng.nodes[trace_id("run:abc")]
+    assert trace["skill_ref"] == persistence_reference(
+        "skill",
+        "container-manager-kubernetes-operations",
+        namespace="execution-trace",
+    )
+    assert trace["server_ref"] == persistence_reference(
+        "server", "container-manager-mcp", namespace="execution-trace"
+    )
     # EXECUTED_ON links to the BOUND server (not srv:<skill>, which doesn't exist)
     exec_on = [c for c in eng.backend.calls if "EXECUTED_ON" in c[0]]
     assert exec_on and exec_on[0][1]["sid"] == "srv:container-manager-mcp"
     # USES_SKILL edge matches the skill by ID (the engine can't match by name in a write)
     uses = [c for c in eng.backend.calls if "USES_SKILL" in c[0]]
-    assert uses and uses[0][1]["rid"] == "skill:container-manager-kubernetes-operations"
+    assert (
+        uses
+        and uses[0][1]["rid"]
+        == "resource:skill:container-manager-kubernetes-operations"
+    )
     assert "{id: $rid}" in uses[0][0]  # matched by id, not name
 
 
@@ -92,7 +107,7 @@ def test_uses_skill_edge_falls_back_to_skill_prefix_id():
         eng, "run:def", "some-skill", "t", status="completed", skill_used="some-skill"
     )
     uses = [c for c in eng.backend.calls if "USES_SKILL" in c[0]]
-    assert uses and uses[0][1]["rid"] == "skill:some-skill"  # fallback id
+    assert uses and uses[0][1]["rid"] == "resource:skill:some-skill"
 
 
 def test_runtrace_no_skill_edge_for_plain_server_run():
@@ -100,7 +115,7 @@ def test_runtrace_no_skill_edge_for_plain_server_run():
     ar._record_execution_trace(
         eng, "run:xyz", "tunnel-manager-mcp", "list hosts", status="completed"
     )
-    assert "skill_used" not in eng.nodes["trace:run:xyz"]
+    assert "skill_ref" not in eng.nodes[trace_id("run:xyz")]
     assert not [c for c in eng.backend.calls if "USES_SKILL" in c[0]]
     # EXECUTED_ON falls back to the agent's own server node
     exec_on = [c for c in eng.backend.calls if "EXECUTED_ON" in c[0]]

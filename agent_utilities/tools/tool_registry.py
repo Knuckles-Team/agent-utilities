@@ -10,23 +10,22 @@ and applies environment-based gating to control which tools are exposed to the a
 
 from typing import Any
 
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import RunContext
 
+from agent_utilities._version import __version__ as __version__
 from agent_utilities.core.config import setting
 from agent_utilities.models import AgentDeps
 
-__version__ = "0.2.40"
-
 
 def register_agent_tools(
-    agent: Agent[Any, Any], graph_bundle: tuple | None = None
+    agent: Any, graph_bundle: tuple | None = None
 ) -> None:
     """Central aggregator for registering all Agent OS tools.
 
     Groups tools by domain and applies environment-based gating using
     environment variables (e.g., WORKSPACE_TOOLS, GIT_TOOLS). If a graph_bundle
     is provided, the agent is configured as a graph orchestrator, restricting
-    it to only use the 'run_graph_flow' tool for strict routing isolation.
+    it to the sole ``execute_graph`` authority for strict routing isolation.
 
     Args:
         agent: The Pydantic AI Agent instance to register tools for.
@@ -116,10 +115,10 @@ def register_agent_tools(
     if graph_bundle:
         graph, config = graph_bundle
 
-        if not _is_tool_registered("run_graph_flow"):
+        if not _is_tool_registered("execute_graph"):
 
             @agent.tool
-            async def run_graph_flow(
+            async def execute_graph(
                 ctx: RunContext[AgentDeps], prompt: str
             ) -> str | Any:
                 """Execute a complex query through the graph orchestrator.
@@ -137,13 +136,13 @@ def register_agent_tools(
 
                 """
                 eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
-                from agent_utilities.graph_orchestration import run_graph
+                from agent_utilities.graph import execute_graph as execute_graph_authority
 
                 # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
                 runtime_toolsets = (
                     getattr(ctx.deps, "mcp_toolsets", None) if ctx.deps else None
                 )
-                result = await run_graph(
+                result = await execute_graph_authority(
                     graph,
                     config,
                     prompt,
@@ -151,8 +150,13 @@ def register_agent_tools(
                     mcp_toolsets=runtime_toolsets or config.get("mcp_toolsets"),
                 )
 
-                if hasattr(result, "results"):
-                    output = result.results.get("output", result.results)
+                if isinstance(result, dict):
+                    results = result.get("results", result)
+                    output = (
+                        results.get("output", results)
+                        if isinstance(results, dict)
+                        else results
+                    )
                     if not output or str(output).lower() == "none":
                         return (
                             "The analysis completed, but no specific data was returned for your query. "
@@ -161,7 +165,7 @@ def register_agent_tools(
                     return str(output)
                 return str(result)
 
-        # STRICT ISOLATION: If we are a graph orchestrator, we ONLY have run_graph_flow.
+        # STRICT ISOLATION: graph orchestrators expose only the current authority.
         # We skip all other local tools to avoid confusion and force routing.
         return
 
@@ -316,7 +320,7 @@ def register_agent_tools(
     apply_tool_guard_approvals(agent)
 
 
-def register_swe_tools(agent: Agent[Any, Any], _safe_tool: Any = None) -> None:
+def register_swe_tools(agent: Any, _safe_tool: Any = None) -> None:
     """Register the knowledge-grounded SWE tool group on ``agent`` (CONCEPT:AU-ORCH.execution.swe-agent-system-prompt / KG-2.65).
 
     Shared by :func:`register_agent_tools` (the ``SWE_TOOLS`` gate) and the lean

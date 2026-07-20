@@ -7,7 +7,7 @@ Stardog) — with a durable **Postgres** carrying Apache AGE + pgvector + Parade
 (`pg_search`) so graph relationships are backfilled into AGE.
 
 > **The short version:** almost all of this already exists in the framework. This
-> recipe wires it together from your `.env` or OpenBao/Vault, in one command:
+> recipe wires it together from AgentConfig and runtime secret references, in one command:
 > `setup-databases` (CLI), the `graph_configure` MCP action `setup_databases`, or
 > the `database-environment-setup` skill.
 
@@ -27,52 +27,47 @@ agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
 
 - **Push / host / consume** the ontology → `OntologyPublisher` +
   the gateway SPARQL endpoint.
-- **Backfill relationships into pg-age** → the fanout backend's
-  `reconcile_to_durable()`.
+- **Backfill relationships into pg-age** → the fanout backend's explicit
+  `reconcile()` operation.
 
 ### "Am I backfilling into pg-age today?"
 
-Probably **not yet**. The zero-infra default is `GRAPH_BACKEND=epistemic_graph` —
-the engine is the one authority (compute + cache + semantic + durable
-persistence), no mirrors. You start mirroring into AGE once you set
-`GRAPH_BACKEND=fanout` + `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_URI` +
+Probably **not yet**. The zero-infra default is the engine alone — the one
+authority (compute + cache + semantic + durable persistence), no mirrors. You
+start projecting into AGE once you set `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_CONNECTION_PROFILE_REF` +
 `GRAPH_PG_AGE=1`. **This recipe flips that on.**
 
 ---
 
-## Step 0 — Credentials (OpenBao/Vault, `.env` fallback)
+## Step 0 — Runtime connection references
 
-agent-utilities resolves secrets through one `SecretsClient`; nothing here reads
-raw environment variables directly. Pick a source:
+Agent Utilities resolves database and TLS documents through `SecretsClient`.
+Durable AgentConfig contains references only:
 
-**A. OpenBao / HashiCorp Vault (recommended).** Point the secrets backend at your
-vault and store DSNs/credentials as KV entries; reference them with `vault://`:
-
-```bash
-# config.json or .env
-SECRETS_BACKEND=vault
-SECRETS_VAULT_URL=https://vault.your.domain:8200
-SECRETS_VAULT_MOUNT=secret
-VAULT_AUTH_METHOD=approle        # or token / oidc / kubernetes
-VAULT_ROLE=agent-utilities
-VAULT_PATH_PREFIX=agents/db/
-
-# Then values can be vault refs, resolved by SecretsClient:
-GRAPH_DB_URI=vault://agents/db/pg_age#dsn
-STARDOG_PASSWORD=vault://agents/db/stardog#password
+```json
+{
+  "SECRETS_BACKEND": "vault",
+  "GRAPH_DB_CONNECTION_PROFILE_REF": "secret://graph/primary-mirror-profile",
+  "KG_CONNECTIONS": [
+    {
+      "name": "reasoning-store",
+      "backend": "stardog",
+      "role": "mirror",
+      "connection_profile_ref": "secret://graph/reasoning-store-profile"
+    }
+  ],
+  "TLS_PROFILES_REF": "secret://tls/profile-catalog"
+}
 ```
 
-Use the **`secret-vault-manager`** skill to unseal/seed those paths.
-
-**B. Local `.env` (laptops / quick start).** Drop a `.env` next to where you run
-the gateway:
+The referenced documents contain endpoints, database names, credentials, and TLS
+selection and are resolved only inside the process. Do not copy them into the
+repository, launcher configuration, logs, or reports. Use the
+**`agent-utilities-deployment`** skill to configure the chosen secret backend, then
+validate without revealing resolved material:
 
 ```bash
-GRAPH_DB_URI=postgresql://agent:agent@localhost:5432/agent_kg
-STARDOG_ENDPOINT=http://localhost:5820
-STARDOG_DATABASE=agent_kg
-STARDOG_USER=admin
-STARDOG_PASSWORD=changeme
+agent-utilities-doctor --only secrets graph_connections transport_security
 ```
 
 ---
@@ -95,7 +90,8 @@ and the init SQL (`docker/pg-age-init/01-extensions.sql`) creates the `age` grap
 `vector`, and (guarded) `pg_search` extensions plus the `kg_embeddings` table.
 
 > **Build note:** AGE and ParadeDB must agree on the Postgres *major*. The
-> Dockerfile pins `PG_MAJOR` / `AGE_BRANCH` — verify they match your ParadeDB tag
+> The Dockerfile pins `PG_MAJOR`, the ParadeDB manifest digest, and `AGE_REV`.
+> Review and update those immutable inputs together when upgrading PostgreSQL.
 > before building. If no compatible pair exists, run **two** Postgres instances
 > (AGE+pgvector via `docker/pg-age`, ParadeDB separately) and give each its own
 > DSN; the provisioner supports that.
@@ -108,7 +104,7 @@ If you can't replace the image (e.g. a managed RDS), point at it and let the
 provisioner `CREATE EXTENSION` what's permitted:
 
 ```bash
-setup-databases --verify --dsn "$GRAPH_DB_URI"
+setup-databases --verify --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 ```
 
 `age` and `pg_search` need **superuser + `shared_preload_libraries`**; on a locked
@@ -118,7 +114,7 @@ missing instead of failing silently — `pgvector` usually works everywhere.
 ### Verify
 
 ```bash
-setup-databases --verify --dsn postgresql://agent:agent@localhost:5432/agent_kg
+setup-databases --verify --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 # → {"status":"success","extensions":{"age":true,"vector":true,"pg_search":true},"ready":true}
 ```
 
@@ -130,11 +126,12 @@ With `STARDOG_*` set (Step 0) and Postgres up (Step 1):
 
 ```bash
 setup-databases --profile prod --postgres-mode managed_image \
-  --dsn "$GRAPH_DB_URI"
+  --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 ```
 
-This (1) verifies Postgres, (2) wires `GRAPH_DB_URI`+`GRAPH_PG_AGE=1`+`GRAPH_BACKEND=fanout`
-(+`GRAPH_MIRROR_TARGETS`) so the engine authority fans writes out into the AGE mirror,
+This (1) verifies Postgres, (2) wires `GRAPH_DB_CONNECTION_PROFILE_REF` +
+`GRAPH_PG_AGE=1` + `GRAPH_MIRROR_TARGETS` so the engine authority fans writes
+out into the AGE projection,
 (3) **pushes the bundled ontology to Stardog**
 (`OntologyPublisher.push_to_stardog`), (3b) **registers Stardog as a live data
 mirror** so instance data replicates continuously (see Step 2b), (4) reconciles the
@@ -142,7 +139,7 @@ working graph into AGE *and* backfills the Stardog mirror, and (5) smoke-tests a
 SPARQL `SELECT` against Stardog.
 
 **Consume it** from your system against Stardog's SPARQL endpoint
-(`$STARDOG_ENDPOINT/$STARDOG_DATABASE/query`) — reasoning included, since the
+through the configured Stardog connection profile — reasoning included, since the
 Stardog OWL backend answers queries with inference on.
 
 ---
@@ -157,7 +154,7 @@ partitioned into `urn:source:<system>` **named graphs** so each source is a slic
 you can push, query, or re-ingest on its own.
 
 **Continuous (live mirror).** `setup-databases --profile prod` registers Stardog as
-a `role="mirror"` connection by default, so under `GRAPH_BACKEND=fanout` every KG
+a `role="mirror"` connection by default, so every KG
 write — including each `source_sync` of LeanIX/ServiceNow — fans out into Stardog
 via the durable outbox. The fan-out is **off the write-ack path** (CONCEPT:AU-KG.backend.authority-has-already-acked):
 the authority commit returns immediately and the mirror enqueue is a non-blocking
@@ -197,7 +194,7 @@ You already serve SPARQL locally — the gateway mounts `GET/POST /api/sparql`
 
 ```bash
 setup-databases --profile dev --postgres-mode managed_image \
-  --dsn "$GRAPH_DB_URI"
+  --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 # consume at:  curl 'http://localhost:9000/api/sparql?query=SELECT%20?s%20WHERE%20{?s%20?p%20?o}%20LIMIT%205'
 ```
 
@@ -205,7 +202,7 @@ setup-databases --profile dev --postgres-mode managed_image \
 
 ```bash
 docker compose -f docker/jena_fuseki.compose.yml up -d
-setup-databases --profile dev --sparql-target fuseki --dsn "$GRAPH_DB_URI"
+setup-databases --profile dev --sparql-target fuseki --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
 ```
 
 ---
@@ -231,10 +228,10 @@ SELECT * FROM cypher('agent_graph', $$ MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 5 $
 
 | Surface | How |
 |---|---|
-| **CLI** | `setup-databases --profile {dev,prod} --postgres-mode {managed_image,existing} [--dsn ...] [--verify]` |
-| **MCP** | `graph_configure(action="setup_databases", config_key="prod", config_value='{"postgres_mode":"managed_image","dsn":"..."}')`; `action="verify_databases"` |
+| **CLI** | `setup-databases --profile {dev,prod} --postgres-mode {managed_image,existing} [--connection-profile-ref ...] [--verify]` |
+| **MCP** | `graph_configure(action="setup_databases", config_key="prod", config_value='{"postgres_mode":"managed_image","connection_profile_ref":"secret://graph-connections/primary"}')`; `action="verify_databases"` |
 | **REST** | `POST /graph/configure` with `{"action":"setup_databases","config_key":"prod","config_value":"{...}"}` |
-| **Skill** | `database-environment-setup` (prompts for env + Postgres mode, resolves OpenBao/`.env`) |
+| **Skill** | `database-environment-setup` (selects a deployment mode and resolves AgentConfig connection references) |
 
 ## Reference
 

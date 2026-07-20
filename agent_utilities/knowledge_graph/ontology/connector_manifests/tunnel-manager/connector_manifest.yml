@@ -57,7 +57,7 @@ actions:
 events: []
 identity:
   id_field:
-    Host: hostname
+    Host: source_key
   title_field:
     Host: hostname
   text_field:
@@ -162,38 +162,44 @@ sync:
   tool: tm_hosts
   action: list
   records_path: hosts
-  id_field: hostname
+  id_field: source_key
   title_field: hostname
   text_field: hostname
   updated_field: null
   pagination: null
   doc_type: Host
+  tool_schema_sha256: 9c925f0e490db26e1742dcf426e9da9370b42e959da96341e370e586dcb1d988
   raw:
     server: tunnel-manager-mcp
     tool: tm_hosts
+    params_style: args
     action: list
     params:
       action: list
     records_path: hosts
     records_is_mapping: true
-    id_field: hostname
+    mapping_key_field: source_key
+    id_field: source_key
     title_field: hostname
     text_field: hostname
     updated_field: null
     doc_type: Host
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-11T00:00:00Z'
+  generated_at: '2026-07-18T00:00:00Z'
   source_artifacts:
   - a2a.json
   - tunnel_manager/connectors/mcp_source_presets.json
+  - tunnel_manager/connectors/tool_schema_fingerprints.json
   - tunnel_manager/ontology/tunnel.ttl
   integrity:
     algorithm: urdna2015-sha256
     hash: 940e14de158b4cedef693e0e9672ac6c974441fbfa91ceb8e98d424e7340f4bc
     triple_count: 71
   signer: ontology-manifest-generator
-  signature: 21b46ebedfeb57466dd2f5b78eacae96f04ae916406d418676d346f9cb43ee90
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: raLO54RGNobh1vr5nL6CkIbWwGvDh1aIFGxTqPNcsTuHu2uqgmZlnywhzPjzhRcO0XyUW0Slmkq_1BfoVwBrBw
 policy:
   pii_fields: {}
   tenant_boundary: null

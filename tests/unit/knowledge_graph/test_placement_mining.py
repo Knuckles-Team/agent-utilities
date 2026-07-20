@@ -1,6 +1,6 @@
 """Workload-aware data-placement mining (X-5, CONCEPT:AU-KG.evolution.placement-mining-canary-loop).
 
-Mine (Episode/ToolCall/Entity provenance -> co-occurrence/hot-skew/sequence)
+Mine (RunTrace/ToolCall/Entity provenance -> co-occurrence/hot-skew/sequence)
 -> PlacementProposal -> Claim -> Validation (reuses promotion_governance
 as-is) -> Action gate (reuses action_policy.decide(),
 kind="apply_placement_change") -> a MEASURED CANARY (apply to a small scope,
@@ -46,7 +46,7 @@ pytestmark = pytest.mark.concept("AU-KG.evolution.placement-mining-canary-loop")
 
 
 class _AccessStubEngine:
-    """Minimal engine double: canned Episode/ToolCall/Entity provenance rows."""
+    """Minimal engine double: canned RunTrace/ToolCall/Entity provenance rows."""
 
     def __init__(self, rows: list[dict[str, Any]] | None = None):
         self._rows = rows or []
@@ -54,7 +54,7 @@ class _AccessStubEngine:
         self.backend = object()
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
-        if "Episode" in q and "USED_TOOL" in q:
+        if "RunTrace" in q and "USED_TOOL" in q:
             return list(self._rows)
         return []
 
@@ -67,14 +67,15 @@ class _AccessStubEngine:
         return [n for n in self.nodes.values() if n["type"] == node_type]
 
 
-def _row(episode_id, tool_name, tenant="", modality="", entity_id="", entity_type=""):
+def _row(trace_id, tool_name, tenant="", modality="", entity_id="", entity_type=""):
     args = {}
     if tenant:
         args["tenant_id"] = tenant
     if modality:
         args["modality"] = modality
     return {
-        "episode_id": episode_id,
+        "trace_id": trace_id,
+        "event_sequence": int(str(trace_id).removeprefix("trace:").removeprefix("ep") or 0),
         "tool_name": tool_name,
         "args": json.dumps(args),
         "entity_id": entity_id,
@@ -98,7 +99,8 @@ def test_gather_access_records_parses_args_json():
     records = gather_access_records(engine)
     assert records == [
         {
-            "episode_id": "ep1",
+            "trace_id": "ep1",
+            "event_sequence": 1,
             "tool_name": "graph_query",
             "tenant": "acme",
             "modality": "text",
@@ -120,10 +122,34 @@ def test_gather_access_records_degrades_on_query_failure():
     assert gather_access_records(_BoomEngine()) == []
 
 
+def test_placement_mining_never_advances_past_a_partial_trace(monkeypatch):
+    import agent_utilities.mcp.tools.engine_surface_tools as engine_surface_tools
+
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_invoke",
+        lambda **kw: json.dumps(
+            {"result": {"rules": []} if kw["action"] == "associate" else {}}
+        ),
+    )
+    engine = _AccessStubEngine(
+        rows=[
+            _row("ep1", "read", tenant="tenant-a"),
+            _row("ep1", "write", tenant="tenant-a"),
+            _row("ep2", "read", tenant="tenant-b"),
+        ]
+    )
+
+    result = mine_placement_patterns(engine, limit=3)
+
+    assert result["records_scanned"] == 2
+    assert result["next_event_sequence"] == 1
+
+
 def test_build_baskets_drops_single_item_episodes():
     records = [
         {
-            "episode_id": "ep1",
+            "trace_id": "ep1",
             "tool_name": "graph_query",
             "tenant": "acme",
             "modality": "",
@@ -131,7 +157,7 @@ def test_build_baskets_drops_single_item_episodes():
             "entity_type": "",
         },
         {
-            "episode_id": "ep2",
+            "trace_id": "ep2",
             "tool_name": "graph_query",
             "tenant": "acme",
             "modality": "",
@@ -147,10 +173,10 @@ def test_build_baskets_drops_single_item_episodes():
 
 def test_build_tenant_access_counts_counts_distinct_episodes():
     records = [
-        {"episode_id": "ep1", "tenant": "acme"},
-        {"episode_id": "ep1", "tenant": "acme"},  # same episode, dedup
-        {"episode_id": "ep2", "tenant": "acme"},
-        {"episode_id": "ep3", "tenant": "beta"},
+        {"trace_id": "ep1", "tenant": "acme"},
+        {"trace_id": "ep1", "tenant": "acme"},  # same trace, dedup
+        {"trace_id": "ep2", "tenant": "acme"},
+        {"trace_id": "ep3", "tenant": "beta"},
     ]
     counts = build_tenant_access_counts(records)
     assert counts == {"acme": 2, "beta": 1}
@@ -158,9 +184,9 @@ def test_build_tenant_access_counts_counts_distinct_episodes():
 
 def test_build_tenant_sequences_filters_short_sequences():
     records = [
-        {"episode_id": "ep1", "tenant": "acme", "tool_name": "read", "entity_id": ""},
-        {"episode_id": "ep2", "tenant": "acme", "tool_name": "write", "entity_id": ""},
-        {"episode_id": "ep3", "tenant": "beta", "tool_name": "read", "entity_id": ""},
+        {"trace_id": "ep1", "tenant": "acme", "tool_name": "read", "entity_id": ""},
+        {"trace_id": "ep2", "tenant": "acme", "tool_name": "write", "entity_id": ""},
+        {"trace_id": "ep3", "tenant": "beta", "tool_name": "read", "entity_id": ""},
     ]
     seqs = build_tenant_sequences(records)
     assert seqs == {"acme": ["tool:read", "tool:write"]}
@@ -630,6 +656,21 @@ class _CycleStubEngine:
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
+        if "TraceConsumerCursor" in q:
+            values = params or {}
+            if "id" in values:
+                node = self.nodes.get(values["id"])
+                return (
+                    [{"event_sequence": node["event_sequence"]}]
+                    if node is not None
+                    else []
+                )
+            rows = [
+                {"event_sequence": node["event_sequence"]}
+                for node in self.nodes.values()
+                if node.get("consumer_ref") == values.get("consumer_ref")
+            ]
+            return sorted(rows, key=lambda row: row["event_sequence"], reverse=True)[:1]
         if "governance_rule" in q:
             return [{"r": dict(r)} for r in self._governance_rules]
         return []
@@ -656,9 +697,45 @@ def _patch_mine_result(monkeypatch, *, anomaly_score: float = 4.0) -> None:
             "sequence": {"patterns": []},
             "access_counts": {"hot-tenant": 50},
             "records_scanned": 50,
+            "next_event_sequence": 29,
             "errors": [],
         },
     )
+
+
+def test_placement_cursor_resumes_and_advances_only_after_success(monkeypatch):
+    import agent_utilities.knowledge_graph.research.placement_mining as pm
+
+    after: list[int] = []
+    results = iter([(17, []), (23, ["mining failed"]), (31, [])])
+
+    def _mine(engine, **kwargs):
+        after.append(kwargs["after_sequence"])
+        next_sequence, errors = next(results)
+        return {
+            "association": {"rules": []},
+            "tenant_anomaly": {"result": {"rows": []}, "tenant_ids": []},
+            "drift_anomaly": {"result": {"rows": []}, "entity_ids": []},
+            "sequence": {"patterns": []},
+            "access_counts": {},
+            "records_scanned": 0,
+            "next_event_sequence": next_sequence,
+            "errors": errors,
+        }
+
+    monkeypatch.setattr(pm, "mine_placement_patterns", _mine)
+    engine = _CycleStubEngine()
+
+    first = run_placement_mining_cycle(engine)
+    failed = run_placement_mining_cycle(engine)
+    resumed = run_placement_mining_cycle(engine)
+
+    assert after == [0, 17, 17]
+    assert first["next_event_sequence"] == 17
+    assert first["cursor_advanced"] is True
+    assert failed["next_event_sequence"] == 17
+    assert failed["cursor_advanced"] is False
+    assert resumed["next_event_sequence"] == 31
 
 
 def test_below_floor_proposal_never_becomes_a_claim(monkeypatch):
@@ -1053,8 +1130,9 @@ def test_placement_control_loop_default_off_is_a_zero_side_effect_noop(monkeypat
     """Default OFF: importing/calling this without opting in must NEVER mine,
     govern, canary, or reshard anything."""
     import agent_utilities.knowledge_graph.research.placement_mining as pm
+    from agent_utilities.core.config import config
 
-    monkeypatch.delenv("PLACEMENT_CONTROL_LOOP_ENABLED", raising=False)
+    monkeypatch.setattr(config, "placement_control_loop_enabled", False)
 
     def _boom(*a, **kw):  # pragma: no cover - must never be called
         raise AssertionError("mining must not run while the loop is disabled")
@@ -1072,10 +1150,12 @@ def test_placement_control_loop_default_off_is_a_zero_side_effect_noop(monkeypat
     }
 
 
-def test_placement_control_loop_enabled_via_env_flag(monkeypatch):
-    """The config/env opt-in path (distinct from an explicit ``enabled=True``
+def test_placement_control_loop_enabled_via_agent_config(monkeypatch):
+    """The typed-config opt-in path (distinct from an explicit ``enabled=True``
     manual-trigger call) also turns the loop on."""
-    monkeypatch.setenv("PLACEMENT_CONTROL_LOOP_ENABLED", "1")
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "placement_control_loop_enabled", True)
     _patch_mine_result(monkeypatch, anomaly_score=0.5)  # below floor -> no side effects
     rep = placement_control_loop(_CycleStubEngine())
     assert rep["enabled"] is True

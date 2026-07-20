@@ -21,6 +21,8 @@ Six infrastructure primitives:
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -659,13 +661,11 @@ class KafkaStreamAdapter(BaseStreamAdapter):
         self._connected = False
 
     async def connect(self) -> None:
-        logger.info(
-            "Connecting to Kafka topic %s at %s", self.config.endpoint, self.config.name
-        )
+        logger.info("Connecting to configured Kafka topic")
         self._connected = True
 
     async def disconnect(self) -> None:
-        logger.info("Disconnecting from Kafka topic %s", self.config.endpoint)
+        logger.info("Disconnecting from configured Kafka topic")
         self._connected = False
 
     async def consume_batch(self, batch_size: int = 100) -> StreamBatch:
@@ -874,6 +874,20 @@ class DataLevelPermissions:
     def get_acl(self, node_id: str) -> NodeACL | None:
         return self._acls.get(node_id)
 
+    @contextmanager
+    def use_acl(self, acl: NodeACL) -> Iterator[None]:
+        """Temporarily install one ACL and restore its exact prior value."""
+
+        previous = self._acls.get(acl.node_id)
+        self.set_acl(acl)
+        try:
+            yield
+        finally:
+            if previous is None:
+                self._acls.pop(acl.node_id, None)
+            else:
+                self._acls[acl.node_id] = previous
+
     def check_permission(
         self,
         node_id: str,
@@ -887,12 +901,12 @@ class DataLevelPermissions:
 
         if acl is None:
             return PermissionCheckResult(
-                allowed=True,
+                allowed=False,
                 node_id=node_id,
                 actor_id=actor_id,
                 actor_type=actor_type,
                 action=action,
-                reason="No ACL defined — default allow",
+                reason="No ACL defined — default deny",
             )
 
         roles = actor_roles or []

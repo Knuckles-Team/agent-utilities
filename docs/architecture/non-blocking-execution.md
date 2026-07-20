@@ -69,8 +69,8 @@ and gated on vLLM availability.
 **A simple chat turn is run through the full multi-agent orchestration graph —
 router → planner/dispatcher → expert → verifier(+repair) → synthesizer — which is
 several *sequential* LLM rounds, each bounded by a 300-second node timeout, against
-`DEFAULT_LLM_BASE_URL = http://vllm.arpa/v1`.** When vLLM is healthy this is still
-multi-round latency far above a chat budget; when vLLM is slow/down (the GB10 power
+`LLM_BASE_URL = https://model-api.example.test/v1`.** When the configured model service is healthy this is still
+multi-round latency far above a chat budget; when the configured model endpoint is slow/down (an accelerator
 fault, see the workspace memory), the first router round alone can stall for up to
 300 s. The messaging layer caps the wait at `MESSAGING_REPLY_TIMEOUT = 45 s` and
 then runs the **plain-chat fallback**, which makes *another* LLM call to the *same*
@@ -183,14 +183,17 @@ so a turn reuses a warm graph. Toolset *connections* stay per-run; only the
 
 Build on the **existing** durable infrastructure — do not invent a new system:
 
-- `core/state_store.py` — `STATE_DB_URI` durable checkpoints/sessions/queues with
-  `SELECT … FOR UPDATE SKIP LOCKED` claims (AU-OS.state.unified-durable-state-externalization–5.18).
+- `core/state_store.py` — `STATE_DB_URI` sessions/turns/fleet metadata and queue
+  delivery with `SELECT … FOR UPDATE SKIP LOCKED` claims
+  (AU-OS.state.unified-durable-state-externalization–5.18). Execution checkpoints
+  remain on fenced native WorkItems.
 - `TASK_QUEUE_BACKEND` fail-loud queue backends (KG-2.55–2.57) +
   `compute_ingest_worker_count()` auto-sizing (`core/engine_tasks.py`).
-- `AGENT_DISPATCH_BACKEND=queue` + `orchestration/agent_dispatch*.py` (ORCH-1.45),
+- Queue-only `orchestration/agent_dispatch*.py` (ORCH-1.45),
   drained by the `kg-ingest-worker` / `agent-dispatch-worker` console scripts.
-- The hardened priority queue (AU-KG.ingest.hardened-priority-scheduled-task): buckets 0–3, equality-claim, scheduled /
-  blocked / eta, retry → backoff → dead_letter, promotion sweep.
+- Native WorkItem scheduling (AU-KG.ingest.hardened-priority-scheduled-task):
+  buckets 0–3, atomic claim/fencing, delayed availability, dependency release,
+  retry backoff, and dead-letter transition.
 - `core/leadership.py` advisory-lock daemon leadership (AU-OS.state.fleet-supervisory-plane-at).
 
 ### Tiers (who enqueues, who drains, backpressure)
@@ -306,7 +309,7 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
 
 Each P0/P1 item is independently shippable and each maps to a measured finding in §2.
 **Status:** P0 + P1 items 1–5 implemented and unit-wired; item 6 + P2 (items 7–8) remain.
-LIVE validation (a healthy vLLM — currently degraded per the GB10 power fault — plus a
+LIVE validation (a healthy configured model endpoint plus a
 human-gated daemon restart) is still required to confirm end-to-end chat latency.
 
 ## 10. Trivial fixes applied in this change

@@ -21,7 +21,7 @@ def get_owl_context(node_id: str, graph: GraphComputeEngine) -> str:
         if edge_data:
             props = edge_data.get(0) or edge_data
             if props.get("inferred", False):
-                edge_type = props.get("type", "related_to")
+                edge_type = props.get("relationship", "related_to")
                 inferred_facts.append(f"{edge_type}: {tgt}")
 
     if inferred_facts:

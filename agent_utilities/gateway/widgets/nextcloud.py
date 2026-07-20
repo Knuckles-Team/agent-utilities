@@ -22,7 +22,6 @@ class Widget(BaseWidget):
     category = ServiceCategory.PRODUCTIVITY
     description = "Cloud storage — files, calendars, and collaboration"
     env_prefix = "NEXTCLOUD"
-    default_url = "https://nextcloud.local.example.com"
 
     def get_fields(self) -> list[WidgetField]:
         return [
@@ -51,8 +50,8 @@ class Widget(BaseWidget):
             except Exception:
                 pass
         except Exception as e:
-            logger.debug("Nextcloud fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Nextcloud fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

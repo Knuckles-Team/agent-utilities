@@ -25,7 +25,7 @@ RETRY_GRACE_S = 90.0
 
 def _inbox_id(platform: Any, channel_id: Any, message_id: Any, text: str) -> str:
     raw = f"{platform}:{channel_id}:{message_id}:{text}"
-    h = hashlib.sha1(raw.encode("utf-8"), usedforsecurity=False).hexdigest()[:16]
+    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
     return f"inbound:{platform}:{channel_id}:{h}"
 
 

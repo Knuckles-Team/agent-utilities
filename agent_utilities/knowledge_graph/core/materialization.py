@@ -7,9 +7,9 @@ A single write path for every connector. Both ingestion adapters delegate here:
 * ``enrichment.registry.write_batch`` (typed ``ExtractionBatch``) — the
   materialize / extractor path (camunda, egeria, okta, finance, …).
 
-So provenance stamping, the content-hash write-delta, typed-label UNWIND
-batching, and the Ladybug per-row variant are implemented ONCE — there is no
-second, thinner writer that silently misses delta or batching.
+So provenance stamping, the content-hash write-delta, and the native governed
+``ChangeEnvelope`` commit are implemented ONCE. Epistemic Graph is the write
+authority; configured databases are projections rather than alternate writers.
 
 The schema-aware helpers here (``normalize_label``, ``schema_valid_keys``,
 ``set_clause``) are the single source of truth; the engine's ``_normalize_label``
@@ -160,7 +160,7 @@ def set_clause(
 def safe_label(raw: Any, *, fallback: str = "DomainEntity") -> str:
     """A Cypher-safe label from a node/edge type: normalize via the schema, then
     require a bare identifier so it can be inlined into MERGE; else the generic
-    fallback superclass (the real type survives as the ``type`` property)."""
+    fallback superclass (the real type survives as the ``node_type`` property)."""
     label = normalize_label(str(raw or "")) if raw else str(raw or "")
     return label if _LABEL_RE.fullmatch(label) else fallback
 
@@ -172,7 +172,7 @@ def group_by_label(
     UNWIND MERGE (fallback ``DomainEntity``)."""
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in entities:
-        groups.setdefault(safe_label(row.get("type")), []).append(row)
+        groups.setdefault(safe_label(row.get("node_type")), []).append(row)
     return groups
 
 
@@ -183,7 +183,7 @@ def group_by_rel(
     groups: dict[str, list[dict[str, Any]]] = {}
     for row in relationships:
         groups.setdefault(
-            safe_label(row.get("type"), fallback="EXTERNAL_LINK"), []
+            safe_label(row.get("relationship"), fallback="EXTERNAL_LINK"), []
         ).append(row)
     return groups
 
@@ -202,19 +202,41 @@ def write_entities(
     """Persist standardized entity/relationship dicts to ``backend`` — the single
     materialization implementation (CONCEPT:AU-KG.ingest.enterprise-source-extractor).
 
-    Stamps the shared provenance contract, applies the content-hash write-delta
-    (unless ``KG_WRITE_DELTA=0`` or ``delta=False``), then writes via per-type
-    UNWIND MERGE (typed labels preserved). ``execute``/``execute_batch`` are
-    ``@abstractmethod`` on ``GraphBackend`` — every backend provides them — so
-    there is exactly one write path, with a per-row variant only for Ladybug
-    (Kuzu has no UNWIND). Returns ``{status, nodes, edges, skipped_unchanged}``.
+    Stamps the shared provenance contract, applies the content-hash write-delta,
+    then commits the whole graph slice through native ``ApplyChangeEnvelope``
+    when the configured authority is Epistemic Graph. External database
+    backends retain their dialect-specific materialization role for explicit
+    projection/export workflows; they are never selected as the operational
+    authority. Returns ``{status, nodes, edges, skipped_unchanged}``.
     """
     from ..enrichment.provenance import stamp_source
 
     rels = relationships or []
-    for row in entities:
+    for index, row in enumerate(entities):
+        if "type" in row:
+            raise ValueError(
+                f"entity[{index}] uses retired 'type'; canonical 'node_type' is required"
+            )
+        if not row.get("id") or not row.get("node_type"):
+            raise ValueError(f"entity[{index}] requires id and node_type")
         stamp_source(row, domain)
-    for row in rels:
+    edge_aliases = {"type", "rel_type", "relationship_type", "relation"}
+    for index, row in enumerate(rels):
+        aliases = edge_aliases.intersection(row)
+        if aliases:
+            names = ", ".join(sorted(aliases))
+            raise ValueError(
+                f"relationship[{index}] uses retired aliases ({names}); "
+                "canonical 'relationship' is required"
+            )
+        if (
+            not row.get("source")
+            or not row.get("target")
+            or not row.get("relationship")
+        ):
+            raise ValueError(
+                f"relationship[{index}] requires source, target, and relationship"
+            )
         stamp_source(row, domain)
 
     skipped_unchanged = 0
@@ -228,12 +250,31 @@ def write_entities(
                 "skipped_unchanged": skipped_unchanged,
             }
 
+    authority_backend = getattr(backend, "_authority", backend)
+    if authority_backend.__class__.__name__ == "EpistemicGraphBackend":
+        from ..ingestion.envelope_ingest import ingest_graph_slice
+
+        receipt = ingest_graph_slice(
+            authority_backend,
+            domain,
+            entities,
+            rels,
+            source_instance=domain,
+        )
+        return {
+            "status": receipt.get("status", "success"),
+            "nodes": len(entities),
+            "edges": len(rels),
+            "skipped_unchanged": skipped_unchanged,
+            "envelope_id": receipt.get("envelope_id", ""),
+        }
+
     edges = 0
 
     if backend.__class__.__name__ == "LadybugBackend":
         # Ladybug (Kuzu) has no UNWIND — per-row MERGE via the shared SET clause.
         for row in entities:
-            node_type = safe_label(row.get("type"))
+            node_type = safe_label(row.get("node_type"))
             backend.execute(
                 f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
                 row,
@@ -241,7 +282,7 @@ def write_entities(
         for row in rels:
             # Use the REAL rel type so Kuzu builds a typed table, not a generic
             # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
-            rtype = safe_label(row.get("type") or "RELATED")
+            rtype = safe_label(row.get("relationship") or "RELATED")
             backend.execute(
                 f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
                 f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
@@ -267,7 +308,9 @@ def write_entities(
             rows,
         )
     for rel, rows in group_by_rel(rels).items():
-        r_keys = sorted({k for row in rows for k in row} - {"source", "target", "type"})
+        r_keys = sorted(
+            {k for row in rows for k in row} - {"source", "target", "relationship"}
+        )
         clause = (
             "SET " + ", ".join([f"r.`{k}` = row.`{k}`" for k in r_keys])
             if r_keys

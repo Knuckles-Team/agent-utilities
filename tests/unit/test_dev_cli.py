@@ -63,13 +63,13 @@ def test_main_run_emits_token(monkeypatch, tmp_path, capsys):
     assert "tool_token" in out and out["agent"] == "agentA"
 
 
-def test_install_skills_imports_current_universal_skills_bridge_path(monkeypatch):
+def test_install_uses_current_universal_skills_bridge_path(monkeypatch):
     """Regression: ``_install_skills`` must import ``universal_skills.core.skill_installer``
     directly. The old ``universal_skills.core.skill_installer.scripts`` path (pre
     commit b9d23f77) no longer exists — ``skill_installer`` is now a flat
     backward-compat re-export module, not a package with a ``scripts``
     submodule — so that import always raised ``ModuleNotFoundError`` and
-    silently disabled ``agent-utilities install-skills``. This proves the fixed
+    silently disabled ``agent-utilities install``. This proves the fixed
     import path resolves and is actually used (not the stale one), by
     injecting a fake bridge module at the current path and asserting
     ``_install_skills`` drives it end-to-end instead of falling into the
@@ -102,7 +102,10 @@ def test_install_skills_imports_current_universal_skills_bridge_path(monkeypatch
     )
     out = cli._install_skills(args)
     assert "error" not in out
-    assert out["installed"] == {"claude": str(fake_target)}
+    assert out["installed_tools"] == ["claude"]
+    assert out["installed_count"] == 1
+    assert out["path_free"] is True
+    assert str(fake_target) not in str(out)
 
 
 def test_context_glossary_present():

@@ -6,13 +6,11 @@ user token extraction for delegation and JWT claims logging to provide
 enhanced observability and authorization context during tool execution.
 """
 
-import threading
 import time
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.utilities.logging import get_logger
 
-local = threading.local()
 logger = get_logger(name="TokenMiddleware")
 
 
@@ -52,38 +50,47 @@ class ToolMetricsMiddleware(Middleware):
 class UserTokenMiddleware(Middleware):
     """Middleware to extract and store user tokens for downstream delegation.
 
-    If delegation is enabled, this middleware captures the 'Authorization'
-    header from incoming requests and stores the Bearer token in
-    thread-local storage.
+    If delegation is enabled, this middleware accepts the token and claims
+    exposed by FastMCP's configured authentication provider and binds them to
+    request-scoped context variables for downstream delegation.
     """
 
     def __init__(self, config: dict):
         self.config = config
 
-    async def on_request(self, context: MiddlewareContext, call_next):
-        logger.debug(f"Delegation enabled: {self.config['enable_delegation']}")
-        if self.config["enable_delegation"]:
-            headers = getattr(context.message, "headers", {})
-            auth = headers.get("Authorization")
-            if auth and auth.startswith("Bearer "):
-                token = auth.split(" ")[1]
-                local.user_token = token
-                local.user_claims = None
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        if not self.config["enable_delegation"]:
+            return await call_next(context)
 
-                if hasattr(context, "auth") and hasattr(context.auth, "claims"):
-                    local.user_claims = context.auth.claims
-                    logger.info(
-                        "Stored JWT claims for delegation",
-                        extra={"subject": context.auth.claims.get("sub")},
-                    )
-                else:
-                    logger.debug("JWT claims not yet available (will be after auth)")
+        # Never trust a raw message/header copy. FastMCP exposes this object only
+        # after its configured auth provider has validated the credential.
+        try:
+            from fastmcp.server.dependencies import get_access_token
 
-                logger.info("Extracted Bearer token for delegation")
-            else:
-                logger.error("Missing or invalid Authorization header")
-                raise ValueError("Missing or invalid Authorization header")
-        return await call_next(context)
+            access_token = get_access_token()
+        except Exception:
+            access_token = None
+        raw_token = getattr(access_token, "token", None)
+        claims = getattr(access_token, "claims", None)
+        if (
+            not isinstance(raw_token, str)
+            or not raw_token
+            or len(raw_token) > 16_384
+            or not isinstance(claims, dict)
+        ):
+            logger.warning("Delegation denied: validated user token unavailable")
+            raise PermissionError("Validated user token required for delegation")
+
+        from agent_utilities.mcp.delegated_auth import (
+            _reset_delegated_identity,
+            _set_delegated_identity,
+        )
+
+        tokens = _set_delegated_identity(raw_token, claims)
+        try:
+            return await call_next(context)
+        finally:
+            _reset_delegated_identity(tokens)
 
 
 class JWTClaimsLoggingMiddleware(Middleware):
@@ -95,16 +102,73 @@ class JWTClaimsLoggingMiddleware(Middleware):
 
     async def on_response(self, context: MiddlewareContext, call_next):
         response = await call_next(context)
-        logger.info(f"JWT Response: {response}")
         if hasattr(context, "auth") and hasattr(context.auth, "claims"):
-            logger.info(
-                "JWT Authentication Success",
-                extra={
-                    "subject": context.auth.claims.get("sub"),
-                    "client_id": context.auth.claims.get("client_id"),
-                    "scopes": context.auth.claims.get("scope"),
-                },
-            )
+            logger.info("JWT authentication succeeded")
+        return response
+
+
+class ActorContextMiddleware(Middleware):
+    """Bridge a validated JWT into the ambient actor and ``GraphSession``.
+
+    ``create_mcp_server`` already validates inbound JWTs (multi-realm), but
+    nothing carried that identity into the agent-utilities execution plane — so
+    no server could scope resources or authorization to *who is calling*. This
+    middleware is the fleet-wide identity bridge:
+    it mints the actor once per tool call from the already-validated claims
+    (:func:`~agent_utilities.security.request_identity.actor_from_claims`, the
+    one IdP-agnostic mapping), mints the immutable graph authority, and scopes
+    the call to both, so
+    :func:`~agent_utilities.security.entitlements.identity_scoped_resources` and
+    the KG permissioning layer all see the real caller.
+
+    Mounted on every server the factory builds. When there is no validated
+    token it is a no-op; graph-os itself then rejects the call because no
+    verified session exists, while non-graph MCP servers keep their own
+    authorization contract.
+    """
+
+    def _claims(self, context: MiddlewareContext) -> dict | None:
+        auth = getattr(context, "auth", None)
+        claims = getattr(auth, "claims", None) if auth is not None else None
+        if claims:
+            return dict(claims)
+        # FastMCP 3.x: the validated access token is exposed via a dependency.
+        try:
+            from fastmcp.server.dependencies import get_access_token
+
+            token = get_access_token()
+        except Exception:
+            return None
+        claims = getattr(token, "claims", None) if token is not None else None
+        return dict(claims) if claims else None
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        from agent_utilities.knowledge_graph.core.session import (
+            reset_session,
+            set_session,
+        )
+        from agent_utilities.security.brain_context import reset_actor, set_actor
+        from agent_utilities.security.request_identity import (
+            actor_from_claims,
+            mint_graph_session,
+        )
+
+        claims = self._claims(context)
+        if not claims:
+            return await call_next(context)
+        actor = actor_from_claims(claims)
+        try:
+            session = mint_graph_session(actor)
+            session.engine_verified_context()
+        except PermissionError:
+            raise PermissionError("Verified graph authority is incomplete") from None
+        actor_token = set_actor(actor)
+        session_token = set_session(session)
+        try:
+            return await call_next(context)
+        finally:
+            reset_session(session_token)
+            reset_actor(actor_token)
 
 
 class ActorContextMiddleware(Middleware):

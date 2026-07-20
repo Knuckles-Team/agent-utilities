@@ -16,19 +16,19 @@ import logging
 import os
 from typing import Any, Literal, cast
 
-import httpx
-from pydantic_ai import Agent, DeferredToolRequests, ModelSettings
+from pydantic_ai import DeferredToolRequests, ModelSettings
 from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.mcp.toolset_factory import build_http_toolset
 
 
 def load_mcp_servers(config_path: str) -> Any:
     """Load MCP servers from configuration using the centralized coordinator."""
-    from agent_utilities.mcp_utilities import load_mcp_config
+    from agent_utilities.core.config import load_mcp_servers_from_config
 
-    return load_mcp_config(config_path)
+    return load_mcp_servers_from_config(config_path)
 
 
 from agent_utilities.base_utilities import (
@@ -65,15 +65,11 @@ from agent_utilities.core.config import (
     DEFAULT_MCP_CONFIG,
     DEFAULT_MCP_URL,
     DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT,
-    DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
     DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL,
-    DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-    DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
     DEFAULT_PARALLEL_TOOL_CALLS,
     DEFAULT_PORT,
     DEFAULT_PRESENCE_PENALTY,
     DEFAULT_SEED,
-    DEFAULT_SSL_VERIFY,
     DEFAULT_STOP_SEQUENCES,
     DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT,
@@ -86,7 +82,11 @@ from agent_utilities.core.workspace import (
     get_skills_path,
 )
 from agent_utilities.models import AgentDeps
-from agent_utilities.security.tool_guard import apply_tool_guard_approvals
+from agent_utilities.security.cli_secrets import RuntimeSecretReferenceAction
+from agent_utilities.security.tool_guard import (
+    apply_tool_guard_approvals,
+    flag_mcp_tool_definitions,
+)
 from agent_utilities.tools.tool_filtering import (
     filter_tools_by_tag,
     skill_matches_tags,
@@ -118,8 +118,6 @@ def create_agent_parser() -> argparse.ArgumentParser:
         default=DEFAULT_DEBUG,
         help="Enable/disable debug mode",
     )
-    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
-
     parser.add_argument(
         "--provider",
         default=DEFAULT_LLM_PROVIDER,
@@ -141,7 +139,13 @@ def create_agent_parser() -> argparse.ArgumentParser:
         default=DEFAULT_LLM_BASE_URL,
         help="LLM Base URL (for OpenAI compatible providers)",
     )
-    parser.add_argument("--api-key", default=DEFAULT_LLM_API_KEY, help="LLM API Key")
+    parser.add_argument(
+        "--api-key-ref",
+        dest="api_key",
+        action=RuntimeSecretReferenceAction,
+        default=DEFAULT_LLM_API_KEY,
+        help="Runtime secret reference for the LLM API key",
+    )
     parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL, help="MCP Server URL")
     parser.add_argument(
         "--mcp-config", default=DEFAULT_MCP_CONFIG, help="MCP Server Config"
@@ -181,18 +185,6 @@ def create_agent_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--evolve",
-        action="store_true",
-        help="Run as an Evolutionary Vector (indefinitely runs SelfImprovementCycle)",
-    )
-
-    parser.add_argument(
-        "--insecure",
-        action="store_true",
-        help="Disable SSL verification for LLM requests (Use with caution)",
-    )
-
-    parser.add_argument(
         "--otel",
         action=argparse.BooleanOptionalAction,
         default=to_boolean(setting("ENABLE_OTEL", "False")),
@@ -204,19 +196,25 @@ def create_agent_parser() -> argparse.ArgumentParser:
         help="OpenTelemetry OTLP endpoint",
     )
     parser.add_argument(
-        "--otel-headers",
-        default=DEFAULT_OTEL_EXPORTER_OTLP_HEADERS,
-        help="OpenTelemetry OTLP headers",
+        "--otel-headers-ref",
+        dest="otel_headers",
+        action=RuntimeSecretReferenceAction,
+        default=None,
+        help="Runtime secret reference for OpenTelemetry OTLP headers",
     )
     parser.add_argument(
-        "--otel-public-key",
-        default=DEFAULT_OTEL_EXPORTER_OTLP_PUBLIC_KEY,
-        help="OpenTelemetry OTLP public key (for Basic Auth)",
+        "--otel-public-key-ref",
+        dest="otel_public_key",
+        action=RuntimeSecretReferenceAction,
+        default=None,
+        help="Runtime secret reference for the OpenTelemetry OTLP public key",
     )
     parser.add_argument(
-        "--otel-secret-key",
-        default=DEFAULT_OTEL_EXPORTER_OTLP_SECRET_KEY,
-        help="OpenTelemetry OTLP secret key (for Basic Auth)",
+        "--otel-secret-key-ref",
+        dest="otel_secret_key",
+        action=RuntimeSecretReferenceAction,
+        default=None,
+        help="Runtime secret reference for the OpenTelemetry OTLP secret key",
     )
     parser.add_argument(
         "--otel-protocol",
@@ -266,7 +264,6 @@ def create_agent(
     mcp_config: str | None = DEFAULT_MCP_CONFIG,
     mcp_toolsets: list[Any] | None = None,
     custom_skills_directory: str | None = DEFAULT_CUSTOM_SKILLS_DIRECTORY,
-    ssl_verify: bool = DEFAULT_SSL_VERIFY,
     enable_skills: bool = True,
     enable_universal_tools: bool = True,
     name: str = DEFAULT_AGENT_NAME,
@@ -279,14 +276,14 @@ def create_agent(
     output_type: Any | None = None,
     current_host: str | None = None,
     current_port: int | None = None,
-    tool_guard_mode: str = "strict",
+    permissions_kernel: Any | None = None,
+    agent_identity: Any | None = None,
     isolate_mcp: bool = False,
     # Reliability & Capabilities
     stuck_loop_detection: bool = True,
     stuck_loop_max_repeated: int = 3,
     stuck_loop_action: Literal["warn", "error"] = "warn",
     hooks: list[Any] | None = None,
-    auto_graph_trace: bool = True,
     context_warnings: bool = True,
     max_context_tokens: int | None = None,
     use_rlm: bool = False,
@@ -316,7 +313,7 @@ def create_agent(
     #   model-level one — leaving a model-constructor ``reasoning_effort`` silently
     #   discarded. None = leave the model's own reasoning setting untouched.
     reasoning_effort: str | None = None,
-) -> tuple[Agent[Any, Any], list[Any]]:
+) -> tuple[Any, list[Any]]:
     """Initialize a Pydantic AI Agent with requested capabilities.
 
     CONCEPT:AU-OS.safety.doom-loop-detection Agent Creation
@@ -330,7 +327,6 @@ def create_agent(
         mcp_config: Optional path to an MCP configuration file.
         mcp_toolsets: Optional list of pre-initialized MCP toolsets.
         custom_skills_directory: Optional path to additional skills.
-        ssl_verify: Whether to verify SSL certificates.
         enable_skills: Whether to load skills from the workspace.
         enable_universal_tools: Whether to register universal agent tools.
         name: Name of the agent.
@@ -342,7 +338,8 @@ def create_agent(
         output_type: Optional Pydantic-compatible output type schema.
         current_host: Hostname of the current process for loopback detection.
         current_port: Port of the current process for loopback detection.
-        tool_guard_mode: Mode for tool approval ('on', 'off', 'dry-run').
+        permissions_kernel: Optional explicitly injected permissions kernel.
+        agent_identity: Optional signed identity paired with the injected kernel.
         isolate_mcp: Whether to isolate MCP tools from the main agent.
 
     Returns:
@@ -357,53 +354,34 @@ def create_agent(
     if not use_rlm and to_boolean(setting("DB_TOOLS", "False")):
         use_rlm = True
 
-    # Centralized Knowledge Graph Coordination
-    import sys
-
-    is_testing = (
-        setting("AGENT_UTILITIES_TESTING") == "true"
-        or "pytest" in sys.modules
-        or setting("PYTEST_CURRENT_TEST") is not None
-    )
-    if not DEFAULT_VALIDATION_MODE and not is_testing:
-        try:
-            from agent_utilities.mcp.kg_coordinator import KGCoordinator
-
-            kg_host = setting("KG_SERVER_HOST", "127.0.0.1")
-            kg_port = setting("KG_SERVER_PORT", 8100)
-            KGCoordinator.get_kg_client(host=kg_host, port=kg_port)
-        except Exception as e:
-            logger.debug(f"Auto-coordinating KG failed in create_agent: {e}")
-
     agent_toolsets: list[Any] = []
     initialized_mcp_toolsets: list[Any] = []
+    from agent_utilities.core.config import config
+    from agent_utilities.core.http_client import create_async_http_client
+    from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+    mcp_tls = resolve_configured_tls_profile("mcp", config=config)
 
     if mcp_url:
         if DEFAULT_VALIDATION_MODE:
-            logger.info(f"VALIDATION_MODE: Skipping MCP connection to {mcp_url}")
+            logger.info("VALIDATION_MODE: skipping MCP connection")
         elif is_loopback_url(mcp_url, current_host, current_port):
-            logger.warning(
-                f"Loopback Guard: Skipping self-referential MCP connection to {mcp_url}"
-            )
+            logger.warning("Loopback Guard: skipping self-referential MCP connection")
         else:
             try:
-                server = build_http_toolset(
-                    mcp_url, verify=ssl_verify, timeout=DEFAULT_TIMEOUT
-                )
+                server = build_http_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
                 initialized_mcp_toolsets.append(
                     filter_tools_by_tag(server, tool_tags) if tool_tags else server
                 )
                 if not isolate_mcp:
                     agent_toolsets.append(initialized_mcp_toolsets[-1])
-                logger.info(f"Connected to MCP Server: {mcp_url}")
+                logger.info("Connected to configured MCP server")
             except Exception as e:
-                logger.error(f"Failed to connect to MCP Server {mcp_url}: {e}")
+                logger.error("MCP server connection failed (%s)", type(e).__name__)
 
     if mcp_config:
         if DEFAULT_VALIDATION_MODE:
-            logger.info(
-                f"VALIDATION_MODE: Skipping MCP config loading from {mcp_config}"
-            )
+            logger.info("VALIDATION_MODE: skipping MCP configuration load")
         else:
             try:
                 from agent_utilities.core.workspace import resolve_mcp_config_path
@@ -411,15 +389,16 @@ def create_agent(
                 mcp_path = resolve_mcp_config_path(mcp_config)
                 if mcp_path:
                     mcp_config = str(mcp_path)
-                    logger.info(f"Resolved MCP config: {mcp_config}")
+                    logger.info("Resolved MCP configuration")
 
                 mcp_toolset = load_mcp_servers(mcp_config)
                 for server in mcp_toolset:
                     if hasattr(server, "http_client") and not getattr(
                         server, "http_client", None
                     ):
-                        server.http_client = httpx.AsyncClient(
-                            verify=ssl_verify, timeout=DEFAULT_TIMEOUT
+                        server.http_client = create_async_http_client(
+                            timeout=DEFAULT_TIMEOUT,
+                            **mcp_tls.httpx_kwargs(),
                         )
 
                 if tool_tags:
@@ -430,9 +409,9 @@ def create_agent(
                 initialized_mcp_toolsets.extend(mcp_toolset)
                 if not isolate_mcp:
                     agent_toolsets.extend(mcp_toolset)
-                logger.info(f"Connected to MCP Config: {mcp_config}")
+                logger.info("Connected to configured MCP fleet")
             except Exception as e:
-                logger.warning(f"Could not load MCP config {mcp_config}: {e}")
+                logger.warning("MCP configuration failed (%s)", type(e).__name__)
 
     if mcp_toolsets:
         if DEFAULT_VALIDATION_MODE:
@@ -444,8 +423,9 @@ def create_agent(
                 if hasattr(server, "http_client") and not getattr(
                     server, "http_client", None
                 ):
-                    server.http_client = httpx.AsyncClient(
-                        verify=ssl_verify, timeout=DEFAULT_TIMEOUT
+                    server.http_client = create_async_http_client(
+                        timeout=DEFAULT_TIMEOUT,
+                        **mcp_tls.httpx_kwargs(),
                     )
             for server in mcp_toolsets:
                 if server is None:
@@ -462,12 +442,53 @@ def create_agent(
                 if not isolate_mcp:
                     agent_toolsets.append(ts)
 
+    permission_context = None
+    try:
+        if (
+            initialized_mcp_toolsets
+            or permissions_kernel is not None
+            or agent_identity is not None
+        ):
+            from agent_utilities.core.config import config as agent_config
+            from agent_utilities.security.permissions_kernel import (
+                resolve_permission_context,
+            )
+
+            permission_context = resolve_permission_context(
+                agent_config,
+                permissions_kernel=permissions_kernel,
+                agent_identity=agent_identity,
+                required=bool(initialized_mcp_toolsets),
+                agent_subject=name,
+                capabilities=capabilities or (),
+            )
+            if initialized_mcp_toolsets:
+                if permission_context is None:  # defensive: required=True above
+                    raise PermissionError("MCP permission context is required")
+                raw_toolsets = list(initialized_mcp_toolsets)
+                initialized_mcp_toolsets = flag_mcp_tool_definitions(
+                    raw_toolsets,
+                    permissions_kernel=permission_context.kernel,
+                    agent_identity=permission_context.identity,
+                )
+                guarded_by_identity = {
+                    id(raw): guarded
+                    for raw, guarded in zip(
+                        raw_toolsets, initialized_mcp_toolsets, strict=True
+                    )
+                }
+                agent_toolsets = [
+                    guarded_by_identity.get(id(toolset), toolset)
+                    for toolset in agent_toolsets
+                ]
+    finally:
+        mcp_tls.cleanup()
+
     model = create_model(
         provider=provider,
         model_id=model_id,
         base_url=base_url,
         api_key=api_key,
-        ssl_verify=ssl_verify,
         timeout=DEFAULT_TIMEOUT,
     )
 
@@ -532,24 +553,11 @@ def create_agent(
                 for d in custom_skills_directory:
                     if d and os.path.exists(d):
                         skill_dirs.append(str(d))
-                        logger.info(f"Loaded Custom Skills at {d}")
+                        logger.info("Loaded configured custom skills directory")
             elif os.path.exists(custom_skills_directory):
-                logger.debug(f"Loading custom skills {custom_skills_directory}")
+                logger.debug("Loading configured custom skills directory")
                 skill_dirs.append(str(custom_skills_directory))
-                logger.info(f"Loaded Custom Skills at {custom_skills_directory}")
-
-        # Always load the XDG skills drop-in (~/.local/share/agent-utilities/skills,
-        # or AGENT_UTILITIES_SKILLS_DIR) — where skill-installer puts user skills — so
-        # dropping a SKILL.md there gives the agent that skill with no extra config.
-        try:
-            from agent_utilities.core.paths import skills_dir
-
-            xdg_skills = str(skills_dir())
-            if os.path.isdir(xdg_skills) and xdg_skills not in skill_dirs:
-                skill_dirs.append(xdg_skills)
-                logger.info(f"Loaded XDG skills drop-in at {xdg_skills}")
-        except Exception as exc:  # noqa: BLE001 — best-effort, never block agent creation
-            logger.debug(f"XDG skills dir unavailable: {exc}")
+                logger.info("Loaded configured custom skills directory")
 
         # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
         # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
@@ -660,16 +668,7 @@ def create_agent(
 
     # Unified Hooks
     all_hooks = hooks or []
-    if auto_graph_trace:
-        # HooksCapability handles auto_graph_trace in its before/after tool hooks
-        pass
-
-    agent_capabilities.append(
-        HooksCapability(
-            hooks=all_hooks,
-            auto_graph_trace=auto_graph_trace,
-        )
-    )
+    agent_capabilities.append(HooksCapability(hooks=all_hooks))
 
     if use_rlm or (skill_types and "recursive_reasoner" in skill_types):
         try:
@@ -689,8 +688,14 @@ def create_agent(
             for ts in agent_toolsets
         ]
 
-    agent = Agent(
+    agent = create_context_agent(
         model=model,
+        permissions_kernel=(
+            permission_context.kernel if permission_context is not None else None
+        ),
+        agent_identity=(
+            permission_context.identity if permission_context is not None else None
+        ),
         model_settings=settings,
         name=name,
         output_type=(
@@ -753,8 +758,7 @@ def create_agent(
             agent, list(capabilities), kg=IntelligenceGraphEngine.get_active()
         )
 
-    if tool_guard_mode != "off":
-        apply_tool_guard_approvals(agent)
+    apply_tool_guard_approvals(agent)
 
     # CONCEPT:AU-ORCH.routing.sampling-profile-selection — task-aware per-call sampling. The static `settings` above is
     # the base floor; this wraps the agent's run path so each call threads a profile

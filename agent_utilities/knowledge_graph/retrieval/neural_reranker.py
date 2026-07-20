@@ -191,9 +191,19 @@ class RemoteRerankScorer:
 
     def _http(self) -> Any:
         if self._client is None:
-            import httpx
+            from agent_utilities.core.http_client import create_http_client
+            from agent_utilities.core.transport_security import (
+                resolve_configured_tls_profile,
+            )
 
-            self._client = httpx.Client(timeout=15.0)
+            trust = resolve_configured_tls_profile("model")
+            try:
+                self._client = create_http_client(
+                    timeout=15.0,
+                    **trust.httpx_kwargs(),
+                )
+            finally:
+                trust.cleanup()
         return self._client
 
     def score(self, query: str, text: str, instruction: str | None = None) -> float:

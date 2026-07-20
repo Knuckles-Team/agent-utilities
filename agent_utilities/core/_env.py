@@ -47,11 +47,12 @@ def setting(key: str, default: Any = _UNSET, cast: Any = None) -> Any:
     Returns:
         The coerced value, or ``default`` when the variable is unset/empty.
     """
-    from agent_utilities.core.config import _ensure_env_loaded
+    from agent_utilities.core import config as config_module
 
-    _ensure_env_loaded()
-    dflt = None if default is _UNSET else default
-    raw = os.environ.get(key)
+    with config_module._xdg_projection_lock:
+        config_module._ensure_env_loaded()
+        dflt = None if default is _UNSET else default
+        raw = os.environ.get(key)
     if raw is None or raw == "":
         return dflt
     if cast is None:

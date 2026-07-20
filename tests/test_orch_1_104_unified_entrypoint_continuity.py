@@ -17,7 +17,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from agent_utilities.observability.trace_ontology import trace_id
 from agent_utilities.orchestration import session_continuity
+from agent_utilities.security.persistence_privacy import persistence_reference
 
 
 class _FakeEngine:
@@ -45,7 +47,8 @@ def test_prime_session_context_recalls_by_source(monkeypatch) -> None:
         _fake_recent,
     )
     ctx = session_continuity.prime_session_context(_FakeEngine(), "telegram:42")
-    assert seen["source"] == "telegram:42"  # keyed by session id verbatim
+    # The runtime key reaches the Memento API; that storage boundary converts it to an opaque ref.
+    assert seen["source"] == "telegram:42"
     assert "migration plan" in ctx
     # Empty/None session is a no-op (anonymous one-shot, no cross-turn recall).
     assert session_continuity.prime_session_context(_FakeEngine(), None) == ""
@@ -84,8 +87,12 @@ def test_persist_session_turn_writes_runtrace_and_memento(monkeypatch) -> None:
     )
     # Provenance parity: RunTrace recorded + Session->HAS_RUN anchored.
     assert calls["trace"] == ("run:abc", "agent-ui", "completed")
-    assert ("session:webui:99", "Session") in eng.nodes
-    assert ("session:webui:99", "trace:run:abc", "HAS_RUN") in eng.edges
+    session_ref = persistence_reference(
+        "session", "webui:99", namespace="session-continuity"
+    )
+    session_node = f"session:{session_ref}"
+    assert (session_node, "Session") in eng.nodes
+    assert (session_node, trace_id("run:abc"), "HAS_RUN") in eng.edges
     # Memory parity: memento + cache refresh keyed by the SAME session source.
     assert calls["memento_source"] == "webui:99"
     assert calls["refresh_source"] == "webui:99"
@@ -93,12 +100,7 @@ def test_persist_session_turn_writes_runtrace_and_memento(monkeypatch) -> None:
 
 def test_ag_ui_fast_path_reaches_continuity_seam(monkeypatch) -> None:
     """The /ag-ui streaming endpoint primes + persists via the shared seam."""
-    from agent_utilities.core import config as core_config
     from agent_utilities.server.routers import agent_ui
-
-    monkeypatch.setattr(
-        core_config, "DEFAULT_GRAPH_DIRECT_EXECUTION", True, raising=False
-    )
 
     primed: dict[str, Any] = {}
     persisted: dict[str, Any] = {}

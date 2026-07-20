@@ -4,12 +4,11 @@ This document details the robust locking and process lifecycle architecture impl
 
 > **Scope note**: The locking/lifecycle hardening below is specific to the
 > **LadybugDB** backend, which is now an **opt-in contrib** driver
-> (`backends/contrib/ladybug_backend.py`, selected via `GRAPH_BACKEND=ladybug`).
-> The default backend is the Rust-native EpistemicGraph
-> (`GRAPH_BACKEND=epistemic_graph`) — the one authority, compute + cache +
+> (`backends/contrib/ladybug_backend.py`, instantiated explicitly as a projection).
+> The operational backend is the Rust-native EpistemicGraph — the one authority, compute + cache +
 > semantic + durable persistence in a single store (`memory`/`file` are
 > snapshot modes of the same engine). Optional mirrors (PostgreSQL + pg-age,
-> via `GRAPH_BACKEND=fanout`) are write-only fan-out targets. None of these use
+> declared through `GRAPH_MIRROR_TARGETS`) are write-only fan-out targets. None of these use
 > the SQLite file-lock mechanics described here. This document therefore applies
 > only when LadybugDB is explicitly enabled.
 

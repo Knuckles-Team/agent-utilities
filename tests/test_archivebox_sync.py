@@ -5,10 +5,20 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 import agent_utilities.knowledge_graph.core.source_sync as ss
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     MCP_TOOL_PRESETS,
 )
+
+
+@pytest.fixture(autouse=True)
+def _source_sync_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
 
 
 def test_archivebox_preset_shape():
@@ -21,11 +31,7 @@ def test_archivebox_preset_shape():
 
 def test_sync_archivebox_ingests_new_snapshots(monkeypatch):
     monkeypatch.setenv("ARCHIVEBOX_URL", "http://archivebox:8000")
-    monkeypatch.setattr(ss, "_read_watermark", lambda b, s: None)
-    written: dict[str, str] = {}
-    monkeypatch.setattr(
-        ss, "_write_watermark", lambda b, s, w: written.__setitem__(s, w)
-    )
+    monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **k: None)
 
     docs = [
         SimpleNamespace(
@@ -42,17 +48,22 @@ def test_sync_archivebox_ingests_new_snapshots(monkeypatch):
         lambda *a, **k: fake_conn,
     )
 
-    seen_manifests = {}
+    processed: list[dict] = []
 
-    async def fake_batch(self, manifests):
-        seen_manifests["m"] = manifests
-        from agent_utilities.knowledge_graph.ingestion.engine import IngestionResult
+    class _Processor:
+        def process(self, text, **kwargs):
+            processed.append({"text": text, **kwargs})
 
-        return [IngestionResult(manifest=m, status="success") for m in manifests]
-
+    monkeypatch.setattr(ss, "_confluence_processor", lambda _engine: _Processor())
+    checkpoints: list[dict] = []
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.engine.IngestionEngine.ingest_batch",
-        fake_batch,
+        ss,
+        "_ingest_graph_slice_via_envelope",
+        lambda *a, **k: checkpoints.append(k) or {"status": "success"},
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.web_fetch.resolve_web_fetch",
+        lambda url: SimpleNamespace(markdown=f"body for {url}", backend="fixture"),
     )
 
     engine = MagicMock()
@@ -60,14 +71,19 @@ def test_sync_archivebox_ingests_new_snapshots(monkeypatch):
     res = ss.sync_source(engine, "archivebox", mode="delta")
 
     assert res["status"] == "ok" and res["source"] == "archivebox"
-    assert res["snapshots_seen"] == 3
-    assert res["documents_ingested"] == 2  # only the two http snapshots
-    # only http urls become DOCUMENT manifests
-    assert {m.source_uri for m in seen_manifests["m"]} == {
+    assert res["details"]["snapshots_seen"] == 3
+    assert res["details"]["documents_ingested"] == 2  # only the two http snapshots
+    # Only HTTP URLs become native DocumentProcessor transactions.
+    assert {item["source"] for item in processed} == {
         "https://a.io/post",
         "https://b.io/post",
     }
-    assert written["archivebox"] == "2026-06-12T00:00:00Z"  # max updated_at
+    assert {item["checkpoint"] for item in processed} == {
+        "2026-06-10T00:00:00Z",
+        "2026-06-12T00:00:00Z",
+    }
+    assert res["watermark"] == "2026-06-12T00:00:00Z"
+    assert checkpoints == [{"checkpoint": "2026-06-12T00:00:00Z"}]
 
 
 def test_sync_archivebox_skips_when_unconfigured(monkeypatch):

@@ -1,12 +1,8 @@
-"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Tiered RLM code sandbox with a uniform Sandbox contract and a capability router that escalates across local, monty, wasm, and docker backends.
+"""CONCEPT:AU-ORCH.sandbox.tiered-rlm-sandbox — Tiered RLM code sandbox with a uniform Sandbox contract and capability routing.
 
-The RLM REPL runs LLM-generated Python glue code. Historically that was a hardcoded
-``if use_wasm / elif use_container / else local`` chain in :mod:`agent_utilities.rlm.repl`,
-where WASM was a stub, Docker could not serve the RLM host helpers, and the only working
-path (``local``) was unsandboxed ``exec()``.
-
-This package replaces that with a uniform :class:`Sandbox` contract and four real backends
-(local / monty / wasm / docker), each advertising its :class:`SandboxCapabilities`, plus a
+The RLM REPL runs LLM-generated Python glue code through confined backends
+(monty / wasm / docker / firecracker), each advertising its
+:class:`SandboxCapabilities`, plus a
 deterministic :class:`SandboxRouter` that picks the cheapest backend able to run a given
 snippet and escalates when one rejects it.
 
@@ -23,7 +19,6 @@ from .base import (
     SandboxRejected,
     SandboxResult,
 )
-from .local_backend import LocalSandbox
 
 __all__ = [
     "HELPER_NAMES",
@@ -32,5 +27,4 @@ __all__ = [
     "SandboxEnv",
     "SandboxRejected",
     "SandboxResult",
-    "LocalSandbox",
 ]

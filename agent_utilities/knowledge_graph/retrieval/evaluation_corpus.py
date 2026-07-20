@@ -148,7 +148,7 @@ class CorpusManager:
         Returns:
             The generated corpus_id.
         """
-        corpus_id = f"corpus-{uuid.uuid4().hex[:12]}"
+        corpus_id = f"corpus-{uuid.uuid4().hex}"
         parsed_queries = [
             CorpusQuery(**q) if isinstance(q, dict) else q for q in (queries or [])
         ]
@@ -224,7 +224,7 @@ class CorpusManager:
         """
         try:
             results = self._engine.query_cypher(
-                "MATCH (n) WHERE n.id = $cid AND n.type = $ctype RETURN n LIMIT 1",
+                "MATCH (n) WHERE n.id = $cid AND n.node_type = $ctype RETURN n LIMIT 1",
                 {"cid": corpus_id, "ctype": self.CORPUS_NODE_TYPE},
             )
             if not results:
@@ -253,8 +253,8 @@ class CorpusManager:
                 document_count=len(doc_ids),
                 query_count=len(queries_raw),
             )
-        except Exception as e:
-            logger.warning("Failed to load corpus %s: %s", corpus_id, e)
+        except Exception as exc:
+            logger.warning("Failed to load corpus: error_type=%s", type(exc).__name__)
             return None
 
     def list_corpora(self) -> list[EvaluationCorpus]:
@@ -265,7 +265,7 @@ class CorpusManager:
         """
         try:
             results = self._engine.query_cypher(
-                "MATCH (n) WHERE n.type = $ctype RETURN n",
+                "MATCH (n) WHERE n.node_type = $ctype RETURN n",
                 {"ctype": self.CORPUS_NODE_TYPE},
             )
             corpora = []
@@ -276,8 +276,8 @@ class CorpusManager:
                 if corpus:
                     corpora.append(corpus)
             return corpora
-        except Exception as e:
-            logger.warning("Failed to list corpora: %s", e)
+        except Exception as exc:
+            logger.warning("Failed to list corpora: error_type=%s", type(exc).__name__)
             return []
 
     def get_document_ids(self, corpus_id: str) -> set[str]:

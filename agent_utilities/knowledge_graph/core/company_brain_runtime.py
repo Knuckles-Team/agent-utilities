@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Process-wide CompanyBrain runtime + enforcement gate (CONCEPT:AU-KG.research.research-pipeline-runner).
+"""Process-wide, always-enforced CompanyBrain runtime.
 
 The :class:`~agent_utilities.knowledge_graph.core.company_brain.CompanyBrain`
 infrastructure (trust hierarchy, conflict resolution, provenance, data-level
@@ -10,8 +10,8 @@ live read/write path. This module is the seam that activates it:
 
 * :func:`get_company_brain` — one lazily-built, process-wide brain configured for
   source-authority conflict resolution and always-on provenance.
-* :func:`brain_enforcement_enabled` — reads ``KG_BRAIN_ENFORCE`` (default off) so
-  trust/permission enforcement is opt-in and the existing suite stays green.
+* :func:`brain_enforcement_enabled` — exposes the mandatory invariant to
+  callers without introducing a runtime feature switch.
 
 The default :class:`TrustHierarchy` is seeded so source authority is declarative
 ("live systems beat stale docs") and can be overridden from XDG ``config.json``.
@@ -27,8 +27,6 @@ from .company_brain import CompanyBrain
 logger = logging.getLogger(__name__)
 
 _BRAIN: CompanyBrain | None = None
-
-_TRUTHY = {"1", "true", "yes", "on"}
 
 # Declarative default trust hierarchy: authority_level in [0,1] (higher wins),
 # trust_decay_rate per-day (how fast authority ages — live systems barely decay,
@@ -93,8 +91,8 @@ _DEFAULT_TRUST: tuple[dict, ...] = (
 
 
 def brain_enforcement_enabled() -> bool:
-    """Whether trust/permission enforcement is active (``KG_BRAIN_ENFORCE``)."""
-    return setting("KG_BRAIN_ENFORCE", False)
+    """Return the mandatory trust, tenant, and ACL enforcement invariant."""
+    return True
 
 
 def _seed_trust(brain: CompanyBrain) -> None:

@@ -1,9 +1,8 @@
 #!/usr/bin/python
-"""Tests for the SCALE-P2-1 workload contract (docs/scaling/workload_contract.py).
+"""Tests for the installed SCALE-P2-1 workload contract.
 
-Mirrors ``test_capacity_model.py``'s style: loads the module dynamically by path
-(neither ``docs/scaling`` is a packaged/installed module), asserts the contract
-validates, is internally consistent with the EXISTING ``capacity_model.py``
+Asserts the packaged contract validates and remains internally consistent with the
+existing ``capacity_model.py``
 constants it is anchored to (so the two docs cannot silently drift apart), and
 that scaling behaves as documented (SLOs/per-unit sizes never scale; population/
 rate axes do).
@@ -17,10 +16,11 @@ from pathlib import Path
 
 import pytest
 
+from scripts.scale import workload_contract as wc
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_CONTRACT_MODULE_PATH = _REPO_ROOT / "docs" / "scaling" / "workload_contract.py"
 _CAPACITY_MODEL_PATH = _REPO_ROOT / "docs" / "scaling" / "capacity_model.py"
-_CONTRACT_YAML_PATH = _REPO_ROOT / "docs" / "scaling" / "workload_contract.yml"
+_CONTRACT_YAML_PATH = _REPO_ROOT / "scripts" / "scale" / "workload_contract.yml"
 
 
 def _load(name: str, path: Path):
@@ -32,7 +32,6 @@ def _load(name: str, path: Path):
     return module
 
 
-wc = _load("agent_utilities_workload_contract", _CONTRACT_MODULE_PATH)
 cm = _load("agent_utilities_capacity_model_for_wc", _CAPACITY_MODEL_PATH)
 
 
@@ -41,7 +40,7 @@ def test_yaml_file_exists():
 
 
 def test_loads_and_validates():
-    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    contract = wc.load_workload_contract()
     assert contract.registered_agents == 1_000_000
     assert contract.tenants.count > 0
 

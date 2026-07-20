@@ -1,11 +1,12 @@
 import asyncio
 import json
 import logging
+import re
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from agent_utilities.core.config import (
@@ -16,13 +17,61 @@ from agent_utilities.core.config import (
     DEFAULT_LLM_PROVIDER,
 )
 from agent_utilities.core.workspace import WORKSPACE_DIR
+from agent_utilities.security.error_surface import public_error_payload
 
 from ...models import AgentDeps
 from ..dependencies import _build_model_from_registry, process_parts
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Agent UI"])
+_MAX_QUERY_BYTES = 1024 * 1024
+_STREAM_SELECTOR_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}\Z")
+
+
+async def _require_agent_invoke(request: Request) -> None:
+    claims = getattr(request.state, "user_claims", None)
+    if not claims or claims.get("auth_type") == "api_key":
+        return
+    try:
+        from agent_utilities.core.config import config
+        from agent_utilities.security.identity import (
+            base_capabilities,
+            normalize_identity,
+        )
+
+        capabilities = set(
+            base_capabilities(
+                normalize_identity(claims), config.identity_group_capability_map
+            )
+        )
+    except Exception:
+        raise HTTPException(status_code=403, detail="agent invocation capability required") from None
+    if not capabilities.intersection(
+        {"agent:invoke", "model:invoke", "agent:admin", "admin"}
+    ):
+        raise HTTPException(status_code=403, detail="agent invocation capability required")
+
+
+router = APIRouter(tags=["Agent UI"], dependencies=[Depends(_require_agent_invoke)])
+
+
+def _scoped_run_id(request: Request, supplied: Any = None) -> str:
+    """Bind a caller-provided continuity key to the authenticated identity."""
+    claims = getattr(request.state, "user_claims", None) or {}
+    owner = (
+        claims.get("tenant_id")
+        or claims.get("tenant")
+        or claims.get("sub")
+        or claims.get("client_id")
+        or claims.get("auth_type")
+        or "local"
+    )
+    candidate = str(supplied or "").strip()
+    if len(candidate) > 256 or any(character in candidate for character in "\r\n\x00"):
+        candidate = ""
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    return persistence_reference("agent_run", f"{owner}\x00{candidate or 'new'}")
 
 
 @router.post("/ag-ui", summary="AG-UI Streaming Endpoint")
@@ -47,33 +96,40 @@ async def ag_ui_endpoint(request: Request) -> Response:
         )
     from uuid import uuid4
 
-    run_id = uuid4().hex
-    logger.info(
-        f"[LAYER:ACP] AG-UI Request Received. Assigned internal run_id: {run_id}"
-    )
-    concurrency_strategy = "enqueue"
-    with suppress(Exception):
+    run_id = _scoped_run_id(request, uuid4().hex)
+    logger.info("AG-UI request received")
+    try:
         body = await request.json()
-        if body:
-            session_id = body.get("session_id") or body.get("run_id")
-            if session_id:
-                run_id = session_id
-                logger.info(f"[LAYER:ACP] AG-UI: Resuming session: {run_id}")
-            concurrency_strategy = body.get("concurrency_strategy", "enqueue")
+    except Exception:
+        return JSONResponse({"error": "invalid JSON request"}, status_code=422)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "invalid request"}, status_code=422)
+    query = body.get("query", body.get("prompt", ""))
+    if not isinstance(query, str):
+        return JSONResponse({"error": "invalid query"}, status_code=422)
+    if len(query.encode("utf-8")) > _MAX_QUERY_BYTES:
+        return JSONResponse({"error": "query too large"}, status_code=413)
+    raw_parts = body.get("parts", [])
+    try:
+        query_parts = await process_parts(raw_parts) if raw_parts else []
+    except Exception as exc:
+        if isinstance(exc, HTTPException):
+            return JSONResponse({"error": exc.detail}, status_code=exc.status_code)
+        return JSONResponse({"error": "invalid message parts"}, status_code=422)
+
+    concurrency_strategy = "enqueue"
+    session_id = body.get("session_id") or body.get("run_id")
+    if session_id:
+        run_id = _scoped_run_id(request, session_id)
+        logger.info("AG-UI session resumed")
+    concurrency_strategy = body.get("concurrency_strategy", "enqueue")
+    if concurrency_strategy not in {"enqueue", "reject", "interrupt", "rollback"}:
+        concurrency_strategy = "reject"
 
     cm = getattr(request.app.state, "concurrency_manager", None)
-    if cm:
-        try:
-            from fastapi import HTTPException
 
-            await cm.acquire(run_id, strategy=concurrency_strategy)
-        except HTTPException as e:
-            return JSONResponse(
-                {"status": "error", "message": e.detail}, status_code=e.status_code
-            )
-
-    graph_event_queue: asyncio.Queue[Any] = asyncio.Queue()
-    elicitation_queue: asyncio.Queue[Any] = asyncio.Queue()
+    graph_event_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=256)
+    elicitation_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=64)
 
     from ...patterns.manager import PatternManager
 
@@ -94,7 +150,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
         mcp_toolsets=_initialized_mcp_toolsets,
     )
     deps.patterns = PatternManager(deps)
-    logger.info(f"AG-UI session context: {run_id}")
+    logger.info("AG-UI session context established")
 
     requested_model_id = getattr(request.state, "requested_model_id", None)
     override_model = _build_model_from_registry(
@@ -105,19 +161,8 @@ async def ag_ui_endpoint(request: Request) -> Response:
     async def merged_stream():
         from contextlib import nullcontext
 
-        query = ""
-        query_parts = []
-        with suppress(Exception):
-            body = await request.json()
-            query = body.get("query", body.get("prompt", ""))
-            raw_parts = body.get("parts", [])
-            if raw_parts:
-                query_parts = await process_parts(raw_parts)
-
-        from agent_utilities.core.config import DEFAULT_GRAPH_DIRECT_EXECUTION
-
         _use_fast_path = False
-        if graph_bundle and DEFAULT_GRAPH_DIRECT_EXECUTION:
+        if graph_bundle:
             _graph_obj, _ = graph_bundle
             _use_fast_path = hasattr(_graph_obj, "iter")
 
@@ -126,9 +171,7 @@ async def ag_ui_endpoint(request: Request) -> Response:
 
             from ...graph.protocol_agnostic_execution import execute_graph_iter
 
-            logger.info(
-                f"[LAYER:AG-UI] Direct graph execution fast-path for query: '{query[:50]}...'"
-            )
+            logger.info("AG-UI direct graph execution")
             assert graph_bundle is not None
             graph, graph_cfg = graph_bundle
 
@@ -179,9 +222,10 @@ async def ag_ui_endpoint(request: Request) -> Response:
                         if ev:
                             for chunk in emitter._format_sideband(ev):
                                 yield chunk
-            except Exception as e:
-                logger.exception(f"AG-UI direct graph error: {e}")
-                error_data = json.dumps({"type": "error", "error": str(e)})
+            except Exception as exc:
+                error_data = json.dumps(
+                    {"type": "error", **public_error_payload(exc, logger=logger)}
+                )
                 yield f"data: {error_data}\n\n".encode()
             finally:
                 # CONCEPT:AU-ORCH.session.session-continuity-entrypoint — persist the turn (RunTrace + per-session memento)
@@ -189,12 +233,19 @@ async def ag_ui_endpoint(request: Request) -> Response:
                 # to the same session — recalls it. Best-effort; never affects the stream.
                 if _kg_engine is not None and _final_output:
                     with suppress(Exception):
+                        from agent_utilities.security.persistence_privacy import (
+                            PersistencePrivacyGuard,
+                        )
+
+                        guard = PersistencePrivacyGuard()
+                        clean_query = guard.sanitize_text(query)[0]
+                        clean_output = guard.sanitize_text(_final_output)[0]
                         asyncio.create_task(
                             persist_session_turn(
                                 _kg_engine,
                                 run_id,
-                                query,
-                                _final_output,
+                                clean_query,
+                                clean_output,
                                 agent_name="agent-ui",
                                 run_id=run_id,
                             )
@@ -215,29 +266,23 @@ async def ag_ui_endpoint(request: Request) -> Response:
         try:
             with override_ctx:
                 adapter = AGUIAdapter(agent=_agent_instance, run_input=run_input)
-                _q_preview = query[:50]
-                logger.info(
-                    f"[LAYER:ACP] AG-UI: Dispatching request for query: '{_q_preview}...'"
-                )
+                logger.info("[LAYER:ACP] AG-UI: Dispatching request")
                 if override_model is not None:
-                    logger.info(
-                        "AG-UI: Applying per-turn model override '%s'",
-                        requested_model_id,
-                    )
+                    logger.info("AG-UI: Applying authorized per-turn model override")
                 agent_response = await adapter.dispatch_request(
                     request, agent=_agent_instance, deps=deps
                 )
             logger.info("[LAYER:ACP] AG-UI: Dispatch successful. Stream established.")
-        except Exception as e:
-            logger.exception(f"AG-UI: Dispatch error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        except Exception as exc:
+            failure = {"type": "error", **public_error_payload(exc, logger=logger)}
+            yield f"data: {json.dumps(failure)}\n\n"
             return
 
         if not isinstance(agent_response, StreamingResponse):
             yield agent_response.body
             return
 
-        combined_queue: asyncio.Queue = asyncio.Queue()
+        combined_queue: asyncio.Queue = asyncio.Queue(maxsize=512)
 
         async def poll_agent():
             try:
@@ -275,8 +320,10 @@ async def ag_ui_endpoint(request: Request) -> Response:
                                 else chunk.encode("utf-8"),
                             )
                         )
-            except Exception as e:
-                logger.error(f"Agent stream error: {e}")
+            except Exception as exc:
+                logger.error(
+                    "Agent stream error (exception_type=%s)", type(exc).__name__
+                )
             finally:
                 await combined_queue.put(("done", None))
 
@@ -298,8 +345,11 @@ async def ag_ui_endpoint(request: Request) -> Response:
                                 await combined_queue.put(("chunk", packet))
                                 await combined_queue.put(("chunk", b'0 " "\n'))
                                 await asyncio.sleep(0.01)
-                        except Exception as e:
-                            logger.error(f"Error processing sideband event: {e}")
+                        except Exception as exc:
+                            logger.error(
+                                "Error processing sideband event (exception_type=%s)",
+                                type(exc).__name__,
+                            )
                     for task in pending:
                         task.cancel()
                         try:
@@ -308,8 +358,11 @@ async def ag_ui_endpoint(request: Request) -> Response:
                             pass
                 except asyncio.CancelledError:
                     break
-                except Exception as e:
-                    logger.error(f"Sideband poller error: {e}")
+                except Exception as exc:
+                    logger.error(
+                        "Sideband poller error (exception_type=%s)",
+                        type(exc).__name__,
+                    )
                     break
 
         agent_task = asyncio.create_task(poll_agent())
@@ -348,11 +401,20 @@ async def ag_ui_endpoint(request: Request) -> Response:
             if cm:
                 await cm.release(run_id)
 
+    if cm:
+        try:
+            await cm.acquire(run_id, strategy=concurrency_strategy)
+        except HTTPException as exc:
+            return JSONResponse(
+                {"status": "error", "message": exc.detail},
+                status_code=exc.status_code,
+            )
+
     return StreamingResponse(
         merged_stream_with_lock(),
         media_type="text/plain; charset=utf-8",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-store",
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
@@ -362,26 +424,37 @@ async def ag_ui_endpoint(request: Request) -> Response:
 @router.post("/stream", summary="SSE Stream Endpoint")
 async def stream_endpoint(request: Request) -> Response:
     """Generic SSE stream endpoint for high-fidelity graph agent execution."""
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid request"}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"error": "invalid request"}, status_code=422)
     query = data.get("query", data.get("prompt", ""))
+    if not isinstance(query, str) or len(query.encode("utf-8")) > _MAX_QUERY_BYTES:
+        return JSONResponse({"error": "query too large"}, status_code=413)
     raw_parts = data.get("parts", [])
     query_parts = await process_parts(raw_parts) if raw_parts else []
     mode = data.get("mode", "ask")
     topology = data.get("topology", "basic")
+    if not isinstance(mode, str) or not _STREAM_SELECTOR_RE.fullmatch(mode):
+        return JSONResponse({"error": "invalid mode"}, status_code=422)
+    if not isinstance(topology, str) or not _STREAM_SELECTOR_RE.fullmatch(topology):
+        return JSONResponse({"error": "invalid topology"}, status_code=422)
     requested_model_id = getattr(request.state, "requested_model_id", None)
 
     session_id = data.get("session_id") or data.get("run_id")
     concurrency_strategy = data.get("concurrency_strategy", "enqueue")
+    if session_id:
+        session_id = _scoped_run_id(request, session_id)
+    if concurrency_strategy not in {"enqueue", "reject", "interrupt", "rollback"}:
+        concurrency_strategy = "reject"
 
     cm = getattr(request.app.state, "concurrency_manager", None)
     if cm and session_id:
         try:
-            from fastapi import HTTPException
-
             await cm.acquire(session_id, strategy=concurrency_strategy)
         except HTTPException as e:
-            from fastapi.responses import JSONResponse
-
             return JSONResponse(
                 {"status": "error", "message": e.detail}, status_code=e.status_code
             )
@@ -415,8 +488,14 @@ async def stream_endpoint(request: Request) -> Response:
         return StreamingResponse(
             graph_stream_with_lock(),
             media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+            },
         )
     else:
+        if cm and session_id:
+            await cm.release(session_id)
         return JSONResponse(
             {"error": "No graph bundle provided for streaming"}, status_code=400
         )

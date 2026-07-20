@@ -23,7 +23,6 @@ from agent_utilities.knowledge_graph.retrieval.capability_descriptor import (
     persist_capability_descriptor,
 )
 
-
 _RETURN_ALIAS_RE = re.compile(r"n\.(\w+)\s+AS\s+(\w+)")
 _SET_ASSIGN_RE = re.compile(r"n\.(\w+)\s*=\s*\$(\w+)")
 

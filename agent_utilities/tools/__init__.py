@@ -21,21 +21,12 @@ _ATTR_MAP = {
     "list_available_agents": ".agent_tools",
     "share_reasoning": ".agent_tools",
     # developer_tools
-    "ShellCommandOutput": ".developer_tools",
-    "create_file": ".developer_tools",
-    "delete_file": ".developer_tools",
     "project_search": ".developer_tools",
-    "replace_in_file": ".developer_tools",
-    "run_shell_with_diagnostics": ".developer_tools",
     # git_tools
-    "create_worktree": ".git_tools",
     "get_git_status": ".git_tools",
     "list_worktrees": ".git_tools",
-    "remove_worktree": ".git_tools",
     # memory_tools
-    "init_agents_md": ".memory_tools",
     "read_agents_md": ".memory_tools",
-    "update_agents_md": ".memory_tools",
     # scheduler_tools
     "delete_task": ".scheduler_tools",
     "list_tasks": ".scheduler_tools",
@@ -47,10 +38,6 @@ _ATTR_MAP = {
     # team_tools
     "TEAM_TOOLS": ".team_tools",
     # workspace_tools
-    "append_note_to_file": ".workspace_tools",
-    "create_skill": ".workspace_tools",
-    "delete_skill": ".workspace_tools",
-    "edit_skill": ".workspace_tools",
     "get_skill_content": ".workspace_tools",
     "list_files": ".workspace_tools",
     "read_workspace_file": ".workspace_tools",
@@ -78,10 +65,6 @@ __all__ = [
     "register_agent_tools",
     # Workspace tools
     "read_workspace_file",
-    "append_note_to_file",
-    "create_skill",
-    "delete_skill",
-    "edit_skill",
     "get_skill_content",
     "list_files",
     # Scheduler tools
@@ -95,16 +78,9 @@ __all__ = [
     "delete_a2a_peer",
     # Git tools
     "get_git_status",
-    "create_worktree",
-    "remove_worktree",
     "list_worktrees",
     # Developer tools
     "project_search",
-    "replace_in_file",
-    "run_shell_with_diagnostics",
-    "create_file",
-    "delete_file",
-    "ShellCommandOutput",
     # Agent tools
     "invoke_specialized_agent",
     "list_available_agents",
@@ -130,9 +106,7 @@ __all__ = [
     "set_output_style",
     "list_output_styles",
     # Memory tools
-    "init_agents_md",
     "read_agents_md",
-    "update_agents_md",
     # Codebase map tools
     "generate_codebase_map",
     "CodebaseMapGenerator",

@@ -13,11 +13,10 @@ that were still real:
    exact failure this program exists to catch. Fixed: the focused-tools branch now ALWAYS
    fails closed on execution failure (fail-loud, same discipline as the WorkItem
    missing-executor "unroutable" rule), never falls through to the graph.
-2. ``graph_orchestrate(action="status")`` only ever read ``:Task`` nodes written by
-   ``dispatch_task`` — a delegated ``execute_agent``/``execute_workflow`` run's REAL
+2. Delegated agent/workflow execution status reads its REAL
    provenance (``:RunTrace`` + ``:ToolCall``, ORCH-1.21/KG-2.296) lives under a different id
-   namespace it never queried, so ``status`` reported ``not_found`` for a run that actually
-   executed. Fixed: ``status`` now routes a ``run:``/``trace:``/``wf-``/``session:``-prefixed
+   namespace it never queried, so status reported ``not_found`` for a run that actually
+   executed. Fixed: ``graph_jobs`` routes a ``run:``/``trace:``/``wf-``/``session:``-prefixed
    ``job_id`` to the real ``RunTrace``/``ToolCall`` data via ``Orchestrator.get_run_trace`` /
    ``get_session_runs``.
 """
@@ -191,22 +190,24 @@ async def test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_
 
 
 # ---------------------------------------------------------------------------
-# 2. graph_orchestrate(status) surfaces REAL RunTrace + ToolCall provenance.
+# 2. graph_jobs(status) surfaces REAL RunTrace + ToolCall provenance.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch):
-    """End-to-end (Wire-First): ``graph_orchestrate(execute_agent)`` writes a real
-    ``:RunTrace`` + ``:ToolCall`` provenance into the KG; ``graph_orchestrate(status,
+    """End-to-end (Wire-First): ``graph_orchestrate`` writes a real
+    ``:RunTrace`` + ``:ToolCall`` provenance into the KG; ``graph_jobs(status,
     job_id=<the returned run_id>)`` must surface that REAL data — not ``not_found``,
     and not an empty shell.
     """
     import agent_utilities.mcp.kg_server as kg
     from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+    from agent_utilities.mcp.tools.job_tools import register_job_tools
 
     engine = _create_engine()
     register_analysis_tools(_FakeMCP())
+    register_job_tools(_FakeMCP())
     monkeypatch.setattr(kg, "_get_engine", lambda: engine)
 
     fake_tool_calls = [
@@ -227,7 +228,6 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
         }
         exec_result = await kg._execute_tool(
             "graph_orchestrate",
-            action="execute_agent",
             agent_name="container-manager-mcp",
             task="list running containers",
         )
@@ -237,9 +237,7 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
     assert run_id.startswith("run:")
     assert "3 containers running" in payload["output"]
 
-    status_result = await kg._execute_tool(
-        "graph_orchestrate", action="status", job_id=run_id
-    )
+    status_result = await kg._execute_tool("graph_jobs", action="status", job_id=run_id)
     status = json.loads(status_result)
 
     assert status["status"] == "completed"
@@ -251,25 +249,21 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_status_action_still_serves_legacy_dispatch_task_lookup(monkeypatch):
-    """Non-regression: ``status`` for a plain ``dispatch``-created job id (the
-    ``orch-<hex>`` namespace) still goes through the original ``:Task`` lookup."""
+async def test_status_action_serves_dispatched_work_item_lookup(monkeypatch):
+    """Status for a dispatch-created id reads its durable task record."""
     import agent_utilities.mcp.kg_server as kg
-    from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+    from agent_utilities.mcp.tools.job_tools import register_job_tools
 
     engine = _create_engine()
-    register_analysis_tools(_FakeMCP())
+    register_job_tools(_FakeMCP())
     monkeypatch.setattr(kg, "_get_engine", lambda: engine)
 
     dispatch_result = await kg._execute_tool(
-        "graph_orchestrate", action="dispatch", task="analyze logs"
+        "graph_jobs", action="dispatch", task="analyze logs"
     )
-    assert "Job ID:" in dispatch_result
-    job_id = dispatch_result.rsplit(" ", 1)[-1]
+    job_id = json.loads(dispatch_result)["job_id"]
 
-    status_result = await kg._execute_tool(
-        "graph_orchestrate", action="status", job_id=job_id
-    )
+    status_result = await kg._execute_tool("graph_jobs", action="status", job_id=job_id)
     assert "pending" in status_result
 
 
@@ -278,14 +272,14 @@ async def test_status_not_found_for_unknown_run_id(monkeypatch):
     """A run_id/trace_id that was never recorded must report not_found, not raise
     or silently return an empty-but-"completed" shell."""
     import agent_utilities.mcp.kg_server as kg
-    from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
+    from agent_utilities.mcp.tools.job_tools import register_job_tools
 
     engine = _create_engine()
-    register_analysis_tools(_FakeMCP())
+    register_job_tools(_FakeMCP())
     monkeypatch.setattr(kg, "_get_engine", lambda: engine)
 
     status_result = await kg._execute_tool(
-        "graph_orchestrate", action="status", job_id="run:doesnotexist"
+        "graph_jobs", action="status", job_id="run:doesnotexist"
     )
     status = json.loads(status_result)
     assert status["status"] == "not_found"

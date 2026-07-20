@@ -140,7 +140,6 @@ def test_record_lane_metrics_is_a_safe_noop_without_prometheus():
     (best-effort), whether or not the optional ``metrics`` extra is installed, and
     must set every LANE_NAMES series even for lanes absent from the input maps."""
     from agent_utilities.knowledge_graph.core.task_lanes import (
-        LANE_NAMES,
         record_lane_metrics,
     )
 

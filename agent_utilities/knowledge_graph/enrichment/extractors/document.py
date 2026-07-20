@@ -65,7 +65,7 @@ def detect_doc_type(file_path: str, text: str) -> str:
 
 
 def read_document_text(file_path: str, max_chars: int = 8_000_000) -> str:
-    """Best-effort text read. Plain text/markdown directly; PDF via PyMuPDF.
+    """Best-effort text read. Plain text directly; PDF via bounded pypdf.
 
     The cap is generous (whole books are the target) — size is bounded downstream
     by chunking, not by truncating the verbatim ``Document`` content.
@@ -75,33 +75,17 @@ def read_document_text(file_path: str, max_chars: int = 8_000_000) -> str:
         if ext in (".md", ".txt", ".rst", ".json", ".eml"):
             return open(file_path, encoding="utf-8", errors="ignore").read()[:max_chars]
         if ext == ".pdf":
-            return _read_pdf_text(file_path)[:max_chars]
+            return _read_pdf_text(file_path, max_chars=max_chars)
     except OSError:
         return ""
     return ""
 
 
-def _read_pdf_text(file_path: str) -> str:
-    """Extract a PDF's text. PyMuPDF (fitz) first — a GIL-releasing C parser
-    ~100x faster than pypdf, which can stall for minutes on large PDFs and wedge
-    the host (the same fast path ``kb/parser._read_pdf`` uses). Falls back to
-    pypdf only if PyMuPDF is unavailable."""
-    try:
-        import fitz  # PyMuPDF
+def _read_pdf_text(file_path: str, *, max_chars: int = 8_000_000) -> str:
+    """Extract a PDF through the single bounded pypdf implementation."""
+    from ...extraction.pdf import read_pdf_text
 
-        with fitz.open(file_path) as doc:
-            return "\n".join(page.get_text() for page in doc)
-    except ImportError:
-        pass
-    except Exception:
-        return ""
-    try:
-        from pypdf import PdfReader
-
-        reader = PdfReader(file_path)
-        return "\n".join(p.extract_text() or "" for p in reader.pages)
-    except Exception:
-        return ""
+    return read_pdf_text(file_path, max_chars=max_chars)
 
 
 def extract_metadata(file_path: str, text: str, doc_type: str) -> dict[str, Any]:

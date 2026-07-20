@@ -24,7 +24,7 @@ Pipeline (one ``run_distillation`` cycle):
   * **register** it with the evolution flywheel (:meth:`_register_flywheel`) —
     seeds a reward-EMA entry on the capability index keyed ``procedural:<slug>`` so
     ``FeedbackService.record_action_outcome`` later reinforces the artifact when it
-    is used and helps (reward-weighted self-optimization, DSPy-style).
+    is used and helps (reward-weighted self-optimization).
 
 Design notes (mirrors KG-2.307):
 
@@ -284,7 +284,7 @@ class MemoryDistiller:
 
     def _signature(self, cluster: list[dict[str, Any]]) -> str:
         joined = "|".join(sorted(self._cluster_ids(cluster)))
-        return hashlib.sha1(joined.encode(), usedforsecurity=False).hexdigest()
+        return hashlib.sha256(joined.encode()).hexdigest()
 
     def _cluster_text(self, cluster: list[dict[str, Any]]) -> str:
         parts: list[str] = []
@@ -369,7 +369,7 @@ class MemoryDistiller:
 
         Registers ``capability_id`` (``procedural:<slug>``) on the capability index
         with a neutral-ish seed reward. Once the artifact is USED and helps,
-        ``FeedbackService.record_action_outcome`` moves the same EMA up (DSPy-style
+        ``FeedbackService.record_action_outcome`` moves the same EMA up (reward-weighted
         reward-weighted self-optimization); if it hurts, the EMA falls.
         """
         if not self.config.register_flywheel:

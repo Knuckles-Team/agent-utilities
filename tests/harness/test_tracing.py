@@ -13,13 +13,13 @@ from unittest.mock import patch
 import pytest
 
 from agent_utilities.core.config import config
-from agent_utilities.harness.tracing import set_session_id, trace
+from agent_utilities.harness.tracing import _safe_serialize, set_session_id, trace
 
 
 @pytest.fixture
 def mock_langfuse_config(monkeypatch):
-    monkeypatch.setattr(config, "langfuse_secret_key", "sk-lf-test")
-    monkeypatch.setattr(config, "langfuse_public_key", "pk-lf-test")
+    monkeypatch.setattr(config, "langfuse_secret_key_ref", "env://TEST_LANGFUSE_SECRET")
+    monkeypatch.setattr(config, "langfuse_public_key_ref", "env://TEST_LANGFUSE_PUBLIC")
 
 
 @patch("agent_utilities.harness.tracing._emit_trace")
@@ -60,7 +60,7 @@ async def test_async_trace_decorator(mock_emit, mock_langfuse_config):
 @patch("agent_utilities.harness.tracing._emit_trace")
 def test_trace_decorator_disabled(mock_emit, monkeypatch):
     """CONCEPT:AU-OS.config.secrets-authentication — Tracing is no-op without Langfuse keys."""
-    monkeypatch.setattr(config, "langfuse_secret_key", None)
+    monkeypatch.setattr(config, "langfuse_secret_key_ref", None)
 
     @trace(name="test_disabled")
     def my_disabled_func(x):
@@ -147,3 +147,17 @@ def test_session_id_in_trace(mock_emit, mock_langfuse_config):
     mock_emit.assert_called_once()
     kwargs = mock_emit.call_args.kwargs
     assert kwargs["session_id"] == "test-session-abc"
+
+
+def test_safe_serialize_removes_pii_and_machine_specific_paths():
+    serialized = _safe_serialize(
+        {
+            "message": "contact@example.test at /home/example/private/input.md",
+            "created_by": "Example Person",
+        }
+    )
+
+    assert "contact@example.test" not in str(serialized)
+    assert "/home/example" not in str(serialized)
+    assert serialized["created_by"] == "[REDACTED_PERSON]"
+    assert serialized["_privacy"]["redactions"] == 3

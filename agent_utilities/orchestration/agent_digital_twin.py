@@ -453,7 +453,7 @@ def capture_twin_from_kg(
 
     Reads (never duplicates) what ``agent_runner``/``work_item`` already wrote:
 
-    * the run's ``:ToolCall`` children via the ``MADE_TOOL_CALL`` edge off
+    * the run's ``:ToolCall`` children via the canonical ``USED_TOOL`` edge off
       ``trace:<run_id>`` (the SAME edge ``agent_runner._persist_tool_calls`` writes);
     * any ``WorkItem`` rows whose ``correlation_id`` equals this run id.
 
@@ -466,7 +466,14 @@ def capture_twin_from_kg(
     """
     tool_calls: list[dict[str, Any]] = []
     work_item_ids: list[str] = []
-    trace_id = f"trace:{run_id}"
+    from agent_utilities.observability.trace_ontology import (
+        TRACE_USED_TOOL_EDGE,
+    )
+    from agent_utilities.observability.trace_ontology import (
+        trace_id as canonical_trace_id,
+    )
+
+    trace_id = canonical_trace_id(run_id)
 
     query = getattr(engine, "query_cypher", None)
     if callable(query):
@@ -480,9 +487,9 @@ def capture_twin_from_kg(
             # tool_calls were silently empty for every run until this was found + fixed
             # (verified live alongside the same bug in ``orchestration/manager.py``).
             rows = query(
-                "MATCH (t:RunTrace {id: $tid})-[:MADE_TOOL_CALL]->(tc:ToolCall) "
+                f"MATCH (t:RunTrace {{id: $tid}})-[:{TRACE_USED_TOOL_EDGE}]->(tc:ToolCall) "
                 "RETURN tc.id AS id, tc.tool_name AS tool_name, tc.args AS args, "
-                "tc.result_preview AS result, tc.error AS error "
+                "tc.result AS result, tc.error AS error "
                 "ORDER BY tc.sequence",
                 {"tid": trace_id},
             )
@@ -539,7 +546,9 @@ def persist_twin(engine: Any, twin: AgentDigitalTwin) -> str | None:
             engine, "add_edge", None
         )
         if callable(linker):
-            linker(node_id, f"trace:{twin.run_id}", "TWIN_OF")
+            from agent_utilities.observability.trace_ontology import trace_id
+
+            linker(node_id, trace_id(twin.run_id), "TWIN_OF")
             for wid in twin.work_item_ids:
                 linker(node_id, wid, "REFERENCES")
             for tid in twin.tool_call_ids:

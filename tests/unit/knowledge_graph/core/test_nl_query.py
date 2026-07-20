@@ -40,7 +40,9 @@ class _FakeEngine:
         self.sql_seen = self.cypher_seen = self.sparql_seen = None
 
     def query_cypher(self, query, *a, **k):
-        if query.startswith("MATCH (n) RETURN n.type"):
+        if query.startswith("MATCH (n) RETURN n.type") or query.startswith(
+            "MATCH (n) RETURN n.node_type"
+        ):
             return [{"t": "Agent", "nt": None, "lb": None}, {"t": "Service"}]
         self.cypher_seen = query
         return [{"id": "n1", "name": "alpha"}]

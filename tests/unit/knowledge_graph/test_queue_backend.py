@@ -1,11 +1,9 @@
 """CONCEPT:AU-ECO.bus.pluggable-event-queue Pluggable event queue backend unit tests."""
 
 import asyncio
-from unittest.mock import patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.kafka_queue_backend import KafkaQueueBackend
 from agent_utilities.knowledge_graph.core.queue_backend import (
     MemoryQueueBackend,
     QueueBackend,
@@ -77,29 +75,19 @@ async def test_memory_queue_operations():
     assert backend.get_staged_graph() is None
 
 
+def test_memory_queue_bounded_admission_and_batch() -> None:
+    backend = MemoryQueueBackend()
+    backend.put_many([{"task": "one"}, {"task": "two"}])
+    assert backend.get_queue_size() == 2
+    assert not backend.put_if_below({"task": "rejected"}, 2)
+    assert backend.put_if_below({"task": "three"}, 3)
+
+
 @pytest.mark.anyio
 async def test_queue_backend_factory():
-    """Verify backend factory creation and configuration options."""
+    """Verify the local test backend and closed factory vocabulary."""
     backend_memory = QueueBackend.create("memory")
     assert isinstance(backend_memory, MemoryQueueBackend)
 
-    backend_kafka = QueueBackend.create(
-        "kafka", fallback_db_path="test_kafka.db", bootstrap_servers="localhost:9092"
-    )
-    assert isinstance(backend_kafka, KafkaQueueBackend)
-
-
-@pytest.mark.anyio
-async def test_kafka_backend_mocked():
-    """Verify KafkaQueueBackend integration with mocked kafka components."""
-    with patch("agent_utilities.knowledge_graph.core.kafka_queue_backend.json"):
-        # Instantiate with fallback path to avoid parameter issues
-        backend = KafkaQueueBackend(
-            fallback_db_path="test_kafka_mock.db", bootstrap_servers="localhost:9092"
-        )
-
-        backend.put({"task": "kafka_task"})
-        if backend._fallback_queue is not None:
-            assert backend.get_queue_size() == 1
-        else:
-            assert backend.get_queue_size() == 0
+    with pytest.raises(ValueError, match="Unknown queue backend"):
+        QueueBackend.create("unknown")

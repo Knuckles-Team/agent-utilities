@@ -20,8 +20,8 @@ carry neither numpy nor scipy. The compiled `epistemic_graph.numeric` kernel is 
 **sole numeric backend** and a **hard requirement**:
 
 - `from agent_utilities.numeric import xp` **raises `ImportError`** when the compiled
-  kernel is absent. There is **NO numpy fallback** for a missing kernel — the old
-  `HAVE_KERNEL`-false path and the `import numpy as _np` binding are gone.
+  kernel is absent. There is **NO alternate numeric module or numpy fallback** for a
+  missing kernel.
 - The four scipy ops are now **native kernel exports** (engine CONCEPT:EG-KG.compute.concept-5), reached as
   `xp.eigsh` (`scipy.sparse.linalg.eigsh`, k smallest-magnitude symmetric eigenpairs),
   `xp.spearmanr`, `xp.ks_2samp`, and `xp.norm_ppf` / `xp.norm_pdf`
@@ -29,7 +29,8 @@ carry neither numpy nor scipy. The compiled `epistemic_graph.numeric` kernel is 
 
 ### How numpy still works without agent-utilities depending on it
 
-The kernel is a **rust-numpy container**: numpy lives **inside `epistemic-graph[numeric]`**
+The kernel is a **rust-numpy container**: numpy lives **inside the numeric component of
+`epistemic-graph[full]`**
 as the kernel's own zero-copy interop dependency, and the compiled module re-exports
 numpy's array primitives (`ndarray`, the dtypes, `newaxis` / `pi` / `inf` / `nan`). The
 `xp` shim obtains that module from the kernel itself
@@ -54,8 +55,7 @@ whole numeric surface flows through this one module.
 
 | Where | Contents | Role |
 |-------|----------|------|
-| base `dependencies` | `epistemic-graph[numeric]>=2.7.0` (a **loose floor**) | The kernel is a HARD base dependency: `agent_utilities.numeric` is kernel-LIVE in every install. There is ONE published package — the `eg-numeric` `.so` is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery); `[numeric]` also pulls the numpy the kernel uses internally. No separate `eg-numeric` on PyPI. |
-| `numeric-kernel` extra | `epistemic-graph[numeric]>=2.7.0` | Explicit named alias for operators who want to pull the kernel deliberately; resolves the same single package. |
+| base `dependencies` | `epistemic-graph[full]>=2.23.1,<3.0.0` (the certified protocol range) | Full CPU features and the kernel are a hard runtime contract. There is one release artifact: the platform-specific numeric library is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`, engine CONCEPT:AU-KG.compute.is-installed-kernel-discovery); `[full]` pulls the NumPy ABI dependency used internally through its numeric member. Release and Agent Utilities consumer CI must import the module and execute a real operation, so an incomplete wheel cannot pass merely because its metadata declares the extra. |
 | `[test]` extra | `numpy>=2.4.6` | **Dev/test-only** ground-truth reference for `tests/test_numeric_parity.py`. NEVER a runtime dependency. |
 
 - numpy/scipy are **NOT** in base `dependencies` and **NOT** in any leaf extra
@@ -69,37 +69,31 @@ whole numeric surface flows through this one module.
 
 ## Dev vs prod: two different install paths
 
-**Prod / published installs** pull the kernel via the base dependency (or the explicit
-extra):
+**Prod / published installs** pull the kernel through the mandatory base dependency:
 
 ```bash
-pip install agent-utilities                       # base already pulls epistemic-graph[numeric]>=2.7.0
-python -c "from agent_utilities.numeric import xp; print(xp.HAVE_KERNEL)"  # -> True
+pip install agent-utilities                       # base requires epistemic-graph[full]>=2.23.1,<3.0.0
+python -c "from agent_utilities.numeric import xp; print(xp.sum([1.0, 2.0]))"
 ```
 
-There is **ONE published package**: the `eg-numeric` Surface-A `.so` (cp39-abi3) is **folded
-into the `epistemic-graph` wheel** as `epistemic_graph.numeric`, and the `[numeric]` extra
-adds numpy for the kernel's zero-copy interop. There is **no separate `eg-numeric` package on
-PyPI**.
+There is **ONE published package**: the `eg-numeric` Surface-A `.so` (cp39-abi3) is
+**folded into the `epistemic-graph` wheel** as `epistemic_graph.numeric`. The sole
+supported `[full]` engine profile includes numpy for the kernel's zero-copy interop.
+There is **no separate `eg-numeric` package on PyPI**.
 
-**Dev is editable and non-publishing.** The fleet dev deploy already source-mounts the repos
-(`PYTHONPATH=/au:/eg`, `services/graph-os/compose.dev.yml`), so dev builds the kernel **from
-source**, NOT from the published wheel. Install an editable `eg-numeric` into your venv with:
+**Dev is editable and non-publishing.** Build the full epistemic-graph wheel from the
+sibling checkout and install that wheel into the development environment. The runtime
+module remains `epistemic_graph.numeric`; a top-level development module is not a
+supported package shape.
 
 ```bash
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 \
-  maturin develop \
-  -m /home/apps/workspace/agent-packages/epistemic-graph/crates/eg-numeric/Cargo.toml \
-  --features python
-python -c "from agent_utilities.numeric import xp; print(xp.HAVE_KERNEL)"  # -> True
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin build --release
+python -m pip install --force-reinstall target/wheels/epistemic_graph-*.whl
+python -c "from agent_utilities.numeric import xp; print(xp.sum([1.0, 2.0]))"
 ```
-
-`maturin develop` compiles the pyo3 extension and installs it editable into the active venv
-(as the top-level `numeric` module in dev, or `epistemic_graph.numeric` when folded into the
-engine wheel) — the shim probes both. Dev never depends on any published artifact.
 
 With the kernel installed, `test_numeric_parity.py` exercises the KERNEL path against numpy as
-ground truth. Rename/remove the kernel `.so` and `from agent_utilities.numeric import xp`
+ground truth. Remove the engine wheel and `from agent_utilities.numeric import xp`
 raises the clean `ImportError` — proving there is no silent numpy fallback.
 
 ## Honest status — the drop is complete (CONCEPT:AU-KG.compute.numpy-scipy-drop)

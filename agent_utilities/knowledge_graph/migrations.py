@@ -6,12 +6,25 @@ node tables and properties are updated as the schema definition grows.
 """
 
 import logging
+import re
 from typing import Any
 
 from ..models.schema_definition import SCHEMA
 from .backends.base import GraphBackend
 
 logger = logging.getLogger(__name__)
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_COLUMN_TYPE = re.compile(
+    r"^(?:STRING|BOOLEAN|INT8|INT16|INT32|INT64|UINT8|UINT16|UINT32|UINT64|"
+    r"FLOAT|DOUBLE|DATE|TIMESTAMP|INTERVAL|BLOB)(?:\[[1-9][0-9]{0,5}\])?$"
+)
+
+
+def _schema_identifier(value: object) -> str:
+    rendered = str(value or "")
+    if not _IDENTIFIER.fullmatch(rendered):
+        raise ValueError("Schema identifier is invalid")
+    return rendered
 
 
 class GraphMigrator:
@@ -30,11 +43,12 @@ class GraphMigrator:
 
         # 1. Ensure all node tables exist with all properties
         for node_def in SCHEMA.nodes:
+            table_name = _schema_identifier(node_def.name)
             # Check existing columns to avoid redundant ALTER calls
             existing_cols = set()
             try:
                 res = self.backend.execute(
-                    f"CALL TABLE_INFO('{node_def.name}') RETURN name"
+                    f"CALL TABLE_INFO('{table_name}') RETURN name"
                 )
                 existing_cols = {row["name"].lower() for row in res}
             except Exception:
@@ -42,18 +56,21 @@ class GraphMigrator:
                 pass  # nosec B110
 
             for col_name, col_type in node_def.columns.items():
+                column_name = _schema_identifier(col_name)
                 if col_name.lower() == "id" or col_name.lower() in existing_cols:
                     continue
 
                 try:
                     # Kùzu (Ladybug) ALTER TABLE ADD property_name property_type
                     clean_type = col_type.split(" PRIMARY KEY")[0]
-                    stmt = f"ALTER TABLE {node_def.name} ADD `{col_name}` {clean_type}"
+                    if not _COLUMN_TYPE.fullmatch(clean_type):
+                        raise ValueError("Schema column type is invalid")
+                    stmt = f"ALTER TABLE {table_name} ADD `{column_name}` {clean_type}"
                     self.backend.execute(stmt)
                     results["columns_added"] += 1
-                    logger.info(f"Added column {col_name} to table {node_def.name}")
-                except Exception as e:
-                    msg = str(e).lower()
+                    logger.info("Added one schema column")
+                except Exception as exc:
+                    msg = str(exc).lower()
                     if (
                         "already has property" in msg
                         or "duplicate" in msg
@@ -63,7 +80,7 @@ class GraphMigrator:
                     if "table" in msg and "not found" in msg:
                         continue
                     results["errors"].append(
-                        f"Failed to migrate {node_def.name}.{col_name}: {e}"
+                        f"Schema migration failed: error_type={type(exc).__name__}"
                     )
 
         return results

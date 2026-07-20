@@ -9,7 +9,6 @@ from agent_utilities.core.config import (
     get_discovery_registry,
     # Config helpers
     load_mcp_config,
-    load_node_agents_registry,
     load_specialized_prompts,
     save_mcp_config,
 )
@@ -17,7 +16,6 @@ from agent_utilities.core.config import (
 from .builder import (
     build_tag_env_map,
     # Builder
-    create_agent,
     create_graph_agent,
     create_master_graph,
     initialize_graph_from_workspace,
@@ -142,7 +140,6 @@ __all__ = [
     "static_route_query",
     # Config helpers
     "load_mcp_config",
-    "load_node_agents_registry",
     "save_mcp_config",
     "emit_graph_event",
     "load_specialized_prompts",
@@ -151,7 +148,6 @@ __all__ = [
     # Builder
     "get_step_descriptions",
     "agent_matches_node_id",
-    "create_agent",
     "create_graph_agent",
     "create_master_graph",
     "initialize_graph_from_workspace",

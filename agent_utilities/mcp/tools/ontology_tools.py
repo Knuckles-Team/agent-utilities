@@ -13,6 +13,10 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import (
+    public_error_json,
+    public_error_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +53,7 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     """Load every package-contributed ontology through the given lifecycle.
 
     CONCEPT:AU-KG.ontology.federation-runtime — federation runtime: iterate
-    ``discover_provider_ontologies()`` and call the EXISTING
+    ``resolve_provider_ontologies()`` and call the EXISTING
     :meth:`OntologyLifecycle.load` per contributed ``.ttl`` (parse + SHACL-validate
     + register + activate for reasoning). No new load logic — reuse the one path
     ``graph_ontology action='load'`` and boot hydration already use. Per-file
@@ -59,36 +63,31 @@ def _sync_package_ontologies(lc: Any) -> dict[str, Any]:
     action='sync_packages'``.
     """
     from agent_utilities.knowledge_graph.core.ontology_federation import (
-        discover_provider_ontologies,
+        resolve_provider_ontologies,
     )
 
-    loaded: list[dict[str, Any]] = []
+    loaded_count = 0
+    idempotent_count = 0
     errors: list[dict[str, Any]] = []
-    for provider, ttl_path in discover_provider_ontologies():
+    for _provider, ttl_path in resolve_provider_ontologies():
         if ttl_path.parent.name == "shapes":
             continue
         try:
             report = lc.load(str(ttl_path), source_type="file")
-            loaded.append(
-                {
-                    "provider": provider,
-                    "path": str(ttl_path),
-                    "iri": report.get("iri"),
-                    "status": report.get("status"),
-                    "idempotent": report.get("idempotent", False),
-                }
-            )
+            loaded_count += 1
+            if bool(report.get("idempotent", False)):
+                idempotent_count += 1
         except Exception as exc:  # noqa: BLE001 — one bad module never blocks rest
             logger.warning(
-                "sync_packages: failed to load %s (%s): %s", ttl_path, provider, exc
+                "sync_packages: failed to load provider (exception_type=%s)",
+                type(exc).__name__,
             )
-            errors.append(
-                {"provider": provider, "path": str(ttl_path), "error": str(exc)}
-            )
+            errors.append(public_error_payload(exc))
     return {
         "action": "sync_packages",
-        "providers_loaded": len(loaded),
-        "loaded": loaded,
+        "artifacts_loaded": loaded_count,
+        "idempotent_artifacts": idempotent_count,
+        "error_count": len(errors),
         "errors": errors,
     }
 
@@ -140,7 +139,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_property_types"] = ontology_property_types
 
@@ -188,7 +187,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_value_types"] = ontology_value_types
 
@@ -320,7 +319,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_interface"] = ontology_interface
 
@@ -419,7 +418,7 @@ def register_ontology_tools(mcp):
                 return json.dumps({"owl": inference_owl_ttl(registry)})
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_sampling_profile"] = ontology_sampling_profile
 
@@ -442,7 +441,7 @@ def register_ontology_tools(mcp):
         try:
             return json.dumps(sync_leanix_ontology(dry_run=bool(dry_run)))
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_leanix_sync"] = ontology_leanix_sync
 
@@ -630,7 +629,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_ontology"] = graph_ontology
 
@@ -762,7 +761,7 @@ def register_ontology_tools(mcp):
                 )
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_writeback"] = graph_writeback
 
@@ -829,16 +828,15 @@ def register_ontology_tools(mcp):
                 )
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["spec_ticket"] = spec_ticket
 
     @mcp.tool(
         name="concept_registry",
         description=(
-            "Atomically claim/list/release concept ids across parallel sessions & worktrees "
-            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). action='reserve' mints the next free id in a namespace (a pillar "
-            "like 'EG-KG.compute.backend'/'OS-5' or a package prefix like 'KEY') and appends it to the committed, "
+            "Atomically claim/list/release canonical OKF-CIS concept ids across parallel sessions & worktrees "
+            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). action='reserve' validates and claims concept_id, then appends it to the committed, "
             "merge=union ledger so two sessions never collide; 'list' shows reservations; "
             "'release' frees one; 'reconcile' marks landed/expired. The ledger is authoritative; "
             "reservations are also projected into the KG when the gateway is healthy."
@@ -850,19 +848,15 @@ def register_ontology_tools(mcp):
             default="list",
             description="'reserve', 'list', 'release', or 'reconcile'.",
         ),
-        namespace: str = Field(
-            default="",
-            description="For 'reserve': pillar ('EG-KG.compute.backend','OS-5') or package prefix ('KEY','GL').",
-        ),
         session_id: str = Field(
-            default="", description="Claiming session id (defaults to host:pid)."
+            default="", description="Optional claiming session value; only a digest is persisted."
         ),
         design_doc: str = Field(
             default="",
-            description="Optional design-doc path recorded with the reservation.",
+            description="Optional design reference; only a digest is persisted.",
         ),
         concept_id: str = Field(
-            default="", description="For 'release': the id to free."
+            default="", description="Canonical ID for reserve or release."
         ),
         status: str = Field(
             default="",
@@ -877,8 +871,7 @@ def register_ontology_tools(mcp):
         ),
     ) -> str:
         """Concept-ID reservation ledger operations (see docs/concept_coordination.md)."""
-        import os
-        import socket
+        import uuid
         from pathlib import Path
 
         from agent_utilities.governance import concept_allocator as ca
@@ -902,44 +895,43 @@ def register_ontology_tools(mcp):
                     {"released": ca.release_concept_id(concept_id, repo_root=repo_root)}
                 )
             if str(action) == "reserve":
-                if not namespace:
-                    return json.dumps({"error": "reserve requires namespace"})
-                sid = session_id or f"{socket.gethostname()}:{os.getpid()}"
+                if not concept_id:
+                    return json.dumps({"error": "reserve requires concept_id"})
+                sid = session_id or f"session-{uuid.uuid4().hex}"
                 record = ca.reserve_concept_id(
-                    namespace,
+                    concept_id,
                     session_id=sid,
                     design_doc=design_doc or None,
                     ttl_seconds=int(ttl_seconds),
                     repo_root=repo_root,
                 )
-                # Best-effort projection into the KG for queryability — the ledger
-                # remains the authoritative claim regardless of gateway health.
+                # Best-effort projection through this already-authenticated
+                # GraphOS execution context. The ledger remains authoritative;
+                # no second gateway, transport probe, or process coordinator is
+                # involved.
                 try:
-                    from agent_utilities.mcp.kg_coordinator import KGCoordinator
-
-                    if KGCoordinator.is_server_healthy():
-                        _run_coro(
-                            kg_server._execute_tool(
-                                "graph_write",
-                                action="add_node",
-                                node_id=record["id"],
-                                node_type="ConceptReservation",
-                                properties=json.dumps(record),
-                            )
+                    _run_coro(
+                        kg_server._execute_tool(
+                            "graph_write",
+                            action="add_node",
+                            node_id=record["id"],
+                            node_type="ConceptReservation",
+                            properties=json.dumps(record),
                         )
-                        record["kg_projected"] = True
+                    )
+                    record["kg_projected"] = True
                 except Exception:  # noqa: BLE001 - projection is advisory
                     record["kg_projected"] = False
                 return json.dumps(record)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["concept_registry"] = concept_registry
 
     @mcp.tool(
         name="source_sync",
-        description="THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; all others fall back to a full hydrate, and a generic write-layer content-hash delta means unchanged entities are skipped (no re-write, no re-reason) for ALL sources even on a full fetch. ids=[...] narrows to specific records (webhook-driven). (graph_hydrate is a thin alias of this tool; graph_ingest covers path/URL/document content.)",
+        description="THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream). Delta-capable sources do incremental sync; all others fall back to a full hydrate, and a generic write-layer content-hash delta means unchanged entities are skipped (no re-write, no re-reason) for ALL sources even on a full fetch. ids=[...] narrows to specific records (webhook-driven). graph_ingest covers path/URL/document content.",
         tags=["graph-os", "ingestion"],
     )
     def source_sync(
@@ -966,18 +958,20 @@ def register_ontology_tools(mcp):
             except Exception:  # noqa: BLE001
                 engine = None
             if engine is None:
-                return json.dumps({"status": "skipped", "reason": "no active engine"})
+                return json.dumps(
+                    {"status": "error", "error": "active engine required"}
+                )
             return json.dumps(
                 sync_source(engine, str(source), mode=str(mode), ids=ids or None)
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["source_sync"] = source_sync
 
     @mcp.tool(
         name="source_drain",
-        description="Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:AU-KG.ontology.single-source-full-drain). action='status' + drain_id returns cumulative progress (pages_done / items_seen / items_ingested) plus a live per-status breakdown of the drain's connector_drain :Task chain. action='list' lists registered chunked-drain sources. A single source_sync(source=X, mode='full') returns a drain_id immediately and drains the whole backlog across capacity-guarded background page-tasks; poll this to watch it finish.",
+        description="Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus (CONCEPT:AU-KG.ontology.single-source-full-drain). action='status' + drain_id returns cumulative progress (pages_done / items_seen / items_ingested) plus a live per-status breakdown of the drain's connector_drain WorkItems. action='list' lists registered chunked-drain sources. A single source_sync(source=X, mode='full') returns a drain_id immediately and drains the whole backlog across capacity-guarded background page WorkItems; poll this to watch it finish.",
         tags=["graph-os", "ingestion"],
     )
     def source_drain(
@@ -1004,12 +998,14 @@ def register_ontology_tools(mcp):
             except Exception:  # noqa: BLE001
                 engine = None
             if engine is None:
-                return json.dumps({"status": "skipped", "reason": "no active engine"})
+                return json.dumps(
+                    {"status": "error", "error": "active engine required"}
+                )
             if not drain_id:
                 return json.dumps({"error": "drain_id is required for action='status'"})
             return json.dumps(drain_status(engine, str(drain_id)), default=str)
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["source_drain"] = source_drain
 
@@ -1094,7 +1090,9 @@ def register_ontology_tools(mcp):
                 )
 
             if engine is None:
-                return json.dumps({"status": "skipped", "reason": "no active engine"})
+                return json.dumps(
+                    {"status": "error", "error": "active engine required"}
+                )
 
             if action == "lineage":
                 from agent_utilities.knowledge_graph.etl import query_lineage
@@ -1146,7 +1144,7 @@ def register_ontology_tools(mcp):
                 default=str,
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_etl"] = graph_etl
 
@@ -1201,7 +1199,7 @@ def register_ontology_tools(mcp):
                 return json.dumps(result.model_dump(), default=str)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_function"] = ontology_function
 
@@ -1280,7 +1278,7 @@ def register_ontology_tools(mcp):
                 return json.dumps(ont.derive_all(obj, object_type=otype), default=str)
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_derive"] = ontology_derive
 
@@ -1356,7 +1354,7 @@ def register_ontology_tools(mcp):
                 default=str,
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["ontology_link_materialize"] = ontology_link_materialize
 
@@ -1526,7 +1524,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["object_edits"] = object_edits
 
@@ -1565,7 +1563,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["object_index"] = object_index
 
@@ -1615,7 +1613,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["object_permissioning"] = object_permissioning
 
@@ -1671,7 +1669,7 @@ def register_ontology_tools(mcp):
                 return json.dumps({"node_id": node_id, "shared_scope": "private"})
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["graph_share"] = graph_share
 
@@ -1789,7 +1787,7 @@ def register_ontology_tools(mcp):
                 )
             return json.dumps({"error": f"unknown action: {action!r}"})
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["object_set"] = object_set
 
@@ -1823,6 +1821,7 @@ def register_ontology_tools(mcp):
             ChunkingConfig,
             DocumentProcessor,
         )
+        from agent_utilities.security.persistence_privacy import persistence_reference
 
         try:
             engine = None
@@ -1830,16 +1829,31 @@ def register_ontology_tools(mcp):
                 engine = kg_server._get_engine()
             except Exception:  # pragma: no cover - defensive
                 engine = None
+            if engine is None:
+                raise RuntimeError("document processing requires graph authority")
             backend = getattr(engine, "backend", None) if engine is not None else None
             kg = KnowledgeGraph()
             if backend is not None:
                 kg._store = backend
             proc = DocumentProcessor(
                 kg,
+                engine=engine,
                 chunking=ChunkingConfig(chunk_size=chunk_size, overlap=overlap),
                 contextual=contextual,
             )
-            result = proc.process(document, text=text or None, source=source)
+            source_reference = persistence_reference(
+                "mcp_document_source",
+                source or (document if not text else "inline-document"),
+                namespace="ontology-tool",
+            )
+            result = proc.process(
+                document,
+                text=text or None,
+                source="mcp-document",
+                metadata={"source_reference": source_reference},
+                connector="mcp-document",
+                source_instance="ontology-tool",
+            )
             return json.dumps(
                 {
                     "document_id": result.document_id,
@@ -1850,7 +1864,7 @@ def register_ontology_tools(mcp):
                 default=str,
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["document_process"] = document_process
 
@@ -1866,6 +1880,7 @@ def register_ontology_tools(mcp):
         )
 
         kg_server.REGISTERED_TOOLS["quant"] = register_quant_tools(mcp, None)
+        kg_server.ACTION_TOOL_ROUTES["quant"] = "/quant"
     except ImportError:
         logger.info(
             "quant tools skipped (finance extra not installed) — "
@@ -1874,7 +1889,7 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="source_connector",
-        description="Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/mcp:<package>/mcp_tool — mcp_tool drives any fleet MCP server's listing tool as a paginated source) to ingest its documents into the KG as Document+Chunk objects with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
+        description="Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework–4.29, KG-2.59): list registered connectors, or run one (filesystem/web/rest/database/graphql_document/mcp:<package>/mcp_tool — GraphQL transports resolve endpoint, auth, TLS, schema mappings, and governance from runtime secret profiles; mcp_tool drives a fleet MCP listing tool as a paginated source) to ingest governed documents and ChangeEnvelopes into the KG with contextual enrichment (KG-2.50) and external permission sync (ECO-4.28).",
         tags=["graph-os", "ecosystem", "connectors"],
     )
     async def source_connector(
@@ -1884,7 +1899,7 @@ def register_ontology_tools(mcp):
         ),
         source_type: str = Field(
             default="",
-            description="Connector type for 'run' (filesystem/web/rest/database/mcp:<package>/mcp_tool).",
+            description="Connector type for 'run' (filesystem/web/rest/database/graphql_document/mcp:<package>/mcp_tool).",
         ),
         config: dict = Field(
             default_factory=dict,
@@ -1941,6 +1956,6 @@ def register_ontology_tools(mcp):
                 {"error": f"unknown action {action!r}; use 'list' or 'run'"}
             )
         except Exception as e:  # noqa: BLE001
-            return json.dumps({"error": str(e)})
+            return public_error_json(e)
 
     kg_server.REGISTERED_TOOLS["source_connector"] = source_connector

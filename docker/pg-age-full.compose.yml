@@ -6,25 +6,30 @@
 # set. For AGE/pgvector only (no full-text), use docker/pg-age.compose.yml.
 #
 #   docker compose -f docker/pg-age-full.compose.yml up -d --build
-#   GRAPH_DB_URI=postgresql://agent:agent@localhost:5432/agent_kg \
-#     setup-databases --verify
+#   GRAPH_DB_URI is injected from a secret provider before `setup-databases --verify`.
 services:
   pg-age-full:
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${DATA_SERVICE_MEMORY_LIMIT:-4g}
+    cpus: ${DATA_SERVICE_CPU_LIMIT:-2.0}
     build:
       context: ./pg-age-full
-    image: agent-utilities/pg-age-full:latest
+    image: agent-utilities/pg-age-full:local
     # AGE + pg_search must be preloaded; pgvector does not need preloading.
     command:
       ["postgres", "-c", "shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age"]
     environment:
-      POSTGRES_USER: agent
-      POSTGRES_PASSWORD: agent
-      POSTGRES_DB: agent_kg
+      POSTGRES_USER: "${POSTGRES_USER:?set POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD from a secret}"
+      POSTGRES_DB: "${POSTGRES_DB:?set POSTGRES_DB}"
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pg-age-full-data:/var/lib/postgresql/data
-      - ./pg-age-init:/docker-entrypoint-initdb.d
+      - ./pg-age-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agent -d agent_kg"]
       interval: 10s

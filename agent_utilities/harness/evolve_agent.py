@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """AHE Evolve Agent.
 
 CONCEPT:AU-AHE.harness.harness-evolution — Agentic Harness Engineering (Evolution Loop)
@@ -24,6 +22,7 @@ Architecture:
     Uses: KG for epistemic state, files for normative state, git for causal boundary
 """
 
+from __future__ import annotations
 
 import logging
 import subprocess
@@ -60,14 +59,35 @@ class EvolveAgent:
         workspace_path: str,
         registry: HarnessComponentRegistry | None = None,
         knowledge_engine: Any = None,
-        dspy_optimizer_type: str = "BootstrapFewShot",
         feedback_service: Any = None,
     ) -> None:
         self.workspace_path = workspace_path
         self.registry = registry or HarnessComponentRegistry(workspace_path)
         self.knowledge_engine = knowledge_engine
-        self.dspy_optimizer_type = dspy_optimizer_type
         self._feedback_service = feedback_service
+        self._proposal_targets: dict[str, str] = {}
+
+    def _resolve_component_path(self, relative_path: str) -> str:
+        """Resolve one registered relative component without workspace escape."""
+        import os
+
+        path = str(relative_path or "")
+        if (
+            not path
+            or "\x00" in path
+            or os.path.isabs(path)
+            or (os.name != "nt" and "\\" in path)
+        ):
+            raise ValueError("component path is invalid")
+        root = os.path.realpath(self.workspace_path)
+        candidate = os.path.realpath(os.path.join(root, path))
+        try:
+            contained = os.path.commonpath((root, candidate)) == root
+        except ValueError:
+            contained = False
+        if not contained:
+            raise ValueError("component path escapes workspace")
+        return candidate
 
     async def evolve(
         self,
@@ -114,10 +134,9 @@ class EvolveAgent:
                 f"EvolveAgent: Analyzing {len(top_clusters)} failure clusters..."
             )
             for cluster in top_clusters:
-                # CONCEPT:AU-AHE.optimization.dspy-first-optimization - Attempt DSPy mathematical optimization first
-                edits = await self._dspy_optimize_cluster(cluster, evidence)
+                edits = await self._optimize_cluster(cluster, evidence)
 
-                # Fallback to LLM heuristic edits if DSPy isn't applicable
+                # Unregistered components remain on the general edit-proposal path.
                 if not edits:
                     edits = await self._propose_edits_for_cluster(cluster, evidence)
 
@@ -185,40 +204,81 @@ class EvolveAgent:
                 "'component_type' (one of: system_prompt, tool_description, "
                 "tool_implementation, middleware, skill, orchestrator_skill, "
                 "worker_skill, sub_agent, long_term_memory), "
-                "'file_path' (estimated target file), "
-                "'edit_summary' (what to change), "
                 "'predicted_fixes' (list of task_ids expected to fix), "
                 "'predicted_regressions' (list of task_ids that might regress). "
+                "Do not emit paths, source content, prompts, examples, identities, or "
+                "credentials. "
                 "Output a JSON array of edit objects via FINAL_VAR('edits', json_string)."
             )
 
             import json
 
+            from .optimization_backend import opaque_program_reference
+
+            if not isinstance(rlm_result, str) or len(rlm_result) > 256 * 1024:
+                raise ValueError("RLM edit response is invalid")
             edit_data = json.loads(rlm_result)
-            edits = []
-            for ed in edit_data:
+            if not isinstance(edit_data, list):
+                raise ValueError("RLM edit response is invalid")
+            allowed_tasks = {
+                str(getattr(trace, "task_id", "") or "")
+                for trace in (getattr(evidence, "traces", []) or [])
+                if getattr(trace, "task_id", "")
+            }
+
+            def governed_task_refs(row: dict[str, Any], field: str) -> list[str]:
+                values = row.get(field)
+                if not isinstance(values, list):
+                    return []
+                return [
+                    opaque_program_reference("task", task_id)
+                    for task_id in dict.fromkeys(str(value) for value in values)
+                    if task_id in allowed_tasks
+                ][:10]
+
+            edits: list[ComponentEdit] = []
+            for ed in edit_data[:16]:
+                if not isinstance(ed, dict):
+                    continue
                 try:
                     comp_type = ComponentType(
                         ed.get("component_type", "tool_implementation")
                     )
-                except (ValueError, KeyError):
-                    comp_type = ComponentType.TOOL_IMPLEMENTATION
+                except (TypeError, ValueError):
+                    continue
+                registered = self.registry.get_components_by_type(comp_type)
+                if not registered:
+                    continue
+
+                target_path = registered[0].file_path
                 edits.append(
                     ComponentEdit(
                         component_type=comp_type,
-                        file_path=ed.get("file_path", "unknown"),
-                        edit_summary=ed.get("edit_summary", ""),
-                        predicted_fixes=ed.get("predicted_fixes", []),
-                        predicted_regressions=ed.get("predicted_regressions", []),
-                        evidence_references=[f"rlm_deep_analysis:{evidence.round_id}"],
+                        file_path=target_path,
+                        edit_summary=(
+                            f"Governed deep analysis proposed a {comp_type.value} change."
+                        ),
+                        predicted_fixes=governed_task_refs(ed, "predicted_fixes"),
+                        predicted_regressions=governed_task_refs(
+                            ed,
+                            "predicted_regressions"
+                        ),
+                        evidence_references=[
+                            opaque_program_reference("evidence", evidence.round_id)
+                        ],
+                        metadata={
+                            "component_ref": opaque_program_reference(
+                                "component", target_path
+                            )
+                        },
                     )
                 )
-            logger.info(
-                f"EvolveAgent: RLM deep analysis produced {len(edits)} edit proposals."
-            )
+            logger.info("EvolveAgent: deep analysis produced %d proposals", len(edits))
             return edits
-        except Exception as e:
-            logger.warning(f"EvolveAgent: RLM deep analysis failed: {e}")
+        except Exception as exc:
+            logger.warning(
+                "EvolveAgent: RLM deep analysis failed (%s)", type(exc).__name__
+            )
             return []
 
     def _analyze_overview(self, evidence: EvidenceCorpus) -> None:
@@ -249,11 +309,10 @@ class EvolveAgent:
         """
         edits: list[ComponentEdit] = []
 
+        from .optimization_backend import opaque_program_reference
+
         if not cluster.component_attribution:
-            logger.info(
-                f"EvolveAgent: Cluster '{cluster.label}' has no component "
-                f"attribution — skipping."
-            )
+            logger.info("EvolveAgent: unattributed cluster skipped")
             return edits
 
         # Find registered files for this component type
@@ -261,8 +320,8 @@ class EvolveAgent:
 
         if not registered:
             logger.info(
-                f"EvolveAgent: No registered files for component type "
-                f"'{cluster.component_attribution.value}' — skipping."
+                "EvolveAgent: no registered component for type %s",
+                cluster.component_attribution.value,
             )
             return edits
 
@@ -272,13 +331,20 @@ class EvolveAgent:
             component_type=cluster.component_attribution,
             file_path=target_file,
             edit_summary=(
-                f"Address '{cluster.label}' failure cluster "
-                f"({cluster.frequency} tasks affected). "
-                f"Root cause: {cluster.root_cause_summary[:200]}"
+                f"Address a governed failure cluster ({cluster.frequency} tasks) "
+                f"for {cluster.component_attribution.value}."
             ),
-            predicted_fixes=cluster.task_ids[:10],  # Cap predictions
+            predicted_fixes=[
+                opaque_program_reference("task", task_id)
+                for task_id in cluster.task_ids[:10]
+            ],
             predicted_regressions=[],  # Conservative — no predicted regressions
-            evidence_references=[f"cluster:{cluster.cluster_id}"],
+            evidence_references=[
+                opaque_program_reference("evidence", cluster.cluster_id)
+            ],
+            metadata={
+                "component_ref": opaque_program_reference("component", target_file)
+            },
         )
         edits.append(edit)
 
@@ -287,54 +353,38 @@ class EvolveAgent:
     def _build_trainset(
         self, evidence: EvidenceCorpus, cluster: FailureCluster
     ) -> list[Any]:
-        """Passing traces in this cluster as DSPy demonstrations (CONCEPT:AU-AHE.optimization.optimizable-target-registry)."""
-        try:
-            import dspy
-        except ImportError:
-            return []
+        """Return passing traces in this cluster as provider-neutral examples."""
         trainset: list[Any] = []
         for t in getattr(evidence, "traces", []) or []:
             if t.task_id in cluster.task_ids and getattr(t, "passed", False):
                 trainset.append(
-                    dspy.Example(
-                        context=getattr(t, "context", ""),
-                        task=getattr(t, "query", ""),
-                        response=getattr(t, "output", ""),
-                    ).with_inputs("context", "task")
+                    {
+                        "context": getattr(t, "context", ""),
+                        "task": getattr(t, "query", ""),
+                        "response": getattr(t, "output", ""),
+                    }
                 )
         return trainset
 
-    def _kg_bridge(self) -> Any | None:
-        """Lazily build the DSPyKGBridge from the knowledge engine (closes the prior
-        Wire-First gap: the bridge existed but nothing called it)."""
-        if self.knowledge_engine is None:
-            return None
-        try:
-            from agent_utilities.knowledge_graph.dspy_kg_bridge import DSPyKGBridge
-
-            return DSPyKGBridge(self.knowledge_engine, self.workspace_path)
-        except Exception:  # noqa: BLE001
-            return None
-
-    async def _dspy_optimize_cluster(
+    async def _optimize_cluster(
         self,
         cluster: FailureCluster,
         evidence: EvidenceCorpus,
     ) -> list[ComponentEdit]:
-        """DSPy-optimize a failing component via the optimizable-target registry.
+        """Optimize a failing component through the native target registry.
 
-        CONCEPT:AU-AHE.optimization.dspy-first-optimization / AHE-3.40 — generalized from the original system-prompt-only,
-        exact-match path. Dispatches on ``cluster.component_attribution`` to a registered
+        Dispatches on ``cluster.component_attribution`` to a registered
         :class:`OptimizableTarget` (system prompt, MCP tool description, agent skill),
-        builds a trainset of passing traces, compiles + demo-refines under the **real**
-        graded metric (AHE-3.39/3.43), writes a system-prompt blueprint's compiled state
-        back to disk, and persists the optimization to the KG for *every* target. Returns
-        no edits for unregistered types, so the LLM-heuristic fallback still handles them.
+        builds a trainset of passing traces, submits the engine-owned job, and returns a
+        reference-only proposal. It never writes the selected system-prompt candidate;
+        the reviewed apply path owns that mutation. The native jobs plane persists the
+        governed optimization trajectory.
         """
         import json
         import os
 
-        from .dspy_optimization import get_target, run_dspy_optimization
+        from .optimization_backend import opaque_program_reference
+        from .program_optimization import get_target, run_program_optimization
 
         edits: list[ComponentEdit] = []
         attribution = cluster.component_attribution
@@ -350,7 +400,11 @@ class EvolveAgent:
 
         reg = registered[0]
         target_file = reg.file_path
-        full_path = os.path.join(self.workspace_path, target_file)
+        try:
+            full_path = self._resolve_component_path(target_file)
+        except ValueError:
+            logger.warning("EvolveAgent: registered component path is invalid")
+            return edits
 
         # Load the artifact: a JSON blueprint for system prompts, otherwise the
         # registration's text (description) — the target handler knows which key to read.
@@ -378,56 +432,59 @@ class EvolveAgent:
         trainset = self._build_trainset(evidence, cluster)
         if not trainset:
             logger.info(
-                "EvolveAgent: no passing traces for cluster %s to bootstrap DSPy.",
-                cluster.label,
+                "EvolveAgent: no passing traces for governed evidence %s",
+                opaque_program_reference("evidence", cluster.cluster_id),
             )
             return edits
 
-        result = run_dspy_optimization(
+        result = run_program_optimization(
             target,
             artifact,
             trainset,
-            optimizer_name=getattr(self, "dspy_optimizer_type", "BootstrapFewShot"),
+            engine=self.knowledge_engine,
         )
         if result is None:
             return edits
 
-        # System-prompt blueprints carry the compiled state on disk (existing behavior).
+        candidate_version_hash = ""
         if target.component_type == "system_prompt" and is_json:
-            artifact.pop("__file_path__", None)
-            artifact["dspy_compiled_state"] = result.compiled_state
-            artifact["few_shot_examples"] = result.demos
-            with open(full_path, "w", encoding="utf-8") as f:
-                json.dump(artifact, f, indent=4)
-
-        # Persist the optimization for EVERY target (was dead code before).
-        bridge = self._kg_bridge()
-        if bridge is not None:
-            try:
-                await bridge.ingest_evolved_component(
-                    kg_label=target.kg_label,
-                    component_type=target.component_type,
-                    identifier=target.task_name(artifact),
-                    file_path=target_file,
-                    compiled_state=result.compiled_state,
-                    version=str(artifact.get("version", "unknown")),
-                    optimizer=result.optimizer,
-                    demos=result.demos,
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.debug("EvolveAgent: KG persist failed: %s", e)
+            candidate_version_hash = self._compiled_prompt_candidate(
+                full_path, result.compiled_state
+            ).version_hash()
 
         edits.append(
             ComponentEdit(
                 component_type=attribution,
                 file_path=target_file,
                 edit_summary=(
-                    f"DSPy {result.optimizer} optimization "
-                    f"({result.trainset_size} traces, {len(result.demos)} demos kept)."
+                    f"Native {result.optimizer} optimization "
+                    f"({result.trainset_size} traces, "
+                    f"{len(result.demonstration_refs)} governed references kept)."
                 ),
-                predicted_fixes=cluster.task_ids[:10],
+                predicted_fixes=[
+                    opaque_program_reference("task", task_id)
+                    for task_id in cluster.task_ids[:10]
+                ],
                 predicted_regressions=[],
-                evidence_references=[f"dspy_optimization:{cluster.cluster_id}"],
+                evidence_references=[
+                    opaque_program_reference("evidence", cluster.cluster_id)
+                ],
+                metadata={
+                    "agent_ref": opaque_program_reference(
+                        "agent", target.task_name(artifact)
+                    ),
+                    "component_ref": opaque_program_reference(
+                        "component", target_file
+                    ),
+                    "promote": True,
+                    "auto_apply_eligible": False,
+                    "baseline_score": 0.0,
+                    "candidate_score": result.confidence,
+                    "optimizer": result.optimizer,
+                    "trainset_size": result.trainset_size,
+                    "candidate_version_hash": candidate_version_hash,
+                    "program_compiled_state": result.compiled_state,
+                },
             )
         )
         return edits
@@ -440,10 +497,8 @@ class EvolveAgent:
     ) -> ChangeManifest:
         """Apply manifest edits to the workspace (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
-        For a **system-prompt** edit carrying a DSPy-hardened candidate body
-        (``edit.metadata['candidate_blueprint']``, produced by
-        :meth:`harden_agent_prompt`) this is no longer a placeholder: the candidate is
-        written to its ``StructuredPrompt`` file via ``.save()`` and committed — but ONLY
+        For a **system-prompt** edit carrying reference-only native compiled state,
+        the state is attached to its ``StructuredPrompt`` blueprint and committed — but ONLY
         when (a) it beat baseline (``edit.metadata['promote']``) and (b) the
         ``KG_AGENT_AUTO_APPLY`` gate is on. Otherwise the cycle is **propose-only**: a
         queryable :class:`ProposedPromptChange` audit record is written (before/after metric
@@ -464,7 +519,7 @@ class EvolveAgent:
 
         for edit in manifest.edits:
             if edit.component_type == ComponentType.SYSTEM_PROMPT and edit.metadata.get(
-                "candidate_blueprint"
+                "program_compiled_state"
             ):
                 self._apply_prompt_edit(
                     edit, manifest, auto_apply=auto_apply, dry_run=dry_run
@@ -472,9 +527,11 @@ class EvolveAgent:
                 continue
 
             if dry_run:
+                from .optimization_backend import opaque_program_reference
+
                 logger.info(
-                    f"EvolveAgent [DRY RUN]: Would edit {edit.file_path} — "
-                    f"{edit.edit_summary}"
+                    "EvolveAgent [DRY RUN]: would edit component %s",
+                    opaque_program_reference("component", edit.file_path),
                 )
                 continue
 
@@ -494,6 +551,21 @@ class EvolveAgent:
         except Exception:  # noqa: BLE001 - absent config ⇒ safest default (shadow)
             return False
 
+    @staticmethod
+    def _compiled_prompt_candidate(full_path: str, state: dict[str, Any]) -> Any:
+        """Attach validated reference-only program state to the current prompt."""
+        from agent_utilities.prompting.structured import (
+            ProgramCompiledState,
+            StructuredPrompt,
+        )
+
+        from .program_optimization import _bump_patch
+
+        candidate = StructuredPrompt.load(full_path).model_copy(deep=True)
+        candidate.program_compiled_state = ProgramCompiledState.model_validate(state)
+        candidate.prompt_version = _bump_patch(candidate.prompt_version)
+        return candidate
+
     def _apply_prompt_edit(
         self,
         edit: ComponentEdit,
@@ -503,19 +575,42 @@ class EvolveAgent:
         dry_run: bool,
     ) -> None:
         """Gated write + audit for a hardened system-prompt candidate (CONCEPT:AU-AHE.harness.hardening-transparency-surface)."""
-        import os
+        import math
 
-        from agent_utilities.prompting.structured import StructuredPrompt
+        from .optimization_backend import (
+            is_opaque_program_reference,
+            opaque_program_reference,
+        )
 
         meta = edit.metadata
-        promote = bool(meta.get("promote", False))
-        before = float(meta.get("baseline_score", 0.0))
-        after = float(meta.get("candidate_score", 0.0))
+        promote = meta.get("promote") is True
+        auto_apply_eligible = meta.get("auto_apply_eligible", True) is True
+        try:
+            before = float(meta.get("baseline_score", 0.0))
+            after = float(meta.get("candidate_score", 0.0))
+        except (TypeError, ValueError):
+            meta["apply_status"] = "error"
+            logger.error("EvolveAgent: prompt scores are invalid")
+            return
+        if (
+            not math.isfinite(before)
+            or not math.isfinite(after)
+            or not 0.0 <= before <= 1.0
+            or not 0.0 <= after <= 1.0
+        ):
+            meta["apply_status"] = "error"
+            logger.error("EvolveAgent: prompt scores are invalid")
+            return
+        component_ref = str(meta.get("component_ref") or "")
+        if not is_opaque_program_reference(component_ref, namespace="component"):
+            component_ref = opaque_program_reference("component", edit.file_path)
 
-        if promote and auto_apply and not dry_run:
+        if promote and auto_apply_eligible and auto_apply and not dry_run:
             try:
-                candidate = StructuredPrompt.model_validate(meta["candidate_blueprint"])
-                full_path = os.path.join(self.workspace_path, edit.file_path)
+                full_path = self._resolve_component_path(edit.file_path)
+                candidate = self._compiled_prompt_candidate(
+                    full_path, meta["program_compiled_state"]
+                )
                 candidate.save(full_path)
                 sha = self._git_commit_edit(edit)
                 edit.git_commit_sha = sha
@@ -523,20 +618,20 @@ class EvolveAgent:
                 status, applied = "applied", True
                 logger.info(
                     "EvolveAgent: APPLIED hardened prompt %s (%.3f → %.3f) commit=%s",
-                    edit.file_path,
+                    component_ref,
                     before,
                     after,
                     sha,
                 )
-            except Exception as e:  # noqa: BLE001 - a write failure must not crash the loop
-                logger.error("EvolveAgent: prompt apply failed: %s", e)
+            except Exception as exc:  # noqa: BLE001 - a write failure must not crash the loop
+                logger.error("EvolveAgent: prompt apply failed (%s)", type(exc).__name__)
                 status, applied = "error", False
         elif promote:
             status, applied = "proposed", False
             logger.info(
                 "EvolveAgent: PROPOSED hardened prompt %s (%.3f → %.3f) — held for review "
-                "(auto-apply gated off).",
-                edit.file_path,
+                "(automatic apply not eligible or gated off).",
+                component_ref,
                 before,
                 after,
             )
@@ -544,7 +639,7 @@ class EvolveAgent:
             status, applied = "rejected", False
             logger.info(
                 "EvolveAgent: REJECTED candidate for %s (%.3f → %.3f did not beat baseline).",
-                edit.file_path,
+                component_ref,
                 before,
                 after,
             )
@@ -564,94 +659,200 @@ class EvolveAgent:
         """Persist a queryable + approvable ``ProposedPromptChange`` audit record.
 
         CONCEPT:AU-AHE.harness.hardening-transparency-surface — the transparency surface. Every hardening decision (applied /
-        proposed / rejected) lands as a git-diffable JSON under
+        proposed / rejected) lands as a reference-only JSON record under
         ``.specify/proposals/`` AND, best-effort, a ``ProposedPromptChange`` KG node — so a
-        human/Claude can review the before/after metric and the held candidate and approve
-        it (:meth:`approve_proposed_change`) rather than have it land silently.
+        a reviewer can inspect the before/after metric and compiled references and approve
+        them (:meth:`approve_proposed_change`) rather than have them land silently.
         """
         import json
+        import math
         import os
+        import re
+
+        from agent_utilities.prompting.structured import ProgramCompiledState
+
+        from .optimization_backend import (
+            is_opaque_program_reference,
+            opaque_program_reference,
+        )
 
         meta = edit.metadata
-        proposal_id = f"prompt_change:{edit.id.split(':')[-1]}"
+        compiled_state = ProgramCompiledState.model_validate(
+            meta.get("program_compiled_state") or {}
+        ).model_dump()
+        evidence_refs = list(dict.fromkeys(edit.evidence_references))
+        if any(not is_opaque_program_reference(reference) for reference in evidence_refs):
+            raise ValueError("proposal evidence references are invalid")
+        if status not in {"applied", "proposed", "rejected", "error"}:
+            raise ValueError("proposal status is invalid")
+        if (
+            not math.isfinite(before)
+            or not math.isfinite(after)
+            or not 0.0 <= before <= 1.0
+            or not 0.0 <= after <= 1.0
+        ):
+            raise ValueError("proposal scores must be bounded")
+        proposal_id = opaque_program_reference("proposal", edit.id)
+        agent_ref = str(meta.get("agent_ref") or "")
+        if not is_opaque_program_reference(agent_ref, namespace="agent"):
+            agent_ref = opaque_program_reference(
+                "agent", agent_ref or compiled_state["program_ref"]
+            )
+        component_ref = str(meta.get("component_ref") or edit.file_path)
+        if not is_opaque_program_reference(component_ref, namespace="component"):
+            component_ref = opaque_program_reference("component", component_ref)
+        version_hash = str(meta.get("candidate_version_hash") or "")
+        if re.fullmatch(r"[0-9a-f]{16}", version_hash) is None:
+            version_hash = compiled_state["id"].rsplit(":", 1)[-1][:16]
+        try:
+            trainset_size = min(max(int(meta.get("trainset_size", 0)), 0), 1_000_000)
+        except (TypeError, ValueError):
+            trainset_size = 0
         record = {
             "id": proposal_id,
-            "type": "ProposedPromptChange",
-            "agent_id": meta.get("agent_id", ""),
-            "file_path": edit.file_path,
-            "round_id": manifest.round_id,
-            "edit_id": edit.id,
+            "node_type": "ProposedPromptChange",
+            "agent_ref": agent_ref,
+            "component_ref": component_ref,
+            "round_ref": opaque_program_reference("round", manifest.round_id),
+            "edit_ref": opaque_program_reference("edit", edit.id),
             "status": status,
-            "applied": applied,
+            "applied": bool(applied),
             "baseline_score": round(before, 4),
             "candidate_score": round(after, 4),
             "delta": round(after - before, 4),
-            "optimizer": meta.get("optimizer", ""),
-            "trainset_size": meta.get("trainset_size", 0),
-            "candidate_version_hash": meta.get("candidate_version_hash", ""),
-            "candidate_blueprint": meta.get("candidate_blueprint", {}),
+            "optimizer": compiled_state["optimizer"],
+            "trainset_size": trainset_size,
+            "candidate_version_hash": version_hash,
+            "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
+            "program_compiled_state": compiled_state,
+            "evidence_refs": evidence_refs,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
+        integrity_material = json.dumps(
+            record,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        record["integrity_ref"] = opaque_program_reference(
+            "proposal_integrity", integrity_material
+        )
 
-        proposals_dir = os.path.join(self.workspace_path, ".specify", "proposals")
+        proposals_dir = self._resolve_component_path(".specify/proposals")
         os.makedirs(proposals_dir, exist_ok=True)
-        proposal_path = os.path.join(proposals_dir, f"{proposal_id}.json")
+        proposal_token = proposal_id.rsplit(":", 1)[-1]
+        proposal_path = os.path.join(
+            proposals_dir, f"prompt-proposal-{proposal_token}.json"
+        )
         with open(proposal_path, "w", encoding="utf-8") as f:
             json.dump(record, f, indent=2)
+        self._proposal_targets[proposal_id] = edit.file_path
 
         if self.knowledge_engine is not None and hasattr(
             self.knowledge_engine, "add_node"
         ):
-            props = {k: v for k, v in record.items() if k != "candidate_blueprint"}
-            props["candidate_blueprint_json"] = json.dumps(
-                record["candidate_blueprint"]
-            )[:8000]
-            try:  # two add_node shapes in the fleet — try the kw form, then properties=.
-                self.knowledge_engine.add_node(proposal_id, **props)
-            except Exception:  # noqa: BLE001
-                try:
-                    self.knowledge_engine.add_node(
-                        proposal_id, "ProposedPromptChange", properties=props
-                    )
-                except Exception as e:  # noqa: BLE001 - persistence best-effort
-                    logger.debug("ProposedPromptChange KG persist failed: %s", e)
+            props = {k: v for k, v in record.items() if k != "program_compiled_state"}
+            props["program_compiled_state_json"] = json.dumps(
+                record["program_compiled_state"], sort_keys=True
+            )
+            try:
+                self.knowledge_engine.add_node(
+                    proposal_id, "ProposedPromptChange", properties=props
+                )
+            except Exception as exc:  # noqa: BLE001 - persistence best-effort
+                logger.debug(
+                    "ProposedPromptChange KG persist failed (%s)",
+                    type(exc).__name__,
+                )
 
-        meta["proposal_id"] = proposal_id
-        meta["proposal_path"] = proposal_path
-        return proposal_path
+        meta["proposal_ref"] = proposal_id
+        return proposal_id
 
     def approve_proposed_change(self, proposal_id: str) -> dict[str, Any]:
-        """Human/Claude approval path for a shadow proposal (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
+        """Reviewed approval path for a shadow proposal (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
         Applies a previously **proposed** (or rejected, if force-approved) candidate to
         source — the steerable counterpart to the auto-apply gate, so a winning prompt can
         go live by review instead of by flipping the global flag. Returns a status dict.
         """
+        import hmac
         import json
         import os
 
-        from agent_utilities.prompting.structured import StructuredPrompt
+        from .optimization_backend import (
+            is_opaque_program_reference,
+            opaque_program_reference,
+        )
 
-        proposal_path = os.path.join(
-            self.workspace_path, ".specify", "proposals", f"{proposal_id}.json"
+        if not is_opaque_program_reference(proposal_id, namespace="proposal"):
+            return {"approved": False, "error": "proposal_ref_invalid"}
+        proposal_token = proposal_id.rsplit(":", 1)[-1]
+        proposal_path = self._resolve_component_path(
+            f".specify/proposals/prompt-proposal-{proposal_token}.json"
         )
         if not os.path.exists(proposal_path):
-            return {"approved": False, "error": f"no proposal {proposal_id}"}
+            return {"approved": False, "error": "proposal_not_found"}
         with open(proposal_path, encoding="utf-8") as f:
             record = json.load(f)
-        blueprint = record.get("candidate_blueprint") or {}
-        if not blueprint:
-            return {"approved": False, "error": "proposal carries no candidate"}
-        candidate = StructuredPrompt.model_validate(blueprint)
-        full_path = os.path.join(self.workspace_path, record["file_path"])
+        if not isinstance(record, dict):
+            return {"approved": False, "error": "proposal_record_invalid"}
+        integrity_ref = str(record.pop("integrity_ref", "") or "")
+        expected_integrity_ref = opaque_program_reference(
+            "proposal_integrity",
+            json.dumps(record, sort_keys=True, separators=(",", ":")),
+        )
+        if not is_opaque_program_reference(
+            integrity_ref, namespace="proposal_integrity"
+        ) or not hmac.compare_digest(integrity_ref, expected_integrity_ref):
+            return {"approved": False, "error": "proposal_integrity_mismatch"}
+        record["integrity_ref"] = integrity_ref
+        if record.get("id") != proposal_id:
+            return {"approved": False, "error": "proposal_ref_mismatch"}
+        if record.get("status") not in {"proposed", "rejected"} or record.get(
+            "applied"
+        ) is not False:
+            return {"approved": False, "error": "proposal_not_approvable"}
+        compiled_state = record.get("program_compiled_state") or {}
+        if not compiled_state:
+            return {"approved": False, "error": "compiled_state_missing"}
+        target_file = self._proposal_targets.get(proposal_id)
+        if target_file is None:
+            component_ref = str(record.get("component_ref") or "")
+            target_file = next(
+                (
+                    path
+                    for path in self.registry.get_all_components()
+                    if opaque_program_reference("component", path) == component_ref
+                ),
+                None,
+            )
+        if target_file is None:
+            return {"approved": False, "error": "proposal_target_unavailable"}
+        if opaque_program_reference("component", target_file) != record.get(
+            "component_ref"
+        ):
+            return {"approved": False, "error": "proposal_target_mismatch"}
+        try:
+            full_path = self._resolve_component_path(target_file)
+        except ValueError:
+            return {"approved": False, "error": "proposal_target_invalid"}
+        candidate = self._compiled_prompt_candidate(full_path, compiled_state)
         candidate.save(full_path)
         record["status"] = "applied"
         record["applied"] = True
         record["approved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        record.pop("integrity_ref", None)
+        record["integrity_ref"] = opaque_program_reference(
+            "proposal_integrity",
+            json.dumps(record, sort_keys=True, separators=(",", ":")),
+        )
         with open(proposal_path, "w", encoding="utf-8") as f:
             json.dump(record, f, indent=2)
         logger.info("EvolveAgent: APPROVED + applied proposal %s", proposal_id)
-        return {"approved": True, "file_path": record["file_path"], "id": proposal_id}
+        return {
+            "approved": True,
+            "component_ref": record["component_ref"],
+            "id": proposal_id,
+        }
 
     async def harden_agent_prompt(
         self,
@@ -669,10 +870,10 @@ class EvolveAgent:
 
         1. **Attribute** — pool the agent's ``action_outcome`` cases into a per-agent
            trainset + eval slice (:meth:`FeedbackService.build_agent_trainset`).
-        2. **Optimize** — run :func:`run_dspy_optimization` on the ``system_prompt`` target
-           with that trainset; degrade to the labeled successes as demos when no LM is
-           reachable to compile.
-        3. **Build** — fold the optimized demos into a candidate ``StructuredPrompt``.
+        2. **Optimize** — run :func:`run_program_optimization` on the ``system_prompt`` target
+           with that trainset; native-engine unavailability fails closed.
+        3. **Build** — persist only compiled references; resolve selected examples
+           ephemerally from the governed corpus while constructing model context.
         4. **Evaluate** — score baseline vs candidate against the agent's eval slice.
         5. **Decide + apply** — :func:`should_promote`, then :meth:`apply_edits` writes the
            winner ONLY under ``KG_AGENT_AUTO_APPLY``; otherwise it is held as a queryable
@@ -680,94 +881,112 @@ class EvolveAgent:
 
         Returns a :class:`PromptHardeningOutcome`.
         """
-        import os
-
         from agent_utilities.prompting.structured import StructuredPrompt
 
-        from .dspy_optimization import (
+        from .optimization_backend import opaque_program_reference
+        from .program_optimization import (
             PromptHardeningOutcome,
-            build_hardened_prompt,
             get_target,
-            run_dspy_optimization,
+            render_program_prompt_for_execution,
+            run_program_optimization,
             score_prompt_against_corpus,
             should_promote,
         )
 
+        agent_ref = opaque_program_reference("agent", agent_id)
+        component_ref = opaque_program_reference("component", prompt_path)
         fb = feedback_service or self._feedback_service
         if fb is None:
             return PromptHardeningOutcome(
-                agent_id=agent_id,
-                prompt_path=prompt_path,
+                agent_ref=agent_ref,
+                component_ref=component_ref,
                 status="no_data",
-                detail="no FeedbackService available to pool per-agent outcomes",
+                detail="governed_feedback_store_unavailable",
             )
 
         cases = fb.agent_eval_cases(agent_id)
         trainset = fb.build_agent_trainset(agent_id)
         if not cases or not trainset:
             return PromptHardeningOutcome(
-                agent_id=agent_id,
-                prompt_path=prompt_path,
+                agent_ref=agent_ref,
+                component_ref=component_ref,
                 trainset_size=len(trainset),
                 status="no_data",
-                detail=f"per-agent corpus empty (cases={len(cases)} train={len(trainset)})",
+                detail="governed_agent_corpus_empty",
             )
 
-        full_path = os.path.join(self.workspace_path, prompt_path)
+        try:
+            full_path = self._resolve_component_path(prompt_path)
+        except ValueError:
+            return PromptHardeningOutcome(
+                agent_ref=agent_ref,
+                component_ref=component_ref,
+                trainset_size=len(trainset),
+                status="error",
+                detail="prompt_component_invalid",
+            )
         baseline = StructuredPrompt.load(full_path)
 
-        # Optimize — best-effort DSPy compile, then fall back to the labeled successes as
-        # demos so the cycle still hardens the prompt offline (no LM required).
+        # Optimize natively. There is no raw-example compatibility path: source,
+        # proposals, reports, and graph artifacts retain references only.
         target = get_target("system_prompt")
         result = None
         if target is not None:
             artifact = baseline.model_dump(exclude_none=True)
             artifact["__file_path__"] = prompt_path
-            result = run_dspy_optimization(
+            result = run_program_optimization(
                 target,
                 artifact,
                 list(trainset),
-                optimizer_name=self.dspy_optimizer_type,
+                engine=self.knowledge_engine,
             )
-        # Use the DSPy-bootstrapped demos when the compile produced any; otherwise (no LM
-        # reachable to roll out a bootstrap) fall back to the agent's labeled successes as
-        # demos, so the cycle still hardens the prompt offline.
-        if result is not None and result.demos:
-            demos = result.demos
-            optimizer_name = result.optimizer
-            optimized_instruction = result.optimized_instruction
-        else:
-            demos = list(trainset)
-            optimizer_name = "labeled-successes"
-            optimized_instruction = ""
-
-        candidate = build_hardened_prompt(
-            baseline, demos, optimized_instruction=optimized_instruction
+        if result is None:
+            return PromptHardeningOutcome(
+                agent_ref=agent_ref,
+                component_ref=component_ref,
+                trainset_size=len(trainset),
+                status="error",
+                detail="native_program_optimization_unavailable",
+            )
+        resolver = getattr(fb, "resolve_program_demonstrations", None)
+        demos = (
+            list(resolver(result.demonstration_refs)) if callable(resolver) else []
         )
+        if len(demos) != len(result.demonstration_refs):
+            return PromptHardeningOutcome(
+                agent_ref=agent_ref,
+                component_ref=component_ref,
+                trainset_size=len(trainset),
+                optimizer=result.optimizer,
+                status="error",
+                detail="governed_demonstration_resolution_failed",
+            )
+
+        candidate_execution = render_program_prompt_for_execution(baseline, demos)
+        candidate = self._compiled_prompt_candidate(full_path, result.compiled_state)
 
         baseline_score = score_prompt_against_corpus(baseline.render(), cases)
-        candidate_score = score_prompt_against_corpus(candidate.render(), cases)
+        candidate_score = score_prompt_against_corpus(candidate_execution, cases)
         promote = should_promote(baseline_score, candidate_score, min_delta=min_delta)
 
         edit = ComponentEdit(
             component_type=ComponentType.SYSTEM_PROMPT,
             file_path=prompt_path,
             edit_summary=(
-                f"Harden {agent_id} system prompt via {optimizer_name} "
+                f"Harden governed system prompt via {result.optimizer} "
                 f"({len(trainset)} outcomes): {baseline_score:.3f} → {candidate_score:.3f}"
             ),
-            evidence_references=[f"agent_outcomes:{agent_id}"],
+            evidence_references=list(result.compiled_state["evidence_refs"]),
             metadata={
-                "agent_id": agent_id,
+                "agent_ref": agent_ref,
+                "component_ref": component_ref,
                 "promote": promote,
                 "baseline_score": baseline_score,
                 "candidate_score": candidate_score,
-                "optimizer": optimizer_name,
+                "optimizer": result.optimizer,
                 "trainset_size": len(trainset),
                 "candidate_version_hash": candidate.version_hash(),
-                "candidate_blueprint": candidate.model_dump(
-                    exclude_none=True, exclude_unset=True
-                ),
+                "program_compiled_state": result.compiled_state,
             },
         )
         manifest = ChangeManifest(baseline_score=baseline_score)
@@ -777,43 +996,78 @@ class EvolveAgent:
 
         status = edit.metadata.get("apply_status", "rejected")
         return PromptHardeningOutcome(
-            agent_id=agent_id,
-            prompt_path=prompt_path,
+            agent_ref=agent_ref,
+            component_ref=component_ref,
             baseline_score=baseline_score,
             candidate_score=candidate_score,
             promote=promote,
             applied=status == "applied",
             status=status,
             trainset_size=len(trainset),
-            optimizer=optimizer_name,
+            optimizer=result.optimizer,
             candidate_version_hash=candidate.version_hash(),
-            detail=edit.metadata.get("proposal_path", ""),
+            detail=edit.metadata.get("proposal_ref", ""),
         )
 
     def _git_commit_edit(self, edit: ComponentEdit) -> str | None:
         """Create a git commit for a component edit.
 
-        Uses a structured commit message format for AHE traceability:
-        ``ahe(<component_type>): <edit_summary>``
+        Uses a content-safe structured commit message with opaque component,
+        summary, task, and evidence references.
         """
+        import re
+
         try:
+            from .optimization_backend import (
+                is_opaque_program_reference,
+                opaque_program_reference,
+            )
+
+            self._resolve_component_path(edit.file_path)
             # Stage the file
-            subprocess.run(  # nosec B603 B607
-                ["git", "add", edit.file_path],
+            staged = subprocess.run(  # nosec B603 B607
+                ["git", "add", "--", edit.file_path],
                 cwd=self.workspace_path,
                 capture_output=True,
                 timeout=10,
             )
+            if staged.returncode != 0:
+                logger.warning("Git stage failed (status=%s)", staged.returncode)
+                return None
 
-            # Commit with structured message
+            def reference(namespace: str, value: Any) -> str:
+                if is_opaque_program_reference(value):
+                    return str(value)
+                return opaque_program_reference(namespace, value)
+
+            # The commit message is durable telemetry: retain references, not raw
+            # trace labels, summaries, paths, or source-system identifiers.
             commit_msg = (
-                f"ahe({edit.component_type.value}): {edit.edit_summary[:72]}\n\n"
-                f"Predicted fixes: {', '.join(edit.predicted_fixes[:5])}\n"
-                f"Predicted regressions: {', '.join(edit.predicted_regressions[:5])}\n"
-                f"Evidence: {', '.join(edit.evidence_references[:3])}"
+                f"ahe({edit.component_type.value}): governed component update\n\n"
+                f"Component-ref: {reference('component', edit.file_path)}\n"
+                f"Summary-ref: {reference('summary', edit.edit_summary)}\n"
+                "Predicted-fix-refs: "
+                + ", ".join(reference("task", value) for value in edit.predicted_fixes[:5])
+                + "\nPredicted-regression-refs: "
+                + ", ".join(
+                    reference("task", value) for value in edit.predicted_regressions[:5]
+                )
+                + "\nEvidence-refs: "
+                + ", ".join(
+                    reference("evidence", value)
+                    for value in edit.evidence_references[:3]
+                )
             )
             result = subprocess.run(  # nosec B603 B607
-                ["git", "commit", "-m", commit_msg],
+                [
+                    "git",
+                    "commit",
+                    "--only",
+                    "-m",
+                    commit_msg,
+                    "--",
+                    edit.file_path,
+                ],
                 cwd=self.workspace_path,
                 capture_output=True,
                 text=True,
@@ -829,13 +1083,203 @@ class EvolveAgent:
                     text=True,
                     timeout=5,
                 )
-                return sha_result.stdout.strip()
-            else:
-                logger.warning(f"Git commit failed: {result.stderr}")
+                commit_sha = sha_result.stdout.strip()
+                if sha_result.returncode == 0 and re.fullmatch(
+                    r"[0-9a-f]{40,64}", commit_sha
+                ):
+                    return commit_sha
+                logger.warning("Git commit reference lookup failed")
                 return None
-        except Exception as e:
-            logger.error(f"Git commit exception: {e}")
+            else:
+                logger.warning("Git commit failed (status=%s)", result.returncode)
+                return None
+        except Exception as exc:
+            logger.error("Git commit failed (%s)", type(exc).__name__)
             return None
+
+    @staticmethod
+    def _manifest_persistence_payload(manifest: ChangeManifest) -> dict[str, Any]:
+        """Project an operational manifest into its reference-only durable form."""
+        import json
+        import math
+        import re
+
+        from agent_utilities.prompting.structured import ProgramCompiledState
+
+        from .optimization_backend import (
+            is_opaque_program_reference,
+            opaque_program_reference,
+        )
+
+        def reference(namespace: str, value: Any) -> str:
+            rendered = str(value or "")
+            if is_opaque_program_reference(rendered):
+                return rendered
+            return opaque_program_reference(namespace, rendered or namespace)
+
+        def reference_list(namespace: str, values: Any) -> list[str]:
+            if not isinstance(values, list | tuple):
+                return []
+            return list(
+                dict.fromkeys(reference(namespace, value) for value in values)
+            )[:1_000]
+
+        def finite(value: Any) -> float | None:
+            if value is None or isinstance(value, bool):
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            if math.isfinite(number) and abs(number) <= 1_000_000_000:
+                return number
+            return None
+
+        def timestamp(value: Any) -> str:
+            rendered = str(value or "")
+            return (
+                rendered
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", rendered)
+                else ""
+            )
+
+        persisted_edits: list[dict[str, Any]] = []
+        for edit in manifest.edits[:1_000]:
+            component_ref = edit.metadata.get("component_ref")
+            if not is_opaque_program_reference(component_ref):
+                component_ref = opaque_program_reference("component", edit.file_path)
+            else:
+                component_ref = str(component_ref)
+            row: dict[str, Any] = {
+                "edit_ref": reference("edit", edit.id),
+                "component_type": edit.component_type.value,
+                "component_ref": component_ref,
+                "summary_ref": reference("summary", edit.edit_summary),
+                "predicted_fix_refs": reference_list("task", edit.predicted_fixes),
+                "predicted_regression_refs": reference_list(
+                    "task", edit.predicted_regressions
+                ),
+                "evidence_refs": reference_list(
+                    "evidence", edit.evidence_references
+                ),
+                "timestamp": timestamp(edit.timestamp),
+                "smoke_passed": edit.smoke_passed,
+            }
+            if edit.diff_content:
+                row["diff_ref"] = reference("diff", edit.diff_content)
+            if edit.git_commit_sha:
+                row["commit_ref"] = reference("commit", edit.git_commit_sha)
+            if edit.attribution_signature:
+                row["attribution_ref"] = reference(
+                    "attribution",
+                    json.dumps(
+                        edit.attribution_signature,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    ),
+                )
+            if edit.capability_evidence:
+                row["capability_evidence_refs"] = [
+                    reference(
+                        "capability_evidence",
+                        json.dumps(
+                            item,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            default=str,
+                        ),
+                    )
+                    for item in edit.capability_evidence[:1_000]
+                ]
+
+            metadata: dict[str, Any] = {}
+            for key in ("agent_ref", "component_ref", "proposal_ref"):
+                value = edit.metadata.get(key)
+                if is_opaque_program_reference(value):
+                    metadata[key] = str(value)
+            for key in ("promote", "auto_apply_eligible"):
+                value = edit.metadata.get(key)
+                if isinstance(value, bool):
+                    metadata[key] = value
+            for key in ("baseline_score", "candidate_score"):
+                value = finite(edit.metadata.get(key))
+                if value is not None:
+                    metadata[key] = value
+            trainset_size = edit.metadata.get("trainset_size")
+            if isinstance(trainset_size, int) and not isinstance(trainset_size, bool):
+                metadata["trainset_size"] = min(max(trainset_size, 0), 1_000_000)
+            candidate_hash = str(edit.metadata.get("candidate_version_hash") or "")
+            if re.fullmatch(r"[0-9a-f]{16}", candidate_hash):
+                metadata["candidate_version_hash"] = candidate_hash
+            apply_status = edit.metadata.get("apply_status")
+            if apply_status in {"applied", "proposed", "rejected", "error"}:
+                metadata["apply_status"] = apply_status
+            compiled = edit.metadata.get("program_compiled_state")
+            if compiled is not None:
+                metadata["program_compiled_state"] = (
+                    ProgramCompiledState.model_validate(compiled).model_dump()
+                )
+            if metadata:
+                row["compiled_metadata"] = metadata
+            persisted_edits.append(row)
+
+        payload: dict[str, Any] = {
+            "schema_version": 1,
+            "type": "ChangeManifest",
+            "round_ref": reference("round", manifest.round_id),
+            "parent_round_ref": (
+                reference("round", manifest.parent_round_id)
+                if manifest.parent_round_id
+                else None
+            ),
+            "edits": persisted_edits,
+            "baseline_score": finite(manifest.baseline_score),
+            "predicted_score": finite(manifest.predicted_score),
+            "actual_score": finite(manifest.actual_score),
+            "verification_status": (
+                manifest.verification_status
+                if manifest.verification_status
+                in {"pending", "confirmed", "reverted", "error"}
+                else "error"
+            ),
+            "timestamp": timestamp(manifest.timestamp),
+        }
+        if manifest.verification_result is not None:
+            result = manifest.verification_result
+            payload["verification"] = {
+                "fix_precision": finite(result.fix_precision),
+                "fix_recall": finite(result.fix_recall),
+                "regression_precision": finite(result.regression_precision),
+                "overall_delta": finite(result.overall_delta),
+                "random_baseline_precision": finite(
+                    result.random_baseline_precision
+                ),
+                "attribution_lift": finite(result.attribution_lift),
+                "attribution_reliable": bool(result.attribution_reliable),
+                "recommendation": (
+                    result.recommendation
+                    if result.recommendation
+                    in {"confirm", "partial_revert", "full_revert"}
+                    else ""
+                ),
+                "unexpected_regression_refs": reference_list(
+                    "task", result.unexpected_regressions
+                ),
+                "confirmed_fix_refs": reference_list(
+                    "task", result.confirmed_fixes
+                ),
+                "confirmed_regression_refs": reference_list(
+                    "task", result.confirmed_regressions
+                ),
+                "false_positive_fix_refs": reference_list(
+                    "task", result.false_positive_fixes
+                ),
+                "unattributed_edit_refs": reference_list(
+                    "edit", result.unattributed_edits
+                ),
+            }
+        return payload
 
     async def persist_manifest(self, manifest: ChangeManifest) -> str:
         """Persist a manifest to both .specify/ and the Knowledge Graph.
@@ -846,26 +1290,36 @@ class EvolveAgent:
         Returns:
             The file path where the manifest was saved.
         """
-        # 1. Save to .specify/manifests/
-        file_path = manifest.to_sdd_path(self.workspace_path)
-        with open(file_path, "w") as f:
-            f.write(manifest.model_dump_json(indent=2))
-        logger.info(f"EvolveAgent: Manifest saved to {file_path}")
+        import json
+        import os
+
+        payload = self._manifest_persistence_payload(manifest)
+        serialized = json.dumps(payload, indent=2, ensure_ascii=False)
+        round_ref = str(payload["round_ref"])
+
+        # 1. Save the reference-only record to .specify/manifests/.
+        proposed_path = manifest.to_sdd_path(self.workspace_path)
+        relative_path = os.path.relpath(proposed_path, self.workspace_path)
+        file_path = self._resolve_component_path(relative_path)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(serialized)
+            f.write("\n")
+        logger.info("EvolveAgent: manifest saved to the governed workspace store")
 
         # 2. Save to Knowledge Graph
         if self.knowledge_engine:
             try:
                 self.knowledge_engine.add_memory(
-                    content=manifest.model_dump_json(),
-                    name=f"ChangeManifest {manifest.round_id}",
+                    content=serialized,
+                    name=f"ChangeManifest {round_ref}",
                     category="ahe_manifest",
-                    tags=["ahe", "manifest", manifest.round_id],
+                    tags=["ahe", "manifest", round_ref],
                 )
-                logger.info(
-                    f"EvolveAgent: Manifest saved to Knowledge Graph "
-                    f"(round: {manifest.round_id})"
+                logger.info("EvolveAgent: manifest saved to the Knowledge Graph")
+            except Exception as exc:
+                logger.warning(
+                    "EvolveAgent: KG persistence failed (%s)", type(exc).__name__
                 )
-            except Exception as e:
-                logger.warning(f"EvolveAgent: KG persistence failed: {e}")
 
         return file_path

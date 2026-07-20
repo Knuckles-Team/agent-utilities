@@ -125,8 +125,8 @@ def make_source_id(
     and joined by ``:`` so the whole fleet partitions into predictable named graphs. Empty
     optional parts are dropped. See the schema note above (CONCEPT:AU-KG.ingest.source-id-naming-schema).
 
-    >>> make_source_id("gitlab", "gl.corp", "code")
-    'gitlab:gl.corp:code'
+    >>> make_source_id("gitlab", "gitlab.example.test", "code")
+    'gitlab:gitlab.example.test:code'
     >>> make_source_id("leanix")
     'leanix'
     """
@@ -138,6 +138,14 @@ def make_source_id(
         if seg:
             parts.append(seg)
     return ":".join(p for p in parts if p)
+
+
+def _canonical_source_id(source: object) -> str:
+    parts = [slug_part(part) for part in str(source or "").split(":")]
+    rendered = ":".join(part for part in parts if part)
+    if not rendered or len(rendered) > 253:
+        raise ValueError("Source identifier is invalid")
+    return rendered
 
 
 def source_of(props: dict[str, Any] | None) -> str | None:
@@ -154,7 +162,7 @@ def source_of(props: dict[str, Any] | None) -> str | None:
             continue
         val = str(raw).strip().lower()
         if val and val not in _GENERIC_SOURCES:
-            return val
+            return _canonical_source_id(val)
     return None
 
 
@@ -162,12 +170,12 @@ def graph_uri_for(props: dict[str, Any] | None) -> str | None:
     """Named-graph IRI for ``props`` (``urn:source:<system>``), or ``None`` for the
     default graph when the data carries no real external source."""
     src = source_of(props)
-    return f"{SOURCE_GRAPH_PREFIX}{src}" if src else None
+    return f"{SOURCE_GRAPH_PREFIX}{_canonical_source_id(src)}" if src else None
 
 
 def graph_uri_for_source(source: str) -> str:
     """The named-graph IRI for an explicitly named source (e.g. ``"leanix"``)."""
-    return f"{SOURCE_GRAPH_PREFIX}{source.strip().lower()}"
+    return f"{SOURCE_GRAPH_PREFIX}{_canonical_source_id(source)}"
 
 
 # ── Default-graph guard + coverage (CONCEPT:AU-KG.ingest.default-graph-leak-guard) ──
@@ -301,7 +309,7 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
         return {"supported": False, "reason": "backend has no execute()"}
     try:
         rows = execute(
-            "MATCH (n) RETURN coalesce(n.type, n.label, '?') AS label, "
+            "MATCH (n) RETURN coalesce(n.type, n.node_type, n.label, '?') AS label, "
             "count(n) AS total, count(n.source_system) AS sourced"
         )
     except Exception as exc:  # noqa: BLE001 — coverage is best-effort observability

@@ -305,22 +305,7 @@ class TestCompactedResult:
         assert r1.compaction_id != r2.compaction_id
 
 
-# ---------------------------------------------------------------------------
-# Backward compatibility
-# ---------------------------------------------------------------------------
-
-
-class TestBackwardCompatibility:
-    """Tests that compact_messages in chat_persistence works."""
-
-    def test_compact_messages_wrapper(self):
-        from agent_utilities.core.chat_persistence import compact_messages
-
-        msgs = make_messages(5, content_size=50)
-        result = compact_messages(msgs, max_tokens=8000)
-        assert isinstance(result, list)
-        assert len(result) > 0
-
+class TestLargeMessagePruning:
     def test_prune_large_messages_still_works(self):
         from agent_utilities.core.chat_persistence import prune_large_messages
 

@@ -28,7 +28,7 @@ Assimilated from predict-rlm (`trace.py`, `telemetry.py`, `interpreter.py`). Ext
 | Fatal wiring | `rlm/sandboxes/docker_backend.py` (`DockerSandbox` raises `SandboxFatalError` on dead container/timeout); the router propagates it without escalating (ORCH-1.38) |
 
 ## Wiring (≤3 hops)
-`graph_orchestrate(rlm_run)` → `runner` → `repl`/`telemetry` (≤3 hops).
+`graph_rlm(action="run")` → `runner` → `repl`/`telemetry` (≤3 hops).
 
 ## Research provenance
 predict-rlm `src/predict_rlm/trace.py`, `telemetry.py`, `interpreter.py` (`SandboxFatalError`, `TOOL_CALL_TIMEOUT_SEC`) — verified.

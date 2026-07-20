@@ -21,7 +21,7 @@ import pytest
 
 np = pytest.importorskip("numpy")  # dev/test-only ground-truth reference (KG-2.324)
 
-from agent_utilities.numeric import HAVE_KERNEL, xp  # noqa: E402
+from agent_utilities.numeric import xp  # noqa: E402
 
 
 def _close(a, b, atol=1e-6, rtol=1e-6):
@@ -210,10 +210,6 @@ def test_fallthrough_attrs():
     assert xp.newaxis is np.newaxis
     assert _close(xp.zeros(3), np.zeros(3))
     assert _close(xp.arange(5, dtype=np.float64), np.arange(5, dtype=np.float64))
-
-
-def test_kernel_flag_is_bool():
-    assert isinstance(HAVE_KERNEL, bool)
 
 
 # --------------------------------------------------------------------------- #

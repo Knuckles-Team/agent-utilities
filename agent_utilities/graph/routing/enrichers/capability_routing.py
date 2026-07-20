@@ -8,16 +8,18 @@ SUBSUMPTION (:mod:`agent_utilities.knowledge_graph.ontology.capability_hierarchy
 and tenant/policy filters into ONE candidate-selection call, re-ranked by the
 durable contextual bandit (:mod:`~.durable_outcome_store` /
 :class:`~agent_utilities.knowledge_graph.retrieval.capability_index.CapabilityIndex`),
-with a WHY-eligible explanation attached to every candidate.
+with a WHY-eligible explanation attached to every candidate. The engine is the
+primary candidate-selection and capability-property authority.
 
 :func:`route_capability_request` is deliberately path-agnostic about WHERE the
-candidate pool came from (the engine's own ANN, or the bounded in-process
-fallback cache) — either way the final ranking blends in the SAME learned reward
-EMA, so "the bandit prefers a historically-better tool" holds regardless of which
-tier answered. :func:`explain_routing_eligibility` mirrors that: it reads the
-candidate's properties straight from the engine when the in-process cache never
-saw it (the common case once the engine's native filtered ANN is authoritative),
-falling back to the cache only when the engine is unreachable.
+candidate pool came from (the engine's own ANN, or — only when the engine path
+is unreachable — the bounded in-process fallback cache) — either way the final
+ranking blends in the SAME learned reward EMA, so "the bandit prefers a
+historically-better tool" holds regardless of which tier answered.
+:func:`explain_routing_eligibility` mirrors that: it reads the candidate's
+properties straight from the engine when reachable (the common case, since the
+engine's native filtered ANN is authoritative), falling back to the in-process
+cache only when the engine has no queryable node-properties surface at all.
 """
 
 import logging
@@ -63,7 +65,8 @@ def _resolve_hierarchy(hierarchy: Any | None) -> Any:
 
 
 def _read_reward(engine: Any, entity_id: str) -> float:
-    """Best-effort reward lookup: durable engine property, else the in-process cache."""
+    """Best-effort reward lookup: durable engine property, else the in-process
+    cache, else the neutral statistical prior."""
     try:
         from agent_utilities.knowledge_graph.retrieval.durable_outcome_store import (
             read_capability_reward,
@@ -203,6 +206,7 @@ def route_capability_request(
     required = [required_capability_type]
     raw_candidates: list[tuple[str, float]] = []
     try:
+        from agent_utilities.core.release_channel import active_channel
         from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
             engine_filtered_search,
         )
@@ -218,6 +222,7 @@ def route_capability_request(
             tenant=tenant,
             policy_tags=policy_tags,
             capability_hierarchy=hierarchy,
+            active_release_channel=active_channel(),
         )
         if engine_hits is not None:
             raw_candidates = list(engine_hits)
@@ -241,8 +246,8 @@ def route_capability_request(
         return []
 
     # Durable-bandit re-rank: blend cosine with the calibrated reward EMA, exactly
-    # the formula CapabilityIndex.designate() uses, applied uniformly regardless
-    # of which tier supplied the candidate.
+    # the formula CapabilityIndex.designate() / the engine routing policy uses,
+    # applied uniformly regardless of which tier supplied the candidate.
     blended: list[tuple[str, float, float]] = []
     for nid, cosine in raw_candidates:
         reward = _read_reward(engine, nid)

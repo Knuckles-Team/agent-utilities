@@ -148,15 +148,15 @@ class TestOntologicalIdentifierRegistry:
         assert registry.document_ids[doc_id]["status"] == "registered"
         assert registry.document_ids[doc_id]["synced"] is False
 
-    def test_mark_system_synced(self):
-        """Test marking document as synced to system."""
+    def test_mark_synced(self):
+        """Test marking a document as synced."""
         registry = OntologicalIdentifierRegistry()
         doc_id = "doc_1234567890abcdef1234567890abcdef"
         registry.register_document(doc_id)
 
         # Mark as synced
-        registry.mark_system_synced(doc_id)
-        assert registry.is_system_synced(doc_id) is True
+        registry.mark_synced(doc_id)
+        assert registry.is_fully_synced(doc_id) is True
         assert registry.document_ids[doc_id]["status"] == "fully_synced"
 
     def test_is_fully_synced(self):
@@ -169,19 +169,8 @@ class TestOntologicalIdentifierRegistry:
 
         assert registry.is_fully_synced(doc_id) is False
 
-        registry.mark_system_synced(doc_id)
+        registry.mark_synced(doc_id)
         assert registry.is_fully_synced(doc_id) is True
-
-    def test_is_system_synced(self):
-        """Test checking if document is synced to specific system."""
-        registry = OntologicalIdentifierRegistry()
-        doc_id = "doc_1234567890abcdef1234567890abcdef"
-        registry.register_document(doc_id)
-
-        assert registry.is_system_synced(doc_id) is False
-
-        registry.mark_system_synced(doc_id)
-        assert registry.is_system_synced(doc_id) is True
 
     def test_get_document_info(self):
         """Test getting document information."""
@@ -231,7 +220,7 @@ class TestOntologicalIdentifierRegistry:
 
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1")
+        registry.mark_synced("doc_1")
 
         registered = registry.get_documents_by_status("registered")
         fully_synced = registry.get_documents_by_status("fully_synced")
@@ -242,12 +231,12 @@ class TestOntologicalIdentifierRegistry:
         assert "doc_1" in fully_synced
 
     def test_get_unsynced_documents(self):
-        """Test getting documents not synced to specific system."""
+        """Test getting documents not synced to the graph."""
         registry = OntologicalIdentifierRegistry()
 
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1")
+        registry.mark_synced("doc_1")
 
         unsynced = registry.get_unsynced_documents()
         assert len(unsynced) == 1
@@ -281,7 +270,7 @@ class TestOntologicalIdentifierRegistry:
         # Add some documents
         registry.register_document("doc_1")
         registry.register_document("doc_2")
-        registry.mark_system_synced("doc_1")
+        registry.mark_synced("doc_1")
 
         stats = registry.get_statistics()
         assert stats["total_documents"] == 2

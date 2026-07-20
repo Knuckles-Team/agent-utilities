@@ -23,6 +23,7 @@ from typing import Any
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.security.error_surface import public_error_json
 
 
 def _parse_links(links_json: str) -> list[Any]:
@@ -34,8 +35,8 @@ def _parse_links(links_json: str) -> list[Any]:
         return []
     try:
         raw = json.loads(links_json)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"invalid links_json: {exc}") from exc
+    except (TypeError, ValueError):
+        raise ValueError("invalid links_json") from None
     if not isinstance(raw, list):
         raise ValueError("links_json must decode to a JSON array")
     links: list[OpsCausalLink] = []
@@ -141,8 +142,10 @@ def register_ops_causal_tools(mcp: Any) -> None:
         try:
             links = _parse_links(links_json)
         except ValueError as exc:
-            return json.dumps(
-                {"surface": "ops_causal", "action": action, "error": str(exc)}
+            return public_error_json(
+                exc,
+                code="invalid_request",
+                context={"surface": "ops_causal", "action": action},
             )
 
         if not links and node_id and engine is not None:
@@ -213,8 +216,10 @@ def register_ops_causal_tools(mcp: Any) -> None:
                     }
                 )
         except (ValueError, TypeError) as exc:
-            return json.dumps(
-                {"surface": "ops_causal", "action": action, "error": str(exc)}
+            return public_error_json(
+                exc,
+                code="invalid_request",
+                context={"surface": "ops_causal", "action": action},
             )
 
         return json.dumps(

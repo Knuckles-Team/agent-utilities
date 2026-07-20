@@ -340,13 +340,13 @@ def test_loop_standardize_stage_live_path():
 
 
 def test_kg_server_exposes_standardize_action():
-    """The graph_orchestrate 'standardize' action + enterprise registry are wired."""
+    """The graph_evolution 'standardize' action + enterprise registry are wired."""
     import inspect
 
     from agent_utilities.knowledge_graph.standardization import standards as std_mod
-    from agent_utilities.mcp.tools import analysis_tools
+    from agent_utilities.mcp.tools import evolution_tools
 
-    src = inspect.getsource(analysis_tools)
+    src = inspect.getsource(evolution_tools)
     assert 'action == "standardize"' in src
     assert "run_standardization_pass" in src
     # The enterprise standards registry lives in its dedicated module (the MCP

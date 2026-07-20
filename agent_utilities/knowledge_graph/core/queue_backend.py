@@ -5,6 +5,7 @@
 import collections
 import inspect
 import logging
+import threading
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
@@ -14,17 +15,17 @@ TASK_QUEUE_BACKENDS = ("sqlite", "postgres", "kafka")
 
 
 class TaskQueueUnavailable(RuntimeError):
-    """An EXPLICITLY selected task-queue backend is unreachable at startup.
+    """The configured task-queue authority is unreachable at startup.
 
     CONCEPT:AU-KG.backend.selectable-queue-backend — when an operator pins ``TASK_QUEUE_BACKEND=kafka`` (or
     ``postgres``) the queue is a hard contract: silently degrading to the
     per-host SQLite file would split the fleet's queue into invisible islands.
-    The message always names the endpoint that failed and how to fall back.
+    Diagnostics never expose endpoint identities or silently select another store.
     """
 
 
-def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
-    """Resolve the ingest task-queue choice as ``(backend, explicit)``.
+def resolve_task_queue_backend(config: Any) -> str:
+    """Resolve the one current ingest task-queue authority.
 
     Resolution order (CONCEPT:AU-KG.backend.selectable-queue-backend):
 
@@ -39,35 +40,32 @@ def resolve_task_queue_backend(config: Any) -> tuple[str, bool]:
             raise ValueError(
                 f"TASK_QUEUE_BACKEND={choice!r} is not one of {TASK_QUEUE_BACKENDS}"
             )
-        return choice, True
+        return choice
 
     if getattr(config, "state_db_uri", None):
-        return "postgres", False
-    return "sqlite", False
+        return "postgres"
+    return "sqlite"
 
 
-def create_task_queue(config: Any, fallback_db_path: str) -> tuple["QueueBackend", str]:
+def create_task_queue(config: Any, sqlite_db_path: str) -> tuple["QueueBackend", str]:
     """Build the selected ingest task queue as ``(queue, backend_name)``.
 
     CONCEPT:AU-KG.backend.selectable-queue-backend — the ONE construction path for the durable ingest queue
     (engine startup and the ``--stage-to-queue`` CLI both use it):
 
-    * explicit ``kafka``/``postgres`` → unreachable broker/state-store raises
-      :class:`TaskQueueUnavailable` at startup with the endpoint and the
-      fall-back instructions — never a silent SQLite degrade;
-    * auto / deprecated-alias modes keep the graceful per-host SQLite fallback
-      (zero-infra default preserved).
+    * configured ``kafka``/``postgres`` → unreachable authority raises
+      :class:`TaskQueueUnavailable`; authority never changes at runtime;
+    * with no external state configured, SQLite is selected directly as the
+      self-contained single-host authority.
     """
-    choice, explicit = resolve_task_queue_backend(config)
+    choice = resolve_task_queue_backend(config)
 
     if choice == "kafka":
         from .kafka_queue_backend import KafkaQueueBackend
 
         return (
             KafkaQueueBackend(
-                fallback_db_path=None if explicit else fallback_db_path,
                 bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-                fail_loud=explicit,
                 partitions=int(getattr(config, "kg_tasks_partitions", 6) or 6),
             ),
             "kafka",
@@ -78,24 +76,15 @@ def create_task_queue(config: Any, fallback_db_path: str) -> tuple["QueueBackend
             from .postgres_queue_backend import PostgresTaskQueue
 
             return PostgresTaskQueue(), "postgres"
-        except Exception as e:  # noqa: BLE001 — explicit ⇒ fail loud, auto ⇒ degrade
-            if explicit:
-                raise TaskQueueUnavailable(
-                    "TASK_QUEUE_BACKEND=postgres is explicitly selected but the "
-                    f"state-store Postgres ({getattr(config, 'state_db_uri', None)!r}) "
-                    f"is unavailable: {e}. Fix STATE_DB_URI / the database, or "
-                    "unset TASK_QUEUE_BACKEND (auto) / set it to 'sqlite' to "
-                    "fall back to the per-host queue."
-                ) from e
-            logger.warning(
-                "STATE_DB_URI set but the Postgres task queue is unavailable "
-                "(%s) — falling back to the per-host SQLite queue.",
-                e,
-            )
+        except Exception as e:  # noqa: BLE001 - fail closed at the authority boundary
+            raise TaskQueueUnavailable(
+                "configured Postgres task authority is unavailable "
+                f"(error_type={type(e).__name__})"
+            ) from None
 
     from .engine_tasks import SQLiteTaskQueue
 
-    return SQLiteTaskQueue(fallback_db_path), "sqlite"
+    return SQLiteTaskQueue(sqlite_db_path), "sqlite"
 
 
 class QueueBackend(Protocol):
@@ -103,6 +92,18 @@ class QueueBackend(Protocol):
 
     def put(self, item: dict[str, Any]) -> None:
         """Insert a task item into the queue."""
+        raise RuntimeError("Protocol method called directly")
+
+    def put_many(self, items: list[dict[str, Any]]) -> None:
+        """Insert a batch of task items with one backend delivery barrier."""
+        raise RuntimeError("Protocol method called directly")
+
+    def put_if_below(self, item: dict[str, Any], max_depth: int) -> bool:
+        """Insert ``item`` only while total queue depth is below ``max_depth``.
+
+        ``False`` is an explicit admission rejection. Authority/probe failures
+        raise rather than being mistaken for spare capacity.
+        """
         raise RuntimeError("Protocol method called directly")
 
     def get(self) -> tuple[Any, dict[str, Any]] | None:
@@ -137,11 +138,8 @@ class QueueBackend(Protocol):
         elif backend_type == "kafka":
             from .kafka_queue_backend import KafkaQueueBackend
 
-            fallback_db = kwargs.pop("fallback_db_path", ".tmp/kafka_fallback.db")  # nosec B108
             bootstrap_servers = kwargs.pop("bootstrap_servers", ["localhost:9092"])
-            return KafkaQueueBackend(
-                fallback_db_path=fallback_db, bootstrap_servers=bootstrap_servers
-            )
+            return KafkaQueueBackend(bootstrap_servers=bootstrap_servers, **kwargs)
         else:
             raise ValueError(f"Unknown queue backend type: {backend_type}")
 
@@ -153,6 +151,7 @@ class MemoryQueueBackend(QueueBackend):
         self._tasks: collections.deque[Any] = collections.deque()
         self._staged_graphs: collections.deque[Any] = collections.deque()
         self._counter = 0
+        self._lock = threading.Lock()
         self._connected = False
         self._subscriptions = collections.defaultdict(list)
 
@@ -181,37 +180,57 @@ class MemoryQueueBackend(QueueBackend):
                         h(topic, payload)
 
     def put(self, item: dict[str, Any]) -> None:
-        self._counter += 1
-        self._tasks.append((self._counter, item))
+        self.put_many([item])
+
+    def put_many(self, items: list[dict[str, Any]]) -> None:
+        with self._lock:
+            for item in items:
+                self._counter += 1
+                self._tasks.append((self._counter, item))
+
+    def put_if_below(self, item: dict[str, Any], max_depth: int) -> bool:
+        if max_depth < 1:
+            raise ValueError("max_depth must be positive")
+        with self._lock:
+            if len(self._tasks) >= max_depth:
+                return False
+            self._counter += 1
+            self._tasks.append((self._counter, item))
+            return True
 
     def get(self) -> tuple[Any, dict[str, Any]] | None:
-        if self._tasks:
-            return self._tasks[0]  # Return head without removing (waiting for ack)
-        return None
+        with self._lock:
+            if self._tasks:
+                return self._tasks[0]  # head remains until ack
+            return None
 
     def ack(self, item_id: Any) -> None:
-        # Find and remove by item_id
-        for i, (uid, _) in enumerate(self._tasks):
-            if uid == item_id:
-                del self._tasks[i]
-                break
+        with self._lock:
+            for i, (uid, _) in enumerate(self._tasks):
+                if uid == item_id:
+                    del self._tasks[i]
+                    break
 
     def get_queue_size(self) -> int:
-        return len(self._tasks)
+        with self._lock:
+            return len(self._tasks)
 
     def put_staged_graph(self, job_id: str, nodes: list, edges: list) -> None:
-        self._counter += 1
-        self._staged_graphs.append(
-            (self._counter, job_id, {"nodes": nodes, "edges": edges})
-        )
+        with self._lock:
+            self._counter += 1
+            self._staged_graphs.append(
+                (self._counter, job_id, {"nodes": nodes, "edges": edges})
+            )
 
     def get_staged_graph(self) -> tuple[Any, str, dict[str, Any]] | None:
-        if self._staged_graphs:
-            return self._staged_graphs[0]
-        return None
+        with self._lock:
+            if self._staged_graphs:
+                return self._staged_graphs[0]
+            return None
 
     def ack_staged_graph(self, item_id: Any) -> None:
-        for i, (uid, _, _) in enumerate(self._staged_graphs):
-            if uid == item_id:
-                del self._staged_graphs[i]
-                break
+        with self._lock:
+            for i, (uid, _, _) in enumerate(self._staged_graphs):
+                if uid == item_id:
+                    del self._staged_graphs[i]
+                    break

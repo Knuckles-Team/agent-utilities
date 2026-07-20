@@ -13,6 +13,8 @@ Requires: pip install agent-utilities[postgresql]
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from typing import Any
 
@@ -24,6 +26,14 @@ logger = logging.getLogger(__name__)
 
 # Embedding dimension from env (must match model output)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+def _require_sql_identifier(value: object) -> str:
+    rendered = str(value or "")
+    if not _SQL_IDENTIFIER.fullmatch(rendered):
+        raise ValueError("PostgreSQL identifier is invalid")
+    return rendered
 
 
 def _pool_acquire_timeout_s() -> float:
@@ -66,15 +76,19 @@ class PostgreSQLBackend(GraphBackend):
 
     def __init__(
         self,
-        dsn: str = "postgresql://localhost:5432/agent_utilities",
+        dsn: str,
         graph_name: str = "agent_graph",
         pool_min: int = 2,
         pool_max: int = 10,
         pggraph_schema: str | None = None,
         pool_timeout: float | None = None,
+        tls_profile: str | None = None,
+        tls_profile_ref: str | None = None,
+        tls_profile_config: Mapping[str, Any] | None = None,
+        profile_resolver: Callable[[str], str | None] | None = None,
     ) -> None:
         self._dsn = dsn
-        self._graph_name = graph_name
+        self._graph_name = _require_sql_identifier(graph_name)
         self._pool_min = pool_min
         self._pool_max = pool_max
         # Bound the wait to acquire a connection (CONCEPT:AU-KG.backend.authority-write-tail). The default
@@ -88,10 +102,17 @@ class PostgreSQLBackend(GraphBackend):
         self._pool_timeout = (
             pool_timeout if pool_timeout is not None else _PG_POOL_TIMEOUT_S
         )
-        self._pggraph_schema = pggraph_schema or setting(
-            "GRAPH_PGGRAPH_SCHEMA", "public"
+        self._pggraph_schema = _require_sql_identifier(
+            pggraph_schema or setting("GRAPH_PGGRAPH_SCHEMA", "public")
         )
         self._pool: Any = None
+        self._tls_profile = tls_profile
+        self._tls_profile_ref = tls_profile_ref
+        self._tls_profile_config = (
+            dict(tls_profile_config) if tls_profile_config is not None else None
+        )
+        self._profile_resolver = profile_resolver
+        self._tls_trust: Any = None
         self._known_tables: set[str] = set()
         # Subset of _known_tables carrying the universal node shape (a ``properties``
         # column). A label-less fan-out projects ``properties`` across a UNION, so it
@@ -102,7 +123,7 @@ class PostgreSQLBackend(GraphBackend):
         self._pggraph_available: bool | None = None  # lazy check
         self._pgvector_available: bool | None = None
         self._paradedb_available: bool | None = None
-        logger.info("PostgreSQLBackend initialized (dsn=%s, graph=%s)", dsn, graph_name)
+        logger.info("PostgreSQLBackend initialized")
 
     # ── Connection Pool ─────────────────────────────────────────────
 
@@ -110,6 +131,18 @@ class PostgreSQLBackend(GraphBackend):
         """Lazy pool initialization with retry."""
         if self._pool is not None:
             return self._pool
+        from agent_utilities.core.transport_security import (
+            resolve_configured_tls_profile,
+        )
+
+        self._tls_trust = resolve_configured_tls_profile(
+            "POSTGRES",
+            profile_name=self._tls_profile,
+            profile_ref=self._tls_profile_ref,
+            profile=self._tls_profile_config,
+            resolver=self._profile_resolver,
+        )
+        tls_kwargs = self._tls_trust.psycopg_kwargs()
         try:
             from psycopg_pool import ConnectionPool
 
@@ -122,7 +155,7 @@ class PostgreSQLBackend(GraphBackend):
                 # fast instead of inheriting the 30s default.
                 timeout=self._pool_timeout,
                 open=True,
-                kwargs={"autocommit": False},
+                kwargs={"autocommit": False, **tls_kwargs},
             )
             logger.info(
                 "PostgreSQL connection pool opened (min=%d, max=%d)",
@@ -133,12 +166,21 @@ class PostgreSQLBackend(GraphBackend):
             # Fallback to single connection if pool not installed
             import psycopg
 
-            self._pool = _SingleConnPool(psycopg.connect(self._dsn))
+            try:
+                self._pool = _SingleConnPool(psycopg.connect(self._dsn, **tls_kwargs))
+            except Exception:
+                self._tls_trust.cleanup()
+                self._tls_trust = None
+                raise
             logger.info("PostgreSQL single connection (psycopg_pool not installed)")
+        except Exception:
+            self._tls_trust.cleanup()
+            self._tls_trust = None
+            raise
         return self._pool
 
     @contextmanager
-    def _conn(self):
+    def _conn(self, *, read_only: bool = False):
         """Get a connection from the pool, tenant-scoped before use (AU-P0-5)."""
         pool = self._ensure_pool()
         if isinstance(pool, _SingleConnPool):
@@ -149,6 +191,8 @@ class PostgreSQLBackend(GraphBackend):
             # aborted and EVERY subsequent write (incl. the auto-DDL self-heal's
             # CREATE TABLE + its retry) cascaded "current transaction is aborted".
             try:
+                if read_only:
+                    pool.conn.execute("SET TRANSACTION READ ONLY")
                 self._scope_tenant(pool.conn)
                 yield pool.conn
                 pool.conn.commit()
@@ -164,38 +208,25 @@ class PostgreSQLBackend(GraphBackend):
             # policy retries with bounded backoff (see ``execute``), so the tail
             # is the pool-timeout ceiling, not an unbounded queue wait.
             with pool.connection(timeout=self._pool_timeout) as conn:
+                if read_only:
+                    conn.execute("SET TRANSACTION READ ONLY")
                 self._scope_tenant(conn)
                 yield conn
 
     def _scope_tenant(self, conn: Any) -> None:
         """Set the RLS tenant GUC on a freshly-acquired connection (AU-P0-5).
 
-        ``set_request_tenant`` (the RLS GUC setter, below) existed but nothing
-        ever called it — every pooled connection ran with NO ``app.tenant_id``
-        set at all, which the RLS policy in :func:`rls_statements` treats the
-        same as an *unrestricted* scope (``current_setting(..., true) IS
-        NULL``). This closes that gap: every checkout resolves the ambient
-        tenant from the AU-P0-1 :class:`GraphSession` currency (falling back to
-        the ambient actor) and scopes the connection to it BEFORE the caller's
-        statements run. An unscoped/system caller resolves to ``""`` — the same
-        unrestricted behaviour as before this fix, so nothing regresses.
+        Every checkout resolves the verified ambient :class:`GraphSession` and
+        sets its non-empty tenant before any statement runs. Missing session or
+        tenant authority aborts checkout.
         """
-        tenant: str | None = None
-        try:
-            from ..core.session import current_session
+        from ..core.session import resolve_session
 
-            session = current_session()
-            if session is not None:
-                tenant = session.tenant
-        except Exception:  # noqa: BLE001 — tenant scoping must never break a checkout
-            tenant = None
+        tenant = str(resolve_session().tenant or "").strip()
         if not tenant:
-            try:
-                from agent_utilities.security.brain_context import current_actor
-
-                tenant = current_actor().tenant_id or ""
-            except Exception:  # noqa: BLE001
-                tenant = ""
+            raise PermissionError(
+                "PostgreSQL checkout requires verified tenant authority"
+            )
         self.set_request_tenant(conn, tenant)
 
     # ── Extension Detection ──────────────────────────────────────────
@@ -215,11 +246,8 @@ class PostgreSQLBackend(GraphBackend):
     @property
     def pggraph_available(self) -> bool:
         if self._pggraph_available is None:
-            # The graph extension on the pggraph image is Apache AGE (not an
-            # extension literally named "pggraph"); fall back to the legacy name.
-            self._pggraph_available = self._check_extension(
-                "age"
-            ) or self._check_extension("pggraph")
+            # Apache AGE is the sole supported PostgreSQL property-graph extension.
+            self._pggraph_available = self._check_extension("age")
             if self._pggraph_available:
                 logger.info("graph extension (AGE) detected")
             else:
@@ -258,15 +286,16 @@ class PostgreSQLBackend(GraphBackend):
 
                 # Create node tables
                 for table_def in SCHEMA.nodes:
+                    table_name = _require_sql_identifier(table_def.name)
                     cols = self._translate_columns(table_def.columns)
-                    ddl = f'CREATE TABLE IF NOT EXISTS "{table_def.name}" ({cols})'
+                    ddl = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({cols})'
                     try:
                         cur.execute(ddl)
                     except Exception as e:
                         logger.debug("Table %s DDL error: %s", table_def.name, e)
                         conn.rollback()
                         continue  # don't cache a table whose CREATE failed
-                    self._known_tables.add(table_def.name)
+                    self._known_tables.add(table_name)
 
                 # Create unified edge table
                 cur.execute(
@@ -347,7 +376,10 @@ class PostgreSQLBackend(GraphBackend):
         """
         import re as _re
 
-        name = _re.sub(r"\W+", "_", str(label or "Node")).strip("_") or "Node"
+        name = _re.sub(r"[^A-Za-z0-9_]+", "_", str(label or "Node")).strip("_")
+        if not name or name[0].isdigit():
+            name = f"Node_{name}" if name else "Node"
+        name = _require_sql_identifier(name)
         if not force and name in self._known_tables:
             return True
         ddl = (
@@ -379,9 +411,14 @@ class PostgreSQLBackend(GraphBackend):
         """
         import re as _re
 
-        t = _re.sub(r"\W+", "_", str(table or "")).strip("_")
-        c = _re.sub(r"\W+", "_", str(column or "")).strip("_")
+        t = _re.sub(r"[^A-Za-z0-9_]+", "_", str(table or "")).strip("_")
+        c = _re.sub(r"[^A-Za-z0-9_]+", "_", str(column or "")).strip("_")
         if not t or not c:
+            return False
+        try:
+            t = _require_sql_identifier(t)
+            c = _require_sql_identifier(c)
+        except ValueError:
             return False
         try:
             with self._conn() as conn:
@@ -441,7 +478,7 @@ class PostgreSQLBackend(GraphBackend):
     # a per-session GUC ``app.tenant_id``:
     #
     #   * set to an org id  → that org's rows + commons (tenant_id '' / NULL)
-    #   * unset or empty    → unrestricted (the platform-admin / system path)
+    #   * unset or empty    → no rows (fail closed)
     #
     # ``FORCE ROW LEVEL SECURITY`` is required because the app's DB role usually
     # owns the tables (owners otherwise bypass RLS).
@@ -452,16 +489,17 @@ class PostgreSQLBackend(GraphBackend):
         """Idempotent DDL enabling tenant-isolation RLS on one table.
 
         Pure (no I/O) so it is unit-testable and reusable by the migration. The
-        policy admits the row when it belongs to the session's tenant, is commons
-        (empty/NULL tenant), or no tenant scope is set (privileged/legacy path).
+        policy admits the row when a non-empty session tenant is set and the row
+        belongs to that tenant or to the shared commons partition.
         """
+        table = _require_sql_identifier(table)
         guc = PostgreSQLBackend.RLS_GUC
         q = f'"{table}"'
         cond = (
-            f"(tenant_id = current_setting('{guc}', true) "
-            f"OR tenant_id IS NULL OR tenant_id = '' "
-            f"OR current_setting('{guc}', true) IS NULL "
-            f"OR current_setting('{guc}', true) = '')"
+            f"(current_setting('{guc}', true) IS NOT NULL "
+            f"AND current_setting('{guc}', true) <> '' "
+            f"AND (tenant_id = current_setting('{guc}', true) "
+            f"OR tenant_id IS NULL OR tenant_id = ''))"
         )
         return [
             f"ALTER TABLE {q} ADD COLUMN IF NOT EXISTS tenant_id TEXT",
@@ -476,10 +514,13 @@ class PostgreSQLBackend(GraphBackend):
     def tenant_guc_sql(tenant_id: str | None) -> str:
         """The ``SET LOCAL app.tenant_id`` statement for a request's tenant.
 
-        Empty/None → ``''`` (no restriction, privileged path). The value is
-        single-quote-escaped; callers pass a server-minted tenant id.
+        Empty/None is rejected. The value is single-quote-escaped; callers pass
+        a server-minted tenant id.
         """
-        safe = (tenant_id or "").replace("'", "''")
+        tenant = str(tenant_id or "").strip()
+        if not tenant:
+            raise ValueError("PostgreSQL RLS tenant must be non-empty")
+        safe = tenant.replace("'", "''")
         return f"SET LOCAL {PostgreSQLBackend.RLS_GUC} = '{safe}'"
 
     def enable_row_level_security(self) -> int:
@@ -487,53 +528,37 @@ class PostgreSQLBackend(GraphBackend):
 
         Idempotent and self-contained (run once after ``create_schema`` or via
         the ``deploy/postgres/tenant_rls.sql`` migration). Returns the number of
-        tables secured. A per-table failure is logged and skipped so a single
-        problem table never aborts the whole rollout.
+        tables secured. Any failure aborts the transaction; partially secured
+        schemas are not accepted.
         """
         tables = sorted(self._known_tables | {"kg_edges"})
         secured = 0
         with self._conn() as conn:
-            for table in tables:
-                try:
+            try:
+                for table in tables:
                     with conn.cursor() as cur:
                         for stmt in self.rls_statements(table):
                             cur.execute(stmt)
-                    conn.commit()
                     secured += 1
-                except Exception as e:  # noqa: BLE001 — skip the bad table, keep going
-                    logger.warning("RLS enable failed for %s: %s", table, e)
-                    conn.rollback()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
         logger.info("Row-level security enabled on %d tables", secured)
         return secured
 
     def set_request_tenant(self, conn: Any, tenant_id: str | None) -> None:
         """Scope a connection/transaction to ``tenant_id`` via the RLS GUC.
 
-        Fail-CLOSED for a real tenant (AU-P0-5): pooled connections are reused,
-        so if a ``SET app.tenant_id`` for a NON-EMPTY tenant fails and we
-        swallowed it, ``_conn()`` would hand the caller a connection still
-        carrying the PREVIOUS checkout's GUC — a silent cross-tenant leak. So
-        a failed SET for a non-empty tenant RAISES (aborting the checkout)
-        rather than serving a stale/wrong tenant context.
-
-        Fail-open only for the empty/``None`` baseline (``""`` = the documented
-        unrestricted/system path): there is no tenant to leak *into*, and this
-        preserves the historical best-effort behaviour for unscoped callers.
+        Pooled connections are reused, so any missing tenant or failed SET
+        raises rather than serving a stale/wrong tenant context. Fail-closed
+        (AU-P0-5): the sole caller (:meth:`_scope_tenant`) already guarantees a
+        non-empty, verified tenant before reaching here, so any failure here —
+        including an empty tenant — aborts the checkout rather than risking a
+        connection that silently keeps a previous checkout's GUC.
         """
-        try:
-            with conn.cursor() as cur:
-                cur.execute(self.tenant_guc_sql(tenant_id))
-        except Exception as e:
-            if tenant_id:
-                logger.warning(
-                    "set_request_tenant failed for tenant %r — aborting checkout "
-                    "to avoid serving a stale tenant context: %s",
-                    tenant_id,
-                    e,
-                )
-                raise
-            # Empty/system baseline only: no tenant to leak into, stay best-effort.
-            logger.debug("set_request_tenant (unscoped) failed: %s", e)
+        with conn.cursor() as cur:
+            cur.execute(self.tenant_guc_sql(tenant_id))
 
     def _translate_columns(self, columns: dict[str, str]) -> str:
         """Translate schema column definitions to PostgreSQL DDL."""
@@ -547,6 +572,7 @@ class PostgreSQLBackend(GraphBackend):
         }
         parts = []
         for col_name, col_type in columns.items():
+            col_name = _require_sql_identifier(col_name)
             if col_type.startswith("FLOAT["):
                 # Embedding column → pgvector
                 dim = col_type.split("[")[1].rstrip("]")
@@ -619,6 +645,7 @@ class PostgreSQLBackend(GraphBackend):
 
     def _get_text_columns(self, cur: Any, table: str) -> list[str]:
         """Get TEXT columns for a table (for pgGraph search registration)."""
+        table = _require_sql_identifier(table)
         target = ("name", "description", "content", "summary", "type", "status")
         try:
             cur.execute(
@@ -627,13 +654,22 @@ class PostgreSQLBackend(GraphBackend):
                 "AND column_name = ANY(%s)",
                 (table, list(target)),
             )
-            return [row[0] for row in cur.fetchall()]
+            return [
+                _require_sql_identifier(row[0])
+                for row in cur.fetchall()
+                if _SQL_IDENTIFIER.fullmatch(str(row[0] or ""))
+            ]
         except Exception:
             return []
 
     # ── Cypher Execution (Transpiled to SQL) ─────────────────────────
 
-    def _try_global_edge_count(self, query: str) -> tuple[bool, list[dict[str, Any]]]:
+    def _try_global_edge_count(
+        self,
+        query: str,
+        *,
+        read_only: bool = False,
+    ) -> tuple[bool, list[dict[str, Any]]]:
         """Serve a *fully unanchored* edge count from ``kg_edges``.
 
         Handles ``MATCH ()-[r]->() RETURN count(r)`` and its named-but-label-free
@@ -661,7 +697,7 @@ class PostgreSQLBackend(GraphBackend):
         alias = m.group(1) or "count"
         rel_type = _re.search(r"-\s*\[\s*\w*\s*:\s*(\w+)", q)
         try:
-            with self._conn() as conn:
+            with self._conn(read_only=read_only) as conn:
                 with conn.cursor() as cur:
                     if rel_type:
                         cur.execute(
@@ -766,6 +802,37 @@ class PostgreSQLBackend(GraphBackend):
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
         """Execute a Cypher query by transpiling to SQL."""
+        return self._execute_cypher(
+            query,
+            params,
+            include_epistemic=include_epistemic,
+            read_only=False,
+        )
+
+    def execute_read(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        *,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Execute Cypher inside a PostgreSQL READ ONLY transaction."""
+        return self._execute_cypher(
+            query,
+            params,
+            include_epistemic=include_epistemic,
+            read_only=True,
+        )
+
+    def _execute_cypher(
+        self,
+        query: str,
+        params: dict[str, Any] | None,
+        *,
+        include_epistemic: bool,
+        read_only: bool,
+    ) -> list[dict[str, Any]]:
+        """Transpile Cypher and execute under the selected server transaction."""
         if include_epistemic:
             # CONCEPT:AU-KB-CURRENCY (Seam 1) — no id-seeded epistemic-envelope
             # primitive on this backend; degrade to ``[]`` per the ABC contract.
@@ -786,16 +853,14 @@ class PostgreSQLBackend(GraphBackend):
 
         # Unanchored relationship count (``MATCH ()-[r]->() RETURN count(r)``) has
         # no node anchor for the transpiler to plan from → it returns UNKNOWN/[].
-        # This is the global edge metric the tiered backend routes here, so answer
+        # This is the global edge metric a PostgreSQL mirror answers here, so answer
         # it directly from ``kg_edges`` (the durable source of truth for edges).
         # (CONCEPT:AU-KG.query.vendor-agnostic-traversal P1 — durable edge reads.)
-        handled, rows = self._try_global_edge_count(query)
+        handled, rows = self._try_global_edge_count(query, read_only=read_only)
         if handled:
             return rows
 
-        tq = transpile(
-            query, params, self._known_tables, node_tables=(self._node_tables or None)
-        )
+        tq = transpile(query, params, self._known_tables, node_tables=self._node_tables)
 
         if tq.query_type == QueryType.UNKNOWN:
             logger.debug("Skipping unknown Cypher pattern: %.120s", query)
@@ -808,7 +873,7 @@ class PostgreSQLBackend(GraphBackend):
             nonlocal attempts_used
             attempts_used += 1
             try:
-                with self._conn() as conn:
+                with self._conn(read_only=read_only) as conn:
                     with conn.cursor() as cur:
                         cur.execute(tq.sql, tq.params)
 
@@ -850,6 +915,8 @@ class PostgreSQLBackend(GraphBackend):
 
                         return []
             except Exception as e:
+                if read_only:
+                    raise
                 if self._is_lock_contention(e) and attempts_used < max_retries:
                     logger.warning("PG locked, retrying (attempt %d)", attempts_used)
                     raise PostgresLockContentionError(str(e)) from e
@@ -922,7 +989,7 @@ class PostgreSQLBackend(GraphBackend):
                                 query,
                                 params,
                                 self._known_tables,
-                                node_tables=(self._node_tables or None),
+                                node_tables=self._node_tables,
                             )
                             if tq.query_type == QueryType.UNKNOWN:
                                 continue
@@ -971,14 +1038,18 @@ class PostgreSQLBackend(GraphBackend):
         embedding_tables = self._get_embedding_tables()
 
         try:
+            from psycopg import sql
+
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     for tbl in embedding_tables:
                         try:
                             cur.execute(
-                                f"SELECT *, 1 - (embedding <=> %s::vector) AS _similarity "
-                                f'FROM "{tbl}" WHERE embedding IS NOT NULL '
-                                f"ORDER BY embedding <=> %s::vector LIMIT %s",  # nosec B608
+                                sql.SQL(
+                                    "SELECT *, 1 - (embedding <=> %s::vector) AS _similarity "
+                                    "FROM {} WHERE embedding IS NOT NULL "
+                                    "ORDER BY embedding <=> %s::vector LIMIT %s"
+                                ).format(sql.Identifier(tbl)),
                                 (embedding_str, embedding_str, n_results),
                             )
                             cols = [d.name for d in cur.description]
@@ -1016,29 +1087,34 @@ class PostgreSQLBackend(GraphBackend):
         ]
 
         try:
+            from psycopg import sql
+
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     for tbl in text_tables:
                         try:
                             if self.paradedb_available:
                                 cur.execute(
-                                    f"""SELECT *, paradedb.rank_bm25(id) AS _score
-                                    FROM "{tbl}"
-                                    WHERE "{tbl}" @@@ paradedb.parse(%s)
-                                    ORDER BY _score DESC LIMIT %s""",  # nosec B608
+                                    sql.SQL(
+                                        "SELECT *, paradedb.rank_bm25(id) AS _score "
+                                        "FROM {} WHERE {} @@@ paradedb.parse(%s) "
+                                        "ORDER BY _score DESC LIMIT %s"
+                                    ).format(sql.Identifier(tbl), sql.Identifier(tbl)),
                                     (query, n_results),
                                 )
                             else:
                                 # Native FTS fallback
                                 cur.execute(
-                                    f"""SELECT *, ts_rank(
-                                        to_tsvector('english', COALESCE(name,'') || ' ' || COALESCE(description,'') || ' ' || COALESCE(content,'')),
-                                        plainto_tsquery('english', %s)
-                                    ) AS _score
-                                    FROM "{tbl}"
-                                    WHERE to_tsvector('english', COALESCE(name,'') || ' ' || COALESCE(description,'') || ' ' || COALESCE(content,''))
-                                        @@ plainto_tsquery('english', %s)
-                                    ORDER BY _score DESC LIMIT %s""",  # nosec B608
+                                    sql.SQL(
+                                        "SELECT *, ts_rank("
+                                        "to_tsvector('english', COALESCE(name,'') || ' ' || "
+                                        "COALESCE(description,'') || ' ' || COALESCE(content,'')), "
+                                        "plainto_tsquery('english', %s)) AS _score FROM {} "
+                                        "WHERE to_tsvector('english', COALESCE(name,'') || ' ' || "
+                                        "COALESCE(description,'') || ' ' || COALESCE(content,'')) "
+                                        "@@ plainto_tsquery('english', %s) "
+                                        "ORDER BY _score DESC LIMIT %s"
+                                    ).format(sql.Identifier(tbl)),
                                     (query, query, n_results),
                                 )
                             cols = [d.name for d in cur.description]
@@ -1148,7 +1224,7 @@ class PostgreSQLBackend(GraphBackend):
                         dict(zip(cols, row, strict=False)) for row in cur.fetchall()
                     ]
         except Exception as e:
-            logger.error("pgGraph shortest_path error: %s", e)
+            logger.error("pgGraph shortest_path failed (%s)", type(e).__name__)
             return []
 
     def graph_search(
@@ -1164,25 +1240,34 @@ class PostgreSQLBackend(GraphBackend):
         try:
             with self._conn() as conn:
                 with conn.cursor() as cur:
-                    tbl_clause = (
-                        f"table_filter := '{self._pggraph_schema}.{table_filter}'::regclass,"
-                        if table_filter
-                        else ""
-                    )
-                    cur.execute(
-                        f"""
-                        SELECT * FROM graph.search(
-                            property_key := %s,
-                            property_value := %s,
-                            {tbl_clause}
-                            mode := 'contains',
-                            case_sensitive := false,
-                            max_rows := %s,
-                            hydrate := true
-                        )
-                    """,  # nosec B608
-                        (property_key, property_value, max_rows),
-                    )
+                    values: list[Any] = [property_key, property_value]
+                    if table_filter:
+                        table_filter = _require_sql_identifier(table_filter)
+                        values.append(f"{self._pggraph_schema}.{table_filter}")
+                        statement = """
+                            SELECT * FROM graph.search(
+                                property_key := %s,
+                                property_value := %s,
+                                table_filter := %s::regclass,
+                                mode := 'contains',
+                                case_sensitive := false,
+                                max_rows := %s,
+                                hydrate := true
+                            )
+                        """
+                    else:
+                        statement = """
+                            SELECT * FROM graph.search(
+                                property_key := %s,
+                                property_value := %s,
+                                mode := 'contains',
+                                case_sensitive := false,
+                                max_rows := %s,
+                                hydrate := true
+                            )
+                        """
+                    values.append(max_rows)
+                    cur.execute(statement, values)
                     cols = [d.name for d in cur.description]
                     return [
                         dict(zip(cols, row, strict=False)) for row in cur.fetchall()
@@ -1269,6 +1354,9 @@ class PostgreSQLBackend(GraphBackend):
                 self._pool.close()
             self._pool = None
             logger.info("PostgreSQL connection pool closed")
+        if self._tls_trust is not None:
+            self._tls_trust.cleanup()
+            self._tls_trust = None
 
     def health_check(self) -> bool:
         """Check database connectivity."""
@@ -1347,9 +1435,10 @@ class PostgreSQLBackend(GraphBackend):
                     # ``not known_tables`` behavior). Otherwise semantic_search
                     # silently finds 0 tables. (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
                     tables = [
-                        r[0]
+                        _require_sql_identifier(r[0])
                         for r in cur.fetchall()
-                        if not self._known_tables or r[0] in self._known_tables
+                        if _SQL_IDENTIFIER.fullmatch(str(r[0] or ""))
+                        and (not self._known_tables or r[0] in self._known_tables)
                     ]
         except Exception:
             pass  # nosec B110

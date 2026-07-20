@@ -1,0 +1,170 @@
+connector: stirlingpdf-agent
+ontology_source: stirlingpdf
+schema_version: '1'
+resources:
+- name: PdfOperation
+  label: PDF Operation
+  id_prefix: pdfoperation
+  relations:
+  - name: appliedWatermark
+    label: applied watermark
+    target: Watermark
+    lpg_rel_type: ''
+  - name: hasInput
+    label: has input
+    target: owl:Thing
+    lpg_rel_type: ''
+  - name: partOfPipeline
+    label: part of pipeline
+    target: PdfPipeline
+    lpg_rel_type: ''
+  - name: performedBy
+    label: performed by
+    target: Person
+    lpg_rel_type: ''
+  - name: produced
+    label: produced
+    target: AssetOccurrence
+    lpg_rel_type: ''
+  - name: usedTool
+    label: used tool
+    target: PdfTool
+    lpg_rel_type: ''
+- name: PdfPipeline
+  label: PDF Pipeline
+  id_prefix: pdfpipeline
+  relations: []
+- name: PdfTool
+  label: PDF Tool
+  id_prefix: pdftool
+  relations: []
+- name: Watermark
+  label: Watermark
+  id_prefix: watermark
+  relations: []
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    pdf_tool: name
+  title_field:
+    pdf_tool: name
+  text_field:
+    pdf_tool: name
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  PdfOperation:
+    ontology_class: null
+    fields:
+      actionName: xsd:string
+      category: xsd:string
+      endpoint: xsd:string
+      mimeType: xsd:string
+      opacity: xsd:string
+      rotation: xsd:string
+      sizeBytes: xsd:integer
+      status: xsd:string
+      watermarkText: xsd:string
+      watermarkType: xsd:string
+  PdfPipeline:
+    ontology_class: null
+    fields:
+      actionName: xsd:string
+      category: xsd:string
+      endpoint: xsd:string
+      mimeType: xsd:string
+      opacity: xsd:string
+      rotation: xsd:string
+      sizeBytes: xsd:integer
+      status: xsd:string
+      watermarkText: xsd:string
+      watermarkType: xsd:string
+  PdfTool:
+    ontology_class: Tool
+    fields:
+      actionName: xsd:string
+      category: xsd:string
+      endpoint: xsd:string
+      mimeType: xsd:string
+      opacity: xsd:string
+      rotation: xsd:string
+      sizeBytes: xsd:integer
+      status: xsd:string
+      watermarkText: xsd:string
+      watermarkType: xsd:string
+  Watermark:
+    ontology_class: null
+    fields:
+      actionName: xsd:string
+      category: xsd:string
+      endpoint: xsd:string
+      mimeType: xsd:string
+      opacity: xsd:string
+      rotation: xsd:string
+      sizeBytes: xsd:integer
+      status: xsd:string
+      watermarkText: xsd:string
+      watermarkType: xsd:string
+sync:
+- preset: stirlingpdf-tools
+  server: stirlingpdf-agent
+  tool: stirlingpdf_ingest_tools
+  action: get
+  records_path: actions
+  id_field: name
+  title_field: name
+  text_field: name
+  updated_field: null
+  pagination: null
+  doc_type: pdf_tool
+  tool_schema_sha256: 4ac4f5eebe5fa6a2b385dccda4fd2adfe46b52b50586df9f24b2669d6ab9c7d4
+  raw:
+    server: stirlingpdf-agent
+    tool: stirlingpdf_ingest_tools
+    action: get
+    records_path: actions
+    id_field: name
+    title_field: name
+    text_field: name
+    doc_type: pdf_tool
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - stirlingpdf_agent/connectors/mcp_source_presets.json
+  - stirlingpdf_agent/connectors/tool_schema_fingerprints.json
+  - stirlingpdf_agent/ontology/stirlingpdf.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: c1d760ce65f0b63f92c9f0ac12c78be258154c6e4bca9eda7daee806db9ca564
+    triple_count: 71
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: Ki92NllnG_nLS_Bx7fAybdiY0eC0qehe0r8oNAqGlZhUADkGnyV8dgmUQLvW6AZ3zUJ8226Aa520ibtvAe9_Bg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'derivedFrom' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.PdfOperation.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PdfPipeline.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.PdfTool.ontology_class = 'Tool' [DRAFT \u2014 nearest hub-canonical-class-by-name heuristic\
+  \ (D16 residue; human sign-off required before use)] \u2014 verify manually before relying on this crosswalk\
+  \ for reasoning/joins."
+- "schema_mappings.Watermark.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."

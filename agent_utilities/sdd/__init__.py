@@ -298,12 +298,13 @@ class SDDManager:
 
         query = (
             "MERGE (a:SDDArtifact {id: $id}) "
-            "SET a.type = $type, a.name = $name, a.last_updated = timestamp() "
+            "SET a.node_type = $node_type, a.name = $name, "
+            "a.last_updated = timestamp() "
             "RETURN a.id"
         )
         props = {
             "id": f"sdd:{artifact_type}:{name}",
-            "type": artifact_type,
+            "node_type": artifact_type,
             "name": name,
         }
         with contextlib.suppress(Exception):

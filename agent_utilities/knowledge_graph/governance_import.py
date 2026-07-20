@@ -124,7 +124,7 @@ class GovernanceImporter:
             try:
                 return [
                     (
-                        str((e or {}).get("type") or (e or {}).get("rel_type") or ""),
+                        str((e or {}).get("relationship") or ""),
                         t,
                     )
                     for _s, t, e in graph.out_edges(node_id, data=True)
@@ -204,7 +204,7 @@ class GovernanceImporter:
             }
 
         def _is_fn(props: dict[str, Any]) -> bool:
-            return str(props.get("type") or "").endswith("EPCFunction")
+            return str(props.get("node_type") or "").endswith("EPCFunction")
 
         tasks, flows = self._walk_sequence(children, {"flowsTo"}, is_executable=_is_fn)
         return self._compile_and_store(
@@ -229,7 +229,7 @@ class GovernanceImporter:
             }
 
         def _is_behavior(props: dict[str, Any]) -> bool:
-            t = str(props.get("type") or "")
+            t = str(props.get("node_type") or "")
             return t in (
                 "BusinessProcess",
                 "BusinessFunction",
@@ -427,7 +427,7 @@ def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | No
         try:
             for nid, data in graph.nodes(data=True):
                 if (
-                    str(data.get("type") or "") == "WorkflowDefinition"
+                    str(data.get("node_type") or "") == "WorkflowDefinition"
                     and data.get("name") == name
                 ):
                     wf_id = nid
@@ -454,9 +454,7 @@ def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | No
         try:
             for _s, tgt, edata in graph.out_edges(wf_id, data=True):
                 if (
-                    str(
-                        (edata or {}).get("type") or (edata or {}).get("rel_type") or ""
-                    )
+                    str((edata or {}).get("relationship") or "")
                     == "HAS_STEP"
                 ):
                     d = dict(graph.nodes[tgt])

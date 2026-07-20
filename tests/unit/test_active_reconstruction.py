@@ -2,7 +2,7 @@
 
 Unit tests for the dependency-injected reconstruction walk plus a LIVE-PATH test
 that drives it through the real ``entity_context`` provider / context plane — the
-way ``graph_analyze action=explain target="entity:why"`` reaches it.
+way ``graph_explain action=explain target="entity:why"`` reaches it.
 """
 
 from __future__ import annotations

@@ -36,9 +36,28 @@ class _FakeEngine:
 @pytest.fixture(autouse=True)
 def _reset_registry():
     saved = kg_server._CONNECTION_REGISTRY
+    saved_session = kg_server._PROCESS_SESSION
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.security.brain_context import ActorContext, ActorType
+
+    actor = ActorContext(
+        actor_id="test-service",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    kg_server._PROCESS_SESSION = GraphSession(
+        actor=actor,
+        tenant="test-tenant",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        policy_version="test-policy",
+        audience="test-audience",
+    )
     kg_server._CONNECTION_REGISTRY = None
     yield
     kg_server._CONNECTION_REGISTRY = saved
+    kg_server._PROCESS_SESSION = saved_session
 
 
 async def test_unknown_target_is_reported_via_registry():
@@ -140,6 +159,52 @@ async def test_store_memory_accepts_raw_content_string(monkeypatch):
     assert recorded["memory_type"] == "episodic"
     assert recorded["tags"] == ["bench"]
     assert recorded["agent_id"] == "bench-probe"
+
+
+async def test_recall_media_reads_only_current_asset_occurrences():
+    queries: list[str] = []
+
+    class _MediaEngine(_FakeEngine):
+        def query_cypher(self, cypher, params=None, as_of=None):
+            queries.append(cypher)
+            return [{"occurrence_id": "occurrence:1", "digest": "sha256:opaque"}]
+
+    engine = _MediaEngine("default")
+    kg_server._CONNECTION_REGISTRY = ConnectionRegistry(
+        default_engine_provider=lambda: engine
+    )
+    kg_server.ensure_tools_registered()
+
+    payload = json.loads(
+        await kg_server._execute_tool(
+            "graph_write", action="recall_media", node_id="message:1"
+        )
+    )
+
+    assert payload["occurrences"][0]["occurrence_id"] == "occurrence:1"
+    assert len(queries) == 1
+    assert "AssetOccurrence" in queries[0]
+    assert "MediaAsset" not in queries[0]
+
+
+async def test_recall_media_rejects_non_opaque_filter_before_query():
+    engine = _FakeEngine("default")
+    kg_server._CONNECTION_REGISTRY = ConnectionRegistry(
+        default_engine_provider=lambda: engine
+    )
+    kg_server.ensure_tools_registered()
+
+    payload = json.loads(
+        await kg_server._execute_tool(
+            "graph_write",
+            action="recall_media",
+            node_id="message' OR true //",
+        )
+    )
+
+    assert payload["action"] == "recall_media"
+    assert payload["error"]["code"] == "invalid_request"
+    assert "message' OR true" not in json.dumps(payload)
 
 
 class _CASBackend(_FakeBackend):

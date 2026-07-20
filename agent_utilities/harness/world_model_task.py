@@ -241,7 +241,7 @@ def specialize_world_model_from_engine(
 
         try:
             engine.add_node(
-                f"sai_factory_cycle:{uuid.uuid4().hex[:12]}",
+                f"sai_factory_cycle:{uuid.uuid4().hex}",
                 "SaiFactoryCycle",
                 properties={
                     "task_id": task.task_id,

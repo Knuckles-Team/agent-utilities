@@ -27,8 +27,8 @@ This module provides:
 The gate is wired into the live KG-driven specialist designation path
 (``graph/routing/enrichers/capability_designation.py``): callable nodes tagged
 with a ``release_channel`` property that is not visible on the active channel are
-excluded from the designation index — so channel actually filters what an agent
-can be routed to, not merely stored as metadata.
+excluded from the engine-native ANN candidate set — so channel actually filters
+what an agent can be routed to, not merely stored as metadata.
 """
 
 import logging

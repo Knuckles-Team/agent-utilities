@@ -72,9 +72,9 @@ class PydanticAICompleter:
     """A :class:`Completer` backed by a pydantic-ai ``Agent`` (live LLM)."""
 
     async def complete(self, system: str, user: str, *, model_id: str) -> Completion:
-        from pydantic_ai import Agent
+        from agent_utilities.core.contextual_model import create_context_agent
 
-        agent = Agent(model=model_id, system_prompt=system)
+        agent = create_context_agent(model=model_id, system_prompt=system)
         res = await agent.run(user)
         return Completion(text=str(res.output), tokens=_usage_tokens(res))
 

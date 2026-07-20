@@ -1,0 +1,14 @@
+{
+  "format": "agent-utilities-local-module-closure-v1",
+  "sources": {
+    "ard": "3ad474b96eb9b2bf1689ced6be2ac7529cfbe4421df6b27713dec292c7012488",
+    "database": "4e130a66e310684deed02d6f31adef6b3091c12a0083ce661b6e8258a14111f5",
+    "external_graph": "e8c0da6dc1f94c9b67056e901d3757a3eb4bb3a349bbd385ff1d4de04cf4afee",
+    "filesystem": "1d009f56d4851af1cc00c5ecca0b8ff0544d5f3edd86ccf73c22b8d775f2147f",
+    "graphql_document": "f5f407244c88fe0811e758c8b1effbf90fb9359c8dcec16414ec3b23f5c21d8c",
+    "reader": "71a1cfc864c703e236bfa3cfcdc2668d77556d954ff1f25150344397cbafc5c3",
+    "rest": "a343206d470167506b2311fbafdba7aaafcb885863465b3807ba895995288817",
+    "rss": "3bd34ca603760a58d4f2c304bfda1747f47783e59cfbcaa1bea87bdf6147a795",
+    "web": "e34885f4ea1c1fbb6b1d89dc3fc59cc0cd65a9a7e5263fafba4d20e198cf453c"
+  }
+}

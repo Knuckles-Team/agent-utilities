@@ -1,8 +1,11 @@
 #!/usr/bin/python
-"""SHACL Ingestion Gate Pipeline Phase (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
+"""Advisory SHACL quarantine phase (CONCEPT:EG-KG.storage.nonblocking-checkpoint).
 
-Runs ``pyshacl.validate`` against the bundled governance SHACL shapes
-*before* the commit/persist phase (``sync``).  Nodes whose focus-node
+This in-memory pipeline phase classifies invalid candidate nodes before ``sync``
+so operators can inspect a quarantine projection. The authoritative ingestion
+boundary independently invokes Epistemic Graph's native ``ShaclValidate`` method
+and fails closed before applying any ChangeEnvelope; this phase is not a second
+security authority. Nodes whose focus-node
 shape constraints are violated are **quarantined** rather than committed
 as their declared type:
 
@@ -72,24 +75,24 @@ def _class_iri(node_type: str) -> str:
     return cleaned[:1].upper() + cleaned[1:]
 
 
-def _data_graph_from_engine_triples(graph: Any) -> Any | None:
+def _data_graph_from_engine_rdf(graph: Any) -> Any | None:
     """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
-    Routes the SHACL *graph source* to the engine: pulls ``[s, p, o]`` triples from
-    the engine's native ``get_triples`` op (one round-trip over the live graph) and
-    maps them into the kg# namespace rdflib data graph SHACL validates. Returns
+    Routes the SHACL *graph source* to the engine: pulls the canonical N-Triples
+    document from ``GetRdf`` (one round-trip over the live graph) and parses it
+    without datatype/language loss. Returns
     ``None`` when the engine/op is unavailable so the caller falls back to per-node
-    iteration of the LPG. pyshacl remains the validator (the engine has no native
-    SHACL method); only the data the validator sees now comes from the engine.
+    iteration of the LPG. PySHACL is used only for this advisory quarantine view;
+    the native engine validator remains authoritative at materialization time.
     """
-    get_triples = getattr(graph, "get_triples", None)
-    if get_triples is None:
+    get_rdf = getattr(graph, "get_rdf", None)
+    if get_rdf is None:
         return None
     try:
-        triples = get_triples()
+        ntriples = get_rdf()
     except Exception:  # noqa: BLE001 -- engine/op unavailable -> caller falls back
         return None
-    if not triples:
+    if not ntriples:
         return None
 
     import rdflib
@@ -100,20 +103,7 @@ def _data_graph_from_engine_triples(graph: Any) -> Any | None:
     g.bind("rdf", rdflib.RDF)
     g.bind("rdfs", rdflib.RDFS)
 
-    subjects = {str(t[0]) for t in triples if len(t) == 3}
-    for t in triples:
-        if len(t) != 3:
-            continue
-        s, pred, o = str(t[0]), str(t[1]), t[2]
-        subj = kg[s.replace(" ", "_")]
-        if pred == "rdf:type":
-            g.add((subj, rdflib.RDF.type, kg[_class_iri(str(o))]))
-        elif str(o) in subjects:
-            g.add((subj, kg[pred], kg[str(o).replace(" ", "_")]))
-        else:
-            if isinstance(o, bool):
-                continue
-            g.add((subj, kg[pred], rdflib.Literal(o)))
+    g.parse(data=ntriples, format="nt")
     return g
 
 
@@ -121,14 +111,14 @@ def build_data_graph(graph: Any) -> Any:
     """Materialize the LPG into an rdflib Graph in the kg# namespace.
 
     The data SHACL validates is sourced from the ENGINE's RDF projection first
-    (``get_triples`` -- one round-trip over the live graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl); when no
+    (``get_rdf`` -- one N-Triples round-trip over the live graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl); when no
     engine is reachable this falls back to per-node iteration of the LPG.
 
     Each node becomes ``kg:<id> rdf:type kg:<Class>`` plus its string/numeric
     properties as datatype-property assertions, so SHACL shapes targeting
     ``:Tool``/``:Agent``/``:ServiceCapability`` etc. can validate them.
     """
-    engine_graph = _data_graph_from_engine_triples(graph)
+    engine_graph = _data_graph_from_engine_rdf(graph)
     if engine_graph is not None:
         return engine_graph
 
@@ -142,10 +132,10 @@ def build_data_graph(graph: Any) -> Any:
 
     for node_id, data in graph.nodes(data=True):
         node_uri = kg[str(node_id).replace(" ", "_")]
-        node_type = data.get("type", "Thing")
+        node_type = data.get("node_type", "Thing")
         g.add((node_uri, rdflib.RDF.type, kg[_class_iri(node_type)]))
         for key, value in data.items():
-            if key in _SKIP_PROPS or key == "type":
+            if key in _SKIP_PROPS or key == "node_type":
                 continue
             if isinstance(value, bool):
                 continue
@@ -188,8 +178,11 @@ def validate_graph(
                 f"@prefix : <{KG_NS}> .\n\n"
             )
             shapes_graph.parse(data=header + "\n".join(frags), format="turtle")
-    except Exception as _vt_e:  # noqa: BLE001 — best-effort coupling
-        logger.debug("value-type SHACL shapes not merged: %s", _vt_e)
+    except Exception as exc:  # noqa: BLE001 — optional advisory augmentation
+        logger.debug(
+            "Value-type SHACL augmentation unavailable (exception_type=%s)",
+            type(exc).__name__,
+        )
 
     conforms, results_graph, results_text = pyshacl.validate(
         data_graph,
@@ -214,7 +207,6 @@ def validate_graph(
             continue
         focus_str = str(focus)
         if focus_str.startswith(str(kg)):
-            focus_str[len(str(kg)) :].replace("_", " ")
             # Prefer the exact id form first (ids without spaces stay intact)
             raw_id = focus_str[len(str(kg)) :]
         else:
@@ -256,13 +248,16 @@ async def execute_shacl_gate(
 
     shapes_path = ctx.config.shacl_shapes_path or _DEFAULT_SHAPES
     if not Path(shapes_path).exists():
-        return {"status": "error", "reason": f"SHACL shapes not found: {shapes_path}"}
+        return {"status": "error", "reason": "SHACL shapes are unavailable"}
 
     try:
         conforms, violations, report_text = validate_graph(ctx.graph, shapes_path)
-    except Exception as e:  # pragma: no cover - defensive
-        logger.error("SHACL validation failed: %s", e)
-        return {"status": "error", "reason": str(e)}
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error(
+            "Advisory SHACL validation failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+        return {"status": "error", "reason": "SHACL validation failed"}
 
     quarantine_type = ctx.config.shacl_quarantine_marker
     quarantined: list[str] = []
@@ -272,31 +267,25 @@ async def execute_shacl_gate(
         if node_id is None:
             continue
         props = dict(ctx.graph.nodes.get(node_id, {}) or {})
-        original_type = props.get("type")
+        original_type = props.get("node_type")
         props["shacl_valid"] = False
         props["shacl_quarantine_type"] = quarantine_type
         props["shacl_original_type"] = original_type
         props["shacl_report"] = "\n".join(messages)
         # Re-route the node's effective type so the commit phase persists it
         # under the quarantine label instead of as a first-class citizen.
-        props["type"] = quarantine_type
+        props["node_type"] = quarantine_type
         ctx.graph.add_node(node_id, properties=props)
         quarantined.append(node_id)
 
     if quarantined:
-        logger.warning(
-            "SHACL gate quarantined %d node(s): %s",
-            len(quarantined),
-            ", ".join(quarantined[:20]),
-        )
+        logger.warning("SHACL gate quarantined %d node(s)", len(quarantined))
 
     return {
         "status": "completed",
         "conforms": bool(conforms) and not quarantined,
         "quarantined_count": len(quarantined),
-        "quarantined_nodes": quarantined,
-        "shapes_path": shapes_path,
-        "report": report_text if quarantined else "",
+        "report_available": bool(report_text) and bool(quarantined),
     }
 
 

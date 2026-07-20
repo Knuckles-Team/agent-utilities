@@ -24,8 +24,8 @@ Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 
 | Item | Concept | What |
 |---|---|---|
-| **Context plane** | AU-KG.retrieval.route-question-its-domain | `context_plane.synthesize_context(domain, query, intent)` — a provider registry generalizing `code_context`. `graph_analyze action=explain` + REST `/graph/analyze/explain`. Providers: `code`, `ops`. The cockpit is *more providers here*, not new subsystems. |
-| **Ops diagnosis** | AU-KG.retrieval.ops-context | `ops_context.diagnose_ops` — synthesizes the live `:Task`/lane/queue state into "is it healthy / why is the maint lane backing up / what's poisoned" with task+lane citations and a remediation hint. |
+| **Context plane** | AU-KG.retrieval.route-question-its-domain | `context_plane.synthesize_context(domain, query, intent)` — a provider registry generalizing `code_context`. `graph_explain action=explain` + REST `/graph/analyze/explain`. Providers: `code`, `ops`. The cockpit is *more providers here*, not new subsystems. |
+| **Ops diagnosis** | AU-KG.retrieval.ops-context | `ops_context.diagnose_ops` — synthesizes live WorkItem/lane state into "is it healthy / why is the maint lane backing up / what's poisoned" with work+lane citations and a remediation hint. |
 | **Universal action-outcome** | AU-AHE.evaluation.action-outcome-feedback | `FeedbackService.record_action_outcome` + `graph_feedback correction_type=action_outcome` — ANY action (a context answer, a deploy, a ticket close, a routing choice) reports `{success, reward?, expected?, observed?}` → reward-EMA + eval case. The back-half of the operating loop. |
 | **Shared source paths** | AU-KG.retrieval.route-question-its-domain | `core/source_paths.py` — one home for mount-alias (`/au`→canonical) normalization + repo labeling (was duplicated in `code_context`). |
 | **Gen-script self-resolution** | — | `gen_graphos_manifest.py` inserts its own repo root on `sys.path` so regenerating from a worktree reflects the worktree, not the editable-installed copy (a real trap that silently dropped new actions). |

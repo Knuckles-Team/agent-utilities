@@ -4,7 +4,7 @@
       "command": "graph-os",
       "args": [],
       "env": {
-        "WORKSPACE_PATH": "/home/apps/workspace",
+        "WORKSPACE_PATH": "${WORKSPACE_ROOT}",
         "AGENT_UTILITIES_CONFIG_DIR": "/home/user/.config/agent-utilities",
         "GRAPH_PERSISTENCE_PATH": "/home/user/.local/share/agent-utilities/graph_state",
         "MCP_TOOL_MODE": "intent",
@@ -16,7 +16,7 @@
       "command": "repository-manager-mcp",
       "args": [],
       "env": {
-        "REPOSITORY_MANAGER_WORKSPACE": "/home/apps/workspace"
+        "REPOSITORY_MANAGER_WORKSPACE": "${WORKSPACE_ROOT}"
       }
     },
     "scholarx": {
@@ -38,7 +38,7 @@
       "command": "tunnel-manager-mcp",
       "args": [],
       "env": {
-        "TUNNEL_INVENTORY_PATH": "/home/apps/workspace/agent-packages/agent-utilities/scratch/test_inventory.yaml"
+        "TUNNEL_INVENTORY_PATH": "${WORKSPACE_ROOT}/agent-packages/agent-utilities/scratch/test_inventory.yaml"
       }
     },
     "systems-manager": {

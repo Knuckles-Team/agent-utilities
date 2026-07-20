@@ -19,6 +19,7 @@ import threading
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,16 @@ def start_host_daemon() -> Any:
             IntelligenceGraphEngine,
         )
 
-        _engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine()
+        _engine = IntelligenceGraphEngine.get_or_create()
         try:
             # Ensure the on-demand task-worker pool is up in the host.
             if hasattr(_engine, "start_task_workers"):
                 _engine.start_task_workers()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("host daemon: start_task_workers failed: %s", e)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "host daemon: start_task_workers failed (exception_type=%s)",
+                type(exc).__name__,
+            )
         # Always-on KG-native observability (CONCEPT:AU-OS.config.model-factory-passthrough): install the trace sink
         # backed by this host's engine, so every traced agent call persists a
         # Trace/Span/Generation subgraph that is graph-queryable. One-time injection;
@@ -59,9 +63,12 @@ def start_host_daemon() -> Any:
             from agent_utilities.harness.tracing import set_kg_trace_sink
 
             set_kg_trace_sink(KGTraceBackend(backend=_engine))
-        except Exception as e:  # noqa: BLE001
-            logger.warning("host daemon: KG trace sink install failed: %s", e)
-        logger.info("Gateway host daemon started: %s", daemon_status())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "host daemon: KG trace sink install failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+        logger.info("Gateway host daemon started")
     # CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs — the inbound messaging router runs in its OWN process
     # (``agent-utilities-messaging`` / ``agent_utilities.messaging.daemon``), NOT here, so
     # the host's CPU-bound maintenance (codebase ingestion / relevance sweeps) can never
@@ -76,8 +83,8 @@ def daemon_status() -> dict[str, Any]:
         return {"running": False, "role": setting("KG_DAEMON_ROLE", "auto")}
     try:
         return eng.unified_daemon_status()
-    except Exception as e:  # noqa: BLE001
-        return {"running": False, "error": str(e)}
+    except Exception as exc:  # noqa: BLE001
+        return {"running": False, **public_error_payload(exc, logger=logger)}
 
 
 def drain_task_queue() -> list[str]:
@@ -98,9 +105,12 @@ def drain_task_queue() -> list[str]:
             if p.exists():
                 p.unlink()
                 removed.append(str(p))
-        except OSError as e:
-            logger.warning("could not remove %s: %s", p, e)
-    logger.warning("Drained task queue (removed %s).", removed or "nothing")
+        except OSError as exc:
+            logger.warning(
+                "could not remove a task-queue artifact (exception_type=%s)",
+                type(exc).__name__,
+            )
+    logger.warning("Drained task queue (removed_count=%d).", len(removed))
     return removed
 
 
@@ -121,8 +131,11 @@ def stop_host_daemon() -> None:
             if client is not None and hasattr(client, "checkpoint"):
                 client.checkpoint()
                 logger.info("Engine checkpoint written on shutdown.")
-        except Exception as e:  # noqa: BLE001
-            logger.debug("engine checkpoint on shutdown skipped: %s", e)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "engine checkpoint on shutdown skipped (exception_type=%s)",
+                type(exc).__name__,
+            )
     try:
         # CONCEPT:AU-OS.host.so-they-are-idle — tear down any warm-fork parents this host was pooling.
         from agent_utilities.runtime.warm_registry import WarmParentRegistry
@@ -130,14 +143,19 @@ def stop_host_daemon() -> None:
         reaped = WarmParentRegistry.drain_active()
         if reaped:
             logger.info("Drained %d warm-fork parent(s) on shutdown.", len(reaped))
-    except Exception as e:  # noqa: BLE001
-        logger.debug("warm-parent drain on shutdown skipped: %s", e)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "warm-parent drain on shutdown skipped (exception_type=%s)",
+            type(exc).__name__,
+        )
     try:
         from agent_utilities.knowledge_graph.core.host_lock import release_host_lock
 
         release_host_lock()
-    except Exception as e:  # noqa: BLE001
-        logger.debug("host lock release skipped: %s", e)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "host lock release skipped (exception_type=%s)", type(exc).__name__
+        )
     _engine = None
     logger.info("Host daemon stopped.")
 
@@ -210,11 +228,13 @@ def main() -> None:
 
     try:
         start_host_daemon()
-    except KGHostAlreadyRunning as e:
-        logger.error("%s", e)
-        raise SystemExit(2) from e
+    except KGHostAlreadyRunning as exc:
+        logger.error(
+            "KG host is already running (exception_type=%s)", type(exc).__name__
+        )
+        raise SystemExit(2) from None
 
-    logger.info("graph-os host daemon running: %s", daemon_status())
+    logger.info("graph-os host daemon running")
 
     stop = threading.Event()
 
@@ -232,7 +252,7 @@ def main() -> None:
     # heartbeat with queue depth periodically.
     while not stop.wait(timeout=60.0):
         try:
-            logger.debug("host daemon heartbeat: %s", daemon_status())
+            logger.debug("host daemon heartbeat")
         except Exception:  # noqa: BLE001
             pass
 

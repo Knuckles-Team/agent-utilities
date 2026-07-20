@@ -3,7 +3,6 @@
 CONCEPT:AU-AHE.harness.evolutionary-aggregation — Agentic Engineering Patterns
 """
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -21,12 +20,14 @@ from agent_utilities.patterns.tdd import (
     tdd_refactor_phase,
 )
 from agent_utilities.patterns.walkthroughs import generate_linear_walkthrough
+from agent_utilities.runtime.events import TestResultObservation
 
 
 @pytest.fixture
 def mock_deps():
     deps = MagicMock(spec=AgentDeps)
-    deps.workspace_path = Path(".tmp/fake_workspace")
+    deps.workspace = MagicMock()
+    deps.workspace.act = AsyncMock()
     deps.graph_event_queue = MagicMock()
     deps.knowledge_engine = MagicMock()
     return deps
@@ -39,19 +40,17 @@ async def test_pattern_manager_initialization(mock_deps):
 
 
 @pytest.mark.asyncio
-@patch("agent_utilities.patterns.first_run_tests.asyncio.create_subprocess_shell")
-async def test_run_first_tests(mock_shell, mock_deps):
-    # Mock workspace exists
-    with patch.object(Path, "exists", return_value=True):
-        mock_process = AsyncMock()
-        mock_process.communicate.return_value = (b"All tests passed", b"")
-        mock_process.returncode = 0
-        mock_shell.return_value = mock_process
+async def test_run_first_tests(mock_deps):
+    mock_deps.workspace.act.return_value = TestResultObservation(
+        exit_code=0,
+        report="All tests passed",
+    )
 
-        result = await run_first_tests(mock_deps.workspace_path)
-        assert isinstance(result, TestResult)
-        assert result.success is True
-        assert "All tests passed" in result.output
+    result = await run_first_tests(mock_deps.workspace)
+    assert isinstance(result, TestResult)
+    assert result.success is True
+    assert "All tests passed" in result.output
+    assert result.framework == "pytest"
 
 
 @pytest.mark.asyncio
@@ -114,6 +113,6 @@ async def test_generate_interactive_explanation(mock_dispatch, mock_deps):
 @patch("agent_utilities.patterns.manager.run_first_tests")
 async def test_pattern_manager_calls(mock_first_run, mock_deps):
     manager = PatternManager(mock_deps)
-    mock_first_run.return_value = TestResult(True, "Success", 0, "cmd")
+    mock_first_run.return_value = TestResult(True, "Success", 0, None, "pytest")
     await manager.first_run_tests()
     mock_first_run.assert_called_once()

@@ -67,7 +67,7 @@ CONFIDENCE_FLOOR = 0.6
 
 #: "SequentialPattern" (workstream C6, ``trace_pattern_miner``) is the
 #: ``graph_mine action="sequence"`` mining surface's finding kind — a repeated
-#: FAILURE tool-call sequence mined from ``AgentTask``/outcome provenance,
+#: FAILURE tool-call sequence mined from WorkItem/outcome provenance,
 #: fed through this SAME CandidateInsight→Claim pipeline as the other three.
 _FINDING_TYPES = {"AssociationRule", "Anomaly", "PredictedEdge", "SequentialPattern"}
 

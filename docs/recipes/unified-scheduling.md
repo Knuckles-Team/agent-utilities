@@ -4,25 +4,25 @@ The gateway daemon runs **one** intelligent scheduler (CONCEPT:AU-OS.state.unifi
 recurring job — the `deploy/schedules.yml` entries, the former fixed-interval
 maintenance ticks, the self-evolution `loop_cycle`, and the ScholarX RSS research
 feed — is a durable `:Schedule` node. The single scheduler tick evaluates them and
-**enqueues** a `scheduled_job` `:Task` onto one hardened priority+scheduled queue
+**enqueues** a `scheduled_job` WorkItem onto the native priority+scheduled queue
 (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task) that the worker pool drains. Nothing recurring runs inline in the
 scheduler thread anymore.
 
 ## The queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task)
 
-A `:Task` carries:
+A WorkItem carries:
 
 - **`prio_bucket`** — discrete priority `0` (critical) … `3` (background). Workers
-  claim the lowest non-empty bucket first (the L1 graph interpreter strips
+  claim the lowest non-empty bucket first (the native graph interpreter strips
   `ORDER BY`, so priority is N equality queries, not a sort). `prioritize_task`
   and the `prio`/`priority` arguments set it.
-- **`scheduled` + eta** — delayed execution. A task with a future eta waits as
-  `status='scheduled'` until the per-minute `promotion_sweep` makes it `pending`.
-  Application-level **retry/backoff** reuses this lane (a failure reschedules with
-  exponential backoff); a task that exhausts `max_attempts` becomes a
-  `dead_letter` (distinct from the reaper's crash-requeue).
-- **`blocked` + `depends_on`** — dependency gating. A blocked task is promoted once
-  every dependency has `completed`; a terminally-failed dependency cancels it.
+- **`ready` + `next_retry_at`** — native delayed availability. There is no
+  Python promotion writer. Application-level retry/backoff is committed by
+  `CommitWorkItemResult`; exhausted attempts become `dead_letter`.
+- **`submitted` + `depends_on`** — native dependency gating. Atomic parent
+  commit releases the child when `dep_count` reaches zero.
+- **lease epoch + fencing token** — `ClaimWorkItem`, renew, commit, cancel, and
+  defer are the only lifecycle mutation family. Missing native verbs fail closed.
 
 ## Controlling schedules (two surfaces)
 
@@ -58,7 +58,11 @@ A default-on `research_feed` schedule (`KG_RESEARCH_FEED`, cadence
    papers are fetched and ingested **first** (priority = queue reordering). The
    fetch task downloads the full paper and ingests it via
    `ResearchPipelineRunner.ingest_paper_full`. Marginal items get a cheap
-   abstract-only ingest inline.
+   abstract-only ingest inline. Both tiers commit the complete paper/source/
+   pseudonymous-author topology through one engine-native `ChangeEnvelope`; the
+   durable fetch task carries only non-reversible author references. A full PDF's
+   Document/Chunk projection uses the same native boundary and never stores the
+   local file path.
 
 Enable/disable or retune it like any schedule via `graph_schedules`.
 
@@ -83,7 +87,7 @@ lanes. See [Ingestion Throughput](../architecture/ingestion_throughput.md).
 ```bash
 # 1. trigger the feed now and watch the queue
 graph_schedules action=run_now name=research_feed
-graph_query "MATCH (t:Task {type:'research_paper_fetch'}) RETURN t.id, t.prio_bucket, t.status"
+graph_query "MATCH (w:WorkItem {fairness_group:'research_paper_fetch'}) RETURN w.id, w.prio_bucket, w.status"
 
 # 2. re-run: already-seen items are skipped (seen_skipped > 0)
 graph_schedules action=run_now name=research_feed

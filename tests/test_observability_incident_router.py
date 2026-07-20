@@ -30,14 +30,17 @@ class _Capture:
 
 
 _INCIDENT = {
-    "id": "health:incident:r510:abc",
-    "entity": "systems:host:r510",
+    "id": "health:incident:storage-node-a:abc",
+    "entity": "systems:host:storage-node-a",
     "layers": ["hardware", "os"],
     "signals": ["cpu_temp_c", "load1"],
     "root_cause_layer": "hardware",
     "severity": "critical",
     "opened_at": "2026-07-11T00:00:00Z",
-    "summary": "r510: hardware/cpu_temp_c + os/load1 — correlated within 2 anomalies",
+    "summary": (
+        "storage-node-a: hardware/cpu_temp_c + os/load1 — "
+        "correlated within 2 anomalies"
+    ),
 }
 
 
@@ -215,7 +218,7 @@ def test_close_ticket_updates_status_and_ticket_node(monkeypatch):
 
     out = router.close_ticket(
         _INCIDENT,
-        "proposed:health:incident:r510:abc",
+        "proposed:health:incident:storage-node-a:abc",
         adapter=router.GraphOnlyAdapter(),
     )
     assert out["ticket_status"] == "resolved"

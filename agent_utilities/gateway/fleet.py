@@ -17,8 +17,8 @@ no separate supervisor service. Everything here surfaces state the ecosystem
   sessions owned by another host get ``pause_requested``/``kill_requested``,
   which the owning host's goal loop reconciles on its next tick
   (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
-* **approvals** — pending mutation/risk approvals stored as ``Task`` graph nodes,
-  read and granted through the parity-covered ``graph_query`` / ``graph_orchestrate``
+* **approvals** — pending mutation/risk approvals stored as ``ActionApproval`` nodes,
+  read and decided through the parity-covered ``graph_query`` / ``graph_governance``
   tools.
 
 These handlers are plain Starlette callables mounted by the gateway; the
@@ -27,6 +27,7 @@ These handlers are plain Starlette callables mounted by the gateway; the
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -34,6 +35,9 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from agent_utilities.core import sessions as _sessions
+from agent_utilities.security.error_surface import public_error_payload
+
+logger = logging.getLogger(__name__)
 
 # Statuses that count as "unhealthy" when computing per-domain error rates.
 _ERROR_STATUSES = ("failed", "error", "cancelled")
@@ -82,21 +86,23 @@ def _tenant_scope(dialect: str) -> tuple[str, list[Any]]:
     """Return an ``(sql_predicate, params)`` restricting rows to the caller's org.
 
     The tenant-scoped supervisory plane (CONCEPT:AU-OS.safety.ontological-guardrail + OS-5.14): an org's
-    caller sees only its own sessions/agents; a platform admin (``admin``/
-    ``system`` role) sees the whole fleet. Returns ``("", [])`` — unfiltered —
-    for privileged callers, and for the legacy/local path where no tenant is in
-    scope, so single-tenant deployments and existing tests are unaffected.
+    caller sees only its own sessions/agents; a verified platform admin sees
+    the whole fleet. Missing or tenantless identity fails closed.
     """
     try:
         from agent_utilities.knowledge_graph.core.tenant_sharing import is_privileged
         from agent_utilities.security.brain_context import current_actor
 
         actor = current_actor()
-        if is_privileged(actor) or not actor.tenant_id:
+        if is_privileged(actor):
             return "", []
+        if not actor.authenticated or not actor.tenant_id:
+            raise PermissionError("Fleet supervision requires verified tenant authority")
         return f"{_tenant_sql(dialect)} = ?", [actor.tenant_id]
-    except Exception:  # noqa: BLE001 — supervisory plane must answer regardless
-        return "", []
+    except PermissionError:
+        raise
+    except Exception as exc:
+        raise PermissionError("Fleet supervision authority is unavailable") from exc
 
 
 def _page_params(
@@ -390,29 +396,14 @@ async def fleet_kill(request: Request) -> JSONResponse:
 async def fleet_approvals(request: Request) -> JSONResponse:
     """List pending mutation/risk approvals.
 
-    Two sources share this single human queue: ``Task`` graph nodes awaiting a
-    decision (orchestrator jobs) and ``ActionApproval`` nodes filed by the
-    operational ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — restart/scale/deploy
-    proposals the policy routed to a human; the fleet reconciler executes them
-    once granted, CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
+    ``ActionApproval`` is immutable approval evidence filed by the operational
+    ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). A WorkItem is created or
+    released only after authorization; unclaimed operational work is never
+    misrepresented as a pending human decision.
     """
-    from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
 
-    cypher = (
-        "MATCH (t:Task) WHERE t.status = 'pending' "
-        "AND (t.approval_status IS NULL OR t.approval_status = 'pending') "
-        "RETURN t LIMIT 200"
-    )
     pending: list = []
     note = None
-    try:
-        res = await _execute_tool("graph_query", action="cypher", cypher=cypher)
-        loaded = safe_json_load(res)
-        if isinstance(loaded, list):
-            pending = loaded
-    except Exception as e:
-        # Degrade gracefully when the engine/graph is not yet available.
-        note = str(e)
     try:
         from agent_utilities.mcp.kg_server import _get_engine
 
@@ -423,8 +414,12 @@ async def fleet_approvals(request: Request) -> JSONResponse:
             props = row.get("a") if isinstance(row, dict) else None
             if isinstance(props, dict):
                 pending.append(props)
-    except Exception as e:
-        note = note or str(e)
+    except Exception as exc:
+        logger.warning(
+            "Fleet approval source unavailable (exception_type=%s)",
+            type(exc).__name__,
+        )
+        note = "approval_source_unavailable"
     payload = {"status": "success", "pending": pending}
     if note:
         payload["note"] = note
@@ -432,14 +427,7 @@ async def fleet_approvals(request: Request) -> JSONResponse:
 
 
 async def fleet_grant_approval(request: Request) -> JSONResponse:
-    """Grant or deny a pending approval by job id.
-
-    ``ActionApproval`` ids (``action_approval:...``) resolve in place — the
-    decision is stamped on the node and the reconciler's approved-action drain
-    executes it on the next tick (CONCEPT:AU-OS.deployment.fleet-lifecycle-control/OS-5.25). Anything else
-    falls through to the orchestrator's ``grant_approval``.
-    """
-    from agent_utilities.mcp.kg_server import _execute_tool, safe_json_load
+    """Atomically grant or deny a pending ``ActionApproval`` by id."""
 
     try:
         body = await request.json()
@@ -452,40 +440,44 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
             {"status": "error", "message": "job_id is required"}, status_code=400
         )
     if str(job_id).startswith("action_approval:"):
-        status = "approved" if decision in ("approved", "approve", True) else "denied"
         try:
             from agent_utilities.mcp.kg_server import _get_engine
+            from agent_utilities.orchestration.approval import decide_action_approval
 
-            _get_engine().backend.execute(
-                "MATCH (a:ActionApproval {id: $id, status: 'pending'}) "
-                "SET a.status = $status, a.decided_unix = $ts",
-                {"id": job_id, "status": status, "ts": time.time()},
-            )
+            engine = _get_engine()
+            result = decide_action_approval(engine, str(job_id), str(decision))
             return JSONResponse(
                 {
                     "status": "success",
-                    "result": {"approval_id": job_id, "decision": status},
+                    "result": result,
                 }
             )
-        except Exception as e:
-            return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-    try:
-        res = await _execute_tool(
-            "graph_orchestrate",
-            action="grant_approval",
-            job_id=job_id,
-            approval_status=decision,
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+        except LookupError as exc:
+            return JSONResponse(
+                {"status": "error", "message": str(exc)}, status_code=409
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                {"status": "error", "message": str(exc)}, status_code=400
+            )
+        except Exception as exc:
+            return JSONResponse(
+                public_error_payload(exc, logger=logger), status_code=500
+            )
+    return JSONResponse(
+        {
+            "status": "error",
+            "message": "approval_id must identify an ActionApproval",
+        },
+        status_code=400,
+    )
 
 
 async def fleet_verify_action(request: Request) -> JSONResponse:
     """Pre-execution assurance check for a proposed ActionPolicy payload.
 
     CONCEPT:AU-OS.governance.assurance-state-machine-verifier — the REST twin of the
-    ``graph_orchestrate action=verify_action`` MCP tool; both dispatch into the same
+    ``graph_governance action=verify_action`` MCP tool; both dispatch into the same
     ``ActionPolicy.evaluate()`` core. POST body: ``{kind, target, params, source,
     reason, actor_id}``. Read-only — runs the same deterministic role/schema/
     precondition/reference invariants ``ActionPolicy.decide()`` enforces for real,
@@ -505,23 +497,20 @@ async def fleet_verify_action(request: Request) -> JSONResponse:
         return JSONResponse(
             {"status": "error", "message": "kind is required"}, status_code=400
         )
-    payload = {
-        "target": body.get("target"),
-        "params": body.get("params"),
-        "source": body.get("source"),
-        "reason": body.get("reason"),
-        "actor_id": body.get("actor_id"),
-    }
     try:
         res = await _execute_tool(
-            "graph_orchestrate",
+            "graph_governance",
             action="verify_action",
-            task=kind,
-            dependencies=json.dumps(payload, default=str),
+            kind=kind,
+            target_id=str(body.get("target") or ""),
+            params_json=json.dumps(body.get("params") or {}, default=str),
+            source=str(body.get("source") or "manual"),
+            reason=str(body.get("reason") or ""),
+            actor_id=str(body.get("actor_id") or ""),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:  # noqa: BLE001 — degrade to a structured error, never a 500 traceback leak
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+    except Exception as exc:  # noqa: BLE001 — canonical safe error surface
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 async def fleet_trace(request: Request) -> JSONResponse:
@@ -553,11 +542,8 @@ async def fleet_trace(request: Request) -> JSONResponse:
         return JSONResponse(
             {"status": "success", "correlation_id": cid, "nodes": nodes}
         )
-    except Exception as e:  # noqa: BLE001 — degrade gracefully when engine cold
-        return JSONResponse(
-            {"status": "error", "correlation_id": cid, "message": str(e)},
-            status_code=500,
-        )
+    except Exception as exc:  # noqa: BLE001 — degrade gracefully when engine cold
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 async def fleet_touched(request: Request) -> JSONResponse:
@@ -595,11 +581,8 @@ async def fleet_touched(request: Request) -> JSONResponse:
                 "actors": actors,
             }
         )
-    except Exception as e:  # noqa: BLE001 — degrade gracefully when engine cold
-        return JSONResponse(
-            {"status": "error", "resource": resource, "message": str(e)},
-            status_code=500,
-        )
+    except Exception as exc:  # noqa: BLE001 — degrade gracefully when engine cold
+        return JSONResponse(public_error_payload(exc, logger=logger), status_code=500)
 
 
 def mount_fleet_routes(app, prefix: str = "") -> None:

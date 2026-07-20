@@ -15,21 +15,20 @@ Three capabilities, each concept-anchored:
   role — reusing an experienced :Employee where one exists, else hiring a fresh
   template — instantiating ``:AgentRole``/``:Employee`` nodes in the KG and
   reusing existing instances.
-* **Work-item state machine + dependency DAG + kanban phases**
-  (CONCEPT:AU-ORCH.org.work-item-dag). :class:`OrgRuntime` derives a
-  :class:`WorkItem` DAG from the org chart, runs independent items in parallel
-  and dependents once their predecessors are approved, drives each item through
-  :class:`OrgPhase` transitions under a :class:`ManagerMode`
-  (execute/delegate/review/integrate/rework), and escalates beyond-team blockers
-  to a human via an escalation seam.
+* **Engine-native work-item DAG** (CONCEPT:AU-ORCH.org.work-item-dag).
+  :class:`OrgRuntime` derives immutable :class:`OrgPlanItem` definitions, then
+  submits, claims, renews, and commits the executable DAG through the sole
+  native ``orchestration.work_item`` authority. Manager modes
+  (execute/delegate/review/integrate/rework) are turn-local execution context,
+  never a second durable lifecycle.
 * **Self-Grown** (CONCEPT:AU-AHE.org.role-experience). Each item's outcome is
   written back through the AHE reward loop
   (:meth:`FeedbackService.record_action_outcome` with a ``role_experience:``
   ``action_id``), updating the :Employee's ``experienceProfile`` /
   ``experienceScore`` so the next recruiter run reuses proven staff.
 
-The whole runtime is exposed as ``graph_orchestrate(action='synthesize_org')``
-and ``graph_orchestrate(action='run_org')`` on both the MCP server and the REST
+The whole runtime is exposed as ``graph_agents(action='synthesize_org')``
+and ``graph_agents(action='run_org')`` on both the MCP server and the REST
 gateway (surface parity).
 """
 
@@ -39,113 +38,25 @@ import json
 import logging
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
+from agent_utilities.orchestration.work_item import (
+    WorkItemStatus,
+    cancel_work_item,
+    claim_specific,
+    commit_result,
+    get_work_item,
+    heartbeat,
+    mark_running,
+    new_work_item_id,
+    submit_work_item,
+)
+
 logger = logging.getLogger(__name__)
-
-
-# ─────────────────────────────────────────────────────────────────────────
-# Kanban phase state machine (CONCEPT:AU-ORCH.org.work-item-dag)
-# ─────────────────────────────────────────────────────────────────────────
-class OrgPhase(StrEnum):
-    """The single authoritative state of a work item.
-
-    A compact adaptation of OpenOPC ``phase.py`` — one enum value per concrete
-    situation, with pure-function projections (kanban column, runnability) and a
-    static transition table enforced on every write.
-    """
-
-    QUEUED = "queued"
-    WAITING_DEPENDENCIES = "waiting_dependencies"
-    READY = "ready"
-    READY_FOR_REWORK = "ready_for_rework"
-    RUNNING = "running"
-    AWAITING_REVIEW = "awaiting_review"
-    ESCALATED = "escalated"  # awaiting a human decision on a beyond-team blocker
-    APPROVED = "approved"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-_TODO = frozenset(
-    {
-        OrgPhase.QUEUED,
-        OrgPhase.WAITING_DEPENDENCIES,
-        OrgPhase.READY,
-        OrgPhase.READY_FOR_REWORK,
-    }
-)
-_IN_PROGRESS = frozenset({OrgPhase.RUNNING})
-_IN_REVIEW = frozenset({OrgPhase.AWAITING_REVIEW, OrgPhase.ESCALATED})
-_DONE = frozenset({OrgPhase.APPROVED, OrgPhase.FAILED, OrgPhase.CANCELLED})
-
-TERMINAL_PHASES: frozenset[OrgPhase] = _DONE
-RUNNABLE_PHASES: frozenset[OrgPhase] = frozenset(
-    {OrgPhase.READY, OrgPhase.READY_FOR_REWORK}
-)
-
-_UNIVERSAL_EXITS = frozenset({OrgPhase.FAILED, OrgPhase.CANCELLED, OrgPhase.ESCALATED})
-
-ALLOWED_TRANSITIONS: dict[OrgPhase, frozenset[OrgPhase]] = {
-    OrgPhase.QUEUED: frozenset({OrgPhase.READY, OrgPhase.WAITING_DEPENDENCIES})
-    | _UNIVERSAL_EXITS,
-    OrgPhase.WAITING_DEPENDENCIES: frozenset({OrgPhase.READY}) | _UNIVERSAL_EXITS,
-    OrgPhase.READY: frozenset({OrgPhase.RUNNING, OrgPhase.WAITING_DEPENDENCIES})
-    | _UNIVERSAL_EXITS,
-    OrgPhase.READY_FOR_REWORK: frozenset({OrgPhase.RUNNING}) | _UNIVERSAL_EXITS,
-    OrgPhase.RUNNING: frozenset(
-        {OrgPhase.AWAITING_REVIEW, OrgPhase.APPROVED, OrgPhase.READY}
-    )
-    | _UNIVERSAL_EXITS,
-    OrgPhase.AWAITING_REVIEW: frozenset({OrgPhase.APPROVED, OrgPhase.READY_FOR_REWORK})
-    | _UNIVERSAL_EXITS,
-    OrgPhase.ESCALATED: frozenset({OrgPhase.APPROVED, OrgPhase.READY_FOR_REWORK})
-    | frozenset({OrgPhase.FAILED, OrgPhase.CANCELLED}),
-    OrgPhase.APPROVED: frozenset(),
-    OrgPhase.FAILED: frozenset(),
-    OrgPhase.CANCELLED: frozenset(),
-}
-
-_PHASE_TO_COLUMN: dict[OrgPhase, str] = {
-    **{p: "todo" for p in _TODO},
-    **{p: "in_progress" for p in _IN_PROGRESS},
-    **{p: "in_review" for p in _IN_REVIEW},
-    **{p: "done" for p in _DONE},
-}
-
-
-class InvalidPhaseTransition(ValueError):
-    """Raised when a work-item write attempts a transition not in the table."""
-
-
-def validate_transition(previous: OrgPhase | None, target: OrgPhase) -> None:
-    """Raise :class:`InvalidPhaseTransition` when *target* is unreachable.
-
-    Initial creation (``previous is None``) and idempotent writes are allowed.
-    """
-    if previous is None or previous == target:
-        return
-    if target not in ALLOWED_TRANSITIONS.get(previous, frozenset()):
-        raise InvalidPhaseTransition(
-            f"invalid phase transition: {previous.value} -> {target.value}"
-        )
-
-
-def kanban_column(phase: OrgPhase) -> str:
-    """Project a phase to one of the four kanban columns."""
-    return _PHASE_TO_COLUMN[phase]
-
-
-def is_runnable(phase: OrgPhase) -> bool:
-    """Whether the DAG scheduler should claim + spawn this item next tick."""
-    return phase in RUNNABLE_PHASES
-
-
-def is_terminal(phase: OrgPhase) -> bool:
-    return phase in TERMINAL_PHASES
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -237,55 +148,83 @@ class OrgChart:
         }
 
 
-@dataclass
-class WorkItem:
-    """A unit of runtime work owned by a role, flowing through the kanban DAG."""
+@dataclass(frozen=True)
+class OrgPlanItem:
+    """Immutable organization-plan input for one native executable WorkItem.
 
-    work_item_id: str
+    This object deliberately has no status, lease, attempt, result, or
+    transition method. Those fields belong exclusively to the engine-native
+    ``WorkItem`` record created when :meth:`OrgRuntime.run` starts.
+    """
+
+    plan_item_id: str
     title: str
     description: str
     owner_role: str
-    dependencies: list[str] = field(default_factory=list)
+    dependencies: tuple[str, ...] = ()
     reviewer_role: str | None = None
-    phase: OrgPhase = OrgPhase.QUEUED
-    manager_mode: ManagerMode = ManagerMode.EXECUTE
     role_type: str = "worker"
-    output: str = ""
-    rework_count: int = 0
-    review_feedback: str = ""
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
-    def transition(self, target: OrgPhase) -> None:
-        """Validated phase write."""
-        validate_transition(self.phase, target)
-        self.phase = target
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dependencies", tuple(self.dependencies))
+        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "work_item_id": self.work_item_id,
+            "plan_item_id": self.plan_item_id,
             "title": self.title,
             "owner_role": self.owner_role,
             "reviewer_role": self.reviewer_role,
-            "dependencies": self.dependencies,
-            "phase": self.phase.value,
-            "kanban_column": kanban_column(self.phase),
+            "dependencies": list(self.dependencies),
+            "role_type": self.role_type,
+        }
+
+
+@dataclass
+class _ExecutionState:
+    """Process-local projection of one native WorkItem execution.
+
+    It is never persisted. ``status`` is refreshed from the native record or
+    set only after a successful fenced commit/cancel response.
+    """
+
+    plan: OrgPlanItem
+    work_item_id: str
+    status: str = WorkItemStatus.SUBMITTED.value
+    manager_mode: ManagerMode = ManagerMode.EXECUTE
+    output: str = ""
+    rework_count: int = 0
+    review_feedback: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_item_id": self.plan.plan_item_id,
+            "work_item_id": self.work_item_id,
+            "title": self.plan.title,
+            "owner_role": self.plan.owner_role,
+            "reviewer_role": self.plan.reviewer_role,
+            "dependencies": list(self.plan.dependencies),
+            "status": self.status,
             "manager_mode": self.manager_mode.value,
             "rework_count": self.rework_count,
             "output": self.output[:500],
         }
 
 
-def infer_manager_mode(item: WorkItem, *, is_review_entry: bool = False) -> ManagerMode:
+def infer_manager_mode(
+    item: OrgPlanItem,
+    *,
+    rework_count: int = 0,
+    review_feedback: str = "",
+    is_review_entry: bool = False,
+) -> ManagerMode:
     """Pure classifier for the owning role's mode this turn.
 
     Priority-ordered, mirroring OpenOPC ``infer_turn_mode``:
     REWORK → REVIEW → INTEGRATE → DELEGATE → EXECUTE.
     """
-    if (
-        item.phase == OrgPhase.READY_FOR_REWORK
-        or item.review_feedback
-        or item.rework_count > 0
-    ):
+    if review_feedback or rework_count > 0:
         return ManagerMode.REWORK
     if is_review_entry or item.metadata.get("review_target_work_item_id"):
         return ManagerMode.REVIEW
@@ -705,22 +644,19 @@ class Recruiter:
 # ─────────────────────────────────────────────────────────────────────────
 # Work-item DAG runtime (CONCEPT:AU-ORCH.org.work-item-dag)
 # ─────────────────────────────────────────────────────────────────────────
-#: An escalation is handed a work item + reason; returns a resolution string
-#: ("approve" / "rework" / None). Default seam marks the item ESCALATED.
-EscalationCallback = Callable[[WorkItem, str], Awaitable[str | None]]
+#: An escalation is handed an immutable plan item + reason. Returning
+#: ``"approve"`` accepts the current output; any other result fails closed.
+EscalationCallback = Callable[[OrgPlanItem, str], Awaitable[str | None]]
 
 _MAX_REWORK = 1  # rework rounds before a beyond-team blocker escalates to human
 
 
 class OrgRuntime:
-    """Execute a work-item DAG over the existing orchestrator (Self-Run).
+    """Execute an organization DAG through the sole native WorkItem authority.
 
-    Independent items run in parallel; dependents wait for approval of every
-    predecessor. Each item runs under its :class:`ManagerMode`, is optionally
-    reviewed by its manager role (approve / rework), and — when a rework budget
-    is exhausted or a dependency can never be satisfied — escalated to a human
-    through :attr:`escalation_cb`. Every completed item's outcome is written back
-    to the :Employee experience profile via the AHE reward loop.
+    Plan definitions are immutable. Native submission, dependency release,
+    lease ownership, renewal, fencing, and terminal commit are the only durable
+    execution state. Independent items may run concurrently after native claim.
     """
 
     def __init__(
@@ -736,20 +672,14 @@ class OrgRuntime:
         self._backend = getattr(engine, "backend", None) or engine
 
     # -- default escalation seam ---------------------------------------
-    async def _default_escalation(self, item: WorkItem, reason: str) -> str | None:
-        """No human wired → record the blocker and leave the item ESCALATED.
+    async def _default_escalation(self, item: OrgPlanItem, reason: str) -> str | None:
+        """No human wired: log the blocker and fail closed.
 
-        A deployment supplies its own callback (e.g. one that opens an approval
-        via :mod:`agent_utilities.orchestration.action_policy`) to actually reach
-        a human; the default is fail-safe (never silently auto-approves).
+        The callback never writes task state. Its resolution is committed by
+        the live native lease holder, or the blocked WorkItem is cancelled by
+        the native authority when it cannot be claimed.
         """
-        logger.warning("org escalation [%s]: %s", item.work_item_id, reason)
-        _write_node(
-            self._backend,
-            item.work_item_id,
-            "WorkItem",
-            {"escalation_reason": reason, "workItemPhase": OrgPhase.ESCALATED.value},
-        )
+        logger.warning("org escalation [%s]: %s", item.plan_item_id, reason)
         return None
 
     # -- executor seam (overridable for tests) -------------------------
@@ -771,143 +701,169 @@ class OrgRuntime:
         )
 
     # -- work-item derivation ------------------------------------------
-    def derive_work_items(self, goal: str, chart: OrgChart) -> list[WorkItem]:
-        """Derive a work-item DAG from an org chart.
+    def derive_plan(self, goal: str, chart: OrgChart) -> list[OrgPlanItem]:
+        """Derive immutable organization-plan inputs from an org chart.
 
-        One item per worker role (parallelizable), plus a coordinator
-        INTEGRATE item that depends on all of them. A reviewer role, if present,
-        becomes the coordinator item's ``reviewer_role``.
+        One plan item is produced per worker plus a coordinator integration
+        item. No lifecycle state is created until :meth:`run` submits native
+        WorkItems.
         """
         coord = next((r for r in chart.roles if r.role_type == "coordinator"), None)
         reviewer = next((r for r in chart.roles if r.role_type == "reviewer"), None)
         workers = [r for r in chart.roles if r.role_type == "worker"]
-        items: list[WorkItem] = []
+        items: list[OrgPlanItem] = []
         worker_ids: list[str] = []
         for r in workers:
-            wid = f"wi_{r.role_id}"
+            wid = f"plan_{r.role_id}"
             worker_ids.append(wid)
             items.append(
-                WorkItem(
-                    work_item_id=wid,
+                OrgPlanItem(
+                    plan_item_id=wid,
                     title=f"{r.name}: contribute to goal",
                     description=r.responsibility,
                     owner_role=r.role_id,
                     role_type=r.role_type,
                     reviewer_role=reviewer.role_id if reviewer else None,
-                    phase=OrgPhase.QUEUED,
-                    metadata={"goal": goal},
+                    metadata={"domains": tuple(r.domains)},
                 )
             )
         if coord:
             items.append(
-                WorkItem(
-                    work_item_id=f"wi_{coord.role_id}",
+                OrgPlanItem(
+                    plan_item_id=f"plan_{coord.role_id}",
                     title=f"{coord.name}: integrate deliverables",
                     description=f"Integrate all worker deliverables into the goal: {goal}",
                     owner_role=coord.role_id,
                     role_type="coordinator",
-                    dependencies=worker_ids,
-                    phase=OrgPhase.QUEUED,
-                    metadata={"goal": goal},
+                    dependencies=tuple(worker_ids),
+                    metadata={"domains": tuple(coord.domains)},
                 )
             )
         return items
 
     # -- scheduling ----------------------------------------------------
-    @staticmethod
-    def _runnable(items: list[WorkItem], done: set[str]) -> list[WorkItem]:
-        out = []
-        for it in items:
-            if it.phase not in (
-                OrgPhase.QUEUED,
-                OrgPhase.WAITING_DEPENDENCIES,
-                OrgPhase.READY,
-            ):
-                continue
-            if all(dep in done for dep in it.dependencies):
-                out.append(it)
-        return out
+    def _refresh_status(self, state: _ExecutionState) -> str:
+        row = get_work_item(self.engine, state.work_item_id)
+        state.status = str((row or {}).get("status") or "missing")
+        return state.status
 
-    async def _run_item(self, item: WorkItem, outputs: dict[str, str]) -> None:
-        """Drive one item through RUNNING → (review) → APPROVED / escalation."""
+    async def _run_item(
+        self,
+        state: _ExecutionState,
+        outputs: dict[str, str],
+    ) -> None:
+        """Claim, renew, and commit one item through native WorkItem verbs."""
         import asyncio  # local import keeps module import light
 
-        item.manager_mode = infer_manager_mode(item)
-        # Thread approved-dependency outputs in as context (INTEGRATE/REWORK use it).
+        item = state.plan
+        claim = claim_specific(self.engine, state.work_item_id)
+        if claim is None:
+            self._refresh_status(state)
+            return
+        if not mark_running(self.engine, state.work_item_id, claim):
+            self._refresh_status(state)
+            return
+        state.status = WorkItemStatus.RUNNING.value
+        state.manager_mode = infer_manager_mode(item)
         ctx = "\n\n".join(
-            f"Output of '{d}':\n{outputs.get(d, '')}"
-            for d in item.dependencies
-            if outputs.get(d)
+            f"Output of dependency {index + 1}:\n{outputs.get(dep, '')}"
+            for index, dep in enumerate(item.dependencies)
+            if outputs.get(dep)
         )
 
+        async def fail(error_ref: str, reward: float = 0.0) -> None:
+            result = commit_result(
+                self.engine,
+                state.work_item_id,
+                claim,
+                outcome=WorkItemStatus.FAILED.value,
+                error_ref=error_ref,
+                retryable=False,
+            )
+            if result not in {"committed", "noop"}:
+                logger.warning(
+                    "org native failure commit rejected [%s]: %s",
+                    state.work_item_id,
+                    result,
+                )
+            self._refresh_status(state)
+            self._record_experience(item, success=False, reward=reward)
+
         while True:
-            item.transition(OrgPhase.RUNNING)
-            mode = item.manager_mode
-            framed = self._frame_task(item, mode)
+            state.manager_mode = infer_manager_mode(
+                item,
+                rework_count=state.rework_count,
+                review_feedback=state.review_feedback,
+            )
+            framed = self._frame_task(item, state.manager_mode)
             feedback_ctx = ctx
-            if item.review_feedback:
-                feedback_ctx = f"{ctx}\n\nReviewer feedback to address:\n{item.review_feedback}".strip()
+            if state.review_feedback:
+                feedback_ctx = (
+                    f"{ctx}\n\nReviewer feedback to address:\n{state.review_feedback}"
+                ).strip()
             try:
                 out = await self._execute_role(
                     item.owner_role, framed, feedback_ctx or None
                 )
-            except Exception as exc:  # noqa: BLE001 — one item must not kill the DAG
-                item.transition(OrgPhase.FAILED)
-                item.output = f"error: {exc}"
-                self._record_experience(item, success=False, reward=0.0)
-                self._persist_item(item)
+            except Exception as exc:  # noqa: BLE001 — isolate one DAG item
+                state.output = f"error: {type(exc).__name__}"
+                await fail("org-execution-error")
                 return
-            item.output = str(out)
-            failed = str(out).startswith("Agent execution failed")
-            if failed:
-                item.transition(OrgPhase.FAILED)
-                self._record_experience(item, success=False, reward=0.0)
-                self._persist_item(item)
+            state.output = str(out)
+            if state.output.startswith("Agent execution failed"):
+                await fail("org-agent-execution-failed")
+                return
+            if not heartbeat(self.engine, state.work_item_id, claim):
+                self._refresh_status(state)
+                logger.warning("org native WorkItem lease lost before review/commit")
                 return
 
-            # Review gate: a reviewer role adjudicates the deliverable.
-            if item.reviewer_role and mode not in (ManagerMode.REVIEW,):
-                item.transition(OrgPhase.AWAITING_REVIEW)
-                self._persist_item(item)
-                verdict, feedback = await self._review(item)
-                if verdict == "approve":
-                    item.transition(OrgPhase.APPROVED)
-                    self._record_experience(item, success=True, reward=1.0)
-                    self._persist_item(item)
-                    return
-                # rework
-                if item.rework_count >= _MAX_REWORK:
-                    # beyond-team blocker → escalate to a human
-                    item.transition(OrgPhase.ESCALATED)
-                    self._persist_item(item)
-                    resolution = await self.escalation_cb(
-                        item,
-                        f"review rejected {item.rework_count + 1}x: {feedback[:200]}",
-                    )
-                    if resolution == "approve":
-                        item.transition(OrgPhase.APPROVED)
-                        self._record_experience(item, success=True, reward=0.75)
+            if item.reviewer_role and state.manager_mode is not ManagerMode.REVIEW:
+                verdict, feedback = await self._review(item, state.output)
+                if verdict != "approve":
+                    if state.rework_count >= _MAX_REWORK:
+                        resolution = await self.escalation_cb(
+                            item,
+                            f"review rejected {state.rework_count + 1}x: "
+                            f"{feedback[:200]}",
+                        )
+                        if resolution != "approve":
+                            await fail("org-review-escalated", reward=0.25)
+                            return
+                        reward = 0.75
                     else:
-                        item.transition(OrgPhase.FAILED)
-                        self._record_experience(item, success=False, reward=0.25)
-                    self._persist_item(item)
-                    return
-                item.rework_count += 1
-                item.review_feedback = feedback
-                item.manager_mode = ManagerMode.REWORK
-                item.transition(OrgPhase.READY_FOR_REWORK)
-                self._record_experience(item, success=False, reward=0.4)
-                self._persist_item(item)
-                await asyncio.sleep(0)  # yield between rework rounds
-                continue
+                        state.rework_count += 1
+                        state.review_feedback = feedback
+                        self._record_experience(item, success=False, reward=0.4)
+                        await asyncio.sleep(0)
+                        continue
+                else:
+                    reward = 1.0
+            else:
+                reward = 1.0
 
-            item.transition(OrgPhase.APPROVED)
-            self._record_experience(item, success=True, reward=1.0)
-            self._persist_item(item)
+            result = commit_result(
+                self.engine,
+                state.work_item_id,
+                claim,
+                outcome=WorkItemStatus.SUCCEEDED.value,
+                result_ref=f"org-result:{state.work_item_id}",
+                retryable=False,
+            )
+            if result not in {"committed", "noop"}:
+                logger.warning(
+                    "org native success commit rejected [%s]: %s",
+                    state.work_item_id,
+                    result,
+                )
+                self._refresh_status(state)
+                return
+            self._refresh_status(state)
+            self._record_experience(item, success=True, reward=reward)
             return
 
     @staticmethod
-    def _frame_task(item: WorkItem, mode: ManagerMode) -> str:
+    def _frame_task(item: OrgPlanItem, mode: ManagerMode) -> str:
         """Frame the item's task text for the owning role's mode."""
         base = item.description
         if mode == ManagerMode.DELEGATE:
@@ -920,13 +876,13 @@ class OrgRuntime:
             return f"[REVIEW] Evaluate the deliverable and return a verdict for: {base}"
         return base
 
-    async def _review(self, item: WorkItem) -> tuple[str, str]:
+    async def _review(self, item: OrgPlanItem, output: str) -> tuple[str, str]:
         """Run the reviewer role and parse an approve/rework verdict."""
         assert item.reviewer_role is not None
         task = (
             f"[REVIEW] Evaluate this deliverable for '{item.title}'. "
             f"Reply with 'APPROVE' if acceptable or 'REWORK: <reason>' otherwise.\n\n"
-            f"Deliverable:\n{item.output[:2000]}"
+            f"Deliverable:\n{output[:2000]}"
         )
         try:
             verdict_out = await self._execute_role(item.reviewer_role, task, None)
@@ -940,9 +896,9 @@ class OrgRuntime:
         m = re.search(r"rework[:\-\s]+(.*)", text, re.IGNORECASE | re.DOTALL)
         return "rework", (m.group(1).strip() if m else text)[:400]
 
-    # -- experience + persistence --------------------------------------
+    # -- experience ----------------------------------------------------
     def _record_experience(
-        self, item: WorkItem, *, success: bool, reward: float
+        self, item: OrgPlanItem, *, success: bool, reward: float
     ) -> None:
         """Write the item's outcome back through the AHE reward loop.
 
@@ -964,7 +920,7 @@ class OrgRuntime:
                 success=success,
                 reward=reward,
                 agent_id=item.owner_role,
-                reason=f"work_item:{item.work_item_id}",
+                reason="organization_native_work_item",
                 corrected_value={"employee_id": emp_id, "domains": domains},
             )
         except Exception as exc:  # noqa: BLE001 — never fail the run on write-back
@@ -978,130 +934,169 @@ class OrgRuntime:
                 domains=domains,
             )
 
-    def _persist_item(self, item: WorkItem) -> None:
-        _write_node(
-            self._backend,
-            item.work_item_id,
-            "WorkItem",
-            {
-                "id": item.work_item_id,
-                "title": item.title,
-                "workItemPhase": item.phase.value,
-                "workItemManagerMode": item.manager_mode.value,
-                "kanbanColumn": kanban_column(item.phase),
-                "rework_count": item.rework_count,
-            },
-        )
-        _link(
-            self._backend, item.work_item_id, f"role_{item.owner_role}", "ownedByRole"
-        )
-        if item.reviewer_role:
-            _link(
-                self._backend,
-                item.work_item_id,
-                f"role_{item.reviewer_role}",
-                "reviewedByRole",
+    def _submit_plan(
+        self, items: Sequence[OrgPlanItem], *, run_id: str
+    ) -> dict[str, _ExecutionState]:
+        """Materialize immutable plan inputs as native WorkItems.
+
+        Parent definitions are submitted before children where possible so the
+        native reverse dependency index is complete. Missing/cyclic references
+        remain conservatively blocked and are handled through native cancel.
+        """
+        by_id = {item.plan_item_id: item for item in items}
+        if len(by_id) != len(items) or any(not key for key in by_id):
+            raise ValueError("organization plan item ids must be unique and non-empty")
+        native_ids = {key: new_work_item_id() for key in by_id}
+        missing_ids: dict[str, str] = {}
+        pending = list(items)
+        ordered: list[OrgPlanItem] = []
+        submitted: set[str] = set()
+        while pending:
+            ready = [
+                item
+                for item in pending
+                if all(
+                    dep not in by_id or dep in submitted for dep in item.dependencies
+                )
+            ]
+            if not ready:
+                ordered.extend(pending)
+                break
+            for item in ready:
+                ordered.append(item)
+                submitted.add(item.plan_item_id)
+                pending.remove(item)
+
+        states: dict[str, _ExecutionState] = {}
+        for item in ordered:
+            dependencies = [
+                native_ids.get(dep) or missing_ids.setdefault(dep, new_work_item_id())
+                for dep in item.dependencies
+            ]
+            native_id = native_ids[item.plan_item_id]
+            submit_work_item(
+                self.engine,
+                kind="organization_task",
+                queue="organization",
+                payload_ref=f"org-plan:{native_id}",
+                depends_on=dependencies,
+                max_attempts=1,
+                idempotency_key=native_id,
+                description="organization plan task",
+                dag_id=run_id,
+                metadata={"plan_schema_version": "1"},
+                work_item_id=native_id,
             )
-        for dep in item.dependencies:
-            _link(self._backend, item.work_item_id, dep, "dependsOnWorkItem")
+            state = _ExecutionState(plan=item, work_item_id=native_id)
+            self._refresh_status(state)
+            states[item.plan_item_id] = state
+        return states
 
     # -- top-level run -------------------------------------------------
     async def run(
         self,
         goal: str,
         *,
-        work_items: list[WorkItem] | None = None,
+        plan_items: Sequence[OrgPlanItem] | None = None,
         domains: list[str] | None = None,
         chart: OrgChart | None = None,
     ) -> dict[str, Any]:
-        """Synthesize an org (unless *chart* given), derive/accept a work-item
-        DAG, and execute it wave by wave.
+        """Synthesize an org, submit its native WorkItem DAG, and execute it.
 
-        Returns a run summary: the org chart, per-item final states, and counts.
+        The return value is only a process-local presentation. Durable status is
+        read from the engine-native WorkItems identified in ``plan_items``.
         """
         import asyncio
 
         if chart is None:
             chart = Recruiter(self.engine).synthesize_org(goal, domains=domains)
         items = (
-            work_items
-            if work_items is not None
-            else self.derive_work_items(goal, chart)
+            list(plan_items)
+            if plan_items is not None
+            else self.derive_plan(goal, chart)
         )
-        by_id = {it.work_item_id: it for it in items}
         outputs: dict[str, str] = {}
-        done: set[str] = set()
-        run_id = f"org-{uuid.uuid4().hex[:8]}"
-
-        # Mark initial phases: no-dep items become READY, dependents wait.
-        for it in items:
-            it.transition(
-                OrgPhase.WAITING_DEPENDENCIES if it.dependencies else OrgPhase.READY
-            )
-
-        remaining = list(items)
+        run_id = f"org-{uuid.uuid4().hex}"
+        states = self._submit_plan(items, run_id=run_id)
+        terminal = {
+            WorkItemStatus.SUCCEEDED.value,
+            WorkItemStatus.FAILED.value,
+            WorkItemStatus.CANCELLED.value,
+            WorkItemStatus.DEAD_LETTER.value,
+            "missing",
+        }
+        remaining = list(states.values())
         guard = 0
         while remaining:
             guard += 1
             if guard > len(items) * (2 + _MAX_REWORK) + 5:
                 logger.error("org run %s: scheduler guard tripped", run_id)
-                break
-            # Promote satisfied waiters to READY.
-            for it in remaining:
-                if it.phase == OrgPhase.WAITING_DEPENDENCIES and all(
-                    d in done for d in it.dependencies
-                ):
-                    it.transition(OrgPhase.READY)
-            ready = self._runnable(remaining, done)
-            if not ready:
-                # No item can run and none is in flight → a beyond-team blocker.
-                blocked = [it for it in remaining if not is_terminal(it.phase)]
-                for it in blocked:
-                    it.transition(OrgPhase.ESCALATED)
-                    await self.escalation_cb(
-                        it, "unsatisfiable dependencies (DAG deadlock)"
+                for state in remaining:
+                    cancel_work_item(
+                        self.engine,
+                        state.work_item_id,
+                        reason="org-scheduler-guard",
                     )
-                    self._persist_item(it)
+                    self._refresh_status(state)
+                break
+            ready = [
+                state
+                for state in remaining
+                if self._refresh_status(state) == WorkItemStatus.READY.value
+            ]
+            if not ready:
+                blocked = [state for state in remaining if state.status not in terminal]
+                for state in blocked:
+                    await self.escalation_cb(
+                        state.plan, "unsatisfiable dependencies (DAG deadlock)"
+                    )
+                    cancel_work_item(
+                        self.engine,
+                        state.work_item_id,
+                        reason="org-unsatisfiable-dependencies",
+                    )
+                    self._refresh_status(state)
                 break
 
-            await asyncio.gather(*(self._run_item(it, outputs) for it in ready))
-            for it in ready:
-                if it.phase == OrgPhase.APPROVED:
-                    done.add(it.work_item_id)
-                    outputs[it.work_item_id] = it.output
-            remaining = [it for it in remaining if not is_terminal(it.phase)]
+            await asyncio.gather(*(self._run_item(state, outputs) for state in ready))
+            for state in ready:
+                self._refresh_status(state)
+                if state.status == WorkItemStatus.SUCCEEDED.value:
+                    outputs[state.plan.plan_item_id] = state.output
+            remaining = [
+                state
+                for state in remaining
+                if self._refresh_status(state) not in terminal
+            ]
 
-        approved = sum(1 for it in items if it.phase == OrgPhase.APPROVED)
+        succeeded = sum(
+            self._refresh_status(state) == WorkItemStatus.SUCCEEDED.value
+            for state in states.values()
+        )
         status = (
             "completed"
-            if approved == len(items)
-            else ("partial" if approved else "failed")
+            if succeeded == len(items)
+            else ("partial" if succeeded else "failed")
         )
         return {
             "run_id": run_id,
             "goal": goal,
             "status": status,
             "org_chart": chart.to_dict(),
-            "work_items": [by_id[i].to_dict() for i in by_id],
-            "approved": approved,
+            "plan_items": [states[item.plan_item_id].to_dict() for item in items],
+            "succeeded": succeeded,
             "total": len(items),
         }
 
 
 __all__ = [
-    "OrgPhase",
     "ManagerMode",
     "RoleSpec",
     "EmployeeSpec",
     "OrgChart",
-    "WorkItem",
+    "OrgPlanItem",
     "Recruiter",
     "OrgRuntime",
-    "InvalidPhaseTransition",
-    "validate_transition",
-    "kanban_column",
-    "is_runnable",
-    "is_terminal",
     "infer_manager_mode",
     "record_role_experience",
     "experience_score",

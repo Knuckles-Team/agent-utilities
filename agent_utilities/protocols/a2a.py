@@ -17,11 +17,13 @@ if TYPE_CHECKING:
 
 
 from agent_utilities.core.config import *  # noqa: F403
-from agent_utilities.core.http_client import (
-    create_async_http_client,
-    create_http_client,
-)
 from agent_utilities.models import A2APeerModel, A2ARegistryModel  # noqa: F401
+from agent_utilities.protocols.source_connectors.http_safety import (
+    configured_source_http_policy,
+    safe_get_json,
+    safe_get_json_async,
+    safe_post_json_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,16 +35,13 @@ class A2AClient:
     arbitrary tasks on remote agents with polling for completion.
     """
 
-    def __init__(self, timeout: float = 300.0, ssl_verify: bool = True):
+    def __init__(self, timeout: float = 300.0):
         """Initialize the A2A client.
 
         Args:
             timeout: Maximum execution timeout for remote tasks in seconds.
-            ssl_verify: Whether to verify SSL certificates for HTTPS requests.
-
         """
-        self.timeout = timeout
-        self.ssl_verify = ssl_verify
+        self.timeout = max(1.0, min(float(timeout), 3600.0))
 
     def fetch_card_sync(self, url: str) -> dict[str, Any] | None:
         """Fetch the agent-card.json from a remote agent (synchronous).
@@ -55,13 +54,13 @@ class A2AClient:
 
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
-        with create_http_client(timeout=5.0, verify=self.ssl_verify) as client:
-            try:
-                resp = client.get(card_url)
-                if resp.status_code == 200:
-                    return resp.json()
-            except Exception as e:
-                logger.debug(f"Failed (sync) to fetch agent card from {card_url}: {e}")
+        try:
+            value = safe_get_json(
+                card_url, timeout=5.0, **configured_source_http_policy()
+            )
+            return value if isinstance(value, dict) else None
+        except Exception as e:
+            logger.debug("A2A card fetch failed (%s)", type(e).__name__)
         return None
 
     async def fetch_card(self, url: str) -> dict[str, Any] | None:
@@ -75,16 +74,28 @@ class A2AClient:
 
         """
         card_url = f"{url.rstrip('/')}/.well-known/agent-card.json"
-        async with create_async_http_client(
-            timeout=10.0, verify=self.ssl_verify
-        ) as client:
-            try:
-                resp = await client.get(card_url)
-                if resp.status_code == 200:
-                    return resp.json()
-            except Exception as e:
-                logger.debug(f"Failed to fetch agent card from {card_url}: {e}")
+        try:
+            value = await safe_get_json_async(
+                card_url, timeout=10.0, **configured_source_http_policy()
+            )
+            return value if isinstance(value, dict) else None
+        except Exception as e:
+            logger.debug("A2A card fetch failed (%s)", type(e).__name__)
         return None
+
+    async def _post(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
+        policy = configured_source_http_policy()
+        value = await safe_post_json_async(
+            url,
+            payload,
+            timeout=min(self.timeout, 60.0),
+            max_bytes=policy["max_bytes"],
+            allowed_private_hosts=policy["allowed_private_hosts"],
+            tls_service="a2a",
+        )
+        if not isinstance(value, dict):
+            raise ValueError("A2A response root must be an object")
+        return value
 
     async def execute_task(self, url: str, query: str) -> Any | None:
         """Execute a task on a remote agent via A2A message/send and polling.
@@ -97,71 +108,138 @@ class A2AClient:
             The final result content from the remote agent, or an error message.
 
         """
-        async with create_async_http_client(
-            timeout=self.timeout, verify=self.ssl_verify
-        ) as client:
-            # 1. Send Message
-            payload = {
-                "jsonrpc": "2.0",
-                "method": "message/send",
-                "params": {
-                    "message": {
-                        "kind": "message",
-                        "role": "user",
-                        "parts": [{"kind": "text", "text": query}],
-                        "messageId": str(uuid.uuid4()),
-                    }
-                },
-                "id": 1,
+        envelope = await self._execute_result(url, query)
+        if envelope["error"]:
+            return f"Error: {envelope['error']}"
+        return envelope["content"]
+
+    async def _execute_result(self, url: str, query: str) -> dict[str, Any]:
+        """Run one bounded A2A exchange and return a privacy-safe envelope."""
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "kind": "message",
+                    "role": "user",
+                    "parts": [{"kind": "text", "text": query}],
+                    "messageId": str(uuid.uuid4()),
+                }
+            },
+            "id": 1,
+        }
+
+        def failure(message: str) -> dict[str, Any]:
+            return {
+                "content": "",
+                "epistemic": {},
+                "metadata": {},
+                "error": message,
             }
-            try:
-                resp = await client.post(url, json=payload)
-                if resp.status_code != 200:
-                    return f"Error: A2A peer returned status {resp.status_code}"
 
-                res_data = resp.json()
-                if "error" in res_data:
-                    return f"A2A Error: {res_data['error']}"
+        try:
+            async with asyncio.timeout(self.timeout):
+                response = await self._post(url, payload)
+                if "error" in response:
+                    return failure("A2A peer rejected the request")
+                result = response.get("result")
+                task_id = result.get("id") if isinstance(result, dict) else None
+                if not isinstance(task_id, str) or not task_id:
+                    return failure("A2A peer returned no task identifier")
 
-                task_id = res_data.get("result", {}).get("id")
-                if not task_id:
-                    return "Error: No task ID returned from A2A peer."
-
-                # 2. Poll for Results
                 while True:
                     await asyncio.sleep(2)
-                    poll_payload = {
-                        "jsonrpc": "2.0",
-                        "method": "tasks/get",
-                        "params": {"id": task_id},
-                        "id": 2,
-                    }
-                    poll_resp = await client.post(url, json=poll_payload)
-                    if poll_resp.status_code != 200:
-                        return (
-                            f"Error: Polling failed with status {poll_resp.status_code}"
+                    poll_data = await self._post(
+                        url,
+                        {
+                            "jsonrpc": "2.0",
+                            "method": "tasks/get",
+                            "params": {"id": task_id},
+                            "id": 2,
+                        },
+                    )
+                    if "error" in poll_data:
+                        return failure("A2A peer rejected task polling")
+                    result = poll_data.get("result")
+                    if not isinstance(result, dict):
+                        return failure("A2A peer returned an invalid task result")
+                    status = result.get("status")
+                    state = status.get("state") if isinstance(status, dict) else None
+                    if state in {"submitted", "running", "working"}:
+                        continue
+                    history = result.get("history")
+                    if not isinstance(history, list):
+                        return failure("A2A task result had no message history")
+                    for message in reversed(history):
+                        if not isinstance(message, dict) or message.get("role") == "user":
+                            continue
+                        raw_parts = message.get("parts")
+                        parts = raw_parts if isinstance(raw_parts, list) else []
+                        content = "".join(
+                            str(part.get("text", part.get("content", "")))
+                            for part in parts
+                            if isinstance(part, dict)
+                        )
+                        raw_metadata = message.get("metadata")
+                        if not isinstance(raw_metadata, dict):
+                            raw_metadata = {}
+                        from agent_utilities.security.persistence_privacy import (
+                            sanitize_for_persistence,
                         )
 
-                    poll_data = poll_resp.json()
-                    if "error" in poll_data:
-                        return f"A2A Polling Error: {poll_data['error']}"
+                        metadata, _privacy = sanitize_for_persistence(raw_metadata)
+                        epistemic_keys = {
+                            "confidence",
+                            "status",
+                            "contradiction_count",
+                            "policy_labels",
+                            "source_refs",
+                            "evidence_refs",
+                        }
+                        epistemic = {
+                            key: metadata[key]
+                            for key in epistemic_keys
+                            if key in metadata
+                        }
+                        return {
+                            "content": content,
+                            "epistemic": epistemic,
+                            "metadata": metadata,
+                            "error": None,
+                        }
+                    return failure("A2A task result had no assistant message")
+        except TimeoutError:
+            return failure("A2A execution deadline exceeded")
+        except Exception as exc:  # noqa: BLE001 - remote boundary is fail-closed
+            logger.debug("A2A execution failed (%s)", type(exc).__name__)
+            return failure(f"A2A communication failed ({type(exc).__name__})")
 
-                    result = poll_data.get("result", {})
-                    state = result.get("status", {}).get("state")
-                    if state not in ["submitted", "running", "working"]:
-                        # Task completed: Extract content
-                        history = result.get("history", [])
-                        for msg in reversed(history):
-                            if msg.get("role") != "user":
-                                parts = msg.get("parts", [])
-                                content = ""
-                                for p in parts:
-                                    content += p.get("text", p.get("content", ""))
-                                return content
-                        return "Error: No result found in task history."
-            except Exception as e:
-                return f"A2A Communication Error: {e}"
-        return "Error: A2A execution timed out or failed."
+    async def execute_task_with_epistemic(self, url: str, query: str) -> dict[str, Any]:
+        """Execute a task and return the RESULT ENVELOPE, including any
+        epistemic metadata the peer attached (CONCEPT:AU-KB-CURRENCY A2A
+        projection, `04-five-intersections.md` item 1: "epistemic columns
+        ... not a default field on ordinary MCP tool-call results").
+
+        :meth:`execute_task` (unchanged, still the primary/default entry
+        point every existing caller uses) collapses a result down to its
+        text content and drops the A2A Message's own ``metadata`` dict. This
+        sibling method is purely additive — same request/poll protocol, but
+        also surfaces that ``metadata`` under an ``epistemic`` key, picking
+        out the light-epistemic-layer vocabulary
+        (``confidence``/``status``/``contradiction_count``/
+        ``policy_labels``/``source_refs`` — CONCEPT:AU-KB-CURRENCY /
+        CONCEPT:EPI-P3-1) a peer MAY have set on its response message.
+        Never fabricates: a peer that sends no metadata (any non-epistemic-
+        aware A2A agent, including older versions of this same agent)
+        yields ``epistemic: {}``, not guessed values.
+
+        Returns:
+            ``{"content": str, "epistemic": dict, "metadata": dict, "error": str | None}``.
+            ``metadata`` is the peer metadata after the persistence-privacy
+            boundary removes locations, secrets, and personal identifiers;
+            ``epistemic`` is the subset of it under the recognized names.
+        """
+        return await self._execute_result(url, query)
 
     async def execute_task_with_epistemic(self, url: str, query: str) -> dict[str, Any]:
         """Execute a task and return the RESULT ENVELOPE, including any

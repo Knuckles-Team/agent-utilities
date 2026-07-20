@@ -142,8 +142,8 @@ class TestEpistemicRowTypedEvidenceRefs:
 class TestEpistemicRowFromWireContradictionAndProofIds:
     """SURPASS gap-closure: `proof_ids`/`contradiction_ids` exist on the Arrow
     `KnowledgeBatch` server-side but weren't threaded into `EpistemicRow` -- these
-    prove `from_wire` now picks up both columns from a raw
-    `ExplainProvenanceRowWire`-shaped dict, exactly like every other column."""
+    prove `from_wire` now picks up both columns from an `EvidenceClaim` projection,
+    exactly like every other column."""
 
     def test_from_wire_populates_both_new_columns(self) -> None:
         row = EpistemicRow.from_wire(

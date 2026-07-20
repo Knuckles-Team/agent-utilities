@@ -37,8 +37,8 @@ class Widget(BaseWidget):
         try:
             repos = client.list_repositories() or []
         except Exception as e:
-            logger.debug("Repository Manager fetch: %s", e)
-            return WidgetData(status="error", error=str(e))
+            logger.debug("Repository Manager fetch: %s", type(e).__name__)
+            return self._error_data(e)
 
         return WidgetData(
             fields={

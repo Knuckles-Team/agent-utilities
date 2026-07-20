@@ -13,6 +13,8 @@ unreachable — both write to the same directory.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from pathlib import Path
 
 from agent_utilities.core import paths
@@ -84,7 +86,7 @@ def _scholarx_download_url(ids: list[str], timeout: float) -> list[Path]:
             )
         )
     except Exception as exc:  # noqa: BLE001 — MCP unreachable → caller falls back
-        logger.debug("scholarx MCP download_url unavailable: %s", exc)
+        logger.debug("scholarx MCP download unavailable (%s)", type(exc).__name__)
         return []
     rows = result.get("results", []) if isinstance(result, dict) else []
     out: list[Path] = []
@@ -105,18 +107,42 @@ def _download_pdf_url(
     if not stem.endswith(".pdf"):
         stem += ".pdf"
     dest = papers_dir() / stem
-    if dest.exists() and dest.stat().st_size > 0:
+    if dest.is_symlink():
+        logger.warning("refusing a symlinked research-paper destination")
+        return None
+    if dest.exists() and dest.is_file() and dest.stat().st_size > 0:
         return dest
     try:
-        import requests
+        from agent_utilities.protocols.source_connectors.http_safety import (
+            configured_source_http_policy,
+            safe_get_bytes,
+        )
 
         to = min(timeout, 120.0)
-        resp = requests.get(url, timeout=to, headers={"User-Agent": "agent-utilities"})
-        resp.raise_for_status()
-        if not resp.content:
+        content, _encoding = safe_get_bytes(
+            url,
+            timeout=to,
+            headers={"User-Agent": "agent-utilities"},
+            **configured_source_http_policy(),
+        )
+        if not content:
             return None
-        dest.write_bytes(resp.content)
+        fd, temporary = tempfile.mkstemp(prefix=".paper-", dir=dest.parent)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, dest)
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            Path(temporary).unlink(missing_ok=True)
+            raise
         return dest
     except Exception as exc:  # noqa: BLE001 — a single paper failing is non-fatal
-        logger.debug("direct PDF download failed for %s: %s", url, exc)
+        logger.debug("direct PDF download failed (%s)", type(exc).__name__)
         return None

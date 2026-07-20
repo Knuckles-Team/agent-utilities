@@ -87,6 +87,12 @@ OS-5.14 identity middleware, so the bucket key uses the server-minted
 `429` with `Retry-After` and a JSON body. Health routes and `/metrics` are
 exempt.
 
+The selected identity is immediately replaced with a per-process keyed
+reference. Raw tenant, actor, and client-network identifiers never enter
+bucket keys, metric labels, logs, or response bodies. The standalone REST
+server also applies a 50 req/s fallback when explicitly bound beyond loopback
+and no positive rate is configured.
+
 ## Engine circuit breaker
 
 Every `GraphComputeEngine` call is guarded by a shared per-endpoint breaker

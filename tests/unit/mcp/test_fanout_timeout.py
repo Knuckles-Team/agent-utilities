@@ -42,18 +42,20 @@ def test_slow_target_times_out_while_others_return():
 
     assert elapsed < 4  # did NOT wait 10s for the slow target
     assert results == {"fast1": "ok:fast1", "fast2": "ok:fast2"}
-    assert "slow" in errors and "timed out" in errors["slow"]
+    assert errors["slow"] == "target_timeout"
 
 
-def test_raising_target_is_captured_not_propagated():
+def test_raising_target_is_captured_without_exception_text(caplog):
     def fn(name, _engine):
         if name == "bad":
-            raise RuntimeError("boom")
+            raise RuntimeError("credential-and-endpoint-material")
         return "ok"
 
     results, errors = fanout_execute([("ok1", None), ("bad", None)], fn, timeout=5)
     assert results == {"ok1": "ok"}
-    assert "bad" in errors and "boom" in errors["bad"]
+    assert errors["bad"] == "target_operation_failed"
+    assert "credential-and-endpoint-material" not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_empty_entries():

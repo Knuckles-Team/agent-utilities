@@ -25,7 +25,7 @@ and the AppWorld RLM-GEPA thesis. Extends **ORCH-1.12** (Predict-RLM Runtime).
 | Mount | `rlm/predict_rlm.py` (`PredictRLM.mount_skill_unit`); `rlm/runner.py` (`run_rlm(skills=...)`) |
 
 ## Wiring (≤3 hops)
-`graph_orchestrate(action="rlm_run", skills=...)` → `run_rlm` → `merge_skills` / `mount_skill_unit` (2 hops).
+`graph_rlm(action="run", ...)` → `run_rlm` → `merge_skills` / `mount_skill_unit` (2 hops).
 
 ## Research provenance
 predict-rlm `src/predict_rlm/rlm_skills.py` (`merge_skills`, conflict detection) — verified.

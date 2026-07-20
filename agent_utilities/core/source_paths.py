@@ -3,19 +3,19 @@ from __future__ import annotations
 
 """Source-path canonicalization for the served fleet (CONCEPT:AU-KG.retrieval.route-question-its-domain).
 
-The agent-packages tree is bind-mounted at stable aliases inside the served
-containers (``/au`` = agent-utilities, ``/src`` = a generic package mount), so the
+Package sources may be bind-mounted at stable aliases inside served containers
+(``/au`` = agent-utilities, ``/src`` = a generic package mount), so the
 *same* file is ingested/cited under several paths. Anything that dedups or groups
 code citations (``code_context``, cross-repo usage, the context plane) must fold
-those mount aliases to ONE canonical workspace path first. Centralized here so the
+those mount aliases to ONE portable repository URI first. Centralized here so the
 map has a single source of truth instead of a copy per call site.
 """
 
-#: Mount alias -> canonical workspace prefix. ``/au`` is the agent-utilities
+#: Mount alias -> canonical repository URI. ``/au`` is the agent-utilities
 #: source mount; extend here (never inline a second copy) when a new mount alias
 #: appears in ingested ``file_path``s.
 MOUNT_ALIASES: dict[str, str] = {
-    "/au/": "/home/apps/workspace/agent-packages/agent-utilities/",
+    "/au/": "repo://agent-utilities/",
 }
 
 _AGENT_PACKAGES = "/agent-packages/"
@@ -23,7 +23,7 @@ _OSS_LIBS = "/open-source-libraries/"
 
 
 def normalize_path(path: str | None) -> str:
-    """Fold a mount alias (e.g. ``/au/…``) to its canonical workspace path."""
+    """Fold a mount alias (e.g. ``/au/…``) to its portable repository URI."""
     if not path:
         return ""
     for alias, canonical in MOUNT_ALIASES.items():
@@ -40,6 +40,8 @@ def repo_of(path: str) -> str:
     """
     if not path:
         return "unknown"
+    if path.startswith("repo://"):
+        return path.removeprefix("repo://").split("/", 1)[0] or "unknown"
     if _AGENT_PACKAGES in path:
         rest = path.split(_AGENT_PACKAGES, 1)[1]
         return rest.split("/", 1)[0] if "/" in rest else rest

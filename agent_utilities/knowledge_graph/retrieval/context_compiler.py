@@ -63,7 +63,7 @@ CONCEPT:AU-KG.ontology.redact-object-materialize-restricted). It composes both, 
 one benchmarkable pass.
 
 **Seam 6 (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam)** — the compiled bundle can
-optionally be routed through the SAME shared, content-addressed KV-cache layer the
+be routed through the SAME shared, content-addressed KV-cache layer the
 engine's ``/kv`` HTTP surface exposes for LMCache/vLLM token-block reuse
 (``agent_utilities.kvcache.EpistemicGraphKVBackend`` — CONCEPT:AU-KG.backend.kvcache-vllm-connector,
 also driven by the ``graph_kvcache`` MCP tool). Passing ``kv_backend=`` to
@@ -72,16 +72,19 @@ also driven by the ``graph_kvcache`` MCP tool). Passing ``kv_backend=`` to
 ``EpistemicGraphKVBackend`` implements) makes :meth:`compile` compute a stable
 cache key from the bundle's *evidence identity* — the sorted, policy-filtered
 candidate ids ("evidence ids") the bundle would be assembled from, plus the
-session's ``policy_version`` and the caller's ``token_budget`` (folding in the
-remaining assembly parameters — ``top_k``, ``diversity_lambda``, ``weights``,
-``freshness_half_life_days``, ``as_of``, ``mask_redactions`` — so no two
-inputs that could produce a *different* bundle ever collide) — and, on a hit,
+complete authority/query/runtime identity (tenant, principal, graph, policy and
+catalog versions, query digest, evidence ordering, model, redaction, snapshot)
+plus the caller's ``token_budget`` and remaining assembly parameters —
+``top_k``, ``diversity_lambda``, ``weights``, ``freshness_half_life_days``,
+``as_of``, ``mask_redactions`` — so no two
+inputs that could produce a *different* bundle ever collide — and, on a hit,
 returns the previously-assembled bundle instead of re-running MMR diversity
 scoring, evidence/freshness scoring, budget-fitting, and proof-graph
 construction. On a miss it assembles as normal and stores the result under
-that key for the next caller. This is opt-in (``kv_backend=None`` — the
-default — leaves :meth:`compile` byte-for-byte unchanged) and reuses the
-EXISTING KV surface as a generic content-addressed store; it does not
+that key for the next caller. The transport boundary supplies the configured
+shared cache when present; absence of a cache changes performance, never the
+mandatory compilation/policy behavior. It reuses the EXISTING KV surface as a
+generic content-addressed store and does not
 reimplement KV caching, and it is a distinct namespace from the raw
 token-block bytes LMCache stores under the same backend (see the module
 docstring note below on how the two relate).
@@ -95,8 +98,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from agent_utilities.observability.trace_ontology import trace_candidate_quality
+from agent_utilities.security.persistence_privacy import (
+    persistence_reference,
+    sanitize_for_persistence,
+)
+
 from ..core.engine import cosine_similarity
-from ..core.session import GraphSession
+from ..core.session import GraphSession, resolve_session, use_session
 from ..ontology.permissioning import enforce
 from .budget import RetrievalBudgetManager
 from .hybrid_retriever import _parse_instant
@@ -386,6 +395,15 @@ def compute_bundle_cache_key(
     *,
     policy_version: str | int,
     token_budget: int,
+    tenant: str = "",
+    principal: str = "",
+    graph: str = "",
+    query: str = "",
+    evidence_ordering_version: str = "context-mmr-v1",
+    model_version: str = "",
+    redaction_version: str = "",
+    snapshot: str = "",
+    catalog_epoch: int | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> str:
     """Stable cache key for a :class:`ContextBundle` — CONCEPT:AU-KG.retrieval.context-compiler-kv-seam.
@@ -405,10 +423,26 @@ def compute_bundle_cache_key(
     Pure function of its inputs — no I/O, no engine/session object — so it is
     trivially unit-testable and reusable outside :meth:`ContextCompiler.compile`.
     """
+    # Cache material never carries a reversible tenant/principal/query value.  The
+    # digest still changes for every authority/query dimension, but a KV key or a
+    # diagnostic dump cannot disclose the input that produced it.
     payload = {
         "evidence_ids": sorted(str(e) for e in evidence_ids),
         "policy_version": policy_version,
         "token_budget": int(token_budget),
+        "tenant_ref": persistence_reference(
+            "tenant", tenant, namespace="context-cache"
+        ),
+        "principal_ref": persistence_reference(
+            "principal", principal, namespace="context-cache"
+        ),
+        "graph_ref": persistence_reference("graph", graph, namespace="context-cache"),
+        "query_ref": persistence_reference("query", query, namespace="context-cache"),
+        "evidence_ordering_version": evidence_ordering_version,
+        "model_version": model_version,
+        "redaction_version": redaction_version,
+        "snapshot": snapshot,
+        "catalog_epoch": catalog_epoch,
         "extra": extra or {},
     }
     canonical = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
@@ -530,23 +564,38 @@ class ContextCompiler:
         return getattr(self.engine, "hybrid_retriever", None)
 
     def _retrieve(
-        self, query: str, top_k: int, *, as_of: str | None
+        self,
+        query: str,
+        top_k: int,
+        *,
+        as_of: str | None,
+        session: GraphSession,
     ) -> list[dict[str, Any]]:
-        search_hybrid = getattr(self.engine, "search_hybrid", None)
-        if self._retriever is None and callable(search_hybrid):
-            return list(search_hybrid(query, top_k=top_k, as_of=as_of or None) or [])
-        source = self._candidate_source()
-        if source is None:
-            raise TypeError(
-                "ContextCompiler needs an engine with `search_hybrid`/"
-                "`retrieve_hybrid`, or an explicit `hybrid_retriever=`."
+        # Retrieval inherits the already-verified authority.  This scope is entered
+        # only after ``compile`` resolves the session and requires ``kg:read``;
+        # consequently no ANN/Cypher/backend call can happen before tenant/policy
+        # enforcement has succeeded.
+        with use_session(session):
+            search_hybrid = getattr(self.engine, "search_hybrid", None)
+            if self._retriever is None and callable(search_hybrid):
+                return list(
+                    search_hybrid(query, top_k=top_k, as_of=as_of or None) or []
+                )
+            source = self._candidate_source()
+            if source is None:
+                raise TypeError(
+                    "ContextCompiler needs an engine with `search_hybrid`/"
+                    "`retrieve_hybrid`, or an explicit `hybrid_retriever=`."
+                )
+            return list(
+                source.retrieve_hybrid(
+                    query,
+                    context_window=top_k,
+                    as_of=as_of,
+                    skip_quality_gate=True,
+                )
+                or []
             )
-        return list(
-            source.retrieve_hybrid(
-                query, context_window=top_k, as_of=as_of, skip_quality_gate=True
-            )
-            or []
-        )
 
     # ------------------------------------------------------------------
     # Per-axis scoring
@@ -584,7 +633,8 @@ class ContextCompiler:
         ``policy_labels`` — and degrades gracefully to a neutral prior for a
         plain node carrying none of them.
         """
-        conf = node.get("confidence")
+        trace_quality = trace_candidate_quality(node)
+        conf = trace_quality if trace_quality is not None else node.get("confidence")
         if conf is None:
             conf = node.get("trust_score")
         try:
@@ -661,13 +711,18 @@ class ContextCompiler:
         as_of: str | None = None,
         mask_redactions: bool = True,
         kv_backend: Any | None = None,
+        evidence_ordering_version: str = "context-mmr-v1",
+        model_version: str = "",
+        redaction_version: str = "permissioning-v1",
+        snapshot: str = "",
     ) -> ContextBundle:
         """Assemble a policy-aware, budgeted, cited context bundle for ``query``.
 
         Args:
             query: The natural-language query to retrieve and assemble context for.
-            session: The requesting :class:`GraphSession` (actor/tenant/policy);
-                defaults to :meth:`GraphSession.from_ambient`.
+            session: The verified requesting :class:`GraphSession`
+                (actor/tenant/policy). It is resolved and ``kg:read`` is required
+                before any retriever or backend is touched.
             top_k: Maximum items in the final bundle.
             candidate_pool: How many candidates to over-fetch before scoring/MMR
                 (must be >= ``top_k`` to leave MMR/budget room to trade off).
@@ -682,18 +737,18 @@ class ContextCompiler:
             mask_redactions: Redact policy-denied columns (``MASK_TOKEN``) rather
                 than dropping them outright — passed straight to
                 :func:`~agent_utilities.knowledge_graph.ontology.permissioning.enforce`.
-            kv_backend: OPT-IN (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) — a duck-typed
+            kv_backend: Optional performance backend (CONCEPT:AU-KG.retrieval.context-compiler-kv-seam) — a duck-typed
                 object exposing ``get(key) -> bytes | None`` / ``put(key, bytes) -> bool``
                 (the exact shape ``agent_utilities.kvcache.EpistemicGraphKVBackend``
                 implements). When supplied, ``compile`` computes a stable cache key
-                from the post-policy evidence-id set + ``session.policy_version`` +
-                ``token_budget`` (see :func:`compute_bundle_cache_key`); a hit
+                from the complete authority/query/runtime identity plus the
+                post-policy evidence-id set and ``token_budget`` (see
+                :func:`compute_bundle_cache_key`); a hit
                 returns the previously-assembled bundle WITHOUT re-running
                 relevance/evidence/freshness scoring, MMR diversity selection,
                 budget-fitting, or proof-graph construction, and a miss assembles
                 normally then stores the result for the next caller. ``None``
-                (the default) leaves this method's behavior byte-for-byte
-                unchanged from before Seam 6.
+                disables reuse only; evidence compilation remains mandatory.
 
         Returns:
             A :class:`ContextBundle` — items with per-axis scores, citations,
@@ -701,9 +756,12 @@ class ContextCompiler:
             used, also ``cache_key`` (the identity it was stored/looked-up under)
             and ``kv_cache_hit`` (True iff served from the KV layer).
         """
-        session = session or GraphSession.from_ambient()
+        # Authority is resolved and the read scope is checked before retrieval.
+        # In an authenticated profile ``resolve_session`` also rejects caller-made
+        # replacements for the middleware-owned ambient session.
+        session = resolve_session(session, required_scope="kg:read")
         pool = max(candidate_pool, top_k)
-        candidates = self._retrieve(query, pool, as_of=as_of)
+        candidates = self._retrieve(query, pool, as_of=as_of, session=session)
         decisions: list[dict[str, Any]] = []
 
         # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.
@@ -734,6 +792,15 @@ class ContextCompiler:
                 allowed_ids,
                 policy_version=session.policy_version,
                 token_budget=token_budget,
+                tenant=session.tenant,
+                principal=session.actor.actor_id if session.actor else "",
+                graph=session.graph,
+                query=query,
+                evidence_ordering_version=evidence_ordering_version,
+                model_version=model_version,
+                redaction_version=redaction_version,
+                snapshot=snapshot or str(as_of or ""),
+                catalog_epoch=session.catalog_epoch,
                 extra={
                     "top_k": top_k,
                     "diversity_lambda": diversity_lambda,
@@ -746,8 +813,19 @@ class ContextCompiler:
             cached_bytes = kv_backend.get(cache_key)
             if cached_bytes is not None:
                 try:
+                    cached_text = cached_bytes.decode("utf-8")
+                    cached_value = json.loads(cached_text)
+                    _clean_cached, cached_privacy = sanitize_for_persistence(
+                        cached_value
+                    )
+                    if cached_privacy.changed or (
+                        query and query.casefold() in cached_text.casefold()
+                    ):
+                        raise ValueError(
+                            "cached bundle violates the persistence privacy contract"
+                        )
                     cached_bundle = ContextBundle.from_dict(
-                        json.loads(cached_bytes.decode("utf-8"))
+                        cached_value
                     )
                 except (
                     json.JSONDecodeError,
@@ -763,6 +841,10 @@ class ContextCompiler:
                         exc,
                     )
                 else:
+                    # The durable shape carries only an opaque query reference.
+                    # Restore the live prompt in memory after governance/cache
+                    # identity checks; never make the opaque ref user-visible.
+                    cached_bundle.query = query
                     cached_bundle.cache_key = cache_key
                     cached_bundle.kv_cache_hit = True
                     logger.info(
@@ -932,15 +1014,21 @@ class ContextCompiler:
             dropped_policy=dropped_policy,
             dropped_redundant=max(0, dropped_redundant),
             dropped_budget=dropped_budget,
-            session_tenant=session.tenant,
-            session_actor=session.actor.actor_id if session.actor else "",
+            session_tenant=persistence_reference(
+                "tenant", session.tenant, namespace="context-bundle"
+            ),
+            session_actor=persistence_reference(
+                "principal",
+                session.actor.actor_id if session.actor else "",
+                namespace="context-bundle",
+            ),
             policy_version=session.policy_version,
             cache_key=cache_key,
         )
         logger.info(
-            "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query=%r items=%d tokens=%d/%d "
+            "[CONCEPT:AU-KG.retrieval.context-compiler] context compiled: query_ref=%s items=%d tokens=%d/%d "
             "dropped(policy=%d redundant=%d budget=%d)",
-            query,
+            persistence_reference("query", query, namespace="context-log"),
             len(items),
             bundle.tokens_used,
             token_budget,
@@ -956,10 +1044,28 @@ class ContextCompiler:
         # path above. Best-effort — a failed store never fails compilation.
         if kv_backend is not None and cache_key:
             try:
-                stored = kv_backend.put(
-                    cache_key,
-                    json.dumps(bundle.to_dict(), default=str).encode("utf-8"),
+                durable_source = bundle.to_dict()
+                # Replace the prompt before inspecting the remaining shape. A
+                # candidate can echo the prompt in its evidence text; persisting
+                # that would silently defeat the top-level opaque reference.
+                durable_source["query"] = persistence_reference(
+                    "query", query, namespace="context-bundle"
                 )
+                durable_bundle, _privacy_report = sanitize_for_persistence(
+                    durable_source
+                )
+                encoded = json.dumps(durable_bundle, default=str).encode("utf-8")
+                prompt_copied = bool(query) and query.casefold() in encoded.decode(
+                    "utf-8"
+                ).casefold()
+                # Do not cache a redacted/degraded evidence bundle and do not
+                # persist any detected sensitive value. A miss changes only
+                # performance; mandatory compilation still returns the complete
+                # policy-filtered in-memory bundle to this invocation.
+                if prompt_copied or _privacy_report.changed:
+                    stored = False
+                else:
+                    stored = kv_backend.put(cache_key, encoded)
             except Exception as exc:  # noqa: BLE001 — store is best-effort
                 logger.debug(
                     "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] kv-cache store "

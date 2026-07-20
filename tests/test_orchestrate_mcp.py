@@ -17,10 +17,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
-# Integration test marker — requires live LM Studio
-pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
-
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,6 +36,23 @@ def _create_engine():
     return engine
 
 
+def _session() -> GraphSession:
+    actor = ActorContext(
+        actor_id="principal:test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:read", "kg:write"),
+        tenant_id="tenant-test",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant="tenant-test",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        policy_version="policy-test",
+        audience="agent-services",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Component 1: Orchestrator Manager
 # ---------------------------------------------------------------------------
@@ -46,21 +62,19 @@ class TestOrchestratorManager:
     """Tests for the Orchestrator dispatch/status/approval workflow."""
 
     @pytest.mark.asyncio
-    async def test_dispatch_creates_task_node(self):
-        """Dispatching a task creates a Task node in the KG."""
+    async def test_dispatch_creates_work_item(self):
+        """Dispatching creates one authoritative WorkItem."""
         from agent_utilities.orchestration.manager import Orchestrator
 
         engine = _create_engine()
         orch = Orchestrator(engine)
 
-        job_id = await orch.dispatch_task("Test task: analyze logs")
+        with use_session(_session()):
+            job_id = await orch.dispatch_task("Test task: analyze logs")
 
         assert job_id.startswith("orch-")
-        # Verify node exists in the engine's graph
-        assert job_id in engine.graph.nodes
-
-        node_data = engine.graph.nodes[job_id]
-        assert node_data.get("status") == "pending"
+        node_data = orch.get_task_status(job_id)
+        assert node_data.get("status") == "ready"
         assert "analyze logs" in node_data.get("description", "")
 
     @pytest.mark.asyncio
@@ -71,11 +85,12 @@ class TestOrchestratorManager:
         engine = _create_engine()
         orch = Orchestrator(engine)
 
-        job1 = await orch.dispatch_task("Step 1")
-        job2 = await orch.dispatch_task("Step 2", dependencies=[job1])
+        with use_session(_session()):
+            job1 = await orch.dispatch_task("Step 1")
+            job2 = await orch.dispatch_task("Step 2", dependencies=[job1])
 
-        node2_data = engine.graph.nodes[job2]
-        assert job1 in node2_data.get("dependencies", [])
+        node2_data = orch.get_task_status(job2)
+        assert f"workitem:orchestrator:{job1}" in node2_data.get("depends_on", [])
 
     def test_get_task_status_not_found(self):
         """Status check for non-existent task returns error."""
@@ -132,9 +147,11 @@ class TestAgentRunner:
 
     def test_record_execution_trace(self):
         """Execution trace creates RunTrace node."""
+        from agent_utilities.observability.trace_ontology import trace_id
         from agent_utilities.orchestration.agent_runner import (
             _record_execution_trace,
         )
+        from agent_utilities.security.persistence_privacy import persistence_reference
 
         engine = _create_engine()
         _record_execution_trace(
@@ -147,10 +164,13 @@ class TestAgentRunner:
             result_preview="Success!",
         )
 
-        assert "trace:run:test123" in engine.graph.nodes
-        node_data = engine.graph.nodes["trace:run:test123"]
+        tid = trace_id("run:test123")
+        assert tid in engine.graph.nodes
+        node_data = engine.graph.nodes[tid]
         assert node_data.get("status") == "completed"
-        assert node_data.get("agent_name") == "test-agent"
+        assert node_data.get("attribution_ref") == persistence_reference(
+            "agent", "test-agent", namespace="execution-trace"
+        )
 
     @pytest.mark.asyncio
     async def test_run_agent_graceful_failure(self):
@@ -207,7 +227,7 @@ class TestAgentRunner:
 
 
 # ---------------------------------------------------------------------------
-# Component 3: Debate/Consensus/Veto (graph_orchestrate actions)
+# Component 3: debate, consensus, and veto graph records
 # ---------------------------------------------------------------------------
 
 

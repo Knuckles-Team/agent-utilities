@@ -48,7 +48,9 @@ snippet through the **tiered sandbox router** (CONCEPT:AU-ORCH.sandbox.tiered-rl
 
 ## Invocation Triggers
 
-RLM is automatically invoked when any of the following conditions are met. No global `ENABLE_RLM=True` is required — the system uses **smart thresholds** to route intelligently.
+`ENABLE_RLM=True` explicitly enables RLM. Threshold-based invocation while it is
+disabled requires the separate `RLM_AUTO_TRIGGER=True` opt-in; by default, disabled
+means disabled.
 
 | # | Trigger | Condition | Default Threshold |
 |---|---|---|---|
@@ -149,7 +151,7 @@ The core execution environment. Initializes with a context variable and a set of
 env = RLMEnvironment(
     context={"data": large_dataset},
     depth=0,
-    config=RLMConfig(max_depth=3, use_container=False),
+    config=RLMConfig(max_depth=3, sandbox="auto"),
     graph_deps=graph_deps,
 )
 result = await env.run_full_rlm("Analyze the dataset and find anomalies")
@@ -162,10 +164,13 @@ Configuration for RLM behavior:
 | Parameter | Default | Description |
 |---|---|---|
 | `max_depth` | `3` | Maximum recursion depth |
-| `sandbox` | `"auto"` | Sandbox selection (ORCH-1.38): `auto` routes per-snippet (monty→wasm→docker→local); or pin `local`/`monty`/`wasm`/`docker`. Env `RLM_SANDBOX`. |
-| `use_monty` | `False` | Legacy override: force the monty sandbox (maps onto `sandbox`) |
-| `use_wasm` | `False` | Legacy override: force the wasm sandbox |
-| `use_container` | `False` | Legacy override: force the Docker sandbox |
+| `sandbox` | `"auto"` | Routes across available isolated backends; fails closed if none can run the snippet. Env `RLM_SANDBOX`. |
+| `allow_auto_trigger` | `False` | Allow threshold triggers while `ENABLE_RLM` is false. Env `RLM_AUTO_TRIGGER`. |
+| `container_image_ref` | unset | Runtime secret ref resolving to an OCI image; production requires a `sha256` digest. Env `RLM_CONTAINER_IMAGE_REF`. |
+| `container_memory` | `512m` | Bounded memory limit. Env `RLM_CONTAINER_MEMORY`. |
+| `container_cpus` | `1.0` | Bounded CPU quota. Env `RLM_CONTAINER_CPUS`. |
+| `container_pids_limit` | `256` | Bounded process quota. Env `RLM_CONTAINER_PIDS_LIMIT`. |
+| `container_timeout_seconds` | `120` | Per-snippet wall-clock cap. Env `RLM_CONTAINER_TIMEOUT_SECONDS`. |
 | `async_enabled` | `True` | Enable parallel sub-call execution |
 | `sub_llm_model_large` | Provider default | Model for depth-0 reasoning |
 | `sub_llm_model_small` | Provider default | Model for deeper recursion levels |
@@ -264,7 +269,7 @@ FINAL_VAR("failure_memories", json.dumps(failures))
 ### Mitigations
 
 1. **Restricted globals**: Only approved functions and modules (`json`, `asyncio`, `nx`) are exposed
-2. **Container mode**: Set `use_container=True` to run code in an isolated Docker container
+2. **Container mode**: Set `sandbox="docker"` to pin an isolated Docker container
 3. **Recursion limits**: `max_depth` prevents infinite recursion
 4. **Turn limits**: Maximum 5 turns per RLM invocation
 5. **Trajectory storage**: All executions are logged for audit
@@ -289,7 +294,7 @@ as a callable tool.
 from agent_utilities.rlm.repl import RLMEnvironment
 from agent_utilities.rlm.config import RLMConfig
 
-config = RLMConfig(max_depth=2, use_container=True)
+config = RLMConfig(max_depth=2, sandbox="docker")
 env = RLMEnvironment(
     context={"csv_data": "..."},
     config=config,

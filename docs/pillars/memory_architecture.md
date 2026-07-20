@@ -19,6 +19,12 @@ This document consolidates the memory paradigms used by agent-utilities.
 
 Integrated context compression and block-masking architecture to optimize KV cache usage and improve long-context agent performance. This powers "sawtooth" context construction, enabling infinite-horizon agent execution.
 
+Durable Mementos use opaque source references and privacy-sanitized text. Raw conversation
+retention is disabled by default; the only supported opt-in requires the versioned
+`approved-encrypted-v1` policy plus a secrets-backend reference, and stores authenticated AES-GCM
+ciphertext rather than plaintext. Reads accept only opaque source references and the current
+authenticated encrypted-block schema; all other persisted shapes fail closed.
+
 ## Agent-native memory — the four modules, mapped to our stack
 
 The agent-native-memory literature decomposes any memory system into four

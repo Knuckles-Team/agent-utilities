@@ -1,0 +1,228 @@
+connector: jena-mcp
+ontology_source: jena
+schema_version: '1'
+resources:
+- name: AdminTask
+  label: Admin Task
+  id_prefix: admintask
+  relations:
+  - name: producedBackup
+    label: produced backup
+    target: DatasetBackup
+    lpg_rel_type: ''
+- name: DatasetBackup
+  label: Dataset Backup
+  id_prefix: datasetbackup
+  relations: []
+- name: FusekiServer
+  label: Fuseki Server
+  id_prefix: fusekiserver
+  relations:
+  - name: hostsDataset
+    label: hosts dataset
+    target: JenaDataset
+    lpg_rel_type: ''
+- name: JenaDataset
+  label: Jena Dataset
+  id_prefix: jenadataset
+  relations:
+  - name: hasEndpoint
+    label: has endpoint
+    target: SparqlEndpoint
+    lpg_rel_type: ''
+  - name: hasGraph
+    label: has graph
+    target: RdfGraph
+    lpg_rel_type: ''
+- name: RdfGraph
+  label: RDF Graph
+  id_prefix: rdfgraph
+  relations: []
+- name: SparqlEndpoint
+  label: SPARQL Endpoint
+  id_prefix: sparqlendpoint
+  relations: []
+- name: SparqlOperation
+  label: SPARQL Operation
+  id_prefix: sparqloperation
+  relations:
+  - name: executedOnEndpoint
+    label: executed on endpoint
+    target: SparqlEndpoint
+    lpg_rel_type: ''
+actions:
+- id: run_graph_flow
+  name: Graph Flow Execution
+  description: Execute a workflow through the agent's graph orchestration engine
+events: []
+identity:
+  id_field:
+    rdf-resource: source_key
+  title_field:
+    rdf-resource: title
+  text_field:
+    rdf-resource: text
+  updated_field: {}
+permissions:
+  acl_fields: []
+  tenant_field: null
+  read_roles: []
+schema_mappings:
+  AdminTask:
+    ontology_class: Action
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  DatasetBackup:
+    ontology_class: Dataset
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  FusekiServer:
+    ontology_class: Server
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  JenaDataset:
+    ontology_class: Dataset
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  RdfGraph:
+    ontology_class: null
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  SparqlEndpoint:
+    ontology_class: null
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+  SparqlOperation:
+    ontology_class: null
+    fields:
+      datasetName: xsd:string
+      datasetState: xsd:string
+      endpointKind: xsd:string
+      graphUri: xsd:string
+      operationForm: xsd:string
+      queryText: xsd:string
+      storageType: xsd:string
+      taskId: xsd:string
+      taskState: xsd:string
+      tripleCount: xsd:integer
+sync:
+- preset: jena-sparql-records
+  server: jena-mcp
+  tool: jena_source_records
+  action: null
+  records_path: records
+  id_field: source_key
+  title_field: title
+  text_field: text
+  updated_field: null
+  pagination: null
+  doc_type: rdf-resource
+  tool_schema_sha256: df7e12b7df66d8cddb55a25edec0c9615d0b403a54f68ec9fe48634c5f3ac0fc
+  raw:
+    server: jena-mcp
+    tool: jena_source_records
+    params_style: args
+    records_path: records
+    id_field: source_key
+    title_field: title
+    text_field: text
+    doc_type: rdf-resource
+provenance:
+  generated_by: scripts/generate_connector_manifests.py
+  generated_at: '2026-07-18T00:00:00Z'
+  source_artifacts:
+  - a2a.json
+  - jena_mcp/connectors/mcp_source_presets.json
+  - jena_mcp/connectors/tool_schema_fingerprints.json
+  - jena_mcp/ontology/jena.ttl
+  integrity:
+    algorithm: urdna2015-sha256
+    hash: d031b6277e07536930ce3ebb4d5f8790afccd90aeabbe148ac2d8634e896adc2
+    triple_count: 79
+  signer: ontology-manifest-generator
+  signature_algorithm: ed25519
+  signing_public_key: q0Cp7bmQMqJhbofGKKw8xXC6KbFzukBDDke0UYVi8y4
+  signature: trB_Gn4HqTXnjyrr5nQ07sBVMbibGkTTMsuYOd8OHr5FMHEOtDfcCEOkC5e3Ihk0xEbwi-mAJNq-fdO-A15nBg
+policy:
+  pii_fields: {}
+  tenant_boundary: null
+  rls: []
+review_todos:
+- "policy.rls / policy.tenant_boundary are unset \u2014 no row-level-security predicate has been reviewed\
+  \ for this connector."
+- "relation 'administeredBy' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "relation 'targetsDataset' has no declared rdfs:domain resolving to a known resource in this connector's\
+  \ ontology \u2014 not attached to any resource; verify its true domain manually."
+- "schema_mappings.AdminTask.ontology_class = 'Action' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.DatasetBackup.ontology_class = 'Dataset' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.FusekiServer.ontology_class = 'Server' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.JenaDataset.ontology_class = 'Dataset' [DRAFT \u2014 nearest hub-canonical-class-by-name\
+  \ heuristic (D16 residue; human sign-off required before use)] \u2014 verify manually before relying\
+  \ on this crosswalk for reasoning/joins."
+- "schema_mappings.RdfGraph.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SparqlEndpoint.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any heuristic]\
+  \ \u2014 verify manually before relying on this crosswalk for reasoning/joins."
+- "schema_mappings.SparqlOperation.ontology_class = None [UNRESOLVED \u2014 no crosswalk found by any\
+  \ heuristic] \u2014 verify manually before relying on this crosswalk for reasoning/joins."

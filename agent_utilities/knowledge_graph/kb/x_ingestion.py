@@ -47,6 +47,14 @@ logger = logging.getLogger(__name__)
 _ARTICLE_URL_RE = re.compile(
     r"https?://(?:x\.com|twitter\.com)/\w+/articles?/\w+", re.IGNORECASE
 )
+_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def _canonical_node_dump(node: object) -> dict[str, Any]:
+    data = node.model_dump()  # type: ignore[attr-defined]
+    node_type = data.pop("type")
+    data["node_type"] = getattr(node_type, "value", node_type)
+    return data
 
 
 def _now() -> str:
@@ -196,7 +204,7 @@ class XIngestionBridge:
                 "concepts": classification.concepts,
             },
         )
-        self.graph.add_node(node_id, **social_node.model_dump())
+        self.graph.add_node(node_id, **_canonical_node_dump(social_node))
         logger.info(
             "Created SocialPost node: %s (tier=%s, evolution=%.2f)",
             node_id,
@@ -210,14 +218,14 @@ class XIngestionBridge:
             self.graph.add_node(
                 person_id,
                 id=person_id,
-                type=RegistryNodeType.PERSON,
+                node_type=RegistryNodeType.PERSON,
                 name=f"@{username}",
                 description=f"X user @{username}",
                 platform="x",
                 importance_score=0.3,
                 timestamp=_now(),
             )
-        self.graph.add_edge(node_id, person_id, type=RegistryEdgeType.CREATED_BY_PERSON)
+        self.graph.add_edge(node_id, person_id, relationship=RegistryEdgeType.CREATED_BY_PERSON)
 
         # Link to extracted concepts via ABOUT edges
         for concept_name in classification.concepts:
@@ -226,13 +234,13 @@ class XIngestionBridge:
                 self.graph.add_node(
                     concept_id,
                     id=concept_id,
-                    type=RegistryNodeType.KB_CONCEPT,
+                    node_type=RegistryNodeType.KB_CONCEPT,
                     name=concept_name,
                     description=f"Concept: {concept_name}",
                     importance_score=0.5,
                     timestamp=_now(),
                 )
-            self.graph.add_edge(node_id, concept_id, type=RegistryEdgeType.ABOUT)
+            self.graph.add_edge(node_id, concept_id, relationship=RegistryEdgeType.ABOUT)
 
         # Create EvolutionCandidate if evolution potential is high
         evo_node_id = None
@@ -252,11 +260,11 @@ class XIngestionBridge:
                 is_permanent=True,
                 timestamp=_now(),
             )
-            self.graph.add_node(evo_node_id, **evo_node.model_dump())
+            self.graph.add_node(evo_node_id, **_canonical_node_dump(evo_node))
             self.graph.add_edge(
                 evo_node_id,
                 node_id,
-                type=RegistryEdgeType.EVOLUTION_CANDIDATE_OF,
+                relationship=RegistryEdgeType.EVOLUTION_CANDIDATE_OF,
             )
             logger.info(
                 "Created EvolutionCandidate: %s (score=%.2f) — %s",
@@ -351,7 +359,7 @@ class XIngestionBridge:
             for n in self.graph.nodes:
                 n_data = self.graph.nodes[n]
                 if (
-                    n_data.get("type") == RegistryNodeType.ARTICLE
+                    n_data.get("node_type") == RegistryNodeType.ARTICLE
                     and n_data.get("metadata", {}).get("source_url") == article_url
                 ):
                     article_node_id = n
@@ -362,9 +370,10 @@ class XIngestionBridge:
                 # KBIngestionEngine creates articles with predictable IDs
                 for n in self.graph.nodes:
                     n_data = self.graph.nodes[n]
-                    if n_data.get(
-                        "type"
-                    ) == RegistryNodeType.ARTICLE and kb_name in str(n):
+                    if (
+                        n_data.get("node_type") == RegistryNodeType.ARTICLE
+                        and kb_name in str(n)
+                    ):
                         article_node_id = n
                         break
 
@@ -373,7 +382,7 @@ class XIngestionBridge:
                 self.graph.add_edge(
                     node_id,
                     article_node_id,
-                    type=RegistryEdgeType.PROMOTES_RESEARCH,
+                    relationship=RegistryEdgeType.PROMOTES_RESEARCH,
                 )
                 logger.info(
                     "Linked SocialPost %s → Article %s via PROMOTES_RESEARCH",
@@ -392,7 +401,7 @@ class XIngestionBridge:
             logger.debug("KBIngestionEngine not available for article ingestion")
             return None
         except Exception as e:
-            logger.warning("Article ingestion failed for %s: %s", article_url, e)
+            logger.warning("Article ingestion failed (%s)", type(e).__name__)
             return None
 
     async def ingest_search_results(
@@ -435,7 +444,7 @@ class XIngestionBridge:
         if not self.backend or node_id not in self.graph.nodes:
             return
         data = dict(self.graph.nodes[node_id])
-        node_type = data.get("type", "")
+        node_type = data.get("node_type", "")
         if isinstance(node_type, RegistryNodeType):
             node_type = node_type.value
 
@@ -453,13 +462,16 @@ class XIngestionBridge:
             fields = {
                 k: v
                 for k, v in data.items()
-                if isinstance(v, str | int | float | bool) and k != "id"
+                if isinstance(k, str)
+                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and isinstance(v, str | int | float | bool)
+                and k != "id"
             }
             set_clause = ", ".join(f"n.{k} = ${k}" for k in fields)
             query = f"MERGE (n:{table} {{id: $id}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
-        except Exception as e:
-            logger.debug("Backend persist failed for %s: %s", node_id, e)
+        except Exception as exc:
+            logger.debug("Backend persist failed: error_type=%s", type(exc).__name__)
 
 
 def _extract_engagement(answer_text: str) -> dict[str, int]:

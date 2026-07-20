@@ -32,7 +32,7 @@ class GatewayClient:
     """Async client for the agent-utilities gateway REST + streaming surface.
 
     Args:
-        base_url: Gateway origin (e.g. ``http://gateway.arpa:9000``).
+        base_url: Gateway origin (e.g. ``https://gateway.example.test``).
         token: Optional bearer token; when set, every request carries a
             server-validated JWT (OS-5.14). Omit for the zero-auth local default.
         timeout: Per-request timeout for unary calls (seconds).

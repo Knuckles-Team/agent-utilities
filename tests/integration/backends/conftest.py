@@ -41,9 +41,9 @@ def backend_under_test(request: pytest.FixtureRequest) -> Iterator[Any]:
     backend_type: str = request.param
 
     if backend_type == "epistemic_graph":
-        if not os.environ.get("GRAPH_SERVICE_SOCKET"):
+        if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
             pytest.skip(
-                "epistemic-graph engine not running (GRAPH_SERVICE_SOCKET unset)"
+                "epistemic-graph engine not running (GRAPH_SERVICE_ENDPOINTS unset)"
             )
         kwargs: dict[str, Any] = {}
     elif backend_type == "ladybug":

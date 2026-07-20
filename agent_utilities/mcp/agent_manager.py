@@ -8,16 +8,15 @@ and synchronizing these adaptive_agent_router directly with the Knowledge Graph.
 """
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core.config import load_mcp_servers_from_config
 from agent_utilities.core.workspace import (
     CORE_FILES,
     get_workspace_path,
 )
-from agent_utilities.mcp_utilities import load_mcp_config
 from agent_utilities.models import MCPToolInfo
 from agent_utilities.security.tool_guard import is_sensitive_tool
 
@@ -43,9 +42,9 @@ def should_sync(config_path: Path) -> bool:
     try:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     except ImportError:
-        # The KG engine's numeric stack (numpy/scipy) isn't installed in this
-        # runtime — e.g. a slim ``[mcp]``/``[agent]`` install without the engine
-        # numerics. There is no local graph to sync MCP tools into, so skip.
+        # A broken/incomplete environment can still fail this guarded import. The
+        # supported package contract always includes the mandatory full engine and its
+        # numeric component, so this is runtime fault containment, not an install shape.
         return False
 
     engine = IntelligenceGraphEngine.get_active()
@@ -54,8 +53,9 @@ def should_sync(config_path: Path) -> bool:
 
     # Check if we have any tools and when they were last synced
     try:
-        res = engine.backend.execute(
-            "MATCH (t:Tool) RETURN max(t.last_sync) as last_sync"
+        res = engine.query_cypher(
+            "MATCH (t:Tool) RETURN t.id AS id, t.last_sync AS last_sync "
+            "ORDER BY t.last_sync DESC LIMIT 1"
         )
         last_sync = res[0].get("last_sync") if res else 0
         if not last_sync:
@@ -72,7 +72,6 @@ def should_sync(config_path: Path) -> bool:
 
 async def _extract_single_server_metadata(
     server: Any,
-    mcp_servers_config: dict,
     timeout: int = 300,
     semaphore: asyncio.Semaphore | None = None,
 ) -> list[MCPToolInfo]:
@@ -80,7 +79,6 @@ async def _extract_single_server_metadata(
 
     Args:
         server: The MCP server instance.
-        mcp_servers_config: Raw configuration dictionary for fallback hints.
         timeout: Execution timeout in seconds.
         semaphore: Optional semaphore to limit parallel connections.
 
@@ -90,27 +88,21 @@ async def _extract_single_server_metadata(
     """
     if semaphore:
         async with semaphore:
-            return await _extract_single_server_metadata_inner(
-                server, mcp_servers_config, timeout
-            )
-    return await _extract_single_server_metadata_inner(
-        server, mcp_servers_config, timeout
-    )
+            return await _extract_single_server_metadata_inner(server, timeout)
+    return await _extract_single_server_metadata_inner(server, timeout)
 
 
 async def _extract_single_server_metadata_inner(
-    server, mcp_servers_config: dict, timeout: int = 300
+    server: Any, timeout: int = 300
 ) -> list[MCPToolInfo]:
     """Internal logic for connecting to an MCP server and listing tools.
 
-    Uses a robust fallback mechanism:
-    1. Dynamic extraction via session.list_tools().
-    2. Environmental metadata hints from the config.
-    3. Heuristic tagging based on tool name prefixes.
+    Uses dynamic extraction via ``session.list_tools()`` and heuristic tagging
+    based only on returned tool metadata. Connection failure is fail-closed:
+    environment keys/config values are never converted into synthetic tools.
 
     Args:
         server: The MCP server instance.
-        mcp_servers_config: Raw configuration dictionary.
         timeout: Timeout in seconds.
 
     Returns:
@@ -202,63 +194,13 @@ async def _extract_single_server_metadata_inner(
                             requires_approval=is_sensitive_tool(tool.name),
                         )
                     )
-    except Exception as e:
-        import traceback
-
-        error_msg = str(e)
-
-        # Deep extraction for ExceptionGroups (like anyio.ExceptionGroup)
-        if hasattr(e, "exceptions") and e.exceptions:
-            sub_errs = []
-            for sub_e in e.exceptions:
-                if hasattr(sub_e, "exceptions") and sub_e.exceptions:
-                    sub_errs.append(
-                        f"{type(sub_e.exceptions[0]).__name__}({str(sub_e.exceptions[0])})"
-                    )
-                else:
-                    sub_errs.append(f"{type(sub_e).__name__}({str(sub_e)})")
-            error_msg = f"{type(e).__name__}({', '.join(sub_errs)})"
-            # Also log full traceback to debug logs
-            logger.debug(
-                f"Full ExceptionGroup traceback for {server_name}:\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
-            )
-        else:
-            logger.debug(
-                f"Full traceback for {server_name}:\n{''.join(traceback.format_exception(type(e), e, e.__traceback__))}"
-            )
-
+    except Exception as exc:
         logger.warning(
-            f"Dynamic extraction failed for {server_name}, falling back to static hints: {error_msg}"
+            "Dynamic extraction failed; using static hints (exception_type=%s)",
+            type(exc).__name__,
         )
-        # Fallback: Parse env-based hints from the raw config
-        server_cfg = mcp_servers_config.get(server_name, {})
-        env = server_cfg.get("env", {})
-
-        hints_found = False
-        for key, val in env.items():
-            if key.endswith("TOOL"):
-                tag = key.lower().replace("tool", "")
-                hints_found = True
-                # Create a mock tool to represent this capability
-                all_tools.append(
-                    MCPToolInfo(
-                        name=f"{server_name}_{tag}_toolset",
-                        description=f"Static hint toolset for {tag} based on config env.",
-                        tag=tag,
-                        mcp_server=server_name,
-                    )
-                )
-
-        if not hints_found:
-            # Absolute fallback: one 'general' tag for the whole server
-            all_tools.append(
-                MCPToolInfo(
-                    name=f"{server_name}_general_tools",
-                    description=f"General tools for {server_name} (offline extraction).",
-                    tag=server_name.replace("-mcp", "").replace("-agent", ""),
-                    mcp_server=server_name,
-                )
-            )
+        # Do not fabricate capabilities from environment/config metadata. A
+        # later successful discovery will populate the inventory accurately.
 
     return all_tools
 
@@ -277,18 +219,10 @@ async def extract_tool_metadata(
 
     """
     if not config_path.exists():
-        logger.warning(f"MCP config not found at {config_path}")
+        logger.warning("MCP configuration was not found")
         return []
 
-    try:
-        with open(config_path) as f:
-            config_data = json.load(f)
-            mcp_servers_config = config_data.get("mcpServers", {})
-    except Exception as e:
-        logger.error(f"Failed to read raw config for static fallback: {e}")
-        mcp_servers_config = {}
-
-    servers = load_mcp_config(config_path)
+    servers = load_mcp_servers_from_config(config_path)
     server_count = len(servers)
     logger.info(
         f"Extracting tool metadata from {server_count} MCP servers in parallel..."
@@ -312,7 +246,7 @@ async def extract_tool_metadata(
         t0 = _time.monotonic()
         async with semaphore:
             server_tools = await _extract_single_server_metadata_inner(
-                server, mcp_servers_config, timeout=timeout
+                server, timeout=timeout
             )
             results.extend(server_tools)
             completed["count"] += 1
@@ -587,10 +521,7 @@ async def sync_mcp_agents(
             if not engine:
                 ws_path = get_agent_workspace()
                 db_path = str(ws_path / "knowledge_graph.db")
-                logger.info(
-                    f"No active engine, creating new IntelligenceGraphEngine with db_path: {db_path}"
-                )
-                engine = IntelligenceGraphEngine(db_path=db_path)
+                engine = IntelligenceGraphEngine.get_or_create(db_path=db_path)
                 is_local_engine = True
 
             backend = engine.backend
@@ -623,37 +554,29 @@ async def sync_mcp_agents(
             for tool in tools_inventory:
                 if tool.mcp_server not in seen_servers:
                     seen_servers.add(tool.mcp_server)
-                    backend.execute(
-                        "MERGE (s:Server {id: $server_id}) SET s.name = $server_name, s.last_sync = $sync_ts",
-                        {
-                            "server_id": f"server:{tool.mcp_server}",
-                            "server_name": tool.mcp_server,
-                            "sync_ts": sync_ts,
-                        },
+                    engine.add_node(
+                        f"server:{tool.mcp_server}",
+                        "Server",
+                        {"name": tool.mcp_server, "last_sync": sync_ts},
                     )
 
             for tool in tools_inventory:
-                query = "MERGE (t:Tool {id: $id}) SET t.name = $name, t.description = $description, t.mcp_server = $mcp_server, t.relevance_score = $score, t.tags = $tags, t.requires_approval = $requires_approval, t.last_sync = $sync_ts"
                 props = {
-                    "id": f"tool:{tool.name}",
                     "name": tool.name,
                     "description": tool.description,
                     "mcp_server": tool.mcp_server,
-                    "score": tool.relevance_score,
+                    "relevance_score": tool.relevance_score,
                     "tags": tool.all_tags or [tool.tag] if tool.tag else [],
                     "requires_approval": tool.requires_approval,
-                    "sync_ts": sync_ts,
+                    "last_sync": sync_ts,
                 }
-                backend.execute(query, props)
+                engine.add_node(f"tool:{tool.name}", "Tool", props)
 
                 # Link Tool to Server node
-                query_link = "MATCH (s:Server {id: $server_id}), (t:Tool {id: $tool_id}) MERGE (s)-[:PROVIDES]->(t)"
-                backend.execute(
-                    query_link,
-                    {
-                        "server_id": f"server:{tool.mcp_server}",
-                        "tool_id": f"tool:{tool.name}",
-                    },
+                engine.link_nodes(
+                    f"server:{tool.mcp_server}",
+                    f"tool:{tool.name}",
+                    "PROVIDES",
                 )
 
             logger.info(
@@ -667,8 +590,11 @@ async def sync_mcp_agents(
 
             invalidate_registry_cache()
 
-        except Exception as e:
-            logger.exception(f"Failed to sync MCP agents to Knowledge Graph: {e}")
+        except Exception as exc:
+            logger.error(
+                "Failed to sync MCP agents to Knowledge Graph (exception_type=%s)",
+                type(exc).__name__,
+            )
         finally:
             if is_local_engine and "backend" in locals() and backend:
                 backend.close()

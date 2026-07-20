@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://graphos.invalid/schemas/operational-evidence-v1.json",
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "result", "faultApplied", "actionDigest", "observationDigest", "metricsDigest", "recoverySeconds", "invariants"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{2,63}$"},
+        "result": {"enum": ["pass", "fail"]},
+        "faultApplied": {"type": "boolean"},
+        "actionDigest": {"$ref": "#/$defs/digest"},
+        "observationDigest": {"$ref": "#/$defs/digest"},
+        "metricsDigest": {"$ref": "#/$defs/digest"},
+        "recoverySeconds": {"type": "number", "minimum": 0},
+        "invariants": {"type": "object", "additionalProperties": {"type": "boolean"}}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "evidenceVersion", "release", "campaign", "scenarios", "metrics", "recovery", "privacy", "result", "signature"],
+  "properties": {
+    "apiVersion": {"const": "graphos.io/v1"},
+    "kind": {"const": "OperationalEvidence"},
+    "evidenceVersion": {"const": 1},
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "configurationDigest", "componentDigests", "certificationDigests"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "configurationDigest": {"$ref": "#/$defs/digest"},
+        "componentDigests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["epistemic-operations-protocol", "epistemic-graph", "agent-utilities", "langfuse-agent", "connector-bundles", "prebundled-skills", "ontology-lock", "index-migrations"],
+          "properties": {
+            "epistemic-operations-protocol": {"$ref": "#/$defs/digest"},
+            "epistemic-graph": {"$ref": "#/$defs/digest"},
+            "agent-utilities": {"$ref": "#/$defs/digest"},
+            "langfuse-agent": {"$ref": "#/$defs/digest"},
+            "connector-bundles": {"$ref": "#/$defs/digest"},
+            "prebundled-skills": {"$ref": "#/$defs/digest"},
+            "ontology-lock": {"$ref": "#/$defs/digest"},
+            "index-migrations": {"$ref": "#/$defs/digest"}
+          }
+        },
+        "certificationDigests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["connectorLiveCertificationLedger", "prebundledSkillValidationMatrix", "skillValidationDeployment", "skillValidationLifecycleEvidence", "exactArtifactClosureEvidence", "ociVulnerabilityScanEvidence"],
+          "properties": {
+            "connectorLiveCertificationLedger": {"$ref": "#/$defs/digest"},
+            "prebundledSkillValidationMatrix": {"$ref": "#/$defs/digest"},
+            "skillValidationDeployment": {"$ref": "#/$defs/digest"},
+            "skillValidationLifecycleEvidence": {"$ref": "#/$defs/digest"},
+            "exactArtifactClosureEvidence": {"$ref": "#/$defs/digest"},
+            "ociVulnerabilityScanEvidence": {"$ref": "#/$defs/digest"}
+          }
+        }
+      }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "scale", "durationSeconds", "observedDurationSeconds", "startedAtUnix", "hardwareClass"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "scale": {"const": 1.0},
+        "durationSeconds": {"type": "integer", "minimum": 86400, "maximum": 259200},
+        "observedDurationSeconds": {"type": "number", "minimum": 0},
+        "startedAtUnix": {"type": "integer", "minimum": 1},
+        "hardwareClass": {"type": "string", "pattern": "^(capacity|tier)-[a-z0-9][a-z0-9._-]{1,63}$"}
+      }
+    },
+    "scenarios": {"type": "array", "minItems": 15, "maxItems": 15, "items": {"$ref": "#/$defs/scenario"}},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawDigest", "loadReportDigest", "sampleCount", "sampleCoverage", "sloPass"],
+      "properties": {
+        "rawDigest": {"$ref": "#/$defs/digest"},
+        "loadReportDigest": {"$ref": "#/$defs/digest"},
+        "sampleCount": {"type": "integer", "minimum": 0},
+        "sampleCoverage": {"type": "number", "minimum": 0, "maximum": 1},
+        "sloPass": {"type": "boolean"}
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rpoTargetSeconds", "rtoTargetSeconds", "observedRpoSeconds", "observedRtoSeconds", "pass"],
+      "properties": {
+        "rpoTargetSeconds": {"const": 60.0},
+        "rtoTargetSeconds": {"const": 300.0},
+        "observedRpoSeconds": {"type": "number", "minimum": 0},
+        "observedRtoSeconds": {"type": "number", "minimum": 0},
+        "pass": {"type": "boolean"}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyDigest", "containsDirectIdentifiers", "containsEndpoints", "containsFilesystemLocations"],
+      "properties": {
+        "policyDigest": {"$ref": "#/$defs/digest"},
+        "containsDirectIdentifiers": {"const": false},
+        "containsEndpoints": {"const": false},
+        "containsFilesystemLocations": {"const": false}
+      }
+    },
+    "result": {"enum": ["pass", "fail"]},
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "subjectDigest", "bundleDigest", "signerIdentityDigest", "value"],
+      "properties": {
+        "scheme": {"type": "string", "pattern": "^[a-z0-9][a-z0-9+._-]{1,63}$"},
+        "subjectDigest": {"$ref": "#/$defs/digest"},
+        "bundleDigest": {"$ref": "#/$defs/digest"},
+        "signerIdentityDigest": {"$ref": "#/$defs/digest"},
+        "value": {"type": "string", "pattern": "^[A-Za-z0-9+/_=-]{16,16384}$"}
+      }
+    }
+  }
+}
