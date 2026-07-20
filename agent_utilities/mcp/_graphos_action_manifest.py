@@ -1719,7 +1719,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "verify_action",
         "name": "graph_governance_verify_action",
     },
-    {"tool": "graph_hydrate", "action": None, "name": "graph_hydrate"},
     {"tool": "graph_incident", "action": None, "name": "graph_incident"},
     {
         "tool": "graph_ingest",
