@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("playwright")
+
 from agent_utilities.tools.browser import browser_interactions, browser_screenshot
 from agent_utilities.tools.browser.browser_manager import require_safe_browser_url
 
