@@ -1,25 +1,25 @@
-"""Unified DSPy optimization subsystem — metric, registry, driver, targets, surface.
+"""Native program/policy optimization subsystem — metric, registry, driver, sweep.
 
-Covers CONCEPT:AU-AHE.optimization.real-optimization-metric (metric), AHE-3.40 (registry/driver/dispatch), AHE-3.43 (demo
-refine), AHE-3.44 (extraction), AHE-3.45 (concept-match/routing), AHE-3.46 (scheduled
-sweep + promotion gate). The LLM-gated DSPy compile itself is exercised by the live
-evolution path; here we test the wiring, the real metric, and the self-supervised
-metrics — all offline-deterministic.
+Covers CONCEPT:AU-AHE.optimization.real-optimization-metric (metric), AHE-3.40
+(registry/driver/dispatch), AHE-3.44 (extraction), AHE-3.45 (concept-match/routing),
+AHE-3.46 (scheduled sweep + promotion gate). Few-shot demo refinement and program
+compilation now run inside the native ``eg-program`` engine job (WS-I moved the DSPy
+Python implementation onto the native path) — there is no Python-callable equivalent
+left to unit-test; here we test the wiring, the real metric, and the self-supervised
+metrics that remain in Python — all offline-deterministic.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from agent_utilities.harness.dspy_optimization import (
+from agent_utilities.harness.program_optimization import (
     OPTIMIZABLE_TARGETS,
     get_target,
     graded_score,
     make_optimization_metric,
-    refine_demos,
     run_component_optimization,
 )
-
 
 # ── AHE-3.39 — the real metric ───────────────────────────────────────────────
 
@@ -62,76 +62,6 @@ def test_system_prompt_target_reads_blueprint_identity_and_instructions():
     t = get_target("system_prompt")
     text = t.load_text({"identity": {"role": "planner"}, "instructions": "be terse"})
     assert "planner" in text and "be terse" in text
-
-
-# ── AHE-3.43 — demo refinement ───────────────────────────────────────────────
-
-
-def test_refine_demos_drops_dead_weight_to_min():
-    class StubProgram:
-        def __init__(self):
-            self.demos = ["d1", "d2", "d3"]
-
-        def __call__(self, context="", task=""):
-            return type("Pred", (), {"response": "constant"})()
-
-    class HoldEx:
-        context = ""
-        task = ""
-        response = "constant"  # program always matches → demos are dead weight
-
-    prog = StubProgram()
-    metric = make_optimization_metric()
-    kept = refine_demos(prog, [HoldEx(), HoldEx()], metric, min_demos=1)
-    assert len(kept) == 1  # all redundant demos pruned to the floor
-
-
-def test_refine_demos_noop_without_holdout():
-    class StubProgram:
-        demos = ["a", "b"]
-
-    prog = StubProgram()
-    kept = refine_demos(prog, [], make_optimization_metric())
-    assert kept == ["a", "b"]
-
-
-# ── AHE-3.40 — bridge persistence (generalized) ──────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_bridge_ingest_evolved_component(monkeypatch):
-    from agent_utilities.knowledge_graph.dspy_kg_bridge import DSPyKGBridge
-
-    calls = []
-
-    class FakeEngine:
-        async def execute_cypher(self, cypher, params):
-            calls.append((cypher, params))
-
-    bridge = DSPyKGBridge(FakeEngine(), workspace_path="/tmp")
-
-    async def _noop(_fp):
-        return None
-
-    monkeypatch.setattr(bridge, "_async_git_sync", _noop)
-
-    await bridge.ingest_evolved_component(
-        kg_label="EvolvedToolDescriptionNode",
-        component_type="tool_description",
-        identifier="my_tool",
-        file_path="agents/x/tool.py",
-        compiled_state={"k": 1},
-        optimizer="BootstrapFewShot",
-        demos=[{"context": "c", "task": "t", "response": "r"}],
-    )
-    # the component MERGE
-    merge = next(c for c in calls if "OptimizedComponentNode" in c[0])
-    assert "EvolvedToolDescriptionNode" in merge[0]
-    assert merge[1]["component_type"] == "tool_description"
-    assert merge[1]["identifier"] == "my_tool"
-    assert merge[1]["demo_count"] == 1
-    # the demo was attached as a trajectory node
-    assert any("OptimizationTrajectoryNode" in c[0] for c in calls)
 
 
 # ── AHE-3.44 — self-supervised extraction metric ─────────────────────────────
@@ -195,39 +125,26 @@ def test_classification_accuracy_and_routing_success():
     ) == pytest.approx(2 / 3)
 
 
-def test_self_supervised_optimizers_noop_without_data():
-    from agent_utilities.harness.policy_optimization import (
-        optimize_concept_matcher,
-        optimize_routing_policy,
-    )
-
-    assert optimize_concept_matcher([]) is None
-    assert optimize_routing_policy([]) is None
-
-
 # ── AHE-3.40 — the optimize-component surface dispatch ───────────────────────
 
 
 def test_run_component_optimization_dispatch():
     assert "error" in run_component_optimization("bogus")
-    assert run_component_optimization("system_prompt")["status"] == "registered"
-    assert (
-        run_component_optimization("tool_description")["target"] == "tool_description"
-    )
-    # self-supervised targets report no_data when given none
-    assert run_component_optimization("extraction", {"documents": []})["status"] == (
-        "no_data_or_dspy_unavailable"
-    )
-    assert (
-        run_component_optimization("routing")["status"] == "no_data_or_dspy_unavailable"
-    )
+    # The native ``eg-program`` job is the sole backend now (no separate
+    # registry-vs-self-supervised code path): with no engine/active native
+    # authority, every real target fails closed the same uniform way.
+    for target in ("system_prompt", "tool_description", "extraction", "routing"):
+        report = run_component_optimization(target)
+        assert report["target"] == target
+        assert report["status"] == "error"
+        assert report["error_code"] == "native_unavailable"
 
 
 # ── AHE-3.46 — scheduled optimization sweep (the daemon-tick twin) ───────────
 
 
 def test_should_promote_gate():
-    from agent_utilities.harness.dspy_optimization import should_promote
+    from agent_utilities.harness.program_optimization import should_promote
 
     assert should_promote(0.7, 0.8) is True
     assert should_promote(0.7, 0.7) is True  # ties promote at min_delta=0
@@ -236,7 +153,7 @@ def test_should_promote_gate():
 
 
 def test_gather_optimization_data_best_effort():
-    from agent_utilities.harness.dspy_optimization import gather_optimization_data
+    from agent_utilities.harness.program_optimization import gather_optimization_data
 
     # no engine / no query_cypher → empty (degrades, never raises)
     assert gather_optimization_data(None, "extraction") == {}
@@ -262,7 +179,7 @@ def test_gather_optimization_data_best_effort():
 
 
 def test_gather_degrades_when_query_raises():
-    from agent_utilities.harness.dspy_optimization import gather_optimization_data
+    from agent_utilities.harness.program_optimization import gather_optimization_data
 
     class BadEngine:
         def query_cypher(self, cypher):
@@ -272,7 +189,7 @@ def test_gather_degrades_when_query_raises():
 
 
 def test_run_optimization_sweep_is_propose_only():
-    from agent_utilities.harness.dspy_optimization import (
+    from agent_utilities.harness.program_optimization import (
         SCHEDULABLE_TARGETS,
         run_optimization_sweep,
     )
@@ -285,8 +202,8 @@ def test_run_optimization_sweep_is_propose_only():
 
 
 def test_daemon_tick_calls_sweep(monkeypatch):
+    from agent_utilities.harness import program_optimization
     from agent_utilities.knowledge_graph.core import engine_tasks
-    from agent_utilities.harness import dspy_optimization
 
     called = {}
 
@@ -294,7 +211,7 @@ def test_daemon_tick_calls_sweep(monkeypatch):
         called["engine"] = engine
         return {"targets": {}, "optimized": ["extraction"], "propose_only": True}
 
-    monkeypatch.setattr(dspy_optimization, "run_optimization_sweep", fake_sweep)
+    monkeypatch.setattr(program_optimization, "run_optimization_sweep", fake_sweep)
 
     sentinel = object()
     # invoke the unbound tick with a sentinel self — it must dispatch to the sweep

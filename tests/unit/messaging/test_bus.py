@@ -248,9 +248,12 @@ def test_identifiers_are_opaque_and_idempotent() -> None:
 
 
 def test_engine_queue_stats_sum_to_backpressure_depth() -> None:
-    assert AgentBus._depth_from_stats(
-        {"backend": "engine", "queues": {"opaque-a": 2, "opaque-b": 3}}
-    ) == 5
+    assert (
+        AgentBus._depth_from_stats(
+            {"backend": "engine", "queues": {"opaque-a": 2, "opaque-b": 3}}
+        )
+        == 5
+    )
 
 
 def test_removed_manual_ack_and_late_history_api_are_absent() -> None:
