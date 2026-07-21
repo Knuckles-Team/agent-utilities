@@ -48,7 +48,22 @@ class _FasterWhisper:
         # faster-whisper segments already carry their own leading space, so concatenate
         # directly (joining with a space would double them).
         segments, _info = self.model.transcribe(path)
-        return {"text": "".join(seg.text for seg in segments).strip()}
+        seg_list = list(segments)
+        return {
+            "text": "".join(seg.text for seg in seg_list).strip(),
+            # Timed segments (CONCEPT:AU-KG.identity.evidence-spine-convergence) —
+            # the raw start/end faster-whisper already computes per segment, kept
+            # here (not just concatenated away) so a caller with the source bytes
+            # can locate a transcript's `AudioSegment` evidence loci.
+            "segments": [
+                {
+                    "start": float(getattr(seg, "start", 0.0) or 0.0),
+                    "end": float(getattr(seg, "end", 0.0) or 0.0),
+                    "text": seg.text,
+                }
+                for seg in seg_list
+            ],
+        }
 
 
 def _get_backend() -> Any:
@@ -69,11 +84,55 @@ def _get_backend() -> Any:
     return backend
 
 
-def _sync_transcribe(path: str) -> str:
+def _sync_transcribe_full(path: str) -> dict:
+    """Run the backend transcribe and always return the full ``{"text", "segments"}`` shape.
+
+    The full ``audio_transcriber`` package's backend already returns ``segments``
+    (each carrying ``start``/``end``); the lean in-process ``_FasterWhisper`` now
+    does too (see its ``transcribe``). Any other backend shape degrades to an
+    empty ``segments`` list rather than raising.
+    """
     result = _get_backend().transcribe(path)
     if isinstance(result, dict):
-        return str(result.get("text", "")).strip()
-    return str(result).strip()
+        return {
+            "text": str(result.get("text", "")).strip(),
+            "segments": list(result.get("segments") or []),
+        }
+    return {"text": str(result).strip(), "segments": []}
+
+
+def _sync_transcribe(path: str) -> str:
+    return str(_sync_transcribe_full(path).get("text", "")).strip()
+
+
+async def _transcribe_bytes_full(content: bytes, *, suffix: str = ".ogg") -> dict:
+    """Transcribe already-in-memory audio ``content``, returning ``{"text", "segments"}``.
+
+    Shared by :func:`transcribe_voice` (which downloads its own bytes) and
+    :func:`transcribe_bytes_with_segments` (for a caller — e.g. the messaging
+    durable-media persist path — that already downloaded the bytes for storage
+    and would otherwise fetch them a second time just to transcribe).
+    """
+    if not _enabled() or not content:
+        return {"text": "", "segments": []}
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
+        fh.write(content)
+        path = fh.name
+    try:
+        # Whisper load/transcribe is blocking — run off the event loop.
+        result = await asyncio.to_thread(_sync_transcribe_full, path)
+        text = str(result.get("text", "")).strip()
+        if text:
+            logger.info(
+                "[CONCEPT:AU-ECO.messaging.whisper-transcription] Transcribed voice note (%d chars).",
+                len(text),
+            )
+        return result
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 async def transcribe_voice(url: str) -> str:
@@ -89,26 +148,35 @@ async def transcribe_voice(url: str) -> str:
         content, _encoding = await safe_get_bytes_async(
             url, timeout=30.0, **configured_source_http_policy()
         )
-        with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as fh:
-            fh.write(content)
-            path = fh.name
-        try:
-            # Whisper load/transcribe is blocking — run off the event loop.
-            text = await asyncio.to_thread(_sync_transcribe, path)
-            if text:
-                logger.info(
-                    "[CONCEPT:AU-ECO.messaging.whisper-transcription] Transcribed voice note (%d chars).",
-                    len(text),
-                )
-            return text
-        finally:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        result = await _transcribe_bytes_full(content)
+        return str(result.get("text", "")).strip()
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "[CONCEPT:AU-ECO.messaging.whisper-transcription] voice transcription failed (%s)",
             type(e).__name__,
         )
         return ""
+
+
+async def transcribe_bytes_with_segments(
+    content: bytes, *, suffix: str = ".ogg"
+) -> tuple[str, list[dict]]:
+    """Transcribe already-downloaded audio ``content``, returning ``(text, segments)``.
+
+    CONCEPT:AU-KG.identity.evidence-spine-convergence — the ASR-with-timing half of the
+    ``AudioSegment`` evidence-locus producer (``MediaStore.store_audio_segment_evidence``'s
+    own docstring names this exact shape as its "natural producer"). Each segment dict
+    carries ``start``/``end`` in FLOATING-POINT SECONDS (the Whisper-native unit); a
+    caller writing evidence loci converts to the locus's millisecond fields. Returns
+    ``("", [])`` on any failure or when transcription is disabled — never raises, so a
+    best-effort background persist path can call this unconditionally.
+    """
+    try:
+        result = await _transcribe_bytes_full(content, suffix=suffix)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "[CONCEPT:AU-KG.identity.evidence-spine-convergence] segment transcription failed (%s)",
+            type(e).__name__,
+        )
+        return "", []
+    return str(result.get("text", "")).strip(), list(result.get("segments") or [])
