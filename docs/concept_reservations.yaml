@@ -1,2 +1,4 @@
-# Canonical OKF-CIS concept-ID reservation ledger.
-# Managed by agent_utilities.governance.concept_allocator.
+# Concept-ID reservation ledger — one reservation per line (merge=union safe).
+# Managed by agent_utilities.governance.concept_allocator; see
+# docs/concept_coordination.md. Reserve via `agent-utilities concept reserve`.
+- {id: AU-KG.memory.knowledge-currency, slug: AU, pillar: KG, domain: memory, session_ref: pref_concept_session_4e265bb4abd22ad87ce0eb18f53d1d6fd6a5098dc8a921d4a95bb96c5743fd11, reserved_at: '2026-07-21T00:04:00.433770+00:00', expires_at: '2026-07-22T00:04:00.433770+00:00', status: reserved, design_ref: pref_design_doc_18073a7ee4445e9f6966b2bbf5c2355f7eae3a0ef288c44f40279360f47ecd5c}

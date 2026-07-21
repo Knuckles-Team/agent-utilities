@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1013
+total_concepts: 1014
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -14208,4 +14208,16 @@ concepts:
   aliases:
   - EG-OS.deployment.binary-promotion
   canonical_pillar: EG-OS
+  needs_curation: false
+- id: AU-KG.memory.knowledge-currency
+  name: Currency-upgrade plain rows into calibrated, cited, time-versioned EpistemicRow results (Seam 1)
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/skills/graph-query-and-explanation/SKILL.md
+  doc: Currency-upgrade plain rows into calibrated, cited, time-versioned EpistemicRow results (Seam 1)
+  dotted: AU-KG.memory.knowledge-currency
+  aliases:
+  - AU-KG.memory.knowledge-currency
+  canonical_pillar: AU-KG
   needs_curation: false
