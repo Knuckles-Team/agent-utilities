@@ -2250,7 +2250,15 @@ class LoopController:
             window_is_stalled,
         )
 
-        from .loops import LoopStatus, claim_loop, is_terminal, mark_loop_status, to_status
+        from .loops import (
+            LoopStatus,
+            claim_loop,
+            is_terminal,
+            mark_loop_status,
+            send_loop_statechart_event,
+            statechart_active_state,
+            to_status,
+        )
 
         loop_id = loop["id"]
         kind = str(loop.get("kind") or "research").strip().lower()
@@ -2353,38 +2361,56 @@ class LoopController:
             and not deadline_passed(deadline)
             and not is_terminal(status)
         ):
-            # -- exit 6 HUMAN INTERRUPT (corrigible kill switch) — evaluated
-            # OUTSIDE/BEFORE the step so a risky iteration never starts once a
-            # pause/kill is desired (SAFE-1.5). --
-            if desired_state is not None:
-                desired = desired_state()
-                if desired:
-                    from agent_utilities.core.corrigibility import (
-                        corrigibility_decision,
-                    )
+            # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
+            # compute each signal exactly as before (corrigible kill switch
+            # evaluated OUTSIDE/BEFORE the step so a risky iteration never
+            # starts once a pause/kill is desired — SAFE-1.5), then hand the
+            # DECISION to the Loop's eg-statechart ``pretick`` transition
+            # (guard declaration order mirrors today's precedence: pause,
+            # then kill/cancel/stop, then budget, then external event). --
+            desired = desired_state() if desired_state is not None else None
+            human_signal: str | None = None
+            corrig_summary = ""
+            if desired:
+                from agent_utilities.core.corrigibility import corrigibility_decision
 
-                    final, summary = corrigibility_decision(desired)
-                    fstatus = to_status(
-                        final.value if final is not None else "paused",
-                        default=LoopStatus.PAUSED,
-                    )
-                    return _finish(
-                        fstatus,
-                        reason=summary or f"human interrupt: {desired}",
-                        interrupted=True,
-                    )
-
-            # -- exit 3 BUDGET CAP (hard terminal stop, not a tier downgrade) --
-            if resource_optimizer is not None and self._budget_exceeded(
+                _corrig_status, corrig_summary = corrigibility_decision(desired)
+                human_signal = (
+                    desired if desired in ("pause", "kill", "cancel", "stop") else "pause"
+                )
+            budget_exceeded_flag = resource_optimizer is not None and self._budget_exceeded(
                 resource_optimizer
-            ):
+            )
+            external_event_fired_flag = event_probe is not None and self._event_fired(
+                event_probe
+            )
+            pre_result = send_loop_statechart_event(
+                self.engine,
+                loop_id,
+                "pretick",
+                payload={
+                    "human_signal": human_signal,
+                    "budget_exceeded": bool(budget_exceeded_flag),
+                    "external_event_fired": bool(external_event_fired_flag),
+                },
+            )
+            if pre_result is None:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"Loop {loop_id!r} has no eg-statechart instance for its WorkItem"
+                )
+            pre_active = statechart_active_state(pre_result)
+            if pre_active in (LoopStatus.PAUSED.value, LoopStatus.CANCELLED.value):
+                return _finish(
+                    to_status(pre_active, default=LoopStatus.FAILED),
+                    reason=corrig_summary or f"human interrupt: {desired}",
+                    interrupted=True,
+                )
+            if pre_active == LoopStatus.BUDGET_EXCEEDED.value:
                 return _finish(
                     LoopStatus.BUDGET_EXCEEDED,
                     reason=f"resource budget exceeded: {self._budget_detail(resource_optimizer)}",
                 )
-
-            # -- exit 8 EXTERNAL EVENT (poll a real-world signal, e.g. PR merged) --
-            if event_probe is not None and self._event_fired(event_probe):
+            if pre_active == LoopStatus.EXTERNAL_EVENT_SATISFIED.value:
                 return _finish(
                     LoopStatus.EXTERNAL_EVENT_SATISFIED,
                     reason="external event signal fired",
@@ -2464,19 +2490,12 @@ class LoopController:
                     iteration=it,
                     output=str(outcome.get("output", ""))[:2000],
                 )
-            status = heartbeat_status
 
             if on_iteration is not None:
                 try:
                     on_iteration(it, outcome)
                 except Exception as e:  # noqa: BLE001 — observability never blocks
                     logger.debug("run_loop on_iteration callback failed: %s", e)
-
-            if measured_pass:
-                return _finish(
-                    LoopStatus.COMPLETED,
-                    reason=f"goal met (measured score={verdict.score:.2f}): {verdict.detail}",
-                )
 
             # -- exit 5 NO PROGRESS data: hash the substantive result and roll the
             # window (persisted on the Loop node, mirroring the fanout
@@ -2490,45 +2509,112 @@ class LoopController:
             progress_hashes.append(sig)
             self._persist_progress_window(loop_id, progress_hashes, stall_window)
 
-            # -- exit 7 ERROR THRESHOLD: N consecutive retryable failures halts;
+            # -- exit 7 ERROR THRESHOLD signal: N consecutive retryable failures;
             # any non-failure progress resets the run (engine-breaker semantics).
-            # Checked BEFORE stall so a repeated ERROR is diagnosed as an
-            # error-threshold, not a generic stall. --
+            # ``error_threshold_tripped`` is precomputed here as a plain boolean
+            # because ``eg-statechart``'s numeric ``Guard::Ge`` reads persistent
+            # machine CONTEXT, never the event payload, and this chart's context
+            # is always empty — the CALLER does the comparison and sends the
+            # boolean (mirrors the Rust-side W2.5 correction). --
+            error_threshold_tripped = False
             if retryable_failure:
-                if fail_guard.record_failure():
+                error_threshold_tripped = fail_guard.record_failure()
+            elif progressed:
+                fail_guard.record_success()
+
+            # -- exit 5 NO PROGRESS: the last N signatures identical -> stalled. --
+            stalled_flag = window_is_stalled(progress_hashes, stall_window)
+
+            # -- legacy trust: a terminal status the evaluator did NOT override
+            # (offline / no measurement) — the callee's self-declared verdict. --
+            callee_terminal = decided.value if is_terminal(decided) else None
+
+            # -- exit 2 TURN CAP / exit 4 WALL CLOCK signals, precomputed as
+            # plain booleans for the same reason as error_threshold_tripped. --
+            turn_cap_reached = it >= max_it
+            deadline_flag = deadline_passed(deadline)
+
+            # Whichever of running/pending/validating this iteration continues
+            # as (the ordinary non-terminal heartbeat) — None once ``decided``
+            # is itself terminal (the legacy-trust/turn-cap/wall-clock guards
+            # above take it from here instead).
+            heartbeat_target = (
+                heartbeat_status.value if not is_terminal(heartbeat_status) else None
+            )
+
+            post_result = send_loop_statechart_event(
+                self.engine,
+                loop_id,
+                "posttick",
+                payload={
+                    "measured_pass": measured_pass,
+                    "retryable_failure": retryable_failure,
+                    "error_threshold_tripped": error_threshold_tripped,
+                    "stalled": stalled_flag,
+                    "callee_terminal": callee_terminal,
+                    "turn_cap_reached": turn_cap_reached,
+                    "deadline_passed": deadline_flag,
+                    "heartbeat_target": heartbeat_target,
+                },
+            )
+            if post_result is None:
+                raise _wi.WorkItemBackendUnavailable(
+                    f"Loop {loop_id!r} has no eg-statechart instance for its WorkItem"
+                )
+            active = statechart_active_state(post_result)
+            status = to_status(active, default=LoopStatus.FAILED)
+
+            if is_terminal(status):
+                if status is LoopStatus.COMPLETED:
+                    if measured_pass:
+                        return _finish(
+                            LoopStatus.COMPLETED,
+                            reason=(
+                                f"goal met (measured score={verdict.score:.2f}): "
+                                f"{verdict.detail}"
+                            ),
+                        )
+                    return _finish(LoopStatus.COMPLETED)
+                if (
+                    status is LoopStatus.ERROR_THRESHOLD_EXCEEDED
+                    and error_threshold_tripped
+                ):
                     return _finish(
-                        LoopStatus.ERROR_THRESHOLD_EXCEEDED,
+                        status,
                         reason=(
                             f"{fail_guard.count} consecutive non-terminal failures "
                             f"(threshold {fail_guard.threshold})"
                         ),
                     )
-            elif progressed:
-                fail_guard.record_success()
+                if status is LoopStatus.STALLED and stalled_flag:
+                    return _finish(
+                        status,
+                        reason=(
+                            f"no progress across the last {stall_window} iterations "
+                            "(identical status/output)"
+                        ),
+                    )
+                if status is LoopStatus.MAX_ITERATIONS_EXCEEDED and turn_cap_reached:
+                    return _finish(
+                        status,
+                        reason=f"turn cap reached: max_iterations={max_it} without convergence",
+                    )
+                if status is LoopStatus.WALL_CLOCK_EXCEEDED and deadline_flag:
+                    return _finish(
+                        status,
+                        reason=(
+                            "overall wall-clock deadline exceeded after "
+                            f"{_time.monotonic() - start_monotonic:.1f}s"
+                        ),
+                    )
+                return _finish(status, reason=f"callee terminal status: {status.value}")
 
-            # -- exit 5 NO PROGRESS: the last N signatures identical -> stalled. --
-            if window_is_stalled(progress_hashes, stall_window):
-                return _finish(
-                    LoopStatus.STALLED,
-                    reason=(
-                        f"no progress across the last {stall_window} iterations "
-                        "(identical status/output)"
-                    ),
-                )
-
-            # A retryable failure keeps looping (already counted); it must NOT fall
-            # into the legacy-terminal return on the same iteration.
+            # A retryable failure keeps looping (already counted); it must NOT
+            # fall into the ``done``-flag break on the same iteration.
             if retryable_failure:
                 if sleep_s:
                     await asyncio.sleep(sleep_s)
                 continue
-
-            # -- Legacy trust: a terminal status the evaluator did NOT override
-            # (offline / no measurement) ends the loop on the callee's verdict. --
-            if is_terminal(decided):
-                if decided is LoopStatus.COMPLETED:
-                    return _finish(LoopStatus.COMPLETED)
-                return _finish(decided, reason=f"callee terminal status: {decided.value}")
             if outcome.get("done"):
                 break
             if sleep_s:

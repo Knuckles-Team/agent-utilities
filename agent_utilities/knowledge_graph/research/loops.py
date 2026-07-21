@@ -149,6 +149,362 @@ def is_success(status: str | LoopStatus) -> bool:
     return to_status(status) in _SUCCESS_TERMINALS
 
 
+# ── eg-statechart definition (W2.5 control-plane migration) ──────────────────
+#
+# Wires the Loop lifecycle onto a real, engine-native ``eg-statechart`` state
+# machine (via the existing ``Method::Statechart`` wire surface: define /
+# instantiate / send_event / get_state / list — no protocol change) instead of
+# ``run_loop``'s ad-hoc Python if/elif chain. See
+# ``reports/w2_5-statechart-migration-design.md`` §1 for the full derivation;
+# this is a direct transcription of that table WITH three corrections applied
+# that the Rust side (``epistemic-graph`` ``src/loop_statechart.rs``, commit
+# ``4bcf07a`` on ``impl/w25-statechart``) already carries and this def must
+# agree with:
+#
+# 1. The legacy-trust ``callee_terminal`` mirror (design doc row 13) is 9
+#    concrete transitions — every final ``LoopStatus`` EXCEPT ``completed``
+#    (which gets its own dedicated transition, row 13 below) — not 5.
+# 2. That mirror fires from ALL THREE active states (``running``/``pending``/
+#    ``validating``), not ``running`` only: ``run_loop``'s actual legacy-trust
+#    check runs unconditionally on the freshly computed ``decided`` value
+#    every iteration, regardless of which active state ``status`` was in
+#    going into that iteration.
+# 3. The error-threshold (row 10) and turn-cap (row 15) guards read plain
+#    booleans the CALLER precomputes and sends in the event payload
+#    (``error_threshold_tripped``, ``turn_cap_reached``) rather than numeric
+#    ``Guard::Ge`` comparisons over event fields — ``eg-statechart``'s
+#    ``Ge``/``Gt``/``Lt``/``Le`` guards read persistent machine CONTEXT, never
+#    the event payload (only ``EventEq`` reads the payload), and this chart's
+#    context is always empty (every signal is computed fresh by ``run_loop``
+#    each tick and passed as the event payload).
+#
+# Two more transitions exist ONLY so every declared state is reachable
+# (``eg_statechart::check::validate`` rejects an unreachable state): the
+# ``heartbeat_target`` guard (row 17, makes ``pending``/``validating``
+# reachable) and the ``lease_lost`` event (row 18, makes ``orphaned``
+# reachable — mirrors WorkItem's ``lease_reclaim``, fired by a future
+# lease-expiry reaper; ``run_loop`` itself does not send it today).
+
+#: The three non-final states ``run_loop`` actually iterates in.
+ACTIVE_LOOP_STATES: tuple[str, ...] = (
+    LoopStatus.RUNNING.value,
+    LoopStatus.PENDING.value,
+    LoopStatus.VALIDATING.value,
+)
+
+#: All ten final ``LoopStatus`` values, in a fixed, reviewable order.
+_FINAL_LOOP_STATES: tuple[str, ...] = (
+    LoopStatus.COMPLETED.value,
+    LoopStatus.FAILED.value,
+    LoopStatus.CANCELLED.value,
+    LoopStatus.REJECTED.value,
+    LoopStatus.MAX_ITERATIONS_EXCEEDED.value,
+    LoopStatus.BUDGET_EXCEEDED.value,
+    LoopStatus.WALL_CLOCK_EXCEEDED.value,
+    LoopStatus.STALLED.value,
+    LoopStatus.ERROR_THRESHOLD_EXCEEDED.value,
+    LoopStatus.EXTERNAL_EVENT_SATISFIED.value,
+)
+#: The 9 finals a callee can self-declare and have legacy-trusted verbatim
+#: (every final except ``completed``, which is its own dedicated transition).
+_CALLEE_TERMINAL_MIRROR_STATES: tuple[str, ...] = tuple(
+    s for s in _FINAL_LOOP_STATES if s != LoopStatus.COMPLETED.value
+)
+
+
+def _always() -> dict[str, Any]:
+    return {"op": "always"}
+
+
+def _event_eq(key: str, value: Any) -> dict[str, Any]:
+    return {"op": "event_eq", "key": key, "value": value}
+
+
+def _all_guards(*guards: dict[str, Any]) -> dict[str, Any]:
+    return {"op": "all", "guards": list(guards)}
+
+
+def _any_guards(*guards: dict[str, Any]) -> dict[str, Any]:
+    return {"op": "any", "guards": list(guards)}
+
+
+def _build_loop_statechart_def() -> dict[str, Any]:
+    """Author the Loop lifecycle as a plain dict shaped exactly like Rust's
+    ``eg_statechart::model::StatechartDef`` (fields: ``name``,
+    ``schema_version``, ``states``, ``alphabet``, ``transitions``, ``initial``,
+    ``finals``, ``meta``; guards externally-tagged on ``op``, matching Rust's
+    ``#[serde(tag="op")]``)."""
+    states = [
+        {"id": s}
+        for s in (
+            LoopStatus.SUBMITTED.value,
+            LoopStatus.RUNNING.value,
+            LoopStatus.PENDING.value,
+            LoopStatus.VALIDATING.value,
+            LoopStatus.PAUSED.value,
+            LoopStatus.ORPHANED.value,
+            *_FINAL_LOOP_STATES,
+        )
+    ]
+
+    transitions: list[dict[str, Any]] = []
+
+    # 1 / 1b: claim -> running (fresh submit, or re-claim after an orphaned lease)
+    transitions.append(
+        {"from": LoopStatus.SUBMITTED.value, "event": "claim", "guard": _always(), "to": LoopStatus.RUNNING.value}
+    )
+    transitions.append(
+        {"from": LoopStatus.ORPHANED.value, "event": "claim", "guard": _always(), "to": LoopStatus.RUNNING.value}
+    )
+    # 2: intake refusal
+    transitions.append(
+        {"from": LoopStatus.SUBMITTED.value, "event": "reject", "guard": _always(), "to": LoopStatus.REJECTED.value}
+    )
+
+    # 3: pretick human interrupt — pause
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "pretick",
+                "guard": _event_eq("human_signal", "pause"),
+                "to": LoopStatus.PAUSED.value,
+                "actions": [{"do": "log", "message": "human interrupt: pause"}],
+            }
+        )
+    # 4: pretick human interrupt — kill/cancel/stop
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "pretick",
+                "guard": _any_guards(
+                    _event_eq("human_signal", "kill"),
+                    _event_eq("human_signal", "cancel"),
+                    _event_eq("human_signal", "stop"),
+                ),
+                "to": LoopStatus.CANCELLED.value,
+                "actions": [{"do": "log", "message": "human interrupt: kill"}],
+            }
+        )
+    # 5: pretick budget cap
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "pretick",
+                "guard": _event_eq("budget_exceeded", True),
+                "to": LoopStatus.BUDGET_EXCEEDED.value,
+            }
+        )
+    # 6: pretick external event
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "pretick",
+                "guard": _event_eq("external_event_fired", True),
+                "to": LoopStatus.EXTERNAL_EVENT_SATISFIED.value,
+            }
+        )
+    # 7: operator resume
+    transitions.append(
+        {"from": LoopStatus.PAUSED.value, "event": "resume", "guard": _always(), "to": LoopStatus.RUNNING.value}
+    )
+    # 8: posttick goal met
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("measured_pass", True),
+                "to": LoopStatus.COMPLETED.value,
+            }
+        )
+    # 9: posttick error threshold (precomputed boolean — correction #3)
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _all_guards(
+                    _event_eq("retryable_failure", True),
+                    _event_eq("error_threshold_tripped", True),
+                ),
+                "to": LoopStatus.ERROR_THRESHOLD_EXCEEDED.value,
+            }
+        )
+    # 10: posttick stalled
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("stalled", True),
+                "to": LoopStatus.STALLED.value,
+            }
+        )
+    # 11: posttick retryable-failure self-loop heartbeat (only reached if #9 didn't fire)
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("retryable_failure", True),
+                "to": frm,
+            }
+        )
+    # 12: posttick legacy-trust — callee_terminal == "completed"
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("callee_terminal", LoopStatus.COMPLETED.value),
+                "to": LoopStatus.COMPLETED.value,
+            }
+        )
+    # 13: posttick legacy-trust — callee_terminal == <every other final> (9 x 3 = 27 rows)
+    for frm in ACTIVE_LOOP_STATES:
+        for terminal in _CALLEE_TERMINAL_MIRROR_STATES:
+            transitions.append(
+                {
+                    "from": frm,
+                    "event": "posttick",
+                    "guard": _event_eq("callee_terminal", terminal),
+                    "to": terminal,
+                }
+            )
+    # 14: posttick turn cap (precomputed boolean — correction #3)
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("turn_cap_reached", True),
+                "to": LoopStatus.MAX_ITERATIONS_EXCEEDED.value,
+            }
+        )
+    # 15: posttick wall clock
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "posttick",
+                "guard": _event_eq("deadline_passed", True),
+                "to": LoopStatus.WALL_CLOCK_EXCEEDED.value,
+            }
+        )
+    # 16: posttick ordinary heartbeat continuation — declared LAST (only fires
+    # once nothing terminal/self-loop above it did).
+    for frm in ACTIVE_LOOP_STATES:
+        for target in ACTIVE_LOOP_STATES:
+            transitions.append(
+                {
+                    "from": frm,
+                    "event": "posttick",
+                    "guard": _event_eq("heartbeat_target", target),
+                    "to": target,
+                }
+            )
+    # 17: internal lease-loss -> orphaned (not sent by run_loop today; makes
+    # ``orphaned`` reachable, mirrors a future lease-expiry reaper).
+    for frm in ACTIVE_LOOP_STATES:
+        transitions.append(
+            {
+                "from": frm,
+                "event": "lease_lost",
+                "guard": _always(),
+                "to": LoopStatus.ORPHANED.value,
+            }
+        )
+
+    return {
+        "name": "loop_lifecycle",
+        "schema_version": "1",
+        "states": states,
+        "alphabet": ["claim", "pretick", "resume", "posttick", "reject", "lease_lost"],
+        "transitions": transitions,
+        "initial": LoopStatus.SUBMITTED.value,
+        "finals": list(_FINAL_LOOP_STATES),
+        "meta": {
+            "concept": "AU-AHE.harness.loop-exit-conditions",
+            "source": "agent_utilities.knowledge_graph.research.loops.LOOP_STATECHART_DEF",
+        },
+    }
+
+
+#: The Loop lifecycle chart — a module-level constant, safe to build at import
+#: time (pure data, no engine call). ``loop_def_id`` registers it with a live
+#: engine lazily (see below), never at import.
+LOOP_STATECHART_DEF: dict[str, Any] = _build_loop_statechart_def()
+
+
+def loop_def_id(engine: Any) -> str:
+    """Register the Loop lifecycle chart, returning its content-addressed id.
+
+    ``engine.statechart.define`` is content-addressed/idempotent on the
+    server, so calling it defensively every time this is needed is correct
+    (just an extra round trip) — no caching is attempted here (W2.5 design
+    guidance: start simple; add caching later only if it proves trivial and
+    safe).
+    """
+    return engine.statechart.define(LOOP_STATECHART_DEF)
+
+
+def ensure_loop_statechart_instance(engine: Any, loop_id: str) -> str | None:
+    """Resolve (creating if needed) the Loop's ``eg-statechart`` instance id.
+
+    ``Method::Statechart``'s ``Instantiate`` op server-generates the
+    ``instance_id`` (unlike ``submit_work_item``'s caller-supplied
+    ``work_item_id``) — extending that wire op to accept a caller-supplied id
+    is out of scope for W2.5. So the server-returned id is stored back onto
+    the Loop's backing WorkItem (``loop_statechart_instance_id``) right after
+    instantiation, and read back from there on every subsequent call — a
+    disclosed, reasonable deviation from the design doc's deterministic-
+    ``instance_id`` proposal. Returns ``None`` if the backing WorkItem doesn't
+    exist yet or the instantiate call didn't return an id.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    item_id = _wi.loop_work_item_id(loop_id)
+    item = _wi.get_work_item(engine, item_id)
+    if item is None:
+        return None
+    existing = item.get("loop_statechart_instance_id")
+    if existing:
+        return str(existing)
+    def_id = loop_def_id(engine)
+    result = engine.statechart.instantiate(def_id, context={})
+    instance_id = result.get("instance_id") if isinstance(result, dict) else None
+    if not instance_id:
+        return None
+    _wi.set_loop_statechart_instance_id(engine, item_id, str(instance_id))
+    return str(instance_id)
+
+
+def send_loop_statechart_event(
+    engine: Any, loop_id: str, event: str, payload: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    """Send one event to the Loop's ``eg-statechart`` instance.
+
+    Resolves (creating if needed) the instance first. Returns ``None`` only
+    when the instance itself can't be resolved (e.g. no backing WorkItem) —
+    the WorkItem stays the hard lease/fencing authority (§3.1, unchanged); the
+    statechart adds a durable "why" on top of it.
+    """
+    instance_id = ensure_loop_statechart_instance(engine, loop_id)
+    if not instance_id:
+        return None
+    return engine.statechart.send_event(instance_id, event, payload=payload)
+
+
+def statechart_active_state(result: dict[str, Any]) -> str:
+    """Extract the single active-state id from a ``send_event``/``get_state``
+    response (the Loop chart has no parallel regions, so exactly one)."""
+    return result["instance"]["configuration"]["active"][0]
+
+
 def _prio_bucket(value: Any, default: int = 2) -> int:
     """Normalize a priority spec to the ONE 0..3 claim bucket (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
@@ -223,6 +579,9 @@ def submit_loop(
         priority=_prio_bucket(prio_bucket),
         max_attempts=max(1, int(max_iterations)),
     )
+    # The Loop's durable "why" state machine (W2.5): register the chart and
+    # instantiate this Loop's instance, stored back on its backing WorkItem.
+    ensure_loop_statechart_instance(engine, oid)
     # Concept is immutable lifecycle-neutral definition/content. The WorkItem
     # created above is the only place scheduling and lifecycle state exist.
     try:
@@ -329,11 +688,17 @@ def claim_loop(engine: Any, loop_id: str) -> bool:
     """Acquire the existing Loop's native WorkItem lease.
 
     A negative native claim is final; no definition status can substitute for
-    the engine-issued lease.
+    the engine-issued lease. On a successful claim, additionally advances the
+    Loop's ``eg-statechart`` instance with a ``claim`` event (W2.5) — a no-op
+    if the instance is already past ``submitted``/``orphaned`` (e.g. a
+    resumed driver re-claiming an already-``running`` instance).
     """
     from agent_utilities.orchestration.work_item import claim_loop_work_item
 
-    return claim_loop_work_item(engine, loop_id) is not None
+    won = claim_loop_work_item(engine, loop_id) is not None
+    if won:
+        send_loop_statechart_event(engine, loop_id, "claim")
+    return won
 
 
 def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
@@ -437,4 +802,10 @@ __all__ = [
     "mark_loop_status",
     "prioritize_loop",
     "claim_loop",
+    "LOOP_STATECHART_DEF",
+    "ACTIVE_LOOP_STATES",
+    "loop_def_id",
+    "ensure_loop_statechart_instance",
+    "send_loop_statechart_event",
+    "statechart_active_state",
 ]

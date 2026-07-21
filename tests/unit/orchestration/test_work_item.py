@@ -24,12 +24,137 @@ No live epistemic-graph engine is required either way.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import threading
 from typing import Any
 
 import pytest
 
 from agent_utilities.orchestration import work_item as wi
+
+
+class FakeStatechartClient:
+    """Generic in-memory reference interpreter for the ``eg-statechart`` wire
+    surface (``define``/``instantiate``/``send_event``/``get_state``/``list``)
+    used by the W2.5 control-plane migration tests.
+
+    Faithful to ``eg-statechart``'s semantics for the guard vocabulary this
+    codebase actually emits: the FIRST transition (in declaration order)
+    whose ``from`` matches the instance's current active state, whose
+    ``event`` matches, and whose guard (``always``/``event_eq``/``all``/
+    ``any``) holds against the event payload fires; no match is a
+    well-defined no-op (``fired: False``). Generic over whatever
+    ``StatechartDef``-shaped dict it is given — NOT hardcoded to any one
+    chart — so a test loading it with the real ``LOOP_STATECHART_DEF``
+    genuinely exercises that data through real guard evaluation, not a
+    scripted response.
+    """
+
+    def __init__(self) -> None:
+        self._defs: dict[str, dict[str, Any]] = {}
+        self._instances: dict[str, dict[str, Any]] = {}
+        self._seq = 0
+
+    def define(self, definition: dict[str, Any]) -> str:
+        payload = json.dumps(definition, sort_keys=True, default=str).encode()
+        def_id = "eg:statechart:" + hashlib.sha256(payload).hexdigest()[:24]
+        self._defs[def_id] = definition
+        return def_id
+
+    def instantiate(
+        self, def_id: str, context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        definition = self._defs[def_id]
+        self._seq += 1
+        instance_id = f"eg:statechart-instance:{self._seq}"
+        self._instances[instance_id] = {
+            "def_id": def_id,
+            "active": definition["initial"],
+            "context": dict(context or {}),
+            "version": 0,
+        }
+        return self._describe(instance_id)
+
+    def send_event(
+        self,
+        instance_id: str,
+        event: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        expected_version: int | None = None,
+    ) -> dict[str, Any]:
+        inst = self._instances[instance_id]
+        payload = dict(payload or {})
+        if expected_version is not None and expected_version != inst["version"]:
+            return {
+                "instance": self._describe(instance_id),
+                "fired": False,
+                "no_op_reason": "version_conflict",
+                "fired_label": None,
+                "actions": [],
+                "effects": [],
+            }
+        definition = self._defs[inst["def_id"]]
+        fired = False
+        fired_label = None
+        for t in definition["transitions"]:
+            if t["from"] != inst["active"] or t["event"] != event:
+                continue
+            if self._guard_holds(t.get("guard") or {"op": "always"}, payload, inst["context"]):
+                inst["active"] = t["to"]
+                inst["version"] += 1
+                fired = True
+                fired_label = t.get("label")
+                break
+        return {
+            "instance": self._describe(instance_id),
+            "fired": fired,
+            "no_op_reason": None if fired else "no_matching_transition",
+            "fired_label": fired_label,
+            "actions": [],
+            "effects": [],
+        }
+
+    def get_state(self, instance_id: str) -> dict[str, Any]:
+        return self._describe(instance_id)
+
+    def list(self, def_id: str | None = None) -> dict[str, Any]:
+        ids = [
+            iid
+            for iid, inst in self._instances.items()
+            if def_id is None or inst["def_id"] == def_id
+        ]
+        return {"instances": [self._describe(iid) for iid in ids]}
+
+    def _describe(self, instance_id: str) -> dict[str, Any]:
+        inst = self._instances[instance_id]
+        return {
+            "instance_id": instance_id,
+            "configuration": {"active": [inst["active"]]},
+            "version": inst["version"],
+        }
+
+    @staticmethod
+    def _guard_holds(
+        guard: dict[str, Any], payload: dict[str, Any], context: dict[str, Any]
+    ) -> bool:
+        op = guard.get("op")
+        if op == "always":
+            return True
+        if op == "event_eq":
+            return payload.get(guard["key"]) == guard["value"]
+        if op == "all":
+            return all(
+                FakeStatechartClient._guard_holds(g, payload, context)
+                for g in guard.get("guards", [])
+            )
+        if op == "any":
+            return any(
+                FakeStatechartClient._guard_holds(g, payload, context)
+                for g in guard.get("guards", [])
+            )
+        raise ValueError(f"FakeStatechartClient: unsupported guard op {op!r}")
 
 
 def _negative_claim(reason: str) -> dict[str, Any]:
@@ -64,6 +189,10 @@ class NativeEngine:
         self.edges: list[tuple[str, str, str]] = []
         self.native_calls: list[str] = []
         self._lock = threading.Lock()
+        # W2.5: generic eg-statechart reference interpreter double, so the
+        # Loop lifecycle wiring (research.loops / loop_controller.run_loop)
+        # has a real ``.statechart`` sub-client to drive under test.
+        self.statechart = FakeStatechartClient()
 
     def add_node(
         self,

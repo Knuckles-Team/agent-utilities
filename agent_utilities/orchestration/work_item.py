@@ -103,6 +103,7 @@ __all__ = [
     "ensure_loop_work_item",
     "claim_loop_work_item",
     "transition_loop_work_item",
+    "set_loop_statechart_instance_id",
     "set_work_item_priority",
     "work_item_view_of_loop",
 ]
@@ -187,6 +188,7 @@ _FIELDS: tuple[str, ...] = (
     "assigned_to",
     "created_by",
     "metadata",
+    "loop_statechart_instance_id",
 )
 
 
@@ -1668,6 +1670,22 @@ def start_team_work_item(
 def loop_work_item_id(loop_id: str) -> str:
     """Deterministic WorkItem identity for a Goal/Loop definition."""
     return f"workitem:loop:{loop_id}"
+
+
+def set_loop_statechart_instance_id(engine: Any, item_id: str, instance_id: str) -> None:
+    """Attach the Loop's ``eg-statechart`` instance id to its backing WorkItem (W2.5).
+
+    ``Method::Statechart::Instantiate`` server-generates ``instance_id`` (no
+    caller-supplied id support, unlike ``submit_work_item``'s
+    ``work_item_id``), so the returned id is stored here and read back by
+    ``research.loops.ensure_loop_statechart_instance`` on every subsequent
+    call. Best-effort metadata, not part of the lease/fencing authority — a
+    plain upsert (mirrors how ``research.loops.submit_loop`` upserts its
+    Concept definition), not a CAS-guarded field.
+    """
+    _authority(engine).add_node(
+        item_id, _NODE_LABEL, properties={"loop_statechart_instance_id": instance_id}
+    )
 
 
 def ensure_loop_work_item(
