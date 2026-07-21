@@ -545,10 +545,10 @@ override-dependencies = ["pydantic-ai-slim>=2.0.0,<3.0.0"]
 # The ecosystem workspace validates Agent Utilities against the sibling engine
 # checkout at the exact source head. Published consumers still resolve the
 # certified >=2.23,<3 wheel range declared above.
-epistemic-graph = { path = "../epistemic-graph", editable = true }
+epistemic-graph = { workspace = true }
 # The workspace release train certifies the current observability provider
 # artifact rather than resolving a same-version package from an index.
-langfuse-agent = { path = "../agents/langfuse-agent", editable = true }
+langfuse-agent = { workspace = true }
 
 [dependency-groups]
 guardrails = [
