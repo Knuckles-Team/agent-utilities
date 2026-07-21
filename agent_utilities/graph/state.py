@@ -339,6 +339,14 @@ class GraphState:
     execution_budget: ExecutionBudget = field(default_factory=ExecutionBudget)
     """CONCEPT:AU-ORCH.execution.execution-budget-caps — Execution Budget. Defines caps for this session."""
 
+    max_steps: int | None = None
+    """CONCEPT:AU-AHE.harness.loop-exit-conditions — the caller's ``run_agent``
+    turn cap (interaction ROUNDS) threaded onto the multi-agent graph. Enforced
+    via ``execution_budget.max_node_transitions`` (the dispatcher's force-terminate
+    guard); previously ``max_steps`` was dropped in ``agent_runner._execute_graph``
+    and the graph fell back to the ExecutionBudget default regardless of the
+    caller's request. ``None`` = use the ExecutionBudget default."""
+
     user_redirect_feedback: str | None = None
     """Feedback from a triage pause that redirects the graph to a different domain."""
 

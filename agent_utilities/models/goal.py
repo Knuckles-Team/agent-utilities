@@ -51,6 +51,18 @@ class GoalStatus(StrEnum):
     # rehydration, CONCEPT:AU-ORCH.session.durable-goal-registry-goals): visible + explicitly resumable, never
     # silently lost.
     ORPHANED = "orphaned"
+    # Harness-enforced loop-exit terminal statuses (CONCEPT:AU-AHE.harness.
+    # loop-exit-conditions). A goal is driven as a develop Loop by
+    # ``LoopController.run_loop``; these mirror the distinct, diagnosable exits
+    # that loop can take so a goal surfaces WHY it stopped, never a generic
+    # ``failed``. Kept in lock-step with
+    # ``knowledge_graph.research.loops.LoopStatus``.
+    MAX_ITERATIONS_EXCEEDED = "max_iterations_exceeded"  # turn cap
+    BUDGET_EXCEEDED = "budget_exceeded"  # token/dollar budget cap
+    WALL_CLOCK_EXCEEDED = "wall_clock_exceeded"  # overall deadline
+    STALLED = "stalled"  # no progress across N iterations
+    ERROR_THRESHOLD_EXCEEDED = "error_threshold_exceeded"  # N consecutive failures
+    EXTERNAL_EVENT_SATISFIED = "external_event_satisfied"  # awaited signal fired
 
 
 class GoalSpec(BaseModel):

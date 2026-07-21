@@ -28,14 +28,125 @@ Concept: loop
 import logging
 import re
 import time
+from enum import StrEnum
 from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
-LoopKind = Literal["research", "develop", "skill"]
+LoopKind = Literal["research", "develop", "skill", "external_event"]
 
-#: statuses from which a Loop never needs more work.
-TERMINAL_STATUS = frozenset({"completed", "failed", "cancelled", "rejected"})
+
+class LoopStatus(StrEnum):
+    """Every lifecycle status a Loop (and its Goal adapter) can hold.
+
+    Replaces the former bare frozenset of terminal strings with an authoritative
+    enum so an illegal/misspelled status can no longer silently pass a
+    ``status not in TERMINAL_STATUS`` test as "keep looping" (:func:`is_terminal`
+    / :func:`to_status` validate against these members).
+
+    Each of the eight harness-enforced loop exits transitions to a DISTINCT
+    terminal status so the reason a loop stopped is diagnosable, never a generic
+    ``failed``. Each terminal status maps cleanly onto one guarded transition in a
+    future explicit loop state machine.
+    """
+
+    # --- non-terminal ---
+    SUBMITTED = "submitted"
+    RUNNING = "running"
+    PENDING = "pending"
+    VALIDATING = "validating"
+    PAUSED = "paused"
+    ORPHANED = "orphaned"
+    # --- terminal: canonical outcomes (pre-existing vocabulary) ---
+    COMPLETED = "completed"  # exit 1 GOAL MET — a real measured pass
+    FAILED = "failed"
+    CANCELLED = "cancelled"  # exit 6 HUMAN INTERRUPT — kill
+    REJECTED = "rejected"
+    # --- terminal: the harness-enforced loop exits (each distinct/diagnosable) ---
+    MAX_ITERATIONS_EXCEEDED = "max_iterations_exceeded"  # exit 2 TURN CAP
+    BUDGET_EXCEEDED = "budget_exceeded"  # exit 3 BUDGET CAP
+    WALL_CLOCK_EXCEEDED = "wall_clock_exceeded"  # exit 4 WALL CLOCK
+    STALLED = "stalled"  # exit 5 NO PROGRESS
+    ERROR_THRESHOLD_EXCEEDED = "error_threshold_exceeded"  # exit 7 ERROR THRESHOLD
+    EXTERNAL_EVENT_SATISFIED = "external_event_satisfied"  # exit 8 EXTERNAL EVENT
+
+
+#: The terminal ``LoopStatus`` members — a Loop in one of these never needs more
+#: work. Success terminals (``COMPLETED``, ``EXTERNAL_EVENT_SATISFIED``) are kept
+#: separate from the abnormal/exhaustion terminals for downstream reporting.
+_SUCCESS_TERMINALS: frozenset[LoopStatus] = frozenset(
+    {LoopStatus.COMPLETED, LoopStatus.EXTERNAL_EVENT_SATISFIED}
+)
+_TERMINAL_MEMBERS: frozenset[LoopStatus] = _SUCCESS_TERMINALS | frozenset(
+    {
+        LoopStatus.FAILED,
+        LoopStatus.CANCELLED,
+        LoopStatus.REJECTED,
+        LoopStatus.MAX_ITERATIONS_EXCEEDED,
+        LoopStatus.BUDGET_EXCEEDED,
+        LoopStatus.WALL_CLOCK_EXCEEDED,
+        LoopStatus.STALLED,
+        LoopStatus.ERROR_THRESHOLD_EXCEEDED,
+    }
+)
+
+#: Backwards-compatible plain-string frozenset (``status not in TERMINAL_STATUS``
+#: checks throughout the codebase keep working) — now derived from the enum and
+#: covering ALL ten terminal statuses, so the six new harness-enforced exits are
+#: correctly recognised as terminal by every existing caller.
+TERMINAL_STATUS: frozenset[str] = frozenset(s.value for s in _TERMINAL_MEMBERS)
+#: Preferred alias (enum-typed name) for new code.
+TERMINAL_STATUSES = TERMINAL_STATUS
+
+#: Known aliases folded onto canonical members by :func:`to_status`.
+_STATUS_ALIASES: dict[str, LoopStatus] = {
+    "succeeded": LoopStatus.COMPLETED,
+    "success": LoopStatus.COMPLETED,
+    "canceled": LoopStatus.CANCELLED,
+    "": LoopStatus.PENDING,
+}
+
+
+def to_status(
+    raw: str | LoopStatus, *, default: LoopStatus = LoopStatus.FAILED
+) -> LoopStatus:
+    """Coerce a raw status to a :class:`LoopStatus` member (fail-closed).
+
+    An unrecognised status is mapped to ``default`` (``FAILED``) with a warning
+    rather than silently flowing through as a non-terminal "keep looping" string —
+    closing the audit gap where a typo'd status would neither terminate the loop
+    nor be noticed.
+    """
+    if isinstance(raw, LoopStatus):
+        return raw
+    key = str(raw or "").strip().lower()
+    if key in _STATUS_ALIASES:
+        return _STATUS_ALIASES[key]
+    try:
+        return LoopStatus(key)
+    except ValueError:
+        logger.warning(
+            "unknown Loop status %r -> treating as %s (fail-closed)",
+            raw,
+            default.value,
+        )
+        return default
+
+
+def is_terminal(status: str | LoopStatus) -> bool:
+    """True when ``status`` is a terminal Loop status.
+
+    Unlike a bare ``status in TERMINAL_STATUS`` set-membership test, ``status`` is
+    first validated against :class:`LoopStatus` (via :func:`to_status`), so an
+    unknown/misspelled status fails closed (treated as ``FAILED``, which IS
+    terminal) instead of silently reading as non-terminal.
+    """
+    return to_status(status) in _TERMINAL_MEMBERS
+
+
+def is_success(status: str | LoopStatus) -> bool:
+    """True when ``status`` is a *successful* terminal status."""
+    return to_status(status) in _SUCCESS_TERMINALS
 
 
 def _prio_bucket(value: Any, default: int = 2) -> int:
@@ -161,12 +272,29 @@ def mark_loop_status(
     """
     from agent_utilities.orchestration.work_item import transition_loop_work_item
 
+    # Stamp the PRECISE terminal reason onto the WorkItem's result/error ref so
+    # each harness-enforced exit is durably diagnosable (not collapsed to a bare
+    # 'failed'). Success terminals carry a result_ref; abnormal/exhaustion
+    # terminals carry an error_ref naming the exact exit.
+    normalized = str(status).strip().lower()
     result_ref = (
-        f"loop:{loop_id}:completed" if status in {"completed", "succeeded"} else None
+        f"loop:{loop_id}:{normalized}"
+        if normalized in {"completed", "succeeded", "external_event_satisfied"}
+        else None
     )
     error_ref = (
-        f"loop:{loop_id}:{status}"
-        if status in {"failed", "rejected", "cancelled"}
+        f"loop:{loop_id}:{normalized}"
+        if normalized
+        in {
+            "failed",
+            "rejected",
+            "cancelled",
+            "max_iterations_exceeded",
+            "budget_exceeded",
+            "wall_clock_exceeded",
+            "stalled",
+            "error_threshold_exceeded",
+        }
         else None
     )
     transitioned = transition_loop_work_item(
@@ -298,7 +426,12 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
 
 __all__ = [
     "LoopKind",
+    "LoopStatus",
     "TERMINAL_STATUS",
+    "TERMINAL_STATUSES",
+    "is_success",
+    "is_terminal",
+    "to_status",
     "submit_loop",
     "active_loops",
     "mark_loop_status",

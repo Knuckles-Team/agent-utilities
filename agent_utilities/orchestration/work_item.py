@@ -1790,6 +1790,18 @@ def transition_loop_work_item(
         "rejected": WorkItemStatus.FAILED.value,
         "cancelled": WorkItemStatus.CANCELLED.value,
         "canceled": WorkItemStatus.CANCELLED.value,
+        # Harness-enforced loop-exit terminal statuses (CONCEPT:AU-AHE.harness.
+        # loop-exit-conditions). Each commits the WorkItem terminally; the
+        # precise, diagnosable reason rides the result_ref/error_ref stamped by
+        # ``loops.mark_loop_status`` and is returned verbatim by ``run_loop``.
+        # An awaited external signal firing is a SUCCESS; every other enforced
+        # exit is an abnormal/exhaustion termination -> FAILED.
+        "external_event_satisfied": WorkItemStatus.SUCCEEDED.value,
+        "max_iterations_exceeded": WorkItemStatus.FAILED.value,
+        "budget_exceeded": WorkItemStatus.FAILED.value,
+        "wall_clock_exceeded": WorkItemStatus.FAILED.value,
+        "stalled": WorkItemStatus.FAILED.value,
+        "error_threshold_exceeded": WorkItemStatus.FAILED.value,
     }.get(normalized)
     if outcome is None:
         raise ValueError(f"unsupported Loop status transition {status!r}")

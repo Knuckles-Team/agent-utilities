@@ -99,6 +99,61 @@ def _trace_evidence_for_run(
 # messaging assistant to an unrelated tag). Keep this to genuine pass-through identities.
 _PASSTHROUGH_AGENTS = frozenset({"messaging-assistant"})
 
+# CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7) on
+# agent_runner's execution path. A process-wide per-agent ConsecutiveFailureGuard
+# lifts the engine breaker's threshold+reset semantics to delegation OUTCOMES: a
+# degraded/no-data run increments the agent's consecutive-failure run; any
+# successful run resets it. This does NOT abort a single ``run_agent`` (that would
+# change its one-shot contract); it TRACKS the signal + warns when tripped so a
+# LOOP driving repeated ``run_agent`` calls (e.g. ``LoopController.run_loop``) can
+# halt to the terminal ``error_threshold_exceeded`` instead of burning its turn
+# cap on an agent that keeps failing. Consult it via
+# :func:`consecutive_agent_failures`.
+_AGENT_FAILURE_GUARDS: dict[str, Any] = {}
+
+
+def _agent_failure_guard(agent_name: str) -> Any:
+    """Return (creating if needed) the shared failure guard for ``agent_name``."""
+    from agent_utilities.orchestration.loop_guards import ConsecutiveFailureGuard
+
+    guard = _AGENT_FAILURE_GUARDS.get(agent_name)
+    if guard is None:
+        from agent_utilities.core.config import config as _cfg
+
+        threshold = int(getattr(_cfg, "kg_loop_max_consecutive_failures", 3))
+        guard = _AGENT_FAILURE_GUARDS[agent_name] = ConsecutiveFailureGuard(
+            threshold=threshold
+        )
+    return guard
+
+
+def consecutive_agent_failures(agent_name: str) -> int:
+    """Current consecutive-degraded-run count for ``agent_name`` (0 if none).
+
+    The read side of the exit-7 guard on the execution path: a loop driving
+    repeated delegations can consult this and terminate ``error_threshold_exceeded``
+    once it reaches the configured threshold.
+    """
+    guard = _AGENT_FAILURE_GUARDS.get(agent_name)
+    return int(getattr(guard, "count", 0)) if guard is not None else 0
+
+
+def _record_agent_outcome(agent_name: str, *, degraded: bool) -> None:
+    """Feed one delegation outcome into the per-agent failure guard (exit 7)."""
+    guard = _agent_failure_guard(agent_name)
+    if degraded:
+        if guard.record_failure():
+            logger.warning(
+                "[CONCEPT:AU-AHE.harness.loop-exit-conditions] agent %r has %d "
+                "consecutive degraded runs (threshold %d) — a driving loop should "
+                "halt to error_threshold_exceeded.",
+                agent_name,
+                guard.count,
+                guard.threshold,
+            )
+    else:
+        guard.record_success()
+
 
 def _flatten_exception_group(exc: BaseException) -> str:
     """Flatten a (possibly nested) ExceptionGroup into an actionable message.
@@ -391,8 +446,21 @@ async def run_agent(
             )
     if context:
         config["invoker_context"] = context
-    if budget_tokens:
-        config["invoker_budget_tokens"] = int(budget_tokens)
+    # CONCEPT:AU-AHE.harness.loop-exit-conditions — BUDGET CAP (exit 3), native by
+    # default. A top-level ``run_agent`` gets a token budget even when the caller
+    # passed none, so the ``UsageLimits.total_tokens_limit`` hard cap is threaded
+    # onto EVERY spawned agent (the single-server loop and the graph spawn sites,
+    # which enforce it via pydantic-ai UsageLimits) — not only explicit invoker
+    # handoffs. The ResourceOptimizer session token budget is the default; a caller
+    # may still pass an explicit ``budget_tokens`` (honored verbatim) and a
+    # deployment can raise/lower ``SESSION_TOKEN_BUDGET``.
+    effective_budget_tokens = budget_tokens
+    if effective_budget_tokens is None:
+        from agent_utilities.core.resource_optimizer import DEFAULT_TOKEN_BUDGET
+
+        effective_budget_tokens = DEFAULT_TOKEN_BUDGET
+    if effective_budget_tokens:
+        config["invoker_budget_tokens"] = int(effective_budget_tokens)
     if allowed_tools:
         config["invoker_allowed_tools"] = list(allowed_tools)
     _bind_native_skill_toolset(
@@ -618,6 +686,11 @@ async def run_agent(
     # non-answer, and the failure is fed back so routing self-corrects next time
     # (CONCEPT:AU-ORCH.execution.degraded-no-data-outcome; F2/F5).
     degraded = _delegation_degraded(result)
+    # CONCEPT:AU-AHE.harness.loop-exit-conditions — ERROR THRESHOLD (exit 7):
+    # feed this delegation's outcome into the per-agent consecutive-failure guard
+    # (threshold + reset-on-success), so a loop driving repeated run_agent calls
+    # can halt to error_threshold_exceeded. Tracking only — never aborts this run.
+    _record_agent_outcome(agent_name, degraded=degraded)
     duration_ms = (time.monotonic() - start_time) * 1000
     _record_execution_trace(
         engine,
@@ -1992,6 +2065,10 @@ async def _execute_graph(
         topology="basic",
         streamdown=True,
         mcp_toolsets=config.get("mcp_toolsets"),
+        # CONCEPT:AU-AHE.harness.loop-exit-conditions — TURN CAP (exit 2). Forward
+        # the caller's max_steps onto the multi-agent graph's enforced budget
+        # instead of dropping it (the audit-flagged unthreaded gap on this path).
+        max_steps=max_steps,
     )
 
     return result

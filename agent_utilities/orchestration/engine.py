@@ -316,6 +316,7 @@ class AgentOrchestrationEngine:
         query_parts: list[dict[str, Any]] | None = None,
         plan_sync=None,
         requested_model_id: str | None = None,
+        max_steps: int | None = None,
     ) -> dict:
         """Execute a query through the graph orchestrator (synchronous/batch).
 
@@ -449,6 +450,25 @@ class AgentOrchestrationEngine:
                 path = path / f"{run_id}.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             # persistence = FileStatePersistence(json_file=path)
+
+        # CONCEPT:AU-AHE.harness.loop-exit-conditions — TURN CAP threading (exit 2).
+        # The caller's ``run_agent`` max_steps used to be DROPPED here (the busiest
+        # path): ``_execute_graph`` never forwarded it, so the dispatcher's
+        # force-terminate guard (``node_transitions > max_node_transitions``) fell
+        # back to the ExecutionBudget default (50) regardless of what the caller
+        # asked for. Thread it onto the graph's EXISTING enforced cap so the turn
+        # cap is actually honored. Interpreted as interaction ROUNDS with headroom
+        # for the router/agent/verifier hops per round — the SAME
+        # ``max(max_steps*2, 10)`` convention the single-server path uses
+        # (agent_runner._execute_single_server) so both paths read max_steps
+        # identically. Never TIGHTENS below today's default 50 for the standard
+        # max_steps=30 (→ 60), so no existing task regresses.
+        _ms = max_steps if max_steps is not None else config.get("max_steps")
+        if _ms:
+            from ..orchestration.loop_guards import graph_node_transition_cap
+
+            state.max_steps = int(_ms)
+            state.execution_budget.max_node_transitions = graph_node_transition_cap(_ms)
 
         # Track which MCP servers fail to connect so we can report them clearly.
         failed_servers: list[tuple[str, str]] = []

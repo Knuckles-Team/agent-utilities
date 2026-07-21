@@ -3370,6 +3370,38 @@ class AgentConfig(BaseSettings):
     evolution_worktree_root: str = Field(default="", alias="EVOLUTION_WORKTREE_ROOT")
     kg_loop_interval: float = Field(default=3600.0, alias="KG_LOOP_INTERVAL")
     kg_loop_topics: int = Field(default=5, alias="KG_LOOP_TOPICS")
+    # --- Harness-enforced loop-exit conditions (CONCEPT:AU-AHE.harness.
+    # loop-exit-conditions). Each is a real, enforced ``run_loop`` exit to a
+    # distinct terminal status; safe defaults keep them on without over-firing. ---
+    # Exit 5 NO PROGRESS: terminate ``stalled`` when the last N iterations produce
+    # an identical (status, output, checkpoint) signature. 0/1 disables.
+    kg_loop_no_progress_window: int = Field(
+        default=3, alias="KG_LOOP_NO_PROGRESS_WINDOW"
+    )
+    # Exit 7 ERROR THRESHOLD: terminate ``error_threshold_exceeded`` after N
+    # consecutive non-terminal step failures (reset to 0 on any progress). 0
+    # disables tripping. Mirrors the engine breaker's 3-5 threshold band.
+    kg_loop_max_consecutive_failures: int = Field(
+        default=3, alias="KG_LOOP_MAX_CONSECUTIVE_FAILURES"
+    )
+    # Exit 4 WALL CLOCK: overall wall-clock budget (seconds) for a whole
+    # ``run_loop``, checked every iteration in the while-condition independent of
+    # the per-substep timeouts. 0 = no overall deadline (only the turn cap /
+    # per-substep timeouts apply).
+    kg_loop_max_duration_s: float = Field(
+        default=0.0, alias="KG_LOOP_MAX_DURATION_S"
+    )
+    # Exit 1 GOAL MET: rubric-score floor (0..1) at/above which a measured goal
+    # evaluation counts as a real pass for research/skill loops.
+    kg_loop_goal_eval_threshold: float = Field(
+        default=0.7, alias="KG_LOOP_GOAL_EVAL_THRESHOLD"
+    )
+    # Exit 1 GOAL MET: build the default rubric/LLM-judge goal evaluator for
+    # research/skill loops (it degrades to trusting the callee when no model
+    # endpoint is reachable, so this is safe to leave on).
+    kg_loop_goal_eval_enabled: bool = Field(
+        default=True, alias="KG_LOOP_GOAL_EVAL_ENABLED"
+    )
     # CONCEPT:AU-KG.research.scholarx-rss-research-feed — ScholarX RSS research-feed loop that grades and fetches new papers.
     # A recurring schedule
     # that grades incoming RSS items (keyword taxonomy + ConceptMatcher novelty),

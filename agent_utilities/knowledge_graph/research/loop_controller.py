@@ -89,6 +89,7 @@ class LoopController:
         regression_check: Any = None,
         develop_runner: Any = None,
         skill_runner: Any = None,
+        event_probes: dict[str, Callable[[], bool]] | None = None,
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or setting("WORKSPACE_PATH") or "."
@@ -97,6 +98,11 @@ class LoopController:
         # subprocess / workflow engine. Defaults are wired lazily on first use.
         self._develop_runner = develop_runner
         self._skill_runner = skill_runner
+        # exit 8 EXTERNAL EVENT — registry of named real-world signal probes an
+        # ``external_event`` Loop resolves by ``event_ref`` (e.g. "pr:owner/repo#42
+        # merged"). Injectable so the exit is unit-testable without a live GitHub /
+        # ticketing poll; ``run_loop(event_probe=...)`` overrides this per-run.
+        self._event_probes: dict[str, Callable[[], bool]] = dict(event_probes or {})
         # Live-beacon + cycle id (CONCEPT:AU-KG.research.evolutionstate-live-surface-per) — set per run_one_cycle.
         self._beacon: Any = None
         self._cycle_id: str = ""
@@ -1944,6 +1950,8 @@ class LoopController:
             return self._advance_develop(loop)
         if kind == "skill":
             return self._advance_skill(loop)
+        if kind == "external_event":
+            return self._advance_external_event(loop)
         return self._advance_research(loop)
 
     def _advance_research(self, loop: dict[str, Any]) -> dict[str, Any]:
@@ -2040,6 +2048,141 @@ class LoopController:
             )
         return {"status": "completed" if ok else "failed", "output": output}
 
+    def _advance_external_event(self, loop: dict[str, Any]) -> dict[str, Any]:
+        """Advance an ``external_event`` Loop: poll its real-world signal once.
+
+        Generalizes ``deploy_watch``'s poll-until-window-or-signal into an
+        objective-agnostic exit: the loop *completes* when a registered signal
+        probe fires (PR merged, ticket closed, deploy healthy). ``run_loop``'s
+        own ``event_probe`` guard is the enforced surface — this per-step advance
+        makes the same kind drivable through the shared execute path. Non-firing
+        is a benign ``pending`` (keep polling); a missing probe is a hard
+        ``failed`` (nothing to wait on). (CONCEPT:AU-AHE.harness.loop-exit-conditions)
+        """
+        probe = self._external_event_probe(loop)
+        if probe is None:
+            return {
+                "status": "failed",
+                "output": f"external_event Loop {loop.get('id')!r} has no resolvable event probe",
+            }
+        if self._event_fired(probe):
+            return {
+                "status": "external_event_satisfied",
+                "output": "external event signal fired",
+                "done": True,
+            }
+        return {"status": "pending", "output": "awaiting external event"}
+
+    # -- harness-enforced loop-exit helpers (CONCEPT:AU-AHE.harness.loop-exit-conditions) --- #
+    def _external_event_probe(
+        self, loop: dict[str, Any]
+    ) -> Callable[[], bool] | None:
+        """Resolve an ``external_event`` Loop's signal probe (exit 8).
+
+        Looks up the loop's ``event_ref`` (falling back to its id) in the
+        injected probe registry. Returns ``None`` when no probe is registered —
+        the loop then cannot complete on a signal (surfaced as a failed advance),
+        never silently waits forever.
+        """
+        ref = str(loop.get("event_ref") or loop.get("id") or "").strip()
+        probe = self._event_probes.get(ref)
+        if probe is None and ref:
+            # Also accept a probe keyed by the bare objective/name for convenience.
+            probe = self._event_probes.get(str(loop.get("name") or "").strip())
+        return probe
+
+    @staticmethod
+    def _event_fired(event_probe: Callable[[], bool]) -> bool:
+        """Poll an external-event probe once, best-effort (never raises)."""
+        try:
+            return bool(event_probe())
+        except Exception as e:  # noqa: BLE001 — a flaky probe is 'not fired', not fatal
+            logger.debug("run_loop event_probe failed: %s", e)
+            return False
+
+    @staticmethod
+    def _budget_exceeded(resource_optimizer: Any) -> bool:
+        """True when the injected budget authority reports exhaustion (exit 3).
+
+        Duck-typed over :class:`~agent_utilities.core.resource_optimizer.
+        ResourceOptimizer` (``is_budget_exceeded()``); best-effort so a probe
+        error never crashes the loop (treated as 'not exceeded').
+        """
+        checker = getattr(resource_optimizer, "is_budget_exceeded", None)
+        if not callable(checker):
+            return False
+        try:
+            return bool(checker())
+        except Exception as e:  # noqa: BLE001
+            logger.debug("run_loop budget check failed: %s", e)
+            return False
+
+    @staticmethod
+    def _budget_detail(resource_optimizer: Any) -> str:
+        """A compact budget summary for the ``budget_exceeded`` exit_reason."""
+        summary = getattr(resource_optimizer, "summary", None)
+        if callable(summary):
+            try:
+                return str(summary())[:500]
+            except Exception:  # noqa: BLE001
+                return "budget exhausted"
+        return "budget exhausted"
+
+    def _progress_window_node_id(self, loop_id: str) -> str:
+        return f"{loop_id}:progress_window"
+
+    def _load_progress_window(self, loop_id: str) -> list[str]:
+        """Read the persisted rolling progress-signature window (exit 5).
+
+        Best-effort: a fresh loop (or an engine without Cypher) starts empty.
+        """
+        q = getattr(self.engine, "query_cypher", None)
+        if not callable(q):
+            return []
+        try:
+            rows = q(
+                "MATCH (n) WHERE n.id = $id RETURN n.hashes AS hashes LIMIT 1",
+                {"id": self._progress_window_node_id(loop_id)},
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        if not rows:
+            return []
+        row = rows[0]
+        raw = row.get("hashes") if isinstance(row, dict) else None
+        if isinstance(raw, str):
+            return [h for h in raw.split(",") if h]
+        if isinstance(raw, list):
+            return [str(h) for h in raw]
+        return []
+
+    def _persist_progress_window(
+        self, loop_id: str, hashes: list[str], window: int
+    ) -> None:
+        """Persist the last-N progress signatures on the Loop's window node (exit 5).
+
+        Mirrors the fan-out ``_STALL_THRESHOLD`` pattern's durable counter: only
+        the trailing ``window`` (default 3) signatures are kept, so a stalled loop
+        is detectable across a resume, not just within one process. Best-effort.
+        """
+        keep = max(1, window)
+        tail = hashes[-keep:]
+        add_node = getattr(self.engine, "add_node", None)
+        if not callable(add_node):
+            return
+        try:
+            add_node(
+                self._progress_window_node_id(loop_id),
+                "LoopProgressWindow",
+                properties={
+                    "loop_id": loop_id,
+                    "hashes": ",".join(tail),
+                    "window": keep,
+                },
+            )
+        except Exception as e:  # noqa: BLE001 — progress persistence is best-effort
+            logger.debug("run_loop progress-window persist failed: %s", e)
+
     # -- engine-native resumable run-to-completion (CONCEPT:AU-KG.research.these-properties-carry) --- #
     async def run_loop(
         self,
@@ -2049,34 +2192,110 @@ class LoopController:
         on_iteration: Callable[[int, dict[str, Any]], None] | None = None,
         desired_state: Callable[[], str | None] | None = None,
         sleep_s: float = 0.0,
+        goal_evaluator: Any = None,
+        resource_optimizer: Any = None,
+        deadline: float | None = None,
+        max_duration_s: float | None = None,
+        no_progress_window: int | None = None,
+        max_consecutive_failures: int | None = None,
+        event_probe: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Drive one Loop to completion under its native WorkItem lease.
 
-        This is the generalized fold of the goal runner: it owns resumable,
-        corrigible iteration once for research/develop/skill alike:
+        The generalized fold of the goal runner: resumable, corrigible iteration
+        once for research/develop/skill alike, with all EIGHT agent-loop exit
+        conditions enforced by the harness (not merely requested in a prompt).
+        Each exit is a guarded transition to a DISTINCT terminal
+        :class:`~..research.loops.LoopStatus` so the reason a loop stopped is
+        diagnosable (CONCEPT:AU-AHE.harness.loop-exit-conditions):
 
-        - **Resume** from the WorkItem's fenced ``checkpoint_id`` so a reclaimed
-          expired lease continues after the last committed iteration.
-        - **One authority**: lease, checkpoint, retry, and terminal outcome all
-          live on the same engine-native WorkItem. There is no checkpoint sidecar.
-        - **Corrigible interruption** (SAFE-1.5): ``desired_state`` (e.g. a fleet
-          pause/kill signal) is honored each iteration — checkpoint and yield without
-          resistance.
-        - Advances the Loop node lifecycle (:func:`mark_loop_status`) each step and
-          invokes ``on_iteration`` so a caller can record observability (e.g. the
-          goal console).
+        1. **GOAL MET** -> ``completed`` — a *measured* pass from ``goal_evaluator``
+           (deterministic validation for develop loops; a rubric/LLM judge for
+           research/skill loops), never the callee merely self-declaring done.
+        2. **TURN CAP** -> ``max_iterations_exceeded`` — ``it >= max_iterations``.
+        3. **BUDGET CAP** -> ``budget_exceeded`` — ``resource_optimizer.
+           is_budget_exceeded()`` (a HARD stop, not just a tier downgrade).
+        4. **WALL CLOCK** -> ``wall_clock_exceeded`` — an overall ``deadline`` /
+           ``max_duration_s`` checked every iteration in the while-condition,
+           independent of the per-substep timeouts.
+        5. **NO PROGRESS** -> ``stalled`` — the last N ``(status, output,
+           checkpoint)`` signatures identical.
+        6. **HUMAN INTERRUPT** -> ``cancelled``/``paused`` — ``desired_state`` (the
+           fleet kill switch, evaluated OUTSIDE the step, before any risky work).
+        7. **ERROR THRESHOLD** -> ``error_threshold_exceeded`` — N consecutive
+           non-terminal failures (a :class:`ConsecutiveFailureGuard` lifting the
+           engine breaker's threshold+reset semantics), reset on any progress.
+        8. **EXTERNAL EVENT** -> ``external_event_satisfied`` — an ``event_probe``
+           (or an ``external_event`` Loop kind) firing on a real-world signal.
 
-        Returns ``{"id", "status", "iterations", "interrupted"?}``.
+        Durability is unchanged: **resume** from the WorkItem's fenced
+        ``checkpoint_id``; **one authority** (lease, checkpoint, terminal outcome
+        all on the engine-native WorkItem, no sidecar). Every new knob is
+        config-overridable with a safe default.
+
+        Returns ``{"id", "status", "iterations", "exit_reason"?, "interrupted"?}``.
         """
         import asyncio
+        import time as _time
 
+        from agent_utilities.core.config import config as _cfg
         from agent_utilities.orchestration import work_item as _wi
+        from agent_utilities.orchestration.loop_guards import (
+            ConsecutiveFailureGuard,
+            GoalEvaluation,
+            build_goal_evaluator,
+            deadline_passed,
+            progress_signature,
+            resolve_deadline,
+            window_is_stalled,
+        )
 
-        from .loops import TERMINAL_STATUS, claim_loop, mark_loop_status
+        from .loops import LoopStatus, claim_loop, is_terminal, mark_loop_status, to_status
 
         loop_id = loop["id"]
+        kind = str(loop.get("kind") or "research").strip().lower()
         max_it = int(max_iterations or loop.get("max_iterations") or 20)
-        status = str(loop.get("status") or "running")
+        status = to_status(loop.get("status") or "running", default=LoopStatus.RUNNING)
+
+        # -- exit 4 WALL CLOCK: resolve one overall monotonic deadline up front. --
+        start_monotonic = _time.monotonic()
+        if max_duration_s is None and deadline is None and _cfg.kg_loop_max_duration_s:
+            max_duration_s = float(_cfg.kg_loop_max_duration_s)
+        deadline = resolve_deadline(deadline, max_duration_s, start_monotonic)
+
+        # -- exit 5 NO PROGRESS: config-defaulted window + rolling signatures. --
+        stall_window = int(
+            no_progress_window
+            if no_progress_window is not None
+            else _cfg.kg_loop_no_progress_window
+        )
+        progress_hashes: list[str] = list(self._load_progress_window(loop_id))
+
+        # -- exit 7 ERROR THRESHOLD: per-loop guard (engine-breaker semantics). --
+        fail_guard = ConsecutiveFailureGuard(
+            threshold=int(
+                max_consecutive_failures
+                if max_consecutive_failures is not None
+                else _cfg.kg_loop_max_consecutive_failures
+            )
+        )
+
+        # -- exit 1 GOAL MET: injected evaluator, else the default per-kind one
+        # (deterministic for develop; rubric/LLM judge for research/skill,
+        # degrading to callee-trust offline). --
+        evaluator = goal_evaluator
+        if evaluator is None:
+            evaluator = build_goal_evaluator(
+                loop,
+                threshold=float(_cfg.kg_loop_goal_eval_threshold),
+                enable_llm_judge=bool(_cfg.kg_loop_goal_eval_enabled),
+            )
+
+        # -- exit 8 EXTERNAL EVENT: an ``external_event`` loop resolves its probe
+        # from the registered probes when the caller didn't pass one directly. --
+        if event_probe is None and kind == "external_event":
+            event_probe = self._external_event_probe(loop)
+
         # The native claim transaction owns expired-lease recovery. A negative
         # result is authoritative; no sidecar checkpoint can grant re-entry.
         won = claim_loop(self.engine, loop_id)
@@ -2100,7 +2319,43 @@ class LoopController:
                 f"Loop {loop_id!r} lost its native claim before execution"
             )
 
-        while it < max_it and status not in TERMINAL_STATUS:
+        def _finish(
+            final: LoopStatus,
+            *,
+            reason: str = "",
+            interrupted: bool = False,
+        ) -> dict[str, Any]:
+            """Guarded transition to a terminal state: commit + build the result.
+
+            The ``completed`` happy path stays the bare ``{"id", "status",
+            "iterations"}`` shape internal callers assert on; every other exit
+            additionally carries an ``exit_reason`` so the abnormal/exhaustion
+            terminals are diagnosable (never a generic 'failed').
+            """
+            mark_loop_status(
+                self.engine, loop_id, final.value, iteration=it, output=reason[:2000]
+            )
+            out: dict[str, Any] = {
+                "id": loop_id,
+                "status": final.value,
+                "iterations": it,
+            }
+            if final is not LoopStatus.COMPLETED and reason:
+                out["exit_reason"] = reason
+            if interrupted:
+                out["interrupted"] = True
+            return out
+
+        # exit 4 is enforced in the while-condition (alongside the turn cap);
+        # the precise terminal status is decided right after the loop exits.
+        while (
+            it < max_it
+            and not deadline_passed(deadline)
+            and not is_terminal(status)
+        ):
+            # -- exit 6 HUMAN INTERRUPT (corrigible kill switch) — evaluated
+            # OUTSIDE/BEFORE the step so a risky iteration never starts once a
+            # pause/kill is desired (SAFE-1.5). --
             if desired_state is not None:
                 desired = desired_state()
                 if desired:
@@ -2109,16 +2364,31 @@ class LoopController:
                     )
 
                     final, summary = corrigibility_decision(desired)
-                    fstatus = final.value if final is not None else "paused"
-                    mark_loop_status(
-                        self.engine, loop_id, fstatus, iteration=it, output=summary
+                    fstatus = to_status(
+                        final.value if final is not None else "paused",
+                        default=LoopStatus.PAUSED,
                     )
-                    return {
-                        "id": loop_id,
-                        "status": fstatus,
-                        "iterations": it,
-                        "interrupted": True,
-                    }
+                    return _finish(
+                        fstatus,
+                        reason=summary or f"human interrupt: {desired}",
+                        interrupted=True,
+                    )
+
+            # -- exit 3 BUDGET CAP (hard terminal stop, not a tier downgrade) --
+            if resource_optimizer is not None and self._budget_exceeded(
+                resource_optimizer
+            ):
+                return _finish(
+                    LoopStatus.BUDGET_EXCEEDED,
+                    reason=f"resource budget exceeded: {self._budget_detail(resource_optimizer)}",
+                )
+
+            # -- exit 8 EXTERNAL EVENT (poll a real-world signal, e.g. PR merged) --
+            if event_probe is not None and self._event_fired(event_probe):
+                return _finish(
+                    LoopStatus.EXTERNAL_EVENT_SATISFIED,
+                    reason="external event signal fired",
+                )
 
             it += 1
 
@@ -2129,7 +2399,12 @@ class LoopController:
 
             outcome = await _step()
             outcome = outcome if isinstance(outcome, dict) else {"status": "pending"}
-            status = str(outcome.get("status", "pending"))
+            step_status = to_status(
+                outcome.get("status", "pending"), default=LoopStatus.FAILED
+            )
+
+            # Fence the iteration durably BEFORE committing any lifecycle so a
+            # crash resumes after the last committed step (one WorkItem authority).
             if not _wi.checkpoint_work_item(
                 self.engine,
                 item_id,
@@ -2139,28 +2414,150 @@ class LoopController:
                 raise _wi.WorkItemBackendUnavailable(
                     f"Loop {loop_id!r} lost its native lease while checkpointing"
                 )
-            mark_loop_status(
-                self.engine,
-                loop_id,
-                status,
-                iteration=it,
-                output=str(outcome.get("output", ""))[:2000],
+
+            # -- exit 1 GOAL MET: measure the step. The evaluator is the authority
+            # on completion — a callee that self-declares ``completed`` is trusted
+            # ONLY when a live measurement confirms it (or when no measurement is
+            # available, i.e. the offline/legacy fallback). --
+            verdict: GoalEvaluation | None = None
+            if evaluator is not None and (
+                kind == "develop"
+                or step_status is LoopStatus.COMPLETED
+                or outcome.get("done")
+            ):
+                try:
+                    verdict = evaluator(loop, outcome)
+                except Exception as e:  # noqa: BLE001 — a judge error never crashes the loop
+                    logger.debug("run_loop goal_evaluator failed: %s", e)
+                    verdict = None
+
+            decided = step_status
+            measured_pass = False
+            if verdict is not None and verdict.measured:
+                if verdict.passed:
+                    decided = LoopStatus.COMPLETED
+                    measured_pass = True
+                elif step_status is LoopStatus.COMPLETED:
+                    # Self-declared done but the measurement REJECTS it -> do not
+                    # trust it; keep working (demote to a non-terminal heartbeat).
+                    decided = LoopStatus.RUNNING
+
+            # -- exit 7 classification. A NON-TERMINAL (retryable) failure is a step
+            # that errored yet should be retried (the outcome carries ``error`` /
+            # ``retryable``) — distinct from a clean terminal ``failed`` give-up,
+            # which still stops the loop at once (legacy-trust, below). Only
+            # retryable failures accumulate toward the error threshold; a retryable
+            # failure keeps the lease alive as a RUNNING heartbeat so it can be
+            # retried until the guard trips or progress resets it. --
+            retryable_failure = decided is LoopStatus.FAILED and bool(
+                outcome.get("retryable") or outcome.get("error")
             )
+            heartbeat_status = LoopStatus.RUNNING if retryable_failure else decided
+
+            # Commit only a NON-terminal heartbeat here; terminal states are
+            # committed once, at their guarded ``_finish`` transition below.
+            if not is_terminal(heartbeat_status):
+                mark_loop_status(
+                    self.engine,
+                    loop_id,
+                    heartbeat_status.value,
+                    iteration=it,
+                    output=str(outcome.get("output", ""))[:2000],
+                )
+            status = heartbeat_status
+
             if on_iteration is not None:
                 try:
                     on_iteration(it, outcome)
                 except Exception as e:  # noqa: BLE001 — observability never blocks
                     logger.debug("run_loop on_iteration callback failed: %s", e)
-            if status in TERMINAL_STATUS or outcome.get("done"):
+
+            if measured_pass:
+                return _finish(
+                    LoopStatus.COMPLETED,
+                    reason=f"goal met (measured score={verdict.score:.2f}): {verdict.detail}",
+                )
+
+            # -- exit 5 NO PROGRESS data: hash the substantive result and roll the
+            # window (persisted on the Loop node, mirroring the fanout
+            # _STALL_THRESHOLD pattern). --
+            sig = progress_signature(
+                decided.value,
+                str(outcome.get("output", "")),
+                str(outcome.get("checkpoint", "")),
+            )
+            progressed = (not progress_hashes) or sig != progress_hashes[-1]
+            progress_hashes.append(sig)
+            self._persist_progress_window(loop_id, progress_hashes, stall_window)
+
+            # -- exit 7 ERROR THRESHOLD: N consecutive retryable failures halts;
+            # any non-failure progress resets the run (engine-breaker semantics).
+            # Checked BEFORE stall so a repeated ERROR is diagnosed as an
+            # error-threshold, not a generic stall. --
+            if retryable_failure:
+                if fail_guard.record_failure():
+                    return _finish(
+                        LoopStatus.ERROR_THRESHOLD_EXCEEDED,
+                        reason=(
+                            f"{fail_guard.count} consecutive non-terminal failures "
+                            f"(threshold {fail_guard.threshold})"
+                        ),
+                    )
+            elif progressed:
+                fail_guard.record_success()
+
+            # -- exit 5 NO PROGRESS: the last N signatures identical -> stalled. --
+            if window_is_stalled(progress_hashes, stall_window):
+                return _finish(
+                    LoopStatus.STALLED,
+                    reason=(
+                        f"no progress across the last {stall_window} iterations "
+                        "(identical status/output)"
+                    ),
+                )
+
+            # A retryable failure keeps looping (already counted); it must NOT fall
+            # into the legacy-terminal return on the same iteration.
+            if retryable_failure:
+                if sleep_s:
+                    await asyncio.sleep(sleep_s)
+                continue
+
+            # -- Legacy trust: a terminal status the evaluator did NOT override
+            # (offline / no measurement) ends the loop on the callee's verdict. --
+            if is_terminal(decided):
+                if decided is LoopStatus.COMPLETED:
+                    return _finish(LoopStatus.COMPLETED)
+                return _finish(decided, reason=f"callee terminal status: {decided.value}")
+            if outcome.get("done"):
                 break
             if sleep_s:
                 await asyncio.sleep(sleep_s)
 
-        if status not in TERMINAL_STATUS and status != "completed":
-            # ran out of iterations without converging
-            status = "failed"
-            mark_loop_status(self.engine, loop_id, status, iteration=it)
-        return {"id": loop_id, "status": status, "iterations": it}
+        # -- The while-condition fell through: decide the PRECISE terminal cause
+        # so the exit is diagnosable rather than a generic 'failed'. --
+        if is_terminal(status):
+            return {"id": loop_id, "status": status.value, "iterations": it}
+        # exit 4 WALL CLOCK (checked in the while-condition above).
+        if deadline_passed(deadline):
+            return _finish(
+                LoopStatus.WALL_CLOCK_EXCEEDED,
+                reason=(
+                    f"overall wall-clock deadline exceeded after "
+                    f"{_time.monotonic() - start_monotonic:.1f}s"
+                ),
+            )
+        # exit 2 TURN CAP.
+        if it >= max_it:
+            return _finish(
+                LoopStatus.MAX_ITERATIONS_EXCEEDED,
+                reason=f"turn cap reached: max_iterations={max_it} without convergence",
+            )
+        # Any other non-terminal fall-through (e.g. a ``done`` flag on a
+        # non-terminal status) settles as a plain failure.
+        return _finish(
+            LoopStatus.FAILED, reason="loop ended without reaching a terminal state"
+        )
 
     @staticmethod
     def _resume_iteration(engine: Any, loop_id: str) -> int:
