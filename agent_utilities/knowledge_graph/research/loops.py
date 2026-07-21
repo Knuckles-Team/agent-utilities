@@ -421,7 +421,7 @@ def _build_loop_statechart_def() -> dict[str, Any]:
 
     return {
         "name": "loop_lifecycle",
-        "schema_version": "1",
+        "schema_version": 1,
         "states": states,
         "alphabet": ["claim", "pretick", "resume", "posttick", "reject", "lease_lost"],
         "transitions": transitions,
