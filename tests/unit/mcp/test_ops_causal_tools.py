@@ -73,6 +73,7 @@ def _call(tool_fn, **overrides):
         max_results=10,
         incident_history_json="[]",
         now=0.0,
+        materialize_claims=True,
     )
     defaults.update(overrides)
     return tool_fn(**defaults)
@@ -171,3 +172,103 @@ def test_join_action_materializes_edges_via_engine_backend(monkeypatch):
 def test_join_action_without_engine_backend_errors(tool):
     out = json.loads(_call(tool, action="join", links_json=_LINKS))
     assert "error" in out
+
+
+# --------------------------------------------------------------------------- #
+# W2 wire-up #3 — ops-causal -> claim loop (CONCEPT:AU-KG.enrichment.ops-causal-graph).
+# Live-path proof: the root_cause ACTION itself (the EXISTING analysis entry
+# point, not a new opt-in write call) persists the finding as a real,
+# queryable :Claim through the SAME CandidateInsight -> register_claim_
+# materialization pipeline the mining flywheel uses, as a side effect of the
+# default materialize_claims=True.
+# --------------------------------------------------------------------------- #
+
+
+class _ClaimRecordingEngine:
+    """Fakes the ``IntelligenceGraphEngine`` surface ``_materialize_root_cause_claims``
+    calls: ``add_node`` (claim persist), ``add_edge`` (DERIVED_FROM provenance),
+    ``register_materialization`` (TMS registration)."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, tuple[str, dict]] = {}
+        self.edges: list[tuple[str, str, str]] = []
+        self.registered: list[str] = []
+        self.backend = None
+
+    def add_node(self, node_id, label, properties=None):  # noqa: ANN001
+        self.nodes[node_id] = (label, dict(properties or {}))
+
+    def add_edge(self, source, target, relationship_type=""):  # noqa: ANN001
+        self.edges.append((source, target, relationship_type))
+
+    def register_materialization(self, derived_id):  # noqa: ANN001
+        self.registered.append(derived_id)
+        return {"registered": True}
+
+
+def test_root_cause_action_materializes_claims_by_default(monkeypatch):
+    """The EXISTING root_cause call, with a live engine, writes real :Claim nodes."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
+    )
+    assert out["action"] == "root_cause"
+    # The root cause commit:bad123 clears the confidence floor (unweighted
+    # score=1.0 for a direct causal edge) and is materialized.
+    assert out["claims_materialized"], "expected at least one materialized claim"
+    claim_id = out["claims_materialized"][0]
+
+    # The Claim node actually landed on the engine, status=proposal, never
+    # self-verified — the SAME propose-only floor the mining flywheel uses.
+    label, props = engine.nodes[claim_id]
+    assert label == "Claim"
+    assert props["status"] == "proposal"
+    assert props["is_verified"] is False
+    assert "commit:bad123" in props["claim_text"]
+
+    # DERIVED_FROM provenance to the real causal path + TMS registration ran.
+    assert any(
+        target == "commit:bad123" and rel == "DERIVED_FROM"
+        for _src, target, rel in engine.edges
+    )
+    assert claim_id in engine.registered
+
+
+def test_root_cause_action_materialize_claims_false_skips_write(monkeypatch):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="root_cause",
+            node_id="trace:1",
+            links_json=_LINKS,
+            materialize_claims=False,
+        )
+    )
+    assert out["claims_materialized"] == []
+    assert engine.nodes == {}
+
+
+def test_blast_radius_action_never_materializes_claims(monkeypatch):
+    """Only root_cause writes; the other read-only analyses stay pure reads."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS)
+    )
+    assert "claims_materialized" not in out
+    assert engine.nodes == {}
