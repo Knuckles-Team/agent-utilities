@@ -12,6 +12,14 @@ The pillar is derived mechanically from ``<SLUG>-<PILLAR>``. ``doc`` is a
 best-effort one-liner taken from the nearest descriptive text attached to a
 marker.
 
+It then merges ``docs/external_concepts.yaml`` — a small, hand-curated overlay
+for concepts that are genuinely realized only in a sibling repository's own
+source (e.g. epistemic-graph's Rust crates), which this generator does not
+recursively scan (that would pull in that repo's entire concept surface, not
+just the handful agent-utilities documentation actually cites). A marker that
+IS found in ``agent_utilities/`` always wins over an external entry of the same
+id. See that file's header for the curation contract.
+
 Run:  python scripts/build_concepts_yaml.py
 """
 
@@ -26,6 +34,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT / "agent_utilities"
 OUT_PATH = ROOT / "docs" / "concepts.yaml"
+EXTERNAL_PATH = ROOT / "docs" / "external_concepts.yaml"
 
 # Import the canonical marker grammar from the governance package so the
 # generator, the validator (check_concepts.py), and the allocator never drift.
@@ -109,6 +118,30 @@ def collect() -> dict[str, dict]:
     return concepts
 
 
+def _load_external() -> dict[str, dict]:
+    """Load the hand-curated sibling-repo overlay (see EXTERNAL_PATH's header).
+
+    Shapes each entry identically to ``collect()``'s output so it merges
+    losslessly into the same ``concepts`` dict.
+    """
+    if not EXTERNAL_PATH.exists():
+        return {}
+    data = yaml.safe_load(EXTERNAL_PATH.read_text(encoding="utf-8")) or {}
+    external: dict[str, dict] = {}
+    for raw in data.get("concepts", []):
+        cid = raw["id"]
+        parsed = parse_okf_id(cid)
+        external[cid] = {
+            "id": cid,
+            "name": raw["doc"],
+            "pillar": f"{parsed.slug}-{parsed.pillar}",
+            "status": "live",
+            "code_paths": sorted(raw.get("code_paths", [])),
+            "doc": raw["doc"],
+        }
+    return external
+
+
 def _concept_sort_key(cid: str):
     parsed = parse_okf_id(cid)
     return (parsed.slug, parsed.pillar, *parsed.segments)
@@ -116,6 +149,10 @@ def _concept_sort_key(cid: str):
 
 def build() -> dict:
     concepts = collect()
+    for cid, entry in _load_external().items():
+        # A real agent_utilities-side marker always wins over the curated
+        # overlay, so this can never mask a genuine scan result.
+        concepts.setdefault(cid, entry)
     ordered = [concepts[cid] for cid in sorted(concepts, key=_concept_sort_key)]
     pillars = sorted({c["pillar"] for c in ordered})
     return {

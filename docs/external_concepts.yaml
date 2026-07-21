@@ -1,0 +1,43 @@
+# Manually curated concepts realized ONLY in a sibling repository's own source
+# tree (e.g. epistemic-graph's Rust crates), which scripts/build_concepts_yaml.py
+# cannot see because it scans agent_utilities/**/*.py,*.rs exclusively. Each entry
+# below documents a real CONCEPT:<id> marker that lives outside this repo but is
+# cited from agent-utilities' own architecture docs (AGENTS.md) and therefore
+# belongs in the canonical registry for completeness.
+#
+# scripts/build_concepts_yaml.py merges this file into docs/concepts.yaml on
+# every regeneration, so entries here survive a regen (non-drifting) without
+# requiring the generator to recursively scan another repo's entire source tree
+# (which would pull in that repo's full concept surface, not just the ones
+# agent-utilities documentation actually cites). Curate here — never hand-edit
+# the generated concepts.yaml directly.
+#
+# Schema per entry: id (canonical OKF-CIS id), doc (short description),
+# source_repo (where the marker actually lives), code_paths (repo-relative,
+# prefixed with "<source_repo>/" to make the cross-repo boundary unambiguous).
+concepts:
+  - id: AU-KG.backend.backend-modes
+    doc: "redb-authoritative persistence is the DEFAULT backend mode (THE FLIP to durable-by-default)"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/crates/eg-ann/src/redb_store.rs
+      - epistemic-graph/crates/eg-core/src/cold_tier.rs
+      - epistemic-graph/tests/test_graceful_shutdown.py
+  - id: EG-KG.ontology.resp2-resp3-codec-round
+    doc: "Redis RESP2/RESP3 wire protocol + core structures over the KV surface"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/src/main.rs
+      - epistemic-graph/src/server/mod.rs
+      - epistemic-graph/src/server/redis_wire/mod.rs
+  - id: EG-KG.txn.pubsub-transactions
+    doc: "Redis pub/sub (SUBSCRIBE/PUBLISH) + MULTI/EXEC and S3 multipart-upload transactions"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/src/server/redis_wire/mod.rs
+      - epistemic-graph/src/server/s3/mod.rs
+  - id: EG-OS.deployment.binary-promotion
+    doc: "First authoritative boot: one-time .mp/WAL snapshot to redb migration on binary promotion"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/epistemic_graph/skills/epistemic-graph-migrations/SKILL.md
