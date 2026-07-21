@@ -71,7 +71,15 @@ call fails** because:
   Any `*-mcp` started pre-ECO-4.88 with >100 tools needs a rolling restart.
 - searxng instances 500 on `/search` = default 3s `outgoing.request_timeout` → raise to ~8s.
 
-## 4. SSO over an internal-HTTP IdP (Keycloak `keycloak.arpa` is HTTP)
+## 4. SSO over the Keycloak IdP (`keycloak.arpa`)
+
+> **TLS (era-dependent).** On **k8s** `keycloak.arpa` serves **HTTPS** with the cert-manager
+> `homelab-arpa-ca` cert (validated 2026-07-20) — clients must **trust that CA** (Step 1b host
+> trust-store baking; env-var CA injection does NOT reach the OAuth2 mint) **and** the ingress
+> must present a real cert, not the ingress-nginx fake default (see
+> `keycloak-realm-consolidation.md` → "Keycloak `.arpa` TLS"). Use `https://…` token/issuer URLs
+> on k8s. On the legacy **swarm** it was internal **HTTP** behind Caddy (`http://…`), which is
+> what the older recipes below assume.
 
 Full GitLab recipe + the four `discovery:false` gotchas live in
 [`plane-provisioning-and-connector-auth.md`](plane-provisioning-and-connector-auth.md). Key
@@ -117,8 +125,10 @@ container, `get_provider().get_token()` mints and a `streamablehttp_client(<chil
 auth=child_auth({}))` `initialize()` returns 200. If that works but `load_tools(<child>)` from
 your session 401s, the fault is the **local** mux. Confirm by minting with `~/.claude.json`'s exact
 `OIDC_TOKEN_URL` + `OIDC_CLIENT_SECRET` — an `invalid_client` pinpoints realm-or-secret.
-**Fix:** set `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`
-+ the current secret, then **reconnect** the session (the running process must respawn).
+**Fix:** set `OIDC_TOKEN_URL=https://keycloak.arpa/realms/homelab/protocol/openid-connect/token`
+(k8s HTTPS default; `http://…` only on legacy swarm) + the current secret, then **reconnect** the
+session (the running process must respawn). On k8s, the host must also trust `homelab-arpa-ca`
+(Step 1b) or the HTTPS mint fails before it can even report `invalid_client`.
 
 **Rotation runbook (so this can't recur):** rotating the `mcp-multiplexer` Keycloak client secret
 must fan the new value — and the correct **homelab** realm — to ALL consumers in one pass: the

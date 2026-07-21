@@ -344,7 +344,7 @@ Verify connectivity across inventory hosts and establish passwordless **full-mes
 - Expected: `mesh-reachable`
 
 ### Step 1b: ca-trust-provisioner
-[depends_on: Step 1] (conditional: only when Step 0 supplied a `ca_bundle`)
+[depends_on: Step 1] (conditional: when Step 0 supplied a `ca_bundle` — **REQUIRED** whenever the IdP/registry serve HTTPS behind a private CA)
 Bake the enterprise / self-signed **root-CA bundle** into every host trust store and
 emit the CA env contract (`REQUESTS_CA_BUNDLE` / `SSL_CERT_FILE` / `NODE_EXTRA_CA_CERTS`
 / `GIT_SSL_CAINFO`) + the private-registry trust, via the **`ca-trust-provisioner`**
@@ -352,6 +352,16 @@ skill — so subsequent steps (registry/GitLab/Vault/IdP pulls, connector HTTPS 
 never fail with self-signed-cert errors. The emitted env contract is handed to the
 deploy steps (7/11/A2/A3) so each service stack injects it. If no bundle was supplied,
 auto-detect the system bundle and skip host changes.
+> **⚠️ Host trust-store baking is what the OAuth2 mints actually require — not the env
+> contract.** graph-os authenticates to the engine AND mints fleet-child tokens via
+> client-credentials to `https://keycloak.arpa`; that TLS verify uses the **system trust
+> store** (`sudo cp <ca>.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
+> → `/etc/ssl/certs/ca-certificates.crt`, which is what `certifi` resolves to). The CA **env
+> vars above do NOT reach** the resolved `oauth2-token` TLS profile — so a graph-os host
+> without the CA baked into its system store fails boot with `Graph process identity
+> acquisition failed` **even when `SSL_CERT_FILE`/`TLS_CA_BUNDLE` are set**. This step MUST
+> run (root) on every host that runs graph-os or a fleet minter. See
+> `references/graph-os-fleet-gateway-auth.md` → "Host CA trust" and `references/TROUBLESHOOTING.md` §14.
 - Requires: `tunnel-manager-mcp` (+ skill `ca-trust-provisioner`)
 - Expected: `ca-trusted, ca-env-contract` (skipped → `ca-default`)
 
@@ -536,6 +546,30 @@ the rest of the run** (honor the Step 0 `secrets_store` + `idp` choices):
   existing** `apps/<service>` secrets to skip re-prompting and **seeds** only what's
   missing, returning `vault://apps/<service>/<KEY>` refs to drop into config.json
   (Step A1b). When `secrets_store=env`, the same reconcile writes the service `.env`.
+- **Auto-provision the Ed25519 signing keys (release + permissions) — the standard automated
+  process.** Two signing keys gate integrity and must exist before the artifacts they protect:
+  the **ontology release signer** (`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF`;
+  `ontology_integrity.py` `ReleaseSigner`, `RELEASE_SIGNATURE_ALGORITHM="ed25519"`) and the
+  **permissions signer** (`PERMISSIONS_SIGNING_KEY_REF`). Genesis provisions each **exactly like
+  the engine encryption key** — idempotent, no operator key-handling:
+  1. **Generate if absent** — an Ed25519 keypair (32-byte private seed); reuse the existing key
+     when the OpenBao path already holds it (read-existing, so a re-run never rotates silently).
+  2. **Seed the PRIVATE seed** into OpenBao (`apps/agent-utilities`) via `graph_configure
+     action=vault_sync`, and set the ref
+     (`ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF=vault://apps/agent-utilities/ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY`,
+     likewise `PERMISSIONS_SIGNING_KEY_REF`). The seed is **never** written inline — only the
+     `*_REF` (both keys are on the credential-ref list in `config.py`; an inline value fails the
+     durable-secret policy).
+  3. **Publish the PUBLIC key** to the verification trust set (the manifest gate's trusted-key
+     list — `connector_manifest_gate` / `manifest_compiler`) so releases verify against a pinned
+     key, and record it in the KG as the release identity.
+  4. **Register both for rotation** (Step 14b catalog), 6-month cadence.
+  > "Automating the key" = genesis **generating + sealing it in OpenBao + wiring the `*_REF`**; the
+  > signer resolves the ref at sign time, so no operator handles key material by hand. (A future
+  > hardening can move signing into OpenBao's **transit** engine — sign-without-exposing-the-seed —
+  > but the current signer resolves the seed in-process, so KV-seed + `*_REF` is the standard today.)
+  > **Provisioning the key is NOT auto-signing:** genesis makes the signer *available*; emitting a
+  > signed release/certification still requires the operator's explicit go-ahead (never auto-signed).
 - **Engine-backed secret store (CONCEPT:AU-OS.identity.encrypted-secret-store).** Once the engine encryption key is
   seeded, the embedded app-secret store *is* the engine: secrets live as `:Secret` nodes
   in the **`__secrets__` graph**, values sealed by the engine's encryption-at-rest — so no
@@ -767,13 +801,25 @@ users" is a **Step-14 completion gate, not a Step-5 gate** — cluster admin use
 `rke2.yaml` kubeconfig regardless. **WARN:** if `oidc-ca-file` is configured on the apiserver, the CA
 file MUST already exist on disk or the apiserver **fails to boot** — only set it once the CA is placed.
 
+**Gotcha (TLS, hardened 2026-07-20 — `.arpa` OIDC must serve a REAL cert):** on
+`orchestrator == kubernetes`, ingress-nginx answers **unmatched** `.arpa` TLS with a **fake
+self-signed cert**, so OIDC clients that already trust `homelab-arpa-ca` (Step 1b) STILL fail
+the token mint — graph-os and the fleet minter then fail with `Graph process identity acquisition
+failed`. Every `.arpa` ingress that terminates TLS — **keycloak first** — needs its own
+cert-manager `Certificate` (ClusterIssuer `homelab-arpa-ca`) **plus** a `tls:` block on the
+Ingress (host-trust alone is not enough; the server must present the real cert). Pattern + the
+keycloak manifest snippet: [`references/keycloak-realm-consolidation.md`](references/keycloak-realm-consolidation.md).
+
 ### Step 14b: credential-rotation-policy
 [depends_on: Step 14] (profiles: single-node-prod, enterprise — skipped for tiny)
 Establish recurring, policy-driven secret rotation via the
 `automated-credential-rotation` skill, now that secrets exist in OpenBao (Step 8/14):
 - Build the rotation **catalog** (each secret's OpenBao path, provider, consumers, and
   `cadence_days` — 6-month baseline) from the secrets provisioned in Step 14 (Keycloak
-  client secrets, GitLab/GitHub PATs, DB/LLM/OTEL keys).
+  client secrets, GitLab/GitHub PATs, DB/LLM/OTEL keys) **and Step 8** (the engine encryption
+  key + the Ed25519 release/permissions signing keys). Signing-key rotation re-publishes the new
+  public key to the manifest trust set and keeps the prior key trusted until artifacts signed
+  under it are re-signed (never orphan a still-referenced signature).
 - **Validate dry-run first**: `rotation_lib.py plan --catalog …` renders a value-free
   plan; confirm no secret material appears in any output.
 - Schedule the recurring rotation (off-peak, 6-month cadence) via the `schedule` skill;
@@ -885,6 +931,18 @@ auto-tuned by default, every item overridable. Uses the existing config machiner
   `action=set_config` (honoring `restart_required` for engine-rebuild keys).
 - Drop in the `vault://apps/<service>/<KEY>` refs from Step 8 (`vault_sync`) for every
   secret-bearing field instead of inline values.
+- **Modernized config invariants (enforced by validation — a stale config hard-fails boot).**
+  `generate_config` emits and `config_doctor` checks the current contract, so genesis never
+  writes a legacy key: the engine connection is **`GRAPH_SERVICE_ENDPOINTS`** (`tcp://host:9100`
+  / `unix://…`; the retired `ENGINE_MODE`/`ENGINE_ENDPOINT`/`GRAPH_SERVICE_TCP_ADDR`/
+  `EPISTEMIC_GRAPH_AUTOSTART` are rejected); every credential-suffix key is a **`*_REF`**
+  (`OIDC_CLIENT_SECRET_REF`, … — an inline secret fails the durable-secret policy); external
+  KG connection profiles (ladybug/neo4j) reference a **`connection_profile_ref`** rather than
+  inline host/user/password; the engine process identity is **`KG_IDENTITY_OAUTH2` xor
+  `KG_AUTH_TOKEN_REF`** (exactly one); `SECRETS_BACKEND=engine` (not `inmemory`);
+  `A2A_BROKER`/`A2A_STORAGE=epistemic_graph` (not `in-memory`); `TIMEOUT`/`TOOL_TIMEOUT` are
+  seconds at a sane bound (e.g. `3600`, not `32400`); and every HTTPS endpoint URL (Keycloak
+  issuer, Langfuse host) is `https`, not `http`.
 - Finish with `graph_configure action=config_doctor` + `agent-utilities doctor` → green
   (config complete, secret refs resolvable, durability rules hold, IdP detected).
 - Requires: `graph-os`
@@ -926,12 +984,22 @@ binary-promotion runbook for the deploy-time health-start-period.
 [`references/graph-os-fleet-gateway-auth.md`](references/graph-os-fleet-gateway-auth.md):** set on the
 **`graph-os`** service (the multiplexer is absorbed): `MCP_CONFIG=/root/.config/agent-utilities/mcp_config.json`
 (the central fleet list — ⚠️ MUST be set explicitly, or the loader resolves a stale
-`~/.gemini/antigravity/mcp_config.json` and the fleet appears empty), plus outbound
-`MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID=mcp-multiplexer`, `OIDC_CLIENT_SECRET`
-(OpenBao `apps/graph-os`, Step 13), `OIDC_AUDIENCE=agent-services` so graph-os mints + attaches a
-Keycloak service token to every jwt child (without it, `AUTH_TYPE=jwt` children are 401), and Eunomia
-(`EUNOMIA_TYPE=embedded`, `EUNOMIA_POLICY_FILE=/eunomia_policy.json`) for per-principal authorization.
-Secrets live in OpenBao `apps/graph-os`; the non-secret config is in `services/graph-os/.env`.
+`~/.gemini/antigravity/mcp_config.json` and the fleet appears empty), plus the **outbound
+fleet-child minter** `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_ISSUER=https://keycloak.arpa/realms/homelab`,
+`OIDC_CLIENT_ID=mcp-multiplexer`, **`OIDC_CLIENT_SECRET_REF=vault://apps/graph-os/OIDC_CLIENT_SECRET`**
+(a durable-secret **reference** — a bare `OIDC_CLIENT_SECRET` now fails the durable-secret policy),
+`OIDC_AUDIENCE=agent-services` so graph-os mints + attaches a Keycloak service token to every jwt child
+(without it, `AUTH_TYPE=jwt` children are 401), and Eunomia (`EUNOMIA_TYPE=embedded`,
+`EUNOMIA_POLICY_FILE=/eunomia_policy.json`) for per-principal authorization. The engine is reached over
+**`GRAPH_SERVICE_ENDPOINTS=tcp://<engine-host>:9100`** (the retired `ENGINE_MODE`/`ENGINE_ENDPOINT`/
+`GRAPH_SERVICE_TCP_ADDR`/`EPISTEMIC_GRAPH_AUTOSTART` hard-fail boot), and graph-os authenticates ITSELF to
+that engine with **exactly one** process identity — `KG_IDENTITY_OAUTH2` (client-credentials to Keycloak)
+**xor** `KG_AUTH_TOKEN_REF` (static bearer); both/neither raises *"Configure exactly one graph process
+identity source"*. ⚠️ **Both OAuth2 mints POST to `https://keycloak.arpa`, so the graph-os host MUST trust
+`homelab-arpa-ca` (Step 1b, system trust store — env-var CA injection is insufficient) AND keycloak must
+serve a real cert (Step 14) — otherwise boot fails with `Graph process identity acquisition failed`.**
+Secrets live in OpenBao `apps/graph-os` (referenced via `*_REF`, never inline); the non-secret config is in
+`services/graph-os/.env`.
 
 **Shared agent-utilities config volume (CONCEPT: OS-5.x):** seed an **external**
 named volume `agent_utilities_config` (and `agent_utilities_data`) on the KG host

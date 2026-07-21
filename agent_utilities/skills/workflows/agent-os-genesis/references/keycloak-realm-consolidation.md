@@ -13,6 +13,43 @@ web-SSO recipe.
 - **`master`** — Keycloak super-admin console only. No app/service clients.
 - **Do not create more realms** unless the end user explicitly asks for multi-realm isolation.
 
+## Keycloak `.arpa` TLS — serve a REAL cert (k8s), not the ingress-nginx default
+
+On **k8s**, `https://keycloak.arpa` is the OAuth2 token endpoint every client-credentials
+minter POSTs to (graph-os engine identity + fleet minter, the fleet's inbound JWKS, caddy-security).
+ingress-nginx answers **unmatched** `.arpa` TLS with a **fake self-signed cert**, so a client that
+already trusts `homelab-arpa-ca` (Step 1b) STILL fails the mint (`Graph process identity acquisition
+failed` / `invalid_client`). Give keycloak its **own cert-manager `Certificate`** from the private
+`homelab-arpa-ca` ClusterIssuer plus a `tls:` block on the Ingress (validated live 2026-07-20 —
+`services/keycloak/k8s/manifests.yaml`):
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: {name: keycloak-tls, namespace: platform}
+spec:
+  secretName: keycloak-tls
+  issuerRef: {kind: ClusterIssuer, name: homelab-arpa-ca}
+  dnsNames: [keycloak.arpa]
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: keycloak, namespace: platform}
+spec:
+  ingressClassName: nginx
+  tls:
+  - {hosts: [keycloak.arpa], secretName: keycloak-tls}      # ← without this, clients get the fake default cert
+  rules:
+  - {host: keycloak.arpa, http: {paths: [{path: /, pathType: Prefix, backend: {service: {name: keycloak, port: {number: 8080}}}}]}}
+```
+
+Verify the served issuer is the real CA, not the fake default:
+`echo | openssl s_client -connect keycloak.arpa:443 -servername keycloak.arpa 2>/dev/null | openssl x509 -noout -issuer`
+→ `issuer=CN=homelab-arpa-ca` (NOT `Kubernetes Ingress Controller Fake Certificate`).
+**Two independent requirements — both must hold:** the client trusts the CA (Step 1b host baking)
+AND the server presents a real cert (this). This same pattern applies to **every** `.arpa` ingress
+that terminates TLS and is called by a CA-verifying client (openbao, gitlab, registry).
+
 ## How the fleet authenticates today (must understand before migrating)
 - **~55 MCP services** validate inbound JWTs via three env vars (single-valued):
   `FASTMCP_SERVER_AUTH_JWT_ISSUER`, `…_JWKS_URI`, `…_AUDIENCE=agent-services`.

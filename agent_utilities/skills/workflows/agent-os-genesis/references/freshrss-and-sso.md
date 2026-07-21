@@ -78,7 +78,8 @@ to the cached local image).
 
 ### 3b.5 ⭐ ONE realm — `homelab` (no realm sprawl)
 **All SSO/OIDC — human web apps AND the MCP/agent fleet — uses the single `homelab` realm**
-(`http://keycloak.arpa/realms/homelab`); `master` is Keycloak super-admin only. Do NOT create
+(`https://keycloak.arpa/realms/homelab` on k8s — real `homelab-arpa-ca` cert; `http://…` only on
+legacy swarm); `master` is Keycloak super-admin only. Do NOT create
 extra realms unless the end user explicitly asks for multi-realm isolation. See the keycloak
 service `AGENTS.md` realm policy. (SSO users must have an `email` — caddy-security requires the
 `email` claim, else "Unauthorized" after login.)

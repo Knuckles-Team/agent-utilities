@@ -56,8 +56,11 @@ returns 0 nodes** (it degrades to no-auth → the child 401s):
 1. **The graph-os host AND server carry the OIDC client-credentials env** so
    `mcp/client_credentials.child_auth` mints a service bearer (CONCEPT:AU-OS.identity.so-jwt-protected-children):
    `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID=mcp-multiplexer`,
-   `OIDC_CLIENT_SECRET=<from OpenBao>`, `OIDC_AUDIENCE=agent-services`,
-   `OIDC_TOKEN_URL=http://keycloak.arpa/realms/homelab/protocol/openid-connect/token`.
+   `OIDC_CLIENT_SECRET_REF=vault://apps/graph-os/OIDC_CLIENT_SECRET` (a durable-secret
+   **reference** — an inline `OIDC_CLIENT_SECRET` now fails validation), `OIDC_AUDIENCE=agent-services`,
+   `OIDC_TOKEN_URL=https://keycloak.arpa/realms/homelab/protocol/openid-connect/token`
+   (**k8s HTTPS**: the graph-os host must trust `homelab-arpa-ca` and keycloak must serve a real
+   cert — see `graph-os-fleet-gateway-auth.md`; `http://…` only on legacy swarm).
    Without these, `child_auth` returns `None` → unauthenticated connect → 401.
 
 2. **Keycloak: the minting client (`mcp-multiplexer`) must inject `aud=agent-services`.**

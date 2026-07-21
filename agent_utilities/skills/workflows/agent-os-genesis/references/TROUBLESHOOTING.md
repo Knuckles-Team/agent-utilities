@@ -1,6 +1,6 @@
 # Day-0 / Swarm Troubleshooting Runbook
 
-Hard-won runbook from real incidents recovering the Heaven Homestead swarm. Symptom →
+Hard-won runbook from real incidents recovering the reference homelab swarm. Symptom →
 diagnosis → fix. Topology: manager **R820 (10.0.0.13)**; workers R510(.10) R710(.11)
 RW710(.12) GR1080(.16) GB10(.18); DNS = Technitium macvlan **10.0.0.199**; ingress = Caddy
 on R820 (host-mode 80/443); ~76 stacks, GitOps-bound to `http://gitlab.arpa`.
@@ -197,3 +197,53 @@ re-validating through the mux.
   `~/.config/agent-utilities/inventory.yaml` + `~/.ssh`. A missing **dependency module**
   (e.g. container-manager importing `tunnel_manager`) is a packaging fix — add the dep + rebuild;
   a volume mount alone won't satisfy an absent import.
+
+---
+
+## 14. graph-os won't boot — `Graph process identity acquisition failed`
+
+**Signature:** graph-os (the unified gateway / MCP server) exits during startup — in Claude the
+MCP server shows failed/disconnected; a direct launch prints `RuntimeError: Graph process identity
+acquisition failed` (from `security/request_identity.py`), OR the gateway is up but every jwt child
+returns **401**. Both are the OAuth2 identity mint to Keycloak failing. Four independent causes —
+check in this order:
+
+1. **The host doesn't trust the IdP CA (most common on k8s).** graph-os mints via
+   client-credentials to `https://keycloak.arpa`; the TLS verify uses the **system trust store**.
+   If `homelab-arpa-ca` isn't baked in, every mint fails.
+   - Diagnose: `python3 -c 'import requests; requests.get("https://keycloak.arpa/realms/homelab/.well-known/openid-configuration").raise_for_status(); print("CA trusted")'`
+     → an `SSLCertVerificationError` means untrusted.
+   - Fix (root): `sudo cp homelab-arpa-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates` (Step 1b).
+   - ⚠️ `SSL_CERT_FILE` / `TLS_CA_BUNDLE` / `CA_BUNDLE` / `REQUESTS_CA_BUNDLE` do **NOT** fix this —
+     they don't reach the resolved `oauth2-token` TLS profile. Only the system store (or a
+     config-native `oauth2_token_tls_profile` with `ca_bundle_path` + `system_trust: false`) works.
+     `certifi.where()` here is the root-owned `/etc/ssl/certs/ca-certificates.crt`, so you can't
+     append to certifi as a non-root user either.
+
+2. **Keycloak serves the ingress-nginx FAKE cert.** Even with the CA trusted, the mint fails if
+   `keycloak.arpa` presents the default self-signed cert.
+   - Diagnose: `echo | openssl s_client -connect keycloak.arpa:443 -servername keycloak.arpa 2>/dev/null | openssl x509 -noout -issuer`
+     → `issuer=CN=homelab-arpa-ca` is correct; `...Ingress Controller Fake Certificate` is the bug.
+   - Fix: give keycloak its own cert-manager `Certificate` + ingress `tls:` (see
+     `keycloak-realm-consolidation.md` → "Keycloak `.arpa` TLS").
+
+3. **Retired config keys in the env block.** `ENGINE_MODE` / `ENGINE_ENDPOINT` /
+   `GRAPH_SERVICE_TCP_ADDR` / `EPISTEMIC_GRAPH_AUTOSTART` are **removed** and hard-fail validation;
+   the engine connection is now `GRAPH_SERVICE_ENDPOINTS=tcp://<host>:9100`. Likewise a bare
+   `OIDC_CLIENT_SECRET` fails the durable-secret policy — use `OIDC_CLIENT_SECRET_REF`.
+
+4. **Both/neither engine process identity set.** `KG_IDENTITY_OAUTH2` and `KG_AUTH_TOKEN_REF` are
+   **mutually exclusive, exactly one required** — both (or neither) raises *"Configure exactly one
+   graph process identity source: KG_AUTH_TOKEN_REF or KG_IDENTITY_OAUTH2"*.
+
+**Isolate the mint** (proves it's identity, not the rest of boot) — prints a token length or the real error:
+```bash
+python3 -c 'from agent_utilities.core.config import config; from agent_utilities.security.oauth_client_credentials import build_provider_from_config; print(len(build_provider_from_config(config.kg_identity_oauth2).get_token()))'
+```
+When it prints a length, graph-os boots. Full contract: `graph-os-fleet-gateway-auth.md`.
+
+> **The MCP env block, not the k8s Deployment, is usually the culprit** when graph-os fails *only*
+> in Claude: the local `~/.claude.json` `graph-os` `env` block is what launches that instance, so a
+> stale block there (retired keys, `http` issuer, inline `OIDC_CLIENT_SECRET`, dual identity source)
+> fails boot independent of the cluster manifest. Fix the env block first; update the k8s Deployment
+> only if the deployed graph-os shows the same failure.
