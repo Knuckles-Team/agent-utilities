@@ -35,7 +35,6 @@ from starlette.responses import JSONResponse
 
 from agent_utilities.core.config import setting
 from agent_utilities.models.goal import GoalIteration, GoalSpec
-from agent_utilities.orchestration.work_item import WorkItemStatus
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +49,10 @@ background_goal_runs: dict[str, dict[str, Any]] = {}
 # Goal statuses that are still "in flight" (rehydration targets on restart).
 _NON_TERMINAL_GOAL_STATUSES = frozenset(
     {
-        WorkItemStatus.SUBMITTED.value,
-        WorkItemStatus.READY.value,
-        WorkItemStatus.LEASED.value,
-        WorkItemStatus.RUNNING.value,
+        "submitted",
+        "ready",
+        "leased",
+        "running",
     }
 )
 
@@ -411,7 +410,7 @@ def _goal_row_to_entry(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "goal_id": row.get("goal_id", ""),
         "session_id": row.get("session_id", ""),
-        "status": WorkItemStatus.SUBMITTED.value,
+        "status": "submitted",
         "objective": row.get("objective", ""),
         "owner_host": row.get("owner_host", ""),
         "iterations": iterations,
@@ -431,11 +430,10 @@ def _goal_work_item_status(engine: Any, goal_id: str) -> str | None:
     if item is None:
         return None
     raw_status = str(item.get("status") or "")
-    try:
-        return _wi.WorkItemStatus(raw_status).value
-    except ValueError:
-        logger.warning("Goal %s has an invalid WorkItem status", goal_id)
-        return None
+    if raw_status in _wi.WORK_ITEM_STATES:
+        return raw_status
+    logger.warning("Goal %s has an invalid WorkItem status", goal_id)
+    return None
 
 
 def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
@@ -453,7 +451,7 @@ def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
             entry = _goal_row_to_entry(r)
             entry["status"] = (
                 _goal_work_item_status(engine, goal_id)
-                or WorkItemStatus.SUBMITTED.value
+                or "submitted"
             )
             return entry
     return None
@@ -792,7 +790,7 @@ async def cancel_session_run(request: Request) -> JSONResponse:
                 task.cancel()
             background_goal_runs.pop(goal_id, None)
             if goal_id in active_goals:
-                active_goals[goal_id]["status"] = WorkItemStatus.CANCELLED.value
+                active_goals[goal_id]["status"] = "cancelled"
                 engine = _goal_engine()
                 if engine is not None:
                     from agent_utilities.knowledge_graph.research.loops import (
@@ -912,7 +910,7 @@ async def run_goal_loop(
     active_goals[goal_id] = {
         "goal_id": goal_id,
         "session_id": session_id,
-        "status": WorkItemStatus.SUBMITTED.value,
+        "status": "submitted",
         "objective": objective,
         "owner_host": _owner_token(),
         "created_at": time.time(),
@@ -1035,17 +1033,17 @@ async def run_goal_loop(
         background_goal_runs.pop(goal_id, None)
         return
     result_statuses = {
-        "completed": WorkItemStatus.SUCCEEDED.value,
-        "succeeded": WorkItemStatus.SUCCEEDED.value,
-        "failed": WorkItemStatus.FAILED.value,
-        "cancelled": WorkItemStatus.CANCELLED.value,
-        "paused": WorkItemStatus.READY.value,
-        "running": WorkItemStatus.RUNNING.value,
+        "completed": "succeeded",
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "cancelled": "cancelled",
+        "paused": "ready",
+        "running": "running",
     }
     final = (
         (_goal_work_item_status(engine, goal_id) if engine else None)
         or result_statuses.get(rstatus)
-        or WorkItemStatus.FAILED.value
+        or "failed"
     )
     entry = active_goals.get(goal_id)
     if entry is not None:
@@ -1175,7 +1173,7 @@ async def create_goal(request: Request) -> JSONResponse:
     active_goals[goal_id] = {
         "goal_id": goal_id,
         "session_id": session_id,
-        "status": WorkItemStatus.SUBMITTED.value,
+        "status": "submitted",
         "objective": spec.objective,
         "owner_host": "",
         "created_at": time.time(),
@@ -1204,7 +1202,7 @@ async def create_goal(request: Request) -> JSONResponse:
         )
     except Exception as e:  # noqa: BLE001 — surface enqueue failure loudly
         logger.error("Goal %s enqueue failed: %s", goal_id, e)
-        active_goals[goal_id]["status"] = WorkItemStatus.FAILED.value
+        active_goals[goal_id]["status"] = "failed"
         active_goals[goal_id]["error"] = f"dispatch enqueue failed: {e}"
         _persist_goal(goal_id)
         return JSONResponse({"error": "dispatch enqueue failed"}, status_code=503)
@@ -1288,7 +1286,7 @@ async def cancel_goal(request: Request) -> JSONResponse:
     background_goal_runs.pop(goal_id, None)
 
     if goal_id in active_goals:
-        active_goals[goal_id]["status"] = WorkItemStatus.CANCELLED.value
+        active_goals[goal_id]["status"] = "cancelled"
         active_goals[goal_id]["summary"] = "Goal cancelled by user."
         engine = _goal_engine()
         if engine is not None:

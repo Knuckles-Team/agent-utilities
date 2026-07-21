@@ -48,7 +48,7 @@ def test_retry_then_dead_letter_after_max_attempts(loadgen):
     )
     assert outcome == "retry_scheduled"
     item = wi.get_work_item(engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["next_retry_at"] > 1.0  # backoff window — not immediately reclaimable
 
     # Backoff not yet elapsed: an immediate reclaim attempt correctly fails.
@@ -83,7 +83,7 @@ def test_retry_then_dead_letter_after_max_attempts(loadgen):
     )
     assert outcome3 == "dead_letter"
     final = wi.get_work_item(engine, item_id)
-    assert final["status"] == wi.WorkItemStatus.DEAD_LETTER.value
+    assert final["status"] == "dead_letter"
     # Never lost: it has a terminal, inspectable outcome — not silently vanished.
     assert final["error_ref"] == "timeout"
 
@@ -102,7 +102,7 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
     cancelled = wi.cancel_work_item(engine, item_id, reason="user_abort", now=5.0)
     assert cancelled is True
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.CANCELLED.value
+        wi.get_work_item(engine, item_id)["status"] == "cancelled"
     )
 
     # The worker that was still "in flight" eventually tries to commit success —
@@ -112,7 +112,7 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
     )
     assert late in ("fenced", "conflict", "noop")
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.CANCELLED.value
+        wi.get_work_item(engine, item_id)["status"] == "cancelled"
     )
 
     # Cancelling an already-cancelled item is idempotent (redelivered cancel request).
@@ -128,5 +128,5 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
     assert wi.cancel_work_item(engine, other_id, now=2.0) is False
     assert (
         wi.get_work_item(engine, other_id)["status"]
-        == wi.WorkItemStatus.SUCCEEDED.value
+        == "succeeded"
     )

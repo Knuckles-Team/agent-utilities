@@ -99,7 +99,7 @@ class FakeEngine:
     def claim_work_item(self, request):  # noqa: ANN001
         self.native_calls.append("claim")
         node = self.nodes.get(str(request.work_item_id))
-        if node is None or node.get("status") != wi.WorkItemStatus.READY.value:
+        if node is None or node.get("status") != "ready":
             return {
                 "schema_version": "1",
                 "claimed": False,
@@ -119,7 +119,7 @@ class FakeEngine:
         attempt = int(node.get("attempt") or 0) + 1
         epoch = int(node.get("lease_epoch") or 0) + 1
         node.update(
-            status=wi.WorkItemStatus.LEASED.value,
+            status="leased",
             attempt=attempt,
             lease_owner=request.worker_ref,
             lease_epoch=epoch,
@@ -177,12 +177,12 @@ class FakeEngine:
             lease_owner=None,
             lease_expires_at=None,
         )
-        if outcome == wi.WorkItemStatus.SUCCEEDED.value:
+        if outcome == "succeeded":
             for child_id in node.get("downstream_ids") or []:
                 child = self.nodes[child_id]
                 child["dep_count"] = max(0, int(child.get("dep_count") or 0) - 1)
                 if child["dep_count"] == 0:
-                    child["status"] = wi.WorkItemStatus.READY.value
+                    child["status"] = "ready"
         return {"status": "committed"}
 
     def cancel_work_item(self, request):  # noqa: ANN001
@@ -192,7 +192,7 @@ class FakeEngine:
             return {"status": "missing"}
         if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
             return {"status": "noop"}
-        node.update(status=wi.WorkItemStatus.CANCELLED.value)
+        node.update(status="cancelled")
         return {"status": "cancelled"}
 
 
@@ -392,7 +392,7 @@ async def test_org_run_review_rework_then_escalation():
     result = await runtime.run("g", plan_items=[item], chart=chart)
     # reviewer kept rejecting → escalated once → human approved.
     assert len(escalations) == 1
-    assert result["plan_items"][0]["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert result["plan_items"][0]["status"] == "succeeded"
     assert result["plan_items"][0]["rework_count"] >= 1
     assert eng.native_calls.count("commit") == 1
 
@@ -415,7 +415,7 @@ async def test_org_run_deadlock_escalates():
     )
     result = await runtime.run("g", plan_items=[blocked], chart=chart)
     assert escalations and "dependencies" in escalations[0]
-    assert result["plan_items"][0]["status"] == wi.WorkItemStatus.CANCELLED.value
+    assert result["plan_items"][0]["status"] == "cancelled"
     assert "cancel" in eng.native_calls
 
 

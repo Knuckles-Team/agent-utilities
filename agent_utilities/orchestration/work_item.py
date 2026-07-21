@@ -46,7 +46,6 @@ import re
 import time
 import uuid
 from collections.abc import Sequence
-from enum import StrEnum
 from typing import Any
 
 from agent_utilities.protocols.epistemic_operations import (
@@ -59,7 +58,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_MAX_TENANT_IN_FLIGHT",
     "MAX_TENANT_IN_FLIGHT",
-    "WorkItemStatus",
+    "WORK_ITEM_STATES",
     "TERMINAL_WORK_ITEM_STATUSES",
     "WorkItemBackendUnavailable",
     "NativeWorkItemRequired",
@@ -111,25 +110,30 @@ __all__ = [
 DEFAULT_MAX_TENANT_IN_FLIGHT = 64
 MAX_TENANT_IN_FLIGHT = 4096
 
-class WorkItemStatus(StrEnum):
-    """The eight states of the ONE work-item lifecycle (AU-P1-1)."""
-
-    SUBMITTED = "submitted"
-    READY = "ready"
-    LEASED = "leased"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    DEAD_LETTER = "dead_letter"
-
+#: The eight states of the ONE work-item lifecycle (AU-P1-1) — a closed
+#: vocabulary of plain strings (W2.5 control-plane migration: no enum, no
+#: protection type, just data, agreeing with the eg-statechart-driven Loop
+#: chart's own closed vocabulary). Every former ``WorkItemStatus.X.value`` (or
+#: bare ``WorkItemStatus.X`` — a ``StrEnum`` member compares equal to its
+#: plain string, so both read identically at every call site) is now the
+#: literal lowercase string directly.
+WORK_ITEM_STATES: tuple[str, ...] = (
+    "submitted",
+    "ready",
+    "leased",
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "dead_letter",
+)
 
 TERMINAL_WORK_ITEM_STATUSES = frozenset(
     {
-        WorkItemStatus.SUCCEEDED.value,
-        WorkItemStatus.FAILED.value,
-        WorkItemStatus.CANCELLED.value,
-        WorkItemStatus.DEAD_LETTER.value,
+        "succeeded",
+        "failed",
+        "cancelled",
+        "dead_letter",
     }
 )
 
@@ -510,10 +514,10 @@ def submit_work_item(
             continue
         resolved_deps.append(dep_id)
         tracked_dep_ids.add(dep_id)
-        if dep.get("status") != WorkItemStatus.SUCCEEDED.value:
+        if dep.get("status") != "succeeded":
             dep_count += 1
 
-    status = WorkItemStatus.SUBMITTED if dep_count else WorkItemStatus.READY
+    status = "submitted" if dep_count else "ready"
     privacy_guard = PersistencePrivacyGuard()
     clean_description, _privacy_report = privacy_guard.sanitize_text(description)
     clean_metadata, _metadata_privacy_report = privacy_guard.sanitize(
@@ -533,7 +537,7 @@ def submit_work_item(
         tenant=tenant,
         kind=kind,
         queue=queue or kind,
-        status=status.value,
+        status=status,
         payload_ref=payload_ref,
         idempotency_key=idempotency_key or item_id,
         depends_on=resolved_deps,
@@ -711,8 +715,8 @@ def current_work_item_claim(engine: Any, item_id: str) -> dict[str, Any] | None:
         )
     item = get_work_item(engine, item_id)
     if item is None or item.get("status") not in {
-        WorkItemStatus.LEASED.value,
-        WorkItemStatus.RUNNING.value,
+        "leased",
+        "running",
     }:
         return None
     required = ("lease_owner", "lease_epoch", "fencing_token")
@@ -795,8 +799,8 @@ def checkpoint_work_item(
         return False
     item = get_work_item(engine, item_id)
     if item is None or item.get("status") not in {
-        WorkItemStatus.LEASED.value,
-        WorkItemStatus.RUNNING.value,
+        "leased",
+        "running",
     }:
         return False
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
@@ -986,7 +990,7 @@ def cancel_work_item(
         return True
     if status == "noop":
         latest = get_work_item(engine, item_id)
-        return bool(latest and latest.get("status") == WorkItemStatus.CANCELLED.value)
+        return bool(latest and latest.get("status") == "cancelled")
     if status in {"missing", "in_flight", "not_cancellable"}:
         return False
     raise WorkItemBackendUnavailable(
@@ -1203,11 +1207,11 @@ def claim_agent_task_via_work_item(
 
 
 _AGENT_TASK_OUTCOME_TO_WORK_ITEM: dict[str, tuple[str, bool]] = {
-    "completed": (WorkItemStatus.SUCCEEDED.value, True),
-    "failed": (WorkItemStatus.FAILED.value, True),
-    "unroutable": (WorkItemStatus.FAILED.value, False),
-    "denied": (WorkItemStatus.FAILED.value, False),
-    "cancelled": (WorkItemStatus.CANCELLED.value, False),
+    "completed": ("succeeded", True),
+    "failed": ("failed", True),
+    "unroutable": ("failed", False),
+    "denied": ("failed", False),
+    "cancelled": ("cancelled", False),
     # "blocked" intentionally absent: the legacy task stays non-terminal
     # pending human approval; the WorkItem is left `running` and will
     # naturally re-enter `ready` via `reap_expired_leases` once its lease
@@ -1241,10 +1245,10 @@ def commit_agent_task_work_item(
             outcome=outcome,
             retryable=retryable,
             result_ref=f"outcome:agent_task:{task_id}"
-            if outcome == WorkItemStatus.SUCCEEDED.value
+            if outcome == "succeeded"
             else None,
             error_ref=f"agent_task:{task_id}:{status}"
-            if outcome != WorkItemStatus.SUCCEEDED.value
+            if outcome != "succeeded"
             else None,
         )
     except Exception as e:  # noqa: BLE001 — mirror commit is best-effort
@@ -1293,11 +1297,11 @@ def claim_execution_work_item(
 
 
 _EXECUTION_OUTCOME_TO_WORK_ITEM: dict[str, tuple[str, bool]] = {
-    "completed": (WorkItemStatus.SUCCEEDED.value, True),
-    "failed": (WorkItemStatus.FAILED.value, True),
-    "unroutable": (WorkItemStatus.FAILED.value, False),
-    "denied": (WorkItemStatus.FAILED.value, False),
-    "cancelled": (WorkItemStatus.CANCELLED.value, False),
+    "completed": ("succeeded", True),
+    "failed": ("failed", True),
+    "unroutable": ("failed", False),
+    "denied": ("failed", False),
+    "cancelled": ("cancelled", False),
 }
 
 
@@ -1336,10 +1340,10 @@ def commit_execution_work_item(
         outcome=outcome,
         retryable=retryable,
         result_ref=f"outcome:work_item:{work_item_id}"
-        if outcome == WorkItemStatus.SUCCEEDED.value
+        if outcome == "succeeded"
         else None,
         error_ref=f"work_item:{work_item_id}:{status}"
-        if outcome != WorkItemStatus.SUCCEEDED.value
+        if outcome != "succeeded"
         else None,
     )
 
@@ -1449,14 +1453,14 @@ def claim_ingest_task_work_item(
 # rather than a claim-pool wrapper.
 
 _TEAM_STATUS_TO_WORK_ITEM_VIEW: dict[str, str] = {
-    WorkItemStatus.SUBMITTED.value: "pending",
-    WorkItemStatus.READY.value: "pending",
-    WorkItemStatus.LEASED.value: "in_progress",
-    WorkItemStatus.RUNNING.value: "in_progress",
-    WorkItemStatus.SUCCEEDED.value: "completed",
-    WorkItemStatus.FAILED.value: "failed",
-    WorkItemStatus.CANCELLED.value: "cancelled",
-    WorkItemStatus.DEAD_LETTER.value: "failed",
+    "submitted": "pending",
+    "ready": "pending",
+    "leased": "in_progress",
+    "running": "in_progress",
+    "succeeded": "completed",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "dead_letter": "failed",
 }
 
 
@@ -1532,19 +1536,19 @@ def team_task_status_view(engine: Any, task_id: str) -> str | None:
 
 
 _TASK_STATUS_TO_WORK_ITEM: dict[str, str] = {
-    "pending": WorkItemStatus.READY.value,
-    "scheduled": WorkItemStatus.SUBMITTED.value,
-    "blocked": WorkItemStatus.SUBMITTED.value,
-    "running": WorkItemStatus.RUNNING.value,
-    "completed": WorkItemStatus.SUCCEEDED.value,
-    "failed": WorkItemStatus.FAILED.value,
-    "cancelled": WorkItemStatus.CANCELLED.value,
-    "dead_letter": WorkItemStatus.DEAD_LETTER.value,
+    "pending": "ready",
+    "scheduled": "submitted",
+    "blocked": "submitted",
+    "running": "running",
+    "completed": "succeeded",
+    "failed": "failed",
+    "cancelled": "cancelled",
+    "dead_letter": "dead_letter",
 }
 
 
 def work_item_view_of_task(engine: Any, task_id: str) -> dict[str, Any] | None:
-    """Read-only :class:`WorkItemStatus` projection of an ingestion ``:Task`` node.
+    """Read-only WorkItem-status-vocabulary projection of an ingestion ``:Task`` node.
 
     SHIM, not authoritative: ``engine_tasks.py``'s ``submit_task``/
     ``_claim_next_task``/``_fail_or_retry_task``/``_tick_task_reaper`` (lanes,
@@ -1563,7 +1567,7 @@ def work_item_view_of_task(engine: Any, task_id: str) -> dict[str, Any] | None:
         "work_item_id": task_id,
         "kind": "ingest_task",
         "status": _TASK_STATUS_TO_WORK_ITEM.get(
-            raw_status, WorkItemStatus.SUBMITTED.value
+            raw_status, "submitted"
         ),
         "native_status": raw_status,
         "shim": True,
@@ -1791,7 +1795,7 @@ def transition_loop_work_item(
         return bool(
             item
             and item.get("status")
-            in {WorkItemStatus.SUBMITTED.value, WorkItemStatus.READY.value}
+            in {"submitted", "ready"}
         )
     if normalized in {"cancelled", "canceled"} and claim is None:
         return cancel_work_item(
@@ -1802,24 +1806,24 @@ def transition_loop_work_item(
             f"Loop {loop_id!r} has no claim in this execution context"
         )
     outcome = {
-        "completed": WorkItemStatus.SUCCEEDED.value,
-        "succeeded": WorkItemStatus.SUCCEEDED.value,
-        "failed": WorkItemStatus.FAILED.value,
-        "rejected": WorkItemStatus.FAILED.value,
-        "cancelled": WorkItemStatus.CANCELLED.value,
-        "canceled": WorkItemStatus.CANCELLED.value,
+        "completed": "succeeded",
+        "succeeded": "succeeded",
+        "failed": "failed",
+        "rejected": "failed",
+        "cancelled": "cancelled",
+        "canceled": "cancelled",
         # Harness-enforced loop-exit terminal statuses (CONCEPT:AU-AHE.harness.
         # loop-exit-conditions). Each commits the WorkItem terminally; the
         # precise, diagnosable reason rides the result_ref/error_ref stamped by
         # ``loops.mark_loop_status`` and is returned verbatim by ``run_loop``.
         # An awaited external signal firing is a SUCCESS; every other enforced
         # exit is an abnormal/exhaustion termination -> FAILED.
-        "external_event_satisfied": WorkItemStatus.SUCCEEDED.value,
-        "max_iterations_exceeded": WorkItemStatus.FAILED.value,
-        "budget_exceeded": WorkItemStatus.FAILED.value,
-        "wall_clock_exceeded": WorkItemStatus.FAILED.value,
-        "stalled": WorkItemStatus.FAILED.value,
-        "error_threshold_exceeded": WorkItemStatus.FAILED.value,
+        "external_event_satisfied": "succeeded",
+        "max_iterations_exceeded": "failed",
+        "budget_exceeded": "failed",
+        "wall_clock_exceeded": "failed",
+        "stalled": "failed",
+        "error_threshold_exceeded": "failed",
     }.get(normalized)
     if outcome is None:
         raise ValueError(f"unsupported Loop status transition {status!r}")
@@ -1878,8 +1882,8 @@ def work_item_view_of_loop(engine: Any, loop_id: str) -> dict[str, Any] | None:
     return {
         "work_item_id": loop_work_item_id(loop_id),
         "kind": "goal_loop",
-        "status": str(item.get("status") or WorkItemStatus.SUBMITTED.value),
-        "native_status": str(item.get("status") or WorkItemStatus.SUBMITTED.value),
+        "status": str(item.get("status") or "submitted"),
+        "native_status": str(item.get("status") or "submitted"),
         "updated_at": item.get("updated_at"),
         "projection": False,
     }

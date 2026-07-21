@@ -1664,9 +1664,9 @@ class TaskManagerMixin(GraphEngineProtocol):
         from agent_utilities.orchestration import work_item as _wi
 
         broken = {
-            _wi.WorkItemStatus.FAILED.value,
-            _wi.WorkItemStatus.DEAD_LETTER.value,
-            _wi.WorkItemStatus.CANCELLED.value,
+            "failed",
+            "dead_letter",
+            "cancelled",
         }
         all_done = True
         for dep in deps:
@@ -1676,7 +1676,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             state = (item or {}).get("status")
             if state in broken:
                 return "broken"
-            if state != _wi.WorkItemStatus.SUCCEEDED.value:
+            if state != "succeeded":
                 all_done = False
         return "ready" if all_done else "waiting"
 

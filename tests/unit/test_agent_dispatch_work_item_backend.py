@@ -3,7 +3,7 @@
 Exercises ``execute_agent_task_turn`` end to end with the WorkItem state
 machine as the authoritative backend (rather than the KG ``:AgentLease``-only
 path or the raw engine-native probe): a legacy ``:AgentTask`` node is shadowed
-1:1 by a :class:`~agent_utilities.orchestration.work_item.WorkItemStatus`
+1:1 by a WorkItem
 node, claimed/committed through it, with the legacy ``:AgentTask``/
 ``:AgentLease`` nodes mirrored (not read) for unmigrated consumers
 (``fleet_reconciler``), and a real cross-task dependency released atomically
@@ -166,7 +166,7 @@ def test_agent_task_completes_via_work_item_backend_and_mirrors_legacy_nodes() -
     item_id = wi.agent_task_work_item_id("task-1")
     item = wi.get_work_item(engine, item_id)
     assert item is not None
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"
     assert item["result_ref"] == "outcome:agent_task:task-1"
 
 
@@ -179,7 +179,7 @@ def test_agent_task_unroutable_is_terminal_failed_not_retried_via_work_item() ->
 
     item_id = wi.agent_task_work_item_id("task-2")
     item = wi.get_work_item(engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.FAILED.value
+    assert item["status"] == "failed"
     assert item["attempt"] == 1  # no retry — unroutable is non-retryable
 
 
@@ -212,7 +212,7 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
     a_item_id = wi.agent_task_work_item_id("task-a")
     assert (
         wi.get_work_item(engine, b_item_id)["status"]
-        == wi.WorkItemStatus.SUBMITTED.value
+        == "submitted"
     )
     assert b_item_id in wi.get_work_item(engine, a_item_id)["downstream_ids"]
 
@@ -223,7 +223,7 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
     )
     assert outcome_a == "completed"
     assert (
-        wi.get_work_item(engine, b_item_id)["status"] == wi.WorkItemStatus.READY.value
+        wi.get_work_item(engine, b_item_id)["status"] == "ready"
     )
 
     # Now B is genuinely claimable and completes too.
@@ -233,7 +233,7 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
     assert outcome_b == "completed"
     assert (
         wi.get_work_item(engine, b_item_id)["status"]
-        == wi.WorkItemStatus.SUCCEEDED.value
+        == "succeeded"
     )
 
 

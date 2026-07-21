@@ -983,7 +983,7 @@ def _execute_orchestrator_turn(
                 work_engine,
                 item_id,
                 claim,
-                outcome=_wi.WorkItemStatus.FAILED.value,
+                outcome="failed",
                 error_ref=f"orchestrator:{envelope.job_id}:failed",
                 retryable=False,
             )
@@ -998,7 +998,7 @@ def _execute_orchestrator_turn(
             work_engine,
             item_id,
             claim,
-            outcome=_wi.WorkItemStatus.SUCCEEDED.value,
+            outcome="succeeded",
             result_ref=f"orchestrator:{envelope.job_id}:completed",
             retryable=False,
         )

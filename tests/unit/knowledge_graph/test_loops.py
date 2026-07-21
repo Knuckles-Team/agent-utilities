@@ -78,7 +78,7 @@ def test_submit_loop_keeps_definition_immutable_and_work_item_authoritative():
     assert definition["loop_kind"] == "develop"
     assert definition["validation_cmd"] == "pytest -q"
     assert "status" not in definition
-    assert item is not None and item["status"] == wi.WorkItemStatus.READY.value
+    assert item is not None and item["status"] == "ready"
     assert loop["status"] == "submitted"
 
 
@@ -106,7 +106,7 @@ def test_active_loops_reads_status_only_from_work_items():
     assert develop["id"] in rows
     assert "loop:research:done" not in rows
     assert finished["id"] not in rows
-    assert rows[develop["id"]]["status"] == wi.WorkItemStatus.READY.value
+    assert rows[develop["id"]]["status"] == "ready"
 
 
 def test_claim_loop_uses_native_lease_and_lost_race_is_final():
@@ -116,7 +116,7 @@ def test_claim_loop_uses_native_lease_and_lost_race_is_final():
         assert claim_loop(engine, loop["id"]) is True
         assert claim_loop(engine, loop["id"]) is False
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item is not None and item["status"] == wi.WorkItemStatus.LEASED.value
+    assert item is not None and item["status"] == "leased"
     assert engine.native_calls == ["claim", "claim"]
 
 

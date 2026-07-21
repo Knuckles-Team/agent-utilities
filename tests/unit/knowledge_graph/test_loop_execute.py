@@ -31,7 +31,7 @@ def test_develop_completion_commits_the_native_work_item():
 
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
     assert report["completed"] == 1
-    assert item is not None and item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item is not None and item["status"] == "succeeded"
     assert "status" not in engine.nodes[loop["id"]]
 
 
@@ -50,7 +50,7 @@ def test_develop_pending_retains_the_native_lease_for_the_driver():
 
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
     assert report["completed"] == 0
-    assert item is not None and item["status"] == wi.WorkItemStatus.LEASED.value
+    assert item is not None and item["status"] == "leased"
 
 
 def test_skill_completion_uses_the_same_work_item_path():
@@ -67,7 +67,7 @@ def test_skill_completion_uses_the_same_work_item_path():
         report = controller._run_execute_loops([loop])
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
     assert report["skill"] == 1 and report["completed"] == 1
-    assert item is not None and item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item is not None and item["status"] == "succeeded"
 
 
 def test_second_driver_cannot_execute_an_owned_loop():

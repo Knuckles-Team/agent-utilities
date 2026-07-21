@@ -198,7 +198,7 @@ def test_claim_churn_fencing_epoch_strictly_increases_and_completes_exactly_once
     )
     assert outcome == "committed"
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.SUCCEEDED.value
+        wi.get_work_item(engine, item_id)["status"] == "succeeded"
     )
 
     # Every stale claim from every earlier crashed cycle — including the very
@@ -289,7 +289,7 @@ def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen)
         "reaper reclaimed a heartbeat-extended lease before its new deadline"
     )
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.RUNNING.value
+        wi.get_work_item(engine, item_id)["status"] == "running"
     )
 
     # Heartbeat again at t=16, extending to 16+10=26.
@@ -306,7 +306,7 @@ def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen)
     reaped_final = wi.reap_expired_leases(engine, now=27.0)
     assert item_id in reaped_final["reaped_ready"]
     item = wi.get_work_item(engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["lease_epoch"] == 2  # fenced past the dead worker's epoch
 
     # A fresh worker claims and finishes it; the dead worker's belated

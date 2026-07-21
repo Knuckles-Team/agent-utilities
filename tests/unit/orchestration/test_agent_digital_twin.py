@@ -24,7 +24,6 @@ from agent_utilities.orchestration.agent_digital_twin import (
     replay_twin,
     twin_incident_steps,
 )
-from agent_utilities.orchestration.work_item import WorkItemStatus
 
 
 def _versions(**overrides: Any) -> VersionPins:
@@ -81,7 +80,7 @@ def _base_twin(**capture_overrides: Any) -> AgentDigitalTwin:
         tool_calls=_sample_tool_calls(),
         policy_decisions=[_sample_decision()],
         evidence=[{"answer_candidate": "fleet is healthy", "confidence": None}],
-        outcome=WorkItemStatus.SUCCEEDED.value,
+        outcome="succeeded",
     )
     kwargs.update(capture_overrides)
     return capture_twin(**kwargs)
@@ -104,7 +103,7 @@ def test_capture_twin_from_a_mock_run_records_full_shape():
     assert twin.tool_call_ids[0].startswith("toolcall:x8-demo:")
     assert len(twin.decision_ids) == 1
     assert twin.decision_ids[0] == "action_decision:sample-1"
-    assert twin.outcome == WorkItemStatus.SUCCEEDED.value
+    assert twin.outcome == "succeeded"
     # Every tool call + decision was mirrored into the run-VCS event log as a
     # declare/capture pair (2 events each).
     assert len(twin.event_log.events) == (2 + 1) * 2
@@ -351,7 +350,7 @@ def test_capture_twin_from_kg_hydrates_tool_calls_and_work_items():
         "run:hydrate-me",
         agent_name="agent-utilities-expert",
         versions=_versions(),
-        outcome=WorkItemStatus.SUCCEEDED.value,
+        outcome="succeeded",
     )
 
     assert twin.work_item_ids == ["workitem:hydrated-1"]

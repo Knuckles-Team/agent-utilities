@@ -43,7 +43,7 @@ def test_run_loop_checkpoints_and_commits_on_one_work_item():
     assert calls == 3
     assert item is not None
     assert item["checkpoint_id"] == "checkpoint:iteration:3"
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"
 
 
 def test_expired_lease_resumes_after_last_fenced_checkpoint():
@@ -117,7 +117,7 @@ def test_corrigibility_commits_cancelled_without_running_a_step():
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
     assert result["interrupted"] is True and result["status"] == "cancelled"
     assert calls == 0
-    assert item is not None and item["status"] == wi.WorkItemStatus.CANCELLED.value
+    assert item is not None and item["status"] == "cancelled"
 
 
 def test_skill_loop_uses_the_same_checkpoint_path():

@@ -12,8 +12,8 @@ incident investigation, counterfactual policy evaluation, and safe-evolution pro
 This module is deliberately thin. Every piece of provenance it touches already exists
 elsewhere in this codebase and is REUSED, never duplicated:
 
-* **The run graph** — :class:`~agent_utilities.orchestration.work_item.WorkItemStatus`
-  ids (``orchestration/work_item.py``): the ``WorkItem`` DAG (``depends_on``/
+* **The run graph** — the ``orchestration/work_item.py`` WorkItem-status vocabulary
+  ids: the ``WorkItem`` DAG (``depends_on``/
   ``downstream_ids``) a run executed as. A twin stores the ids, not a second copy of
   the DAG.
 * **Tool calls + evidence** — the SAME ``:ToolCall`` shape
@@ -65,7 +65,6 @@ from agent_utilities.orchestration.action_policy import (
     ActionRequest,
 )
 from agent_utilities.orchestration.tool_provenance import sanitize_tool_args
-from agent_utilities.orchestration.work_item import WorkItemStatus
 from agent_utilities.runtime.run_vcs.kernel import RunEventLog, content_digest
 from agent_utilities.runtime.run_vcs.replay import (
     MODEL_EXCHANGE,
@@ -370,7 +369,7 @@ def capture_twin(
     model_exchanges: Sequence[Mapping[str, Any]] = (),
     policy_decisions: Sequence[ActionDecision | Mapping[str, Any]] = (),
     evidence: Sequence[Any] = (),
-    outcome: str = WorkItemStatus.SUCCEEDED.value,
+    outcome: str = "succeeded",
     engine: Any | None = None,
 ) -> AgentDigitalTwin:
     """Capture an :class:`AgentDigitalTwin` from explicit run data.
@@ -520,7 +519,7 @@ def capture_twin_from_kg(
         tool_calls=tool_calls,
         policy_decisions=policy_decisions,
         evidence=evidence,
-        outcome=outcome or WorkItemStatus.SUCCEEDED.value,
+        outcome=outcome or "succeeded",
         engine=engine,
     )
 

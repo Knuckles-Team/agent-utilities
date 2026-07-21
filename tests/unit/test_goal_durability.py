@@ -16,7 +16,7 @@ import time
 import pytest
 
 from agent_utilities.core import sessions as _sessions
-from agent_utilities.orchestration.work_item import WorkItemStatus, loop_work_item_id
+from agent_utilities.orchestration.work_item import loop_work_item_id
 
 
 class _GoalEngine:
@@ -85,7 +85,7 @@ def test_persist_goal_upserts(goal_db):
     _sessions.active_goals["loop:develop:g1"] = {
         "goal_id": "loop:develop:g1",
         "session_id": "s1",
-        "status": WorkItemStatus.RUNNING.value,
+        "status": "running",
         "objective": "do the thing",
         "iterations": [],
         "total_iterations": 0,
@@ -98,7 +98,7 @@ def test_persist_goal_upserts(goal_db):
 
     # Update path
     _sessions.active_goals["loop:develop:g1"]["status"] = (
-        WorkItemStatus.SUCCEEDED.value
+        "succeeded"
     )
     _sessions.active_goals["loop:develop:g1"]["total_iterations"] = 3
     _sessions._persist_goal("loop:develop:g1")
@@ -128,8 +128,8 @@ def _add_goal(eng, goal_id, status, owner, iterations=None):
 
 
 def test_rehydrate_preserves_exact_work_item_status(goal_db):
-    _add_goal(goal_db, "dead", WorkItemStatus.RUNNING.value, "worker")
-    _add_goal(goal_db, "done", WorkItemStatus.SUCCEEDED.value, "worker")
+    _add_goal(goal_db, "dead", "running", "worker")
+    _add_goal(goal_db, "done", "succeeded", "worker")
 
     stranded = _sessions.rehydrate_goals()
     assert stranded == 1
@@ -139,22 +139,22 @@ def test_rehydrate_preserves_exact_work_item_status(goal_db):
 
     # Visible in the in-memory cache (and therefore in /goals lists).
     assert "dead" in _sessions.active_goals
-    assert _sessions.active_goals["dead"]["status"] == WorkItemStatus.RUNNING.value
+    assert _sessions.active_goals["dead"]["status"] == "running"
 
     # Once per process: a second call is a no-op.
-    _add_goal(goal_db, "late", WorkItemStatus.RUNNING.value, "worker")
+    _add_goal(goal_db, "late", "running", "worker")
     assert _sessions.rehydrate_goals() == 0
 
 
 def test_rehydrate_skips_live_runs(goal_db):
-    _add_goal(goal_db, "live", WorkItemStatus.RUNNING.value, "worker")
+    _add_goal(goal_db, "live", "running", "worker")
     _sessions.background_goal_runs["live"] = {"session_id": "sess-live"}
     assert _sessions.rehydrate_goals() == 0
     assert goal_db.nodes["live"]["status"] == "running"
 
 
 async def test_list_goals_includes_durable_goals(goal_db):
-    _add_goal(goal_db, "old", WorkItemStatus.READY.value, "worker")
+    _add_goal(goal_db, "old", "ready", "worker")
 
     class _Req:
         query_params: dict = {}
@@ -205,7 +205,7 @@ async def test_goal_loop_honors_kill_request(goal_db):
         constraints=[],
     )
 
-    assert _sessions.active_goals["g-kill"]["status"] == WorkItemStatus.CANCELLED.value
+    assert _sessions.active_goals["g-kill"]["status"] == "cancelled"
     conn = sqlite3.connect(str(_sessions._get_db_path()))
     status = conn.execute("SELECT status FROM sessions WHERE id = 's-kill'").fetchone()[
         0
@@ -234,7 +234,7 @@ async def test_goal_loop_honors_pause_request(goal_db):
         constraints=[],
     )
 
-    assert _sessions.active_goals["g-pause"]["status"] == WorkItemStatus.READY.value
+    assert _sessions.active_goals["g-pause"]["status"] == "ready"
     conn = sqlite3.connect(str(_sessions._get_db_path()))
     status = conn.execute(
         "SELECT status FROM sessions WHERE id = 's-pause'"

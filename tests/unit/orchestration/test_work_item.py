@@ -851,7 +851,7 @@ def test_submit_with_no_deps_is_immediately_ready(cas_engine: CasEngine) -> None
     item_id = wi.submit_work_item(cas_engine, kind="generic", payload_ref="p1")
     item = wi.get_work_item(cas_engine, item_id)
     assert item is not None
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["dep_count"] == 0
 
 
@@ -863,7 +863,7 @@ def test_submit_with_unmet_dep_is_submitted_not_ready(cas_engine: CasEngine) -> 
 
     child = wi.get_work_item(cas_engine, child_id)
     assert child is not None
-    assert child["status"] == wi.WorkItemStatus.SUBMITTED.value
+    assert child["status"] == "submitted"
     assert child["dep_count"] == 1
 
     parent = wi.get_work_item(cas_engine, parent_id)
@@ -917,7 +917,7 @@ def test_claim_specific_transitions_ready_to_leased_with_fencing_token(
     assert claim["attempt"] == 1
 
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.LEASED.value
+    assert item["status"] == "leased"
     assert item["lease_owner"] == "host:1"
     assert item["lease_epoch"] == 1
 
@@ -957,7 +957,7 @@ def test_mark_running_and_heartbeat_extend_the_lease(cas_engine: CasEngine) -> N
     )
     assert wi.mark_running(cas_engine, item_id, claim, now=1001.0)
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.RUNNING.value
+    assert item["status"] == "running"
 
     assert wi.heartbeat(cas_engine, item_id, claim, now=1030.0, lease_ttl_s=60.0)
     item = wi.get_work_item(cas_engine, item_id)
@@ -994,7 +994,7 @@ def test_claim_next_filters_by_resource_class(cas_engine: CasEngine) -> None:
 def test_cas_backend_unavailable_fails_loud_not_silent() -> None:
     no_cas = NoCasEngine()
     no_cas.add_node(
-        "workitem:x", "WorkItem", properties={"status": wi.WorkItemStatus.READY.value}
+        "workitem:x", "WorkItem", properties={"status": "ready"}
     )
     with pytest.raises(wi.WorkItemBackendUnavailable):
         wi.claim_specific(no_cas, "workitem:x", now=1.0)
@@ -1022,7 +1022,7 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
     assert result["reaped_dead_letter"] == []
 
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["lease_epoch"] == 2  # bumped past the dead holder's epoch (1)
 
     # The dead holder eventually "finishes" and tries to commit with its
@@ -1032,7 +1032,7 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
     )
     assert outcome == "fenced"
     assert (
-        wi.get_work_item(cas_engine, item_id)["status"] == wi.WorkItemStatus.READY.value
+        wi.get_work_item(cas_engine, item_id)["status"] == "ready"
     )
 
 
@@ -1052,7 +1052,7 @@ def test_reap_expired_lease_exhausted_retries_goes_to_dead_letter(
     assert result["reaped_dead_letter"] == [item_id]
     assert result["reaped_ready"] == []
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.DEAD_LETTER.value
+    assert item["status"] == "dead_letter"
     assert "lease_expired" in item["error_ref"]
 
 
@@ -1072,7 +1072,7 @@ def test_commit_result_success_is_idempotent_noop_on_redelivery(
     )
     assert first == "committed"
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"
     assert item["result_ref"] == "ref:1"
 
     # Redelivery of the identical turn (at-least-once queue semantics):
@@ -1104,7 +1104,7 @@ def test_commit_result_retryable_failure_then_exhausts_to_dead_letter(
     )
     assert outcome1 == "retry_scheduled"
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["next_retry_at"] == 1001.0 + 5.0
     assert item["lease_epoch"] == 2  # fenced past the failed attempt
 
@@ -1121,7 +1121,7 @@ def test_commit_result_retryable_failure_then_exhausts_to_dead_letter(
     )
     assert outcome2 == "dead_letter"
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.DEAD_LETTER.value
+    assert item["status"] == "dead_letter"
     assert item["error_ref"] == "boom-2"
 
 
@@ -1143,7 +1143,7 @@ def test_commit_result_non_retryable_failure_is_terminal_immediately(
     )
     assert outcome == "committed"
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.FAILED.value
+    assert item["status"] == "failed"
     assert item["attempt"] == 1  # never retried despite max_attempts=5
 
 
@@ -1151,7 +1151,7 @@ def test_cancel_work_item_from_ready_and_is_idempotent(cas_engine: CasEngine) ->
     item_id = wi.submit_work_item(cas_engine, kind="generic", payload_ref="p")
     assert wi.cancel_work_item(cas_engine, item_id, reason="user requested") is True
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.CANCELLED.value
+    assert item["status"] == "cancelled"
 
     # Idempotent: cancelling an already-cancelled item is a truthy no-op.
     assert wi.cancel_work_item(cas_engine, item_id) is True
@@ -1169,7 +1169,7 @@ def test_cancel_work_item_cannot_override_a_real_terminal_outcome(
     assert wi.cancel_work_item(cas_engine, item_id) is False
     assert (
         wi.get_work_item(cas_engine, item_id)["status"]
-        == wi.WorkItemStatus.SUCCEEDED.value
+        == "succeeded"
     )
 
 
@@ -1189,7 +1189,7 @@ def test_child_becomes_ready_exactly_when_all_parents_succeed(
 
     assert (
         wi.get_work_item(cas_engine, child)["status"]
-        == wi.WorkItemStatus.SUBMITTED.value
+        == "submitted"
     )
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 2
 
@@ -1200,7 +1200,7 @@ def test_child_becomes_ready_exactly_when_all_parents_succeed(
 
     # Only one of two parents done — child must still be blocked.
     child_state = wi.get_work_item(cas_engine, child)
-    assert child_state["status"] == wi.WorkItemStatus.SUBMITTED.value
+    assert child_state["status"] == "submitted"
     assert child_state["dep_count"] == 1
 
     claim2 = wi.claim_and_start(cas_engine, parent2, token="host:2", now=1002.0)
@@ -1211,7 +1211,7 @@ def test_child_becomes_ready_exactly_when_all_parents_succeed(
     # Second (and last) parent done — released atomically, in the same CAS
     # that decremented the counter to zero.
     child_state = wi.get_work_item(cas_engine, child)
-    assert child_state["status"] == wi.WorkItemStatus.READY.value
+    assert child_state["status"] == "ready"
     assert child_state["dep_count"] == 0
 
 
@@ -1228,7 +1228,7 @@ def test_downstream_release_is_idempotent_no_double_release(
         cas_engine, parent, claim, outcome="succeeded", result_ref="r1", now=1001.0
     )
     assert (
-        wi.get_work_item(cas_engine, child)["status"] == wi.WorkItemStatus.READY.value
+        wi.get_work_item(cas_engine, child)["status"] == "ready"
     )
 
     # Redelivered commit of the same parent (idempotent no-op) must not
@@ -1238,7 +1238,7 @@ def test_downstream_release_is_idempotent_no_double_release(
     )
     assert wi.get_work_item(cas_engine, child)["dep_count"] == 0
     assert (
-        wi.get_work_item(cas_engine, child)["status"] == wi.WorkItemStatus.READY.value
+        wi.get_work_item(cas_engine, child)["status"] == "ready"
     )
 
 
@@ -1255,7 +1255,7 @@ def test_work_item_view_of_loop_maps_statuses(cas_engine: CasEngine) -> None:
         work_item_id=wi.loop_work_item_id("loop:develop:x"),
     )
     view = wi.work_item_view_of_loop(cas_engine, "loop:develop:x")
-    assert view["status"] == wi.WorkItemStatus.READY.value
+    assert view["status"] == "ready"
     assert view["kind"] == "goal_loop"
 
 
@@ -1266,7 +1266,7 @@ def test_work_item_view_of_loop_unknown_returns_none(cas_engine: CasEngine) -> N
 def test_work_item_view_of_task_maps_statuses(cas_engine: CasEngine) -> None:
     cas_engine.add_node("job-1", "Task", properties={"status": "dead_letter"})
     view = wi.work_item_view_of_task(cas_engine, "job-1")
-    assert view["status"] == wi.WorkItemStatus.DEAD_LETTER.value
+    assert view["status"] == "dead_letter"
     assert view["shim"] is True
 
 
@@ -1293,7 +1293,7 @@ def test_ensure_ingest_task_work_item_is_idempotent(cas_engine: CasEngine) -> No
     second = wi.ensure_ingest_task_work_item(cas_engine, "job-1", prio_bucket=3)
     assert first == second == wi.ingest_task_work_item_id("job-1")
     item = wi.get_work_item(cas_engine, first)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["prio_bucket"] == 1  # first call's stamp wins (upsert no-op)
     assert item["resource_class"] == "ingestion"
     assert item["fairness_group"] == "codebase"
@@ -1310,7 +1310,7 @@ def test_claim_ingest_task_work_item_wins_then_a_second_claim_loses(
     assert claim2 is None  # already leased/running by host-a
 
     item = wi.get_work_item(cas_engine, claim1["work_item_id"])
-    assert item["status"] == wi.WorkItemStatus.RUNNING.value
+    assert item["status"] == "running"
     assert item["lease_owner"] == "host-a"
 
 
@@ -1328,7 +1328,7 @@ def test_ensure_team_task_work_item_is_ready_no_dependencies(
 ) -> None:
     item_id = wi.ensure_team_task_work_item(cas_engine, "task_1", tenant="team_x")
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["kind"] == "team_task"
     assert item["tenant"] == "team_x"
     assert item["dep_count"] == 0
@@ -1338,7 +1338,7 @@ def test_start_team_task_work_item_claims_and_runs(cas_engine: CasEngine) -> Non
     claim = wi.start_team_task_work_item(cas_engine, "task_1", tenant="team_x")
     assert claim is not None
     item = wi.get_work_item(cas_engine, claim["work_item_id"])
-    assert item["status"] == wi.WorkItemStatus.RUNNING.value
+    assert item["status"] == "running"
 
     # A second start (already running) is a no-op (None) — matches
     # TeamCapability.update_task_status's "nothing to transition" handling.

@@ -45,7 +45,6 @@ from types import MappingProxyType
 from typing import Any
 
 from agent_utilities.orchestration.work_item import (
-    WorkItemStatus,
     cancel_work_item,
     claim_specific,
     commit_result,
@@ -191,7 +190,7 @@ class _ExecutionState:
 
     plan: OrgPlanItem
     work_item_id: str
-    status: str = WorkItemStatus.SUBMITTED.value
+    status: str = "submitted"
     manager_mode: ManagerMode = ManagerMode.EXECUTE
     output: str = ""
     rework_count: int = 0
@@ -763,7 +762,7 @@ class OrgRuntime:
         if not mark_running(self.engine, state.work_item_id, claim):
             self._refresh_status(state)
             return
-        state.status = WorkItemStatus.RUNNING.value
+        state.status = "running"
         state.manager_mode = infer_manager_mode(item)
         ctx = "\n\n".join(
             f"Output of dependency {index + 1}:\n{outputs.get(dep, '')}"
@@ -776,7 +775,7 @@ class OrgRuntime:
                 self.engine,
                 state.work_item_id,
                 claim,
-                outcome=WorkItemStatus.FAILED.value,
+                outcome="failed",
                 error_ref=error_ref,
                 retryable=False,
             )
@@ -846,7 +845,7 @@ class OrgRuntime:
                 self.engine,
                 state.work_item_id,
                 claim,
-                outcome=WorkItemStatus.SUCCEEDED.value,
+                outcome="succeeded",
                 result_ref=f"org-result:{state.work_item_id}",
                 retryable=False,
             )
@@ -1019,10 +1018,10 @@ class OrgRuntime:
         run_id = f"org-{uuid.uuid4().hex}"
         states = self._submit_plan(items, run_id=run_id)
         terminal = {
-            WorkItemStatus.SUCCEEDED.value,
-            WorkItemStatus.FAILED.value,
-            WorkItemStatus.CANCELLED.value,
-            WorkItemStatus.DEAD_LETTER.value,
+            "succeeded",
+            "failed",
+            "cancelled",
+            "dead_letter",
             "missing",
         }
         remaining = list(states.values())
@@ -1042,7 +1041,7 @@ class OrgRuntime:
             ready = [
                 state
                 for state in remaining
-                if self._refresh_status(state) == WorkItemStatus.READY.value
+                if self._refresh_status(state) == "ready"
             ]
             if not ready:
                 blocked = [state for state in remaining if state.status not in terminal]
@@ -1061,7 +1060,7 @@ class OrgRuntime:
             await asyncio.gather(*(self._run_item(state, outputs) for state in ready))
             for state in ready:
                 self._refresh_status(state)
-                if state.status == WorkItemStatus.SUCCEEDED.value:
+                if state.status == "succeeded":
                     outputs[state.plan.plan_item_id] = state.output
             remaining = [
                 state
@@ -1070,7 +1069,7 @@ class OrgRuntime:
             ]
 
         succeeded = sum(
-            self._refresh_status(state) == WorkItemStatus.SUCCEEDED.value
+            self._refresh_status(state) == "succeeded"
             for state in states.values()
         )
         status = (

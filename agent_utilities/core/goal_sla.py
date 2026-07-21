@@ -93,10 +93,10 @@ def _open_goals(engine: Any) -> list[dict[str, Any]]:
         "g.escalate_to AS escalate_to",
     )
     status_view = {
-        _wi.WorkItemStatus.SUBMITTED.value: "pending",
-        _wi.WorkItemStatus.READY.value: "pending",
-        _wi.WorkItemStatus.LEASED.value: "running",
-        _wi.WorkItemStatus.RUNNING.value: "running",
+        "submitted": "pending",
+        "ready": "pending",
+        "leased": "running",
+        "running": "running",
     }
     open_goals: list[dict[str, Any]] = []
     for goal in definitions:

@@ -349,7 +349,7 @@ async def _tool_call_producer(
             "RETURN w.id AS id, w.created_at AS created_at, w.next_retry_at AS next_retry_at, "
             "w.resource_class AS resource_class, w.tenant AS tenant, "
             "w.fairness_group AS fairness_group LIMIT 4",
-            {"status": wi.WorkItemStatus.READY.value, "bucket": 2},
+            {"status": "ready", "bucket": 2},
         )
         metrics.query_latency_s.append(clock.now() - t0)
         await clock.sleep(rng.expovariate(rate))
@@ -605,7 +605,7 @@ def _run_mock_workload(
                 "RETURN w.id AS id, w.created_at AS created_at, w.next_retry_at AS next_retry_at, "
                 "w.resource_class AS resource_class, w.tenant AS tenant, "
                 "w.fairness_group AS fairness_group LIMIT 4",
-                {"status": wi.WorkItemStatus.READY.value, "bucket": 2},
+                {"status": "ready", "bucket": 2},
             )
             metrics.query_latency_s.append(delay)
             push(t + rng.expovariate(toolcall_rate), "toolcall")
@@ -718,9 +718,9 @@ def _check_work_item_invariants(engine: Any, metrics: _Metrics) -> dict[str, Any
         if item.get("label") != "WorkItem":
             continue
         status = item.get("status")
-        if status == wi.WorkItemStatus.SUCCEEDED.value:
+        if status == "succeeded":
             succeeded_ids.add(item["id"])
-        if status in (wi.WorkItemStatus.LEASED.value, wi.WorkItemStatus.RUNNING.value):
+        if status in ("leased", "running"):
             expires = item.get("lease_expires_at") or 0.0
             if expires < time.time() - 3600:  # far stale, well past any reasonable TTL
                 stuck_ids.append(item["id"])
@@ -738,9 +738,9 @@ def _check_work_item_invariants(engine: Any, metrics: _Metrics) -> dict[str, Any
             for i in all_items
             if i.get("status")
             in (
-                wi.WorkItemStatus.FAILED.value,
-                wi.WorkItemStatus.CANCELLED.value,
-                wi.WorkItemStatus.DEAD_LETTER.value,
+                "failed",
+                "cancelled",
+                "dead_letter",
             )
         }
     ]

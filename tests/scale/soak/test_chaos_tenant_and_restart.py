@@ -131,11 +131,11 @@ def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
     # Everything durable survived the restart, including the in-flight item's state.
     assert (
         wi.get_work_item(restarted, done_id)["status"]
-        == wi.WorkItemStatus.SUCCEEDED.value
+        == "succeeded"
     )
     assert (
         wi.get_work_item(restarted, in_flight_id)["status"]
-        == wi.WorkItemStatus.RUNNING.value
+        == "running"
     )
 
     # A post-restart reap sweep (the fleet's crash-recovery pass, run on any
@@ -159,7 +159,7 @@ def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
     assert outcome == "committed"
     assert (
         wi.get_work_item(restarted, in_flight_id)["status"]
-        == wi.WorkItemStatus.SUCCEEDED.value
+        == "succeeded"
     )
 
     # The pre-restart claim (now long dead) cannot resurrect/overwrite the outcome.

@@ -740,7 +740,6 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
 
     from agent_utilities.orchestration.work_item import (
         TERMINAL_WORK_ITEM_STATUSES,
-        WorkItemStatus,
         claim_loop_work_item,
         get_work_item,
         loop_work_item_id,
@@ -763,8 +762,8 @@ def active_loops(engine: Any, limit: int = 10) -> list[dict[str, Any]]:
         if status in TERMINAL_WORK_ITEM_STATUSES:
             continue
         if kind in ("develop", "skill") and status in {
-            WorkItemStatus.LEASED.value,
-            WorkItemStatus.RUNNING.value,
+            "leased",
+            "running",
         }:
             # In-flight: a run_loop / goal driver owns it. Excluding it from intake
             # keeps the daemon cycle from double-driving the same iteration; a crash

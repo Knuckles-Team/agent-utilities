@@ -153,7 +153,7 @@ def _team_work_item_claim_for_commit(
     item = _wi.get_work_item(view, item_id)
     if item is None or item.get("kind") != "team_assignment":
         return None
-    if item is not None and item.get("status") == _wi.WorkItemStatus.READY.value:
+    if item is not None and item.get("status") == "ready":
         claim = _wi.claim_specific(view, item_id)
         if claim is not None:
             _wi.mark_running(view, item_id, claim)

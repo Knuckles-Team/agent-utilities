@@ -106,7 +106,7 @@ def test_exit1_goal_met_on_measured_pass():
     assert res["iterations"] == 2
     assert dev_calls["n"] == 2 and eval_calls["n"] == 2
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"
 
 
 def test_exit1_self_declared_done_rejected_by_measurement_does_not_complete():
@@ -155,7 +155,7 @@ def test_exit2_turn_cap():
     assert dev_calls["n"] == 4
     assert "exit_reason" in res
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item["status"] == wi.WorkItemStatus.FAILED.value
+    assert item["status"] == "failed"
 
 
 # ── exit 3: BUDGET CAP (hard stop) ────────────────────────────────────────────
@@ -285,7 +285,7 @@ def test_exit6_human_interrupt_kill_precedes_any_step():
     assert res["interrupted"] is True
     assert dev_calls["n"] == 0  # kill evaluated OUTSIDE/BEFORE the risky step
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item["status"] == wi.WorkItemStatus.CANCELLED.value
+    assert item["status"] == "cancelled"
 
 
 def test_exit6_human_interrupt_pause():
@@ -331,7 +331,7 @@ def test_exit7_error_threshold_on_consecutive_failures():
     assert res["iterations"] == 3
     assert calls["n"] == 3
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item["status"] == wi.WorkItemStatus.FAILED.value
+    assert item["status"] == "failed"
 
 
 def test_exit7_progress_resets_the_failure_run():
@@ -388,7 +388,7 @@ def test_exit8_external_event_via_probe_callback():
     )
     assert res["status"] == "external_event_satisfied"
     item = wi.get_work_item(engine, wi.loop_work_item_id(loop["id"]))
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value  # the signal = success
+    assert item["status"] == "succeeded"  # the signal = success
 
 
 def test_exit8_external_event_loop_kind_resolves_registered_probe():
@@ -412,4 +412,4 @@ def test_exit8_external_event_loop_kind_resolves_registered_probe():
     res_ready = _run(ctrl_ready, ready, max_iterations=5)
     assert res_ready["status"] == "external_event_satisfied"
     item = wi.get_work_item(engine, wi.loop_work_item_id(ready["id"]))
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"

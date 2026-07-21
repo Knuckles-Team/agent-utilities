@@ -56,7 +56,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
     )
     assert claim_a is not None
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.RUNNING.value
+        wi.get_work_item(engine, item_id)["status"] == "running"
     )
 
     # 90s later (well past the 30s lease), the reaper sweeps expired leases —
@@ -64,7 +64,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
     reaped = wi.reap_expired_leases(engine, now=90.0)
     assert item_id in reaped["reaped_ready"]
     item = wi.get_work_item(engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.READY.value
+    assert item["status"] == "ready"
     assert item["lease_epoch"] == 2  # fenced past worker A's epoch (1)
 
     # Worker B claims the reclaimed item and completes it for real.
@@ -80,7 +80,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
     # Worker A's crash never let it record a side effect — exactly one execution total.
     assert side_effects == [f"executed:{item_id}:{claim_b['attempt']}"]
     assert (
-        wi.get_work_item(engine, item_id)["status"] == wi.WorkItemStatus.SUCCEEDED.value
+        wi.get_work_item(engine, item_id)["status"] == "succeeded"
     )
 
     # Worker A's belated commit attempt (it "wakes up" and tries to finish anyway)
@@ -155,7 +155,7 @@ def test_redelivered_ack_after_completion_is_idempotent_noop(loadgen):
     assert second == "noop"
 
     item = wi.get_work_item(engine, item_id)
-    assert item["status"] == wi.WorkItemStatus.SUCCEEDED.value
+    assert item["status"] == "succeeded"
     assert (
         item["result_ref"] == "ok"
     )  # the redelivered ack never overwrote the first result
