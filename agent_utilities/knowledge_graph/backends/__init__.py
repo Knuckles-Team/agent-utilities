@@ -565,11 +565,12 @@ def create_backend(
         # Never mirror the configured authority connection onto itself — the
         # module-level ``_build_mirror_set`` already accepts a ``skip_names``
         # seam for exactly this (CONCEPT:AU-KG.backend.mirror-health-repair).
-        from agent_utilities.core.config import config as _cfg
-
-        authority_name = (
-            setting("GRAPH_AUTHORITY") or _cfg.graph_authority or "epistemic_graph"
-        )
+        # NOTE: GRAPH_AUTHORITY is a retired configuration key (rejected by
+        # AgentConfig — see ``_RETIRED_CONFIGURATION_KEYS``) and
+        # ``AgentConfig`` no longer exposes a ``graph_authority`` field: the
+        # fanout authority is fixed as EpistemicGraphBackend, so there is no
+        # selector left to resolve here.
+        authority_name = "epistemic_graph"
         mirrors = _build_mirror_set(skip_names=(authority_name,))
 
         if not mirrors:
