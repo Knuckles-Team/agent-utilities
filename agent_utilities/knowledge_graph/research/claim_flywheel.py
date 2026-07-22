@@ -322,6 +322,9 @@ class ClaimFlywheel:
         auto_deprecate_below: float = _DEFAULT_AUTO_DEPRECATE_BELOW,
         durable_key: str | None = None,
         durable_reward: float | None = None,
+        langfuse_trace_id: str | None = None,
+        langfuse_score_name: str | None = None,
+        langfuse_weight: float = 0.5,
     ) -> dict[str, Any]:
         """Capture an accepted claim's real-world OUTCOME as an observation.
 
@@ -352,7 +355,39 @@ class ClaimFlywheel:
         itself, so the durable observation lands on the thing that was
         actually acted on (a routing choice), not just the claim that
         proposed it.
+
+        ``langfuse_trace_id`` (CONCEPT:AU-AHE.reward.langfuse-evolution-signal) is the
+        Langfuse-as-evolution-signal hook: when a caller can point this outcome at
+        the production Langfuse trace it came from, ``reward`` is blended with that
+        trace's real Langfuse SCORES (:func:`~agent_utilities.harness.langfuse_signal.
+        fetch_reward`) BEFORE persistence — so promotion reflects observed production
+        quality, not only the claim's own mining confidence. ``langfuse_weight`` is
+        the Langfuse signal's share of the blend (default an even split;
+        :func:`~agent_utilities.harness.langfuse_signal.blend_reward`). Omitted
+        (default) or no matching Langfuse score yet: ``reward`` is used exactly as
+        passed — zero behavior change, the prior default.
         """
+        langfuse_reward: float | None = None
+        if langfuse_trace_id:
+            try:
+                from agent_utilities.harness.langfuse_signal import (
+                    blend_reward,
+                    fetch_reward,
+                )
+
+                langfuse_reward = fetch_reward(
+                    trace_id=langfuse_trace_id, name=langfuse_score_name
+                )
+                if langfuse_reward is not None:
+                    reward = blend_reward(
+                        float(reward), langfuse_reward, weight=langfuse_weight
+                    )
+            except Exception as e:  # noqa: BLE001 — the blend is an augmentation
+                logger.debug(
+                    "[X3] flywheel Langfuse reward blend skipped for %s: %s",
+                    claim_id,
+                    e,
+                )
         reward = max(0.0, min(1.0, float(reward)))
         bandit_reward = (
             reward
@@ -369,6 +404,8 @@ class ClaimFlywheel:
                     "reward": reward,
                     "durable_reward": bandit_reward,
                     "note": note,
+                    "langfuse_trace_id": langfuse_trace_id or "",
+                    "langfuse_reward": langfuse_reward,
                     "recorded_at": _now_iso(),
                 },
             )
@@ -424,6 +461,7 @@ class ClaimFlywheel:
             "bandit_reward": bandit_reward,
             "persisted_reward": persisted_reward,
             "deprecated": deprecated is not None,
+            "langfuse_reward": langfuse_reward,
         }
 
     # ── internals ────────────────────────────────────────────────────────

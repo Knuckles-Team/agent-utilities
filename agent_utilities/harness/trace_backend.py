@@ -323,6 +323,81 @@ class LangfuseTraceBackend(TraceBackend):
             scores[tid] = summary.get("score", 0.0)
         return scores
 
+    # ── evolution-signal read surface (CONCEPT:AU-AHE.reward.langfuse-evolution-signal)
+    async def get_trace_reward(
+        self, trace_id: str, *, name: str | None = None, limit: int = 20
+    ) -> float | None:
+        """Normalize a trace's Langfuse SCORES into one reward in ``[0, 1]``.
+
+        Averages every matching score's ``value`` (numeric scores are typically
+        already 0..1; boolean/categorical values are coerced the same way the
+        Langfuse UI does). Returns ``None`` — never ``0.0`` — when no matching
+        score exists, so a reward-blending caller can tell "no production
+        signal yet" apart from "measured and bad" (CONCEPT:AU-AHE.reward.langfuse-evolution-signal).
+        """
+        safe_trace_id = self._safe_identifier(trace_id)
+        if safe_trace_id is None:
+            return None
+        api = self._get_api()
+        try:
+            resp = api.scores_get_many(trace_id=safe_trace_id, name=name, limit=limit)
+        except Exception as exc:  # noqa: BLE001 — best-effort signal
+            logger.debug(
+                "LangfuseTraceBackend: get_trace_reward failed (%s)",
+                type(exc).__name__,
+            )
+            return None
+        values: list[float] = []
+        for row in self._safe_rows(resp.get("data", []) or []):
+            v = row.get("value")
+            if isinstance(v, bool):
+                values.append(1.0 if v else 0.0)
+            elif isinstance(v, int | float):
+                values.append(max(0.0, min(1.0, float(v))))
+            elif isinstance(v, str):
+                lowered = v.strip().casefold()
+                if lowered in {"true", "correct", "pass", "passed", "good"}:
+                    values.append(1.0)
+                elif lowered in {"false", "incorrect", "fail", "failed", "bad"}:
+                    values.append(0.0)
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    async def list_dataset_items(
+        self, dataset_name: str, *, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Pull a Langfuse dataset's items, normalized to benchmark task rows.
+
+        Each row is ``{"id", "input", "expected_output"}`` — the shape
+        :meth:`~agent_utilities.harness.eval_corpus.EvalCorpus.add_case` expects —
+        so a curated Langfuse dataset can seed the SAME regression/rollout corpus
+        a production trace promotion does (CONCEPT:AU-AHE.reward.langfuse-evolution-signal).
+        Best-effort: an unreachable/unknown dataset returns ``[]``, never raises.
+        """
+        safe_name = self._safe_identifier(dataset_name)
+        if safe_name is None:
+            return []
+        api = self._get_api()
+        try:
+            resp = api.dataset_items_list(dataset_name=safe_name, limit=limit)
+        except Exception as exc:  # noqa: BLE001 — best-effort signal
+            logger.debug(
+                "LangfuseTraceBackend: list_dataset_items failed (%s)",
+                type(exc).__name__,
+            )
+            return []
+        out: list[dict[str, Any]] = []
+        for row in self._safe_rows(resp.get("data", []) or []):
+            out.append(
+                {
+                    "id": row.get("id", ""),
+                    "input": row.get("input", ""),
+                    "expected_output": row.get("expectedOutput", ""),
+                }
+            )
+        return out
+
     # ── failure-read surface (CONCEPT:AU-AHE.harness.failure-evolution)
     async def get_error_observations(
         self, *, since: str | None = None, level: str = "ERROR", limit: int = 100
