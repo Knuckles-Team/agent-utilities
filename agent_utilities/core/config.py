@@ -3593,10 +3593,18 @@ class AgentConfig(BaseSettings):
 
     fleet_actuator: str = Field(default="dryrun", alias="FLEET_ACTUATOR")
     """Fleet actuator selection: ``dryrun`` (default — records intended
-    actions as KG nodes + notifications, mutates nothing) or ``docker``
-    (reference actuator via the docker CLI when available). Real
-    Portainer/Swarm actuation is wired at deployment by registering a
+    actions as KG nodes + notifications, mutates nothing), ``docker``
+    (reference actuator via the docker CLI when available), or ``k8s`` /
+    ``kubernetes`` (reference actuator via the ``kubectl`` CLI when
+    available — scales the target Deployment in ``fleet_actuator_k8s_namespace``).
+    Real Portainer/Swarm actuation is wired at deployment by registering a
     ``FleetActuator`` via ``orchestration.fleet_actuation.set_fleet_actuator``."""
+
+    fleet_actuator_k8s_namespace: str = Field(
+        default="platform", alias="FLEET_ACTUATOR_K8S_NAMESPACE"
+    )
+    """Namespace the ``KubernetesActuator`` targets for ``kubectl`` actions
+    (matches the W3 worker topology's ``platform`` namespace)."""
 
     deploy_watch_window: float = Field(default=300.0, alias="DEPLOY_WATCH_WINDOW")
     """Default health-watch window (seconds) after a deploy/restart action

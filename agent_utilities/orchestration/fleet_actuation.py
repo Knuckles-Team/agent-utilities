@@ -17,6 +17,14 @@ actuators (portainer-mcp, container-manager, …). Actuation is a protocol:
 * :class:`DockerActuator` — reference implementation over the local docker
   CLI/socket (guarded: inert when ``docker`` is absent). Standalone
   containers and swarm services both supported, argv-only (no shell).
+* :class:`KubernetesActuator` — reference implementation over the ``kubectl``
+  CLI (guarded: inert when ``kubectl`` is absent), the same argv-only
+  no-shell shape as :class:`DockerActuator`. Targets a Deployment in a
+  configured namespace (default ``platform``, the W3 worker-topology
+  namespace — ``graph-os-dispatch``/``graph-os-ingest``/``graph-os-mining``)
+  — this is what lets the W3 k8s worker Deployments actually be scaled by
+  the reactive autoscaler (``fleet_autoscaler.py``) instead of only being
+  reconciled to a static replica count.
 
 A deployment wires real Portainer/Swarm actuation by registering its own
 implementation::
@@ -171,6 +179,112 @@ class DockerActuator:
         return {"ok": ok, "dry_run": False, "detail": out}
 
 
+class KubernetesActuator:
+    """Reference actuator over the ``kubectl`` CLI (optional, guarded).
+
+    Mirrors :class:`DockerActuator`'s shape (argv-only ``subprocess.run``,
+    no shell, a fixed binary, a safe-target check) so the two reference
+    actuators stay easy to reason about side by side. Every target is
+    treated as a ``Deployment`` in ``namespace`` — the shape every W3 worker
+    (``graph-os-dispatch``/``graph-os-ingest``/``graph-os-mining``, see
+    ``services/graph-os`` ``k8s/w3-worker-topology.yaml``) and the engine
+    StatefulSet's peer workloads are declared as:
+
+    * ``scale_service`` / ``stop_service`` (0 replicas) → ``kubectl scale
+      deployment/<target> --replicas=N -n <namespace>``
+    * ``restart_service`` → ``kubectl rollout restart
+      deployment/<target> -n <namespace>``
+    * ``deploy_service`` / ``redeploy_stack`` → ``kubectl set image
+      deployment/<target> <container>=<image> -n <namespace>`` when an
+      image + container are given, else the same rollout-restart as above
+    * ``rollback_service`` → ``kubectl rollout undo
+      deployment/<target> -n <namespace>``
+
+    No hard dependency on the ``kubernetes`` python client or on
+    ``container-manager-mcp``'s ``KubernetesManager`` — same
+    no-ecosystem-actuator-dependency posture the module docstring commits
+    to for :class:`DockerActuator`, and the same CLI this repo's own
+    deployment tooling already shells out to (``deployment/repo_templates.py``'s
+    ``kubectl apply`` / ``kubectl rollout status`` CI template).
+    """
+
+    name = "k8s"
+
+    def __init__(
+        self,
+        kubectl_bin: str | None = None,
+        namespace: str | None = None,
+        timeout: float = 60.0,
+    ):
+        self.kubectl_bin = kubectl_bin or shutil.which("kubectl")
+        if namespace:
+            self.namespace = namespace
+        else:
+            self.namespace = "platform"
+            try:
+                from agent_utilities.core.config import config as _cfg
+
+                self.namespace = str(
+                    getattr(_cfg, "fleet_actuator_k8s_namespace", "platform")
+                    or "platform"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        self.timeout = timeout
+
+    @property
+    def available(self) -> bool:
+        return bool(self.kubectl_bin)
+
+    def _run(self, *args: str) -> tuple[bool, str]:
+        try:
+            proc = subprocess.run(  # nosec B603 — fixed binary, validated argv
+                [str(self.kubectl_bin), "-n", self.namespace, *args],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+            )
+            out = (proc.stdout or proc.stderr or "").strip()
+            return proc.returncode == 0, out[:500]
+        except Exception as e:  # noqa: BLE001 — actuators never raise
+            return False, str(e)
+
+    def apply(self, request: ActionRequest) -> dict[str, Any]:
+        if not self.available:
+            return {"ok": False, "dry_run": False, "detail": "kubectl CLI not available"}
+        target = request.target
+        if not _SAFE_TARGET.match(target or ""):
+            return {
+                "ok": False,
+                "dry_run": False,
+                "detail": f"unsafe target name {target!r}",
+            }
+
+        kind = request.kind
+        deployment = f"deployment/{target}"
+        if kind == "restart_service":
+            ok, out = self._run("rollout", "restart", deployment)
+        elif kind == "scale_service":
+            replicas = int(request.params.get("replicas", 1))
+            ok, out = self._run("scale", deployment, f"--replicas={replicas}")
+        elif kind in ("deploy_service", "redeploy_stack"):
+            image = str(request.params.get("image") or "")
+            container = str(request.params.get("container") or target)
+            if image:
+                ok, out = self._run(
+                    "set", "image", deployment, f"{container}={image}"
+                )
+            else:
+                ok, out = self._run("rollout", "restart", deployment)
+        elif kind == "rollback_service":
+            ok, out = self._run("rollout", "undo", deployment)
+        elif kind == "stop_service":
+            ok, out = self._run("scale", deployment, "--replicas=0")
+        else:
+            ok, out = False, f"unsupported action kind {kind!r}"
+        return {"ok": ok, "dry_run": False, "detail": out}
+
+
 # ── registry (deployment injection point) ───────────────────────────
 
 _ACTUATOR: FleetActuator | None = None
@@ -198,6 +312,11 @@ def get_fleet_actuator() -> FleetActuator:
         if docker.available:
             return docker
         logger.warning("FLEET_ACTUATOR=docker but no docker CLI — using dry-run")
+    elif selection in ("k8s", "kubernetes"):
+        k8s = KubernetesActuator()
+        if k8s.available:
+            return k8s
+        logger.warning("FLEET_ACTUATOR=%s but no kubectl CLI — using dry-run", selection)
     return DryRunActuator()
 
 
