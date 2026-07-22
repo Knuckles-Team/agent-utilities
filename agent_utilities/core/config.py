@@ -791,6 +791,20 @@ def _durable_value_is_empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
 
 
+def _is_oauth2_block(parent: str) -> bool:
+    """True when ``parent`` names an OAuth2 client-credentials block.
+
+    The nested ``client_secret`` reference form is only legal inside such a
+    block. Matching the bare name ``OAUTH2`` alone was a bug: the top-level
+    ``KG_IDENTITY_OAUTH2`` field nests its own dict, so its parent key is
+    ``KG_IDENTITY_OAUTH2`` — the exemption never fired and the shape documented
+    in ``docs/guides/enterprise-enablement-runbook.md`` could not validate.
+    Suffix-matching keeps the exemption scoped to genuine OAuth2 blocks
+    (``OAUTH2``, ``KG_IDENTITY_OAUTH2``) rather than any nested credential.
+    """
+    return parent == "OAUTH2" or parent.endswith("_OAUTH2")
+
+
 def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
     """Reject credential and header material from durable XDG configuration.
 
@@ -824,7 +838,7 @@ def _validate_durable_xdg_secret_policy(data: Mapping[str, Any]) -> None:
                     continue
                 if key in _DURABLE_HEADER_CONTAINER_KEYS:
                     raise ConfigurationSourceError("xdg", "DurableSecretError")
-                if key == "CLIENT_SECRET" and parent == "OAUTH2":
+                if key == "CLIENT_SECRET" and _is_oauth2_block(parent):
                     # The strict OAuth2 submodel validates the URI. This is the
                     # one intentionally nested reference form in model config.
                     if not (
@@ -882,7 +896,7 @@ def plaintext_secret_keys(data: Mapping[str, Any]) -> list[str]:
                     continue
                 if key in _DURABLE_HEADER_CONTAINER_KEYS:
                     offenders.append(key)
-                elif key == "CLIENT_SECRET" and parent == "OAUTH2":
+                elif key == "CLIENT_SECRET" and _is_oauth2_block(parent):
                     if not (
                         isinstance(child, str)
                         and _RUNTIME_SECRET_REF_RE.fullmatch(child.strip())
