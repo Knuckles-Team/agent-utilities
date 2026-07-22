@@ -3651,6 +3651,7 @@ def mcp_server() -> None:
     _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
     _start_process_authority_supervisor(bootstrap_session)
 
+    co_service_supervisor = None
     try:
         logger.info("Starting graph-os MCP server (transport=%s)", transport)
 
@@ -3670,10 +3671,34 @@ def mcp_server() -> None:
                 str(getattr(args, "auth_type", "none") or "none").lower() != "none"
             ),
         )
-        _start_engine_bootstrap(bootstrap_session)
 
+        # Stdout purity BEFORE any co-service can log a single line. On stdio,
+        # stdout IS the JSON-RPC channel — this monkeypatches builtins.print /
+        # warnings.showwarning process-wide, so it protects every co-service
+        # thread started below too, not just this one. No-op for network
+        # transports (they don't own stdout as a protocol channel).
         if transport == "stdio":
             protect_stdio_jsonrpc()
+
+        # Self-composing co-services, phase 1: the KG host daemon must be decided
+        # BEFORE the engine is constructed below so it can win (or lose) the
+        # host-lock race as the first constructor (see co_service_supervisor's
+        # module docstring for the exact "client role + no live host" detection).
+        from agent_utilities.mcp.co_service_supervisor import (
+            bring_up_host_daemon_if_needed,
+            start_co_services,
+        )
+
+        bring_up_host_daemon_if_needed()
+        _start_engine_bootstrap(bootstrap_session)
+
+        # Self-composing co-services, phase 2: messaging (config-detected — real
+        # platform credentials present) now that a real engine exists; agent-webui
+        # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
+        # started in-process.
+        co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
+
+        if transport == "stdio":
             mcp.run(transport="stdio")
         elif transport == "streamable-http":
             mcp.run(
@@ -3685,6 +3710,8 @@ def mcp_server() -> None:
         else:
             raise ValueError("graph-os transport must be 'stdio' or 'streamable-http'")
     finally:
+        if co_service_supervisor is not None:
+            co_service_supervisor.stop_all()
         _PROCESS_SESSION = None
         _stop_process_authority_supervisor()
         # Best-effort teardown of any lazily-mounted fleet children.
