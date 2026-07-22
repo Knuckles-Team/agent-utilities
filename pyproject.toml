@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=80.9.0", "wheel", "packaging>=24.2,<26"]
+requires = ["setuptools>=83.0.0", "wheel>=0.47.0", "packaging>=26.2.0"]
 build-backend = "build_backend"
 backend-path = ["."]
 
@@ -31,25 +31,28 @@ dependencies = [
     "requests>=2.34.2",
     "urllib3>=2.7.0",
     # Security floor: pulled transitively by requests/httpx/anyio; CVE-2026-45409.
-    "idna>=3.15",
+    "idna>=3.18",
     # Security floor: pulled transitively by CLI frameworks; PYSEC-2026-2132.
-    "click>=8.3.3",
+    "click>=8.4.2",
     # Security floor: pulled transitively by document/media features;
     # PYSEC-2026-2253..2257.
     "pillow>=12.3.0",
-    "cryptography>=48.0.1,<49",
+    # Floor raised to the current major (49.0.0); repo carries no usage of the
+    # aliases/modes/ciphers removed in 49 (PUBLIC_KEY_TYPES-style aliases, CFB/OFB/
+    # CFB8, Camellia) — verified clean via grep before lifting the old `<49` cap.
+    "cryptography>=49.0.0",
     "pathspec>=1.1.1",
-    "platformdirs>=4.10.0",
-    "packaging>=24.2,<26",
+    "platformdirs>=4.11.0",
+    "packaging>=26.2.0",
     "psutil>=7.2.2",
-    "filelock>=3.29.4",
+    "filelock>=3.32.0",
     # Tiny pure-Python safe-XML parser used on the hydration path; kept in base so the
     # XML path is never unguarded.
     "defusedxml>=0.7.1",
     # Parse external GraphQL documents into a bounded AST.  Connector read-only
     # enforcement must not rely on lexical keyword checks that can be confused by
     # comments, strings, fragments, or multiple operations.
-    "graphql-core>=3.2.8,<4",
+    "graphql-core>=3.2.11,<4",
     # Exact release/certification commands validate their packaged JSON Schema
     # subjects at runtime; this cannot live only in the test guardrail group.
     "jsonschema>=4.26.0",
@@ -91,13 +94,13 @@ email = "maintainers@example.invalid"
 # to the local floor); the CPython-WASI/wasm tier needs `wasmtime`. Both kept here so the
 # base install stays light — the RLM router degrades to the local floor when neither is present.
 sandbox = [
-    "wasmtime>=45.0.0",
+    "wasmtime>=47.0.1",
     "pydantic-monty>=0.0.18,<0.1.0"
 ]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
 feeds = [
-    "feedparser>=6.0.0"
+    "feedparser>=6.0.12"
 ]
 kafka = [
     "aiokafka>=0.14.0"
@@ -112,16 +115,16 @@ nats = [
     "nats-py>=2.15.0"
 ]
 mcp = [
-    "fastmcp>=3.4.2",
+    "fastmcp>=3.4.4",
     # Schema-only dependency. The native middleware avoids eunomia-mcp's
     # unpatched python-jose/ecdsa transitive chain and unsafe HTTP defaults.
     "eunomia-core>=0.3.10",
-    "fastapi>=0.137.0",
+    "fastapi>=0.139.2",
     "httpx>=0.28.1",
     # Security floors: pulled transitively by mcp/fastmcp/fastapi.
     "pyjwt>=2.13.0",            # CVE-2026-48522..48526 (PyJWKClient SSRF/DoS/bypass)
     "starlette>=1.3.1",        # CVE-2026-54283 (form() limits ignored)
-    "python-multipart>=0.0.31", # CVE-2026-42561/53537-53540 (DoS / param smuggling)
+    "python-multipart>=0.0.32", # CVE-2026-42561/53537-53540 (DoS / param smuggling)
     # Default LLM connector for graph-os: the OpenAI-compatible model client. Local
     # LLMs (vLLM/llama.cpp/Ollama) all speak the OpenAI API, so `openai` is the ONE
     # provider graph-os ships by default (`graph_orchestrate` drives the local model
@@ -129,17 +132,17 @@ mcp = [
     # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
     # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
     # torch) — dependency-discipline safe on the serving plane.
-    "pydantic-ai-slim[openai]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[openai]>=2.14.1,<3.0.0"
 ]
 agent-runtime = [
     "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
-    "universal-skills>=0.45.0",
-    "skill-graphs>=0.38.0",
-    "pydantic-ai-skills>=0.11.0",
+    "universal-skills>=1.2.1",
+    "skill-graphs>=1.1.0",
+    "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]>=2.0.0,<3.0.0",
-    "pydantic-graph>=2.0.0,<3.0.0",
+    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]>=2.14.1,<3.0.0",
+    "pydantic-graph>=2.14.1,<3.0.0",
     "fasta2a[pydantic-ai]>=0.6.1",
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
@@ -151,58 +154,58 @@ agent-runtime = [
 # `[serving]`. See AGENTS.md "Dependency discipline".
 agent-headless = [
     "agent-utilities[mcp,sandbox]>=1.0.0",
-    "universal-skills>=0.45.0",
-    "skill-graphs>=0.38.0",
-    "pydantic-ai-skills>=0.11.0",
+    "universal-skills>=1.2.1",
+    "skill-graphs>=1.1.0",
+    "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,web,cli]>=2.0.0,<3.0.0",
-    "pydantic-graph>=2.0.0,<3.0.0",
+    "pydantic-ai-slim[mcp,openai,web,cli]>=2.14.1,<3.0.0",
+    "pydantic-graph>=2.14.1,<3.0.0",
     "fasta2a[pydantic-ai]>=0.6.1"
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[google]>=2.14.1,<3.0.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[groq]>=2.14.1,<3.0.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[mistral]>=2.14.1,<3.0.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[anthropic]>=2.14.1,<3.0.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=2.0.0,<3.0.0"
+    "pydantic-ai-slim[huggingface]>=2.14.1,<3.0.0"
 ]
 ag-ui = [
-    "agent-webui>=0.41.0"]
+    "agent-webui>=1.1.0"]
 terminal = [
-    "agent-terminal-ui>=0.14.0"]
+    "agent-terminal-ui>=1.0.0"]
 browser = [
-    "playwright>=1.60.0"]
+    "playwright>=1.61.0"]
 # CONCEPT:ECO-4.93 — GUI computer-use over a gui-sandbox container. Reuses
 # container-manager-mcp's manager abstraction (which transitively brings the
 # docker[ssh] + tunnel-manager deps), so the actuator never re-implements
 # exec-over-ssh. Imported lazily by the driver; absent from lean core.
 computer-use = [
-    "container-manager-mcp>=1.43.0"]
+    "container-manager-mcp>=2.3.0"]
 acp = [
-    "pydantic-acp>=0.9.6",
-    "acpkit[pydantic]>=0.9.6"
+    "pydantic-acp>=1.4.0",
+    "acpkit[pydantic]>=1.4.0"
 ]
 documents = [
-    "llama-index-core>=0.14.22",
+    "llama-index-core>=0.14.23",
     "llama-index-readers-file>=0.6.0",
     # Security floors: transitive via llama-index-*. uv resolves one version
     # graph-wide, so these raise the floor for the whole all-extras lock.
-    "banks>=2.4.2",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
-    "nltk>=3.10.0",     # CVE-2026-54293 — path traversal in nltk.data.load
-    "pypdf>=6.13.3",    # CVE-2026-57204 — stream-length limit bypass
-    "aiohttp>=3.14.1"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
+    "banks>=2.4.5",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
+    "nltk>=3.10.0",     # CVE-2026-54293 — path traversal in nltk.data.load (already latest)
+    "pypdf>=6.14.2",    # CVE-2026-57204 — stream-length limit bypass
+    "aiohttp>=3.14.2"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
 ]
 embeddings = [
-    "llama-index-core>=0.14.22"]
+    "llama-index-core>=0.14.23"]
 embeddings-openai = [
     "agent-utilities[embeddings]>=1.0.0",
     "llama-index-embeddings-openai>=0.6.0",
@@ -221,7 +224,7 @@ logfire = [
     # Declare the SDK directly because recursive self-extras can lose dependency
     # extras in lock projections, leaving an apparently enabled runtime without
     # the instrumentation package.
-    "logfire[httpx]>=4.16.0,<5"
+    "logfire[httpx]>=4.38.0,<5"
 ]
 # Native read/write observability integration. The MCP child is mounted lazily
 # only when credentials are configured, so the serving process pays no child
@@ -232,10 +235,10 @@ langfuse = [
     # OpenTelemetry-backed client.  That is a Langfuse v4 constructor contract,
     # so do not let the provider package's broader transitive floor select an
     # older client that can fall back to GraphOS/logfire's global provider.
-    "langfuse>=4.0.0,<5",
+    "langfuse>=4.14.1,<5",
 ]
 graph = [
-    "ladybug>=0.17.1"
+    "ladybug>=0.18.2"
 ]
 ann = [
     "hnswlib>=0.8.0"
@@ -244,12 +247,12 @@ neo4j = [
     "neo4j>=6.2.0"
 ]
 falkordb = [
-    "falkordb>=1.6.1"
+    "falkordb>=1.6.2"
 ]
 owl = [
-    "owlready2>=0.50",
+    "owlready2>=0.51",
     "rdflib>=7.6.0",
-    "pyshacl>=0.31.0"
+    "pyshacl>=0.40.0"
 ]
 stardog = [
     "agent-utilities[owl]",
@@ -260,19 +263,19 @@ fuseki = [
     "rdflib>=7.6.0"
 ]
 event-kafka = [
-    "confluent-kafka>=2.14.2"
+    "confluent-kafka>=2.15.0"
 ]
 ingest-dedup = [
     # CONCEPT:AHE-3.70 — cheap deterministic name normalizers for the entity-
     # resolution ladder. Accent folding uses the standard library; inflect adds
     # singularization without introducing a GPL transliteration dependency.
-    "inflect>=7.0.0"
+    "inflect>=7.5.0"
 ]
 vault = [
     "hvac>=2.4.0"
 ]
 auth = [
-    "joserfc>=1.7.1"
+    "joserfc>=1.7.4"
 ]
 serving = [
     # The serving plane (graph-os MCP, host daemon, messaging): NO heavy ML/native deps.
@@ -324,15 +327,19 @@ finance = [
     # domain code computes through the `agent_utilities.numeric` kernel shim, and
     # statsmodels / hmmlearn / pandas pull numpy/scipy transitively for their own use.
     "statsmodels>=0.14.6",
-    "yfinance>=1.4.1",
-    "pandas>=2.0.0,<3",
+    "yfinance>=1.5.1",
+    # Floor raised past the pandas 3.0 major (Copy-on-Write is now the only mode,
+    # new default string dtype, Series[...] positional indexing removed). Domain
+    # code already uses only .loc/.iloc and pd.to_datetime/date_range — verified
+    # clean of the removed/changed patterns via grep before lifting the old `<3` cap.
+    "pandas>=3.0.3",
     "httpx>=0.28.1",
-    "websockets>=16.0",
+    "websockets>=16.1.1",
     "hmmlearn>=0.3.3"
 ]
 finance-kronos = [
     "agent-utilities[finance]",
-    "transformers>=5.12.0",
+    "transformers>=5.14.1",
     "safetensors>=0.8.0"
 ]
 hr = []
@@ -346,18 +353,18 @@ postgresql = [
 ]
 # Native Messaging Backend Abstraction (CONCEPT:ECO-4.5)
 messaging-discord = ["discord.py>=2.7.1"]
-messaging-slack = ["slack-bolt>=1.28.0"]
+messaging-slack = ["slack-bolt>=1.30.0"]
 messaging-telegram = ["python-telegram-bot>=22.8"]
-messaging-whatsapp = ["neonize>=0.3.18.post0", "httpx>=0.28.1"]
+messaging-whatsapp = ["neonize>=0.4.3.post0", "httpx>=0.28.1"]
 messaging-teams = ["botbuilder-core>=4.17.1"]
-messaging-googlechat = ["google-api-python-client>=2.197.0", "google-auth>=2.54.0"]
-messaging-googlemeet = ["google-api-python-client>=2.197.0", "google-auth>=2.54.0"]
+messaging-googlechat = ["google-api-python-client>=2.198.0", "google-auth>=2.56.1"]
+messaging-googlemeet = ["google-api-python-client>=2.198.0", "google-auth>=2.56.1"]
 messaging-mattermost = ["mattermostdriver>=7.3.2"]
 messaging-matrix = ["matrix-nio>=0.25.2"]
 messaging-irc = ["irc>=20.5.0"]
 messaging-signal = []
 messaging-imessage = []  # macOS-only, AppleScript bridge
-messaging-line = ["line-bot-sdk>=3.23.0"]
+messaging-line = ["line-bot-sdk>=3.25.0"]
 messaging-twitch = ["twitchio>=3.2.2"]
 messaging-synology = ["httpx>=0.28.1"]
 messaging-voicecall = ["twilio>=9.10.9"]
@@ -367,24 +374,24 @@ messaging = [
 ]
 test = [
     "pytest-xdist>=3.8.0",
-    "hypothesis>=6.155.2",
+    "hypothesis>=6.158.0",
     "pytest-cov>=7.1.0",
-    "mypy>=2.1.0",
-    "ruff>=0.15.17",
+    "mypy>=2.3.0",
+    "ruff>=0.15.22",
     "mutmut>=3.6.0",
-    "pytest-asyncio>=1.4.0", "pytest-cov>=7.1.0",
-    "pytest-env>=1.6.0",
+    "pytest-asyncio>=1.4.0",
+    "pytest-env>=1.7.0",
     "pytest-timeout>=2.4.0",
-    "syrupy>=4.0",
-    "opentelemetry-instrumentation-starlette",
-    "opentelemetry-instrumentation-fastapi",
-    "opentelemetry-instrumentation-asgi",
+    "syrupy>=5.5.3",
+    "opentelemetry-instrumentation-starlette>=0.65b0",
+    "opentelemetry-instrumentation-fastapi>=0.65b0",
+    "opentelemetry-instrumentation-asgi>=0.65b0",
     # CONCEPT:KG-2.324 — numpy is a DEV/TEST-ONLY dependency (never runtime): it is the
     # GROUND-TRUTH reference in tests/test_numeric_parity.py that proves the compiled
     # `epistemic_graph.numeric` kernel matches numpy. The runtime path imports numpy
     # nowhere (the `xp` shim is kernel-or-raise). scipy is NOT needed — the four scipy ops
     # are native kernel exports (`xp.eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`).
-    "numpy>=2.4.6",
+    "numpy>=2.5.1",
     # `agent-runtime` already implies mcp+sandbox; the full engine is a hard base
     # dependency. Add `feeds` (RSS ingestion tests)
     # and the explicit backend extras the suite exercises.
@@ -531,15 +538,17 @@ module = [
 disable_error_code = ["attr-defined"]
 
 [tool.uv]
-# pydantic-acp 0.9.7 (the optional `[acp]` extra) over-pins
-# `pydantic-ai-slim==1.106.0`, but its code is verified-compatible with v2 — every
-# pydantic_ai symbol it imports (AgentRunResultEvent, ModelRequestContext,
-# CombinedCapability, DeferredToolResults, ToolApproved/Denied, FunctionModel,
-# OutputSpec, …) exists in 2.0.0. Override that transitive pin so `[acp]`
-# co-installs on the v2 floor instead of dragging the resolver back to 1.106.
-# Remove once pydantic-acp ships a v2-compatible release.
+# pydantic-acp 1.4.0 (the optional `[acp]` extra) declares
+# `pydantic-ai-slim>=2.0.0,<=2.9.1` — no longer the old v1 exact pin (`==1.106.0`),
+# but still short of the 2.14.1 floor the rest of this project runs on. Our own
+# code never imports pydantic_ai symbols through the acp path (only pydantic_acp's
+# own public API: create_acp_agent, AcpSessionContext, …), and the acp integration
+# test suite (tests/integration/protocols/test_acp_adapter.py,
+# test_acp_integration.py) exercises the real thing. Override the transitive cap
+# so `[acp]` co-installs on the current v2 floor instead of being dragged back to
+# 2.9.1. Remove once pydantic-acp ships a release whose own cap admits 2.14.1+.
 # See docs/architecture/pydantic-ai-v2-migration.md.
-override-dependencies = ["pydantic-ai-slim>=2.0.0,<3.0.0"]
+override-dependencies = ["pydantic-ai-slim>=2.14.1,<3.0.0"]
 
 [tool.uv.sources]
 # The ecosystem workspace validates Agent Utilities against the sibling engine
@@ -553,10 +562,10 @@ langfuse-agent = { workspace = true }
 [dependency-groups]
 guardrails = [
     "jsonschema>=4.26.0",
-    "numpy>=2.4.6",
-    "owlrl>=7.1.4",
-    "pyshacl>=0.31.0",
-    "pytest>=9.0.3",
+    "numpy>=2.5.1",
+    "owlrl>=7.6.2",
+    "pyshacl>=0.40.0",
+    "pytest>=9.1.1",
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",
 ]

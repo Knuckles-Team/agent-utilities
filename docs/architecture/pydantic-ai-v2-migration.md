@@ -1,7 +1,7 @@
 # Pydantic AI v2 migration
 
 `agent-utilities` (and the fleet that inherits from it) runs on **Pydantic AI v2**
-(`pydantic-ai-slim>=2.0.0,<3.0.0`, `pydantic-graph>=2.0.0,<3.0.0`). This page records the
+(`pydantic-ai-slim>=2.14.1,<3.0.0`, `pydantic-graph>=2.14.1,<3.0.0`). This page records the
 v2-specific changes so the architecture docs stay in sync with the code.
 
 ## Why it was a real migration, not a rename
@@ -87,18 +87,18 @@ plugin (`protocols/acp_adapter.py` + `acp_providers.py` on `pydantic-acp` + `acp
 
 ### ACP on v2 — reconciled via dependency override
 
-`pydantic-acp` (0.9.7, the optional `[acp]` extra) declares `pydantic-ai-slim==1.106.0`, but this
-is an **over-strict metadata pin, not a real code incompatibility**: every pydantic_ai symbol
-pydantic-acp imports — `AgentRunResultEvent`, `ModelRequestContext`, `CombinedCapability`,
-`DeferredToolResults`, `ToolApproved`/`ToolDenied`, `FunctionModel`, `OutputSpec`, … — exists in
-2.0.0, and `pydantic_acp` (incl. `create_acp_agent`, `AcpSessionContext`, `acp.schema`) imports and
-runs unchanged on pydantic-ai 2.0.0. (`acpkit` does not pin pydantic-ai outside its unused `dev`
-extra.)
+`pydantic-acp` (1.4.0, the optional `[acp]` extra) declares `pydantic-ai-slim>=2.0.0,<=2.9.1` — it
+has since dropped the old v1 exact pin (`==1.106.0`) and is now properly v2-aware, but its own
+declared cap (2.9.1) still trails the 2.14.1 floor the rest of this project runs on. This remains
+a **metadata cap, not a known code incompatibility**: our integration code never imports
+pydantic_ai symbols on the acp path, only pydantic_acp's own public API (`create_acp_agent`,
+`AcpSessionContext`, `acp.schema`), and the acp integration test suite exercises the real thing
+against the resolved version. (`acpkit` does not pin pydantic-ai outside its unused `dev` extra.)
 
-We therefore relax that one transitive pin with a **dependency override** rather than forking or
+We therefore relax that one transitive cap with a **dependency override** rather than forking or
 dropping ACP:
 
-- `pyproject.toml` `[tool.uv] override-dependencies = ["pydantic-ai-slim>=2.0.0,<3.0.0"]` — for
+- `pyproject.toml` `[tool.uv] override-dependencies = ["pydantic-ai-slim>=2.14.1,<3.0.0"]` — for
   `uv lock` / `uv sync`.
 - `overrides.txt` (repo root) — the same override for `uv pip install --override overrides.txt` /
   `UV_OVERRIDE`.
@@ -107,7 +107,7 @@ dropping ACP:
 - CI: `backend-parity-nightly` (which pulls `[test-backends]` → `[acp]`) installs via
   `uv pip install --override overrides.txt` (plain pip cannot relax a transitive pin).
 
-With the override, `[acp]`/`[test]`/`[all]` resolve to pydantic-ai-slim **2.0.0** + pydantic-acp
-0.9.7 + acpkit 0.9.7 + agent-client-protocol 0.9.0 cleanly. Remove the override once pydantic-acp
-ships a release whose pin admits v2. **Plain `pip install .[acp]` is unsupported** (no override
-mechanism) — use uv.
+With the override, `[acp]`/`[test]`/`[all]` resolve to pydantic-ai-slim **2.14.1** + pydantic-acp
+1.4.0 + acpkit 1.4.0 + agent-client-protocol 0.11.0 cleanly. Remove the override once pydantic-acp
+ships a release whose own cap admits 2.14.1+. **Plain `pip install .[acp]` is unsupported** (no
+override mechanism) — use uv.
