@@ -65,4 +65,4 @@ def test_serving_does_not_rely_on_bare_embeddings_only():
     """The bare ``embeddings`` extra alone cannot embed — guard against regressing to it."""
     extras = _pyproject()["project"]["optional-dependencies"]
     # 'embeddings' provides only llama-index-core (no provider) — never the sole embed dep.
-    assert extras["embeddings"] == ["llama-index-core>=0.14.22"]
+    assert extras["embeddings"] == ["llama-index-core>=0.14.23"]
