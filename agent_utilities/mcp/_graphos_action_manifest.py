@@ -1236,6 +1236,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
+        "action": "health",
+        "name": "graph_configure_health",
+    },
+    {
+        "tool": "graph_configure",
         "action": "ingest_connection",
         "name": "graph_configure_ingest_connection",
     },

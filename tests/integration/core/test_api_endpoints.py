@@ -43,9 +43,15 @@ def client(mock_agent):
 
 
 def test_health_endpoint(client):
+    """LIVENESS: always 200, body is the real shared health report (CONCEPT:
+    AU-OS.deployment.liveness-vs-readiness-split) — not the old unconditional
+    ``{"status": "ok"}`` stub.
+    """
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] in ("healthy", "unhealthy")
+    assert isinstance(body["checks"], list) and body["checks"]
     assert response.headers["cache-control"] == "no-store"
 
 

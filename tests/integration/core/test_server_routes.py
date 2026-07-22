@@ -114,11 +114,26 @@ def client_no_web_ui(app_no_web_ui: FastAPI) -> Iterator[TestClient]:
 
 
 def test_health(client_with_web_ui: TestClient) -> None:
-    """``/health`` is a non-fingerprinting, non-cacheable liveness response."""
+    """``/health`` is LIVENESS: always 200, with the real shared health report
+    as body (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — never the
+    old unconditional ``{"status": "ok"}`` stub.
+    """
     resp = client_with_web_ui.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    body = resp.json()
+    assert body["status"] in ("healthy", "unhealthy")
+    assert isinstance(body["checks"], list)
+    assert any(c["name"] == "engine" for c in body["checks"])
     assert resp.headers["cache-control"] == "no-store"
+
+
+def test_health_ready_reflects_the_same_report_in_its_status_code(
+    client_with_web_ui: TestClient,
+) -> None:
+    """``/health/ready`` is READINESS: the SAME report, but 200/503 mirrors it."""
+    resp = client_with_web_ui.get("/health/ready")
+    body = resp.json()
+    assert resp.status_code == (200 if body["status"] == "healthy" else 503)
 
 
 def test_mcp_config(client_with_web_ui: TestClient) -> None:

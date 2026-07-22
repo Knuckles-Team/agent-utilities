@@ -216,6 +216,34 @@ class MessagingRegistry:
         """
         return self._instances.get(backend_id)
 
+    def _is_configured(self, backend_id: str, config: MessagingConfig | None = None) -> bool:
+        """True when ``backend_id`` has credentials/webhook material set in the
+        environment — the SAME predicate :meth:`create_all_enabled` uses to decide
+        whether to auto-create a backend, extracted so a health probe can ask
+        "is this platform configured" without instantiating anything (CONCEPT:
+        AU-ECO.messaging.native-backend-abstraction).
+        """
+        cfg = config if config is not None else self._auto_config(backend_id)
+        reference_configured = backend_id == "synology" and bool(
+            str(setting("SYNOLOGY_CHAT_WEBHOOK_URL_REF", "") or "").strip()
+        )
+        return bool(cfg.token or cfg.app_id or cfg.webhook_url or reference_configured)
+
+    def configured_backend_ids(self) -> list[str]:
+        """List discovered backend ids that have credentials configured in the
+        environment, WITHOUT instantiating any backend (no side effects, no
+        network I/O) — the read-only counterpart of :meth:`create_all_enabled`,
+        built for health/status probes.
+
+        Returns:
+            Sorted list of platform ids (e.g. ``["telegram", "slack"]``).
+        """
+        return sorted(
+            backend_id
+            for backend_id in self.list_backends()
+            if self._is_configured(backend_id)
+        )
+
     def create_all_enabled(self) -> dict[str, Any]:
         """Create backend instances for all platforms with env-var tokens.
 
@@ -230,10 +258,7 @@ class MessagingRegistry:
         created: dict[str, Any] = {}
         for backend_id in self.list_backends():
             config = self._auto_config(backend_id)
-            reference_configured = backend_id == "synology" and bool(
-                str(setting("SYNOLOGY_CHAT_WEBHOOK_URL_REF", "") or "").strip()
-            )
-            if config.token or config.app_id or config.webhook_url or reference_configured:
+            if self._is_configured(backend_id, config):
                 try:
                     instance = self.create_backend(backend_id, config=config)
                     created[backend_id] = instance
