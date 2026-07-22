@@ -205,8 +205,18 @@ def apply_served_security_profile(
     A network MCP transport is a multi-client surface. When serving such a
     transport this:
 
-    * **refuses to start** unless either ``AUTH_JWT_JWKS_URI`` is set or the
-      FastMCP transport already has a successfully constructed auth provider;
+    * **refuses to start** unless the FastMCP transport already has a
+      successfully constructed auth provider (``transport_auth_configured``,
+      i.e. ``--auth-type``/``AUTH_TYPE`` resolved to something other than
+      ``none``). ``AUTH_JWT_JWKS_URI`` being *set* is deliberately **not**
+      treated as a substitute: an operator can populate every JWKS/issuer/
+      audience variable and still leave ``AUTH_TYPE`` unset (or set the wrong
+      env var name, e.g. a stray ``MCP_AUTH_TYPE``) — that combination looks
+      "configured" but FastMCP never actually attaches a token verifier, so
+      the ``/mcp`` endpoint would silently accept every request unauthenticated
+      while this function's own log line claims the opposite. Requiring the
+      constructed provider closes that fail-open gap
+      (CONCEPT:AU-OS.identity.authenticated-identity-enforcement);
     * verifies the audience/policy inputs required by mandatory tenant, ACL,
       session, and single-client enforcement.
 
@@ -220,12 +230,13 @@ def apply_served_security_profile(
 
         config = _config
 
-    jwks = getattr(config, "auth_jwt_jwks_uri", None)
-    if not jwks and not transport_auth_configured:
+    if not transport_auth_configured:
         raise RuntimeError(
-            f"Refusing to serve graph-os over {transport}: neither a transport "
-            "authentication provider nor AUTH_JWT_JWKS_URI is configured, so "
-            "client identity cannot be validated. Configure JWT/OIDC auth. "
+            f"Refusing to serve graph-os over {transport}: no transport "
+            "authentication provider is configured, so client identity "
+            "cannot be validated. Set --auth-type/AUTH_TYPE to a real scheme "
+            "(jwt, oidc-proxy, oauth-proxy, remote-oauth, or static) — having "
+            "AUTH_JWT_JWKS_URI/OIDC_* set is not sufficient by itself. "
             "(CONCEPT:AU-OS.identity.authenticated-identity-enforcement)"
         )
 
@@ -420,7 +431,9 @@ def acquire_process_identity_token(config: Any = None) -> str:
         or len(token.encode("utf-8")) > 16_384
         or any(ord(character) < 32 or ord(character) == 127 for character in token)
     ):
-        raise RuntimeError("Graph process identity acquisition returned invalid material")
+        raise RuntimeError(
+            "Graph process identity acquisition returned invalid material"
+        )
     return token
 
 
