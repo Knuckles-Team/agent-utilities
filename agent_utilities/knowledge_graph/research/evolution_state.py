@@ -27,6 +27,7 @@ empty-but-shaped reading and never raises, so the surface is safe on any backend
 import json
 import logging
 import time
+from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -307,6 +308,92 @@ def emit_saturation_signal(engine: Any, gauge: dict[str, Any]) -> str | None:
 
 
 # ────────────────────────────────────────────────────────────────────────
+# Cross-vector artifact-version lineage read (CONCEPT:AU-AHE.evolution.unified-artifact-lineage)
+# ────────────────────────────────────────────────────────────────────────
+#: Every node label an :class:`~agent_utilities.models.knowledge_graph.ArtifactVersionNode`
+#: subclass is persisted under today. There is no single ``:ArtifactVersion``
+#: graph label to MATCH — the property-graph backend keys one label per node
+#: (``skill_version``/``prompt_version``, matching each subclass's own
+#: ``RegistryNodeType``), so a cross-vector read scans every KNOWN label instead
+#: of a label that does not exist on disk. Extend this tuple when a new
+#: ``ArtifactVersionNode`` subclass starts persisting (e.g. a future
+#: ``tool_description_version``).
+ARTIFACT_VERSION_LABELS: tuple[str, ...] = ("skill_version", "prompt_version")
+
+
+def artifact_evolution_summary(
+    engine: Any,
+    *,
+    artifact_kind: str | None = None,
+    labels: Sequence[str] | None = None,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """ONE cross-vector read of every artifact-version promotion history.
+
+    The aggregation `grep -rn "evolution_matrix"` finds no query for today (§1 of
+    the unified-evolution-matrix design doc: "show me every artifact version
+    ever proposed, across every vector, and its verdict"). Scans every label in
+    :data:`ARTIFACT_VERSION_LABELS` (or the caller-supplied ``labels``),
+    aggregates by ``status`` (``proposal`` | ``active`` | ``rejected``) and by
+    ``artifact_kind`` (falling back to the label's own kind when a row predates
+    the ``artifact_kind`` field), and returns the most recent ``limit`` rows for
+    drill-down. Optionally filter to one ``artifact_kind``.
+
+    Reuses ``read_evolution_state``'s best-effort/never-raise discipline: a
+    missing engine or an unsupported query degrades to an empty-but-shaped
+    reading rather than raising into a caller's steering surface.
+    """
+    empty: dict[str, Any] = {
+        "total": 0,
+        "by_status": {},
+        "by_kind": {},
+        "versions": [],
+    }
+    if engine is None:
+        return empty
+
+    scan_labels = tuple(labels) if labels else ARTIFACT_VERSION_LABELS
+    rows: list[dict[str, Any]] = []
+    for label in scan_labels:
+        try:
+            result = engine.query_cypher(
+                f"MATCH (v:{label}) RETURN v.id AS id, v.status AS status, "
+                "v.artifact_kind AS artifact_kind, v.skill_id AS skill_id, "
+                "v.prompt_id AS prompt_id, v.parent_hash AS parent_hash, "
+                "v.benchmark_score AS benchmark_score, v.reward AS reward, "
+                "v.timestamp AS timestamp"
+            )
+        except Exception as e:  # noqa: BLE001 — one label's failure never blocks the rest
+            logger.debug("artifact_evolution_summary: %s query failed: %s", label, e)
+            continue
+        for r in result or []:
+            if not isinstance(r, dict):
+                continue
+            row = dict(r)
+            row["label"] = label
+            row["kind"] = row.get("artifact_kind") or label.removesuffix("_version")
+            rows.append(row)
+
+    if artifact_kind:
+        rows = [r for r in rows if r.get("kind") == artifact_kind]
+
+    by_status: dict[str, int] = {}
+    by_kind: dict[str, int] = {}
+    for r in rows:
+        status = str(r.get("status") or "unknown")
+        kind = str(r.get("kind") or "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+        by_kind[kind] = by_kind.get(kind, 0) + 1
+
+    return {
+        "total": len(rows),
+        "by_status": by_status,
+        "by_kind": by_kind,
+        "versions": rows[: max(0, limit)],
+    }
+
+
+# ────────────────────────────────────────────────────────────────────────
 # The aggregated read surface (KG-2.290)
 # ────────────────────────────────────────────────────────────────────────
 def read_evolution_state(
@@ -362,5 +449,7 @@ __all__ = [
     "read_beacon",
     "saturation_gauge",
     "emit_saturation_signal",
+    "ARTIFACT_VERSION_LABELS",
+    "artifact_evolution_summary",
     "read_evolution_state",
 ]

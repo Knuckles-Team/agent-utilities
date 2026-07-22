@@ -1546,10 +1546,45 @@ class DatasetItemNode(RegistryNode):
     source_trace_id: str | None = None
 
 
-class PromptVersionNode(RegistryNode):
+class ArtifactVersionNode(RegistryNode):
+    """Generalized lifecycle contract for every content-addressed, evolvable
+    artifact version (CONCEPT:AU-AHE.evolution.unified-artifact-lineage) — skill
+    markdown, system prompt, MCP tool description, native ``eg-program`` revision.
+
+    Generalizes :class:`SkillVersionNode`'s propose-only lifecycle contract
+    (``status``: ``proposal | active | rejected``; a version is ALWAYS persisted,
+    only a promotion gate flips it to ``active``) to every vector on the unified
+    promotion gate (:mod:`agent_utilities.orchestration.artifact_promotion`).
+    :class:`SkillVersionNode`/:class:`PromptVersionNode` become thin subclasses —
+    additive fields with safe defaults, EXACT existing field names preserved on
+    both, so every existing query/constructor call against either node type is
+    unaffected (the strangler-then-delete pattern, not a parallel v2 type; see
+    ``AGENTS.md``'s No Legacy rule).
+    """
+
+    artifact_kind: str = ""  # "skill" | "prompt" | "program" | "tool_description"
+    artifact_id: str = ""  # skill_id / prompt_id / program_ref / tool name
+    status: str = "proposal"  # proposal | active | rejected
+    origin: str = "unspecified"  # reflact | native_program | manual | seed
+    reward: float | None = None  # generalizes SkillVersionNode.benchmark_score
+    reward_source: str = ""  # RewardSignal.source provenance, when known
+    task_count: int = 0  # generalizes SkillVersionNode.benchmark_task_count
+    notes: list[str] = Field(default_factory=list)  # generalizes reflect_notes
+    transfer_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class PromptVersionNode(ArtifactVersionNode):
     """A content-addressed version of a prompt (CONCEPT:AU-AHE.evaluation.generationnode-records). A GenerationNode records
     the prompt_version_id it used, so 'which prompt version regressed which eval dimension'
-    is a graph query — the prompt→experiment→regression half of the closed loop."""
+    is a graph query — the prompt→experiment→regression half of the closed loop.
+
+    Inherits :class:`ArtifactVersionNode`'s lifecycle fields (``status``,
+    ``origin``, ``reward``, ...) — previously this node carried none of them, so a
+    proposed-but-not-yet-promoted prompt version had nowhere to record its
+    promotion state. Additive: every existing ``PromptVersionNode(...)`` call
+    (none of which pass these) is unaffected; the new fields default to the same
+    ``ArtifactVersionNode`` neutral values.
+    """
 
     type: RegistryNodeType = RegistryNodeType.PROMPT_VERSION
     prompt_id: str
@@ -1558,7 +1593,7 @@ class PromptVersionNode(RegistryNode):
     parent_hash: str | None = None
 
 
-class SkillVersionNode(RegistryNode):
+class SkillVersionNode(ArtifactVersionNode):
     """A content-addressed revision of a skill's ``SKILL.md`` (CONCEPT:AU-AHE.optimization.skillopt-native-reflact).
 
     The AU-native port of SkillOpt's (arXiv:2605.23904) treatment of the skill markdown
@@ -1571,8 +1606,15 @@ class SkillVersionNode(RegistryNode):
     flat file. ``status`` mirrors :class:`ClaimNode`'s propose-only contract — a
     version is ALWAYS persisted as ``proposal``/``rejected``; only the benchmark gate
     (``skill_gate.evaluate_promotion``) AND ``action_policy.decide(kind=
-    "promote_skill_version")`` together flip it to ``active``
+    "promote_skill_version")`` together flip it to ``active`` — now routed through the
+    unified :func:`~agent_utilities.orchestration.artifact_promotion.promote` gate
     (``knowledge_graph/research/skill_evolution.py::run_reflact_cycle``).
+
+    Every field name below is UNCHANGED from before this node inherited
+    :class:`ArtifactVersionNode` — ``skill_id``/``status``/``origin``/
+    ``benchmark_score``/``benchmark_task_count``/``reflect_notes``/
+    ``transfer_scores`` all keep their exact prior names/defaults (shadowing the
+    base class's generalized names), so no existing caller changes.
     """
 
     type: RegistryNodeType = RegistryNodeType.SKILL_VERSION

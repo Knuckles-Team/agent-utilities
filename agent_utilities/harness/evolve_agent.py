@@ -605,7 +605,58 @@ class EvolveAgent:
         if not is_opaque_program_reference(component_ref, namespace="component"):
             component_ref = opaque_program_reference("component", edit.file_path)
 
+        # Unified evolution matrix (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+        # a candidate that beat baseline (``promote``, decided upstream by
+        # ``should_promote`` — the comparison gate is NOT re-run here) must ALSO
+        # clear the same operational veto every other promotion vector clears
+        # (``promote_skill_version``, ``merge_promotion``, ...) before it is
+        # allowed to write source. Previously this apply path never consulted
+        # ``action_policy`` at all — gated only by the bare ``KG_AGENT_AUTO_APPLY``
+        # boolean, weaker governance than a skill-markdown promotion. This is a
+        # strict TIGHTENING: ``auto_apply`` keeps its exact prior meaning as the
+        # per-vector "should this run at all" switch — it still gates whether the
+        # gate is even consulted — but ``action_policy`` is now an ADDITIONAL
+        # veto on top, never a replacement; the apply requires BOTH to allow it.
+        policy_approved = False
         if promote and auto_apply_eligible and auto_apply and not dry_run:
+            from ..orchestration.artifact_promotion import (
+                PromotionCandidate,
+            )
+            from ..orchestration.artifact_promotion import (
+                promote as promote_gate,
+            )
+            from .reward_signal import RewardSignal
+
+            verdict = promote_gate(
+                self.knowledge_engine,
+                PromotionCandidate(
+                    artifact_kind="prompt",
+                    artifact_id=component_ref,
+                    candidate_ref=str(meta.get("candidate_version_hash") or component_ref),
+                    candidate_reward=RewardSignal(value=after, source="eval_corpus"),
+                    # The comparison gate already ran (should_promote, upstream) —
+                    # incumbent_reward=None skips re-comparing and goes straight to
+                    # the action_policy consult, mirroring auto_merge's spec/claim
+                    # shape (quality already gated elsewhere).
+                    incumbent_reward=None,
+                    source="loop_engine",
+                    reason=(
+                        f"prompt {component_ref} candidate beats baseline "
+                        f"({before:.3f} → {after:.3f})"
+                    ),
+                    evidence={"baseline_score": before, "candidate_score": after},
+                ),
+            )
+            meta["action_decision"] = verdict.decision
+            policy_approved = verdict.approved
+
+        if (
+            promote
+            and auto_apply_eligible
+            and auto_apply
+            and policy_approved
+            and not dry_run
+        ):
             try:
                 full_path = self._resolve_component_path(edit.file_path)
                 candidate = self._compiled_prompt_candidate(
@@ -630,10 +681,11 @@ class EvolveAgent:
             status, applied = "proposed", False
             logger.info(
                 "EvolveAgent: PROPOSED hardened prompt %s (%.3f → %.3f) — held for review "
-                "(automatic apply not eligible or gated off).",
+                "(automatic apply not eligible, gated off, or action_policy=%s).",
                 component_ref,
                 before,
                 after,
+                meta.get("action_decision", "n/a"),
             )
         else:
             status, applied = "rejected", False
@@ -724,6 +776,11 @@ class EvolveAgent:
             "trainset_size": trainset_size,
             "candidate_version_hash": version_hash,
             "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
+            # The action_policy veto's verdict (CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+            # — "" when the candidate never beat baseline (the gate was never
+            # consulted; mirrors run_reflact_cycle's "a benchmark loss never
+            # reaches action_policy").
+            "action_decision": str(meta.get("action_decision") or ""),
             "program_compiled_state": compiled_state,
             "evidence_refs": evidence_refs,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),

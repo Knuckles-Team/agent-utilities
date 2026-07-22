@@ -106,7 +106,36 @@ def _write_baseline_prompt(path: Path, *, core_directive: str) -> None:
     path.write_text(json.dumps(blueprint, indent=2), encoding="utf-8")
 
 
-def _make_evolver(tmp_path: Path) -> tuple[EvolveAgent, FeedbackService]:
+class _GovernedNativeProgramEngine(_NativeProgramEngine):
+    """``_NativeProgramEngine`` + a minimal KG surface so ``action_policy`` can be
+    exercised for real: ``governance_rule`` overrides (relax/forbid a tier) and
+    the ``ActionDecision``/``ActionApproval`` audit writes. Same shape as
+    ``test_skill_evolution.py``'s ``_SkillEvoStubEngine`` — an engine double that
+    behaves exactly like a real engine with no operator overrides by default
+    (the shipped conservative ``approval_required`` tier), or a relaxed/forbidden
+    tier when ``governance_rules`` is supplied.
+    """
+
+    def __init__(self, *, governance_rules: list[dict] | None = None):
+        self.nodes: dict[str, dict] = {}
+        self.backend = object()
+        self._governance_rules = governance_rules or []
+
+    def add_node(self, node_id, node_type, properties=None):
+        self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
+
+    def query_cypher(self, q, params=None):
+        if "governance_rule" in q:
+            return [{"r": dict(r)} for r in self._governance_rules]
+        return []
+
+    def by_type(self, node_type):
+        return [n for n in self.nodes.values() if n["type"] == node_type]
+
+
+def _make_evolver(
+    tmp_path: Path, *, engine: object | None = None
+) -> tuple[EvolveAgent, FeedbackService]:
     import subprocess
 
     # A real git workspace so the apply path's commit succeeds (true live path).
@@ -117,7 +146,7 @@ def _make_evolver(tmp_path: Path) -> tuple[EvolveAgent, FeedbackService]:
     evolver = EvolveAgent(
         workspace_path=str(tmp_path),
         feedback_service=fb,
-        knowledge_engine=_NativeProgramEngine(),
+        knowledge_engine=engine if engine is not None else _NativeProgramEngine(),
     )
     return evolver, fb
 
@@ -178,11 +207,99 @@ async def test_component_resolution_rejects_workspace_escape(tmp_path):
         evolver._resolve_component_path("/absolute/outside.json")
 
 
-# ── G1/G8/G2: optimize → better prompt → WRITTEN under the auto-apply gate ───
+# ── G1/G8/G2: optimize → better prompt → WRITTEN only when BOTH gates allow ──
+# CONCEPT:AU-AHE.evolution.unified-promotion-gate — the Phase-2 safety tightening:
+# KG_AGENT_AUTO_APPLY=True alone used to be sufficient to write source (the
+# vector `action_policy` never consulted); it is now ALSO gated by the same
+# operational veto every other promotion vector clears.
 
 
-async def test_cycle_applies_better_prompt_when_gate_on(tmp_path):
+async def test_apply_blocked_when_action_policy_denies_even_with_auto_apply_on(
+    tmp_path,
+):
+    """THE SECURITY PROPERTY: an apply that previously bypassed governance
+    entirely (``auto_apply=True`` was sufficient) is now BLOCKED by the shipped
+    default ``action_policy`` tier (``approval_required`` for
+    ``promote_prompt_version``) — proving the gate is actually wired into the
+    apply path, not merely present in the module. A test that would pass even
+    WITHOUT the gate (e.g. only checking ``outcome.promote``) is worthless; this
+    asserts the concrete, previously-impossible-to-fail invariant: the live
+    prompt file is byte-for-byte UNTOUCHED, ``applied`` is ``False``, and the
+    audit record shows the real ``queue_approval`` verdict — even though the
+    candidate strictly beat baseline AND ``KG_AGENT_AUTO_APPLY`` was on.
+    """
     evolver, fb = _make_evolver(tmp_path)
+    _seed_agent_outcomes(fb, "deploy-agent")
+    prompt_path = tmp_path / "deploy_agent.json"
+    _write_baseline_prompt(prompt_path, core_directive="You are a deploy assistant.")
+    before_bytes = prompt_path.read_text(encoding="utf-8")
+
+    outcome = await evolver.harden_agent_prompt(
+        "deploy-agent", "deploy_agent.json", auto_apply=True
+    )
+
+    # the comparison gate DID win — this is not a "candidate lost" case
+    assert outcome.candidate_score > outcome.baseline_score
+    assert outcome.promote is True
+    # ...but action_policy's default tier holds it: NOT applied, despite
+    # auto_apply=True — the exact bypass this design closes.
+    assert outcome.status == "proposed" and outcome.applied is False
+    assert prompt_path.read_text(encoding="utf-8") == before_bytes  # UNTOUCHED
+
+    proposals = list((tmp_path / ".specify" / "proposals").glob("*.json"))
+    assert len(proposals) == 1
+    rec = json.loads(proposals[0].read_text(encoding="utf-8"))
+    assert rec["status"] == "proposed" and rec["applied"] is False
+    assert rec["action_decision"] == "queue_approval"
+
+
+async def test_apply_blocked_when_action_policy_forbids(tmp_path):
+    """A ``forbidden`` tier (an operator lockdown, not just the shipped default)
+    blocks the apply just as hard — the live prompt stays untouched and the
+    audit record carries the real ``deny`` verdict."""
+    engine = _GovernedNativeProgramEngine(
+        governance_rules=[
+            {
+                "scope": "action_policy",
+                "kind": "promote_prompt_version",
+                "target": "*",
+                "tier": "forbidden",
+            }
+        ]
+    )
+    evolver, fb = _make_evolver(tmp_path, engine=engine)
+    _seed_agent_outcomes(fb, "deploy-agent")
+    prompt_path = tmp_path / "deploy_agent.json"
+    _write_baseline_prompt(prompt_path, core_directive="You are a deploy assistant.")
+    before_bytes = prompt_path.read_text(encoding="utf-8")
+
+    outcome = await evolver.harden_agent_prompt(
+        "deploy-agent", "deploy_agent.json", auto_apply=True
+    )
+
+    assert outcome.promote is True
+    assert outcome.status == "proposed" and outcome.applied is False
+    assert prompt_path.read_text(encoding="utf-8") == before_bytes
+
+    rec = json.loads(
+        next((tmp_path / ".specify" / "proposals").glob("*.json")).read_text("utf-8")
+    )
+    assert rec["action_decision"] == "deny"
+
+
+async def test_apply_succeeds_when_auto_apply_on_and_action_policy_allows(tmp_path):
+    """The gate is a real VETO, not a permanent block: with BOTH keys satisfied —
+    ``auto_apply=True`` AND an operator-relaxed ``action_policy`` tier (mirrors
+    ``test_skill_evolution.py``'s
+    ``test_winning_candidate_promotes_when_policy_relaxed``) — the apply proceeds
+    exactly as it did before Phase 2. Proves the tightening didn't silently
+    disable the historical "gate on" apply path; it only added a second key."""
+    engine = _GovernedNativeProgramEngine(
+        governance_rules=[
+            {"scope": "action_policy", "kind": "*", "target": "*", "tier": "auto"}
+        ]
+    )
+    evolver, fb = _make_evolver(tmp_path, engine=engine)
     _seed_agent_outcomes(fb, "deploy-agent")
     prompt_path = tmp_path / "deploy_agent.json"
     _write_baseline_prompt(prompt_path, core_directive="You are a deploy assistant.")
@@ -191,7 +308,6 @@ async def test_cycle_applies_better_prompt_when_gate_on(tmp_path):
         "deploy-agent", "deploy_agent.json", auto_apply=True
     )
 
-    # a strictly better candidate was produced and promoted
     assert outcome.candidate_score > outcome.baseline_score
     assert outcome.promote is True
     assert outcome.status == "applied" and outcome.applied is True
@@ -214,6 +330,7 @@ async def test_cycle_applies_better_prompt_when_gate_on(tmp_path):
     assert len(proposals) == 1
     rec = json.loads(proposals[0].read_text(encoding="utf-8"))
     assert rec["status"] == "applied" and rec["applied"] is True and rec["delta"] > 0
+    assert rec["action_decision"] == "allow"
     assert "agent_id" not in rec and "file_path" not in rec
     assert "candidate_blueprint" not in rec
     assert "deploy-agent" not in json.dumps(rec)
