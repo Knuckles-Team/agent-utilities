@@ -90,6 +90,7 @@ class LoopController:
         develop_runner: Any = None,
         skill_runner: Any = None,
         event_probes: dict[str, Callable[[], bool]] | None = None,
+        skill_eval_targets_provider: Callable[[], list[dict[str, Any]]] | None = None,
     ) -> None:
         self.engine = engine
         self.codebase_root = codebase_root or setting("WORKSPACE_PATH") or "."
@@ -98,6 +99,11 @@ class LoopController:
         # subprocess / workflow engine. Defaults are wired lazily on first use.
         self._develop_runner = develop_runner
         self._skill_runner = skill_runner
+        # SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact) —
+        # discovery hook for which skills to evolve this cycle, injectable so the
+        # stage is unit-testable without a real ``:SkillEvalSuite`` KG type existing
+        # yet (see ``_discover_skill_evolution_targets``'s docstring).
+        self._skill_eval_targets_provider = skill_eval_targets_provider
         # exit 8 EXTERNAL EVENT — registry of named real-world signal probes an
         # ``external_event`` Loop resolves by ``event_ref`` (e.g. "pr:owner/repo#42
         # merged"). Injectable so the exit is unit-testable without a live GitHub /
@@ -164,6 +170,7 @@ class LoopController:
         belief_revision: bool | None = None,
         insight_validation: bool | None = None,
         trace_mining: bool | None = None,
+        skill_evolution: bool | None = None,
     ) -> dict[str, Any]:
         """Execute one cycle. Returns a structured, JSON-able report.
 
@@ -211,6 +218,8 @@ class LoopController:
             insight_validation = config.kg_loop_insight_validation
         if trace_mining is None:
             trace_mining = config.kg_loop_trace_mining
+        if skill_evolution is None:
+            skill_evolution = config.kg_loop_skill_evolution
 
         report: dict[str, Any] = {
             "propose_only": self.propose_only,
@@ -225,6 +234,7 @@ class LoopController:
             "mine_discovery": None,
             "insight_validation": None,
             "trace_mining": None,
+            "skill_evolution": None,
             "placement_control": None,
             "belief_revision": None,
             "standardize": None,
@@ -392,6 +402,21 @@ class LoopController:
         # the ontology, default-ON, propose-only (nothing lands in any repo). Best-
         # effort: a failing stage never aborts the cycle.
         report["skill_proposals"] = _stage("distill_skills", self._distill_skills)
+
+        # 0a3. SKILL EVOLUTION — the SkillOpt-native ReflACT cycle
+        # (CONCEPT:AU-AHE.optimization.skillopt-native-reflact): Rollout->Reflect->
+        # Aggregate/Select/Update->Evaluate over any registered skill-eval target,
+        # gated onto "active" only by beating the incumbent on a held-out benchmark
+        # AND action_policy.decide(kind="promote_skill_version") (shipped default
+        # approval_required — a benchmark win alone never auto-promotes). Sibling to
+        # distill_skills (which proposes brand-new skills from connector-mapped
+        # processes); this stage evolves EXISTING skills. Best-effort + gated
+        # (KG_LOOP_SKILL_EVOLUTION, default ON — degrades to a clean no-op with zero
+        # registered skill-eval targets, mirroring belief_revision's <2-node no-op).
+        if skill_evolution:
+            report["skill_evolution"] = _stage(
+                "skill_evolution", self._run_skill_evolution
+            )
 
         # 0b. STANDARDIZE — enterprise standardization + consolidation (CONCEPT:AU-KG.ontology.populated-at-import-real-3),
         # propose-only. Gated (KG_LOOP_STANDARDIZE) since it requires a harvested
@@ -1888,6 +1913,76 @@ class LoopController:
 
         distiller = ConnectorSkillDistiller(self.engine, embed_fn=embed_fn)
         return distiller.run().to_dict()
+
+    # -- SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact) ---- #
+    def _discover_skill_evolution_targets(self) -> list[dict[str, Any]]:
+        """Default discovery hook — degrades to ``[]`` with nothing registered.
+
+        The foundation ships with NO auto-discovery query: no ``:SkillEvalSuite`` KG
+        type exists yet to enumerate (a real one would query the KG for skills
+        carrying a registered held-out eval suite, mirroring how
+        ``_run_insight_validation`` is driven by ``mine_discovery``'s output rather
+        than a fresh KG scan of its own). Constructor-injectable via
+        ``skill_eval_targets_provider`` (mirrors ``develop_runner``/``skill_runner``)
+        so real callers and tests can supply concrete targets without that KG type
+        existing — each target is a dict with keys ``skill_id``, ``content``,
+        ``signal`` (a :class:`~.skill_evolution.SkillSignalProvider`), and optional
+        ``executor``/``edit_fn`` overrides.
+        """
+        return []
+
+    def _run_skill_evolution(self) -> dict[str, Any]:
+        """Run one ReflACT cycle per registered skill-evolution target (CONCEPT:AU-AHE.optimization.skillopt-native-reflact).
+
+        Sibling to ``_distill_skills`` (which proposes brand-new skills from
+        connector-mapped processes): this stage evolves the markdown of EXISTING
+        skills. Delegates the actual Rollout->Reflect->Aggregate/Select/Update->
+        Evaluate->gate pipeline to :func:`~.skill_evolution.run_reflact_cycle` for
+        each discovered target; a single target's failure never blocks the others
+        (mirrors the ``_mine_*`` sub-step tolerance).
+        """
+        provider = self._skill_eval_targets_provider or self._discover_skill_evolution_targets
+        try:
+            targets = provider() or []
+        except Exception as e:  # noqa: BLE001
+            return {"targets": 0, "results": [], "promoted": 0, "errors": [f"discover: {e}"]}
+
+        if not targets:
+            return {
+                "skipped": True,
+                "reason": "no_registered_skill_eval_targets",
+                "targets": 0,
+            }
+
+        from .skill_evolution import run_reflact_cycle
+
+        results: list[dict[str, Any]] = []
+        errors: list[str] = []
+        promoted = 0
+        for target in targets:
+            skill_id = target.get("skill_id", "?")
+            try:
+                rep = run_reflact_cycle(
+                    self.engine,
+                    skill_id,
+                    target["content"],
+                    signal=target["signal"],
+                    executor=target.get("executor"),
+                    edit_fn=target.get("edit_fn"),
+                )
+                results.append(rep)
+                if rep.get("promoted"):
+                    promoted += 1
+                errors.extend(rep.get("errors", []))
+            except Exception as e:  # noqa: BLE001 — one target never blocks the others
+                errors.append(f"{skill_id}: {e}")
+
+        return {
+            "targets": len(targets),
+            "results": results,
+            "promoted": promoted,
+            "errors": errors,
+        }
 
     # -- develop / skill Loop execution (CONCEPT:AU-KG.research.these-properties-carry L3) ---------------- #
     def _run_execute_loops(self, loops: list[dict[str, Any]]) -> dict[str, Any]:

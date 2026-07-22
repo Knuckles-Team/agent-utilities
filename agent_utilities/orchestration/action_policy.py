@@ -144,6 +144,13 @@ DEFAULT_POLICY: dict[str, Any] = {
         # auto/auto_notify (see
         # tests/unit/test_action_policy.py::test_promote_mined_claim_default_never_auto).
         {"kind": "promote_mined_claim", "target": "*", "tier": TIER_APPROVAL},
+        # SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact):
+        # a candidate :SkillVersion that beat its incumbent on the held-out
+        # benchmark still requires a human before it flips proposal -> active —
+        # SAFETY-CRITICAL, this tier must never silently become auto/auto_notify
+        # (see tests/unit/knowledge_graph/test_skill_evolution.py::
+        # test_winning_candidate_default_never_auto_promotes).
+        {"kind": "promote_skill_version", "target": "*", "tier": TIER_APPROVAL},
         # Closed-loop agent mining (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
         # workstream C6): a mined repeated-failure tool-call pattern
         # (:SequentialPattern) that cleared its confidence floor and governance
