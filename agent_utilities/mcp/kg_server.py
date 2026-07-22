@@ -2525,12 +2525,14 @@ def _ingest_skill_capabilities(
             )
 
             logger.error(
-                "Failed to ingest %s (stage=%s exception_type=%s)",
+                "Failed to ingest %s (stage=%s %s: %s)",
                 persistence_reference(
                     "skill", fallback_name, namespace="skill-provider-ingest"
                 ),
                 stage,
                 type(exc).__name__,
+                exc,
+                exc_info=True,
             )
     return ingested
 
@@ -2560,11 +2562,16 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
                 raise ValueError("bundled skill body is empty")
             expected[bundled_name] = runnable_skill_digest(body)
     except Exception as exc:
+        # Same reasoning as _start_engine_bootstrap: the exception class alone is
+        # not diagnosable. Keep the message and the chained traceback so the
+        # actual reason a skill could not be ingested is visible in the log.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            "GraphOS packaged-skill readiness check failed (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
     return root, expected
 
 
@@ -2580,14 +2587,31 @@ def _ready_bundled_skill_names(
     query = getattr(engine, "query_cypher", None)
     if not callable(query):
         return frozenset()
-    rows = query(
-        "MATCH (n:CallableResource) WHERE n.name IN $names "
-        "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
-        "n.system_prompt AS system_prompt, "
-        "n.instruction_digest AS instruction_digest, "
-        "n.source_ref AS source_ref, n.runnable_bound AS runnable_bound",
-        {"names": sorted(expected_digests)},
-    )
+    try:
+        rows = query(
+            "MATCH (n:CallableResource) WHERE n.name IN $names "
+            "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
+            "n.system_prompt AS system_prompt, "
+            "n.instruction_digest AS instruction_digest, "
+            "n.source_ref AS source_ref, n.runnable_bound AS runnable_bound",
+            {"names": sorted(expected_digests)},
+        )
+    except Exception as exc:
+        # This is a READINESS PROBE: "which bundled skills are already ingested".
+        # On a graph that does not exist yet — a first boot, or the first boot
+        # after a tenant claim starts scoping this process to a new tenant graph
+        # — the engine answers "Graph '<name>' not found" rather than an empty
+        # result. That is the correct answer to "nothing is ready", not a
+        # failure, and treating it as fatal makes the server unable to perform
+        # the very ingestion that would create the graph. Report none-ready and
+        # let the caller ingest; a genuine engine fault still surfaces there.
+        logger.info(
+            "bundled-skill readiness probe found no existing skill graph "
+            "(%s: %s); treating every bundled skill as not yet ingested",
+            type(exc).__name__,
+            exc,
+        )
+        return frozenset()
     candidates: dict[str, list[dict[str, Any]]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -2599,22 +2623,36 @@ def _ready_bundled_skill_names(
     ready: set[str] = set()
     for name, expected_digest in expected_digests.items():
         matches = candidates.get(name, [])
-        if len(matches) != 1:
-            continue
-        row = matches[0]
-        body = str(row.get("system_prompt") or "").strip()
-        digest = str(row.get("instruction_digest") or "")
+        if len(matches) > 1:
+            # Readiness asks "is a correct node present", and every check below
+            # pins the exact node id `resource:skill:<name>`, so a second row can
+            # never sneak past them. Requiring exactly ONE row instead conflated
+            # "more than one row came back" with "not ready", which left a skill
+            # permanently unready and — because this is a HARD startup gate —
+            # kept graph-os from serving at all. Log the duplication as the
+            # hygiene problem it is, then evaluate the rows on their merits.
+            logger.warning(
+                "bundled skill %r resolved to %d nodes; readiness is decided by "
+                "the exact id resource:skill:%s",
+                name,
+                len(matches),
+                name,
+            )
         expected_ref = skill_reference(name)
-        if (
-            row.get("id") == f"resource:skill:{name}"
-            and row.get("rtype") == "AGENT_SKILL"
-            and row.get("runnable_bound") is True
-            and row.get("source_ref") == expected_ref
-            and body
-            and digest == expected_digest
-            and runnable_skill_digest(body) == digest
-        ):
-            ready.add(name)
+        for row in matches:
+            body = str(row.get("system_prompt") or "").strip()
+            digest = str(row.get("instruction_digest") or "")
+            if (
+                row.get("id") == f"resource:skill:{name}"
+                and row.get("rtype") == "AGENT_SKILL"
+                and row.get("runnable_bound") is True
+                and row.get("source_ref") == expected_ref
+                and body
+                and digest == expected_digest
+                and runnable_skill_digest(body) == digest
+            ):
+                ready.add(name)
+                break
     return frozenset(ready)
 
 
@@ -2636,23 +2674,33 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
             )
         ready_after = _ready_bundled_skill_names(engine, expected)
         if ready_after != frozenset(BUNDLED_SKILLS):
+            # Name the skills that did not become ready. A bare count tells an
+            # operator that something is wrong but not which thing, and this is a
+            # HARD startup gate — the difference decides whether the server runs.
             logger.error(
                 "GraphOS packaged-skill readiness incomplete "
-                "(ready_before=%d ingested=%d ready_after=%d required=%d)",
+                "(ready_before=%d ingested=%d ready_after=%d required=%d) "
+                "not_ready=%s",
                 len(ready_before),
                 ingested,
                 len(ready_after),
                 len(BUNDLED_SKILLS),
+                sorted(frozenset(BUNDLED_SKILLS) - ready_after),
             )
             raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
+        # Same reasoning as _start_engine_bootstrap: the exception class alone is
+        # not diagnosable. Keep the message and the chained traceback so the
+        # actual reason a skill could not be ingested is visible in the log.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            "GraphOS packaged-skill readiness check failed (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
     return {
         "required": len(BUNDLED_SKILLS),
         "already_ready": len(ready_before),
@@ -2959,11 +3007,19 @@ def _start_engine_bootstrap(session: Any) -> None:
             engine = _get_engine()
             readiness = _ensure_bundled_skills_ready(engine)
     except Exception as exc:
+        # Log the cause, not just its class. Reporting only `exception_type=X`
+        # leaves an operator with nothing actionable — every distinct failure
+        # (a missing symbol, an unreachable engine, a denied capability) reads
+        # identically as "graphos_bundled_skills_unready", and `raise ... from
+        # None` then discards the chained traceback too. The message and the
+        # original traceback are what make the next failure diagnosable.
         logger.error(
-            "GraphOS critical startup readiness failed (exception_type=%s)",
+            "GraphOS critical startup readiness failed (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
 
     logger.info(
         "GraphOS packaged-skill readiness established (%d/%d)",
