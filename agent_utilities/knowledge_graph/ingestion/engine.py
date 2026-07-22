@@ -130,6 +130,50 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
+def _persist_document_span_evidence(
+    source_id: str, window_text: str, facts: list[Any], *, source: str
+) -> None:
+    """Through-write a ``DocumentSpan`` evidence locus per persisted fact
+    (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    Every ``ExtractedFact.evidence_span`` is already, by the extraction prompt's
+    own contract, a verbatim substring of the window it was mined from — before
+    this it was kept only as a loose narrative string on the fact edge, never
+    located back into the source text. The character offset is recoverable with
+    a plain ``str.find`` against the SAME window the fact was extracted from
+    (``window_text``, exactly what ``extract_facts`` saw) — no new computation,
+    just locating data that already exists. Best-effort: an engine-unavailable
+    store, an empty span, or a span that doesn't literally appear (a rare
+    non-verbatim LLM quote) is skipped, never raised — enrichment must never
+    break ingestion.
+    """
+    spans = [f for f in facts if getattr(f, "evidence_span", "")]
+    if not spans:
+        return
+    try:
+        from ..memory.native_ingest import media_store
+
+        store = media_store()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("document span evidence store unavailable: %s", e)
+        return
+    for fact in spans:
+        span = fact.evidence_span
+        start = window_text.find(span)
+        if start < 0:
+            continue
+        try:
+            store.store_document_span_evidence(
+                span.encode("utf-8"),
+                document_id=source_id,
+                start=start,
+                end=start + len(span),
+                source=source,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("document span evidence write failed: %s", e)
+
+
 class ContentType(StrEnum):
     """Content types supported by the Ingestion Engine.
 
@@ -1164,6 +1208,7 @@ class IngestionEngine:
             )
         except Exception:  # noqa: BLE001
             return 0
+        _persist_document_span_evidence(source_id, text, repaired, source=source_type)
         # Annotate the canonical Entity nodes with the grounded OWL class
         # (KG-2.66) so cross-modal entities converge on a shared type. Reuses the
         # post-repair grounding so node types match the persisted orientation.

@@ -256,6 +256,50 @@ def _format_rows(rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _persist_table_cell_evidence(path: str, sheet_title: str, rows: list[list]) -> None:
+    """Through-write ONE ``TableCellRange`` evidence locus for a worksheet's full
+    used range (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    ``ws.iter_rows`` already yields rows in order (an implicit row index) and
+    each row's cell count (an implicit column extent) — both discarded once
+    ``_format_rows`` flattens them to tab-joined text. Rather than one locus per
+    cell/row (thousands of writes on a large sheet, an unreasonable multiple of
+    the sheet's own single ingest pass), the real, already-known extent is
+    aggregated into ONE range covering the whole used area — the same
+    granularity :meth:`MediaStore.store_document_page_evidence` uses for a page
+    (one locus per unit, not per line). Best-effort: an engine-unavailable
+    store or an empty sheet is skipped, never raised.
+    """
+    if not rows:
+        return
+    ncols = max((len(r) for r in rows), default=0)
+    if ncols == 0:
+        return
+    try:
+        from ..memory.native_ingest import media_store
+
+        store = media_store()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("table cell evidence store unavailable: %s", e)
+        return
+    data = _format_rows(rows).encode("utf-8")
+    if not data:
+        return
+    try:
+        store.store_table_cell_evidence(
+            data,
+            table_id=f"{path}#{sheet_title}",
+            row_start=0,
+            row_end=len(rows) - 1,
+            col_start=0,
+            col_end=ncols - 1,
+            mime_type="text/tab-separated-values",
+            source="xlsx",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("table cell evidence write failed: %s", e)
+
+
 @register_reader(".xlsx")
 def read_xlsx(path: str) -> str:
     """Extract sheet/row text from an ``.xlsx`` via the optional ``openpyxl`` library.
@@ -282,6 +326,7 @@ def read_xlsx(path: str) -> str:
             body = _format_rows(rows)
             if body.strip():
                 blocks.append(f"# {ws.title}\n{body}")
+                _persist_table_cell_evidence(path, ws.title, rows)
     finally:
         with _suppress():
             wb.close()

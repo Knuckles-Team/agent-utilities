@@ -227,6 +227,67 @@ def _get_rapidocr_engine() -> object | None:
     return _OCR_ENGINE
 
 
+def _persist_image_region_evidence(file_path: str, rows: list) -> None:
+    """Through-write an ``ImageRegion`` evidence locus per recognised text line
+    (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    RapidOCR already computes a quadrilateral box per line (``row[0]``)
+    alongside its text — before this it was discarded (only ``row[1]`` text
+    survived the join below). The box's four points are collapsed to the axis-
+    aligned rectangle ``ImageRegion`` expects (min/max over the real, already-
+    computed points — no new detection). Stores the whole source image once per
+    line (content-addressed dedup collapses the repeats to one blob) so the
+    region's coordinates stay locatable within the actual bytes cited, mirroring
+    ``store_document_page_evidence``'s page-bytes-plus-box convention. Best-
+    effort: an unreadable file or an engine-unavailable store is logged and
+    skipped, never raised — this sits on the best-effort OCR read path.
+    """
+    try:
+        with open(file_path, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return
+    if not data:
+        return
+    try:
+        from ..memory.native_ingest import media_store
+
+        store = media_store()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("image region evidence store unavailable: %s", e)
+        return
+    import mimetypes
+
+    mime_type = mimetypes.guess_type(file_path)[0] or "image/png"
+    for row in rows:
+        if len(row) < 2 or not row[1]:
+            continue
+        try:
+            xs = [float(pt[0]) for pt in row[0]]
+            ys = [float(pt[1]) for pt in row[0]]
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not xs or not ys:
+            continue
+        x, y = min(xs), min(ys)
+        width, height = max(xs) - x, max(ys) - y
+        if width <= 0 or height <= 0:
+            continue
+        try:
+            store.store_image_region_evidence(
+                data,
+                image_id=file_path,
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                mime_type=mime_type,
+                source="rapidocr",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("image region evidence write failed: %s", e)
+
+
 def _ocr_with_rapidocr(file_path: str) -> str | None:
     """OCR via rapidocr-onnxruntime. ``None`` if unavailable; text otherwise."""
     engine = _get_rapidocr_engine()
@@ -236,6 +297,7 @@ def _ocr_with_rapidocr(file_path: str) -> str | None:
         result, _elapsed = engine(file_path)  # type: ignore[operator]  # optional ASR engine untyped
         if not result:
             return ""
+        _persist_image_region_evidence(file_path, result)
         # result rows are [box, text, score]; join recognised text lines.
         return "\n".join(row[1] for row in result if len(row) > 1 and row[1]).strip()
     except Exception as exc:
