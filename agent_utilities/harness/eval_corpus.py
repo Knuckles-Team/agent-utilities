@@ -152,6 +152,40 @@ class EvalCorpus:
                 logger.debug("dataset_item persist failed (%s)", type(exc).__name__)
         return case_id
 
+    def add_from_langfuse_dataset(
+        self, dataset_name: str, *, limit: int = 50, tags: list[str] | None = None
+    ) -> list[str]:
+        """Seed this corpus from a curated Langfuse dataset (CONCEPT:AU-AHE.reward.langfuse-evolution-signal).
+
+        Langfuse-as-evolution-signal's rollout half: pulls the dataset's items
+        (:func:`~agent_utilities.harness.langfuse_signal.fetch_dataset_tasks`) and
+        adds one regression/rollout case per item via the SAME :meth:`add_case`
+        a human correction or a promoted trace uses — so :meth:`run_corpus`
+        executes Langfuse-curated benchmark tasks exactly like any other case.
+        Returns the created case ids; ``[]`` when Langfuse is unconfigured,
+        unreachable, or the dataset is empty — never raises.
+        """
+        from agent_utilities.harness.langfuse_signal import fetch_dataset_tasks
+
+        case_ids: list[str] = []
+        for item in fetch_dataset_tasks(dataset_name, limit=limit):
+            query = str(item.get("input", ""))
+            if not query:
+                continue
+            case_id = self.add_case(
+                query=query,
+                expected_output=str(item.get("expected_output", "")),
+                tags=(tags or []) + ["from_langfuse_dataset"],
+                reason=f"Langfuse dataset '{dataset_name}'",
+                metadata={
+                    "source": "langfuse_dataset",
+                    "dataset_name": dataset_name,
+                    "langfuse_item_id": str(item.get("id", "")),
+                },
+            )
+            case_ids.append(case_id)
+        return case_ids
+
     def load_cases(self) -> list[Any]:
         """Load cases as harness ``TestCase`` objects (graph first, else memory)."""
         from .continuous_evaluation_engine import TestCase
