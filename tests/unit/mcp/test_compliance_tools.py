@@ -14,7 +14,10 @@ import json
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import audit_tools, engine_tools
-from agent_utilities.mcp.tools.compliance_tools import register_compliance_tools
+from agent_utilities.mcp.tools.compliance_tools import (
+    _confidence_rollup,
+    register_compliance_tools,
+)
 
 
 class _CollectingMCP:
@@ -205,6 +208,30 @@ def test_posture_omits_confidence_rollup_when_knowledge_stream_unavailable(
         )
     )
     assert "confidence_rollup" not in out
+
+
+def test_confidence_rollup_has_no_opt_in_gate():
+    """Query-seam closure ratchet (``reports/seam-closure-audit-2026-07-22.md``
+    §4.3 — confirm ``KnowledgeStream`` is the DEFAULT, not merely reachable).
+
+    ``_confidence_rollup`` is ``posture``'s only live default consumer of
+    ``Method::KnowledgeStream``; the two tests above prove it runs whenever the
+    engine exposes ``stream_graph_confidence`` and is silently omitted when it
+    doesn't — i.e. capability detection is the ONLY gate, never an opt-in
+    config/env flag a deployment must flip on. This is a source-level ratchet
+    against that regressing quietly: if a future change wraps the call in
+    ``config.*``/``os.environ``/``getenv`` (turning "default" back into
+    "opt-in"), this test fails loudly instead of the seam silently reopening.
+    """
+    import inspect
+
+    source = inspect.getsource(_confidence_rollup)
+    for token in ("config.", "os.environ", "getenv", "Field(default"):
+        assert token not in source, (
+            f"_confidence_rollup must stay capability-gated only; found "
+            f"opt-in-flag-shaped token {token!r} — KnowledgeStream is the "
+            "documented default consumer, not opt-in"
+        )
 
 
 def test_posture_no_active_engine(monkeypatch):
