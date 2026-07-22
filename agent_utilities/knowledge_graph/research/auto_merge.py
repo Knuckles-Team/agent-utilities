@@ -80,15 +80,6 @@ def _probe_production_validator(engine: Any, policy: MergePolicy) -> Any:
 
 
 @dataclass
-class _FailClosedDecision:
-    """Deny-shaped stand-in when the OS-5.24 gate itself cannot be consulted."""
-
-    reason: str
-    decision: str = "deny"
-    approval_id: str | None = None
-
-
-@dataclass
 class MergePolicy:
     """The governance policy for auto-merging a proposal. CONCEPT:AU-AHE.assimilation.research-auto-merge.
 
@@ -377,46 +368,56 @@ class GovernedAutoMerger:
         return evaluation
 
     def _consult_action_policy(self, spec: Any) -> Any:
-        """Decide ``merge_promotion`` for this proposal via the OS-5.24 gate.
+        """Decide ``merge_promotion`` for this proposal via the shared gate.
 
         The AHE-3.20 → ActionPolicy adoption: the merger's own promotion
         decision routes through the same operational decision point the
         AHE-3.21 publication path consults — same reserved kind, same target
         (the proposal id, so a queued/granted ``ActionApproval`` is SHARED
         with the publication step via the policy's per-kind+target dedup).
-        A gate failure fails CLOSED (deny), mirroring ``governed_publish``.
+        Now built on the SAME generalized gate
+        (``artifact_promotion.promote``, CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+        ``run_reflact_cycle``'s ``promote_skill_version`` consult uses — a
+        proposal has no candidate-vs-incumbent held-out score, so
+        ``incumbent_reward=None`` skips the comparison leg and goes straight to
+        ``action_policy.decide(kind="merge_promotion")``, identical behavior to
+        before. ``promote()`` already fails CLOSED (deny) on any gate failure,
+        mirroring ``governed_publish``'s discipline, so this call site needs no
+        try/except of its own anymore.
         """
         target = self._spec_id(spec)
-        try:
-            from agent_utilities.orchestration.action_policy import (
-                ActionRequest,
-                get_action_policy,
-            )
+        from agent_utilities.harness.reward_signal import RewardSignal
+        from agent_utilities.orchestration.artifact_promotion import (
+            PromotionCandidate,
+        )
+        from agent_utilities.orchestration.artifact_promotion import (
+            promote as promote_gate,
+        )
 
-            policy = self._action_policy or get_action_policy(self.engine)
-            return policy.decide(
-                ActionRequest(
-                    kind="merge_promotion",
-                    target=target,
-                    params={
-                        "stage": "promotion",
-                        "name": str(
-                            getattr(spec, "name", None)
-                            or (spec.get("name") if isinstance(spec, dict) else "")
-                            or ""
-                        ),
-                    },
-                    source="loop_engine",
-                    reason="promote evolution proposal proposal→active",
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 — gate failure ⇒ fail closed
-            logger.warning(
-                "auto-merge action-policy consult failed for %s: %s", target, exc
-            )
-            return _FailClosedDecision(
-                reason=f"action policy unavailable (fail closed): {exc}"
-            )
+        return promote_gate(
+            self.engine,
+            PromotionCandidate(
+                artifact_kind="spec",
+                artifact_id=target,
+                candidate_ref=target,
+                candidate_reward=RewardSignal(
+                    value=self.score_proposal(spec), source="internal_corpus"
+                ),
+                incumbent_reward=None,  # comparison-less — quality/governance already gated
+                policy_kind="merge_promotion",
+                source="loop_engine",
+                reason="promote evolution proposal proposal→active",
+                evidence={
+                    "stage": "promotion",
+                    "name": str(
+                        getattr(spec, "name", None)
+                        or (spec.get("name") if isinstance(spec, dict) else "")
+                        or ""
+                    ),
+                },
+            ),
+            policy=self._action_policy,
+        )
 
     def _promote(self, spec: Any) -> bool:
         """Promote a proposal to an active artifact (proposal → active)."""

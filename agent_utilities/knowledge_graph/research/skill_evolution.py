@@ -451,11 +451,6 @@ def run_reflact_cycle(
        :class:`~agent_utilities.harness.variant_pool.VariantPool.promote_winner`
        writes for a winning variant).
     """
-    from agent_utilities.orchestration.action_policy import (
-        ActionRequest,
-        get_action_policy,
-    )
-
     exec_fn = executor or default_static_executor
     report: dict[str, Any] = {
         "skill_id": skill_id,
@@ -546,10 +541,39 @@ def run_reflact_cycle(
     report["candidate_score"] = candidate_score
     report["candidate_version_id"] = candidate_id
 
-    from .skill_gate import evaluate_promotion
+    from agent_utilities.harness.reward_signal import RewardSignal
+    from agent_utilities.orchestration.artifact_promotion import (
+        PromotionCandidate,
+    )
+    from agent_utilities.orchestration.artifact_promotion import (
+        promote as promote_gate,
+    )
 
-    wins = evaluate_promotion(candidate_score, incumbent_score)
-    report["gate_action"] = "accept" if wins else "reject"
+    # The generalized gate (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+    # evaluate_promotion(strict=True, min_delta=0) is byte-identical to the ported
+    # skill_gate.evaluate_promotion comparison (candidate strictly beats incumbent),
+    # and promote() consults action_policy under the SAME "promote_skill_version"
+    # kind this cycle has always used — the DEFAULT_POLICY entry and its dedicated
+    # regression test need zero changes.
+    verdict = promote_gate(
+        engine,
+        PromotionCandidate(
+            artifact_kind="skill",
+            artifact_id=skill_id,
+            candidate_ref=candidate_id,
+            candidate_reward=RewardSignal(value=candidate_score, source="internal_corpus"),
+            incumbent_reward=RewardSignal(value=incumbent_score, source="internal_corpus"),
+            source="loop_engine",
+            reason=(
+                f"skill {skill_id} candidate {candidate_id} beats incumbent "
+                "on held-out eval"
+            ),
+            evidence={"task_count": len(holdout_tasks)},
+        ),
+        min_delta=0.0,
+        strict=True,
+    )
+    report["gate_action"] = "accept" if verdict.eligible else "reject"
 
     _persist_skill_version(
         engine,
@@ -557,7 +581,7 @@ def run_reflact_cycle(
         candidate_id=candidate_id,
         content=candidate_content,
         parent_hash=incumbent_hash,
-        status="proposal" if wins else "rejected",
+        status="proposal" if verdict.eligible else "rejected",
         origin="reflact",
         benchmark_score=candidate_score,
         benchmark_task_count=len(holdout_tasks),
@@ -565,35 +589,12 @@ def run_reflact_cycle(
         errors=report["errors"],
     )
 
-    if not wins:
+    if not verdict.eligible:
         # A benchmark loss never reaches action_policy — nothing to promote.
         return report
 
-    action_policy = get_action_policy(engine)
-    try:
-        decision = action_policy.decide(
-            ActionRequest(
-                kind="promote_skill_version",
-                target=skill_id,
-                params={
-                    "candidate_score": candidate_score,
-                    "incumbent_score": incumbent_score,
-                    "task_count": len(holdout_tasks),
-                    "candidate_version_id": candidate_id,
-                },
-                source="loop_engine",
-                reason=(
-                    f"skill {skill_id} candidate {candidate_id} beats incumbent "
-                    "on held-out eval"
-                ),
-            )
-        )
-    except Exception as e:  # noqa: BLE001 — fail closed, never crash
-        report["errors"].append(f"action_policy: {e}")
-        return report
-
-    report["action_decision"] = decision.decision
-    if decision.decision not in ("allow", "allow_notify"):
+    report["action_decision"] = verdict.decision
+    if not verdict.approved:
         return report
 
     # Two-key autonomy satisfied: benchmark win AND action-policy allow.

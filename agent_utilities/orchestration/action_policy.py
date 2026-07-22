@@ -151,6 +151,20 @@ DEFAULT_POLICY: dict[str, Any] = {
         # (see tests/unit/knowledge_graph/test_skill_evolution.py::
         # test_winning_candidate_default_never_auto_promotes).
         {"kind": "promote_skill_version", "target": "*", "tier": TIER_APPROVAL},
+        # Unified evolution matrix (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+        # the native eg-program optimizer's system-prompt and MCP tool-description
+        # candidates now flow through the SAME promotion gate as promote_skill_version
+        # instead of being gated only by the bare KG_AGENT_AUTO_APPLY boolean
+        # (EvolveAgent.apply_edits, previously ungoverned) — SAFETY-CRITICAL, these
+        # tiers must never silently become auto/auto_notify (see
+        # tests/unit/harness/test_agent_hardening_loop.py::
+        # test_apply_blocked_when_action_policy_denies_even_with_auto_apply_on).
+        {"kind": "promote_prompt_version", "target": "*", "tier": TIER_APPROVAL},
+        {
+            "kind": "promote_tool_description_version",
+            "target": "*",
+            "tier": TIER_APPROVAL,
+        },
         # Closed-loop agent mining (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
         # workstream C6): a mined repeated-failure tool-call pattern
         # (:SequentialPattern) that cleared its confidence floor and governance
