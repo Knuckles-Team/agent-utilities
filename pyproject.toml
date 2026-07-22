@@ -202,7 +202,11 @@ documents = [
     "banks>=2.4.5",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
     "nltk>=3.10.0",     # CVE-2026-54293 — path traversal in nltk.data.load (already latest)
     "pypdf>=6.14.2",    # CVE-2026-57204 — stream-length limit bypass
-    "aiohttp>=3.14.2"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
+    # CONCEPT:PHASE2-RECONCILE — relaxed off the modernize-bump's 3.14.2 floor:
+    # 3.14.1 already carries the CVE-2026-50269/54274/54275 fix (the original
+    # floor before the Phase-1 bump), and it's the exact version ccxt==4.5.67
+    # hard-pins its own aiohttp dependency to.
+    "aiohttp>=3.14.1"   # CVE-2026-50269/54274/54275 — CRLF / websocket limit bypass
 ]
 embeddings = [
     "llama-index-core>=0.14.23"]
