@@ -54,6 +54,38 @@ def _literal_strings(node: ast.AST) -> set[str]:
     }
 
 
+def _roots_at_action(node: ast.AST, aliases: set[str]) -> bool:
+    """True if ``node`` is ``action``/a known alias, possibly wrapped in the
+    common normalization idiom: ``(action or "default").strip().lower()``,
+    ``str(action or "")``, attribute/method chains, or boolean-or fallbacks.
+    Handles the ``action_key = ...`` / ``action_norm = ...`` pattern several
+    action-routed tools use instead of comparing ``action`` directly — without
+    this, ``harvest_actions`` silently sees zero actions for those tools and
+    the generated manifest collapses them to a single ``action=None`` op.
+    """
+    seen: set[int] = set()
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, ast.Name):
+            if current.id == "action" or current.id in aliases:
+                return True
+        elif isinstance(current, ast.Attribute):
+            stack.append(current.value)
+        elif isinstance(current, ast.Call):
+            stack.append(current.func)
+            stack.extend(current.args)
+        elif isinstance(current, ast.BoolOp):
+            stack.extend(current.values)
+        elif isinstance(current, (ast.IfExp,)):
+            stack.append(current.body)
+            stack.append(current.orelse)
+    return False
+
+
 def harvest_actions(func) -> set[str]:
     """Action string literals dispatched inside a tool function's source."""
     try:
@@ -65,6 +97,12 @@ def harvest_actions(func) -> set[str]:
     tree = ast.parse(textwrap.dedent(src))
     ns = getattr(func, "__globals__", {})
     local_constants: dict[str, set[str]] = {}
+    action_aliases: set[str] = set()
+    # Two passes: first collect local string-set constants (for `action in X`
+    # where X is a module/local constant) AND local aliases of the `action`
+    # parameter (`action_key = (action or "default").strip().lower()`), since
+    # an alias assignment may appear anywhere in source order relative to its
+    # use.
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             values = _literal_strings(node.value)
@@ -72,38 +110,43 @@ def harvest_actions(func) -> set[str]:
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         local_constants[target.id] = values
+            elif _roots_at_action(node.value, action_aliases):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        action_aliases.add(target.id)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             values = _literal_strings(node.value) if node.value is not None else set()
             if values:
                 local_constants[node.target.id] = values
+            elif node.value is not None and _roots_at_action(
+                node.value, action_aliases
+            ):
+                action_aliases.add(node.target.id)
+
+    def _is_action_name(n: ast.AST) -> bool:
+        return isinstance(n, ast.Name) and (n.id == "action" or n.id in action_aliases)
 
     actions: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Compare) and len(node.comparators) == 1:
             left, right = node.left, node.comparators[0]
             op = node.ops[0]
-            # action == "x"  /  "x" == action
+            # action == "x"  /  "x" == action  (or a normalized alias thereof)
             if isinstance(op, (ast.Eq, ast.NotEq)):
                 if (
-                    isinstance(left, ast.Name)
-                    and left.id == "action"
+                    _is_action_name(left)
                     and isinstance(right, ast.Constant)
                     and isinstance(right.value, str)
                 ):
                     actions.add(right.value)
                 if (
-                    isinstance(right, ast.Name)
-                    and right.id == "action"
+                    _is_action_name(right)
                     and isinstance(left, ast.Constant)
                     and isinstance(left.value, str)
                 ):
                     actions.add(left.value)
             # action in/not in {...}/[...]/(...) or a local/module constant.
-            if (
-                isinstance(op, (ast.In, ast.NotIn))
-                and isinstance(left, ast.Name)
-                and left.id == "action"
-            ):
+            if isinstance(op, (ast.In, ast.NotIn)) and _is_action_name(left):
                 for c in node.comparators:
                     if isinstance(c, (ast.Tuple, ast.List, ast.Set)):
                         actions |= _literal_strings(c)

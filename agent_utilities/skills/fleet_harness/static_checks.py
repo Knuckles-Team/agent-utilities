@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 import yaml
 
-from agent_utilities.skills.fleet_harness.discovery import SkillRecord
+from agent_utilities.skills.fleet_harness.discovery import SkillRecord, _is_noise
 
 Status = Literal["PASS", "FAIL", "WARN"]
 
@@ -29,6 +29,87 @@ _MAX_DESCRIPTION_CHARS = 1024
 #: Deliberately narrower than "any backtick word" — English verbs like `ask`
 #: appear constantly in prose and are not tool-name assertions.
 GRAPHOS_TOOL_REF_RE = re.compile(r"`((?:graph|engine|ontology|object)_[a-z0-9_]+)`")
+
+#: Immediately after a matched span's closing backtick, optionally through one
+#: closing paren, an enum/set-membership declaration (`` `ontology_host` ∈
+#: {stardog, ...} ``) — a config-schema FIELD being defined, not a tool call.
+_ENUM_FIELD_DECLARATION_RE = re.compile(r"^\)?\s*(?:∈|in)\s*\{")
+
+#: A backtick-wrapped structured-config filename (`genesis.yaml`, `foo.json`,
+#: ...). Naming-convention matches that follow one closely (see
+#: ``_looks_like_config_key`` below) are read as that file's field names, not
+#: graph-os tool names.
+_CONFIG_FILENAME_RE = re.compile(r"`[\w.-]+\.(?:ya?ml|json|toml|ini|env)`")
+
+#: How far back (chars, no intervening blank line) a config-filename mention
+#: still plausibly governs a later naming-convention match, e.g. "...see
+#: `genesis.yaml` `engine` + per-profile `engine_tier`)." — `engine_tier` is a
+#: field in that file, referenced ~25 chars after it names the file.
+_CONFIG_KEY_PROXIMITY_WINDOW = 200
+
+
+def _looks_like_config_key_or_path(body: str, match: re.Match[str]) -> bool:
+    """True when a ``GRAPHOS_TOOL_REF_RE`` match is better read as a
+    config-schema field name or a filesystem/storage-volume path fragment
+    than as a graph-os tool-name assertion.
+
+    The naming convention (``graph_*``/``engine_*``/``ontology_*``/
+    ``object_*``) is also just... common English/technical vocabulary, so
+    prose legitimately uses it for other things: a redb storage-volume name
+    (``epistemic-graph-migrations``), a genesis run-plan YAML field
+    (``agent-os-genesis``'s ``engine_tier``/``ontology_host``). Rather than a
+    hardcoded ignore-list of those specific strings (which would silently
+    stop covering the NEXT tool-shaped config key or path fragment some other
+    skill introduces), this checks the syntax immediately around the match
+    for the two shapes that reliably signal "not a tool claim":
+
+    1. Glued to a preceding ``/`` with no whitespace — a path/volume
+       fragment, e.g. ``redb/`graph_snapshots` volume``.
+    2. Followed by set-membership/enum notation (``∈ {...}`` / ``in
+       {...}``) — a config field's declared value set, e.g.
+       ``\\`ontology_host\\` ∈ {stardog, apache-jena, local}``.
+    3. Preceded, within a short no-blank-line window, by a backtick-wrapped
+       structured-config filename (``genesis.yaml``, ...) — subsequent
+       naming-convention matches in that span read as that file's own field
+       names, e.g. ``see \\`genesis.yaml\\` ... \\`engine_tier\\``.
+
+    This intentionally does NOT try to resolve every ambiguous case (a
+    heuristic that consulted a real non-tool registry — e.g. epistemic-
+    graph's actual redb table list — would be more precise for case 1, but
+    that registry lives in a different repo/language and isn't reachable
+    here). Prose that names a non-tool identifier with none of these three
+    shapes will still register a FAIL; that residual gap is the accepted,
+    documented false-positive mode, not silently masked.
+    """
+    start = match.start()
+    if body[:start].endswith("/"):
+        return True
+    after = body[match.end() :]
+    if _ENUM_FIELD_DECLARATION_RE.match(after):
+        return True
+    window_start = max(0, start - _CONFIG_KEY_PROXIMITY_WINDOW)
+    window = body[window_start:start]
+    if "\n\n" in window:
+        window = window[window.rindex("\n\n") + 2 :]
+    if _CONFIG_FILENAME_RE.search(window):
+        return True
+    return False
+
+
+def graphos_tool_reference_occurrences(body: str) -> set[str]:
+    """Backtick spans in ``body`` read as graph-os tool-name assertions.
+
+    Applies :func:`_looks_like_config_key_or_path` per OCCURRENCE (not per
+    unique string) so a term used legitimately as a tool name elsewhere in
+    the same skill is still caught even if one occurrence of the identical
+    string is excluded here as a config-key/path mention.
+    """
+    return {
+        match.group(1)
+        for match in GRAPHOS_TOOL_REF_RE.finditer(body)
+        if not _looks_like_config_key_or_path(body, match)
+    }
+
 
 #: `- \`tool_name\`: description` bullets under a "## Tools" section — the
 #: fleet convention for a skill to enumerate the MCP tools it drives (see
@@ -256,6 +337,29 @@ def _extract_reference_candidates(body: str) -> list[str]:
     return [t for t in _BACKTICK_PATH_RE.findall(body) if t.startswith(_ASSET_PREFIXES)]
 
 
+def _resolves_elsewhere_in_repo(record: SkillRecord, relative_path: str) -> bool:
+    """True if ``relative_path`` exists anywhere under the skill's repo root.
+
+    Many skills legitimately cite a file owned by a SIBLING skill or a
+    declared package dependency rather than claiming to bundle it
+    themselves — the fleet convention is an explicit pointer like
+    ``` `other-skill` -> `references/x.md` ``` or ``` `other-skill`'s
+    `scripts/y.py` ``` (see e.g. servicenow-workflow-studio ->
+    servicenow-sdk-docs, github-org-remediation-loop -> github-triage-
+    resolver, genius-web-crawl -> universal-skills' declared
+    ``web-crawler`` extra). Requiring a skill-dir-relative match alone
+    flags every one of those as a missing file. This does not weaken
+    detection of a genuinely missing/renamed file: it only accepts a
+    candidate that resolves to a REAL file/dir somewhere the harness's
+    scan root can see, so a truly absent reference (nothing bundled,
+    nothing cited elsewhere) still fails.
+    """
+    for match in record.repo_root.rglob(relative_path):
+        if not _is_noise(match.relative_to(record.repo_root)) and match.exists():
+            return True
+    return False
+
+
 def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
     candidates = sorted(set(_extract_reference_candidates(body)))
@@ -276,7 +380,9 @@ def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckRes
             # escapes the skill directory (e.g. `../other-skill/x`) — not
             # this gate's concern.
             continue
-        if not candidate_path.exists():
+        if not candidate_path.exists() and not _resolves_elsewhere_in_repo(
+            record, cleaned.rstrip("/")
+        ):
             missing.append(cleaned)
     if missing:
         checks.append(
@@ -318,7 +424,7 @@ def _package_root_for(record: SkillRecord) -> Path | None:
 
 def _check_declared_tools(record: SkillRecord, body: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
-    graphos_refs = sorted(set(GRAPHOS_TOOL_REF_RE.findall(body)))
+    graphos_refs = sorted(graphos_tool_reference_occurrences(body))
     if record.repo_name in {"agent-utilities", "epistemic-graph"} and graphos_refs:
         known = resolvable_graphos_tool_names()
         unknown = [t for t in graphos_refs if t not in known]
