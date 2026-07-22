@@ -125,11 +125,11 @@ about `store_media`/`store_rendition` changes.
 
 | Locus (`eg_modality::EvidenceSpan`) | `MediaStore` method | Producer wiring |
 |---|---|---|
-| `PageBox` | `store_document_page_evidence` | Shipped Seam 2 slice (pre-existing) |
-| `DocumentSpan` | `store_document_span_evidence` | Not wired — see below |
-| `TableCellRange` | `store_table_cell_evidence` | Not wired — see below |
-| `ImageRegion` | `store_image_region_evidence` | Not wired — see below |
-| `AudioSegment` | `store_audio_segment_evidence` | Not wired — see below |
+| `PageBox` | `store_document_page_evidence` | **No live external caller found** (2026-07-22 re-check) — only `tests/unit/knowledge_graph/test_media_store_evidence_spine.py` calls it; the "Shipped Seam 2 slice" label below predates that re-check and overstated it, exactly the kind of drift the seam-closure audit (`reports/seam-closure-audit-2026-07-22.md`) was run to catch. Left as-is (out of this pass's scope — no candidate producer was surveyed for it) rather than silently fixed. |
+| `DocumentSpan` | `store_document_span_evidence` | **Wired 2026-07-22** — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. |
+| `TableCellRange` | `store_table_cell_evidence` | **Wired 2026-07-22** — `readers_office.read_xlsx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per worksheet covering its full used range. |
+| `ImageRegion` | `store_image_region_evidence` | **Wired 2026-07-22, RapidOCR branch only** — `readers_media._ocr_with_rapidocr` (`agent_utilities/knowledge_graph/extraction/readers_media.py`). The `pytesseract` branch (`_ocr_with_pytesseract`) never computes a box at all (`image_to_string` has no box output), so there is nothing to wire there without adding new computation — left unwired by design. |
+| `AudioSegment` | `store_audio_segment_evidence` | Wired (pre-existing, confirmed 2026-07-21) — `messaging/router.py`. |
 | `VideoShot` | `store_video_shot_evidence` | No natural producer (see below) |
 | `VideoFrameRange` | `store_video_frame_range_evidence` | No natural producer (see below) |
 | `MetricWindow` | `store_metric_window_evidence` | Not wired — see below |
@@ -145,76 +145,80 @@ parametrized over all ten new loci (`LOCUS_CASES`), each asserting the exact
 `hasOccurrence`/`extractedFrom`/`hasBlob` edges, mirroring the page-box test's
 approach node-for-node.
 
-### Producer wiring — surveyed, deliberately not forced this pass
+### Producer wiring — 2026-07-22 pass (three more closed)
 
-Every remaining locus was matched against a candidate AU producer (a real
-ingestion/extraction path that already has, or nearly has, that modality's
-locus fields):
+The seam-closure audit (`reports/seam-closure-audit-2026-07-22.md`) re-counted
+this survey against live callers and found only 2 of 11 loci (`PageBox`,
+`AudioSegment`) had one — the other nine had a tested `MediaStore` method with
+the underlying data computed and discarded right next to it. This pass wired
+three of the nine (`DocumentSpan`, `TableCellRange`, `ImageRegion`), following
+`AudioSegment`'s own producer (`messaging/router.py`) as the template — a
+best-effort side effect at the exact point the data was already being thrown
+away, reached via `knowledge_graph.memory.native_ingest.media_store()` (the
+same ambient-engine accessor `native_ingest.py`'s other typed writers already
+use, so no new context plumbing was needed to reach a bound `MediaStore`):
 
-* **`AudioSegment`** — `agent_utilities/messaging/voice.py`'s
-  `_FasterWhisper.transcribe()` calls `faster-whisper`, whose `segments`
-  objects natively carry `.start`/`.end`; today only `seg.text` is kept. The
-  messaging router (`agent_utilities/messaging/router.py`) already resolves a
-  `MediaStore` (`_resolve_media_store`) and separately downloads+stores voice
-  attachment bytes (`_persist_media`) — but transcription
-  (`_transcribe_attachments` → `transcribe_voice`) is a second, independent
-  download that discards timing and never sees the stored occurrence.
-* **`DocumentSpan`** — `agent_utilities/knowledge_graph/extraction/
-  fact_extractor.py`'s `ExtractedFact.evidence_span` is a *verbatim substring*
-  of the source text (offsets are derivable via `str.find`), but
-  `persist_facts()` writes through a different facade (`store.add_node`/
-  `store.add_edge`, not `MediaStore`'s `client.nodes.add`/`client.blob`/
-  `client.txn`) and never sees the raw document bytes — the same loose
-  `evidence_span` *string* property already lives on the fact edge for a
-  different (narrative, not located-locus) purpose.
-* **`CodeSymbol`** — `agent_utilities/knowledge_graph/enrichment/extractors/
-  code_test.py`'s `entities_from_parse_result()` has `file_path`/`name`/`line`
-  from the Rust AST parse (an `end_line` prop already exists on the engine
-  node, per `agent_utilities/models/codemap.py`, just not read here yet) but
-  is a pure mapper by design ("this module only maps... no Python AST
-  walking") with no engine-client/MediaStore coupling to add to.
-  `agent_utilities/harness/trace_backend.py`'s `KGTraceBackend.record_event()`
-  is the strongest **`TraceSpan`** candidate (already takes `trace_id`/
-  `span_id` explicitly) but writes through the same non-`MediaStore`
-  `add_node`/`link_nodes` facade.
-* **`TableCellRange`** — `agent_utilities/knowledge_graph/extraction/
-  readers_office.py`/`readers.py` (`read_xlsx`/`read_csv`/`read_delimited`)
-  iterate rows/cells in order but flatten to joined text, discarding indices;
-  wiring would change the return shape of shared reader utilities several
-  other callers depend on.
-* **`RowVersion`** — `agent_utilities/protocols/source_connectors/connectors/
-  database.py`'s `DatabaseConnector.poll()` already tracks `row_id` + an
-  `updated_at` watermark, but has no explicit `table` field and, like the
-  others above, no `MediaStore` reach from a connector poll loop.
-* **`MetricWindow`** — `agent_utilities/knowledge_graph/memory/timeseries/
-  engine_backend.py`'s `EngineTimeSeriesBackend.query()` already takes a
-  `symbol`/time range and per-metric fields, but it is a *read* path
-  (answering a query), not an ingestion path that would naturally mint new
-  evidence.
-* **`ImageRegion`** — `agent_utilities/knowledge_graph/extraction/
-  readers_media.py`'s `_ocr_with_rapidocr()` gets `[box, text, score]` rows
-  from RapidOCR but keeps only the text; `_ocr_with_pytesseract()` doesn't
-  request box data at all.
-* **`VideoShot`/`VideoFrameRange`** — no shot-detection or frame-accurate
-  video-processing path exists in AU today; `agent_utilities/tools/
-  media_tools.py`'s `generate_video()` only generates video, it does not
-  analyze one.
+* **`DocumentSpan`** — `IngestionEngine._extract_facts_into_graph`
+  (`knowledge_graph/ingestion/engine.py`) now locates each persisted fact's
+  `evidence_span` back into the SAME window `extract_facts` mined it from via
+  `str.find` (a real offset lookup, not a new computation) and writes one
+  locus per fact. `persist_facts()` itself is untouched — the evidence write
+  sits alongside it, exactly like `_persist_audio_segment_evidence` sits
+  alongside `store_media` in the router.
+* **`TableCellRange`** — `readers_office.read_xlsx` now writes ONE locus per
+  worksheet spanning its real used range (`row_end`/`col_end` from the same
+  row/column extent `_format_rows` was already iterating over) rather than one
+  per cell/row — a large sheet would otherwise mean thousands of writes for a
+  single ingest pass, an unreasonable multiple of the sheet's own read. The
+  `.csv`/`.tsv` reader (owned by `extraction/readers.py`, not
+  `readers_office.py`) was left unwired this pass — same shape, not yet done.
+* **`ImageRegion`** — `readers_media._ocr_with_rapidocr` now writes one locus
+  per recognised text line, the quadrilateral box RapidOCR already returns
+  collapsed to the axis-aligned rectangle the locus expects (min/max over the
+  same points, no new detection). Scoped to the RapidOCR branch only —
+  `_ocr_with_pytesseract`'s `image_to_string` call never computes a box at
+  all, so there is nothing to wire there without adding new computation
+  (fabricating one would violate this seam's own "no invented data" charter).
 
-None of these is a same-file, no-risk addition: each needs either a
-client-shape bridge (the extractor/connector writes through a different KG
-facade than `MediaStore`), a behavior change to a shared utility several
-other callers depend on (discarding data that would need to start flowing
-through), or new context plumbing (an `audio_id`/`claim_id` that doesn't
-reach the call site today). Per this seam's own charter ("no new engine
-capability is needed... only the AU-side locus-field plumbing differs per
-modality"), the `MediaStore` methods above are the complete, tested AU-side
-half; wiring any one of them into its candidate producer is a scoped,
-single-locus follow-up rather than part of this pass.
+Still not wired, re-surveyed this pass:
+
+* **`CodeSymbol`** / **`TraceSpan`** — both candidate producers
+  (`enrichment/extractors/code_test.py`'s AST mapper;
+  `harness/trace_backend.py::KGTraceBackend.record_event`) sit on genuinely
+  HOT, high-volume paths (every symbol across the whole continuously-reingested
+  fleet; every span/generation in the harness). Wiring either unconditionally
+  would mean an evidence write (blob + occurrence + SourceObject + Evidence
+  node) per symbol/span with no `claim_id` ever attached — orphaned evidence at
+  a volume disproportionate to the audio/image/table producers above, not a
+  same-shape "wire the discarded data" fix. Left unwired rather than forced;
+  the right trigger is "a claim actually cites this symbol/span", which
+  doesn't exist as a call site yet.
+* **`RowVersion`** — `DatabaseConnector.poll()`
+  (`protocols/source_connectors/connectors/database.py`) has `row_id` + a
+  string `updated_at` watermark, but no `table` field (the connector wraps an
+  arbitrary `SELECT`, not one named table) and no integer `version`. Neither
+  field is fabricable from what the connector tracks without guessing —
+  genuinely no computed match for the locus's required fields.
+* **`MetricWindow`** — re-surveyed beyond the original candidate:
+  `observability/health.py`'s `detect_anomaly`/`HealthTrendBuffer` (the
+  fan-manager-derived trend/baseline/anomaly kernel, the closest real match —
+  it reasons over exactly a windowed set of readings) and
+  `observability/health_ingest.py`'s `ingest_health_anomaly` have **no live AU
+  caller at all** (`grep` for both together returns nothing outside their own
+  module and tests) — this pair is itself an unwired kernel in this repo (a
+  separate, pre-existing gap, not something to paper over by inventing a
+  caller here). `EngineTimeSeriesBackend.query()` remains a read path, not an
+  ingestion path. No computed-and-discarded window exists in AU today.
+* **`VideoShot`/`VideoFrameRange`** — unchanged: no shot-detection or
+  frame-accurate video-processing path exists in AU; `tools/media_tools.py`'s
+  `generate_video()` only generates video, it does not analyze one.
 
 ## What remains for full convergence
 
-* **Ten loci have a tested `MediaStore` method but no live AU producer call**
-  (see the survey above) — each is opt-in and ready for a caller to adopt.
+* **Six loci still have a tested `MediaStore` method but no live AU producer
+  call** (`VideoShot`, `VideoFrameRange`, `MetricWindow`, `RowVersion`,
+  `CodeSymbol`, `TraceSpan` — see the survey above); `PageBox` also has no live
+  external caller found this pass despite its earlier "shipped" label.
 * **No live-engine round-trip test in AU's own suite.** `evidence-graph` is an
   opt-in, non-default Cargo feature (not folded into any tier, including
   `full`/`default`) — AU's shared ephemeral-engine test fixture
