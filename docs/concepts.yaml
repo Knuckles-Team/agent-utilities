@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1014
+total_concepts: 1015
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1314,6 +1314,29 @@ concepts:
   dotted: AU-AHE.optimization.recursive-distillation-loop
   aliases:
   - AU-AHE.optimization.recursive-distillation-loop
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.optimization.skillopt-native-reflact
+  name: SkillOpt-native ReflACT skill-markdown evolution — versioned SkillVersion nodes,
+    a benchmark-gated promotion decision (candidate must strictly beat the incumbent on
+    a held-out eval), and a LoopController-driven Rollout/Reflect/Aggregate-Select-Update/
+    Evaluate cycle wired into the flywheel behind the action_policy veto gate
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/research/skill_evolution.py
+  - agent_utilities/knowledge_graph/research/skill_gate.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/models/knowledge_graph.py
+  - agent_utilities/orchestration/action_policy.py
+  doc: SkillOpt-native ReflACT skill-markdown evolution — versioned SkillVersion nodes,
+    a benchmark-gated promotion decision (candidate must strictly beat the incumbent on
+    a held-out eval), and a LoopController-driven Rollout/Reflect/Aggregate-Select-Update/
+    Evaluate cycle wired into the flywheel behind the action_policy veto gate
+  dotted: AU-AHE.optimization.skillopt-native-reflact
+  aliases:
+  - AU-AHE.optimization.skillopt-native-reflact
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.optimization.telemetry-optimization

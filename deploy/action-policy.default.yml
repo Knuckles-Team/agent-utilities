@@ -78,6 +78,13 @@ rules:
   # tier must never silently become auto/auto_notify (see
   # tests/unit/test_action_policy.py::test_promote_mined_claim_default_never_auto).
   - {kind: promote_mined_claim, target: "*", tier: approval_required}
+  # SkillOpt-native ReflACT skill evolution: a candidate :SkillVersion that beat
+  # its incumbent on the held-out benchmark still requires a human before it
+  # flips proposal -> active — SAFETY-CRITICAL, this tier must never silently
+  # become auto/auto_notify (see
+  # tests/unit/knowledge_graph/test_skill_evolution.py::
+  # test_winning_candidate_default_never_auto_promotes).
+  - {kind: promote_skill_version, target: "*", tier: approval_required}
   # Closed-loop agent mining (workstream C6): a mined repeated-failure
   # tool-call pattern (:SequentialPattern) that cleared its confidence floor
   # and governance still requires a human before trace_pattern_miner applies

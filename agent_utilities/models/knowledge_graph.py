@@ -64,6 +64,10 @@ class RegistryNodeType(StrEnum):
     # prod-trace → dataset → prompt-version closed loop (CONCEPT:AU-AHE.evaluation.generationnode-records).
     DATASET_ITEM = "dataset_item"
     PROMPT_VERSION = "prompt_version"
+    # SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact) —
+    # a content-addressed revision of a SKILL.md, gated onto "active" only by beating
+    # its incumbent on a held-out benchmark AND clearing action_policy.decide().
+    SKILL_VERSION = "skill_version"
     ENTITY = "entity"
     EVENT = "event"
     REFLECTION = "reflection"
@@ -1554,6 +1558,39 @@ class PromptVersionNode(RegistryNode):
     parent_hash: str | None = None
 
 
+class SkillVersionNode(RegistryNode):
+    """A content-addressed revision of a skill's ``SKILL.md`` (CONCEPT:AU-AHE.optimization.skillopt-native-reflact).
+
+    The AU-native port of SkillOpt's (arXiv:2605.23904) treatment of the skill markdown
+    document as the ONLY trainable parameter of a frozen model. Mirrors
+    :class:`PromptVersionNode`'s content-addressed-lineage contract exactly
+    (``version_hash``/``parent_hash``), plus what SkillOpt's ``best_skill.md`` +
+    ``history.json`` bundle together: the held-out benchmark score at proposal time and
+    the Reflect-stage failure patterns that produced this revision, so "which skill
+    revision regressed on task X" is a graph query instead of a private training run's
+    flat file. ``status`` mirrors :class:`ClaimNode`'s propose-only contract — a
+    version is ALWAYS persisted as ``proposal``/``rejected``; only the benchmark gate
+    (``skill_gate.evaluate_promotion``) AND ``action_policy.decide(kind=
+    "promote_skill_version")`` together flip it to ``active``
+    (``knowledge_graph/research/skill_evolution.py::run_reflact_cycle``).
+    """
+
+    type: RegistryNodeType = RegistryNodeType.SKILL_VERSION
+    skill_id: str
+    version_hash: str
+    content: str = ""
+    parent_hash: str | None = None
+    status: str = "proposal"  # proposal | active | rejected
+    origin: str = "reflact"  # reflact | manual | seed
+    benchmark_score: float | None = None
+    benchmark_task_count: int = 0
+    reflect_notes: list[str] = Field(default_factory=list)
+    # model_id -> held-out score under that target model (cross-model transfer, §3.5
+    # of the design doc); populated by ``record_transfer_score`` — opt-in, not swept
+    # automatically.
+    transfer_scores: dict[str, float] = Field(default_factory=dict)
+
+
 class EntityNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.ENTITY
     entity_type: str  # Person, Org, Location, etc.
@@ -2872,6 +2909,7 @@ class MemoryRetrieverNode(RegistryNode):
         ),
     )
     session_id: str = Field(default="", description="Session that created this version")
+
 
 class SwarmCoalitionNode(RegistryNode):
     """A dynamically formed agent coalition for task execution.

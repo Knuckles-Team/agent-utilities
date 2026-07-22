@@ -3299,6 +3299,14 @@ class AgentConfig(BaseSettings):
     kg_loop_insight_validation: bool = Field(
         default=True, alias="KG_LOOP_INSIGHT_VALIDATION"
     )
+    # SkillOpt-native ReflACT skill evolution (CONCEPT:AU-AHE.optimization.skillopt-native-reflact):
+    # Rollout->Reflect->Aggregate/Select/Update->Evaluate over any registered skill-eval
+    # target, gated onto "active" only by beating the incumbent on a held-out benchmark
+    # AND action_policy.decide(kind="promote_skill_version") — shipped default
+    # approval_required, so leaving this on everywhere never auto-promotes a skill
+    # revision by itself. Default ON: the stage degrades to a clean no-op with zero
+    # registered skill-eval targets (mirrors belief_revision's <2-node no-op).
+    kg_loop_skill_evolution: bool = Field(default=True, alias="KG_LOOP_SKILL_EVOLUTION")
     # X3 — opt-in autonomy tier for the Insight Engine (CONCEPT:AU-KG.evolution.insight-engine-closed-loop).
     # OFF by default: even when this is True, a mined claim only auto-promotes
     # if BOTH action_policy.decide(kind="promote_mined_claim") allows (shipped
