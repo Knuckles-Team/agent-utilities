@@ -146,9 +146,7 @@ def read_msg(path: str) -> str:
     try:
         import extract_msg  # type: ignore[import-not-found]
     except ImportError:
-        logger.warning(
-            "extract-msg not installed; configured source skipped"
-        )
+        logger.warning("extract-msg not installed; configured source skipped")
         return ""
     try:
         m = extract_msg.Message(path)
@@ -175,6 +173,51 @@ def read_msg(path: str) -> str:
 # ============================================================================
 
 
+def _persist_slide_page_evidence(
+    path: str, page: int, body: str, width: object, height: object
+) -> None:
+    """Through-write ONE ``PageBox`` evidence locus per slide
+    (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    ``Presentation.slide_width``/``slide_height`` are real EMU dimensions
+    ``python-pptx`` already reports for the deck — used here as the box's full
+    extent (``x=0, y=0``), the same "whole known unit" convention
+    :func:`_persist_table_cell_evidence` established for ``TableCellRange``:
+    python-pptx exposes no per-shape layout box without walking every shape's
+    own ``left``/``top``/``width``/``height`` individually, so the whole-slide
+    extent is the real, already-known granularity — not a per-shape
+    computation this reader doesn't otherwise perform. Best-effort: an
+    engine-unavailable store or an empty slide body is skipped, never raised.
+    """
+    if not body.strip():
+        return
+    try:
+        from ..memory.native_ingest import media_store
+
+        store = media_store()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("document page evidence store unavailable: %s", e)
+        return
+    data = body.encode("utf-8")
+    try:
+        store.store_document_page_evidence(
+            data,
+            document_id=path,
+            page=page,
+            x=0.0,
+            y=0.0,
+            width=float(width) if width else 0.0,
+            height=float(height) if height else 0.0,
+            mime_type=(
+                "application/vnd.openxmlformats-officedocument"
+                ".presentationml.presentation"
+            ),
+            source="pptx",
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("document page evidence write failed: %s", e)
+
+
 @register_reader(".pptx")
 def read_pptx(path: str) -> str:
     """Extract slide text from a ``.pptx`` via the optional ``python-pptx`` library.
@@ -182,14 +225,14 @@ def read_pptx(path: str) -> str:
     One text block per slide: shape text, table cells, and speaker notes. Slides
     are separated by a ``--- Slide N ---`` marker so downstream chunking keeps
     slide boundaries. Auto-detected; degrades to a clear no-op if ``pptx`` is
-    absent.
+    absent. Also through-writes a ``PageBox`` evidence locus per slide
+    (CONCEPT:AU-KG.identity.evidence-spine-convergence) — see
+    :func:`_persist_slide_page_evidence`.
     """
     try:
         from pptx import Presentation  # type: ignore[import-not-found]
     except ImportError:
-        logger.warning(
-            "python-pptx not installed; configured source skipped"
-        )
+        logger.warning("python-pptx not installed; configured source skipped")
         return ""
     try:
         prs = Presentation(path)
@@ -208,6 +251,9 @@ def read_pptx(path: str) -> str:
         body = "\n".join(p for p in parts if p.strip())
         if body.strip():
             slides.append(f"--- Slide {idx} ---\n{body}")
+            _persist_slide_page_evidence(
+                path, idx, body, prs.slide_width, prs.slide_height
+            )
     return "\n\n".join(slides)
 
 

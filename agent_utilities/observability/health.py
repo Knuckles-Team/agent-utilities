@@ -117,6 +117,7 @@ class HealthTrendBuffer:
     def _flush(self, now: float) -> dict[str, Any] | None:
         values = [v for _, v, _ in self._buf if v is not None]
         controls = [c for _, _, c in self._buf if c is not None]
+        timestamps = [t for t, _, _ in self._buf]
         n = len(self._buf)
         window_s = self.window_s
         self._buf.clear()
@@ -132,6 +133,12 @@ class HealthTrendBuffer:
             else None,
             "samples": n,
             "window_s": window_s,
+            # Real min/max sample timestamps (epoch seconds) — the ACTUAL
+            # observed window bounds, not a nominal `now - window_s` estimate
+            # (a flush can fire early on the sample-count cap). Additive: any
+            # consumer keyed only on the fields above is unaffected.
+            "start_at": min(timestamps),
+            "end_at": max(timestamps),
         }
 
 
