@@ -827,3 +827,56 @@ def test_fuseki_publish_auto_enables_when_endpoint_configured():
         assert AgentConfig().kg_fuseki_publish is True
     finally:
         _clear_auto_flag_env()
+
+
+class TestOAuth2BlockSecretPolicy:
+    """CONCEPT:AU-OS.identity.process-identity — ``KG_IDENTITY_OAUTH2`` must validate.
+
+    Regression: the nested ``client_secret`` reference exemption matched only the
+    bare parent key ``OAUTH2``. The top-level ``KG_IDENTITY_OAUTH2`` field nests
+    its own dict, so its parent key is ``KG_IDENTITY_OAUTH2`` and the exemption
+    never fired — making the process-identity shape documented in
+    ``docs/guides/enterprise-enablement-runbook.md`` impossible to configure.
+    """
+
+    @staticmethod
+    def _validate(block):
+        from agent_utilities.core.config import _validate_durable_xdg_secret_policy
+
+        return _validate_durable_xdg_secret_policy(block)
+
+    def test_kg_identity_oauth2_reference_shape_is_accepted(self):
+        self._validate(
+            {
+                "KG_IDENTITY_OAUTH2": {
+                    "token_url": "https://keycloak.example/token",
+                    "client_id": "graph-os",
+                    "client_secret": "env://OIDC_CLIENT_SECRET",
+                }
+            }
+        )
+
+    def test_raw_literal_secret_in_oauth2_block_is_still_rejected(self):
+        """The fix must NOT weaken the gate: only *references* are exempt."""
+        from agent_utilities.core.config import ConfigurationSourceError
+
+        with pytest.raises(ConfigurationSourceError):
+            self._validate(
+                {
+                    "KG_IDENTITY_OAUTH2": {
+                        "token_url": "https://keycloak.example/token",
+                        "client_id": "graph-os",
+                        "client_secret": "a-real-literal-secret",
+                    }
+                }
+            )
+
+    def test_nested_secret_outside_an_oauth2_block_is_still_rejected(self):
+        """Suffix-matching stays scoped to OAuth2 blocks, not any nested credential."""
+        from agent_utilities.core.config import ConfigurationSourceError
+
+        with pytest.raises(ConfigurationSourceError):
+            self._validate({"SOME_OTHER_BLOCK": {"client_secret": "env://X"}})
+
+    def test_plain_oauth2_parent_still_accepted(self):
+        self._validate({"OAUTH2": {"client_secret": "env://OIDC_CLIENT_SECRET"}})
