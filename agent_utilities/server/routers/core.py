@@ -34,10 +34,44 @@ async def list_configured_models(request: Request) -> dict[str, Any]:
 
 @router.get("/health", summary="Health Check")
 async def health_check(request: Request):
-    """Return non-fingerprinting liveness for unauthenticated probes."""
+    """LIVENESS: always 200 — this process is up and answering.
+
+    The JSON body carries the ONE truthful, shared health report (real engine
+    reachability + circuit-breaker state, plus every configured co-service/
+    dependency) from :func:`~agent_utilities.observability.runtime_health.collect_health`
+    — the SAME core the graph-os MCP server's ``/health`` and
+    ``graph_configure(action="health")`` dispatch into. A downstream
+    dependency being down never flips this endpoint's HTTP status: killing/
+    restarting this process over a dependency outage would only crash-loop a
+    fine process. Use ``GET /health/ready`` for the readiness signal that DOES
+    flip status code (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    """
+    import asyncio
+
+    from agent_utilities.observability.runtime_health import collect_health
+
+    report = await asyncio.to_thread(collect_health)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/health/ready", summary="Readiness Check")
+async def readiness_check(request: Request):
+    """READINESS: the same health report, with HTTP 200/503 reflecting it.
+
+    kubelet uses this to stop routing traffic to a genuinely unhealthy pod
+    without restarting the process (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    """
+    import asyncio
+
+    from agent_utilities.observability.runtime_health import (
+        collect_health,
+        is_overall_healthy,
+    )
+
+    report = await asyncio.to_thread(collect_health)
+    status_code = 200 if is_overall_healthy(report) else 503
     return JSONResponse(
-        {"status": "ok"},
-        headers={"Cache-Control": "no-store"},
+        report, status_code=status_code, headers={"Cache-Control": "no-store"}
     )
 
 

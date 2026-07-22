@@ -3093,15 +3093,46 @@ def _build_server(
         transport_choices=("stdio", "streamable-http"),
     )
 
-    # Unauthenticated liveness for HTTP deployments. Keep this response
-    # status-only so a probe cannot fingerprint the server or its topology;
-    # authenticated readiness detail remains available through system_doctor,
-    # multiplexer_status, and the gateway daemon/shards surface.
+    # Unauthenticated liveness + readiness for HTTP deployments (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    # Both dispatch into the ONE shared health-check core
+    # (``observability.runtime_health.collect_health``) also used by the REST
+    # gateway's ``/health``/``/health/ready`` and by ``graph_configure(action=
+    # "health")`` — never a second implementation that can drift.
+    #
+    # ``/health`` is LIVENESS: it always answers 200 (this process itself is up
+    # and answering requests) even when the body reports "unhealthy" — a
+    # downstream dependency being down must NOT make kubelet kill/restart an
+    # otherwise-fine process (that would crash-loop the pod for something a
+    # restart cannot fix). The body is the truthful, loud signal: real engine
+    # reachability + circuit-breaker state, plus every configured co-service/
+    # dependency — never a stub that reports "ok" regardless of reality.
+    #
+    # ``/health/ready`` is READINESS: the SAME report, but its overall status
+    # maps onto the HTTP status code (200 healthy / 503 unhealthy) so kubelet
+    # pulls this pod out of Service routing while it's genuinely broken,
+    # without touching the process.
+    #
+    # Both stay status-only-by-default in the sense that only non-secret detail
+    # (counts, booleans, resolved modes, platform ids) is ever included — no
+    # endpoint DSNs, tokens, or credentials.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
+        from agent_utilities.observability.runtime_health import collect_health
+
+        report = await asyncio.to_thread(collect_health)
+        return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+    @mcp.custom_route("/health/ready", methods=["GET"])
+    async def readiness_check(request: Request) -> JSONResponse:  # noqa: ARG001
+        from agent_utilities.observability.runtime_health import (
+            collect_health,
+            is_overall_healthy,
+        )
+
+        report = await asyncio.to_thread(collect_health)
+        status_code = 200 if is_overall_healthy(report) else 503
         return JSONResponse(
-            {"status": "ok"},
-            headers={"Cache-Control": "no-store"},
+            report, status_code=status_code, headers={"Cache-Control": "no-store"}
         )
 
     # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the

@@ -170,11 +170,21 @@ async def list_available_widgets() -> list[WidgetListItem]:
 
 @dashboard_router.get("/health")
 async def health_check() -> JSONResponse:
-    """Return non-fingerprinting liveness for unauthenticated probes."""
-    return JSONResponse(
-        {"status": "ok"},
-        headers={"Cache-Control": "no-store"},
-    )
+    """LIVENESS: always 200, with the shared truthful health report as body.
+
+    Dispatches into the SAME
+    :func:`~agent_utilities.observability.runtime_health.collect_health` core
+    used by the graph-os MCP server and the top-level gateway ``/health`` —
+    never a second implementation. See ``GET /health/ready`` on the top-level
+    app for the readiness twin that reflects status in the HTTP code
+    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    """
+    import asyncio
+
+    from agent_utilities.observability.runtime_health import collect_health
+
+    report = await asyncio.to_thread(collect_health)
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 @dashboard_router.get("/discover")
