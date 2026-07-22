@@ -609,6 +609,162 @@ def test_rollback_placement_change_calls_catalog_remove(monkeypatch):
     assert captured["params"] == {"graph": "acme:ws1"}
 
 
+def test_apply_placement_change_prefers_raft_placement_catalog_bootstrap_assign(
+    monkeypatch,
+):
+    """When the engine advertises the ``placement`` domain (a raft/cluster build),
+    ``apply_placement_change`` drives DIST-P2-1's REAL raft ``PlacementCatalog``
+    (``PlacementAssign``) instead of the R5 single-node catalog — even though
+    BOTH domains are present, ``placement`` wins."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        calls.append((domain, action, json.loads(params_json)))
+        if domain == "placement" and action == "route":
+            return json.dumps({"placed": False, "group": 0, "epoch": 0})
+        if domain == "placement" and action == "assign":
+            return json.dumps(3)
+        raise AssertionError(f"unexpected dispatch: {domain}.{action}")
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {
+            "resharding": ["catalog_assign", "catalog_remove", "reshard"],
+            "placement": ["route", "assign", "move", "abort_move"],
+        },
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    proposal = _proposal(kind="shard_split", target="acme:ws1")
+    proposal.evidence["group"] = 3
+    result = apply_placement_change(proposal)
+
+    assert result == {"applied": True, "method": "placement_assign", "detail": 3}
+    assert [c[:2] for c in calls] == [
+        ("placement", "route"),
+        ("placement", "assign"),
+    ]
+    assert calls[0][2] == {"tenant": "acme", "sub_key": "acme"}
+    assert calls[1][2] == {"tenant": "acme", "group": 3}
+    assert proposal.evidence["_placement_move_tenant"] == "acme"
+    assert "_placement_move_from_group" not in proposal.evidence
+
+
+def test_apply_placement_change_uses_raft_online_move_when_already_placed(monkeypatch):
+    """A tenant that already has a raft-catalog placement is relocated via the
+    real online-move RPC (``PlacementMove``), not re-``assign``ed."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        calls.append((domain, action, json.loads(params_json)))
+        if action == "route":
+            return json.dumps({"placed": True, "group": 0, "epoch": 5})
+        if action == "move":
+            return json.dumps(
+                {
+                    "tenant": "acme",
+                    "range": [0, 2**64 - 1],
+                    "target": 3,
+                    "epoch": 6,
+                    "graphs": [
+                        {
+                            "graph": "acme:ws1",
+                            "from_group": 0,
+                            "to_group": 3,
+                            "nodes_transferred": 6,
+                        }
+                    ],
+                }
+            )
+        raise AssertionError(f"unexpected dispatch: {domain}.{action}")
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"placement": ["route", "assign", "move", "abort_move"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    proposal = _proposal(kind="shard_split", target="acme:ws1")
+    proposal.evidence["group"] = 3
+    result = apply_placement_change(proposal)
+
+    assert result["applied"] is True
+    assert result["method"] == "placement_move"
+    assert result["detail"]["epoch"] == 6
+    assert [c[:2] for c in calls] == [("placement", "route"), ("placement", "move")]
+    assert calls[1][2] == {
+        "tenant": "acme",
+        "range_start": 0,
+        "range_end": 2**64 - 1,
+        "target": 3,
+    }
+    assert proposal.evidence["_placement_move_tenant"] == "acme"
+    assert proposal.evidence["_placement_move_from_group"] == 0
+
+    # Rollback moves the tenant straight back to its pre-move group.
+    rollback_calls: list[dict] = []
+
+    def fake_dispatch_rollback(domain, methods, action, params_json, graph):
+        rollback_calls.append(json.loads(params_json))
+        assert domain == "placement" and action == "move"
+        return json.dumps({"tenant": "acme", "target": 0, "epoch": 7, "graphs": []})
+
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch_rollback)
+    rollback_result = rollback_placement_change(proposal)
+    assert rollback_result["rolled_back"] is True
+    assert rollback_result["method"] == "placement_move"
+    assert rollback_calls == [
+        {"tenant": "acme", "range_start": 0, "range_end": 2**64 - 1, "target": 0}
+    ]
+
+
+def test_apply_placement_change_falls_back_to_r5_catalog_when_placement_domain_absent(
+    monkeypatch,
+):
+    """No ``placement`` domain (today's common single-node deployment) ⇒
+    unchanged R5 behaviour — the new preference is additive, not a break."""
+    import agent_utilities.mcp.tools.engine_tools as engine_tools_mod
+
+    calls: list[str] = []
+
+    def fake_dispatch(domain, methods, action, params_json, graph):
+        calls.append(f"{domain}.{action}")
+        return json.dumps({"route": "assigned"})
+
+    monkeypatch.setattr(
+        engine_tools_mod,
+        "ENGINE_DOMAINS",
+        {"resharding": ["catalog_assign", "catalog_remove"]},
+    )
+    monkeypatch.setattr(engine_tools_mod, "_dispatch", fake_dispatch)
+
+    result = apply_placement_change(_proposal(kind="shard_split", target="acme:ws1"))
+    assert result["applied"] is True
+    assert result["method"] == "catalog_assign"
+    assert calls == ["resharding.catalog_assign"]
+
+
+def test_rollback_via_raft_placement_is_honest_when_no_pre_move_group_recorded(
+    monkeypatch,
+):
+    """A raft-catalog `assign` bootstrap (no prior group) has no clean engine-side
+    un-assign yet — rollback says so plainly rather than silently no-op'ing or
+    reverting through the unrelated R5 system."""
+    proposal = _proposal(kind="shard_split", target="acme:ws1")
+    proposal.evidence["_placement_move_tenant"] = "acme"
+
+    result = rollback_placement_change(proposal)
+    assert result["rolled_back"] is False
+    assert result["method"] == "placement_move"
+    assert "no recorded pre-move group" in result["detail"]
+
+
 def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
     """End-to-end: a promoted canary's default apply_fn is apply_placement_change,
     which reaches the engine's PlacementCatalog admin path."""
