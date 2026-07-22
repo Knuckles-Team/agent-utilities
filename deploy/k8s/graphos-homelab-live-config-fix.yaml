@@ -1,0 +1,156 @@
+# Targeted config fix for the LIVE homelab `platform` namespace graph-os
+# streamable-HTTP MCP deployment — NOT a full redeploy manifest.
+#
+# CONTEXT (verified read-only against the live cluster 2026-07-22 — see the
+# accompanying report for full detail):
+#
+#   Deployment `platform/graph-os`      — runs `python -m agent_utilities.mcp.kg_server`,
+#                                          TRANSPORT=streamable-http, PORT=8000, already
+#                                          serving real MCP traffic on `/mcp` (confirmed via
+#                                          pod logs: POST /mcp -> 200/202). THIS is the single
+#                                          hosted streamable-HTTP MCP surface for graph-os.
+#                                          Service `platform/graph-os` (ClusterIP 80->8000) +
+#                                          Ingress `platform/graph-os` (host graph-os.arpa,
+#                                          VIP 10.0.0.240, TLS via Secret graph-os-tls) already
+#                                          front it — no new Service/Ingress is needed.
+#   Deployment `platform/graph-os-host` — runs `python -m agent_utilities.gateway.daemon`
+#                                          (console entrypoint `graph-os-daemon`): the single
+#                                          consolidated KG background daemon (durable task-queue
+#                                          drain, graph-writer, maintenance scheduler, the
+#                                          KG_LOOP self-evolution cycle). No Service, no ports —
+#                                          nothing calls it directly; `graph-os` (and other
+#                                          KG_DAEMON_ROLE=client processes) enqueue work that
+#                                          THIS pod drains. It is NOT redundant with `graph-os`
+#                                          and is NOT an HTTP front for it — a distinct,
+#                                          necessary role. Leave it exactly as-is.
+#   Deployment `platform/epistemic-graph` — the compiled Rust engine
+#                                          (`epistemic-graph-server`), hostNetwork on r510,
+#                                          raw TCP wire protocol on :9100 (ENGINE_ENDPOINT /
+#                                          GRAPH_SERVICE_TCP_ADDR = 10.0.0.10:9100). Leave as-is.
+#
+# THE BUG THIS FIXES (do not skip — see report for the full chain):
+#
+#   1. The live `graph-os-env` ConfigMap sets `MCP_AUTH_TYPE: jwt`. The code
+#      (agent_utilities/mcp/server_factory.py `create_mcp_parser` ->
+#      `--auth-type`, default `setting("AUTH_TYPE", "none")`) reads `AUTH_TYPE`,
+#      NOT `MCP_AUTH_TYPE`. `MCP_AUTH_TYPE` is not read anywhere in the code
+#      (grep confirms it appears only in an unrelated doc as a *different*,
+#      already-retired "recovery lever" name) — it is a stray var. Because
+#      `AUTH_TYPE` was never actually set, `_configure_auth()` returns
+#      `auth=None` and FastMCP serves `/mcp` **with no Bearer-token
+#      verification at all**, despite AUTH_JWT_JWKS_URI/ISSUER/AUDIENCE all
+#      being (correctly) populated alongside it. This is the exact
+#      "looks configured but isn't" gap `apply_served_security_profile()` in
+#      this branch now closes at the code level (see the report) — but the
+#      live ConfigMap must still be corrected so the redeployed image actually
+#      uses it.
+#   2. `KG_POLICY_VERSION` is entirely absent from the live ConfigMap.
+#      `apply_served_security_profile()` refuses to serve any network
+#      transport without both an audience AND a policy revision configured —
+#      so once (1) is fixed and the image is rebuilt from a `main` that
+#      already contains this check, the pod would immediately crash-loop
+#      (`RuntimeError`, not a silent hole) until this is also set. That
+#      fail-loud behavior is correct and intentional; this key just needs a
+#      value so the pod can actually start.
+#
+# HOW TO APPLY (operator action — this file is NOT auto-applied by any agent):
+#
+#   kubectl patch configmap graph-os-env -n platform --type merge -p '{"data":{
+#     "AUTH_TYPE": "jwt",
+#     "KG_POLICY_VERSION": "<pick a stable string, e.g. 2026-07-homelab-v1>"
+#   }}'
+#   kubectl delete configmap/graph-os-env -n platform --dry-run=client -o yaml   # (sanity diff first)
+#
+# Then roll the deployment so the new env is picked up (Recreate/RollingUpdate
+# strategy already defined on the Deployment — do NOT edit the Deployment
+# spec itself, only the ConfigMap + a restart):
+#
+#   kubectl rollout restart deployment/graph-os -n platform
+#   kubectl rollout status  deployment/graph-os -n platform
+#
+# VERIFY (read-only) after rollout — confirm auth is now enforced:
+#
+#   kubectl exec -n platform deploy/graph-os -- python -c \
+#     "import os; print('AUTH_TYPE=' + os.environ.get('AUTH_TYPE','<unset>'))"
+#   # must print AUTH_TYPE=jwt (was previously '<unset>' -> resolved to 'none')
+#   curl -s -o /dev/null -w '%{http_code}\n' https://graph-os.arpa/mcp \
+#     -X POST -H 'Content-Type: application/json' \
+#     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+#   # must print 401 (was previously 200 with no Authorization header at all)
+#
+# This is exactly what tests/integration/mcp/test_kg_server_streamable_http_live.py
+# proves against a real, in-process instance of the same code in this branch.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: graph-os-env
+  namespace: platform
+# Reference copy of the corrected ConfigMap for review/diff ONLY — do not
+# `kubectl apply -f` this file wholesale; it omits several live-only keys
+# this reference doesn't need to restate (OPENAI_*, MKL/OPENBLAS tuning,
+# EPISTEMIC_GRAPH_KVCACHE_URL, ENGINE_*, GRAPH_BACKEND, GRAPH_SERVICE_TCP_ADDR,
+# AGENT_UTILITIES_CONFIG_DIR, PYTHON*). Use the `kubectl patch` command above
+# instead — it changes only the two keys that matter and leaves everything
+# else (and every other live resource) untouched.
+data:
+  # --- THE FIX -----------------------------------------------------------
+  AUTH_TYPE: "jwt"                     # was missing (typo'd as MCP_AUTH_TYPE)
+  KG_POLICY_VERSION: "2026-07-homelab-v1"  # was missing entirely
+  # --- unchanged, already correct on the live ConfigMap ------------------
+  TRANSPORT: "streamable-http"
+  HOST: "0.0.0.0"
+  PORT: "8000"
+  AUTH_JWT_JWKS_URI: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/certs"
+  AUTH_JWT_ISSUER: "http://keycloak.arpa/realms/homelab"
+  AUTH_JWT_AUDIENCE: "agent-services"
+  FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/certs"
+  FASTMCP_SERVER_AUTH_JWT_ISSUER: "http://keycloak.arpa/realms/homelab"
+  FASTMCP_SERVER_AUTH_JWT_AUDIENCE: "agent-services"
+  # Outbound fleet auth (graph-os -> the rest of the *-mcp fleet it fronts) —
+  # a SEPARATE concern from the inbound fix above; already correctly wired.
+  MCP_CLIENT_AUTH: "oidc-client-credentials"
+  OIDC_CLIENT_ID: "mcp-multiplexer"
+  OIDC_AUDIENCE: "agent-services"
+  OIDC_ISSUER: "http://keycloak.arpa/realms/homelab"
+  OIDC_TOKEN_URL: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/token"
+  MCP_CONFIG: "/root/.config/agent-utilities/mcp_config.json"
+
+---
+# ── OPTIONAL follow-on hardening (NOT required to close the auth hole above;
+#    only relevant if/when replicas are scaled beyond the current 1) ────────
+#
+# graph-os's MCP Streamable HTTP sessions are stateful per-connection
+# (`Mcp-Session-Id`, FastMCP's own in-memory session manager) and per-request
+# identity/tenant scoping is minted fresh via contextvars in
+# ActorIdentityMiddleware / ActorContextMiddleware (agent_utilities/security/
+# request_identity.py, agent_utilities/mcp/middlewares.py) — concurrent
+# requests on ONE pod are already isolated correctly (verified: contextvars
+# are per-asyncio-task, reset in a `finally`, no shared mutable session state).
+#
+# A single replica is a single point of failure and a single stateful-session
+# affinity domain, though. If/when `platform/graph-os` is scaled to N>1
+# replicas for resilience, an MCP client's session (its `Mcp-Session-Id`) must
+# keep landing on the SAME pod for the life of that session — ordinary
+# round-robin ClusterIP load balancing will NOT do this and will intermittently
+# 404/reset a client's session mid-conversation. Two options, cheapest first:
+#
+#   (a) Cheapest — DO NOT SCALE graph-os horizontally. Keep replicas=1 and rely
+#       on the readiness/liveness probes for a fast pod-restart recovery
+#       window instead. Simple, matches the current live topology (both
+#       `graph-os` and `graph-os-host` already run replicas=1 today), and
+#       there is nothing new to configure. Downtime bound = pod
+#       reschedule/restart time only.
+#   (b) If N>1 replicas are wanted for real concurrent capacity, sticky
+#       sessions are required. The homelab's ingress-nginx controller
+#       supports this the same way deploy/k8s/graphos.yaml (the generic cloud
+#       profile) already documents:
+#         nginx.ingress.kubernetes.io/affinity: "cookie"
+#         nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+#         nginx.ingress.kubernetes.io/proxy-buffering: "off"
+#       Add these three annotations to the LIVE `platform/graph-os` Ingress
+#       (a separate, low-risk `kubectl annotate ingress/graph-os -n platform
+#       ...` — no Deployment/Service change needed) BEFORE raising replicas.
+#
+# Neither is applied by this fix — it is a scaling decision for the operator,
+# noted here per the architecture review, not executed.

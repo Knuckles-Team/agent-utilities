@@ -659,13 +659,32 @@ class TestServedSecurityProfile:
         # Stdio identity is validated by the process-identity startup boundary.
         apply_served_security_profile("stdio", config=cfg)
 
-    def test_network_without_jwks_fails_loud(self):
+    def test_network_without_transport_auth_fails_loud(self):
         from agent_utilities.security.request_identity import (
             apply_served_security_profile,
         )
 
         cfg = _make_config(auth_jwt_jwks_uri=None)
-        with pytest.raises(RuntimeError, match="AUTH_JWT_JWKS_URI"):
+        with pytest.raises(RuntimeError, match="authentication provider"):
+            apply_served_security_profile("streamable-http", config=cfg)
+
+    def test_network_with_jwks_but_no_auth_provider_still_fails_loud(self):
+        """AUTH_JWT_JWKS_URI alone must NOT satisfy the served-security gate.
+
+        Regression guard for the live misconfiguration this closes: an
+        operator wired every JWT/OIDC identity variable (JWKS, issuer,
+        audience) but left the FastMCP auth-provider switch
+        (``--auth-type``/``AUTH_TYPE``) unset — historically that combination
+        was accepted as "configured" even though FastMCP never attached a
+        token verifier, so the network endpoint served every request
+        unauthenticated. JWKS being merely *present* must keep failing loud.
+        """
+        from agent_utilities.security.request_identity import (
+            apply_served_security_profile,
+        )
+
+        cfg = _make_config(auth_jwt_jwks_uri="https://kc/realms/x/certs")
+        with pytest.raises(RuntimeError, match="authentication provider"):
             apply_served_security_profile("streamable-http", config=cfg)
 
     def test_network_with_jwks_accepts_mandatory_contract(self, monkeypatch):
@@ -675,7 +694,9 @@ class TestServedSecurityProfile:
 
         monkeypatch.setenv("KG_BRAIN_ENFORCE", "0")
         cfg = _make_config(auth_jwt_jwks_uri="https://kc/realms/x/certs")
-        apply_served_security_profile("streamable-http", config=cfg)
+        apply_served_security_profile(
+            "streamable-http", config=cfg, transport_auth_configured=True
+        )
         from agent_utilities.knowledge_graph.core.company_brain_runtime import (
             brain_enforcement_enabled,
         )
