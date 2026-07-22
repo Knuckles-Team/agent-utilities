@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 import yaml
 
-from agent_utilities.skills.fleet_harness.discovery import SkillRecord
+from agent_utilities.skills.fleet_harness.discovery import SkillRecord, _is_noise
 
 Status = Literal["PASS", "FAIL", "WARN"]
 
@@ -337,6 +337,29 @@ def _extract_reference_candidates(body: str) -> list[str]:
     return [t for t in _BACKTICK_PATH_RE.findall(body) if t.startswith(_ASSET_PREFIXES)]
 
 
+def _resolves_elsewhere_in_repo(record: SkillRecord, relative_path: str) -> bool:
+    """True if ``relative_path`` exists anywhere under the skill's repo root.
+
+    Many skills legitimately cite a file owned by a SIBLING skill or a
+    declared package dependency rather than claiming to bundle it
+    themselves — the fleet convention is an explicit pointer like
+    ``` `other-skill` -> `references/x.md` ``` or ``` `other-skill`'s
+    `scripts/y.py` ``` (see e.g. servicenow-workflow-studio ->
+    servicenow-sdk-docs, github-org-remediation-loop -> github-triage-
+    resolver, genius-web-crawl -> universal-skills' declared
+    ``web-crawler`` extra). Requiring a skill-dir-relative match alone
+    flags every one of those as a missing file. This does not weaken
+    detection of a genuinely missing/renamed file: it only accepts a
+    candidate that resolves to a REAL file/dir somewhere the harness's
+    scan root can see, so a truly absent reference (nothing bundled,
+    nothing cited elsewhere) still fails.
+    """
+    for match in record.repo_root.rglob(relative_path):
+        if not _is_noise(match.relative_to(record.repo_root)) and match.exists():
+            return True
+    return False
+
+
 def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckResult]:
     checks: list[CheckResult] = []
     candidates = sorted(set(_extract_reference_candidates(body)))
@@ -357,7 +380,9 @@ def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckRes
             # escapes the skill directory (e.g. `../other-skill/x`) — not
             # this gate's concern.
             continue
-        if not candidate_path.exists():
+        if not candidate_path.exists() and not _resolves_elsewhere_in_repo(
+            record, cleaned.rstrip("/")
+        ):
             missing.append(cleaned)
     if missing:
         checks.append(
