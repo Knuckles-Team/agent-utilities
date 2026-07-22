@@ -67,6 +67,14 @@ class DatabaseConnector(LoadConnector, PollConnector):
             ``{watermark_param: last_watermark}`` so the query returns only new
             rows; when unset, ``poll`` re-runs the full query and filters in-memory
             by ``updated_field``.
+        table: Optional, operator-supplied name of the single table ``query``
+            reads (CONCEPT:AU-KG.identity.evidence-spine-convergence). The connector wraps an
+            arbitrary ``SELECT`` — potentially a join/view/aggregate — so this is
+            NEVER inferred from the query text (that would misattribute a
+            multi-table read); it is real information only the operator who
+            wrote ``query`` has. Left unset (the default), ``poll`` writes no
+            ``RowVersion`` evidence locus — never a guessed table name. Set it
+            only when ``query`` genuinely reads one table.
         conn: Optional pre-built ``UniversalConnector`` (injected for tests).
         source_alias: Optional neutral logical alias (never an endpoint/name).
         max_rows: Hard cap per load/poll request; overflow fails closed.
@@ -85,6 +93,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
         text_field: str = "text",
         updated_field: str = "",
         watermark_param: str = "",
+        table: str = "",
         source_alias: str = "database-source",
         max_rows: int = 5_000,
         conn: Any = None,
@@ -118,6 +127,8 @@ class DatabaseConnector(LoadConnector, PollConnector):
             fields = (*fields, updated_field)
         if watermark_param:
             fields = (*fields, watermark_param)
+        if table:
+            fields = (*fields, table)
         if any(not _FIELD_RE.fullmatch(value) for value in fields):
             raise ValueError("DatabaseConnector field mapping is invalid")
         effective_kind = str(kind or "").strip().lower() or None
@@ -130,6 +141,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
         self.text_field = text_field
         self.updated_field = updated_field
         self.watermark_param = watermark_param
+        self.table = table
         self.source_alias = source_alias
         self.source_ref = persistence_reference(
             "database_source",
@@ -286,6 +298,57 @@ class DatabaseConnector(LoadConnector, PollConnector):
 
     # -- PollConnector -----------------------------------------------------
 
+    def _persist_row_version_evidence(
+        self, row: dict[str, Any], doc: SourceDocument
+    ) -> None:
+        """Through-write a ``RowVersion`` evidence locus for this poll
+        observation (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+        Opt-in on TWO real, non-fabricated facts — never inferred, never
+        guessed:
+
+        * ``table`` — only set when the operator explicitly configured it
+          (see :meth:`configure`'s docstring: this connector wraps an
+          arbitrary ``SELECT``, so a table name is NEVER derived from the
+          query text, which would misattribute a join/view/aggregate).
+        * ``version`` — the row's own already-fetched ``updated_field``
+          value, parsed as an int. When it genuinely is an incrementing-id/
+          revision column (a real, supported ``updated_field`` use case per
+          :meth:`configure`'s docstring) this is a real number already in
+          the row, not synthesized. When it is an ISO timestamp (the other
+          supported use case) the parse fails and this cleanly no-ops —
+          there IS no integer version to report, so none is invented.
+
+        With either fact missing, this is a silent no-op — genuinely no
+        evidence to write, not a forced write. Best-effort: an
+        engine-unavailable store never affects polling.
+        """
+        if not self.table or not doc.updated_at:
+            return
+        try:
+            version = int(str(doc.updated_at))
+        except (TypeError, ValueError):
+            return
+        row_id = row.get(self.id_field)
+        if row_id is None:
+            return
+        try:
+            from agent_utilities.knowledge_graph.memory.native_ingest import (
+                media_store,
+            )
+
+            store = media_store()
+            store.store_row_version_evidence(
+                doc.text.encode("utf-8"),
+                table=self.table,
+                row_id=str(row_id),
+                version=version,
+                mime_type="text/plain",
+                source=self.kind or "database",
+            )
+        except Exception:  # noqa: BLE001 — evidence write never affects polling
+            pass
+
     def poll(self, checkpoint: ConnectorCheckpoint | None = None) -> CheckpointedBatch:
         """Return rows newer than the watermark; advance it to the new max.
 
@@ -310,6 +373,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
                 if str(doc.updated_at) <= str(prior):
                     continue
             docs.append(doc)
+            self._persist_row_version_evidence(row, doc)
             if doc.updated_at is not None and (
                 max_wm is None or str(doc.updated_at) > str(max_wm)
             ):

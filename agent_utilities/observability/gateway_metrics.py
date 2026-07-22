@@ -490,3 +490,15 @@ class GatewayMetricsMiddleware:
                 route=route, method=method, status=str(status)
             ).inc()
             GATEWAY_REQUEST_DURATION.labels(route=route).observe(duration)
+            try:
+                from agent_utilities.observability.gateway_health import (
+                    record_request_duration,
+                )
+
+                # Same `duration` value the histogram above just consumed —
+                # feeds the shared health-trend/anomaly kernel (CONCEPT:
+                # AU-OS.observability.unified-health-kernels /
+                # AU-KG.identity.evidence-spine-convergence). Best-effort.
+                record_request_duration(duration)
+            except Exception as e:  # noqa: BLE001
+                logger.debug("gateway health sample failed: %s", e)

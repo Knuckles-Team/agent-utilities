@@ -208,16 +208,211 @@ def register_claim_materialization(
     caller's pipeline. ``context`` prefixes any recorded error (e.g.
     ``"insight_validation"`` / ``"trace_mining"`` / ``"placement_mining"``) so
     a failure is traceable to its calling stage.
+
+    Also the ONE bounded, claim-driven trigger for two Evidence-seam loci
+    (CONCEPT:AU-KG.identity.evidence-spine-convergence) that a per-event/per-symbol write
+    would otherwise be too hot for: for each ``source_id`` that resolves to a
+    real engine-stored code symbol, :func:`_persist_code_symbol_evidence`
+    writes a ``CodeSymbol`` locus; for each that resolves to a real span/
+    generation, :func:`_persist_trace_span_evidence` writes a ``TraceSpan``
+    locus — both linked to ``claim.id``. A source id that is neither writes
+    nothing extra.
     """
     for source_id in claim.source_ids:
         try:
             engine.add_edge(claim.id, source_id, relationship_type="DERIVED_FROM")
         except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
             errors.append(f"{context}:derived_from {claim.id}->{source_id}: {e}")
+        _persist_code_symbol_evidence(engine, claim, source_id, errors, context=context)
+        _persist_trace_span_evidence(engine, claim, source_id, errors, context=context)
     try:
         engine.register_materialization(claim.id)
     except Exception as e:  # noqa: BLE001 — TMS registration is best-effort
         errors.append(f"{context}:register_materialization {claim.id}: {e}")
+
+
+def _resolve_code_symbol(engine: Any, source_id: str) -> dict[str, Any] | None:
+    """Resolve a claim's ``source_id`` to the REAL, engine-stored code-symbol
+    properties (``file_path``/``line``/``name``) when it names one — never
+    fabricated. A non-code id, an unresolvable node, or no reachable engine
+    all return ``None`` (the caller skips silently).
+
+    ``code:<file_path>::<name>`` / ``test:<file_path>::<name>`` is the SAME id
+    convention :func:`~agent_utilities.knowledge_graph.enrichment.extractors.
+    code_test.entities_from_parse_result` mints and
+    ``enrichment.pipeline._write_code``/``_write_test`` persist onto the
+    engine's ``:Code``/``:Test`` nodes (``core.ingest_routing.CODE_PREFIX``
+    is the shared ``"code:"`` constant; ``"test:"`` has no equivalent shared
+    constant, matching ``code_test.py``'s own literal).
+    """
+    from agent_utilities.knowledge_graph.core.ingest_routing import CODE_PREFIX
+
+    if not (source_id.startswith(CODE_PREFIX) or source_id.startswith("test:")):
+        return None
+    backend = getattr(engine, "backend", None) or engine
+    getter = getattr(backend, "get_node_properties", None)
+    if not callable(getter):
+        return None
+    try:
+        props = getter(source_id)
+    except Exception:  # noqa: BLE001 — resolution is best-effort
+        return None
+    if not isinstance(props, dict):
+        return None
+    file_path = props.get("file_path")
+    line = props.get("line")
+    if not file_path or line is None:
+        return None
+    try:
+        line_no = int(line)
+    except (TypeError, ValueError):
+        return None
+    return {
+        "file_path": str(file_path),
+        "name": str(props.get("name") or ""),
+        "line": line_no,
+    }
+
+
+def _persist_code_symbol_evidence(
+    engine: Any, claim: ClaimNode, source_id: str, errors: list[str], *, context: str
+) -> None:
+    """Through-write a ``CodeSymbol`` evidence locus when ``source_id`` names a
+    real engine-stored code symbol (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    Bounded/claim-driven BY DESIGN — the seam audit declined an unconditional
+    per-symbol write (one for every AST symbol across the whole continuously
+    reingested fleet, with no ``claim_id``, a volume/shape mismatch against
+    the other producers). This is the fix that objection called for: the
+    write happens ONLY here, inside :func:`register_claim_materialization` —
+    the ONE seam every real, floor-cleared ``:Claim`` from every finding
+    family (association rule / anomaly / predicted edge / sequential pattern
+    / ops-causal root cause / placement proposal) already passes through — so
+    a locus is written only when a claim genuinely cites a code symbol as one
+    of its own base facts (a rare, meaningful event), never on ingestion.
+
+    The stored ``:Code``/``:Test`` node carries ``file_path``/``line`` (the
+    definition's start line) but no ``end_line`` — recovering the whole
+    symbol body would need a second, language-specific re-parse this module
+    deliberately avoids (the Rust engine already IS the parser, per
+    ``code_test.py``'s own module docstring). Rather than fabricate an
+    extent, the locus reports the one KNOWN line as both ``start_line``/
+    ``end_line``, and ``data`` is the REAL text of exactly that line, read
+    back from the source file on disk — narrow but true evidence. Best-effort
+    throughout: a non-code source, an unresolvable node, a moved/deleted/
+    unreadable file, or an engine-unavailable store all skip silently.
+    """
+    resolved = _resolve_code_symbol(engine, source_id)
+    if resolved is None:
+        return
+    file_path, line = resolved["file_path"], resolved["line"]
+    try:
+        from pathlib import Path
+
+        lines = Path(file_path).read_text(encoding="utf-8").splitlines()
+        if not (1 <= line <= len(lines)):
+            return
+        snippet = lines[line - 1]
+    except Exception as e:  # noqa: BLE001 — the source file may not be locally reachable
+        errors.append(f"{context}:code_symbol_read {source_id}: {e}")
+        return
+    try:
+        from agent_utilities.knowledge_graph.memory.native_ingest import media_store
+
+        store = media_store()
+        store.store_code_symbol_evidence(
+            snippet.encode("utf-8"),
+            file_path=file_path,
+            symbol=resolved["name"] or source_id,
+            start_line=line,
+            end_line=line,
+            claim_id=claim.id,
+            source=context,
+        )
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"{context}:code_symbol_evidence {source_id}: {e}")
+
+
+#: ``RegistryNodeType.SPAN``/``.GENERATION`` string values — the ``node_type``
+#: :meth:`~agent_utilities.harness.trace_backend.KGTraceBackend._node_props`
+#: stamps onto every persisted ``SpanNode``/``GenerationNode``.
+_TRACE_NODE_TYPES = {"span", "generation"}
+
+
+def _resolve_trace_span(engine: Any, source_id: str) -> dict[str, Any] | None:
+    """Resolve a claim's ``source_id`` to REAL, engine-stored span/generation
+    properties when it names one — never fabricated. A node of any other
+    type, an unresolvable node, or no reachable engine all return ``None``.
+
+    Unlike code-symbol ids, span/generation ids carry no distinguishing
+    prefix (``KGTraceBackend.record_event`` mints them as raw ``span_id``
+    values) — so the check is on the resolved node's own ``node_type``
+    property (``"span"``/``"generation"``, stamped by ``_node_props``), not
+    the id's shape. ``trace_id`` is a property every ``SpanNode``/
+    ``GenerationNode`` already carries (CONCEPT:AU-OS.config.model-factory-passthrough).
+    """
+    backend = getattr(engine, "backend", None) or engine
+    getter = getattr(backend, "get_node_properties", None)
+    if not callable(getter):
+        return None
+    try:
+        props = getter(source_id)
+    except Exception:  # noqa: BLE001 — resolution is best-effort
+        return None
+    if not isinstance(props, dict):
+        return None
+    node_type = str(props.get("node_type") or "").lower()
+    if node_type not in _TRACE_NODE_TYPES:
+        return None
+    trace_id = props.get("trace_id")
+    if not trace_id:
+        return None
+    return {"trace_id": str(trace_id), "props": props}
+
+
+def _persist_trace_span_evidence(
+    engine: Any, claim: ClaimNode, source_id: str, errors: list[str], *, context: str
+) -> None:
+    """Through-write a ``TraceSpan`` evidence locus when ``source_id`` names a
+    real engine-stored span/generation (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    Bounded/claim-driven BY DESIGN — the seam audit declined an unconditional
+    per-event write (``KGTraceBackend.record_event`` fires on every span/
+    generation in the harness, a hot path). The fix, mirroring
+    :func:`_persist_code_symbol_evidence`: the write happens ONLY here,
+    inside :func:`register_claim_materialization`, so a locus is written
+    only when a claim genuinely cites a span/generation as one of its own
+    base facts — the real case an ops-causal root-cause finding produces,
+    since the causal chain it ranks runs FROM an ingested Langfuse/harness
+    Trace/Generation THROUGH agent/tool/model/service/deploy
+    (``enrichment/ops_causal_graph.py``'s module docstring). ``data`` is the
+    node's own already-stored properties (name/latency/error/model/tokens/…)
+    serialized — the SAME real-snapshot convention ``MetricWindow``'s
+    producer (``observability/gateway_health.py``) uses, not a fabricated
+    payload. Best-effort throughout: a non-trace source, an unresolvable
+    node, or an engine-unavailable store all skip silently.
+    """
+    resolved = _resolve_trace_span(engine, source_id)
+    if resolved is None:
+        return
+    try:
+        import json
+
+        from agent_utilities.knowledge_graph.memory.native_ingest import media_store
+
+        store = media_store()
+        data = json.dumps(resolved["props"], sort_keys=True, default=str).encode(
+            "utf-8"
+        )
+        store.store_trace_span_evidence(
+            data,
+            trace_id=resolved["trace_id"],
+            span_id=source_id,
+            claim_id=claim.id,
+            source=context,
+        )
+    except Exception as e:  # noqa: BLE001
+        errors.append(f"{context}:trace_span_evidence {source_id}: {e}")
 
 
 # ── per-finding-type extraction (see loop_controller._run_mine_discovery docstring
