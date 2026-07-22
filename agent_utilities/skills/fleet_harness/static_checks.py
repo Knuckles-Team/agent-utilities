@@ -36,10 +36,16 @@ GRAPHOS_TOOL_REF_RE = re.compile(r"`((?:graph|engine|ontology|object)_[a-z0-9_]+
 _TOOLS_SECTION_RE = re.compile(r"^##\s+Tools\s*$", re.MULTILINE)
 _TOOL_BULLET_RE = re.compile(r"^\s*-\s+`([a-zA-Z_][a-zA-Z0-9_]*)`", re.MULTILINE)
 
-#: Relative-path references worth existence-checking: a markdown link target,
-#: or a backtick span that looks like a repo-relative file (has a slash and
-#: either a known asset prefix or a recognizable extension).
-_MD_LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
+#: A backtick span naming a file the skill BUNDLES with itself — scoped
+#: strictly to the `scripts/`/`references/`/`assets/` asset-directory
+#: convention (see universal-skills AGENTS.md). Deliberately narrower than
+#: "any repo path with a slash": AU/EG skill bodies also cite files
+#: elsewhere in the monorepo for context (e.g. `docs/concept_map.md`,
+#: `agent_utilities/knowledge_graph/core/task_lanes.py`) — those are
+#: cross-references, not a claim that the skill ships the file, and are
+#: anchored at an ambiguous root (repo root vs workspace root vs the citing
+#: doc's own root) that this check cannot resolve reliably. Only a skill's
+#: own bundled-asset claim is unambiguous: it is always skill-dir-relative.
 _BACKTICK_PATH_RE = re.compile(r"`([A-Za-z0-9_./-]+/[A-Za-z0-9_./-]+)`")
 _ASSET_PREFIXES = (
     "scripts/",
@@ -48,18 +54,6 @@ _ASSET_PREFIXES = (
     "./scripts/",
     "./references/",
     "./assets/",
-)
-_PATH_LIKE_EXTENSIONS = (
-    ".py",
-    ".sh",
-    ".md",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".toml",
-    ".txt",
-    ".csv",
-    ".sql",
 )
 
 
@@ -89,6 +83,7 @@ class CheckResult:
 class SkillStaticReport:
     record: SkillRecord
     name: str | None
+    skill_type: str | None = None
     checks: list[CheckResult] = field(default_factory=list)
 
     @property
@@ -258,15 +253,7 @@ def _check_frontmatter_schema(
 
 
 def _extract_reference_candidates(body: str) -> list[str]:
-    candidates: list[str] = []
-    for target in _MD_LINK_RE.findall(body):
-        if target.startswith(("http://", "https://", "mailto:", "#")):
-            continue
-        candidates.append(target)
-    for target in _BACKTICK_PATH_RE.findall(body):
-        if target.startswith(_ASSET_PREFIXES) or target.endswith(_PATH_LIKE_EXTENSIONS):
-            candidates.append(target)
-    return candidates
+    return [t for t in _BACKTICK_PATH_RE.findall(body) if t.startswith(_ASSET_PREFIXES)]
 
 
 def _check_structural_integrity(record: SkillRecord, body: str) -> list[CheckResult]:
@@ -407,20 +394,49 @@ def validate_skill(record: SkillRecord) -> SkillStaticReport:
     text = record.skill_md.read_text(encoding="utf-8", errors="replace")
     schema_checks, data, body = _check_frontmatter_schema(record, text)
     name = str(data.get("name")) if data and data.get("name") else None
+    skill_type = data.get("skill_type") if data else None
     checks = list(schema_checks)
     checks.extend(_check_structural_integrity(record, body))
     checks.extend(_check_declared_tools(record, body))
-    return SkillStaticReport(record=record, name=name, checks=checks)
+    return SkillStaticReport(
+        record=record, name=name, skill_type=skill_type, checks=checks
+    )
+
+
+def _exempt_from_uniqueness(report: SkillStaticReport) -> bool:
+    """``skill_graphs``/``skill-graphs`` reference corpora AND ``skill_type=graph``
+    nodes are exempt from the global name pool.
+
+    This mirrors the repo's own authoritative scoping
+    (``scripts/check_skill_name_collision.py``): a skill-graph is a
+    KG-ingestion reference manual, not an installable skill, so the same
+    topic legitimately recurs across many bundles/pages (e.g. the
+    "deployment" page of a skill-graph documenting the atomic
+    ``agent-utilities-deployment`` skill is itself named
+    ``agent-utilities-deployment``). The ``skill_type`` check is kept as a
+    belt-and-suspenders match for a graph node authored outside a
+    ``skill_graphs`` directory.
+    """
+    return report.record.in_reference_corpus or report.skill_type == "graph"
 
 
 def _check_name_uniqueness(reports: list[SkillStaticReport]) -> None:
     """Mutates ``reports`` in place, appending a uniqueness verdict to each."""
     by_name: dict[str, list[SkillStaticReport]] = {}
     for report in reports:
-        if report.name:
+        if report.name and not _exempt_from_uniqueness(report):
             by_name.setdefault(report.name, []).append(report)
     for report in reports:
         if not report.name:
+            continue
+        if _exempt_from_uniqueness(report):
+            report.checks.append(
+                CheckResult(
+                    "frontmatter.name_unique",
+                    "PASS",
+                    "skill-graph reference-corpus node — exempt from fleet-wide name uniqueness",
+                )
+            )
             continue
         siblings = by_name[report.name]
         if len(siblings) > 1:

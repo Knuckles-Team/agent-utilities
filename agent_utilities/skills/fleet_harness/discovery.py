@@ -57,6 +57,21 @@ class SkillRecord:
     def directory_name(self) -> str:
         return self.skill_dir.name
 
+    @property
+    def in_reference_corpus(self) -> bool:
+        """True under a ``skill_graphs``/``skill-graphs`` tree.
+
+        Matches the repo's own authoritative scoping
+        (``scripts/check_skill_name_collision.py``): a skill-graph is a
+        KG-ingestion reference manual, not an installable skill — the same
+        topic legitimately recurs across many bundles/pages, so it is
+        excluded from the installable-skill namespace entirely (name
+        uniqueness, in particular).
+        """
+        return any(
+            part in {"skill_graphs", "skill-graphs"} for part in self.skill_dir.parts
+        )
+
 
 def discover_skills(roots: list[Path]) -> list[SkillRecord]:
     """Discover every ``SKILL.md`` under ``roots``.

@@ -198,6 +198,54 @@ class TestNameUniqueness:
         ]
         assert unique_checks and unique_checks[0].status == "PASS"
 
+    def test_graph_type_node_is_exempt_from_uniqueness_even_when_name_collides(
+        self, tmp_path: Path
+    ):
+        # A skill-graph page legitimately mirrors its parent topic's exact
+        # name (e.g. a "deployment" page inside the "agent-utilities"
+        # skill-graph is itself named `agent-utilities-deployment`, matching
+        # the real atomic skill it documents) — this must NOT be flagged as
+        # a fleet-wide collision the way two atomic skills sharing a name
+        # would be.
+        atomic_dir = tmp_path / "shared-topic"
+        atomic_dir.mkdir()
+        (atomic_dir / "SKILL.md").write_text(
+            "---\nname: shared-topic\nskill_type: skill\ndescription: atomic skill.\n---\nbody\n"
+        )
+        graph_dir = tmp_path / "graph-page"
+        graph_dir.mkdir()
+        (graph_dir / "SKILL.md").write_text(
+            "---\nname: shared-topic\nskill_type: graph\ndescription: reference page.\n---\nbody\n"
+        )
+        atomic = SkillRecord(
+            skill_md=atomic_dir / "SKILL.md",
+            skill_dir=atomic_dir,
+            repo_root=tmp_path,
+            repo_name="tmp",
+        )
+        graph_node = SkillRecord(
+            skill_md=graph_dir / "SKILL.md",
+            skill_dir=graph_dir,
+            repo_root=tmp_path,
+            repo_name="tmp",
+        )
+        reports = run_static_checks([atomic, graph_node])
+        atomic_report = next(r for r in reports if r.record is atomic)
+        graph_report = next(r for r in reports if r.record is graph_node)
+
+        graph_unique = [
+            c for c in graph_report.checks if c.rule == "frontmatter.name_unique"
+        ]
+        assert graph_unique and graph_unique[0].status == "PASS"
+        assert "exempt" in graph_unique[0].message
+
+        # The atomic skill's own uniqueness check is unaffected — the graph
+        # node was never in its collision pool, so it PASSes cleanly too.
+        atomic_unique = [
+            c for c in atomic_report.checks if c.rule == "frontmatter.name_unique"
+        ]
+        assert atomic_unique and atomic_unique[0].status == "PASS"
+
 
 class TestDescriptionPortabilityWarnings:
     def test_long_description_warns_but_does_not_fail(self, tmp_path: Path):
