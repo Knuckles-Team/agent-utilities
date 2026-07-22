@@ -74,6 +74,7 @@ _DOMAIN_CLASSES: dict[str, str] = {
     "channels": "ChannelsClient",
     "tenants": "MultiTenantClient",
     "resharding": "ReshardingClient",
+    "placement": "PlacementClient",
     "consensus": "ConsensusClient",
     "finance": "FinanceClient",
     "datascience": "DataScienceClient",
@@ -108,6 +109,7 @@ _DOMAIN_BLURB: dict[str, str] = {
     "channels": "dynamic agent communication channels",
     "tenants": "multi-tenant graph create/delete/list",
     "resharding": "M3 catalog/reshard/rebalance admin (redb)",
+    "placement": "DIST-P2-1 raft PlacementCatalog: route (read) + assign/move/abort_move admin (raft/cluster only)",
     "consensus": "zero-trust identity + multisig mutation",
     "finance": "quantitative finance (optimize/risk/regime/signals/HFT/derivatives)",
     "datascience": "estimators + primitives + training kernels",
@@ -249,7 +251,9 @@ def _resolve_graph_name(graph: str) -> str:
 
     session = resolve_session()
     if graph and graph != session.graph:
-        raise PermissionError("An engine action cannot retarget its verified GraphSession")
+        raise PermissionError(
+            "An engine action cannot retarget its verified GraphSession"
+        )
     if not session.graph:
         raise PermissionError("Verified GraphSession has no graph authority")
     return session.graph
@@ -278,7 +282,7 @@ def _json_default(obj: Any) -> Any:
 # this is an explicit, hand-maintained map — called out here as such per
 # AU-P0-6's guidance.
 ADMIN_DOMAINS: frozenset[str] = frozenset(
-    {"tenants", "resharding", "consensus", "rbac", "admin"}
+    {"tenants", "resharding", "placement", "consensus", "rbac", "admin"}
 )
 
 # The remaining known domains are ordinary graph reads+writes. Their calculated
@@ -703,9 +707,7 @@ def _dispatch(
             context={"domain": domain, "action": action},
         )
     except Exception as exc:  # noqa: BLE001 — surface engine errors as data, not 500
-        return public_error_json(
-            exc, context={"domain": domain, "action": action}
-        )
+        return public_error_json(exc, context={"domain": domain, "action": action})
     return json.dumps(result, default=_json_default)
 
 

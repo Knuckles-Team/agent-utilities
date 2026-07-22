@@ -26,10 +26,15 @@ NOT a fourth bespoke authority, it reuses the SAME governance/gate spine)::
            ``deploy/action-policy.default.yml``)
         -> ONLY IF allowed: a MEASURED CANARY (:func:`run_canary` — apply to a
            small scope, measure the SLO/latency delta, promote or roll back)
-        -> promote reaches the engine's PlacementCatalog admin path
-           (``ReshardingClient.catalog_assign``/``catalog_remove``, via the
-           SAME ``engine_resharding`` dispatcher ``engine_tools.py`` already
-           exposes — no second placement authority, no new engine RPC)
+        -> promote reaches a real engine system of record, preferring DIST-P2-1's
+           raft ``PlacementCatalog`` admin RPC (``PlacementClient.assign``/
+           ``move``, DIST-P2-5, ``engine_placement``) when the connected engine
+           advertises it (a raft/cluster build with a running ``MultiRaft``),
+           falling back to the R5 single-node tenant catalog
+           (``ReshardingClient.reshard``/``catalog_assign``, ``engine_resharding``)
+           on today's common single-node deployment — see
+           :func:`apply_placement_change`'s docstring for why these are TWO
+           distinct engine systems, not one, despite the shared vocabulary
 
 Data sources: the ``RunTrace -[:USED_TOOL]-> ToolCall -[:ACTED_ON]-> Entity``
 provenance chain (the SAME real, wired schema :mod:`.trace_pattern_miner`
@@ -1013,28 +1018,39 @@ def run_canary(
 def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
     """Reach the accepted change to its real system of record.
 
-    * ``shard_split`` / ``replica`` — the engine's REAL online-move RPC:
-      ``ReshardingClient.reshard(graph, to_shard)`` (wire ``Method::Reshard``,
-      handled by ``RedbBackend::reshard_graph`` engine-side) via the SAME
-      ``engine_<domain>`` dispatcher ``engine_tools.py`` already exposes as
-      ``engine_resharding`` (no second placement authority, no new engine
-      RPC). This is a genuine data move — the engine copies the graph's rows
-      onto the target shard and flips its catalog route — NOT a client-side
-      client-route rewrite and NOT the route-only ``catalog_assign`` (which only
-      flips routing metadata without moving anything already resident on a
-      different shard — see ``ReshardingClient.catalog_assign``'s own
-      docstring: "Flips the ROUTE only — to MOVE the rows too use reshard").
-      ``catalog_assign`` is kept ONLY as a degrade path for an engine build
-      whose ``engine_resharding`` surface does not (yet) expose ``reshard``.
+    * ``shard_split`` / ``replica`` — tried against TWO, DISTINCT, real engine
+      systems, in preference order (see :func:`_apply_via_raft_placement`'s
+      docstring for why a prior version of this docstring conflated them):
+
+      1. **DIST-P2-1's raft ``PlacementCatalog``** (``PlacementClient.assign``/
+         ``move``, ``Method::PlacementAssign``/``PlacementMove``, DIST-P2-5) —
+         the genuine multi-node placement authority: a durable, epoch-fenced,
+         Raft-replicated virtual-partition record. Used when the connected
+         engine build advertises the ``placement`` domain (raft/cluster
+         feature + a running ``MultiRaft`` — see
+         ``epistemic_graph.client.PlacementClient``). This is the seam that
+         actually closes when a real multi-node deployment exists.
+      2. **The R5 single-node tenant catalog** (``ReshardingClient.reshard``/
+         ``catalog_assign``, wire ``Method::Reshard``/``CatalogAssign``,
+         handled by ``RedbBackend`` — a DIFFERENT, single-node-only sharded-
+         writer mechanism, not DIST-P2-1's raft catalog despite the shared
+         "catalog"/"placement" vocabulary) — the fallback used when the
+         engine has no ``placement`` domain (the common case today: this
+         homelab runs single-node, no `raft`/`cluster` build). ``reshard`` is
+         a genuine data move (copies the graph's rows onto the target shard
+         and flips its route); ``catalog_assign`` is kept only as a further
+         degrade path for a build whose ``engine_resharding`` surface does
+         not (yet) expose ``reshard`` — see its own docstring: "Flips the
+         ROUTE only — to MOVE the rows too use reshard".
+
       Both proposal kinds are literally a partition-placement decision —
-      ``shard_split`` moves the hot tenant onto its own virtual shard,
-      ``replica`` moves a hot READ set onto a dedicated shard/node
-      (``proposal.evidence`` may carry an explicit ``shard``/``node``; a
-      deterministic placeholder shard is derived from the target otherwise).
-      The engine's ``ReshardReport`` echoes back the graph's PRE-move
-      ``from_shard`` — stashed onto ``proposal.evidence`` so
-      :func:`rollback_placement_change` can reshard the graph straight back
-      to where it actually was, not merely drop a routing entry.
+      ``shard_split`` moves the hot tenant onto its own virtual shard/group,
+      ``replica`` moves a hot READ set onto a dedicated shard/node/group
+      (``proposal.evidence`` may carry an explicit ``shard``/``group``/
+      ``node``; a deterministic placeholder is derived from the target
+      otherwise). Whichever system actually moved the data stashes what it
+      needs onto ``proposal.evidence`` so :func:`rollback_placement_change`
+      can revert to where it actually was, not merely drop a routing entry.
     * ``cache_prewarm`` — the shared content-addressed KV-cache
       (:class:`~agent_utilities.kvcache.EpistemicGraphKVBackend`), which
       already degrades every transport error to a no-op.
@@ -1048,6 +1064,9 @@ def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
       engine capability).
     """
     if proposal.kind in {"shard_split", "replica"}:
+        raft_result = _apply_via_raft_placement(proposal)
+        if raft_result is not None:
+            return raft_result
         return _apply_via_catalog(proposal)
     if proposal.kind == "cache_prewarm":
         return _apply_via_kvcache(proposal)
@@ -1057,20 +1076,33 @@ def apply_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
 def rollback_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
     """Revert an applied change — the canary's "undo" path.
 
-    ``shard_split``/``replica``: when :func:`apply_placement_change` actually
-    moved the graph (the ``reshard`` path), this resharding it straight BACK
-    onto the recorded pre-move ``from_shard`` (``proposal.evidence["
-    _reshard_from_shard"]``, stashed by the apply call) — a real online move
-    back, not just a routing-metadata drop. When there is no such recorded
-    shard (the ``catalog_assign`` degrade path was used, or the engine never
-    reported one), this falls back to dropping the explicit catalog
-    placement (``catalog_remove`` — reverts to the default FNV-1a hash-ring
-    routing, see ``placement_catalog.py``'s module docstring). The remaining
-    kinds have no destructive engine-side state to revert (a KV-cache
-    prewarm or an accepted-record kind), so rollback is a no-op by
+    ``shard_split``/``replica``: reverts through whichever of the two systems
+    :func:`apply_placement_change` actually used (recorded on
+    ``proposal.evidence`` by the apply call):
+
+    * Raft ``PlacementCatalog`` ``move`` (``_placement_move_tenant`` +
+      ``_placement_move_from_group`` recorded) — :func:`_rollback_via_raft_placement`
+      moves the tenant straight back to its pre-move group, a real online
+      move back through the SAME fenced-cutover state machine, not a routing
+      drop. A raft ``assign`` (a fresh tenant's first placement DECISION, no
+      prior group to revert to) has no clean engine-side "un-assign" yet —
+      surfaced honestly as ``rolled_back: False`` rather than silently doing
+      nothing or reverting through the unrelated R5 system.
+    * The R5 single-node ``reshard`` path (``_reshard_from_shard`` recorded)
+      — reshards straight back onto the recorded pre-move shard, a real
+      online move back. When neither is recorded (the ``catalog_assign``
+      degrade path was used, or the engine never reported a shard), this
+      falls back to dropping the explicit catalog placement
+      (``catalog_remove`` — reverts to the default FNV-1a hash-ring routing,
+      see ``placement_catalog.py``'s module docstring).
+
+    The remaining kinds have no destructive engine-side state to revert (a
+    KV-cache prewarm or an accepted-record kind), so rollback is a no-op by
     construction.
     """
     if proposal.kind in {"shard_split", "replica"}:
+        if _PLACEMENT_MOVE_TENANT_KEY in proposal.evidence:
+            return _rollback_via_raft_placement(proposal)
         return _rollback_via_catalog(proposal)
     return {"rolled_back": True, "method": "noop"}
 
@@ -1079,6 +1111,167 @@ def _resharding_methods() -> set[str]:
     from agent_utilities.mcp.tools import engine_tools
 
     return set(engine_tools.ENGINE_DOMAINS.get("resharding") or [])
+
+
+def _placement_methods() -> set[str]:
+    """The raft ``PlacementCatalog`` admin domain's live methods (DIST-P2-5) —
+    empty on a single-node (non-raft/cluster) engine build, exactly like
+    :func:`_resharding_methods` for its own domain."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    return set(engine_tools.ENGINE_DOMAINS.get("placement") or [])
+
+
+#: Evidence keys the raft-placement apply/rollback pair use to hand off state
+#: — internal bookkeeping (leading underscore), mirroring
+#: ``_RESHARD_FROM_SHARD_KEY`` for the R5 path below.
+_PLACEMENT_MOVE_TENANT_KEY = "_placement_move_tenant"
+_PLACEMENT_MOVE_FROM_GROUP_KEY = "_placement_move_from_group"
+
+
+def _target_group(proposal: PlacementProposal) -> int:
+    group = proposal.evidence.get("group")
+    if group is not None:
+        return int(group)
+    # Deterministic placeholder Raft group id (a real deployment's own
+    # placement/rebalance policy picks the actual target; this only needs to
+    # be STABLE per target so a repeat canary reassigns the same group).
+    return abs(hash(proposal.target)) % 8
+
+
+def _apply_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any] | None:
+    """Prefer the REAL DIST-P2-1 raft ``PlacementCatalog`` admin RPC over the
+    R5 single-node fallback in :func:`_apply_via_catalog`, when the connected
+    engine advertises the ``placement`` domain (raft/cluster feature + a
+    running ``MultiRaft``). Returns ``None`` — never a failure dict — when the
+    domain is unavailable (the common single-node case today), so the caller
+    falls through to the existing R5 path unchanged: this is additive, not a
+    replacement.
+
+    ``proposal.target`` is a graph name (``"tenant:sub_key"`` or a bare
+    tenant); the raft catalog places a whole TENANT's keyspace, so the tenant
+    is extracted with the SAME ``split_tenant_key`` convention the engine
+    itself uses (first ``:`` splits tenant from sub-key).
+    """
+    from agent_utilities.mcp.tools import engine_tools
+
+    methods = _placement_methods()
+    if not {"route", "assign", "move"} <= methods:
+        return None
+    tenant = (
+        proposal.target.split(":", 1)[0] if ":" in proposal.target else proposal.target
+    )
+    target_group = _target_group(proposal)
+    try:
+        route_raw = engine_tools._dispatch(
+            "placement",
+            methods,
+            "route",
+            json.dumps({"tenant": tenant, "sub_key": tenant}),
+            "",
+        )
+        route = json.loads(route_raw)
+    except Exception as e:  # noqa: BLE001 — surface as data, never raise
+        return {"applied": False, "method": "placement_route", "detail": str(e)}
+    if isinstance(route, dict) and route.get("error"):
+        return {"applied": False, "method": "placement_route", "detail": route["error"]}
+
+    already_placed = isinstance(route, dict) and bool(route.get("placed"))
+    if already_placed and route.get("group") == target_group:
+        _invalidate_placement_cache(proposal.target)
+        return {
+            "applied": True,
+            "method": "placement_move",
+            "detail": {"no_op": True, "route": route},
+        }
+    action = "move" if already_placed else "assign"
+    try:
+        if action == "assign":
+            raw = engine_tools._dispatch(
+                "placement",
+                methods,
+                "assign",
+                json.dumps({"tenant": tenant, "group": target_group}),
+                "",
+            )
+        else:
+            raw = engine_tools._dispatch(
+                "placement",
+                methods,
+                "move",
+                json.dumps(
+                    {
+                        "tenant": tenant,
+                        "range_start": 0,
+                        "range_end": 2**64 - 1,
+                        "target": target_group,
+                    }
+                ),
+                "",
+            )
+        payload = json.loads(raw)
+    except Exception as e:  # noqa: BLE001 — surface as data, never raise
+        return {"applied": False, "method": f"placement_{action}", "detail": str(e)}
+    if isinstance(payload, dict) and payload.get("error"):
+        return {
+            "applied": False,
+            "method": f"placement_{action}",
+            "detail": payload["error"],
+        }
+    proposal.evidence[_PLACEMENT_MOVE_TENANT_KEY] = tenant
+    if action == "move" and isinstance(route, dict) and route.get("group") is not None:
+        proposal.evidence[_PLACEMENT_MOVE_FROM_GROUP_KEY] = route["group"]
+    _invalidate_placement_cache(proposal.target)
+    return {"applied": True, "method": f"placement_{action}", "detail": payload}
+
+
+def _rollback_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any]:
+    from agent_utilities.mcp.tools import engine_tools
+
+    methods = _placement_methods()
+    tenant = proposal.evidence.get(_PLACEMENT_MOVE_TENANT_KEY)
+    from_group = proposal.evidence.get(_PLACEMENT_MOVE_FROM_GROUP_KEY)
+    if tenant is None or from_group is None or "move" not in methods:
+        # The apply call used a fresh `assign` (no prior group to revert to)
+        # or the engine no longer advertises the domain — there is no known,
+        # honest way to un-place a raft-catalog tenant yet. Say so plainly
+        # rather than silently no-op'ing or reverting through the unrelated
+        # R5 system, which would not actually undo the raft assignment.
+        return {
+            "rolled_back": False,
+            "method": "placement_move",
+            "detail": (
+                "no recorded pre-move group to revert to (the apply was a "
+                "fresh placement decision, not an online move) — the raft "
+                "PlacementCatalog has no un-assign operation yet"
+            ),
+        }
+    try:
+        raw = engine_tools._dispatch(
+            "placement",
+            methods,
+            "move",
+            json.dumps(
+                {
+                    "tenant": tenant,
+                    "range_start": 0,
+                    "range_end": 2**64 - 1,
+                    "target": int(from_group),
+                }
+            ),
+            "",
+        )
+        payload = json.loads(raw)
+    except Exception as e:  # noqa: BLE001
+        return {"rolled_back": False, "method": "placement_move", "detail": str(e)}
+    _invalidate_placement_cache(proposal.target)
+    if isinstance(payload, dict) and payload.get("error"):
+        return {
+            "rolled_back": False,
+            "method": "placement_move",
+            "detail": payload["error"],
+        }
+    return {"rolled_back": True, "method": "placement_move", "detail": payload}
 
 
 #: Evidence key the apply/rollback pair use to hand off the engine-reported
