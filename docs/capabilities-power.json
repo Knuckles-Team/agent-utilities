@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-07-12T23:56:41Z",
-  "count": 99,
+  "count": 101,
   "capabilities": [
     {
       "id": "ask_data",
@@ -8630,6 +8630,236 @@
       }
     },
     {
+      "id": "graph_argument",
+      "title": "graph argument",
+      "one_line": "AIF (Argument Interchange Format) argument maps: I-nodes (claims) linked through S-nodes \u2014 RA (rule-of-inference application), CA (conflict application), PA (preference application), plus the AIF+ TA (transition)/YA (illocutionary) dialogue extensions.",
+      "intent_verbs": [
+        "why",
+        "write",
+        "ask"
+      ],
+      "does": [
+        {
+          "action": "add_scheme",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "evaluate",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "export_aif",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "import_aif",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/graph/argument",
+        "tags": [
+          "aif",
+          "argument",
+          "argumentation",
+          "engine",
+          "epistemic",
+          "granular",
+          "graph-os"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "evaluate",
+            "description": "import_aif | export_aif | evaluate | add_scheme"
+          },
+          {
+            "name": "argument_map_json",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Inline AIFdb-shaped JSON: {\"nodes\": [{\"nodeID\",\"text\",\"type\"}, ...], \"edges\": [{\"edgeID\",\"fromID\",\"toID\"}, ...]} (import_aif, evaluate)."
+          },
+          {
+            "name": "map_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Argument-map id: required for export_aif, optional override for import_aif, optional scope for evaluate."
+          },
+          {
+            "name": "node_ids",
+            "type": "string",
+            "required": false,
+            "default": "[]",
+            "description": "JSON array of already-imported I-node ids to evaluate (evaluate; alternative/addition to argument_map_json)."
+          },
+          {
+            "name": "semantics",
+            "type": "string",
+            "required": false,
+            "default": "grounded",
+            "description": "Dung semantics for evaluate: grounded | preferred | stable."
+          },
+          {
+            "name": "scheme_name",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Scheme display name (add_scheme)."
+          },
+          {
+            "name": "scheme_kind",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "inference | conflict | preference (add_scheme)."
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional scheme description (add_scheme)."
+          },
+          {
+            "name": "scheme_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional explicit scheme id (add_scheme); defaults to a slug of scheme_name."
+          },
+          {
+            "name": "graph",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Target graph name for evaluate's engine call (empty = deployment default)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "evaluate",
+              "description": "import_aif | export_aif | evaluate | add_scheme",
+              "type": "string"
+            },
+            "argument_map_json": {
+              "default": "",
+              "description": "Inline AIFdb-shaped JSON: {\"nodes\": [{\"nodeID\",\"text\",\"type\"}, ...], \"edges\": [{\"edgeID\",\"fromID\",\"toID\"}, ...]} (import_aif, evaluate).",
+              "type": "string"
+            },
+            "map_id": {
+              "default": "",
+              "description": "Argument-map id: required for export_aif, optional override for import_aif, optional scope for evaluate.",
+              "type": "string"
+            },
+            "node_ids": {
+              "default": "[]",
+              "description": "JSON array of already-imported I-node ids to evaluate (evaluate; alternative/addition to argument_map_json).",
+              "type": "string"
+            },
+            "semantics": {
+              "default": "grounded",
+              "description": "Dung semantics for evaluate: grounded | preferred | stable.",
+              "type": "string"
+            },
+            "scheme_name": {
+              "default": "",
+              "description": "Scheme display name (add_scheme).",
+              "type": "string"
+            },
+            "scheme_kind": {
+              "default": "",
+              "description": "inference | conflict | preference (add_scheme).",
+              "type": "string"
+            },
+            "description": {
+              "default": "",
+              "description": "Optional scheme description (add_scheme).",
+              "type": "string"
+            },
+            "scheme_id": {
+              "default": "",
+              "description": "Optional explicit scheme id (add_scheme); defaults to a slug of scheme_name.",
+              "type": "string"
+            },
+            "graph": {
+              "default": "",
+              "description": "Target graph name for evaluate's engine call (empty = deployment default).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 0,
+        "unmatched_action_count": 4,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [],
+        "txn_participation_values_seen": [],
+        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+      },
+      "scopes": [],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "You need the raw, low-level engine primitive directly (1:1 over the epistemic-graph wire protocol) \u2014 precise control, or the condensed `graph_*` tool doesn't expose the operation you need."
+      ],
+      "when_not": [
+        "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
+      ],
+      "examples": [
+        "graph_argument: AIF (Argument Interchange Format) argument maps: I-nodes (claims) linked",
+        "graph_argument action=add_scheme",
+        "graph_argument action=evaluate",
+        "graph_argument action=export_aif"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "aif",
+          "argument",
+          "argumentation",
+          "engine",
+          "epistemic",
+          "granular",
+          "graph-os"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-22T06:53:49Z"
+      }
+    },
+    {
       "id": "graph_ask",
       "title": "graph ask",
       "one_line": "ask the Knowledge Graph in plain English.",
@@ -10698,6 +10928,256 @@
         "eg_ledger_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
         "generated_at": "2026-07-12T23:56:41Z"
+      }
+    },
+    {
+      "id": "graph_engineering",
+      "title": "graph engineering",
+      "one_line": "GraphRAG-style Graph Engineering surface: entity-neighborhood local search, community-report map-reduce global search, and on-demand community-report (re)building.",
+      "intent_verbs": [
+        "ask",
+        "write"
+      ],
+      "does": [
+        {
+          "action": "build_community_reports",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "global_search",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "local_search",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/graph/engineering",
+        "tags": [
+          "community",
+          "global-search",
+          "granular",
+          "graph-os",
+          "graph_engineering",
+          "graphrag",
+          "local-search",
+          "retrieval"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "local_search",
+            "description": "local_search | global_search | build_community_reports"
+          },
+          {
+            "name": "query",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language question (local_search, global_search)."
+          },
+          {
+            "name": "node_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Explicit seed node id for local_search, skipping seed resolution (semantic/graph-query lookup) entirely."
+          },
+          {
+            "name": "depth",
+            "type": "integer",
+            "required": false,
+            "default": 1,
+            "description": "local_search neighborhood hops (bounded)."
+          },
+          {
+            "name": "top_k",
+            "type": "integer",
+            "required": false,
+            "default": 8,
+            "description": "local_search result cap."
+          },
+          {
+            "name": "level",
+            "type": "integer",
+            "required": false,
+            "default": 0,
+            "description": "global_search community-report level: 0 = per-community reports, 1 = the single global rollup report."
+          },
+          {
+            "name": "max_communities",
+            "type": "integer",
+            "required": false,
+            "default": 8,
+            "description": "global_search MAP-step fan-out bound, and build_community_reports' max communities to summarize (there default 50 when left at 8 has no special meaning -- pass explicitly for build_community_reports if you want a different cap)."
+          },
+          {
+            "name": "token_budget",
+            "type": "integer",
+            "required": false,
+            "default": 0,
+            "description": "ContextCompiler token budget. 0 (default) uses each action's own default (2000 for local_search, 4000 for global_search)."
+          },
+          {
+            "name": "resolution",
+            "type": "number",
+            "required": false,
+            "default": 1.0,
+            "description": "build_community_reports: Louvain resolution parameter."
+          },
+          {
+            "name": "min_size",
+            "type": "integer",
+            "required": false,
+            "default": 8,
+            "description": "build_community_reports: minimum community size to summarize."
+          },
+          {
+            "name": "embed",
+            "type": "boolean",
+            "required": false,
+            "default": true,
+            "description": "build_community_reports: embed each report's theme+summary so global_search can rank it."
+          },
+          {
+            "name": "synthesize_answer",
+            "type": "boolean",
+            "required": false,
+            "default": true,
+            "description": "local_search: render the grounded-answer canonical prompt over the assembled bundle (best-effort)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "local_search",
+              "description": "local_search | global_search | build_community_reports",
+              "type": "string"
+            },
+            "query": {
+              "default": "",
+              "description": "Natural-language question (local_search, global_search).",
+              "type": "string"
+            },
+            "node_id": {
+              "default": "",
+              "description": "Explicit seed node id for local_search, skipping seed resolution (semantic/graph-query lookup) entirely.",
+              "type": "string"
+            },
+            "depth": {
+              "default": 1,
+              "description": "local_search neighborhood hops (bounded).",
+              "type": "integer"
+            },
+            "top_k": {
+              "default": 8,
+              "description": "local_search result cap.",
+              "type": "integer"
+            },
+            "level": {
+              "default": 0,
+              "description": "global_search community-report level: 0 = per-community reports, 1 = the single global rollup report.",
+              "type": "integer"
+            },
+            "max_communities": {
+              "default": 8,
+              "description": "global_search MAP-step fan-out bound, and build_community_reports' max communities to summarize (there default 50 when left at 8 has no special meaning -- pass explicitly for build_community_reports if you want a different cap).",
+              "type": "integer"
+            },
+            "token_budget": {
+              "default": 0,
+              "description": "ContextCompiler token budget. 0 (default) uses each action's own default (2000 for local_search, 4000 for global_search).",
+              "type": "integer"
+            },
+            "resolution": {
+              "default": 1.0,
+              "description": "build_community_reports: Louvain resolution parameter.",
+              "type": "number"
+            },
+            "min_size": {
+              "default": 8,
+              "description": "build_community_reports: minimum community size to summarize.",
+              "type": "integer"
+            },
+            "embed": {
+              "default": true,
+              "description": "build_community_reports: embed each report's theme+summary so global_search can rank it.",
+              "type": "boolean"
+            },
+            "synthesize_answer": {
+              "default": true,
+              "description": "local_search: render the grounded-answer canonical prompt over the assembled bundle (best-effort).",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 0,
+        "unmatched_action_count": 3,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [],
+        "txn_participation_values_seen": [],
+        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+      },
+      "scopes": [],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "graph_engineering: GraphRAG-style Graph Engineering surface: entity-neighborhood local search,",
+        "graph_engineering action=build_community_reports",
+        "graph_engineering action=global_search",
+        "graph_engineering action=local_search"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "community",
+          "global-search",
+          "granular",
+          "graph-os",
+          "graph_engineering",
+          "graphrag",
+          "local-search",
+          "retrieval"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-22T06:53:49Z"
       }
     },
     {

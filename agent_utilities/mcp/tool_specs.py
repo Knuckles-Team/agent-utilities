@@ -40,6 +40,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_analyze": ("ask", "why"),
         "graph_context": ("ask",),
         "graph_document_tree": ("ask", "write"),
+        "graph_engineering": ("ask", "write"),
         "graph_table": ("ask", "write"),
         "graph_promql": ("ask",),
         "graph_federated_search": ("ask",),
@@ -69,6 +70,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_compliance": ("ask", "why"),
         "graph_epistemic": ("why", "ask"),
         "graph_incident": ("ask", "act"),
+        "graph_argument": ("why", "write", "ask"),
         # ── writes / ingest / persist ──
         "graph_write": ("write",),
         "graph_ingest": ("write",),

@@ -99,6 +99,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "engine_broker_publish_idempotent",
     },
     {"tool": "engine_broker", "action": "reject", "name": "engine_broker_reject"},
+    {"tool": "engine_broker", "action": "renew_tag", "name": "engine_broker_renew_tag"},
     {
         "tool": "engine_broker",
         "action": "stream_commit_offset",
@@ -163,6 +164,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_consensus",
         "action": "apply_multisig_mutation",
         "name": "engine_consensus_apply_multisig_mutation",
+    },
+    {
+        "tool": "engine_consensus",
+        "action": "bootstrap_system_identity",
+        "name": "engine_consensus_bootstrap_system_identity",
     },
     {
         "tool": "engine_consensus",
@@ -563,11 +569,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_graph",
-        "action": "batch_cosine_similarity",
-        "name": "engine_graph_batch_cosine_similarity",
-    },
-    {
-        "tool": "engine_graph",
         "action": "batch_l2_normalize",
         "name": "engine_graph_batch_l2_normalize",
     },
@@ -601,11 +602,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_graph", "action": "find_cycle", "name": "engine_graph_find_cycle"},
     {
         "tool": "engine_graph",
-        "action": "find_similar_pairs",
-        "name": "engine_graph_find_similar_pairs",
-    },
-    {
-        "tool": "engine_graph",
         "action": "get_subgraph",
         "name": "engine_graph_get_subgraph",
     },
@@ -613,11 +609,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_graph",
         "action": "graph_coloring",
         "name": "engine_graph_graph_coloring",
-    },
-    {
-        "tool": "engine_graph",
-        "action": "hypergraph_encode_interaction",
-        "name": "engine_graph_hypergraph_encode_interaction",
     },
     {
         "tool": "engine_graph",
@@ -647,11 +638,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_graph",
-        "action": "parse_repository",
-        "name": "engine_graph_parse_repository",
-    },
-    {
-        "tool": "engine_graph",
         "action": "resolve_candidates",
         "name": "engine_graph_resolve_candidates",
     },
@@ -664,11 +650,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_graph",
         "action": "shortest_path",
         "name": "engine_graph_shortest_path",
-    },
-    {
-        "tool": "engine_graph",
-        "action": "spectral_cluster",
-        "name": "engine_graph_spectral_cluster",
     },
     {
         "tool": "engine_graph",
@@ -798,6 +779,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "engine_nodes_compare_and_set",
     },
     {"tool": "engine_nodes", "action": "count", "name": "engine_nodes_count"},
+    {
+        "tool": "engine_nodes",
+        "action": "create_if_absent",
+        "name": "engine_nodes_create_if_absent",
+    },
     {"tool": "engine_nodes", "action": "has", "name": "engine_nodes_has"},
     {"tool": "engine_nodes", "action": "has_batch", "name": "engine_nodes_has_batch"},
     {"tool": "engine_nodes", "action": "ids", "name": "engine_nodes_ids"},
@@ -848,7 +834,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "causal_estimate",
         "name": "engine_query_causal_estimate",
     },
-    {"tool": "engine_query", "action": "cypher", "name": "engine_query_cypher"},
+    {
+        "tool": "engine_query",
+        "action": "cypher_read",
+        "name": "engine_query_cypher_read",
+    },
+    {
+        "tool": "engine_query",
+        "action": "cypher_write",
+        "name": "engine_query_cypher_write",
+    },
     {
         "tool": "engine_query",
         "action": "epistemic_status",
@@ -908,13 +903,13 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_query",
-        "action": "register_foreign_source",
-        "name": "engine_query_register_foreign_source",
+        "action": "recompute_materialization",
+        "name": "engine_query_recompute_materialization",
     },
     {
         "tool": "engine_query",
-        "action": "register_materialization",
-        "name": "engine_query_register_materialization",
+        "action": "register_foreign_source",
+        "name": "engine_query_register_foreign_source",
     },
     {
         "tool": "engine_query",
@@ -950,7 +945,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "engine_rdf_drop_named_graph",
     },
     {"tool": "engine_rdf", "action": "explain", "name": "engine_rdf_explain"},
-    {"tool": "engine_rdf", "action": "get_triples", "name": "engine_rdf_get_triples"},
+    {"tool": "engine_rdf", "action": "get_rdf", "name": "engine_rdf_get_rdf"},
     {"tool": "engine_rdf", "action": "owl_reason", "name": "engine_rdf_owl_reason"},
     {
         "tool": "engine_rdf",
@@ -967,6 +962,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_rdf",
         "action": "sparql_virtual",
         "name": "engine_rdf_sparql_virtual",
+    },
+    {
+        "tool": "engine_rdf",
+        "action": "validate_shacl",
+        "name": "engine_rdf_validate_shacl",
     },
     {"tool": "engine_reasoning", "action": "reason", "name": "engine_reasoning_reason"},
     {
@@ -1128,90 +1128,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "synthesize_org",
         "name": "graph_agents_synthesize_org",
     },
-    {"tool": "graph_analyze", "action": "adr", "name": "graph_analyze_adr"},
-    {
-        "tool": "graph_analyze",
-        "action": "arch_report",
-        "name": "graph_analyze_arch_report",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "assimilation_benchmark",
-        "name": "graph_analyze_assimilation_benchmark",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "background_research",
-        "name": "graph_analyze_background_research",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "blast_radius",
-        "name": "graph_analyze_blast_radius",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "call_graph",
-        "name": "graph_analyze_call_graph",
-    },
-    {"tool": "graph_analyze", "action": "causal", "name": "graph_analyze_causal"},
-    {
-        "tool": "graph_analyze",
-        "action": "change_coupling",
-        "name": "graph_analyze_change_coupling",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "check_constraints",
-        "name": "graph_analyze_check_constraints",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "cleanup_documents",
-        "name": "graph_analyze_cleanup_documents",
-    },
-    {"tool": "graph_analyze", "action": "close", "name": "graph_analyze_close"},
-    {
-        "tool": "graph_analyze",
-        "action": "code_context",
-        "name": "graph_analyze_code_context",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "code_evolution",
-        "name": "graph_analyze_code_evolution",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "code_metrics",
-        "name": "graph_analyze_code_metrics",
-    },
-    {"tool": "graph_analyze", "action": "context", "name": "graph_analyze_context"},
-    {
-        "tool": "graph_analyze",
-        "action": "contradictions",
-        "name": "graph_analyze_contradictions",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "cross_repo_usages",
-        "name": "graph_analyze_cross_repo_usages",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "deep_extract",
-        "name": "graph_analyze_deep_extract",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "distill_memory",
-        "name": "graph_analyze_distill_memory",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "distill_search",
-        "name": "graph_analyze_distill_search",
-    },
     {
         "tool": "graph_analyze",
         "action": "enrichment_coverage",
@@ -1219,104 +1135,10 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_analyze",
-        "action": "epistemic_sync",
-        "name": "graph_analyze_epistemic_sync",
-    },
-    {"tool": "graph_analyze", "action": "evaluate", "name": "graph_analyze_evaluate"},
-    {
-        "tool": "graph_analyze",
-        "action": "evaluate_alpha",
-        "name": "graph_analyze_evaluate_alpha",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "evaluate_harness",
-        "name": "graph_analyze_evaluate_harness",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "evolve_agent",
-        "name": "graph_analyze_evolve_agent",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "evolve_code",
-        "name": "graph_analyze_evolve_code",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "evolve_model",
-        "name": "graph_analyze_evolve_model",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "evolve_variants",
-        "name": "graph_analyze_evolve_variants",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "executable_rag",
-        "name": "graph_analyze_executable_rag",
-    },
-    {"tool": "graph_analyze", "action": "explain", "name": "graph_analyze_explain"},
-    {
-        "tool": "graph_analyze",
-        "action": "extract_claims",
-        "name": "graph_analyze_extract_claims",
-    },
-    {"tool": "graph_analyze", "action": "forecast", "name": "graph_analyze_forecast"},
-    {
-        "tool": "graph_analyze",
-        "action": "guard_corpus",
-        "name": "graph_analyze_guard_corpus",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "harness_benchmark",
-        "name": "graph_analyze_harness_benchmark",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "harness_certify",
-        "name": "graph_analyze_harness_certify",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "harness_evolve",
-        "name": "graph_analyze_harness_evolve",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "harness_gate",
-        "name": "graph_analyze_harness_gate",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "infer_links",
-        "name": "graph_analyze_infer_links",
-    },
-    {
-        "tool": "graph_analyze",
         "action": "infra_sweep",
         "name": "graph_analyze_infra_sweep",
     },
     {"tool": "graph_analyze", "action": "inspect", "name": "graph_analyze_inspect"},
-    {"tool": "graph_analyze", "action": "invariant", "name": "graph_analyze_invariant"},
-    {
-        "tool": "graph_analyze",
-        "action": "latent_efficiency_benchmark",
-        "name": "graph_analyze_latent_efficiency_benchmark",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "night_shift",
-        "name": "graph_analyze_night_shift",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "pick_skill",
-        "name": "graph_analyze_pick_skill",
-    },
     {
         "tool": "graph_analyze",
         "action": "placement_plan",
@@ -1327,103 +1149,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "process_writeback",
         "name": "graph_analyze_process_writeback",
     },
-    {"tool": "graph_analyze", "action": "quant_arb", "name": "graph_analyze_quant_arb"},
-    {
-        "tool": "graph_analyze",
-        "action": "quant_banking",
-        "name": "graph_analyze_quant_banking",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_crypto",
-        "name": "graph_analyze_quant_crypto",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_exchange",
-        "name": "graph_analyze_quant_exchange",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_insider",
-        "name": "graph_analyze_quant_insider",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_microstructure",
-        "name": "graph_analyze_quant_microstructure",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_regime",
-        "name": "graph_analyze_quant_regime",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "quant_strategy",
-        "name": "graph_analyze_quant_strategy",
-    },
-    {"tool": "graph_analyze", "action": "recommend", "name": "graph_analyze_recommend"},
-    {
-        "tool": "graph_analyze",
-        "action": "recursive_distill",
-        "name": "graph_analyze_recursive_distill",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "relevance_sweep",
-        "name": "graph_analyze_relevance_sweep",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "research_ingest",
-        "name": "graph_analyze_research_ingest",
-    },
-    {"tool": "graph_analyze", "action": "routes", "name": "graph_analyze_routes"},
     {
         "tool": "graph_analyze",
         "action": "security_scan",
         "name": "graph_analyze_security_scan",
     },
     {
-        "tool": "graph_analyze",
-        "action": "similar_code",
-        "name": "graph_analyze_similar_code",
+        "tool": "graph_argument",
+        "action": "add_scheme",
+        "name": "graph_argument_add_scheme",
+    },
+    {"tool": "graph_argument", "action": "evaluate", "name": "graph_argument_evaluate"},
+    {
+        "tool": "graph_argument",
+        "action": "export_aif",
+        "name": "graph_argument_export_aif",
     },
     {
-        "tool": "graph_analyze",
-        "action": "spawn_background",
-        "name": "graph_analyze_spawn_background",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "specialize",
-        "name": "graph_analyze_specialize",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "synthesize",
-        "name": "graph_analyze_synthesize",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "track_citations",
-        "name": "graph_analyze_track_citations",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "workforce_plan",
-        "name": "graph_analyze_workforce_plan",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "world_model_rollout",
-        "name": "graph_analyze_world_model_rollout",
-    },
-    {
-        "tool": "graph_analyze",
-        "action": "x_workflow",
-        "name": "graph_analyze_x_workflow",
+        "tool": "graph_argument",
+        "action": "import_aif",
+        "name": "graph_argument_import_aif",
     },
     {"tool": "graph_ask", "action": None, "name": "graph_ask"},
     {"tool": "graph_audit", "action": "for_target", "name": "graph_audit_for_target"},
@@ -1432,7 +1177,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_bus", "action": None, "name": "graph_bus"},
     {"tool": "graph_code", "action": None, "name": "graph_code"},
     {"tool": "graph_code_nav", "action": "connects", "name": "graph_code_nav_connects"},
-    {"tool": "graph_compliance", "action": None, "name": "graph_compliance"},
+    {"tool": "graph_compliance", "action": "export", "name": "graph_compliance_export"},
+    {
+        "tool": "graph_compliance",
+        "action": "posture",
+        "name": "graph_compliance_posture",
+    },
     {
         "tool": "graph_configure",
         "action": "add_connection",
@@ -1483,11 +1233,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_configure",
         "action": "harness_fence",
         "name": "graph_configure_harness_fence",
-    },
-    {
-        "tool": "graph_configure",
-        "action": "imprint_connection",
-        "name": "graph_configure_imprint_connection",
     },
     {
         "tool": "graph_configure",
@@ -1571,11 +1316,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
-        "action": "set_default_connection",
-        "name": "graph_configure_set_default_connection",
-    },
-    {
-        "tool": "graph_configure",
         "action": "set_role_routing",
         "name": "graph_configure_set_role_routing",
     },
@@ -1653,7 +1393,36 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "register_rlm_actor",
         "name": "graph_domain_ops_register_rlm_actor",
     },
-    {"tool": "graph_epistemic", "action": None, "name": "graph_epistemic"},
+    {
+        "tool": "graph_engineering",
+        "action": "build_community_reports",
+        "name": "graph_engineering_build_community_reports",
+    },
+    {
+        "tool": "graph_engineering",
+        "action": "global_search",
+        "name": "graph_engineering_global_search",
+    },
+    {
+        "tool": "graph_engineering",
+        "action": "local_search",
+        "name": "graph_engineering_local_search",
+    },
+    {
+        "tool": "graph_epistemic",
+        "action": "epistemic_status",
+        "name": "graph_epistemic_epistemic_status",
+    },
+    {
+        "tool": "graph_epistemic",
+        "action": "explain_belief",
+        "name": "graph_epistemic_explain_belief",
+    },
+    {
+        "tool": "graph_epistemic",
+        "action": "what_changed",
+        "name": "graph_epistemic_what_changed",
+    },
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
     {"tool": "graph_evaluate", "action": None, "name": "graph_evaluate"},
@@ -1719,7 +1488,13 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "verify_action",
         "name": "graph_governance_verify_action",
     },
-    {"tool": "graph_incident", "action": None, "name": "graph_incident"},
+    {
+        "tool": "graph_incident",
+        "action": "correlate",
+        "name": "graph_incident_correlate",
+    },
+    {"tool": "graph_incident", "action": "get", "name": "graph_incident_get"},
+    {"tool": "graph_incident", "action": "list", "name": "graph_incident_list"},
     {
         "tool": "graph_ingest",
         "action": "agent_toolkit",
@@ -1964,177 +1739,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "name": "graph_ops_causal_root_cause",
     },
     {"tool": "graph_orchestrate", "action": None, "name": "graph_orchestrate"},
-    {
-        "tool": "graph_orchestrate",
-        "action": "assimilate",
-        "name": "graph_orchestrate_assimilate",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "compile_process",
-        "name": "graph_orchestrate_compile_process",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "compile_workflow",
-        "name": "graph_orchestrate_compile_workflow",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "computer_use",
-        "name": "graph_orchestrate_computer_use",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "consensus",
-        "name": "graph_orchestrate_consensus",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "dispatch",
-        "name": "graph_orchestrate_dispatch",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "dispatch_workflow",
-        "name": "graph_orchestrate_dispatch_workflow",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "distill_skills",
-        "name": "graph_orchestrate_distill_skills",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "enterprise_op",
-        "name": "graph_orchestrate_enterprise_op",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "execute_agent",
-        "name": "graph_orchestrate_execute_agent",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "execute_workflow",
-        "name": "graph_orchestrate_execute_workflow",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "export_workflow",
-        "name": "graph_orchestrate_export_workflow",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "failure_ingest",
-        "name": "graph_orchestrate_failure_ingest",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "finance_op",
-        "name": "graph_orchestrate_finance_op",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "grant_approval",
-        "name": "graph_orchestrate_grant_approval",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "list_cron_jobs",
-        "name": "graph_orchestrate_list_cron_jobs",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "list_workflows",
-        "name": "graph_orchestrate_list_workflows",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "loop_cycle",
-        "name": "graph_orchestrate_loop_cycle",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "ml_rlm_op",
-        "name": "graph_orchestrate_ml_rlm_op",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "optimize_component",
-        "name": "graph_orchestrate_optimize_component",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "publish_proposal",
-        "name": "graph_orchestrate_publish_proposal",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "request_approval",
-        "name": "graph_orchestrate_request_approval",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "rlm_benchmark",
-        "name": "graph_orchestrate_rlm_benchmark",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "rlm_optimize",
-        "name": "graph_orchestrate_rlm_optimize",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "rlm_run",
-        "name": "graph_orchestrate_rlm_run",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "run_org",
-        "name": "graph_orchestrate_run_org",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "standardize",
-        "name": "graph_orchestrate_standardize",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "start_debate",
-        "name": "graph_orchestrate_start_debate",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "status",
-        "name": "graph_orchestrate_status",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "submit_risk_veto",
-        "name": "graph_orchestrate_submit_risk_veto",
-    },
-    {"tool": "graph_orchestrate", "action": "swarm", "name": "graph_orchestrate_swarm"},
-    {
-        "tool": "graph_orchestrate",
-        "action": "synthesize_org",
-        "name": "graph_orchestrate_synthesize_org",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "trigger_cron_job",
-        "name": "graph_orchestrate_trigger_cron_job",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "verify_action",
-        "name": "graph_orchestrate_verify_action",
-    },
-    {
-        "tool": "graph_orchestrate",
-        "action": "workflow_status",
-        "name": "graph_orchestrate_workflow_status",
-    },
     {"tool": "graph_promql", "action": "instant", "name": "graph_promql_instant"},
     {"tool": "graph_promql", "action": "range", "name": "graph_promql_range"},
     {"tool": "graph_query", "action": None, "name": "graph_query"},
@@ -2315,6 +1919,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "object_set", "action": "from_ids", "name": "object_set_from_ids"},
     {"tool": "object_set", "action": "intersect", "name": "object_set_intersect"},
     {"tool": "object_set", "action": "of_type", "name": "object_set_of_type"},
+    {"tool": "object_set", "action": "path", "name": "object_set_path"},
     {"tool": "object_set", "action": "pivot", "name": "object_set_pivot"},
     {"tool": "object_set", "action": "search", "name": "object_set_search"},
     {
@@ -2335,6 +1940,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "discover_extensions",
         "name": "ontology_derive_discover_extensions",
     },
+    {
+        "tool": "ontology_derive",
+        "action": "generate",
+        "name": "ontology_derive_generate",
+    },
     {"tool": "ontology_derive", "action": "list", "name": "ontology_derive_list"},
     {
         "tool": "ontology_function",
@@ -2354,11 +1964,22 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "ontology_interface",
+        "action": "graph",
+        "name": "ontology_interface_graph",
+    },
+    {
+        "tool": "ontology_interface",
         "action": "implementers",
         "name": "ontology_interface_implementers",
     },
+    {"tool": "ontology_interface", "action": "lint", "name": "ontology_interface_lint"},
     {"tool": "ontology_interface", "action": "list", "name": "ontology_interface_list"},
     {"tool": "ontology_interface", "action": "owl", "name": "ontology_interface_owl"},
+    {
+        "tool": "ontology_interface",
+        "action": "summary",
+        "name": "ontology_interface_summary",
+    },
     {"tool": "ontology_leanix_sync", "action": None, "name": "ontology_leanix_sync"},
     {
         "tool": "ontology_link_materialize",
