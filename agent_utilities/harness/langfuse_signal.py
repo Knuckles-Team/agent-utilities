@@ -42,7 +42,12 @@ from agent_utilities.core.config import config
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["fetch_reward", "fetch_dataset_tasks", "blend_reward"]
+__all__ = [
+    "fetch_reward",
+    "fetch_dataset_tasks",
+    "fetch_low_score_traces",
+    "blend_reward",
+]
 
 
 def _run_sync(coro: Any) -> Any:
@@ -108,6 +113,35 @@ def fetch_dataset_tasks(dataset_name: str, *, limit: int = 50) -> list[dict[str,
         return _run_sync(backend.list_dataset_items(dataset_name, limit=limit))
     except Exception as exc:  # noqa: BLE001 — dataset fetch is best-effort
         logger.debug("Langfuse dataset fetch failed (%s).", type(exc).__name__)
+        return []
+
+
+def fetch_low_score_traces(
+    *, score_name: str | None = None, max_value: float = 0.5, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Langfuse SCORES below ``max_value``, normalized to trace references.
+
+    Reflect-stage (②) failure material: prior production episodes Langfuse has
+    already scored poorly, via
+    :meth:`~agent_utilities.harness.trace_backend.LangfuseTraceBackend.get_low_score_traces`
+    — the SAME read
+    :class:`~agent_utilities.knowledge_graph.adaptation.failure_analyzer.FailureAnalyzer`
+    already uses for its own Reflect intake, reused here rather than re-implemented.
+    ``[]`` when Langfuse is unconfigured, unreachable, or nothing is below
+    threshold — never raises, so a caller can unconditionally fold this into a
+    Reflect pass.
+    """
+    backend = _langfuse_backend()
+    if backend is None:
+        return []
+    try:
+        return _run_sync(
+            backend.get_low_score_traces(
+                score_name=score_name, max_value=max_value, limit=limit
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — trace fetch is best-effort
+        logger.debug("Langfuse low-score trace fetch failed (%s).", type(exc).__name__)
         return []
 
 

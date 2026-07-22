@@ -3307,6 +3307,27 @@ class AgentConfig(BaseSettings):
     # revision by itself. Default ON: the stage degrades to a clean no-op with zero
     # registered skill-eval targets (mirrors belief_revision's <2-node no-op).
     kg_loop_skill_evolution: bool = Field(default=True, alias="KG_LOOP_SKILL_EVOLUTION")
+    # Native-Langfuse signal for the SkillOpt ReflACT cycle above (CONCEPT:AU-AHE.
+    # optimization.skillopt-langfuse-signal) — config-driven selector, NOT a second
+    # feature flag: ``agent_utilities.harness.langfuse_skill_signal.select_skill_signal_provider``
+    # opts a skill INTO ``LangfuseSignalProvider`` (Rollout tasks from a Langfuse
+    # DATASET, Evaluate score from Langfuse SCORES) only when BOTH a dataset name is
+    # configured here (or passed explicitly per-call) AND Langfuse credentials are
+    # configured (``langfuse_secret_key_ref``); with either unset it degrades to the
+    # zero-infra ``InternalCorpusSignalProvider`` default — so leaving this unset
+    # everywhere is a strict no-behavior-change default.
+    kg_skill_evolution_langfuse_train_dataset: str | None = Field(
+        default=None, alias="KG_SKILL_EVOLUTION_LANGFUSE_TRAIN_DATASET"
+    )
+    kg_skill_evolution_langfuse_holdout_dataset: str | None = Field(
+        default=None, alias="KG_SKILL_EVOLUTION_LANGFUSE_HOLDOUT_DATASET"
+    )
+    kg_skill_evolution_langfuse_score_name: str | None = Field(
+        default=None, alias="KG_SKILL_EVOLUTION_LANGFUSE_SCORE_NAME"
+    )
+    kg_skill_evolution_langfuse_weight: float = Field(
+        default=0.5, alias="KG_SKILL_EVOLUTION_LANGFUSE_WEIGHT"
+    )
     # X3 — opt-in autonomy tier for the Insight Engine (CONCEPT:AU-KG.evolution.insight-engine-closed-loop).
     # OFF by default: even when this is True, a mined claim only auto-promotes
     # if BOTH action_policy.decide(kind="promote_mined_claim") allows (shipped
