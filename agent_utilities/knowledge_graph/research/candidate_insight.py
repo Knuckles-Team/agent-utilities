@@ -53,6 +53,7 @@ __all__ = [
     "candidates_from_anomalies",
     "candidates_from_predicted_edges",
     "candidates_from_sequential_patterns",
+    "candidates_from_ops_causal_root_cause",
     "candidates_from_mine_discovery",
     "register_claim_materialization",
 ]
@@ -69,7 +70,18 @@ CONFIDENCE_FLOOR = 0.6
 #: ``graph_mine action="sequence"`` mining surface's finding kind — a repeated
 #: FAILURE tool-call sequence mined from WorkItem/outcome provenance,
 #: fed through this SAME CandidateInsight→Claim pipeline as the other three.
-_FINDING_TYPES = {"AssociationRule", "Anomaly", "PredictedEdge", "SequentialPattern"}
+#: "OpsCausalFinding" (W2 wire-up #3, CONCEPT:AU-KG.enrichment.ops-causal-graph)
+#: is a root-cause ranking produced by ``ops_causal_graph.root_cause_rank`` —
+#: fed through this SAME pipeline so an ops-causal finding becomes a
+#: queryable, reviewable ``Claim`` instead of a JSON blob returned once and
+#: discarded.
+_FINDING_TYPES = {
+    "AssociationRule",
+    "Anomaly",
+    "PredictedEdge",
+    "SequentialPattern",
+    "OpsCausalFinding",
+}
 
 
 def _stable_id(prefix: str, *parts: Any) -> str:
@@ -354,6 +366,62 @@ def candidates_from_sequential_patterns(
                 confidence=_clamp01(ex.get("support")),
                 payload=dict(ex),
                 source_ids=[str(i) for i in items],
+            )
+        )
+    return out
+
+
+def candidates_from_ops_causal_root_cause(
+    failure_node: str, ranked: list[dict[str, Any]] | None
+) -> list[CandidateInsight]:
+    """``ops_causal_graph.root_cause_rank(model, failure_node)``'s ranked list → insights.
+
+    W2 wire-up #3 (CONCEPT:AU-KG.enrichment.ops-causal-graph) — closes the gap the module
+    itself flagged: ``root_cause_rank``/``blast_radius_analysis``/``change_risk_score``/
+    ``control_evidence_chain`` were pure read/compute functions whose findings were
+    returned as a JSON blob once and never written back, so an ops-causal finding could
+    never be queried, cited, or fed into governance/belief-revision the way a mined
+    ``AssociationRule``/``Anomaly``/``PredictedEdge`` already can.
+
+    Confidence is the entry's ``path_strength`` (the product of each hop's own
+    recorded edge strength, 1.0 default per hop — see ``OpsCausalModel.
+    path_strength``'s docstring), NOT the ranking ``score``: ``score`` is
+    explicitly documented as ``root_cause_rank``'s own tie-breaker among nodes
+    of the SAME root-ness (divided by ``hops``, so a deep TRUE root cause can
+    score lower than a shallow symptom purely from hop count) — using it as a
+    claim's confidence would penalize the deepest, most valuable root-cause
+    finding for being far away, exactly backwards from what "confidence in
+    this causal chain" should mean. ``path_strength`` is hop-count-independent
+    (an unbroken chain of full-strength edges stays 1.0 regardless of length),
+    so a genuine root cause is not filtered out by :data:`CONFIDENCE_FLOOR`
+    just for being upstream. ``source_ids`` is the FULL causal path
+    (ancestor → ... → failure_node) so :func:`register_claim_materialization`
+    writes a real ``DERIVED_FROM`` edge to every node actually on that path, not
+    just the two endpoints — the claim invalidates the moment any hop of its own
+    evidence changes.
+    """
+    out: list[CandidateInsight] = []
+    for entry in ranked or []:
+        if not isinstance(entry, dict):
+            continue
+        node_id = entry.get("node_id")
+        if not node_id:
+            continue
+        path = [str(p) for p in (entry.get("path") or []) if p]
+        statement = (
+            f"{node_id} is a{' ROOT' if entry.get('is_root') else 'n upstream'} "
+            f"probable cause of {failure_node} "
+            f"(score={entry.get('score')}, hops={entry.get('hops')}, "
+            f"stage={entry.get('stage')})"
+        )
+        out.append(
+            CandidateInsight(
+                finding_type="OpsCausalFinding",
+                finding_id=_stable_id("ops_causal_root_cause", failure_node, node_id),
+                statement=statement,
+                confidence=_clamp01(entry.get("path_strength")),
+                payload=dict(entry),
+                source_ids=path or [str(node_id), str(failure_node)],
             )
         )
     return out

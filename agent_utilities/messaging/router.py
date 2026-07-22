@@ -775,12 +775,16 @@ async def _persist_media(
                         type(e).__name__,
                     )
                     continue
-                await asyncio.to_thread(
+                media_type = str(getattr(att, "media_type", ""))
+                mime_type = (
+                    getattr(att, "mime_type", "")
+                    or resp.headers.get("content-type", "").split(";")[0].strip()
+                )
+                stored = await asyncio.to_thread(
                     store.store_media,
                     data,
-                    media_type=str(getattr(att, "media_type", "")),
-                    mime_type=getattr(att, "mime_type", "")
-                    or resp.headers.get("content-type", "").split(";")[0].strip(),
+                    media_type=media_type,
+                    mime_type=mime_type,
                     source=platform,
                     message_id=message_memory_id,
                     name=getattr(att, "filename", ""),
@@ -794,8 +798,59 @@ async def _persist_media(
                         "filename": getattr(att, "filename", ""),
                     },
                 )
+                if media_type in ("voice_note", "audio"):
+                    await _persist_audio_segment_evidence(
+                        store,
+                        data,
+                        stored=stored,
+                        mime_type=mime_type,
+                        source=platform,
+                    )
     finally:
         trust.cleanup()
+
+
+async def _persist_audio_segment_evidence(
+    store: Any, data: bytes, *, stored: Any, mime_type: str, source: str
+) -> None:
+    """Transcribe ``data`` WITH segment timing and write an ``AudioSegment``
+    evidence locus per segment (CONCEPT:AU-KG.identity.evidence-spine-convergence).
+
+    The natural producer wiring `MediaStore.store_audio_segment_evidence`'s own
+    docstring calls for: an ASR path that already has ``start``/``end`` for the
+    segment it transcribed, run right alongside the durable-media persist above
+    so the resulting ``:Evidence`` nodes anchor to the SAME occurrence
+    ``store_media`` just wrote. Best-effort: any failure (no `occurrence_id` on
+    ``stored`` — e.g. the underlying `store_media` call failed — transcription
+    disabled, whisper unavailable, ...) is logged and skipped, never raised, so
+    it never affects the surrounding durable-media persist pass.
+    """
+    occurrence_id = getattr(stored, "occurrence_id", None)
+    if not occurrence_id:
+        return
+    try:
+        from agent_utilities.messaging.voice import transcribe_bytes_with_segments
+
+        _text, segments = await transcribe_bytes_with_segments(data)
+        for seg in segments:
+            start_ms = int(round(float(seg.get("start", 0.0)) * 1000))
+            end_ms = int(round(float(seg.get("end", 0.0)) * 1000))
+            if end_ms <= start_ms:
+                continue
+            await asyncio.to_thread(
+                store.store_audio_segment_evidence,
+                data,
+                audio_id=occurrence_id,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                mime_type=mime_type or "audio/ogg",
+                source=source,
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(
+            "[CONCEPT:AU-KG.identity.evidence-spine-convergence] audio segment evidence skipped: %s",
+            e,
+        )
 
 
 async def _transcribe_attachments(event: Any) -> str:

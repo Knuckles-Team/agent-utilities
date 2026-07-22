@@ -63,6 +63,57 @@ def _parse_links(links_json: str) -> list[Any]:
     return links
 
 
+def _materialize_root_cause_claims(
+    engine: Any, failure_node: str, ranked: list[dict[str, Any]]
+) -> tuple[list[str], list[str]]:
+    """Persist each above-floor ``root_cause_rank`` finding as a reviewable ``:Claim``.
+
+    W2 wire-up #3 (CONCEPT:AU-KG.enrichment.ops-causal-graph) — the ops-causal → claim loop.
+    Reuses the SAME ``CandidateInsight`` → ``ClaimNode`` → ``register_claim_materialization``
+    pipeline the mining flywheel already uses for association-rule/anomaly/predicted-edge/
+    sequential-pattern findings (``knowledge_graph/research/candidate_insight.py``,
+    ``loop_controller._run_insight_validation``): a finding below
+    ``CONFIDENCE_FLOOR`` is skipped (never a low-confidence Claim); every claim persists
+    with ``status="proposal"``/``is_verified=False`` — ALWAYS, never self-verifying,
+    same propose-only floor the mining flywheel guarantees. Actual promotion review/
+    veto is the SAME downstream governance gate (``action_policy.decide``, the loop
+    engine's flywheel review surface) other mined claims go through — this function
+    only proposes, exactly like every other ``CandidateInsight`` producer.
+
+    Best-effort: a single finding's write failure is recorded in the returned
+    error list and does not stop the rest — mirrors every other best-effort
+    persist loop in this module family. Returns ``(claim_ids_written, errors)``.
+    """
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        candidates_from_ops_causal_root_cause,
+        register_claim_materialization,
+    )
+
+    claim_ids: list[str] = []
+    errors: list[str] = []
+    for cand in candidates_from_ops_causal_root_cause(failure_node, ranked):
+        if not cand.clears_floor:
+            continue
+        claim = cand.to_claim_node()
+        bundle = cand.to_evidence_bundle()
+        try:
+            engine.add_node(
+                claim.id,
+                "Claim",
+                properties={
+                    **claim.model_dump(mode="json", exclude={"type"}),
+                    "status": "proposal",
+                    "evidence_bundle_json": bundle.model_dump_json(),
+                },
+            )
+        except Exception as e:  # noqa: BLE001 — persistence is best-effort
+            errors.append(f"ops_causal:persist {claim.id}: {e}")
+            continue
+        claim_ids.append(claim.id)
+        register_claim_materialization(engine, claim, errors, context="ops_causal")
+    return claim_ids, errors
+
+
 def register_ops_causal_tools(mcp: Any) -> None:
     """Register the ``graph_ops_causal`` group on the given FastMCP server."""
 
@@ -87,7 +138,12 @@ def register_ops_causal_tools(mcp: Any) -> None:
             "([{source,target,rel_type,strength,observed_at}, ...] or "
             "[[source,rel_type,target], ...]) for an offline/test-friendly model, "
             "or omit it with an active engine + node_id to load the neighborhood "
-            "live from the KG."
+            "live from the KG. 'root_cause' additionally MATERIALIZES each "
+            "above-floor finding as a reviewable ``:Claim`` (status='proposal', "
+            "never auto-verified — CONCEPT:AU-KG.enrichment.ops-causal-graph) "
+            "when an engine is active, so a root-cause finding becomes queryable/"
+            "citable instead of a one-off JSON answer; set materialize_claims=false "
+            "to skip the write for a pure read."
         ),
         tags=["graph-os", "ops", "causal", "root-cause", "blast-radius"],
     )
@@ -123,6 +179,12 @@ def register_ops_causal_tools(mcp: Any) -> None:
             default=0.0,
             description="Unix seconds 'current time' for recency weighting "
             "(root_cause); 0 ⇒ no recency weighting.",
+        ),
+        materialize_claims: bool = Field(
+            default=True,
+            description="root_cause only: persist each above-floor finding as a "
+            "reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph). Default-on when an "
+            "engine is active; set False for a pure read with no graph write.",
         ),
     ) -> str:
         """Ops causal graph: join + root-cause/blast-radius/change-risk/control-evidence."""
@@ -174,6 +236,8 @@ def register_ops_causal_tools(mcp: Any) -> None:
             )
 
         model = build_causal_model(links)
+        claims_materialized: list[str] = []
+        claim_errors: list[str] = []
 
         try:
             if action == "root_cause":
@@ -186,6 +250,10 @@ def register_ops_causal_tools(mcp: Any) -> None:
                     max_results=max_results,
                     now=now or None,
                 )
+                if materialize_claims and engine is not None:
+                    claims_materialized, claim_errors = _materialize_root_cause_claims(
+                        engine, node_id, result
+                    )
             elif action == "blast_radius":
                 if not node_id:
                     raise ValueError("node_id required for blast_radius")
@@ -222,9 +290,16 @@ def register_ops_causal_tools(mcp: Any) -> None:
                 context={"surface": "ops_causal", "action": action},
             )
 
-        return json.dumps(
-            {"surface": "ops_causal", "action": action, "result": result}, default=str
-        )
+        response: dict[str, Any] = {
+            "surface": "ops_causal",
+            "action": action,
+            "result": result,
+        }
+        if action == "root_cause":
+            response["claims_materialized"] = claims_materialized
+            if claim_errors:
+                response["claim_errors"] = claim_errors
+        return json.dumps(response, default=str)
 
     kg_server.REGISTERED_TOOLS["graph_ops_causal"] = graph_ops_causal
     # No bespoke endpoint needed — the generic REST-twin factory in
