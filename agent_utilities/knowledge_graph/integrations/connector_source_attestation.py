@@ -36,7 +36,7 @@ SOURCE_ATTESTATION_KEYS = frozenset(
     }
 )
 SOURCE_COMPATIBILITY = {
-    "agent_utilities": ">=1.27.1,<2",
+    "agent_utilities": ">=2.0.0,<3",
     "epistemic_graph": ">=2.23.1,<3",
     "bundle_schema": "2",
 }
