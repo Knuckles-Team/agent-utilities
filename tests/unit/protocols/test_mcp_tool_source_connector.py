@@ -251,14 +251,26 @@ def test_langfuse_presets_exclude_raw_trace_content():
 
 @pytest.mark.concept("AU-KG.ontology.connector-manifest-gate")
 def test_governed_connector_lists_and_fingerprints_live_tool_before_pull():
+    import asyncio
+
+    from fastmcp import Client
+
     server = make_sql_server(
         rows=[{"id": 1, "title": "A", "body": "body", "updated_at": "2026"}]
     )
-    live_tool = next(
-        tool
-        for tool in server._tool_manager._tools.values()
-        if tool.name == "sql_query"
-    )
+
+    # The connector fingerprints the tool via the MCP *protocol* view
+    # (``client.list_tools()`` -> ``inputSchema``), not the server-side
+    # ``FunctionTool`` object (which exposes the schema as ``.parameters`` —
+    # FastMCP >=3 also dropped the private ``_tool_manager`` dict this test
+    # used to reach into). Fingerprint from the same client-side view so the
+    # expected digest matches what the connector computes internally.
+    async def _live_tool():
+        async with Client(server) as client:
+            listed = await client.list_tools()
+        return next(tool for tool in listed if tool.name == "sql_query")
+
+    live_tool = asyncio.run(_live_tool())
     expected = compatibility_fingerprint(
         "sql_query", canonical_input_schema(live_tool, include_presentation=False)
     )
@@ -532,7 +544,13 @@ def test_acl_fields_map_to_external_access():
     assert docs["r1"].external_access.user_emails == ["a@x", "b@x"]
     assert docs["r1"].external_access.group_ids == ["eng"]
     assert docs["r1"].external_access.markings == ["SECRET"]
-    assert docs["r2"].external_access.is_public is True
+    # CONCEPT:AU-P0-4 fail-closed connector permissions: a record reporting no
+    # owners/teams/labels is NOT public — it is quarantined
+    # (``ExternalAccess.quarantined()``) until an operator explicitly reviews
+    # and grants it. "Unknown never means public" — see
+    # ``protocols/source_connectors/base.py``'s ``CONNECTOR_UNCONFIGURED_MARKING``.
+    assert docs["r2"].external_access.is_public is False
+    assert docs["r2"].external_access.markings == ["connector-unconfigured-acl"]
 
 
 @pytest.mark.concept("AU-P0-4")
@@ -630,7 +648,10 @@ def test_tool_failure_raises_typed_error():
         raise RuntimeError("backend down")
 
     conn = build_connector("mcp_tool", {"client": server, "tool": "boom"})
-    with pytest.raises(McpToolSourceError, match="boom"):
+    # The typed drain error is deliberately generic (exception TYPE only, no
+    # raw upstream message/tool name interpolated) — consistent with every
+    # other ``McpToolSourceError`` raised in this module.
+    with pytest.raises(McpToolSourceError, match="MCP source tool call failed"):
         list(conn.load())
 
 

@@ -48,6 +48,16 @@ def test_build_connector_blocks_uncertified_activation_in_production(monkeypatch
 def test_native_connector_bundle_allows_zero_config_governance(monkeypatch, tmp_path):
     monkeypatch.setenv("APP_PROFILE", "production")
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
+    # Production never bypasses the connector-manifest gate (CONCEPT:AU-P0-4);
+    # a real signed bundle is required. Per ``precheck_source``'s own
+    # docstring, "development fixtures must inject a signed test bundle or
+    # stub this gate explicitly" — stub it the same way every other
+    # governance-gated fixture in this repo does (see e.g.
+    # ``test_gitlab_indexer.py``).
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.connector_manifest_gate.precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
 
     connector = build_connector("filesystem", {"root": str(tmp_path)})
 
@@ -728,6 +738,16 @@ def test_filesystem_connector_skips_symlink_escape(tmp_path):
 
 @pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 def test_permission_sync_maps_acl_and_markings():
+    from agent_utilities.knowledge_graph.ontology.permissioning import (
+        use_marking_authority,
+    )
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    class _FakeMarkingStore:
+        @staticmethod
+        def execute(_query, _params):
+            return []
+
     access = ExternalAccess(
         is_public=False,
         group_ids=["eng"],
@@ -735,32 +755,42 @@ def test_permission_sync_maps_acl_and_markings():
         read_roles=["kg:read"],
         markings=["SECRET"],
     )
-    acl = sync_access("doc:1", access, [("doc:1", "doc:1::chunk::0")])
-    assert acl is not None
-    assert "group:eng" in acl.read_roles and "user:a@x" in acl.read_roles
-    assert "kg:read" in acl.read_roles
-
+    actor = ActorContext(
+        actor_id="permission-sync-test",
+        roles=("kg:read",),
+        tenant_id="tenant-test",
+        authenticated=True,
+    )
     from agent_utilities.knowledge_graph.ontology.permissioning import (
         get_company_brain,
         markings_for,
     )
 
-    assert "SECRET" in markings_for("doc:1")
-    assert "SECRET" in markings_for("doc:1::chunk::0")  # propagated to chunk
-    chunk_acl = get_company_brain().permissions.get_acl("doc:1::chunk::0")
-    assert chunk_acl is not None
-    assert chunk_acl.read_roles == acl.read_roles
+    with (
+        use_marking_authority(_FakeMarkingStore()),
+        use_actor(actor),
+    ):
+        acl = sync_access("doc:1", access, [("doc:1", "doc:1::chunk::0")])
+        assert acl is not None
+        assert "group:eng" in acl.read_roles and "user:a@x" in acl.read_roles
+        assert "kg:read" in acl.read_roles
 
-    # Public access is a positive source assertion represented by an explicit
-    # public ACL, never by an absent policy row.
-    public = sync_access("doc:2", ExternalAccess.public(), [])
-    assert public is not None
-    assert public.classification.value == "public"
+        assert "SECRET" in markings_for("doc:1")
+        assert "SECRET" in markings_for("doc:1::chunk::0")  # propagated to chunk
+        chunk_acl = get_company_brain().permissions.get_acl("doc:1::chunk::0")
+        assert chunk_acl is not None
+        assert chunk_acl.read_roles == acl.read_roles
 
-    # Non-public with no principals is deny-all, not default-allow.
-    deny_all = sync_access("doc:3", ExternalAccess(is_public=False), [])
-    assert deny_all is not None
-    assert deny_all.read_roles == []
+        # Public access is a positive source assertion represented by an
+        # explicit public ACL, never by an absent policy row.
+        public = sync_access("doc:2", ExternalAccess.public(), [])
+        assert public is not None
+        assert public.classification.value == "public"
+
+        # Non-public with no principals is deny-all, not default-allow.
+        deny_all = sync_access("doc:3", ExternalAccess(is_public=False), [])
+        assert deny_all is not None
+        assert deny_all.read_roles == []
 
 
 @pytest.mark.concept("AU-ECO.connector.external-permission-sync")

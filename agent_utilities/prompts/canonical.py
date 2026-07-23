@@ -46,8 +46,13 @@ def _load_prompt_document(name: str) -> dict[str, Any] | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
+        from agent_utilities.core.log_privacy import sanitize_log_text
+
         logger.warning(
-            "canonical prompt %r failed to load from %s: %s", name, path, exc
+            "canonical prompt %r failed to load from %s: %s",
+            name,
+            sanitize_log_text(str(path)),
+            exc,
         )
         return None
 

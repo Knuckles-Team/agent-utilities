@@ -202,10 +202,21 @@ def langfuse_credentials_configured(
     environ: MutableMapping[str, str] | None = None,
     agent_config: AgentConfig | None = None,
 ) -> bool:
-    """Return credential-pair readiness without resolving or exposing secrets."""
+    """Return credential-pair readiness without resolving or exposing secrets.
+
+    A strict secret reference (``LANGFUSE_PUBLIC_KEY_REF`` /
+    ``LANGFUSE_SECRET_KEY_REF``) is preferred, but the direct
+    ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` pair — the names
+    ``langfuse_agent.auth`` reads for the standalone agent/MCP server — is
+    accepted too, so one variable pair configures both.
+    """
     target_env = environ if environ is not None else os.environ
-    public_ready = bool(_value(target_env, "LANGFUSE_PUBLIC_KEY_REF", agent_config))
-    secret_ready = bool(_value(target_env, "LANGFUSE_SECRET_KEY_REF", agent_config))
+    public_ready = bool(
+        _value(target_env, "LANGFUSE_PUBLIC_KEY_REF", agent_config)
+    ) or bool(_value(target_env, "LANGFUSE_PUBLIC_KEY", agent_config))
+    secret_ready = bool(
+        _value(target_env, "LANGFUSE_SECRET_KEY_REF", agent_config)
+    ) or bool(_value(target_env, "LANGFUSE_SECRET_KEY", agent_config))
     return public_ready and secret_ready
 
 
@@ -307,26 +318,41 @@ def resolve_langfuse_credentials(
     agent_config: AgentConfig | None = None,
     resolver: Callable[[str], str | None] | None = None,
 ) -> tuple[str, str]:
-    """Materialize the Langfuse key pair in memory from strict secret refs."""
+    """Materialize the Langfuse key pair in memory.
+
+    A strict secret reference (``LANGFUSE_PUBLIC_KEY_REF`` /
+    ``LANGFUSE_SECRET_KEY_REF``) is resolved when present; otherwise this falls
+    back to the direct ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` values
+    — the same names ``langfuse_agent.auth.get_client`` reads for the
+    standalone agent/MCP server — so one configured variable pair serves both.
+    """
     target_env = environ if environ is not None else os.environ
     resolved: list[str] = []
-    for key in ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_SECRET_KEY_REF"):
-        reference = _concrete_runtime_value(_value(target_env, key, agent_config))
-        if _SECRET_REF_RE.fullmatch(reference) is None or ".." in reference.partition(
-            "://"
-        )[2].split("/"):
-            raise LangfuseTrustError("langfuse_credentials_missing")
-        try:
-            material = _resolve_secret_reference(
-                reference,
-                environ=target_env,
-                resolver=resolver,
+    for ref_key, direct_key in (
+        ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_PUBLIC_KEY"),
+        ("LANGFUSE_SECRET_KEY_REF", "LANGFUSE_SECRET_KEY"),
+    ):
+        reference = _concrete_runtime_value(_value(target_env, ref_key, agent_config))
+        if reference:
+            if _SECRET_REF_RE.fullmatch(
+                reference
+            ) is None or ".." in reference.partition("://")[2].split("/"):
+                raise LangfuseTrustError("langfuse_credentials_missing")
+            try:
+                material = _resolve_secret_reference(
+                    reference,
+                    environ=target_env,
+                    resolver=resolver,
+                )
+                if isinstance(material, bytes):
+                    material = material.decode("utf-8")
+                value = _concrete_runtime_value(material)
+            except Exception:
+                value = ""
+        else:
+            value = _concrete_runtime_value(
+                _value(target_env, direct_key, agent_config)
             )
-            if isinstance(material, bytes):
-                material = material.decode("utf-8")
-            value = _concrete_runtime_value(material)
-        except Exception:
-            value = ""
         if (
             not value
             or len(value.encode("utf-8")) > 16_384
@@ -411,7 +437,7 @@ def _signature_is_valid(
                 certificate.tbs_certificate_bytes,
                 certificate.signature_hash_algorithm,
             )
-        elif isinstance(key, (ed25519.Ed25519PublicKey, ed448.Ed448PublicKey)):
+        elif isinstance(key, ed25519.Ed25519PublicKey | ed448.Ed448PublicKey):
             key.verify(certificate.signature, certificate.tbs_certificate_bytes)
         else:
             return False

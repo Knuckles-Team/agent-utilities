@@ -159,7 +159,13 @@ class KGCoordinator:
 
             cls.cleanup_rogue_instances(port)
 
-            logger.info(f"Starting centralized KG server daemon on {host}:{port}...")
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            redacted_bind_address = sanitize_log_text(f"{host}:{port}")
+            logger.info(
+                "Starting centralized KG server daemon on %s...",
+                redacted_bind_address,
+            )
 
             # Build command using uv run
             cmd = [

@@ -486,13 +486,18 @@ def test_outbound_auth_doctor_reports_redacted_readiness(monkeypatch):
 
 
 def test_outbound_auth_doctor_fails_closed_on_missing_audience(monkeypatch):
+    # The real ``outbound_auth_configuration_status`` always returns
+    # ``missing``/``invalid`` as genuine ``list`` objects (it builds them via
+    # ``.extend()``/``.append()``) — ``_check_outbound_auth`` type-checks for
+    # exactly that shape and silently treats anything else (e.g. a tuple) as
+    # empty, so the mock must match the real contract's type, not just value.
     monkeypatch.setattr(
         "agent_utilities.mcp.client_credentials.outbound_auth_configuration_status",
         lambda: {
             "mode": "oidc-client-credentials",
             "ready": False,
-            "missing": ("OIDC_AUDIENCE",),
-            "invalid": (),
+            "missing": ["OIDC_AUDIENCE"],
+            "invalid": [],
             "redacted": True,
         },
     )
@@ -1875,6 +1880,32 @@ def _patch_langfuse_static_dependencies(monkeypatch, cfg, *, launcher=None):
         "agent_utilities.observability.langfuse_trust.langfuse_provider_contract_ready",
         lambda: launcher is not None,
     )
+
+
+def test_langfuse_doctor_accepts_direct_key_pair_without_refs(monkeypatch):
+    """langfuse-agent's own client reads LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY
+    directly (no _REF suffix). The doctor must not report the integration as
+    unconfigured/incomplete when only that direct pair is set."""
+    cfg = _langfuse_doctor_config(
+        langfuse_public_key_ref=None,
+        langfuse_secret_key_ref=None,
+        kg_failure_evolution=False,
+        trace_export_enabled=False,
+    )
+    _patch_langfuse_static_dependencies(monkeypatch, cfg, launcher=None)
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-synthetic")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-synthetic")
+
+    result = D._check_langfuse()
+
+    # Without the direct-key fallback this would report "skip" (integration not
+    # configured) or "fail" (incomplete pair) even though real credentials are
+    # set. No integration is enabled here, so a fully-recognized pair still
+    # resolves through to the "ready but disabled" warn -- proving the direct
+    # LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY pair was recognized and resolved.
+    assert result["status"] == "warn"
+    assert result["data"]["credential_pair_configured"] is True
+    assert result["data"]["credential_material_ready"] is True
 
 
 def test_langfuse_launcher_is_required_only_for_mcp(monkeypatch):

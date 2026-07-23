@@ -83,7 +83,12 @@ def ensure_ingest_engine(
         return None
     sock = _socket_of(endpoint)
     if not sock:
-        logger.debug("ingest engine: non-local endpoint %s not spawnable", endpoint)
+        from agent_utilities.core.log_privacy import sanitize_log_text
+
+        redacted_target = sanitize_log_text(endpoint)
+        logger.debug(
+            "ingest engine: non-local endpoint %s not spawnable", redacted_target
+        )
         return None
     if _reachable(sock, auth_secret):
         return endpoint

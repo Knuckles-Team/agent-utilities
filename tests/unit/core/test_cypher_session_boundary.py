@@ -26,6 +26,8 @@ def _config() -> SimpleNamespace:
         mcp_jwt_audience=None,
         kg_policy_version="policy-v1",
         graph_service_endpoints=[],
+        engine_breaker_threshold=5,
+        engine_breaker_cooldown=15.0,
     )
 
 

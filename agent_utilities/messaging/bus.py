@@ -513,9 +513,16 @@ class AgentBus:
                 from_ts=from_ts,
             )
         except Exception as exc:  # noqa: BLE001 — bind is best-effort, never blocks subscribe
+            from agent_utilities.security.persistence_privacy import (
+                persistence_reference,
+            )
+
+            bound_agent_reference = persistence_reference(
+                "agent", agent_id, namespace="messaging-bus-subscriber"
+            )
             logger.warning(
                 "[AU-P1-2] log backend bind_subscriber(%s, %s) failed: %s",
-                agent_id,
+                bound_agent_reference,
                 topic,
                 exc,
             )

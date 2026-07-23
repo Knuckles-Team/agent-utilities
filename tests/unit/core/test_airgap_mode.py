@@ -204,4 +204,12 @@ def test_model_factory_no_guard_transport_when_airgap_off(monkeypatch):
 
     model_factory.create_model(provider="openai", model_id="internal")
 
-    assert captured.get("transport") is None
+    # DNS-pinned egress (pin_egress=True) is now an unconditional hardening
+    # applied to every model call regardless of AIRGAP_MODE (CONCEPT:
+    # AU-ORCH.adapter.byok-provider-proxy) — so a transport is always present.
+    # What airgap-off actually guarantees is the ABSENCE of the airgap-specific
+    # host-guard wrapper layered on top of it.
+    from agent_utilities.core.http_client import _AsyncAirgapGuardTransport
+
+    assert captured.get("transport") is not None
+    assert not isinstance(captured["transport"], _AsyncAirgapGuardTransport)

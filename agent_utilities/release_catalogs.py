@@ -17,6 +17,19 @@ _MAX_SKILL_FILES = 4_096
 _MAX_SKILL_FILE_BYTES = 16 * 1024 * 1024
 _MAX_SKILL_TREE_BYTES = 64 * 1024 * 1024
 _TRANSIENT_DIRECTORIES = frozenset({"__pycache__"})
+
+# Top-level entries under ``agent_utilities/skills/`` that are never
+# themselves an installable skill (no ``SKILL.md`` at that level), so
+# ``_skill_directories`` must not require one there: ``skill_graphs`` is a
+# KG-ingestion reference corpus (mirrors ``providers.py``'s
+# ``_SKILL_GRAPH_SEGMENTS``/``is_skill_graph_reference_path``), ``workflows``
+# is a container for nested workflow-type skills (each nested dir, e.g.
+# ``workflows/agent-os-genesis/``, has its own ``SKILL.md``), and
+# ``fleet_harness`` is the skill-validation harness's own support code, not a
+# skill.
+_NON_SKILL_STRUCTURAL_DIRECTORIES = frozenset(
+    {"skill_graphs", "workflows", "fleet_harness"}
+)
 _TRANSIENT_SUFFIXES = frozenset({".pyc", ".pyo"})
 
 
@@ -123,7 +136,10 @@ def _skill_directories(skills_root: Path) -> tuple[str, ...]:
             raise ReleaseCatalogError("prebundled_skill_symlink_rejected")
         if not stat.S_ISDIR(metadata.st_mode):
             continue
-        if child.name in _TRANSIENT_DIRECTORIES:
+        if (
+            child.name in _TRANSIENT_DIRECTORIES
+            or child.name in _NON_SKILL_STRUCTURAL_DIRECTORIES
+        ):
             continue
         try:
             skill_metadata = (child / "SKILL.md").lstat()
