@@ -198,8 +198,7 @@ def _ocr_with_pytesseract(file_path: str) -> str | None:
         # pytesseract raises TesseractNotFoundError when the system binary is
         # missing — treat as "engine unavailable" so we fall back to rapidocr.
         logger.info(
-            "image reader backend unavailable; trying fallback "
-            "(exception_type=%s)",
+            "image reader backend unavailable; trying fallback (exception_type=%s)",
             type(exc).__name__,
         )
         return None

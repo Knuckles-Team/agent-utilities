@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -496,11 +497,7 @@ def migrate_config_file(
     plaintext_secrets = plaintext_secret_keys(cleaned)
     unknown_removed: list[str] = []
     if strip_unknown and unknown:
-        cleaned = {
-            k: v
-            for k, v in cleaned.items()
-            if str(k) not in set(unknown)
-        }
+        cleaned = {k: v for k, v in cleaned.items() if str(k) not in set(unknown)}
         unknown_removed = unknown
         unknown = []
 
@@ -604,9 +601,7 @@ def config_doctor(
             else {}
         )
         _plaintext_secrets = (
-            plaintext_secret_keys(_secret_raw)
-            if isinstance(_secret_raw, dict)
-            else []
+            plaintext_secret_keys(_secret_raw) if isinstance(_secret_raw, dict) else []
         )
     except Exception:  # noqa: BLE001 - privacy-safe: never surface a value or path
         _plaintext_secrets = []
@@ -902,11 +897,24 @@ def _alias_to_field(env: str) -> str:
     return env.lower()
 
 
-def _unresolved_secret_refs(cfg: Any, *, resolve: bool = True) -> list[str]:
-    """Return opaque markers for unresolved refs anywhere in the typed config.
+# Recognized runtime secret/config reference schemes (mirrors the
+# ``{"env", "vault", "secret"}`` scheme set ``SecretsClient.resolve_ref`` and
+# ``cli_secrets._validated_reference`` accept). Defined once so every scanner
+# over the effective config matches the identical shape.
+_SECRET_REFERENCE_PATTERN = re.compile(
+    r"^(?:env://[A-Za-z_][A-Za-z0-9_]{0,127}|"
+    r"(?:vault|secret)://[A-Za-z0-9][A-Za-z0-9_./#-]{0,511})$"
+)
 
-    Reference names and values deliberately never leave this function. Backend
-    construction failure raises so doctor cannot report a false healthy state.
+
+def _collect_secret_references(cfg: Any) -> set[str]:
+    """Walk a typed config/mapping and return every matched reference string.
+
+    Shared by :func:`_unresolved_secret_refs` (resolution check) and
+    :func:`secret_reference_scheme_counts` (backend/scheme consistency check)
+    so the reference-matching regex and tree-walk live in exactly one place.
+    Reference names/values are returned to the caller, which must keep them
+    out of any report surface (doctor checks report counts only).
     """
     from collections.abc import Mapping
 
@@ -917,10 +925,6 @@ def _unresolved_secret_refs(cfg: Any, *, resolve: bool = True) -> list[str]:
     else:
         root = vars(cfg)
 
-    reference_pattern = re.compile(
-        r"^(?:env://[A-Za-z_][A-Za-z0-9_]{0,127}|"
-        r"(?:vault|secret)://[A-Za-z0-9][A-Za-z0-9_./#-]{0,511})$"
-    )
     references: set[str] = set()
     pending: list[Any] = [root]
     visited = 0
@@ -933,8 +937,41 @@ def _unresolved_secret_refs(cfg: Any, *, resolve: bool = True) -> list[str]:
             pending.extend(value.values())
         elif isinstance(value, list | tuple):
             pending.extend(value)
-        elif isinstance(value, str) and reference_pattern.fullmatch(value.strip()):
+        elif isinstance(value, str) and _SECRET_REFERENCE_PATTERN.fullmatch(
+            value.strip()
+        ):
             references.add(value.strip())
+    return references
+
+
+def secret_reference_scheme_counts(cfg: Any) -> dict[str, int]:
+    """Count effective-config secret references by URI scheme.
+
+    ``SecretsClient.resolve_ref`` resolves EVERY ``env://``/``vault://``/
+    ``secret://`` reference through whichever ``SECRETS_BACKEND`` is active —
+    the scheme itself never selects a backend. So a ``vault://`` reference
+    silently resolves against the engine-backed ``__secrets__`` store instead
+    of the named Vault/OpenBao instance when the backend isn't ``vault`` (and
+    can even appear to "resolve" if a same-named key happens to exist in the
+    wrong store) — the confirmed SECRETS_BACKEND trap. Used by the doctor's
+    ``secrets_backend`` check to flag that scheme/backend mismatch; reference
+    names/values never leave this function, only per-scheme counts.
+    """
+    counts = {"env": 0, "vault": 0, "secret": 0}
+    for reference in _collect_secret_references(cfg):
+        scheme = reference.partition("://")[0]
+        if scheme in counts:
+            counts[scheme] += 1
+    return counts
+
+
+def _unresolved_secret_refs(cfg: Any, *, resolve: bool = True) -> list[str]:
+    """Return opaque markers for unresolved refs anywhere in the typed config.
+
+    Reference names and values deliberately never leave this function. Backend
+    construction failure raises so doctor cannot report a false healthy state.
+    """
+    references = _collect_secret_references(cfg)
 
     if not references:
         return []

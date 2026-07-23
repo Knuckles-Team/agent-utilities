@@ -43,7 +43,9 @@ def _output_dir(ctx: RunContext[AgentDeps]) -> Path:
     return path
 
 
-def _write_asset(ctx: RunContext[AgentDeps], prefix: str, extension: str, data: bytes) -> str:
+def _write_asset(
+    ctx: RunContext[AgentDeps], prefix: str, extension: str, data: bytes
+) -> str:
     if not isinstance(data, bytes) or not data or len(data) > _MAX_OUTPUT_BYTES:
         raise ValueError("media output exceeds the supported limit")
     name = f"{prefix}_{secrets.token_hex(12)}.{extension}"

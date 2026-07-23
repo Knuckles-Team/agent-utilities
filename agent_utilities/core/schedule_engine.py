@@ -596,7 +596,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         work = engine._ingest_work_item_index()
         if any(
             (item.get("metadata") or {}).get("schedule") == spec.name
-            and item.get("status") not in {"succeeded", "failed", "cancelled", "dead_letter"}
+            and item.get("status")
+            not in {"succeeded", "failed", "cancelled", "dead_letter"}
             for item in work.values()
         ):
             continue

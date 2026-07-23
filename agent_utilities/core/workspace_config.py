@@ -220,9 +220,7 @@ def clone_missing_projects(yml_path: str | None = None) -> list[Path]:
                     text=True,
                 )
             except subprocess.CalledProcessError as exc:
-                logger.error(
-                    "Project clone failed (%s)", type(exc).__name__
-                )
+                logger.error("Project clone failed (%s)", type(exc).__name__)
         else:
             logger.debug("Configured project already exists")
 
@@ -268,13 +266,7 @@ def validate_workspace_yml(yml_path: str | None = None) -> dict[str, Any]:
     warnings: list[str] = []
     report: dict[str, Any] = {
         "found": False,
-        "path": (
-            "explicit"
-            if yml_path
-            else "workspace-or-xdg"
-            if path
-            else None
-        ),
+        "path": ("explicit" if yml_path else "workspace-or-xdg" if path else None),
         "parsed": False,
         "errors": errors,
         "warnings": warnings,

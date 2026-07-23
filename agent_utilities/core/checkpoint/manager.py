@@ -618,9 +618,7 @@ class CheckpointManager:
 
                 raw = create_secrets_client().resolve_ref(str(connection_ref))
                 rendered = (
-                    raw.decode("utf-8")
-                    if isinstance(raw, bytes)
-                    else str(raw or "")
+                    raw.decode("utf-8") if isinstance(raw, bytes) else str(raw or "")
                 ).strip()
                 try:
                     profile = json.loads(rendered)

@@ -240,7 +240,7 @@ def _local_module_closure_fingerprint(
     package_root: Path,
     deep_import_roots: frozenset[str] | None = None,
     module_path_cache: dict[str, Path | None] | None = None,
-    module_source_cache: dict[str, tuple[bytes, ast.AST]] | None = None,
+    module_source_cache: dict[str, tuple[bytes, ast.Module]] | None = None,
 ) -> tuple[str, tuple[str, ...]]:
     """Hash a deterministic local-Python import closure.
 
@@ -362,7 +362,7 @@ def _native_activation_fingerprint_evidence(
     source_type: str,
     *,
     module_path_cache: dict[str, Path | None] | None = None,
-    module_source_cache: dict[str, tuple[bytes, ast.AST]] | None = None,
+    module_source_cache: dict[str, tuple[bytes, ast.Module]] | None = None,
 ) -> tuple[str, tuple[str, ...]]:
     normalized = str(source_type or "").strip().lower()
     contract = native_activation_contract(source_type)
@@ -393,7 +393,7 @@ def native_activation_fingerprints(source_types: tuple[str, ...]) -> dict[str, s
     """Fingerprint an inventory against one deterministic source-code snapshot."""
 
     path_cache: dict[str, Path | None] = {}
-    source_cache: dict[str, tuple[bytes, ast.AST]] = {}
+    source_cache: dict[str, tuple[bytes, ast.Module]] = {}
     fingerprints: dict[str, str] = {}
     for source_type in sorted(set(source_types)):
         digest, _modules = _native_activation_fingerprint_evidence(
@@ -689,7 +689,7 @@ def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> lis
 
     violations: list[str] = []
     path_cache: dict[str, Path | None] = {}
-    source_cache: dict[str, tuple[bytes, ast.AST]] = {}
+    source_cache: dict[str, tuple[bytes, ast.Module]] = {}
     for sync in manifest.sync:
         source_type = str(sync.tool or "")
         contract = native_activation_contract(source_type)

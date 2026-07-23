@@ -565,15 +565,20 @@ def register_state_tools(mcp):
             "accept/discard of a finished run is governed by the run.select action-policy gate. "
             "Agent Digital Twin actions (CONCEPT:AU-ORCH.twin.agent-digital-twin, X-8) — a "
             "durable, replayable projection of a PAST run kept independently of any live "
-            "session: 'twin_capture' (best-effort hydrate a twin for run_id from the KG's "
-            "already-recorded :ToolCall/:WorkItem rows, optionally persist it as a "
-            ":AgentDigitalTwin node, and return the full serialized twin JSON — pass that JSON "
-            "back in as `twin` to the actions below), 'twin_replay' (regression-replay a "
-            "captured twin — pass `twin`), 'twin_counterfactual' (re-drive a captured twin "
-            "under a swapped policy/model version — pass `twin` plus `policy_overrides` and/or "
-            "`model_responses`, and optionally `versions` for reporting), 'twin_incident' "
-            "(ordered, human-inspectable step-through of a captured twin's recorded run — pass "
-            "`twin`)."
+            "session: 'twin_capture' (build a twin two ways — pass `tool_calls` and/or "
+            "`model_exchanges` for the EXPLICIT-DATA path [the canonical path a live run, or "
+            "a test standing in for one, uses: this run's own already-collected data, mirrored "
+            "straight into the twin's event log], or omit both and pass `run_id` for the "
+            "KG-HYDRATION path [best-effort read of the KG's already-recorded :ToolCall/"
+            ":WorkItem rows for that run id]; either way `policy_decisions`/`evidence` are "
+            "attached when passed — they are NEVER auto-discovered from the KG — optionally "
+            "persist the result as a :AgentDigitalTwin node, and return the full serialized "
+            "twin JSON — pass that JSON back in as `twin` to the actions below), 'twin_replay' "
+            "(regression-replay a captured twin — pass `twin`), 'twin_counterfactual' "
+            "(re-drive a captured twin under a swapped policy/model version — pass `twin` plus "
+            "`policy_overrides` and/or `model_responses`, and optionally `versions` for "
+            "reporting), 'twin_incident' (ordered, human-inspectable step-through of a "
+            "captured twin's recorded run — pass `twin`)."
         ),
         tags=["graph-os", "runvcs", "fork", "revert", "twin"],
     )
@@ -629,6 +634,53 @@ def register_state_tools(mcp):
                 "KG node (no-op without a live engine)."
             ),
         ),
+        tool_calls: str = Field(
+            default="",
+            description=(
+                "twin_capture EXPLICIT-DATA path: JSON array of {tool_name, args, result, "
+                "error} records — the exact shape "
+                "orchestration.tool_provenance.extract_tool_calls returns. Non-empty here "
+                "(or in `model_exchanges`) makes twin_capture build the twin from this data "
+                "directly (agent_digital_twin.capture_twin) instead of hydrating from the KG."
+            ),
+        ),
+        model_exchanges: str = Field(
+            default="",
+            description=(
+                "twin_capture EXPLICIT-DATA path: JSON array of {request, response} model "
+                "exchanges to mirror into the twin's event log."
+            ),
+        ),
+        policy_decisions: str = Field(
+            default="",
+            description=(
+                "twin_capture (either path): JSON array of recorded ActionDecision dicts "
+                "(request/decision/tier/reason/rule_origin/approval_id/audit_id) to attach "
+                "to the twin. NEVER auto-discovered from the KG (today's "
+                "AgentPolicyDecisionNode audit rows carry no edge back to the RunTrace that "
+                "produced them) — pass them explicitly when known."
+            ),
+        ),
+        evidence: str = Field(
+            default="",
+            description=(
+                "twin_capture (either path): JSON array of EvidenceBundle-shaped dicts "
+                "backing the run's outcome."
+            ),
+        ),
+        budget: str = Field(
+            default="{}",
+            description=(
+                "twin_capture EXPLICIT-DATA path only: JSON budget dict to stamp on the twin."
+            ),
+        ),
+        work_item_ids: str = Field(
+            default="",
+            description=(
+                "twin_capture EXPLICIT-DATA path only: JSON array of WorkItem ids forming "
+                "the run's DAG (auto-discovered from the KG instead on the hydration path)."
+            ),
+        ),
         policy_overrides: str = Field(
             default="",
             description=(
@@ -664,22 +716,60 @@ def register_state_tools(mcp):
             if action == "twin_capture":
                 from agent_utilities.orchestration.agent_digital_twin import (
                     VersionPins,
+                    capture_twin,
                     capture_twin_from_kg,
                     persist_twin,
                 )
 
-                if not run_id:
-                    return _json.dumps({"error": "twin_capture requires run_id"})
                 engine = kg_server._get_engine()
                 pins = VersionPins.from_dict(_json.loads(versions) if versions else {})
-                twin_obj = capture_twin_from_kg(
-                    engine,
-                    run_id,
-                    agent_name=agent_name,
-                    task=task,
-                    versions=pins,
-                    outcome=outcome,
+                decisions = _json.loads(policy_decisions) if policy_decisions else []
+                evidence_items = _json.loads(evidence) if evidence else []
+                explicit_calls = _json.loads(tool_calls) if tool_calls else []
+                explicit_exchanges = (
+                    _json.loads(model_exchanges) if model_exchanges else []
                 )
+                if explicit_calls or explicit_exchanges:
+                    # EXPLICIT-DATA path (capture_twin) — the canonical path a live
+                    # run (or a test standing in for one) uses: build the twin
+                    # straight from data the caller already collected, never
+                    # re-derived from the KG.
+                    twin_obj = capture_twin(
+                        agent_name=agent_name,
+                        task=task,
+                        versions=pins,
+                        run_id=run_id or None,
+                        budget=_json.loads(budget) if budget and budget != "{}" else {},
+                        work_item_ids=(
+                            _json.loads(work_item_ids) if work_item_ids else []
+                        ),
+                        tool_calls=explicit_calls,
+                        model_exchanges=explicit_exchanges,
+                        policy_decisions=decisions,
+                        evidence=evidence_items,
+                        outcome=outcome or "succeeded",
+                        engine=engine,
+                    )
+                else:
+                    # KG-HYDRATION path (capture_twin_from_kg) — best-effort read of
+                    # an already-running KG's existing :ToolCall/:WorkItem rows.
+                    if not run_id:
+                        return _json.dumps(
+                            {
+                                "error": "twin_capture requires run_id (or explicit "
+                                "tool_calls/model_exchanges for the explicit-data path)"
+                            }
+                        )
+                    twin_obj = capture_twin_from_kg(
+                        engine,
+                        run_id,
+                        agent_name=agent_name,
+                        task=task,
+                        versions=pins,
+                        outcome=outcome,
+                        policy_decisions=decisions,
+                        evidence=evidence_items,
+                    )
                 node_id = persist_twin(engine, twin_obj) if persist else None
                 return _json.dumps(
                     {

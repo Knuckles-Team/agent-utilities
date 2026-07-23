@@ -171,9 +171,10 @@ async def db_query(
             row for row in conn.read(query, max_rows=limit + 1) if isinstance(row, dict)
         ]
         truncated = len(rows) > limit
-        out = _safe_payload(rows[:limit])
+        page = rows[:limit]
+        out = _safe_payload(page)
         return json.dumps(
-            {"rows": out, "row_count": len(out), "truncated": truncated}, default=str
+            {"rows": out, "row_count": len(page), "truncated": truncated}, default=str
         )
     except Exception:  # noqa: BLE001
         return json.dumps({"error": "database query failed"})

@@ -50,7 +50,9 @@ def _git_environment() -> dict[str, str]:
     }
 
 
-def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(
+    root: Path, *args: str, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     executable = shutil.which("git")
     if not executable:
         raise RuntimeError("git executable is unavailable")

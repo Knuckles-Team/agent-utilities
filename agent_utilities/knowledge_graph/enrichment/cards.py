@@ -486,6 +486,7 @@ def make_llm_fn(model: str | None = None, base_url: str | None = None) -> LLMFn:
             compiled_chat_completion,
             resolve_bundle_chat_client,
         )
+
         # Bounded timeout + retries: the OpenAI client defaults to a 600s (10min)
         # timeout, so a single stalled model request would wedge a whole ingest
         # run indefinitely. Cap it and let the client retry transient failures;

@@ -260,8 +260,7 @@ class EvolveAgent:
                         ),
                         predicted_fixes=governed_task_refs(ed, "predicted_fixes"),
                         predicted_regressions=governed_task_refs(
-                            ed,
-                            "predicted_regressions"
+                            ed, "predicted_regressions"
                         ),
                         evidence_references=[
                             opaque_program_reference("evidence", evidence.round_id)
@@ -473,9 +472,7 @@ class EvolveAgent:
                     "agent_ref": opaque_program_reference(
                         "agent", target.task_name(artifact)
                     ),
-                    "component_ref": opaque_program_reference(
-                        "component", target_file
-                    ),
+                    "component_ref": opaque_program_reference("component", target_file),
                     "promote": True,
                     "auto_apply_eligible": False,
                     "baseline_score": 0.0,
@@ -605,7 +602,7 @@ class EvolveAgent:
         if not is_opaque_program_reference(component_ref, namespace="component"):
             component_ref = opaque_program_reference("component", edit.file_path)
 
-        # Unified evolution matrix (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+        # Unified evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate):
         # a candidate that beat baseline (``promote``, decided upstream by
         # ``should_promote`` — the comparison gate is NOT re-run here) must ALSO
         # clear the same operational veto every other promotion vector clears
@@ -632,7 +629,9 @@ class EvolveAgent:
                 PromotionCandidate(
                     artifact_kind="prompt",
                     artifact_id=component_ref,
-                    candidate_ref=str(meta.get("candidate_version_hash") or component_ref),
+                    candidate_ref=str(
+                        meta.get("candidate_version_hash") or component_ref
+                    ),
                     candidate_reward=RewardSignal(value=after, source="eval_corpus"),
                     # The comparison gate already ran (should_promote, upstream) —
                     # incumbent_reward=None skips re-comparing and goes straight to
@@ -675,7 +674,9 @@ class EvolveAgent:
                     sha,
                 )
             except Exception as exc:  # noqa: BLE001 - a write failure must not crash the loop
-                logger.error("EvolveAgent: prompt apply failed (%s)", type(exc).__name__)
+                logger.error(
+                    "EvolveAgent: prompt apply failed (%s)", type(exc).__name__
+                )
                 status, applied = "error", False
         elif promote:
             status, applied = "proposed", False
@@ -733,7 +734,9 @@ class EvolveAgent:
             meta.get("program_compiled_state") or {}
         ).model_dump()
         evidence_refs = list(dict.fromkeys(edit.evidence_references))
-        if any(not is_opaque_program_reference(reference) for reference in evidence_refs):
+        if any(
+            not is_opaque_program_reference(reference) for reference in evidence_refs
+        ):
             raise ValueError("proposal evidence references are invalid")
         if status not in {"applied", "proposed", "rejected", "error"}:
             raise ValueError("proposal status is invalid")
@@ -776,7 +779,7 @@ class EvolveAgent:
             "trainset_size": trainset_size,
             "candidate_version_hash": version_hash,
             "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
-            # The action_policy veto's verdict (CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+            # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
             # — "" when the candidate never beat baseline (the gate was never
             # consulted; mirrors run_reflact_cycle's "a benchmark loss never
             # reaches action_policy").
@@ -864,9 +867,10 @@ class EvolveAgent:
         record["integrity_ref"] = integrity_ref
         if record.get("id") != proposal_id:
             return {"approved": False, "error": "proposal_ref_mismatch"}
-        if record.get("status") not in {"proposed", "rejected"} or record.get(
-            "applied"
-        ) is not False:
+        if (
+            record.get("status") not in {"proposed", "rejected"}
+            or record.get("applied") is not False
+        ):
             return {"approved": False, "error": "proposal_not_approvable"}
         compiled_state = record.get("program_compiled_state") or {}
         if not compiled_state:
@@ -1006,9 +1010,7 @@ class EvolveAgent:
                 detail="native_program_optimization_unavailable",
             )
         resolver = getattr(fb, "resolve_program_demonstrations", None)
-        demos = (
-            list(resolver(result.demonstration_refs)) if callable(resolver) else []
-        )
+        demos = list(resolver(result.demonstration_refs)) if callable(resolver) else []
         if len(demos) != len(result.demonstration_refs):
             return PromptHardeningOutcome(
                 agent_ref=agent_ref,
@@ -1104,7 +1106,9 @@ class EvolveAgent:
                 f"Component-ref: {reference('component', edit.file_path)}\n"
                 f"Summary-ref: {reference('summary', edit.edit_summary)}\n"
                 "Predicted-fix-refs: "
-                + ", ".join(reference("task", value) for value in edit.predicted_fixes[:5])
+                + ", ".join(
+                    reference("task", value) for value in edit.predicted_fixes[:5]
+                )
                 + "\nPredicted-regression-refs: "
                 + ", ".join(
                     reference("task", value) for value in edit.predicted_regressions[:5]
@@ -1177,9 +1181,9 @@ class EvolveAgent:
         def reference_list(namespace: str, values: Any) -> list[str]:
             if not isinstance(values, list | tuple):
                 return []
-            return list(
-                dict.fromkeys(reference(namespace, value) for value in values)
-            )[:1_000]
+            return list(dict.fromkeys(reference(namespace, value) for value in values))[
+                :1_000
+            ]
 
         def finite(value: Any) -> float | None:
             if value is None or isinstance(value, bool):
@@ -1216,9 +1220,7 @@ class EvolveAgent:
                 "predicted_regression_refs": reference_list(
                     "task", edit.predicted_regressions
                 ),
-                "evidence_refs": reference_list(
-                    "evidence", edit.evidence_references
-                ),
+                "evidence_refs": reference_list("evidence", edit.evidence_references),
                 "timestamp": timestamp(edit.timestamp),
                 "smoke_passed": edit.smoke_passed,
             }
@@ -1309,9 +1311,7 @@ class EvolveAgent:
                 "fix_recall": finite(result.fix_recall),
                 "regression_precision": finite(result.regression_precision),
                 "overall_delta": finite(result.overall_delta),
-                "random_baseline_precision": finite(
-                    result.random_baseline_precision
-                ),
+                "random_baseline_precision": finite(result.random_baseline_precision),
                 "attribution_lift": finite(result.attribution_lift),
                 "attribution_reliable": bool(result.attribution_reliable),
                 "recommendation": (
@@ -1323,9 +1323,7 @@ class EvolveAgent:
                 "unexpected_regression_refs": reference_list(
                     "task", result.unexpected_regressions
                 ),
-                "confirmed_fix_refs": reference_list(
-                    "task", result.confirmed_fixes
-                ),
+                "confirmed_fix_refs": reference_list("task", result.confirmed_fixes),
                 "confirmed_regression_refs": reference_list(
                     "task", result.confirmed_regressions
                 ),

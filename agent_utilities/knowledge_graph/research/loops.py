@@ -251,14 +251,29 @@ def _build_loop_statechart_def() -> dict[str, Any]:
 
     # 1 / 1b: claim -> running (fresh submit, or re-claim after an orphaned lease)
     transitions.append(
-        {"from": LoopStatus.SUBMITTED.value, "event": "claim", "guard": _always(), "to": LoopStatus.RUNNING.value}
+        {
+            "from": LoopStatus.SUBMITTED.value,
+            "event": "claim",
+            "guard": _always(),
+            "to": LoopStatus.RUNNING.value,
+        }
     )
     transitions.append(
-        {"from": LoopStatus.ORPHANED.value, "event": "claim", "guard": _always(), "to": LoopStatus.RUNNING.value}
+        {
+            "from": LoopStatus.ORPHANED.value,
+            "event": "claim",
+            "guard": _always(),
+            "to": LoopStatus.RUNNING.value,
+        }
     )
     # 2: intake refusal
     transitions.append(
-        {"from": LoopStatus.SUBMITTED.value, "event": "reject", "guard": _always(), "to": LoopStatus.REJECTED.value}
+        {
+            "from": LoopStatus.SUBMITTED.value,
+            "event": "reject",
+            "guard": _always(),
+            "to": LoopStatus.REJECTED.value,
+        }
     )
 
     # 3: pretick human interrupt — pause
@@ -309,7 +324,12 @@ def _build_loop_statechart_def() -> dict[str, Any]:
         )
     # 7: operator resume
     transitions.append(
-        {"from": LoopStatus.PAUSED.value, "event": "resume", "guard": _always(), "to": LoopStatus.RUNNING.value}
+        {
+            "from": LoopStatus.PAUSED.value,
+            "event": "resume",
+            "guard": _always(),
+            "to": LoopStatus.RUNNING.value,
+        }
     )
     # 8: posttick goal met
     for frm in ACTIVE_LOOP_STATES:

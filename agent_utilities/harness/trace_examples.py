@@ -151,9 +151,7 @@ def _query_by_tool(
             or []
         )
     except Exception as exc:  # noqa: BLE001 - a query failure degrades, never raises
-        logger.debug(
-            "trace_examples: tool-call query failed (%s)", type(exc).__name__
-        )
+        logger.debug("trace_examples: tool-call query failed (%s)", type(exc).__name__)
         return []
     return [r for r in rows if isinstance(r, dict)]
 

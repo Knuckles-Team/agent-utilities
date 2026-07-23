@@ -226,12 +226,12 @@ def apply_manifest(
     if (
         manifest.provenance.signer not in trusted_signers
         or not ontology_integrity.verify_release_signature(
-        ontology_integrity.canonical_manifest_hash(manifest),
-        manifest.provenance.signature,
-        signer_id=manifest.provenance.signer,
-        algorithm=manifest.provenance.signature_algorithm,
-        public_key=manifest.provenance.signing_public_key,
-        trusted_public_keys=trusted_public_keys,
+            ontology_integrity.canonical_manifest_hash(manifest),
+            manifest.provenance.signature,
+            signer_id=manifest.provenance.signer,
+            algorithm=manifest.provenance.signature_algorithm,
+            public_key=manifest.provenance.signing_public_key,
+            trusted_public_keys=trusted_public_keys,
         )
     ):
         raise SignatureVerificationError(

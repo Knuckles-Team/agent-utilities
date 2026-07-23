@@ -544,9 +544,7 @@ def _safe_resume_token(
         not rendered
         or rendered != rendered.strip()
         or len(rendered.encode("utf-8")) > 4_096
-        or any(
-            ord(character) < 32 or ord(character) == 127 for character in rendered
-        )
+        or any(ord(character) < 32 or ord(character) == 127 for character in rendered)
     ):
         raise ExternalGraphIngestionError(f"External graph {label} is invalid")
     clean, report = privacy.sanitize_text(rendered)
@@ -956,6 +954,7 @@ def ingest_registered_graph(
     current_cursor: str | None = None
     next_cursor: str | None = None
     if use_cdc:
+        assert reader is not None  # guaranteed by use_cdc's `reader is not None` term
         try:
             current_cursor = read_change_cursor(
                 authority_engine,

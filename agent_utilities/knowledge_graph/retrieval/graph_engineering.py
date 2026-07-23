@@ -458,7 +458,9 @@ def build_community_reports(
                 )
             written += 1
         except Exception as exc:  # noqa: BLE001
-            logger.warning("build_community_reports: failed to write global report: %s", exc)
+            logger.warning(
+                "build_community_reports: failed to write global report: %s", exc
+            )
 
     return {"community_reports": written, "communities_considered": len(ranked)}
 
@@ -511,9 +513,7 @@ def _resolve_seed_ids(
             logger.debug("local_search: graph-query prompt failed: %s", exc)
 
     backend = getattr(engine, "backend", None)
-    for candidate_name in dict.fromkeys(
-        n for n in (entity_name, query.strip()) if n
-    ):
+    for candidate_name in dict.fromkeys(n for n in (entity_name, query.strip()) if n):
         try:
             if backend is not None and hasattr(backend, "execute_read"):
                 rows = backend.execute_read(
@@ -521,7 +521,9 @@ def _resolve_seed_ids(
                     "OR n.id = $name RETURN n.id AS id LIMIT $limit",
                     {"name": candidate_name, "limit": max(top_k, 1)},
                 )
-                ids = [str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")]
+                ids = [
+                    str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")
+                ]
                 if ids:
                     return ids
         except Exception as exc:  # noqa: BLE001 — falls through to semantic search
@@ -632,7 +634,9 @@ def local_search(
     """
     graph = _graph_compute(engine)
     llm_fn = resolve_llm_fn() if (synthesize_answer or not node_id) else None
-    seed_ids = _resolve_seed_ids(engine, query, node_id, top_k=max(top_k, 1), llm_fn=llm_fn)
+    seed_ids = _resolve_seed_ids(
+        engine, query, node_id, top_k=max(top_k, 1), llm_fn=llm_fn
+    )
     if not seed_ids:
         return {
             "seed_ids": [],
@@ -650,7 +654,9 @@ def local_search(
             "reason": "seed entity has no readable properties/neighbors",
         }
 
-    compiler = ContextCompiler(engine, hybrid_retriever=_StaticCandidateRetriever(candidates))
+    compiler = ContextCompiler(
+        engine, hybrid_retriever=_StaticCandidateRetriever(candidates)
+    )
     bundle = compiler.compile(
         query or seed_ids[0],
         session,
@@ -850,7 +856,9 @@ def global_search(
             for r in top
         ]
 
-    compiler = ContextCompiler(engine, hybrid_retriever=_StaticCandidateRetriever(candidates))
+    compiler = ContextCompiler(
+        engine, hybrid_retriever=_StaticCandidateRetriever(candidates)
+    )
     bundle = compiler.compile(
         query,
         session,

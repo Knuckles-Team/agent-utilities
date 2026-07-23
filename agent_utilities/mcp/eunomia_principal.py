@@ -223,10 +223,7 @@ def _endpoint_url(endpoint: str, path: str) -> str:
     ):
         raise ValueError("Eunomia endpoint is invalid")
     hostname = str(parsed.hostname).lower().rstrip(".")
-    if (
-        parsed.scheme == "http"
-        and hostname not in {"localhost", "127.0.0.1", "::1"}
-    ):
+    if parsed.scheme == "http" and hostname not in {"localhost", "127.0.0.1", "::1"}:
         raise ValueError("Eunomia requires HTTPS outside loopback")
     base_path = parsed.path.rstrip("/")
     return urlunsplit(
@@ -642,7 +639,11 @@ def create_eunomia_middleware(
         )
     else:
         bridge = _EmbeddedPolicyBridge(
-            [_load_policy(policy_file or config.eunomia_policy_file or "mcp_policies.json")]
+            [
+                _load_policy(
+                    policy_file or config.eunomia_policy_file or "mcp_policies.json"
+                )
+            ]
         )
     middleware = JwtPrincipalEunomiaMiddleware(
         bridge,

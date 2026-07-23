@@ -243,9 +243,7 @@ def _bounded_int(value: Any, *, field: str, minimum: int, maximum: int) -> int:
     return parsed
 
 
-def _bounded_float(
-    value: Any, *, field: str, minimum: float, maximum: float
-) -> float:
+def _bounded_float(value: Any, *, field: str, minimum: float, maximum: float) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{field} is outside the safety boundary")
     try:

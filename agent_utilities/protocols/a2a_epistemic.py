@@ -21,7 +21,7 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -430,8 +430,10 @@ class EpistemicGraphA2ARuntime:
 
             session = self.session
             tenant = str(getattr(session, "tenant", "") or "").strip()
-            if not tenant or not getattr(
-                getattr(session, "actor", None), "authenticated", False
+            if (
+                session is None
+                or not tenant
+                or not getattr(getattr(session, "actor", None), "authenticated", False)
             ):
                 raise RuntimeError("A2A persistence requires verified tenant authority")
             session.require_scope("kg:read")
@@ -447,6 +449,8 @@ class EpistemicGraphA2ARuntime:
     async def call(self, namespace: str, method: str, *args: Any, **kwargs: Any) -> Any:
         await self.start()
         session = self.session
+        if session is None:
+            raise RuntimeError("A2A persistence requires a started session")
         client = self.client
         surface = getattr(client, namespace, None)
         operation = getattr(surface, method, None)
@@ -1369,7 +1373,7 @@ class EpistemicGraphA2ABroker(Broker):
         )
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    async def __aexit__(self, exc_type: Any, _exc_value: Any, traceback: Any) -> None:
         self._active = False
         task = self._reconcile_task
         self._reconcile_task = None
@@ -1680,7 +1684,7 @@ class EpistemicGraphA2ABroker(Broker):
                 control.abort("lease_lost")
                 return
 
-    async def receive_task_operations(self) -> AsyncIterator[TaskOperation]:
+    async def receive_task_operations(self) -> AsyncGenerator[TaskOperation, None]:
         if not self._active:
             raise RuntimeError("native A2A broker is not entered")
         while self._active:

@@ -47,15 +47,10 @@ class LocalSandbox(Sandbox):
         than raised — the model reads them and retries.
         """
         # Names that are injected scaffolding, not user state to sync back.
-        skip = (
-            {"__builtins__", "__async_exec__"}
-            | set(env.helpers)
-            | set(env.local_globals)
-        )
+        skip = {"__builtins__", "__async_exec__"} | set(env.helpers)
 
         globals_dict: dict = {
             "__builtins__": __builtins__,
-            **env.local_globals,
             **env.helpers,
             **env.vars,
         }

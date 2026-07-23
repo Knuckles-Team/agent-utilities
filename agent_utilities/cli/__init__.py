@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -196,6 +197,50 @@ def build_parser() -> argparse.ArgumentParser:
     )
     cp.add_argument("--ttl", type=int, default=86_400, help="reservation TTL seconds")
     cp.add_argument("--repo", default="", help="repo root (default agent-utilities)")
+
+    # Self-composing graph-os entrypoint (`uvx agent-utilities graph-os`): runs the
+    # SAME ``graph-os`` MCP server as the standalone console script, plus whatever
+    # co-services the loaded AgentConfig says are configured (messaging, the KG
+    # host daemon if this run would otherwise be unhosted) — see
+    # ``agent_utilities.mcp.co_service_supervisor``. All graph-os flags
+    # (--transport/--host/--port/...) pass straight through; graph-os parses them
+    # itself, so nothing is declared here beyond a REMAINDER capture.
+    gp = sub.add_parser(
+        "graph-os",
+        help="run graph-os (MCP server) + its configured co-services in one process",
+    )
+    gp.add_argument(
+        "server_args",
+        nargs=argparse.REMAINDER,
+        help="passthrough flags for graph-os, e.g. --transport stdio",
+    )
+
+    # Multi-backend deployment planner (CONCEPT: project the same self-composing
+    # entrypoint onto in_process/container/kubernetes/native_shell) — see
+    # ``agent_utilities.deployment.backends``. Plan-only for every backend except
+    # in_process; never mutates a remote host/cluster from this command.
+    dp = sub.add_parser(
+        "deploy-plan",
+        help="render a DeploymentPlan for graph-os on one backend (plan-only "
+        "except in_process; never applies to a remote host/cluster)",
+    )
+    dp.add_argument(
+        "--backend",
+        required=True,
+        choices=["in_process", "container", "kubernetes", "native_shell"],
+    )
+    dp.add_argument(
+        "--target",
+        default="this process",
+        help="host alias / cluster / namespace this plan targets",
+    )
+    dp.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        help="KEY=VALUE backend-specific override (repeatable), e.g. "
+        "--param image=ghcr.io/org/agent-utilities:1.2.3 --param namespace=graphos",
+    )
     return p
 
 
@@ -380,7 +425,64 @@ def _concept(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _deploy_plan(args: argparse.Namespace) -> dict[str, Any]:
+    """Render a :class:`DeploymentPlan` for the chosen backend and print it.
+
+    Delegates entirely to :mod:`agent_utilities.deployment.backends` — see that
+    module's docstring for exactly which backends are live-capable
+    (``in_process`` only) vs. plan-only (``container``/``kubernetes``/
+    ``native_shell``, which this command never applies).
+    """
+    from agent_utilities.deployment.backends import get_backend
+
+    overrides: dict[str, str] = {}
+    for kv in args.param:
+        if "=" in kv:
+            key, _, value = kv.partition("=")
+            overrides[key] = value
+
+    backend = get_backend(args.backend)
+    plan = backend.plan(target=args.target, **overrides)
+    return {
+        "backend": plan.backend,
+        "target": plan.target,
+        "live_capable": plan.live_capable,
+        "composition": list(plan.composition.co_service_names()),
+        "steps": [
+            {
+                "description": step.description,
+                "fleet_call": (
+                    {
+                        "server": step.fleet_call.server,
+                        "tool": step.fleet_call.tool,
+                        "args": step.fleet_call.args,
+                    }
+                    if step.fleet_call is not None
+                    else None
+                ),
+                "local_action": step.local_action,
+            }
+            for step in plan.steps
+        ],
+        "warnings": list(plan.warnings),
+        "artifacts": dict(plan.artifacts),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    if raw_argv[:1] == ["graph-os"]:
+        # graph-os owns an entirely separate flag universe
+        # (--transport/--host/--port/... via ``create_mcp_parser``) and OWNS
+        # stdout for its whole lifetime under the stdio transport (it IS the
+        # JSON-RPC channel) — dispatch directly from the raw argv, bypassing
+        # this module's argparse (whose subparsers can't losslessly forward
+        # arbitrary flags — https://bugs.python.org/issue17050) and the generic
+        # JSON envelope below. graph-os re-parses ``sys.argv`` itself.
+        from agent_utilities.mcp.kg_server import mcp_server
+
+        mcp_server()
+        return 0
     args = build_parser().parse_args(argv)
     if args.command == "harness-gate":
         # Prints ONLY the verdict JSON (Claude Code reads stdout); bypass the
@@ -400,6 +502,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _ingest_sessions(args)
     elif args.command == "concept":
         out = _concept(args)
+    elif args.command == "deploy-plan":
+        out = _deploy_plan(args)
     else:
         # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
         out = {

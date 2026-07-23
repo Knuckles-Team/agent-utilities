@@ -85,9 +85,6 @@ async def project_search(
         max_output = max(1_024, min(max_output, 4 * 1024 * 1024))
 
         async def _run(command: list[str]) -> tuple[int, str]:
-            options: dict[str, object] = {}
-            if os.name == "posix":
-                options["start_new_session"] = True
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(root),
@@ -106,7 +103,7 @@ async def project_search(
                         "LC_ALL",
                     }
                 },
-                **options,
+                start_new_session=(os.name == "posix"),
             )
             retained = bytearray()
 

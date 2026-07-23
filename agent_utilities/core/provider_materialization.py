@@ -22,9 +22,7 @@ from typing import Any
 MANAGED_PROVIDER_MARKER = ".agent-utilities-managed.json"
 MANAGED_PROVIDER_GENERATIONS = ".generations"
 MANAGED_PROVIDER_SCHEMA_VERSION = 2
-MANAGED_PROVIDER_LEGS: frozenset[str] = frozenset(
-    {"skills", "prompts", "ontologies"}
-)
+MANAGED_PROVIDER_LEGS: frozenset[str] = frozenset({"skills", "prompts", "ontologies"})
 
 MAX_MARKER_BYTES = 4096
 MAX_PROVIDER_FILES = 10_000
@@ -49,7 +47,14 @@ _SAFE_PROVIDER_NAME = re.compile(
 )
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$", re.ASCII)
 _WINDOWS_RESERVED = frozenset(
-    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
 )
 _IGNORED_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache"})
 _IGNORED_SUFFIXES = frozenset({".pyc", ".pyo"})
@@ -144,10 +149,7 @@ def registration_digest(payload: dict[str, str]) -> str:
     """Hash a closed registration identity without storing module or host details."""
 
     if not payload or any(
-        not isinstance(key, str)
-        or not key
-        or not isinstance(value, str)
-        or not value
+        not isinstance(key, str) or not key or not isinstance(value, str) or not value
         for key, value in payload.items()
     ):
         raise ValueError("registration identity must contain non-empty string fields")
@@ -359,9 +361,7 @@ def _selected_for_leg(relative: PurePosixPath, leg: str) -> bool:
     if leg == "prompts":
         return len(relative.parts) == 1 and relative.suffix.lower() == ".json"
     if leg == "ontologies":
-        return (
-            len(relative.parts) == 1 and relative.suffix.lower() == ".ttl"
-        ) or (
+        return (len(relative.parts) == 1 and relative.suffix.lower() == ".ttl") or (
             len(relative.parts) == 2
             and relative.parts[0] == "shapes"
             and relative.suffix.lower() == ".ttl"
@@ -507,7 +507,9 @@ def build_asset_manifest(
 
     entries.sort(key=lambda item: item.relative_path)
     if not entries or not required_asset_seen:
-        raise EmptyProviderAssets("provider ships no required assets for its declared leg")
+        raise EmptyProviderAssets(
+            "provider ships no required assets for its declared leg"
+        )
     frozen = tuple(entries)
     return AssetManifest(
         entries=frozen,

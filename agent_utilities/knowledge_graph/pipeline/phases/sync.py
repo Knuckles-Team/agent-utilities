@@ -4,6 +4,8 @@ import logging
 import re
 from typing import Any
 
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
 from ...backends import create_backend
 from ..types import (
     PhaseResult,
@@ -12,12 +14,17 @@ from ..types import (
 )
 
 logger = logging.getLogger(__name__)
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _safe_graph_identifier(value: object, *, default: str = "") -> str:
+    """Sanitize then validate against the shared Cypher identifier grammar.
+
+    Coerces to a safe identifier or falls back to ``default`` rather than
+    raising — this phase intentionally skips a single malformed node/edge
+    instead of aborting the whole sync (CONCEPT:AU-KG.query.object-graph-mapper).
+    """
     rendered = re.sub(r"\W+", "_", str(value or default)).strip("_")
-    return rendered if _CYPHER_IDENTIFIER.fullmatch(rendered) else default
+    return rendered if CYPHER_IDENTIFIER_RE.fullmatch(rendered) else default
 
 
 # Mapping from RegistryNodeType enum values to DDL table names
@@ -183,7 +190,7 @@ async def execute_sync(
                 for k in props.keys()
                 if k != "id"
                 and isinstance(k, str)
-                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and CYPHER_IDENTIFIER_RE.fullmatch(k)
                 and (valid_keys is None or k in valid_keys)
             ]
         )

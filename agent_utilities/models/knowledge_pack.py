@@ -387,11 +387,11 @@ class KnowledgePackHydrator:
             if url in browser_completed:
                 continue
             try:
-                content = safe_get_text(url, timeout=15, **policy)
+                text_content = safe_get_text(url, timeout=15, **policy)
                 target_node = node_map.get(url)
                 if target_node:
                     # Fallback stores raw HTML if no markdown parser is available
-                    target_node["content"] = content
+                    target_node["content"] = text_content
             except Exception as ex:
                 logger.warning(
                     "[KG-2.7] Bounded web fetch failed (%s)",

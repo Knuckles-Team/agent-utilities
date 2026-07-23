@@ -71,12 +71,16 @@ class Neo4jBackend(GraphBackend):
                 "Neo4j driver is not installed. Please install with `pip install agent-utilities[neo4j]`"
             )
         parsed = urlparse(uri)
-        if parsed.scheme not in {
-            "bolt",
-            "neo4j",
-            "bolt+s",
-            "neo4j+s",
-        } or not parsed.hostname:
+        if (
+            parsed.scheme
+            not in {
+                "bolt",
+                "neo4j",
+                "bolt+s",
+                "neo4j+s",
+            }
+            or not parsed.hostname
+        ):
             raise ValueError("Neo4j URI has an unsupported transport shape")
         try:
             trust = resolve_configured_tls_profile(
@@ -93,7 +97,9 @@ class Neo4jBackend(GraphBackend):
 
         if trust.proxy_url and trust.configured:
             trust.cleanup()
-            raise ValueError("Neo4j Bolt transport does not support HTTP proxy profiles")
+            raise ValueError(
+                "Neo4j Bolt transport does not support HTTP proxy profiles"
+            )
         scheme_managed = parsed.scheme.endswith("+s")
         if parsed.scheme.endswith("+s") and (
             trust.ca_bundle_path is not None or trust.ca_directory is not None
@@ -220,8 +226,7 @@ class Neo4jBackend(GraphBackend):
         if include_epistemic:
             return []
         safe_params = {
-            key: coerce_cypher_property(value)
-            for key, value in (params or {}).items()
+            key: coerce_cypher_property(value) for key, value in (params or {}).items()
         }
         session_options = {"database": self.database} if self.database else {}
 

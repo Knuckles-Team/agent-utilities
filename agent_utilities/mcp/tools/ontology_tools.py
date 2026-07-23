@@ -303,7 +303,10 @@ def register_ontology_tools(mcp):
                     return json.dumps({"registry": registry, **schema}, default=str)
                 title = f"{registry.title()} Ontology Schema"
                 return json.dumps(
-                    {"registry": registry, "markdown": render_schema_markdown(schema, title=title)}
+                    {
+                        "registry": registry,
+                        "markdown": render_schema_markdown(schema, title=title),
+                    }
                 )
             if action == "lint":
                 from agent_utilities.knowledge_graph.ontology.style_lint import (
@@ -550,7 +553,7 @@ def register_ontology_tools(mcp):
         ),
         tags_json: str = Field(
             default="",
-            description="For load: optional JSON array of catalogue tags, e.g. '[\"draft\",\"finance\"]'.",
+            description='For load: optional JSON array of catalogue tags, e.g. \'["draft","finance"]\'.',
         ),
         search: str = Field(
             default="",
@@ -928,7 +931,8 @@ def register_ontology_tools(mcp):
             description="'reserve', 'list', 'release', or 'reconcile'.",
         ),
         session_id: str = Field(
-            default="", description="Optional claiming session value; only a digest is persisted."
+            default="",
+            description="Optional claiming session value; only a digest is persisted.",
         ),
         design_doc: str = Field(
             default="",
@@ -1816,8 +1820,12 @@ def register_ontology_tools(mcp):
             default="", description="Numeric field (aggregate sum/avg/min/max)."
         ),
         limit: int = Field(default=50, description="Result limit (search)."),
-        source_id: str = Field(default="", description="Source object id (action='path')."),
-        target_id: str = Field(default="", description="Target object id (action='path')."),
+        source_id: str = Field(
+            default="", description="Source object id (action='path')."
+        ),
+        target_id: str = Field(
+            default="", description="Target object id (action='path')."
+        ),
     ) -> str:
         """Compute over a Foundry-style object set: search/filter/traverse/pivot/aggregate/algebra/path."""
         try:

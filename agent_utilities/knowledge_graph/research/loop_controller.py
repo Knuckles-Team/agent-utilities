@@ -1941,11 +1941,18 @@ class LoopController:
         each discovered target; a single target's failure never blocks the others
         (mirrors the ``_mine_*`` sub-step tolerance).
         """
-        provider = self._skill_eval_targets_provider or self._discover_skill_evolution_targets
+        provider = (
+            self._skill_eval_targets_provider or self._discover_skill_evolution_targets
+        )
         try:
             targets = provider() or []
         except Exception as e:  # noqa: BLE001
-            return {"targets": 0, "results": [], "promoted": 0, "errors": [f"discover: {e}"]}
+            return {
+                "targets": 0,
+                "results": [],
+                "promoted": 0,
+                "errors": [f"discover: {e}"],
+            }
 
         if not targets:
             return {
@@ -2169,9 +2176,7 @@ class LoopController:
         return {"status": "pending", "output": "awaiting external event"}
 
     # -- harness-enforced loop-exit helpers (CONCEPT:AU-AHE.harness.loop-exit-conditions) --- #
-    def _external_event_probe(
-        self, loop: dict[str, Any]
-    ) -> Callable[[], bool] | None:
+    def _external_event_probe(self, loop: dict[str, Any]) -> Callable[[], bool] | None:
         """Resolve an ``external_event`` Loop's signal probe (exit 8).
 
         Looks up the loop's ``event_ref`` (falling back to its id) in the
@@ -2451,11 +2456,7 @@ class LoopController:
 
         # exit 4 is enforced in the while-condition (alongside the turn cap);
         # the precise terminal status is decided right after the loop exits.
-        while (
-            it < max_it
-            and not deadline_passed(deadline)
-            and not is_terminal(status)
-        ):
+        while it < max_it and not deadline_passed(deadline) and not is_terminal(status):
             # -- exits 3/6/8 (BUDGET CAP / HUMAN INTERRUPT / EXTERNAL EVENT):
             # compute each signal exactly as before (corrigible kill switch
             # evaluated OUTSIDE/BEFORE the step so a risky iteration never
@@ -2471,10 +2472,13 @@ class LoopController:
 
                 _corrig_status, corrig_summary = corrigibility_decision(desired)
                 human_signal = (
-                    desired if desired in ("pause", "kill", "cancel", "stop") else "pause"
+                    desired
+                    if desired in ("pause", "kill", "cancel", "stop")
+                    else "pause"
                 )
-            budget_exceeded_flag = resource_optimizer is not None and self._budget_exceeded(
-                resource_optimizer
+            budget_exceeded_flag = (
+                resource_optimizer is not None
+                and self._budget_exceeded(resource_optimizer)
             )
             external_event_fired_flag = event_probe is not None and self._event_fired(
                 event_probe
@@ -2662,6 +2666,7 @@ class LoopController:
             if is_terminal(status):
                 if status is LoopStatus.COMPLETED:
                     if measured_pass:
+                        assert verdict is not None  # measured_pass implies this
                         return _finish(
                             LoopStatus.COMPLETED,
                             reason=(
@@ -3130,6 +3135,7 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     import shutil
     import signal
     import subprocess
+    import sys
     import tempfile
     import time
     from pathlib import Path
@@ -3200,7 +3206,7 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
                 "stderr": subprocess.STDOUT,
                 "shell": False,
             }
-            if os.name == "nt":
+            if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             else:
                 popen_kwargs["start_new_session"] = True

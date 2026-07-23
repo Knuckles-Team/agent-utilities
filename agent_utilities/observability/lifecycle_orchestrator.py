@@ -245,7 +245,10 @@ def _rel(props: Any) -> str:
     ``rel_type``; tolerate ``type`` too)."""
     if isinstance(props, dict):
         return str(
-            props.get("relationship") or props.get("rel_type") or props.get("type") or ""
+            props.get("relationship")
+            or props.get("rel_type")
+            or props.get("type")
+            or ""
         )
     return ""
 

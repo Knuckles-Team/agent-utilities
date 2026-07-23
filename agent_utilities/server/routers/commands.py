@@ -125,14 +125,18 @@ async def execute_slash_command(payload: dict, request: Request):
             elif backend is None:
                 response_md = "Graph backend not active — cannot run search."
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
-                    rows = engine.query_cypher(
-                        "MATCH (n) WHERE toLower(n.name) CONTAINS toLower($q) "
-                        "OR toLower(n.id) CONTAINS toLower($q) "
-                        "RETURN n.id AS id, n.name AS name, labels(n)[0] AS type "
-                        "LIMIT 10",
-                        {"q": rest},
-                    ) or []
+                    rows = (
+                        engine.query_cypher(
+                            "MATCH (n) WHERE toLower(n.name) CONTAINS toLower($q) "
+                            "OR toLower(n.id) CONTAINS toLower($q) "
+                            "RETURN n.id AS id, n.name AS name, labels(n)[0] AS type "
+                            "LIMIT 10",
+                            {"q": rest},
+                        )
+                        or []
+                    )
                 except Exception as e:  # noqa: BLE001
                     rows = []
                     logger.warning(
@@ -187,13 +191,15 @@ async def execute_slash_command(payload: dict, request: Request):
                     "Graph backend not active — no live counts available."
                 )
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
-                    node_rows = engine.query_cypher(
-                        "MATCH (n) RETURN count(n) AS c"
-                    ) or []
-                    edge_rows = engine.query_cypher(
-                        "MATCH ()-[r]->() RETURN count(r) AS c"
-                    ) or []
+                    node_rows = (
+                        engine.query_cypher("MATCH (n) RETURN count(n) AS c") or []
+                    )
+                    edge_rows = (
+                        engine.query_cypher("MATCH ()-[r]->() RETURN count(r) AS c")
+                        or []
+                    )
                     nodes = int(node_rows[0]["c"]) if node_rows else 0
                     edges = int(edge_rows[0]["c"]) if edge_rows else 0
                     response_md = (
@@ -225,11 +231,15 @@ async def execute_slash_command(payload: dict, request: Request):
                     "Knowledge Graph backend not active — no knowledge bases available."
                 )
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
-                    rows = engine.query_cypher(
-                        "MATCH (kb:KnowledgeBase) RETURN kb.id AS id, "
-                        "kb.name AS name, kb.description AS description"
-                    ) or []
+                    rows = (
+                        engine.query_cypher(
+                            "MATCH (kb:KnowledgeBase) RETURN kb.id AS id, "
+                            "kb.name AS name, kb.description AS description"
+                        )
+                        or []
+                    )
                 except Exception as e:  # noqa: BLE001
                     rows = []
                     logger.warning(
@@ -256,15 +266,19 @@ async def execute_slash_command(payload: dict, request: Request):
             elif backend is None:
                 response_md = "Knowledge Graph backend not active — cannot search."
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
-                    rows = engine.query_cypher(
-                        "MATCH (a:Article) "
-                        "WHERE toLower(a.name) CONTAINS toLower($q) "
-                        "OR toLower(a.content) CONTAINS toLower($q) "
-                        "RETURN a.id AS id, a.name AS name, "
-                        "a.description AS description LIMIT 5",
-                        {"q": rest},
-                    ) or []
+                    rows = (
+                        engine.query_cypher(
+                            "MATCH (a:Article) "
+                            "WHERE toLower(a.name) CONTAINS toLower($q) "
+                            "OR toLower(a.content) CONTAINS toLower($q) "
+                            "RETURN a.id AS id, a.name AS name, "
+                            "a.description AS description LIMIT 5",
+                            {"q": rest},
+                        )
+                        or []
+                    )
                 except Exception as e:  # noqa: BLE001
                     rows = []
                     logger.warning(

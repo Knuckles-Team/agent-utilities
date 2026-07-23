@@ -166,9 +166,7 @@ def build_schema_graph(
             }
         )
 
-    interface_count = sum(
-        1 for n in nodes.values() if n["data"]["kind"] == "interface"
-    )
+    interface_count = sum(1 for n in nodes.values() if n["data"]["kind"] == "interface")
     object_type_count = len(nodes) - interface_count
     return {
         "nodes": list(nodes.values()),
@@ -181,7 +179,9 @@ def build_schema_graph(
     }
 
 
-def render_schema_markdown(graph: dict[str, Any], *, title: str = "Ontology Schema") -> str:
+def render_schema_markdown(
+    graph: dict[str, Any], *, title: str = "Ontology Schema"
+) -> str:
     """Render a :func:`build_schema_graph` payload as a Markdown document.
 
     Mirrors Ontology-Playground's "Ontology Summary" export (a copy-pasteable
@@ -189,8 +189,12 @@ def render_schema_markdown(graph: dict[str, Any], *, title: str = "Ontology Sche
     descriptions, or priming an LLM's context with the platform's own schema.
     """
     interfaces = [n["data"] for n in graph["nodes"] if n["data"]["kind"] == "interface"]
-    object_types = [n["data"] for n in graph["nodes"] if n["data"]["kind"] == "object_type"]
-    relationships = [e["data"] for e in graph["edges"] if e["data"]["kind"] == "relationship"]
+    object_types = [
+        n["data"] for n in graph["nodes"] if n["data"]["kind"] == "object_type"
+    ]
+    relationships = [
+        e["data"] for e in graph["edges"] if e["data"]["kind"] == "relationship"
+    ]
     extensions = [e["data"] for e in graph["edges"] if e["data"]["kind"] == "extends"]
 
     lines: list[str] = [f"# {title}", ""]
@@ -206,9 +210,7 @@ def render_schema_markdown(graph: dict[str, Any], *, title: str = "Ontology Sche
         lines.append(f"### {iface['label']}")
         if iface.get("description"):
             lines.append(iface["description"])
-        parents = sorted(
-            e["target"] for e in extensions if e["source"] == iface["id"]
-        )
+        parents = sorted(e["target"] for e in extensions if e["source"] == iface["id"])
         if parents:
             lines.append("")
             lines.append(f"_Extends: {', '.join(parents)}_")

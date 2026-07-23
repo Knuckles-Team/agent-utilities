@@ -281,7 +281,9 @@ class AHEMixin(_Base):
             )
 
         if reasoning_trace_id in self.graph:
-            self.graph.add_edge(reasoning_trace_id, crit_id, relationship="GENERATED_CRITIQUE")
+            self.graph.add_edge(
+                reasoning_trace_id, crit_id, relationship="GENERATED_CRITIQUE"
+            )
 
         return crit_id
 
@@ -363,9 +365,7 @@ class AHEMixin(_Base):
                 )
                 self.optimize_prompt(prompt[0]["id"], crit_id)
             else:
-                logger.warning(
-                    f"No prompt linked to canonical trace {fail['id']}."
-                )
+                logger.warning(f"No prompt linked to canonical trace {fail['id']}.")
 
         # 4. Propose new skills
         new_skill_id = self.propose_new_skill_from_experience()

@@ -103,6 +103,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 def _validated_http_options(
     timeout: float,
     headers: dict | None,

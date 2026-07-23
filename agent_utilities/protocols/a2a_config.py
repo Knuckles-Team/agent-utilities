@@ -274,9 +274,7 @@ async def periodic_a2a_refresh(
         config_path: Path to the A2A config file.
         interval_seconds: Refresh interval in seconds (default: 300).
     """
-    logger.info(
-        "A2A periodic refresh started interval_seconds=%d", interval_seconds
-    )
+    logger.info("A2A periodic refresh started interval_seconds=%d", interval_seconds)
     while True:
         await asyncio.sleep(interval_seconds)
         try:

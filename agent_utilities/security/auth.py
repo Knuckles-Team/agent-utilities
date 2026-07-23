@@ -85,9 +85,7 @@ async def _fetch_jwks(jwks_uri: str) -> Any:
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise RuntimeError("AUTH_JWT_JWKS_URI must be an absolute HTTP(S) URL")
     if parsed.username or parsed.password or parsed.fragment:
-        raise RuntimeError(
-            "AUTH_JWT_JWKS_URI cannot contain credentials or a fragment"
-        )
+        raise RuntimeError("AUTH_JWT_JWKS_URI cannot contain credentials or a fragment")
     if parsed.scheme != "https" and parsed.hostname.lower() not in {
         "localhost",
         "127.0.0.1",

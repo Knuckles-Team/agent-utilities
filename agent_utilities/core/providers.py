@@ -128,7 +128,7 @@ def _owned_source_root(
             continue
         if any(part in {"", ".", ".."} for part in relative.parts):
             raise ProviderRegistrationError("provider owner file manifest is unsafe")
-        located = Path(distribution.locate_file(package_path))
+        located = Path(str(distribution.locate_file(package_path)))
         root = located
         for _ in relative.parts[len(prefix.parts) :]:
             root = root.parent

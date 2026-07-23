@@ -45,9 +45,7 @@ _SESSION_FILTER_COLS = {
     "health_grade": "health_grade",
     "outcome": "outcome",
 }
-_SESSION_ORDER_BY = frozenset(
-    {"COALESCE(SUM(e.cost_usd),0) DESC", "s.started_at DESC"}
-)
+_SESSION_ORDER_BY = frozenset({"COALESCE(SUM(e.cost_usd),0) DESC", "s.started_at DESC"})
 
 
 def _now() -> str:

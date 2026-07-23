@@ -216,7 +216,9 @@ class MessagingRegistry:
         """
         return self._instances.get(backend_id)
 
-    def _is_configured(self, backend_id: str, config: MessagingConfig | None = None) -> bool:
+    def _is_configured(
+        self, backend_id: str, config: MessagingConfig | None = None
+    ) -> bool:
         """True when ``backend_id`` has credentials/webhook material set in the
         environment — the SAME predicate :meth:`create_all_enabled` uses to decide
         whether to auto-create a backend, extracted so a health probe can ask

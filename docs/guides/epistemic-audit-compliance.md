@@ -26,6 +26,8 @@ machinery (`agent_utilities/mcp/tools/audit_tools.py`,
 | "Export this subgraph for an auditor, with redaction applied" | `graph_compliance(action="export")` | bulk `explain_belief(node_id, disclosure_level)` over an id list or Cypher selection |
 | "Why do we believe this claim?" | `graph_epistemic(action="why", node_id=...)` | `explain_belief` justification tree (`Asserted` / `DerivedSupport` / `DerivedContradiction` / `BayesianUpdate`) |
 | "Do we still believe it, since when, and what would flip it?" | `graph_epistemic(action="status", node_id=...)` | `epistemic_status` acceptance capstone (opt-in `epistemic-tms` engine feature) |
+| "Why DON'T we believe this claim?" | `graph_epistemic(action="why_not", node_id=...)` | `epistemic_status`'s own `why_not` field, projected: `Unknown` / `InsufficientConfidence` / `Contradicted` (names the blockers) / `Undecided` (names the competing claims) — opt-in `epistemic-tms` |
+| "What single piece of evidence would flip our belief?" | `graph_epistemic(action="what_would_invalidate", node_id=...)` | `epistemic_status`'s own `what_would_invalidate` field, projected: the minimal evidence-id set whose retraction would change the verdict — opt-in `epistemic-tms` |
 | "What changed between two audit periods?" | `graph_epistemic(action="what_changed", tx_from=..., tx_to=...)` | whole-graph bitemporal diff (opt-in `epistemic-tms`) |
 | "As of last quarter-end, what did the graph say?" | `graph_query(cypher=..., as_of="2026-03-31T00:00:00Z")` | bitemporal `as_of` cutoff on the read path |
 

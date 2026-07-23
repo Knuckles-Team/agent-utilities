@@ -397,10 +397,14 @@ class _LoopbackServer(socketserver.TCPServer):
             connection.close()
             raise
 
-    def verify_request(self, request: socket.socket, client_address: Any) -> bool:
+    def verify_request(
+        self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
+    ) -> bool:
         return bool(client_address and client_address[0] == _BIND_HOST)
 
-    def handle_error(self, request: socket.socket, client_address: Any) -> None:
+    def handle_error(
+        self, request: socket.socket | tuple[bytes, socket.socket], client_address: Any
+    ) -> None:
         return
 
     def admit(self) -> bool:

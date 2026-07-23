@@ -397,6 +397,7 @@ def make_streaming_extract_fn(
                 compiled_async_chat_completion,
                 resolve_bundle_async_chat_client,
             )
+
             client, model_id = resolve_bundle_async_chat_client(
                 base_url=base_url,
                 model=model,

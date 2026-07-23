@@ -196,9 +196,7 @@ class AgentsMdReflector:
             model = create_model(
                 provider=DEFAULT_LLM_PROVIDER, model_id=DEFAULT_KG_MODEL_ID
             )
-            agent = create_context_agent(
-                model, system_prompt=REFLECTOR_SYSTEM_PROMPT
-            )
+            agent = create_context_agent(model, system_prompt=REFLECTOR_SYSTEM_PROMPT)
             from ..core.event_loop import allow_nested_run_sync
 
             allow_nested_run_sync()

@@ -52,9 +52,7 @@ def engine_client_transport_kwargs(
     if rendered.startswith("tcp://"):
         if _is_loopback_endpoint(rendered):
             return {}
-        raise EngineTransportError(
-            "remote native-engine transport requires tls://"
-        )
+        raise EngineTransportError("remote native-engine transport requires tls://")
     if not rendered.startswith("tls://"):
         return {}
 
@@ -87,8 +85,7 @@ def engine_client_transport_kwargs(
                 str(
                     server_hostname
                     if server_hostname is not None
-                    else getattr(config, "engine_tls_server_name", "")
-                    or ""
+                    else getattr(config, "engine_tls_server_name", "") or ""
                 ).strip()
                 or None
             ),

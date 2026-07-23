@@ -1039,9 +1039,7 @@ class OrgRuntime:
                     self._refresh_status(state)
                 break
             ready = [
-                state
-                for state in remaining
-                if self._refresh_status(state) == "ready"
+                state for state in remaining if self._refresh_status(state) == "ready"
             ]
             if not ready:
                 blocked = [state for state in remaining if state.status not in terminal]
@@ -1069,8 +1067,7 @@ class OrgRuntime:
             ]
 
         succeeded = sum(
-            self._refresh_status(state) == "succeeded"
-            for state in states.values()
+            self._refresh_status(state) == "succeeded" for state in states.values()
         )
         status = (
             "completed"

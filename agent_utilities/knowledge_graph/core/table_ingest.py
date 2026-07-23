@@ -184,10 +184,7 @@ def insert_rows(
             if prefix_bytes + rendered_bytes > _MAX_STATEMENT_BYTES:
                 raise ValueError("SQL row exceeds the statement size limit")
             projected = (
-                prefix_bytes
-                + pending_bytes
-                + rendered_bytes
-                + (2 if pending else 0)
+                prefix_bytes + pending_bytes + rendered_bytes + (2 if pending else 0)
             )
             if projected > _MAX_STATEMENT_BYTES:
                 gc.sql_exec(prefix + ", ".join(pending))

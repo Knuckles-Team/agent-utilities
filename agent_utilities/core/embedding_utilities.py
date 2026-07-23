@@ -179,9 +179,7 @@ def create_embedding_model(
     # The selected endpoint owns exactly one auth source. A chat-model fallback
     # is consulted only when the embedder declares neither API-key nor OAuth2.
     if oauth2_val and api_key_str:
-        raise ValueError(
-            "embedding authentication source is ambiguous"
-        )
+        raise ValueError("embedding authentication source is ambiguous")
 
     if provider_str == "mock":
         raise ValueError(

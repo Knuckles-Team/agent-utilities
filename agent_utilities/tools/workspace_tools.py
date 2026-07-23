@@ -58,7 +58,11 @@ def _workspace_path(
 
 
 def _safe_read(path: Path, *, limit: int = _MAX_TEXT_BYTES) -> str:
-    if path.is_symlink() or not path.is_file() or path.name.lower() in _DENIED_FILENAMES:
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.name.lower() in _DENIED_FILENAMES
+    ):
         raise ValueError("workspace file is unavailable or sensitive")
     if path.stat().st_size > limit:
         raise ValueError("workspace file exceeds the read limit")
@@ -124,9 +128,7 @@ async def list_files(
         for current, dirs, filenames in os.walk(start, followlinks=False):
             current_path = Path(current)
             dirs[:] = sorted(
-                name
-                for name in dirs
-                if not (current_path / name).is_symlink()
+                name for name in dirs if not (current_path / name).is_symlink()
             )
             for filename in sorted(filenames):
                 candidate = current_path / filename

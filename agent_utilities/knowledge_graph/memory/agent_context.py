@@ -130,9 +130,7 @@ class CompactedResult(BaseModel):
     strategy_used: str = ""
     summary_text: str = ""
     messages_removed: int = 0
-    compaction_id: str = Field(
-        default_factory=lambda: f"compact:{uuid.uuid4().hex}"
-    )
+    compaction_id: str = Field(default_factory=lambda: f"compact:{uuid.uuid4().hex}")
 
 
 # ---------------------------------------------------------------------------
@@ -1685,9 +1683,7 @@ class SemanticCompactor:
                         )
                         return len(removed)
                 except Exception as e:
-                    logger.warning(
-                        "Native compaction failed (%s)", type(e).__name__
-                    )
+                    logger.warning("Native compaction failed (%s)", type(e).__name__)
 
         # Try to find all trace nodes for the agent from the database
         try:

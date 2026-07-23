@@ -413,9 +413,7 @@ def redact_object(
     This never mutates the input; it returns a filtered dict.
     """
     actor = _require_actor(actor)
-    if "__classification__" in obj and not isinstance(
-        obj["__classification__"], dict
-    ):
+    if "__classification__" in obj and not isinstance(obj["__classification__"], dict):
         raise PermissionError("Object property classification metadata is invalid")
     if "__markings__" in obj and not isinstance(obj["__markings__"], dict):
         raise PermissionError("Object property marking metadata is invalid")

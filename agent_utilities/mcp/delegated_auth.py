@@ -115,9 +115,8 @@ def _bounded_text(
     maximum: int = 4_096,
 ) -> str:
     rendered = str(value or "")
-    if (
-        not minimum <= len(rendered.encode("utf-8")) <= maximum
-        or any(character in rendered for character in "\r\n\x00")
+    if not minimum <= len(rendered.encode("utf-8")) <= maximum or any(
+        character in rendered for character in "\r\n\x00"
     ):
         raise ValueError(f"{field} is invalid")
     return rendered
@@ -319,9 +318,7 @@ def get_3lo_authorization_url(
     requested_scopes = [
         _bounded_text(scope, field="OAuth scope", maximum=256) for scope in scopes
     ]
-    csrf_state = _bounded_text(
-        state, field="OAuth state", minimum=16, maximum=1_024
-    )
+    csrf_state = _bounded_text(state, field="OAuth state", minimum=16, maximum=1_024)
 
     params = {
         "client_id": client,
@@ -443,9 +440,7 @@ def refresh_access_token(
     client_secret = _bounded_text(
         client_secret, field="OAuth client secret", maximum=16_384
     )
-    refresh_token = _bounded_text(
-        refresh_token, field="refresh token", maximum=65_536
-    )
+    refresh_token = _bounded_text(refresh_token, field="refresh token", maximum=65_536)
     data = {
         "grant_type": "refresh_token",
         "client_id": client_id,

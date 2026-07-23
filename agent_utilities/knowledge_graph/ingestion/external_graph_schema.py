@@ -397,9 +397,7 @@ class GraphQLDiscoveryAdapter:
                 fragment_name = node.name.value
                 fragment = fragments.get(fragment_name)
                 if fragment is None:
-                    raise ExternalGraphSchemaError(
-                        "GraphQL discovery probe is invalid"
-                    )
+                    raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
                 if fragment_name not in seen_fragments:
                     seen_fragments.add(fragment_name)
                     stack.append(fragment.selection_set)
@@ -1234,10 +1232,7 @@ def governed_semantic_mapping_enricher(bundle: Any) -> Mapping[str, str]:
     if not isinstance(content, str):
         raise ExternalGraphSchemaError("semantic mapper returned non-text content")
     rendered = content.strip()
-    if (
-        not rendered
-        or len(rendered.encode("utf-8")) > _MAX_SEMANTIC_RESPONSE_BYTES
-    ):
+    if not rendered or len(rendered.encode("utf-8")) > _MAX_SEMANTIC_RESPONSE_BYTES:
         raise ExternalGraphSchemaError("semantic mapper response is outside its bound")
     try:
         decoded = json.loads(
@@ -1302,8 +1297,7 @@ def _semantic_suggestions(
                 "id": f"schema:{index}",
                 "type": "ExternalSchemaLabel",
                 "name": clean_label,
-                "description": "Candidate ontology targets: "
-                + ", ".join(safe_targets),
+                "description": "Candidate ontology targets: " + ", ".join(safe_targets),
                 "score": 1.0,
                 "confidence": 0.5,
             }
@@ -1817,9 +1811,7 @@ def external_graph_readiness(
     )
     discovery_complete = not schema.partial and bool(schema.labels)
     ready = (
-        discovery_complete
-        and status.get("status") == "approved"
-        and drift == "none"
+        discovery_complete and status.get("status") == "approved" and drift == "none"
     )
     mapping_drift = str(status.get("mapping_drift") or "unknown")
     ready = ready and mapping_drift == "none"

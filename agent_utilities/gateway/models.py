@@ -88,7 +88,7 @@ class ServiceConfig(BaseModel):
     widget_type: str = Field(
         min_length=1,
         max_length=128,
-        description="Widget type key from registry, e.g. 'portainer'"
+        description="Widget type key from registry, e.g. 'portainer'",
     )
     url: str = Field(default="", max_length=8192, description="Service base URL")
     icon: str = Field(
@@ -96,7 +96,9 @@ class ServiceConfig(BaseModel):
         max_length=512,
         description="Icon identifier (Lucide name, URL, or emoji)",
     )
-    description: str = Field(default="", max_length=2048, description="Short description")
+    description: str = Field(
+        default="", max_length=2048, description="Short description"
+    )
     category: ServiceCategory = Field(default=ServiceCategory.CUSTOM)
 
     # Runtime-only compatibility fields. These may be supplied to an in-memory

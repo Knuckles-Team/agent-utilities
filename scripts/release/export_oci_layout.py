@@ -25,7 +25,7 @@ import sys
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, NoReturn
 
 _DEFAULT_CONTAINER_CLI = "podman"
 _EXPORT_TIMEOUT_SECONDS = 30 * 60
@@ -81,7 +81,7 @@ class OciLayoutIdentity:
     image_manifest_count: int
 
 
-def _reject(code: str) -> None:
+def _reject(code: str) -> NoReturn:
     raise OciLayoutExportError(code)
 
 

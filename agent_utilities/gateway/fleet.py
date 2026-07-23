@@ -97,7 +97,9 @@ def _tenant_scope(dialect: str) -> tuple[str, list[Any]]:
         if is_privileged(actor):
             return "", []
         if not actor.authenticated or not actor.tenant_id:
-            raise PermissionError("Fleet supervision requires verified tenant authority")
+            raise PermissionError(
+                "Fleet supervision requires verified tenant authority"
+            )
         return f"{_tenant_sql(dialect)} = ?", [actor.tenant_id]
     except PermissionError:
         raise

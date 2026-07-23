@@ -278,30 +278,6 @@ class MemoryMixin(_Base):
                 {"id": memory_id, **kwargs},
             )
 
-    def link_nodes(
-        self,
-        source_id: str,
-        target_id: str,
-        rel_type: str,
-        properties: dict[str, Any] | None = None,
-    ):
-        """Create a relationship between two nodes in the graph."""
-        if rel_type:
-            rel_type = rel_type.upper()
-        props = properties or {}
-        if source_id in self.graph and target_id in self.graph:
-            self.graph.add_edge(source_id, target_id, relationship=rel_type, **props)
-
-        if self.backend:
-            set_clause = self._get_set_clause(props, alias="r", label=rel_type)
-            query = (
-                f"MATCH (s {{id: $sid}}) MATCH (t {{id: $tid}}) "
-                f"MERGE (s)-[r:{rel_type}]->(t){set_clause}"
-            )
-            params = {"sid": source_id, "tid": target_id}
-            params.update(props)
-            self.backend.execute(query, params)
-
     def add_memory_node(self, memory: MemoryNode):
         """Add a MemoryNode object to the graph."""
         if self.backend:
@@ -409,9 +385,7 @@ class MemoryMixin(_Base):
                     )
                     return memory_id
                 except Exception as e:  # noqa: BLE001 — fail closed at the plane boundary
-                    logger.error(
-                        "memory ingest enqueue failed (%s)", type(e).__name__
-                    )
+                    logger.error("memory ingest enqueue failed (%s)", type(e).__name__)
                     raise RuntimeError(
                         "memory ingest authority unavailable; "
                         f"error_type={type(e).__name__}"

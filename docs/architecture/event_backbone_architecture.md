@@ -116,16 +116,16 @@ are post-commit notifications and never form an alternate replication path.
 ```mermaid
 sequenceDiagram
     participant ENG as Engine authority (Rust)
-    participant FO as FanOutBackend
+    participant FOB as FanOutBackend
     participant OB as Durable mirror outbox
     participant MIR as Mirror (persistent backend)
 
-    FO->>ENG: ApplyChangeEnvelope
-    ENG-->>FO: durable acknowledgement
-    FO->>OB: append mutation per mirror
+    FOB->>ENG: ApplyChangeEnvelope
+    ENG-->>FOB: durable acknowledgement
+    FOB->>OB: append mutation per mirror
     OB->>MIR: ordered replay
     MIR-->>OB: advance durable cursor
-    Note over FO,MIR: Periodic reconcile repairs drift from authority
+    Note over FOB,MIR: Periodic reconcile repairs drift from authority
 ```
 
 ### Failure Modes

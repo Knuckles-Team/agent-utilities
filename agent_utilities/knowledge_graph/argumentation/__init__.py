@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""Argument Interchange Format (AIF) support (CONCEPT:AU-KG.argumentation.aif).
+"""Argument Interchange Format (AIF) support (CONCEPT:AU-KG.epistemic.aif).
 
 Typed AIF argument-map objects + import (JSON/AIF-db-shaped -> graph)/export
 (graph -> AIF JSON)/``to_dung()`` bridge layered over the engine's existing

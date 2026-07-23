@@ -732,10 +732,10 @@ class GEPAOptimizer:
         import json as _json
 
         try:
-            from ..graph.client import get_graph_client
+            from ..graph.client import get_process_graph_backend
 
-            client = get_graph_client()
-            rows = await client.query(
+            backend = await get_process_graph_backend()
+            rows = backend.execute_read(
                 "MATCH (n:GEPAFrontier {run_id: $rid}) RETURN n.snapshot_json AS snap",
                 {"rid": run_id},
             )

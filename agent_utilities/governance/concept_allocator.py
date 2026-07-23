@@ -297,7 +297,9 @@ def reserve_concept_id(
         records = read_ledger(repo_root)
         taken = _taken_union(repo_root, records, now=now, scan_roots=scan_roots)
         if concept_id in taken:
-            raise ValueError(f"concept id is already registered or reserved: {concept_id}")
+            raise ValueError(
+                f"concept id is already registered or reserved: {concept_id}"
+            )
         record = {
             "id": concept_id,
             "slug": parsed.slug,

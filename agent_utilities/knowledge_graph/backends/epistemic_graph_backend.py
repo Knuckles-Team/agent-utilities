@@ -22,13 +22,17 @@ import logging
 import re
 from typing import Any
 
+from agent_utilities.security.identifiers import (
+    InvalidIdentifierError,
+    validate_identifier,
+)
+
 from .base import GraphBackend, is_write
 
 logger = logging.getLogger(__name__)
 
 _PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
 _CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
-_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _query_reference(query: str) -> str:
@@ -55,57 +59,10 @@ class CypherEngineError(RuntimeError):
         )
 
 
-def _cypher_literal(value: Any) -> str:
-    """Render a bound value in the engine's dependency-free Cypher grammar."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if value is None:
-        raise ValueError(
-            "Cypher parameters cannot encode NULL literals; use IS NULL or IS NOT NULL"
-        )
-    if isinstance(value, int | float):
-        if value < 0:
-            raise ValueError("Cypher parameters cannot encode negative number literals")
-        return str(value)
-    if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
-    if isinstance(value, list | tuple):
-        return "[" + ", ".join(_cypher_literal(item) for item in value) + "]"
-    raise TypeError(
-        f"Cypher parameters do not support {type(value).__name__}; "
-        "use scalar values or scalar lists"
-    )
-
-
-class CypherEngineError(RuntimeError):
-    """The native Cypher engine rejected or failed a query.
-
-    Raised instead of silently returning ``[]`` when a query handed to the
-    native engine (``GraphComputeEngine.query_cypher``) is unsupported,
-    malformed, or fails server-side — e.g. a construct outside the engine's
-    Cypher-subset grammar (``eg-query``: no comma-separated disjoint MATCH
-    patterns, no arbitrary function calls). Carries the original query, the
-    literal-inlined query actually sent, and the underlying engine error so the
-    caller can see exactly what failed and why — never a fabricated empty result.
-    """
-
-    def __init__(self, query: str, inlined: str, cause: BaseException) -> None:
-        self.query = query
-        self.inlined = inlined
-        self.cause = cause
-        super().__init__(
-            f"native Cypher engine rejected query: {cause} "
-            f"(query: {query[:300]!r}, inlined: {inlined[:300]!r})"
-        )
-
-
 # ``$name`` parameter placeholders and the ``current_timestamp()`` pseudo-literal
 # get inlined into the query text before it reaches the native engine — its wire
 # method (``CypherQuery``) carries only the literal query string, no params map
 # (CONCEPT:AU-KG.query.object-graph-mapper).
-_PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
-_CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
 
 
 def _now_iso() -> str:
@@ -350,8 +307,13 @@ class EpistemicGraphBackend(GraphBackend):
         """Remove nodes selected by a native read followed by typed removals."""
         if not criteria:
             raise ValueError("prune criteria must not be empty")
-        if any(not _CYPHER_IDENTIFIER_RE.fullmatch(str(key)) for key in criteria):
-            raise ValueError("prune criteria contains an invalid property identifier")
+        try:
+            for key in criteria:
+                validate_identifier(key, kind="property")
+        except InvalidIdentifierError as exc:
+            raise ValueError(
+                "prune criteria contains an invalid property identifier"
+            ) from exc
         predicates = " AND ".join(f"n.{key} = ${key}" for key in criteria)
         rows = self.execute_read(
             f"MATCH (n) WHERE {predicates} RETURN n AS node_id",

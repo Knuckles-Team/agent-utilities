@@ -453,10 +453,7 @@ def _load_steps(engine: Any, name: str) -> tuple[str, list[dict[str, Any]]] | No
     if graph is not None:
         try:
             for _s, tgt, edata in graph.out_edges(wf_id, data=True):
-                if (
-                    str((edata or {}).get("relationship") or "")
-                    == "HAS_STEP"
-                ):
+                if str((edata or {}).get("relationship") or "") == "HAS_STEP":
                     d = dict(graph.nodes[tgt])
                     steps.append((int(d.get("step_order", 0)), d))
         except Exception:  # noqa: BLE001

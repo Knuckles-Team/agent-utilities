@@ -1,7 +1,7 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Unified artifact-promotion gate (CONCEPT:AU-AHE.evolution.unified-promotion-gate).
+"""Unified artifact-promotion gate (CONCEPT:AU-AHE.harness.unified-promotion-gate).
 
 ``action_policy.py``'s reserved-kind pattern is already the right shape — six
 independent artifact-mutation kinds (``promote_skill_version``,

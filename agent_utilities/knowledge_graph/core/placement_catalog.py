@@ -36,11 +36,14 @@ an invalid, non-authoritative, or mismatched answer is a hard error
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from agent_utilities.protocols.epistemic_operations import PlacementRoute
 
@@ -198,7 +201,9 @@ def _validate_answer(answer: Any, tenant: str, sub_key: str) -> PlacementRoute:
     try:
         route = PlacementRoute.model_validate(answer)
     except (TypeError, ValueError) as exc:
-        raise PlacementAuthorityError("engine returned an invalid placement route") from exc
+        raise PlacementAuthorityError(
+            "engine returned an invalid placement route"
+        ) from exc
     if route.authoritative is not True:
         raise PlacementAuthorityError("engine returned a non-authoritative route")
     if route.tenant_ref != tenant or route.partition_ref != sub_key:
@@ -230,7 +235,9 @@ def _request_authority(config: Any) -> tuple[str, dict[str, Any]]:
 
     session = current_session()
     if session is None or not getattr(session.actor, "authenticated", False):
-        raise PlacementAuthorityError("placement lookup requires an authenticated session")
+        raise PlacementAuthorityError(
+            "placement lookup requires an authenticated session"
+        )
     from .graph_compute import resolve_engine_auth
 
     return resolve_engine_auth(config), session.engine_verified_context()
@@ -291,7 +298,17 @@ def _query_catalog(
             )
         except PlacementTopologyError:
             raise
-        except Exception:  # noqa: BLE001 - try the next configured coordinator
+        except Exception as exc:  # noqa: BLE001 - try the next configured coordinator
+            # Trying the next coordinator is right; discarding WHY this one failed
+            # is not. The caller only ever sees "no configured engine returned an
+            # authoritative route (N failed)", which is identical for a TLS
+            # handshake error, a bad auth secret, an unprovisioned RBAC identity,
+            # and a genuinely unreachable engine. Log the real cause per contact.
+            logger.warning(
+                "placement coordinator did not answer (%s: %s)",
+                type(exc).__name__,
+                str(exc),
+            )
             failures += 1
         finally:
             if client is not None and owns_client:

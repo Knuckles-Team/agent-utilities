@@ -5,6 +5,8 @@ This module re-exports all functionalities from the newly disaggregated
 sub-modules to maintain strict backward compatibility with existing agents.
 """
 
+from agent_utilities._version import __version__ as __version__
+
 from . import *  # noqa: F401, F403
 from .agent.factory import *  # noqa: F403
 from .api_utilities import *  # noqa: F403
@@ -25,5 +27,3 @@ from .protocols.a2a import *  # noqa: F403
 from .security.tool_guard import *  # noqa: F403
 from .server import *  # noqa: F403
 from .tools.tool_filtering import *  # noqa: F403
-
-__version__ = "1.26.0"

@@ -70,9 +70,7 @@ def _governed_agent_model(model: Any) -> Any:
         return wrap_model_with_context(model)
     from ..core.model_factory import create_model
 
-    provider, concrete_model = (
-        model.split(":", 1) if ":" in model else (None, model)
-    )
+    provider, concrete_model = model.split(":", 1) if ":" in model else (None, model)
     return create_model(provider=provider, model_id=concrete_model)
 
 
@@ -973,9 +971,7 @@ class ParallelEngine:
             try:
                 self._escalate_repeated_failure(agent.agent_id, str(e))
             except Exception as ah_err:
-                logger.debug(
-                    "Failure escalation skipped (%s)", type(ah_err).__name__
-                )
+                logger.debug("Failure escalation skipped (%s)", type(ah_err).__name__)
 
             return AgentExecutionResult(
                 agent_id=agent.agent_id,

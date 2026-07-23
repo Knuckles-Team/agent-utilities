@@ -274,9 +274,9 @@ async def run_with_approvals(
 # server callbacks.  Set by the server/AG-UI endpoint before running
 # the agent and read by the callback below.
 
-elicitation_queue_var: contextvars.ContextVar[
-    asyncio.Queue | None
-] = contextvars.ContextVar("elicitation_queue", default=None)
+elicitation_queue_var: contextvars.ContextVar[asyncio.Queue | None] = (
+    contextvars.ContextVar("elicitation_queue", default=None)
+)
 
 # Singleton manager reused for both tool approval and MCP elicitation.
 # The /api/approve endpoint resolves requests from both sources.

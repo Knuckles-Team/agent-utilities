@@ -643,9 +643,7 @@ def create_agent_server(
             graph_config["model_registry"] = model_registry
 
     if tag_prompts:
-        logger.info(
-            "Graph agent initialized with %d domain nodes", len(tag_prompts)
-        )
+        logger.info("Graph agent initialized with %d domain nodes", len(tag_prompts))
 
     domain_list = ", ".join(graph_config["valid_domains"])
     base_prompt = system_prompt or DEFAULT_AGENT_SYSTEM_PROMPT
