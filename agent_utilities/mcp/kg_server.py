@@ -802,6 +802,14 @@ MINING_ACTIONS = (
     "forecast",
     "text",
     "subgraph",
+    "entity_resolve",
+    "causal_impact",
+    "process",
+    "root_cause",
+    "risk_propagation",
+    "ontology_gap",
+    "retrieval_quality",
+    "community",
 )
 
 
@@ -905,7 +913,15 @@ def _make_mining_endpoint(action: str):
     ``{sequences|source,min_support,algorithm,...}`` for sequence,
     ``{values,algorithm,horizon,...}`` for forecast,
     ``{docs|source,algorithm,k,...}`` for text,
-    ``{label,min_support,max_edges,algorithm,...}`` for subgraph) plus an
+    ``{label,min_support,max_edges,algorithm,...}`` for subgraph,
+    ``{records|vectors|source,threshold,...}`` for entity_resolve,
+    ``{series,control,intervention_index,...}`` for causal_impact,
+    ``{traces,process_id,...}`` for process,
+    ``{nodes,edges,scores,symptom,...}`` for root_cause,
+    ``{nodes,edges,seed,...}`` for risk_propagation,
+    ``{label,...}`` for ontology_gap,
+    ``{traces,k,...}`` for retrieval_quality,
+    ``{label,algorithm,...}`` for community) plus an
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
@@ -3617,9 +3633,9 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         route(_path, _make_tool_endpoint(_tool), ["POST"])
 
     # Data-mining REST twins (CONCEPT:EG-KG.mining.frequent-itemset-mining) — one natural-body
-    # /api/mining/<action> endpoint per graph_mine action (associate|cluster|anomaly|
-    # classify_fit|classify_predict|reduce), each dispatching the SAME graph_mine
-    # _execute_tool core (surface parity).
+    # /api/mining/<action> endpoint per graph_mine action (the full 18-action surface —
+    # see MINING_ACTIONS), each dispatching the SAME graph_mine _execute_tool core
+    # (surface parity).
     if "graph_mine" in ACTION_TOOL_ROUTES:
         for _mine_action in MINING_ACTIONS:
             route(
