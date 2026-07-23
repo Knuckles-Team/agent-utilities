@@ -605,6 +605,152 @@ def test_collect_health_never_raises_even_when_agentconfig_is_broken(monkeypatch
     assert report["checks"][0]["status"] == "unhealthy"
 
 
+# --------------------------------------------------------------------------- #
+# 2c. embedding_endpoint — CONCEPT:AU-KG.retrieval.embedding-fast-fail
+#
+# Semantic search is OPTIONAL relative to the engine's mandatory keyword/
+# lexical fallback, so a tripped embedding-endpoint breaker must surface as
+# ``degraded`` (visible) — NEVER ``unhealthy`` (which would pull graph-os out
+# of Service routing over an optional dependency), matching the ``kg_mirrors``
+# precedent above.
+# --------------------------------------------------------------------------- #
+def test_embedding_endpoint_not_configured_when_no_embedding_model():
+    from types import SimpleNamespace
+
+    cfg = SimpleNamespace(default_embedding_model=None)
+    result = rh._check_embedding_endpoint(cfg)
+    assert result["status"] == "not_configured"
+
+
+def test_embedding_endpoint_ok_when_breaker_closed(monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_utilities.core import embedding_failover as ef
+
+    cfg = SimpleNamespace(default_embedding_model=object())
+    monkeypatch.setattr(
+        ef,
+        "embedding_endpoint_status",
+        lambda: {
+            "active_model_key": "embedding",
+            "active_base_url": "http://vllm-embed.arpa/v1",
+            "active_gpu_group": "gb10",
+            "is_fallback": False,
+            "fallback_configured": False,
+            "primary_breaker": {"state": "closed", "trips": 0},
+            "failover_count": 0,
+            "recovery_count": 0,
+        },
+    )
+
+    result = rh._check_embedding_endpoint(cfg)
+
+    assert result["status"] == "ok"
+    assert result["detail"]["breaker_state"] == "closed"
+    # No raw endpoint URL leaks into the health payload.
+    assert "vllm-embed.arpa" not in str(result)
+
+
+def test_embedding_endpoint_open_breaker_is_degraded_never_unhealthy(monkeypatch):
+    """THE requirement this check exists for: a tripped embedding breaker
+    (the exact scenario a misconfigured MODEL_HTTP_ALLOWED_PRIVATE_HOSTS
+    produces) is reported as degraded — informational — never unhealthy."""
+    from types import SimpleNamespace
+
+    from agent_utilities.core import embedding_failover as ef
+
+    cfg = SimpleNamespace(default_embedding_model=object())
+    monkeypatch.setattr(
+        ef,
+        "embedding_endpoint_status",
+        lambda: {
+            "active_model_key": "embedding",
+            "active_base_url": "http://vllm-embed.arpa/v1",
+            "active_gpu_group": "gb10",
+            "is_fallback": False,
+            "fallback_configured": False,
+            "primary_breaker": {"state": "open", "trips": 3},
+            "failover_count": 0,
+            "recovery_count": 0,
+        },
+    )
+
+    result = rh._check_embedding_endpoint(cfg)
+
+    assert result["status"] == "degraded"
+    assert result["status"] != "unhealthy"
+    assert "keyword" in result["reason"] or "lexical" in result["reason"]
+    assert result["detail"]["breaker_trips"] == 3
+
+
+def test_embedding_endpoint_degraded_check_never_flips_the_overall_rollup(
+    monkeypatch,
+):
+    from agent_utilities.core import embedding_failover as ef
+
+    monkeypatch.setattr(
+        ef,
+        "embedding_endpoint_status",
+        lambda: {
+            "active_model_key": "embedding",
+            "active_base_url": None,
+            "active_gpu_group": None,
+            "is_fallback": False,
+            "fallback_configured": False,
+            "primary_breaker": {"state": "open", "trips": 1},
+            "failover_count": 0,
+            "recovery_count": 0,
+        },
+    )
+    monkeypatch.setattr(
+        rh,
+        "_CHECKS",
+        (
+            ("embedding_endpoint", rh._check_embedding_endpoint),
+            ("a", lambda _cfg: {"name": "a", "status": "ok"}),
+        ),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.config.AgentConfig.default_embedding_model",
+        property(lambda self: object()),
+        raising=False,
+    )
+
+    report = rh.collect_health()
+
+    assert report["status"] == "healthy"
+    assert rh.is_overall_healthy(report)
+    check = next(c for c in report["checks"] if c["name"] == "embedding_endpoint")
+    assert check["status"] == "degraded"
+
+
+def test_embedding_endpoint_fallback_routing_is_degraded(monkeypatch):
+    from types import SimpleNamespace
+
+    from agent_utilities.core import embedding_failover as ef
+
+    cfg = SimpleNamespace(default_embedding_model=object())
+    monkeypatch.setattr(
+        ef,
+        "embedding_endpoint_status",
+        lambda: {
+            "active_model_key": "embedding:fallback",
+            "active_base_url": "http://fallback.internal/v1",
+            "active_gpu_group": "shared",
+            "is_fallback": True,
+            "fallback_configured": True,
+            "primary_breaker": {"state": "closed", "trips": 0},
+            "failover_count": 1,
+            "recovery_count": 0,
+        },
+    )
+
+    result = rh._check_embedding_endpoint(cfg)
+
+    assert result["status"] == "degraded"
+    assert "FALLBACK" in result["reason"]
+
+
 def test_collect_health_payload_never_carries_raw_endpoint_strings(
     monkeypatch, tmp_path
 ):

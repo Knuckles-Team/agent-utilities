@@ -58,6 +58,18 @@ except ImportError:
 _EMBED_MODEL_CACHE: dict[tuple[Any, ...], "BaseEmbedding"] = {}
 _EMBED_MODEL_LOCK = threading.Lock()
 
+# CONCEPT:AU-KG.retrieval.embedding-fast-fail — bound the OpenAI SDK's OWN internal
+# retry loop instead of inheriting llama-index's default (``max_retries=10``,
+# exponential backoff up to 8s per retry — worst case ~55s of pure backoff sleep,
+# or up to 10x the per-attempt ``timeout`` on a genuine hang, BEFORE the caller ever
+# sees a failure). agent-utilities already owns a SEPARATE, endpoint-aware
+# circuit-breaker/backoff layer (``core.model_circuit_breaker`` fed by
+# ``core.model_concurrency.map_concurrent_sync`` for bulk embeds and directly by
+# the retrieval query-time embed) — a second, SDK-internal retry loop on top of
+# that only adds latency without adding resilience. One retry tolerates a single
+# transient blip; repeated failures are the breaker's job, not the SDK's.
+_EMBED_SDK_MAX_RETRIES = 1
+
 
 def clear_embedding_model_cache() -> None:
     """Drop every cached embedder client (CONCEPT:AU-KG.compute.config-keyed-embedder-client).
@@ -101,7 +113,7 @@ def create_embedding_model(
     """
     if (
         isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
+        or not isinstance(timeout, int | float)
         or not math.isfinite(float(timeout))
         or not 0 < float(timeout) <= 3_600
     ):
@@ -179,9 +191,7 @@ def create_embedding_model(
     # The selected endpoint owns exactly one auth source. A chat-model fallback
     # is consulted only when the embedder declares neither API-key nor OAuth2.
     if oauth2_val and api_key_str:
-        raise ValueError(
-            "embedding authentication source is ambiguous"
-        )
+        raise ValueError("embedding authentication source is ambiguous")
 
     if provider_str == "mock":
         raise ValueError(
@@ -330,6 +340,7 @@ def _build_embedding_model(
             api_key=api_key_str,
             api_base=base_url_str,
             timeout=timeout,
+            max_retries=_EMBED_SDK_MAX_RETRIES,
             http_client=http_client,
             async_http_client=async_http_client,
         )

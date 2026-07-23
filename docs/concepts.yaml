@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1015
+total_concepts: 1016
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -8465,6 +8465,20 @@ concepts:
   dotted: AU-KG.retrieval.embedding-alignment-diagnostics
   aliases:
   - AU-KG.retrieval.embedding-alignment-diagnostics
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.retrieval.embedding-fast-fail
+  name: skip the network embed call entirely once the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/core/embedding_utilities.py
+  - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+  - agent_utilities/observability/runtime_health.py
+  doc: skip the network embed call entirely once the
+  dotted: AU-KG.retrieval.embedding-fast-fail
+  aliases:
+  - AU-KG.retrieval.embedding-fast-fail
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.every-usage-published-symbol
