@@ -2088,7 +2088,9 @@ class GraphComputeEngine:
         namespace = getattr(self._client, "work_items", None)
         method = getattr(namespace, "claim", None)
         if not callable(method):
-            raise NotImplementedError("connected engine has no work_items.claim")
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
+                "connected engine has no work_items.claim"
+            )
         try:
             operation = ClaimWorkItemRequest.model_validate(request)
         except (TypeError, ValueError) as exc:
@@ -2102,7 +2104,9 @@ class GraphComputeEngine:
         namespace = getattr(self._client, "work_items", None)
         method = getattr(namespace, "renew", None)
         if not callable(method):
-            raise NotImplementedError("connected engine has no work_items.renew")
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
+                "connected engine has no work_items.renew"
+            )
         return method(
             tenant=str(request.get("tenant") or ""),
             work_item_id=str(request.get("work_item_id") or ""),
@@ -2118,7 +2122,7 @@ class GraphComputeEngine:
         namespace = getattr(self._client, "work_items", None)
         method = getattr(namespace, "commit_result", None)
         if not callable(method):
-            raise NotImplementedError(
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
                 "connected engine has no work_items.commit_result"
             )
         return method(
@@ -2140,7 +2144,9 @@ class GraphComputeEngine:
         namespace = getattr(self._client, "work_items", None)
         method = getattr(namespace, "cancel", None)
         if not callable(method):
-            raise NotImplementedError("connected engine has no work_items.cancel")
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
+                "connected engine has no work_items.cancel"
+            )
         return method(
             tenant=str(request.get("tenant") or ""),
             work_item_id=str(request.get("work_item_id") or ""),
@@ -2154,7 +2160,9 @@ class GraphComputeEngine:
         namespace = getattr(self._client, "work_items", None)
         method = getattr(namespace, "defer", None)
         if not callable(method):
-            raise NotImplementedError("connected engine has no work_items.defer")
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
+                "connected engine has no work_items.defer"
+            )
         return method(
             tenant=str(request.get("tenant") or ""),
             work_item_id=str(request.get("work_item_id") or ""),

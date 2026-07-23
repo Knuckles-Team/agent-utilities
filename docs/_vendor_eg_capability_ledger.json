@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-12T23:56:41Z",
-  "row_count": 348,
+  "cached_at": "2026-07-23T03:29:34Z",
+  "row_count": 357,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -68,37 +68,48 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "ApplyChangeEnvelope": {
+      "audited": "true",
+      "authz_action": "ingest:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "ApplyChangeEnvelope",
+      "mutates": "true",
+      "note": "Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory",
+      "txn_participation": "Atomic"
+    },
     "ApplyLedger": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "ledger:write",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "false",
       "method": "ApplyLedger",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
     },
     "ApplyMultisigMutation": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "security:admin",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
       "method": "ApplyMultisigMutation",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); multisig threshold-gated, multi-party",
+      "mutates": "true",
+      "note": "threshold validation translates into the graph MutationBatch gateway",
       "txn_participation": "Saga"
     },
     "ApplyMutation": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "graph:write",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "false",
       "method": "ApplyMutation",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
     },
     "AuditVerify": {
@@ -121,17 +132,6 @@
       "method": "Backup",
       "mutates": "false",
       "note": "reads a consistent snapshot out to a bundle; does not mutate the live graph",
-      "txn_participation": "Snapshot"
-    },
-    "BatchCosineSimilarity": {
-      "audited": "false",
-      "authz_action": "compute:semantic",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "BatchCosineSimilarity",
-      "mutates": "false",
-      "note": "",
       "txn_participation": "Snapshot"
     },
     "BatchL2Normalize": {
@@ -159,12 +159,12 @@
     "BeginTxn": {
       "audited": "false",
       "authz_action": "txn:control",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BeginTxn",
-      "mutates": "false",
-      "note": "",
+      "mutates": "true",
+      "note": "encrypted Raft-native transaction staging authority",
       "txn_participation": "Saga"
     },
     "BestTrajectory": {
@@ -207,7 +207,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BlobBegin",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op",
       "txn_participation": "Saga"
     },
@@ -229,7 +229,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BlobChunkPut",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "durable via its own blob.redb (group-committed Immediate); self-routes before dispatch_graph_op",
       "txn_participation": "Saga"
     },
@@ -240,7 +240,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BlobCommit",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op",
       "txn_participation": "Saga"
     },
@@ -273,7 +273,7 @@
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "BlobGc",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "durable via blob.redb",
       "txn_participation": "Atomic"
     },
@@ -284,7 +284,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BlobRef",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb",
       "txn_participation": "Atomic"
     },
@@ -295,7 +295,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "BlobUnref",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "durable via blob.redb",
       "txn_participation": "Atomic"
     },
@@ -315,10 +315,10 @@
       "authz_action": "broker:ack",
       "durability": "Outbox",
       "emits_cdc": "false",
-      "idempotent": "true",
+      "idempotent": "false",
       "method": "BrokerAckTag",
       "mutates": "true",
-      "note": "",
+      "note": "current-generation result must not be replay-cached across requests",
       "txn_participation": "Atomic"
     },
     "BrokerConsume": {
@@ -337,10 +337,10 @@
       "authz_action": "broker:ack",
       "durability": "Outbox",
       "emits_cdc": "false",
-      "idempotent": "true",
+      "idempotent": "false",
       "method": "BrokerNackTag",
       "mutates": "true",
-      "note": "",
+      "note": "current-generation result must not be replay-cached across requests",
       "txn_participation": "Atomic"
     },
     "BrokerReject": {
@@ -354,15 +354,48 @@
       "note": "",
       "txn_participation": "Atomic"
     },
-    "CatalogAssign": {
+    "BrokerRenewTag": {
+      "audited": "true",
+      "authz_action": "broker:ack",
+      "durability": "Outbox",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "BrokerRenewTag",
+      "mutates": "true",
+      "note": "current-generation result must not be replay-cached across requests",
+      "txn_participation": "Atomic"
+    },
+    "CancelRequest": {
       "audited": "false",
-      "authz_action": "admin:cluster",
+      "authz_action": "service:control",
       "durability": "None",
       "emits_cdc": "false",
       "idempotent": "true",
+      "method": "CancelRequest",
+      "mutates": "false",
+      "note": "",
+      "txn_participation": "None"
+    },
+    "CancelWorkItem": {
+      "audited": "true",
+      "authz_action": "work:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CancelWorkItem",
+      "mutates": "true",
+      "note": "pending cancellation never steals an active lease",
+      "txn_participation": "Atomic"
+    },
+    "CatalogAssign": {
+      "audited": "false",
+      "authz_action": "admin:cluster",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
       "method": "CatalogAssign",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- governed elsewhere",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "CatalogList": {
@@ -379,23 +412,23 @@
     "CatalogReassign": {
       "audited": "false",
       "authz_action": "admin:cluster",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CatalogReassign",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- governed elsewhere",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "CatalogRemove": {
       "audited": "false",
       "authz_action": "admin:cluster",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CatalogRemove",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- governed elsewhere",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "CausalCounterfactual": {
@@ -445,35 +478,24 @@
     "CepSubscribe": {
       "audited": "false",
       "authz_action": "cep:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CepSubscribe",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "CepUnsubscribe": {
       "audited": "false",
       "authz_action": "cep:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CepUnsubscribe",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
-    },
-    "Checkpoint": {
-      "audited": "false",
-      "authz_action": "service:admin",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "Checkpoint",
-      "mutates": "~true",
-      "note": "flushes the ALREADY-durable WAL tail into a snapshot; does not itself add new data",
-      "txn_participation": "None"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "ClaimNext": {
       "audited": "true",
@@ -484,6 +506,17 @@
       "method": "ClaimNext",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "ClaimWorkItem": {
+      "audited": "true",
+      "authz_action": "work:claim",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "ClaimWorkItem",
+      "mutates": "true",
+      "note": "engine-native tenant/fair WorkItem lease claim",
       "txn_participation": "Atomic"
     },
     "ClearGraph": {
@@ -498,37 +531,48 @@
       "txn_participation": "Atomic"
     },
     "ClearLedger": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "ledger:admin",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "true",
       "method": "ClearLedger",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
     },
     "CloseChannel": {
       "audited": "false",
       "authz_action": "channel:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CloseChannel",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "Commit": {
       "audited": "false",
       "authz_action": "txn:control",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "Commit",
-      "mutates": "~true",
-      "note": "the durable-apply moment of the multi-op OCC transaction; self-routes before dispatch_graph_op",
+      "mutates": "true",
+      "note": "named parent receipt plus atomic graph/cross-modal child batches",
       "txn_participation": "Saga"
+    },
+    "CommitWorkItemResult": {
+      "audited": "true",
+      "authz_action": "work:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CommitWorkItemResult",
+      "mutates": "true",
+      "note": "terminal result references and outbox commit atomically",
+      "txn_participation": "Atomic"
     },
     "CommunityDetectEphemeral": {
       "audited": "false",
@@ -553,14 +597,14 @@
       "txn_participation": "Snapshot"
     },
     "CompactNodesByType": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "node:admin",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "false",
       "method": "CompactNodesByType",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); recomputable",
+      "mutates": "true",
+      "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
     },
     "CompareAndSetNodeFields": {
@@ -610,35 +654,46 @@
     "CreateChannel": {
       "audited": "false",
       "authz_action": "channel:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CreateChannel",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch; message/member payloads stay out of the ledger",
+      "txn_participation": "Saga"
     },
     "CreateGraph": {
       "audited": "false",
       "authz_action": "graph:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "CreateGraph",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier (it targets the registry, not an existing graph's content) -- the registry-level ACL for this is out of this workstream's scope",
+      "mutates": "true",
+      "note": "native lifecycle MutationBatch before registry publication",
       "txn_participation": "Atomic"
     },
     "CreateMatView": {
       "audited": "false",
       "authz_action": "matview:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "CreateMatView",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "prepared/committed control-plane MutationBatch saga",
       "txn_participation": "Saga"
+    },
+    "CreateNodeIfAbsent": {
+      "audited": "true",
+      "authz_action": "node:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "false",
+      "method": "CreateNodeIfAbsent",
+      "mutates": "true",
+      "note": "atomic create returns true only to the inserting writer, so its result is not cross-request cacheable",
+      "txn_participation": "Atomic"
     },
     "CreateSummaryNode": {
       "audited": "true",
@@ -652,14 +707,14 @@
       "txn_participation": "Atomic"
     },
     "CypherQuery": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "query:cypher",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "CypherQuery",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on a keyword scan of the query text (access::cypher_is_write); also write-but-absent-from-wal.rs's durable set (EG-P0-3)",
+      "note": "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit",
       "txn_participation": "Atomic"
     },
     "DecayMemories": {
@@ -687,12 +742,12 @@
     "DecaySweep": {
       "audited": "false",
       "authz_action": "node:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "DecaySweep",
-      "mutates": "~true",
-      "note": "write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the resulting authoritative image",
       "txn_participation": "Atomic"
     },
     "DeclareExchange": {
@@ -715,6 +770,17 @@
       "method": "DeclareQueue",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "DeferWorkItem": {
+      "audited": "true",
+      "authz_action": "work:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "DeferWorkItem",
+      "mutates": "true",
+      "note": "fenced lease release schedules retry without consuming an attempt",
       "txn_participation": "Atomic"
     },
     "DegreeCentrality": {
@@ -753,12 +819,12 @@
     "DeleteGraph": {
       "audited": "false",
       "authz_action": "graph:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "DeleteGraph",
       "mutates": "true",
-      "note": "",
+      "note": "native lifecycle MutationBatch before registry eviction",
       "txn_participation": "Atomic"
     },
     "DiffAgainst": {
@@ -796,25 +862,25 @@
     },
     "DistributedCompute": {
       "audited": "false",
-      "authz_action": "distcompute:write",
+      "authz_action": "distcompute:read",
       "durability": "None",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "DistributedCompute",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (cross-shard Pregel writeback) -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Saga"
+      "mutates": "false",
+      "note": "read-only Pregel/GAS computation; materialization uses the distinct Create*/Refresh* methods",
+      "txn_participation": "Snapshot"
     },
     "DropContinuousQuery": {
       "audited": "false",
       "authz_action": "cdc:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "DropContinuousQuery",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "DropNamedGraph": {
       "audited": "true",
@@ -830,13 +896,13 @@
     "DropTrigger": {
       "audited": "false",
       "authz_action": "cdc:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "DropTrigger",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "DsAdamStep": {
       "audited": "false",
@@ -1039,12 +1105,12 @@
     "EvictLRU": {
       "audited": "false",
       "authz_action": "node:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "EvictLRU",
-      "mutates": "~true",
-      "note": "write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the resulting authoritative image",
       "txn_participation": "Atomic"
     },
     "ExplainBelief": {
@@ -1114,14 +1180,14 @@
       "txn_participation": "Snapshot"
     },
     "ExportSqliteFile": {
-      "audited": "false",
-      "authz_action": "sqlite:export",
+      "audited": "true",
+      "authz_action": "admin:sqlite-file",
       "durability": "None",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "ExportSqliteFile",
       "mutates": "false",
-      "note": "",
+      "note": "operator-provisioned transfer root; logical filenames only",
       "txn_participation": "Snapshot"
     },
     "FinanceAdfTest": {
@@ -1872,17 +1938,6 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
-    "FindSimilarPairs": {
-      "audited": "false",
-      "authz_action": "compute:semantic",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "FindSimilarPairs",
-      "mutates": "false",
-      "note": "",
-      "txn_participation": "Snapshot"
-    },
     "FiredTriggers": {
       "audited": "false",
       "authz_action": "cdc:read",
@@ -1906,14 +1961,14 @@
       "txn_participation": "Snapshot"
     },
     "FromMsgpack": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "graph:admin",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "false",
       "method": "FromMsgpack",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); typically used for bulk restore, not incremental WAL logging",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the imported authoritative image",
       "txn_participation": "Atomic"
     },
     "GetBlastRadius": {
@@ -1925,6 +1980,28 @@
       "method": "GetBlastRadius",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "GetChangeCursor": {
+      "audited": "false",
+      "authz_action": "ingest:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetChangeCursor",
+      "mutates": "false",
+      "note": "Typed source cursors are tenant/graph/partition scoped",
+      "txn_participation": "Snapshot"
+    },
+    "GetChangeEnvelope": {
+      "audited": "false",
+      "authz_action": "ingest:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetChangeEnvelope",
+      "mutates": "false",
+      "note": "Verified tenant-scoped reconciliation read",
       "txn_participation": "Snapshot"
     },
     "GetChannelMembers": {
@@ -1947,6 +2024,17 @@
       "method": "GetChannelMessages",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "GetContentVersion": {
+      "audited": "false",
+      "authz_action": "ingest:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetContentVersion",
+      "mutates": "false",
+      "note": "Typed content versions are never compared lexically",
       "txn_participation": "Snapshot"
     },
     "GetContextView": {
@@ -2125,17 +2213,6 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
-    "GetTriples": {
-      "audited": "false",
-      "authz_action": "rdf:read",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "GetTriples",
-      "mutates": "false",
-      "note": "",
-      "txn_participation": "Snapshot"
-    },
     "GraphColoring": {
       "audited": "false",
       "authz_action": "compute:graph-algo",
@@ -2170,14 +2247,14 @@
       "txn_participation": "Atomic"
     },
     "GraphQl": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "query:graphql",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "GraphQl",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed operation kind (query vs mutation); also write-but-absent-from-wal.rs's durable set (EG-P0-3)",
+      "note": "runtime-conditional; ordinary writes stage through MutationBatch and cross-modal commit atomically includes universal status/fence/idempotency/outbox",
       "txn_participation": "Atomic"
     },
     "HasEdge": {
@@ -2224,37 +2301,26 @@
       "note": "",
       "txn_participation": "None"
     },
-    "HypergraphEncodeInteraction": {
-      "audited": "false",
-      "authz_action": "compute:semantic",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "HypergraphEncodeInteraction",
-      "mutates": "false",
-      "note": "",
-      "txn_participation": "Snapshot"
-    },
     "IcvConfigure": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "security:admin",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "true",
       "method": "IcvConfigure",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); a build without `security` drops audit entirely",
+      "mutates": "true",
+      "note": "state-backed MutationBatch",
       "txn_participation": "Atomic"
     },
     "ImportSqliteFile": {
-      "audited": "false",
-      "authz_action": "sqlite:import",
-      "durability": "None",
+      "audited": "true",
+      "authz_action": "admin:sqlite-file",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "ImportSqliteFile",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "native SQL-catalog MutationBatch; logical transfer name is excluded from the durable receipt",
       "txn_participation": "Atomic"
     },
     "InDegree": {
@@ -2293,13 +2359,13 @@
     "JoinChannel": {
       "audited": "false",
       "authz_action": "channel:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "JoinChannel",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "KvCas": {
       "audited": "false",
@@ -2308,8 +2374,8 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "KvCas",
-      "mutates": "~true",
-      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack) -- self-routes before dispatch_graph_op and before wal.rs's per-graph WAL entirely; NOT a wal.rs gap, just a parallel durability domain",
+      "mutates": "true",
+      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch",
       "txn_participation": "Atomic"
     },
     "KvDelete": {
@@ -2319,7 +2385,7 @@
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "KvDelete",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op",
       "txn_participation": "Atomic"
     },
@@ -2341,8 +2407,8 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "KvPut",
-      "mutates": "~true",
-      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack) -- self-routes before dispatch_graph_op and before wal.rs's per-graph WAL entirely; NOT a wal.rs gap, just a parallel durability domain",
+      "mutates": "true",
+      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch",
       "txn_participation": "Atomic"
     },
     "KvScan": {
@@ -2359,13 +2425,13 @@
     "LeaveChannel": {
       "audited": "false",
       "authz_action": "channel:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "LeaveChannel",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "ListChannels": {
       "audited": "false",
@@ -2430,7 +2496,7 @@
       "idempotent": "true",
       "method": "MaterializationStatus",
       "mutates": "false",
-      "note": "Seam 3: read-only status lookup on the same tms_hook index; handler additionally gated `epistemic-tms`",
+      "note": "read-only status from the durable per-graph incremental reasoning authority",
       "txn_participation": "Snapshot"
     },
     "Metrics": {
@@ -2540,7 +2606,7 @@
       "idempotent": "false",
       "method": "MineForecast",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed)",
+      "note": "mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path",
       "txn_participation": "Atomic"
     },
     "MineOntologyGap": {
@@ -2617,7 +2683,7 @@
       "idempotent": "false",
       "method": "MineSequence",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound (writeback-conditional per access.rs); wal.rs::is_durable_mutation now covers the writeback=true case (EG-P0-3 fixed)",
+      "note": "mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path",
       "txn_participation": "Atomic"
     },
     "MineSubgraph": {
@@ -2628,7 +2694,7 @@
       "idempotent": "false",
       "method": "MineSubgraph",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the gspan writeback=true case (EG-P0-3 fixed)",
+      "note": "mutates is a conservative upper bound; writeback=true for gspan enters the canonical durable mutation path",
       "txn_participation": "Atomic"
     },
     "MineText": {
@@ -2639,7 +2705,7 @@
       "idempotent": "false",
       "method": "MineText",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound (writeback AND non-tfidf/non-motif algorithm-conditional per access.rs); wal.rs::is_durable_mutation now covers the lda/nmf writeback=true case (EG-P0-3 fixed)",
+      "note": "mutates is a conservative upper bound; writeback=true for lda/nmf enters the canonical durable mutation path",
       "txn_participation": "Atomic"
     },
     "MinimumSpanningTree": {
@@ -2656,12 +2722,12 @@
     "MultiGraphBatchUpdate": {
       "audited": "false",
       "authz_action": "node:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "MultiGraphBatchUpdate",
-      "mutates": "~true",
-      "note": "spans multiple graphs in one call (not a single-graph Atomic unit); NOT present in access.rs's write classifier or wal.rs's durable set at all -- flagged as a possible coverage gap in both",
+      "mutates": "true",
+      "note": "durable parent coordinator with per-graph MutationBatch children",
       "txn_participation": "Saga"
     },
     "NlQuery": {
@@ -2785,17 +2851,6 @@
       "note": "",
       "txn_participation": "None"
     },
-    "ParseRepository": {
-      "audited": "false",
-      "authz_action": "node:admin",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "false",
-      "method": "ParseRepository",
-      "mutates": "~true",
-      "note": "write per access.rs but intentionally excluded from wal.rs (recomputable from source tree, per wal.rs doc comment)",
-      "txn_participation": "Atomic"
-    },
     "PersonalizedPageRank": {
       "audited": "false",
       "authz_action": "compute:graph-algo",
@@ -2818,6 +2873,17 @@
       "note": "",
       "txn_participation": "None"
     },
+    "PlacementAdmin": {
+      "audited": "false",
+      "authz_action": "admin:cluster",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "PlacementAdmin",
+      "mutates": "true",
+      "note": "raft-replicated placement-catalog admin op (Assign/Move/AbortMove, the placement DECISION + PLAN->EXECUTE->CATALOG-UPDATE legs): MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement, not this gateway's per-graph MutationBatch",
+      "txn_participation": "Saga"
+    },
     "PlacementRoute": {
       "audited": "false",
       "authz_action": "admin:cluster-read",
@@ -2826,29 +2892,29 @@
       "idempotent": "true",
       "method": "PlacementRoute",
       "mutates": "false",
-      "note": "DIST-P2-4: always in the enum (pure serde); the real answer needs `raft` + a live MultiRaft cluster, else a well-formed {\"explicit\": false} JSON (not an error) -- see handlers/placement.rs",
+      "note": "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader",
       "txn_participation": "Snapshot"
     },
     "PlanMatViewDefine": {
       "audited": "false",
       "authz_action": "matview:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "PlanMatViewDefine",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "prepared/committed control-plane MutationBatch saga",
       "txn_participation": "Saga"
     },
     "PlanMatViewDrop": {
       "audited": "false",
       "authz_action": "matview:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "PlanMatViewDrop",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "prepared/committed control-plane MutationBatch saga",
       "txn_participation": "Saga"
     },
     "PlanMatViewGet": {
@@ -2865,23 +2931,23 @@
     "PlanMatViewRefresh": {
       "audited": "false",
       "authz_action": "matview:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "PlanMatViewRefresh",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "prepared/committed control-plane MutationBatch saga",
       "txn_participation": "Saga"
     },
     "PruneByLifecycle": {
       "audited": "false",
       "authz_action": "node:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "PruneByLifecycle",
-      "mutates": "~true",
-      "note": "write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the resulting authoritative image",
       "txn_participation": "Atomic"
     },
     "Publish": {
@@ -2891,7 +2957,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "Publish",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
     },
@@ -2902,7 +2968,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "PublishConfirmed",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
     },
@@ -2913,7 +2979,7 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "PublishEx",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
     },
@@ -2924,9 +2990,31 @@
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "PublishIdempotent",
-      "mutates": "~true",
+      "mutates": "true",
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
+    },
+    "RaftAddLearner": {
+      "audited": "false",
+      "authz_action": "admin:cluster",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "RaftAddLearner",
+      "mutates": "true",
+      "note": "leader-only openraft add_learner; attaches a non-voting replica without changing the voter set",
+      "txn_participation": "Saga"
+    },
+    "RaftChangeMembership": {
+      "audited": "false",
+      "authz_action": "admin:cluster",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "RaftChangeMembership",
+      "mutates": "true",
+      "note": "leader-only openraft change_membership; sets the group's exact voter set (the usual way to promote a learner added via RaftAddLearner)",
+      "txn_participation": "Saga"
     },
     "RankByProvenance": {
       "audited": "false",
@@ -2942,12 +3030,12 @@
     "RbacAdmin": {
       "audited": "false",
       "authz_action": "security:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RbacAdmin",
       "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "note": "runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata",
       "txn_participation": "Atomic"
     },
     "ReadContinuousQuery": {
@@ -2964,12 +3052,12 @@
     "RebalanceExecute": {
       "audited": "false",
       "authz_action": "admin:cluster",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "RebalanceExecute",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- governed elsewhere",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "RebalancePlan": {
@@ -2983,93 +3071,93 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
-    "Reconcile": {
+    "RecomputeMaterialization": {
       "audited": "false",
-      "authz_action": "graph:write",
-      "durability": "None",
+      "authz_action": "reasoning:write",
+      "durability": "ReasoningProjection",
       "emits_cdc": "false",
       "idempotent": "false",
+      "method": "RecomputeMaterialization",
+      "mutates": "true",
+      "note": "fenced recompute/writeback resolves provenance from the authoritative graph and fsyncs the per-graph projection",
+      "txn_participation": "Atomic"
+    },
+    "Reconcile": {
+      "audited": "true",
+      "authz_action": "graph:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "false",
       "method": "Reconcile",
-      "mutates": "~true",
-      "note": "CRDT merge of remote state; write per access.rs but absent from wal.rs durable set (EG-P0-3)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the merged image",
       "txn_participation": "Saga"
     },
     "RefreshMatView": {
       "audited": "false",
       "authz_action": "matview:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "RefreshMatView",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "prepared/committed control-plane MutationBatch saga",
       "txn_participation": "Saga"
     },
     "RegisterContinuousQuery": {
       "audited": "false",
       "authz_action": "cdc:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RegisterContinuousQuery",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "RegisterForeignSource": {
       "audited": "false",
       "authz_action": "federation:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RegisterForeignSource",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds (registers a foreign-source config) -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed control receipt; endpoint configuration is not duplicated in the ledger",
+      "txn_participation": "Saga"
     },
     "RegisterIdentity": {
       "audited": "false",
       "authz_action": "security:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RegisterIdentity",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
+      "mutates": "true",
+      "note": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX",
       "txn_participation": "Atomic"
-    },
-    "RegisterMaterialization": {
-      "audited": "false",
-      "authz_action": "explain:read",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "RegisterMaterialization",
-      "mutates": "false",
-      "note": "Seam 3 (X-6 wire surface): registers a TruthMaintenance materialization off its own stored provenance; side effect lands only in the ephemeral tms_hook index, never the durable graph; handler additionally gated `epistemic-tms`",
-      "txn_participation": "Snapshot"
     },
     "RegisterTrigger": {
       "audited": "false",
       "authz_action": "cdc:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RegisterTrigger",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed session-control MutationBatch",
+      "txn_participation": "Saga"
     },
     "RegisterUdf": {
       "audited": "false",
       "authz_action": "udf:admin",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "RegisterUdf",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all; policy marks it mutates=true on semantic grounds -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "opaque prepared/committed control receipt; module bytes are not duplicated in the ledger",
+      "txn_participation": "Saga"
     },
     "Reinforce": {
       "audited": "true",
@@ -3115,6 +3203,17 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "RenewWorkItemLease": {
+      "audited": "true",
+      "authz_action": "work:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "RenewWorkItemLease",
+      "mutates": "true",
+      "note": "lease epoch and fencing token are validated atomically",
+      "txn_participation": "Atomic"
+    },
     "Reparent": {
       "audited": "true",
       "authz_action": "scene:write",
@@ -3129,12 +3228,12 @@
     "Reshard": {
       "audited": "false",
       "authz_action": "admin:cluster",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "Reshard",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all (server-admin action, not a per-graph content write) -- governed by a separate admin gate, out of this workstream's scope",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "ResolveCandidates": {
@@ -3173,34 +3272,34 @@
     "Restore": {
       "audited": "false",
       "authz_action": "admin:backup",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "Restore",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all (server-admin action) -- governed elsewhere",
+      "mutates": "true",
+      "note": "prepared/committed admin MutationBatch saga",
       "txn_participation": "Saga"
     },
     "Rollback": {
       "audited": "false",
       "authz_action": "txn:control",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "Rollback",
-      "mutates": "false",
-      "note": "",
+      "mutates": "true",
+      "note": "encrypted Raft-native transaction staging removal",
       "txn_participation": "Saga"
     },
     "RunDatalogReasoning": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "reasoning:write",
-      "durability": "None",
-      "emits_cdc": "false",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
       "idempotent": "false",
       "method": "RunDatalogReasoning",
-      "mutates": "~true",
-      "note": "write per access.rs but absent from wal.rs durable set (EG-P0-3); inferred facts are recomputable",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits inferred facts",
       "txn_participation": "Atomic"
     },
     "RunRules": {
@@ -3250,13 +3349,13 @@
     "SendMessage": {
       "audited": "false",
       "authz_action": "channel:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
-      "idempotent": "false",
+      "idempotent": "true",
       "method": "SendMessage",
-      "mutates": "~true",
-      "note": "NOT present in access.rs's write classifier at all -- flagged as a possible access.rs coverage gap",
-      "txn_participation": "Atomic"
+      "mutates": "true",
+      "note": "request-scoped opaque session-control receipt prevents acknowledgement-lost duplicate sends",
+      "txn_participation": "Saga"
     },
     "SetPose": {
       "audited": "true",
@@ -3294,12 +3393,12 @@
     "Shutdown": {
       "audited": "false",
       "authz_action": "service:admin",
-      "durability": "None",
+      "durability": "VolatileControl",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "Shutdown",
-      "mutates": "~true",
-      "note": "a server lifecycle action, not a graph-content mutation -- governed by a separate admin gate",
+      "mutates": "true",
+      "note": "explicitly ephemeral process control; never acknowledges a user-data commit",
       "txn_participation": "None"
     },
     "Sparql": {
@@ -3324,27 +3423,27 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
-    "SpectralCluster": {
-      "audited": "false",
-      "authz_action": "compute:semantic",
-      "durability": "None",
-      "emits_cdc": "false",
-      "idempotent": "true",
-      "method": "SpectralCluster",
-      "mutates": "false",
-      "note": "",
-      "txn_participation": "Snapshot"
-    },
     "Sql": {
-      "audited": "false",
+      "audited": "true",
       "authz_action": "query:sql",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "Sql",
       "mutates": "~true",
-      "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) depends on the parsed statement kind (eg_query::classify); write-but-absent-from-wal.rs's durable set too (EG-P0-3) -- SQL DML durability rides the user-table store's own persistence, not the graph WAL",
+      "note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox",
       "txn_participation": "Atomic"
+    },
+    "StaleMaterializations": {
+      "audited": "false",
+      "authz_action": "explain:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "StaleMaterializations",
+      "mutates": "false",
+      "note": "bulk opaque stale references from the durable per-graph incremental reasoning authority",
+      "txn_participation": "Snapshot"
     },
     "StartTrajectory": {
       "audited": "true",
@@ -3503,12 +3602,12 @@
     "TouchNodes": {
       "audited": "false",
       "authz_action": "node:admin",
-      "durability": "None",
+      "durability": "GraphRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TouchNodes",
-      "mutates": "~true",
-      "note": "write per access.rs but intentionally excluded from wal.rs (recomputable maintenance op, per wal.rs doc comment)",
+      "mutates": "true",
+      "note": "state-backed MutationBatch commits the resulting authoritative image",
       "txn_participation": "Atomic"
     },
     "TsAppend": {
@@ -3518,8 +3617,8 @@
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TsAppend",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op, targeting its own series.redb (separate from graph.redb/blob.redb/kv.redb)",
+      "mutates": "true",
+      "note": "graph ACL + placement policy precede the tenant/graph/series-scoped series.redb write",
       "txn_participation": "Atomic"
     },
     "TsAsofJoin": {
@@ -3569,133 +3668,133 @@
     "TxnAddEdge": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnAddEdge",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native staging; Commit owns graph publication",
       "txn_participation": "Saga"
     },
     "TxnAddEmbedding": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnAddEmbedding",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnAddMeasurement": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnAddMeasurement",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnAddNode": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnAddNode",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native staging; Commit owns graph publication",
       "txn_participation": "Saga"
     },
     "TxnAxiom": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnAxiom",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnBlobRef": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnBlobRef",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnCas": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "TxnCas",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op; see TxnAddNode note",
+      "mutates": "true",
+      "note": "encrypted Raft-native staging; Commit owns graph publication",
       "txn_participation": "Saga"
     },
     "TxnConstruct": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnConstruct",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnMaterializeBelief": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnMaterializeBelief",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnPlanWriteback": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "false",
       "method": "TxnPlanWriteback",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op (see dispatch.rs); access::requires_write is never consulted for these -- write-access is enforced once at BeginTxn, not per-op here (out of this workstream's scope to verify)",
+      "mutates": "true",
+      "note": "encrypted Raft-native cross-modal staging",
       "txn_participation": "Saga"
     },
     "TxnRemoveEdge": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "TxnRemoveEdge",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op; see TxnAddNode note",
+      "mutates": "true",
+      "note": "encrypted Raft-native staging; Commit owns graph publication",
       "txn_participation": "Saga"
     },
     "TxnRemoveNode": {
       "audited": "false",
       "authz_action": "txn:write",
-      "durability": "None",
+      "durability": "ControlRedb",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "TxnRemoveNode",
-      "mutates": "~true",
-      "note": "self-routes before dispatch_graph_op; see TxnAddNode note",
+      "mutates": "true",
+      "note": "encrypted Raft-native staging; Commit owns graph publication",
       "txn_participation": "Saga"
     },
     "TxnUnifiedQuery": {
@@ -3831,5 +3930,5 @@
       "txn_participation": "Snapshot"
     }
   },
-  "source_path": "${WORKSPACE_ROOT}/agent-packages/epistemic-graph/docs/capabilities.generated.md"
+  "source_path": "repo://epistemic-graph/docs/capabilities.generated.md"
 }

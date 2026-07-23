@@ -54,7 +54,7 @@ profiles:
     docker: true
     secrets: openbao
     servers: all
-    skill: agent-utilities-deployment
+    skill: agent-os-genesis
     orchestrator: kubernetes
     install_mode: deploy-container
     idp: keycloak

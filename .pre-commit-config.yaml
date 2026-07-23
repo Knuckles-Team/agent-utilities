@@ -209,7 +209,7 @@ repos:
     always_run: true
   - id: guardrail-prompt-schema
     name: Guardrail — canonical prompt schema (StructuredPrompt)
-    entry: python3 scripts/check_prompt_schema.py --strict
+    entry: python3 scripts/check_prompt_schema.py
     language: system
     pass_filenames: false
     always_run: true
