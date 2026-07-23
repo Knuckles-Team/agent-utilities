@@ -310,6 +310,43 @@ def _check_stardog_mirror(cfg: Any) -> dict[str, Any]:
 
 
 # Ordered so the mandatory check reports first; order is otherwise cosmetic.
+def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
+    """Report packaged-skill readiness.
+
+    This deliberately does NOT gate the process: a bundled skill failing to
+    ingest is a capability gap, not a reason to refuse every unrelated tool. But
+    it must be visible, so an incomplete bundle reports ``unhealthy`` here and
+    names the skills — "serving degraded" has to be distinguishable from "fully
+    ready" from outside the process.
+    """
+    try:
+        from agent_utilities.mcp.kg_server import bundled_skill_readiness
+    except Exception:  # noqa: BLE001 - the MCP surface may not be importable
+        return {"status": "not_configured", "reason": "graph-os MCP surface not loaded"}
+    report = bundled_skill_readiness()
+    if not report:
+        return {"status": "not_configured", "reason": "skill bootstrap has not run"}
+    not_ready = list(report.get("not_ready") or [])
+    detail = {
+        "ready": report.get("ready"),
+        "required": report.get("required"),
+        "not_ready": not_ready,
+    }
+    if report.get("error"):
+        detail["error"] = report["error"]
+    if not_ready:
+        # Reported as ok-with-degraded-detail ON PURPOSE. /health/ready drives
+        # kubelet's readiness probe, so returning unhealthy here would pull the
+        # pod out of Service routing over a capability gap — re-creating, at the
+        # routing layer, exactly the boot gate we just removed. The gap stays
+        # fully visible in `detail` (and is logged loudly at bootstrap); it just
+        # does not take the server out of rotation.
+        detail["degraded"] = True
+        detail["reason"] = f"{len(not_ready)} packaged skill(s) not ready"
+        return {"status": "ok", "detail": detail}
+    return {"status": "ok", "detail": detail}
+
+
 _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("engine", _check_engine),
     ("kg_host_daemon", _check_kg_host_daemon),
@@ -317,6 +354,7 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("state_store", _check_state_store),
     ("kafka_bus", _check_kafka_bus),
     ("stardog_mirror", _check_stardog_mirror),
+    ("bundled_skills", _check_bundled_skills),
 )
 
 
@@ -390,7 +428,18 @@ def collect_health() -> dict[str, Any]:
 
 def is_overall_healthy(report: dict[str, Any]) -> bool:
     """True iff a :func:`collect_health` report's rollup is healthy."""
-    return report.get("status") == "healthy"
+    # Readiness answers ONE question: can this process serve requests right now.
+    # That depends on the engine it reads and writes through — not on optional
+    # co-services which run in their own deployments. Gating routing on those
+    # means an unrelated outage (a down messaging daemon, a stopped mirror) pulls
+    # a perfectly serving graph-os out of the Service, turning one component's
+    # failure into a total one. They stay fully reported in /health; they just do
+    # not decide rotation.
+    essential = {"engine"}
+    return not any(
+        check["status"] == "unhealthy" and check["name"] in essential
+        for check in report.get("checks", [])
+    )
 
 
 def _now_iso() -> str:

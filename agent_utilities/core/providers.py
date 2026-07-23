@@ -46,9 +46,7 @@ _GROUP_LEGS = {
 _MODULE_NAME = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$", re.ASCII
 )
-_PROVIDER_GROUP = re.compile(
-    r"^agent_utilities\.[A-Za-z0-9_.-]+_providers$", re.ASCII
-)
+_PROVIDER_GROUP = re.compile(r"^agent_utilities\.[A-Za-z0-9_.-]+_providers$", re.ASCII)
 _FRONTMATTER_NAME = re.compile(r"(?m)^name:\s*[\"']?([^\r\n#\"']+?)[\"']?\s*$")
 
 
@@ -99,7 +97,9 @@ def _distribution_identity(distribution: Distribution) -> tuple[str, str]:
         name = str(distribution.metadata["Name"]).strip()
         version = str(distribution.version).strip()
     except Exception as exc:  # noqa: BLE001 - converted to a path-free typed failure
-        raise ProviderRegistrationError("provider owner metadata is incomplete") from exc
+        raise ProviderRegistrationError(
+            "provider owner metadata is incomplete"
+        ) from exc
     if not name or not version:
         raise ProviderRegistrationError("provider owner metadata is incomplete")
     return name, version
@@ -110,7 +110,9 @@ def _owned_source_root(
 ) -> tuple[Path, frozenset[str]]:
     target = entry_point.value.strip()
     if _MODULE_NAME.fullmatch(target) is None:
-        raise ProviderRegistrationError("provider target must be one data package module")
+        raise ProviderRegistrationError(
+            "provider target must be one data package module"
+        )
     prefix = PurePosixPath(*target.split("."))
     distribution_files = distribution.files
     if distribution_files is None:
@@ -131,11 +133,11 @@ def _owned_source_root(
         for _ in relative.parts[len(prefix.parts) :]:
             root = root.parent
         roots.add(root)
-        owned_paths.add(
-            PurePosixPath(*relative.parts[len(prefix.parts) :]).as_posix()
-        )
+        owned_paths.add(PurePosixPath(*relative.parts[len(prefix.parts) :]).as_posix())
     if not owned_paths or len(roots) != 1:
-        raise ProviderRegistrationError("provider target is not owned by its distribution")
+        raise ProviderRegistrationError(
+            "provider target is not owned by its distribution"
+        )
     root = roots.pop()
     try:
         root = root.resolve(strict=True)
@@ -143,7 +145,9 @@ def _owned_source_root(
     except OSError as exc:
         raise ProviderRegistrationError("provider source root is unavailable") from exc
     if _is_linklike(root) or not stat.S_ISDIR(info.st_mode):
-        raise ProviderRegistrationError("provider source root is not a regular directory")
+        raise ProviderRegistrationError(
+            "provider source root is not a regular directory"
+        )
     return root, frozenset(owned_paths)
 
 
@@ -155,7 +159,9 @@ def provider_registrations(group: str) -> tuple[ProviderRegistration, ...]:
     try:
         discovered = tuple(entry_points(group=group))
     except Exception as exc:  # noqa: BLE001
-        raise ProviderRegistrationError("provider metadata cannot be enumerated") from exc
+        raise ProviderRegistrationError(
+            "provider metadata cannot be enumerated"
+        ) from exc
 
     registrations: list[ProviderRegistration] = []
     identities: dict[str, str] = {}
@@ -272,13 +278,16 @@ def resolve_base_prompt_dir() -> Path:
     from agent_utilities.core.unified_install import OWN_PROVIDER, own_provider_asset
 
     source, digest, manifest = own_provider_asset("prompts")
-    return resolve_managed_generation(
-        unified_prompts_dir() / OWN_PROVIDER,
-        provider=OWN_PROVIDER,
-        leg="prompts",
-        registration=digest,
-        source_manifest=manifest,
-    ) or source
+    return (
+        resolve_managed_generation(
+            unified_prompts_dir() / OWN_PROVIDER,
+            provider=OWN_PROVIDER,
+            leg="prompts",
+            registration=digest,
+            source_manifest=manifest,
+        )
+        or source
+    )
 
 
 def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
@@ -298,15 +307,50 @@ def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
     return sorted(resolved, key=lambda item: item[0].casefold())
 
 
+#: ``skill_graphs``/``skill-graphs`` subtrees are KG-ingestion reference corpora
+#: (e.g. the packaged ``agent-utilities`` skill-graph under
+#: ``agent_utilities/skills/skill_graphs/agent-utilities/``), not installable
+#: skills — the same topic legitimately recurs across many bundles/pages. A
+#: skill-graph page is allowed, by design, to reuse the exact ``name:`` of the
+#: atomic skill it documents (e.g. the graph's "deployment" page is itself
+#: named ``agent-utilities-deployment``, matching the real atomic skill), so
+#: these directories must never enter the flat current-skill identity pool.
+#: This mirrors the repo's own authoritative scoping: ``_EXCLUDE_SEGMENTS`` in
+#: ``scripts/check_skill_name_collision.py`` and
+#: ``_exempt_from_uniqueness``/``in_reference_corpus`` in
+#: ``agent_utilities/skills/fleet_harness/static_checks.py``.
+_SKILL_GRAPH_SEGMENTS = frozenset({"skill_graphs", "skill-graphs"})
+
+
+def is_skill_graph_reference_path(path: Path, root: Path) -> bool:
+    """True if ``path`` lies under a ``skill_graphs``/``skill-graphs`` subtree of ``root``.
+
+    Shared by every caller that walks a skill root for ``SKILL.md`` files (this
+    module's own :func:`_skill_dirs` and ``mcp/kg_server.py``'s packaged-skill
+    ingestion) so the reference-corpus exclusion stays in exactly one place.
+    """
+    return bool(_SKILL_GRAPH_SEGMENTS.intersection(path.relative_to(root).parts))
+
+
 def _skill_dirs(root: Path) -> list[Path]:
-    return sorted({path.parent for path in root.rglob("SKILL.md")})
+    return sorted(
+        {
+            path.parent
+            for path in root.rglob("SKILL.md")
+            if not is_skill_graph_reference_path(path, root)
+        }
+    )
 
 
 def _skill_identity(skill_root: Path) -> str:
     path = skill_root / "SKILL.md"
     try:
         info = path.lstat()
-        if _is_linklike(path) or not path.is_file() or info.st_size > MAX_PROVIDER_FILE_BYTES:
+        if (
+            _is_linklike(path)
+            or not path.is_file()
+            or info.st_size > MAX_PROVIDER_FILE_BYTES
+        ):
             raise ProviderAssetError("skill instruction file is invalid")
         with path.open("r", encoding="utf-8") as handle:
             text = handle.read(MAX_PROVIDER_FILE_BYTES + 1)
@@ -320,7 +364,11 @@ def _skill_identity(skill_root: Path) -> str:
         match = _FRONTMATTER_NAME.search(frontmatter)
         if match:
             identity = match.group(1).strip()
-            if identity and len(identity) <= 256 and all(ord(ch) >= 32 for ch in identity):
+            if (
+                identity
+                and len(identity) <= 256
+                and all(ord(ch) >= 32 for ch in identity)
+            ):
                 return identity
     return skill_root.name
 
@@ -347,7 +395,16 @@ def _add_skill(
 ) -> None:
     portable_identity = identity.casefold()
     if portable_identity in selected:
-        raise DuplicateSkillIdentity("duplicate current skill identity")
+        # Name the collision. "duplicate current skill identity" with no skill
+        # name and no providers is unactionable: it aborts the WHOLE skill sweep,
+        # so every downstream skill silently fails to materialize too, and the
+        # operator cannot tell which two providers to reconcile. Fleet-wide skill
+        # name uniqueness is the standing rule, so this must say what broke it.
+        existing_provider, existing_root = selected[portable_identity]
+        raise DuplicateSkillIdentity(
+            f"duplicate current skill identity {identity!r}: provided by both "
+            f"{existing_provider!r} ({existing_root}) and {provider!r} ({root})"
+        )
     selected[portable_identity] = (provider, root)
 
 
@@ -372,9 +429,7 @@ def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
         registration=own_digest,
         source_manifest=own_manifest,
     )
-    provider_roots: list[tuple[str, Path]] = [
-        (own_name, own_materialized or own_root)
-    ]
+    provider_roots: list[tuple[str, Path]] = [(own_name, own_materialized or own_root)]
     provider_roots.extend(
         (
             assets.registration.name,
@@ -384,12 +439,25 @@ def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
     )
     for provider, root in sorted(provider_roots, key=lambda item: item[0].casefold()):
         for skill_root in _skill_dirs(root):
-            _add_skill(
-                selected,
-                identity=_skill_identity(skill_root),
-                provider=provider,
-                root=skill_root,
-            )
+            try:
+                _add_skill(
+                    selected,
+                    identity=_skill_identity(skill_root),
+                    provider=provider,
+                    root=skill_root,
+                )
+            except DuplicateSkillIdentity as exc:
+                # A single colliding skill must never abort the WHOLE sweep —
+                # every OTHER skill, from every OTHER provider, would then
+                # silently fail to materialize too (this is exactly how one
+                # bad skill took graph-os from "10/10 ready" to "SERVING
+                # DEGRADED: 8/10 ready"). Fleet-wide skill-name uniqueness is
+                # a real invariant, so the collision stays LOUD (logged at
+                # error level, naming both providers) — it just no longer
+                # takes every unrelated skill down with it. The first
+                # provider in sorted order keeps the identity; this one is
+                # skipped.
+                logger.error("Skipping duplicate skill during sweep: %s", str(exc))
 
     try:
         children: Iterable[Path] = sorted(
@@ -412,12 +480,17 @@ def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
         if not (child / "SKILL.md").is_file():
             continue
         build_asset_manifest(child, leg="skills")
-        _add_skill(
-            selected,
-            identity=_skill_identity(child),
-            provider="xdg-local",
-            root=child,
-        )
+        try:
+            _add_skill(
+                selected,
+                identity=_skill_identity(child),
+                provider="xdg-local",
+                root=child,
+            )
+        except DuplicateSkillIdentity as exc:
+            # Same resilience as the provider loop above: one bad local skill
+            # must not prevent every other current/local skill from resolving.
+            logger.error("Skipping duplicate skill during sweep: %s", str(exc))
     return [selected[identity] for identity in sorted(selected)]
 
 

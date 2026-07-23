@@ -555,9 +555,13 @@ def test_retired_marked_root_is_never_reinterpreted_as_flat_operator_skill(
     assert retired not in [root for _provider, root in roots]
 
 
-def test_duplicate_flat_skill_identity_fails_deterministically(
-    tmp_path: Path, monkeypatch
+def test_duplicate_flat_skill_identity_resolves_deterministically(
+    tmp_path: Path, monkeypatch, caplog
 ) -> None:
+    """Two case-folded-identical flat local skills must not abort the whole
+    sweep: the first in sorted order wins deterministically, the duplicate is
+    dropped, and the collision is logged loudly rather than raised.
+    """
     for directory, identity in (("one", "duplicate-local"), ("two", "DUPLICATE-LOCAL")):
         root = tmp_path / directory
         root.mkdir()
@@ -567,8 +571,16 @@ def test_duplicate_flat_skill_identity_fails_deterministically(
     monkeypatch.setattr("agent_utilities.core.paths.skills_dir", lambda: tmp_path)
     monkeypatch.setattr(providers, "current_provider_assets", lambda _group: ())
 
-    with pytest.raises(providers.DuplicateSkillIdentity):
-        providers.resolve_skill_provider_dirs()
+    with caplog.at_level("ERROR", logger="agent_utilities.core.providers"):
+        roots = providers.resolve_skill_provider_dirs()
+
+    matches = [
+        (provider, root)
+        for provider, root in roots
+        if root.name in {"one", "two"}
+    ]
+    assert matches == [("xdg-local", tmp_path / "one")]
+    assert "duplicate-local" in caplog.text.lower()
 
 
 def test_skill_coverage_uses_only_the_unified_validated_reader(
