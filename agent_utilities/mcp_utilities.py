@@ -10,7 +10,7 @@ New code should import from the submodules directly:
 CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
 """
 
-__version__ = "1.26.0"
+from agent_utilities._version import __version__ as __version__
 
 
 def __getattr__(name: str):
