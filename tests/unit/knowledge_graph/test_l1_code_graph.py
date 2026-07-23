@@ -145,20 +145,17 @@ def test_unwind_to_per_row_translation():
 
 
 def _seed(b):
-    # call chain: top -> mid -> leaf (all :Code), via the exact UNWIND idiom the
-    # bulk-writer emits.
-    b.execute_batch(
-        "UNWIND $batch AS row MERGE (n:Code {id: row.id}) SET n.`name` = row.`name`",
-        [
-            {"id": "top", "name": "top"},
-            {"id": "mid", "name": "mid"},
-            {"id": "leaf", "name": "leaf"},
-        ],
-    )
-    b.execute_batch(
-        "UNWIND $batch AS row MATCH (s {id: row.source}) MATCH (t {id: row.target}) MERGE (s)-[r:calls]->(t)",
-        [{"source": "top", "target": "mid"}, {"source": "mid", "target": "leaf"}],
-    )
+    # call chain: top -> mid -> leaf (all :Code). ``execute_batch`` (raw Cypher
+    # UNWIND) is deliberately rejected by EpistemicGraphBackend now — batch
+    # writes must go through native ChangeEnvelope ingestion, not a second
+    # Python mutation compiler (see execute_batch's docstring). This helper only
+    # sets up fixture state for the *read*-side tests below, so it writes
+    # directly to the injected fake graph instead, reproducing exactly what the
+    # old UNWIND MERGE achieved (a `Code`-labeled node per row, `calls` edges).
+    for row in ({"id": "top", "name": "top"}, {"id": "mid", "name": "mid"}, {"id": "leaf", "name": "leaf"}):
+        b._graph.add_node(row["id"], properties={**row, "label": "Code"})
+    for source, target in (("top", "mid"), ("mid", "leaf")):
+        b._graph.add_edge(source, target, properties={"rel_type": "calls"})
 
 
 def test_batch_write_persists_and_is_label_findable():
