@@ -59,34 +59,36 @@ and toggle the integrations you want.
 
   // The shared/remote engine authority — every gateway/connector/worker points
   // at the SAME engine (one endpoint, or N shards). This is the system of record.
-  "graph_service_endpoints": ["tcp://kg-engine.example.arpa:9101"],
+  "graph_service_endpoints": ["tcp://kg-engine.example.test:9101"],
 
   // OPTIONAL — write-only Postgres/pg-age MIRROR of the engine (SQL-side
   // querying/BI). Omit it for an engine-only enterprise.
-  "graph_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_kg",
+  // Credentials come from your secrets store, never inline in this URI.
+  "graph_db_uri": "postgresql://pg-age.example.test:5432/agent_kg",
   "kg_daemon_role": "host",
 
   // Durable platform state (sessions/goals/checkpoints/queues) on shared
-  // Postgres — enables fleet-wide leader election for daemon ticks
-  "state_db_uri": "postgresql://agent:REDACTED@pg-age.example.arpa:5432/agent_state",
+  // Postgres — enables fleet-wide leader election for daemon ticks.
+  // Credentials come from your secrets store, never inline in this URI.
+  "state_db_uri": "postgresql://pg-age.example.test:5432/agent_state",
 
   "task_queue_backend": "kafka",
-  "kafka_bootstrap_servers": "kafka.example.arpa:9092",
+  "kafka_bootstrap_servers": "kafka.example.test:9092",
 
   // Agent turns via the session-keyed queue, executed by the
   // agent-dispatch-worker fleet (default "inline" = in-process)
   "agent_dispatch_backend": "queue",
 
-  "secrets_vault_url": "https://openbao.example.arpa",
+  "secrets_vault_url": "https://openbao.example.test",
   "vault_auth_method": "approle",
 
   "kg_auth_required": true,
-  "auth_jwt_jwks_uri": "https://keycloak.example.arpa/realms/agents/protocol/openid-connect/certs",
-  "auth_jwt_issuer": "https://keycloak.example.arpa/realms/agents",
+  "auth_jwt_jwks_uri": "https://keycloak.example.test/realms/agents/protocol/openid-connect/certs",
+  "auth_jwt_issuer": "https://keycloak.example.test/realms/agents",
 
   "enable_otel": true,
-  "otel_exporter_otlp_endpoint": "https://langfuse.example.arpa/api/public/otel",
-  "langfuse_host": "https://langfuse.example.arpa"
+  "otel_exporter_otlp_endpoint": "https://langfuse.example.test/api/public/otel",
+  "langfuse_host": "https://langfuse.example.test"
 }
 ```
 
@@ -117,9 +119,9 @@ authority) and add to `config.json`:
 ```jsonc
 {
   "graph_service_endpoints": [
-    "tcp://kg-shard-1.example.arpa:9101",
-    "tcp://kg-shard-2.example.arpa:9102",
-    "tcp://kg-shard-3.example.arpa:9103"
+    "tcp://kg-shard-1.example.test:9101",
+    "tcp://kg-shard-2.example.test:9102",
+    "tcp://kg-shard-3.example.test:9103"
   ],
   "graph_service_auth_secret": "ONE shared secret across shards + clients"
 }
