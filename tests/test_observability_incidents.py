@@ -45,13 +45,22 @@ class _Capture:
 
 
 class _FakeEngine:
-    """Serves ``get_nodes_by_label`` per label from a fixed table."""
+    """Serves ``get_nodes_by_label`` per label from a fixed table, plus an
+    optional ``get_neighbors`` table for the evidence-resolution tests."""
 
-    def __init__(self, by_label: dict[str, list[tuple[str, dict]]]) -> None:
+    def __init__(
+        self,
+        by_label: dict[str, list[tuple[str, dict]]],
+        neighbors: dict[str, list[str]] | None = None,
+    ) -> None:
         self._by_label = by_label
+        self._neighbors = neighbors or {}
 
     def get_nodes_by_label(self, label: str, limit: int = 0):
         return self._by_label.get(label, [])
+
+    def get_neighbors(self, node_id: str) -> list[str]:
+        return list(self._neighbors.get(node_id, []))
 
 
 def _anomaly(node_id, entity, signal, at, *, kind="above-baseline"):
@@ -211,6 +220,178 @@ def test_correlate_incidents_ignores_anomalies_older_than_days(monkeypatch):
     monkeypatch.setattr(hi, "_engine", lambda: engine)
     monkeypatch.setattr(native_ingest, "ingest_entities", _Capture())
     assert inc.correlate_incidents(window_s=300, days=1) == []
+
+
+# --- get_incident / get_incident_evidence ---------------------------------- #
+def test_get_incident_returns_stored_props_by_id(monkeypatch):
+    rows = {
+        "Incident": [
+            ("health:incident:a:1", {"status": "open", "summary": "a stress"}),
+            ("health:incident:b:2", {"status": "resolved", "summary": "b stress"}),
+        ]
+    }
+    engine = _FakeEngine(rows)
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    got = inc.get_incident("health:incident:b:2")
+    assert got == {
+        "id": "health:incident:b:2",
+        "status": "resolved",
+        "summary": "b stress",
+    }
+    assert inc.get_incident("missing:id") is None
+
+
+def test_get_incident_no_engine_returns_none(monkeypatch):
+    monkeypatch.setattr(hi, "_engine", lambda: None)
+    assert inc.get_incident("any") is None
+
+
+def test_get_incident_evidence_resolves_anomalies_oldest_first_and_entities(
+    monkeypatch,
+):
+    incident_id = "health:incident:storage-node-a:sig1"
+    rows = {
+        "HealthAnomaly": [
+            _anomaly(
+                "health:anomaly:storage-node-a:cpu:t2",
+                "cm:node:storage-node-a",
+                "cpu",
+                "2026-07-02T00:00:00Z",
+            ),
+            _anomaly(
+                "health:anomaly:storage-node-a:temp:t1",
+                "fan:host:storage-node-a",
+                "temp",
+                "2026-07-01T00:00:00Z",
+            ),
+            # not correlated to this incident — must NOT show up in evidence.
+            _anomaly(
+                "health:anomaly:other-node:temp:t3",
+                "fan:host:other-node",
+                "temp",
+                "2026-07-03T00:00:00Z",
+            ),
+        ],
+        "Incident": [],
+    }
+    engine = _FakeEngine(
+        rows,
+        neighbors={
+            incident_id: [
+                "health:anomaly:storage-node-a:cpu:t2",
+                "health:anomaly:storage-node-a:temp:t1",
+                "cm:node:storage-node-a",
+                "fan:host:storage-node-a",
+            ]
+        },
+    )
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+
+    evidence = inc.get_incident_evidence(incident_id)
+    assert evidence is not None
+    assert [a["id"] for a in evidence["anomalies"]] == [
+        "health:anomaly:storage-node-a:temp:t1",
+        "health:anomaly:storage-node-a:cpu:t2",
+    ]
+    assert evidence["entities"] == ["cm:node:storage-node-a", "fan:host:storage-node-a"]
+
+
+def test_get_incident_evidence_no_neighbors_returns_empty(monkeypatch):
+    engine = _FakeEngine({"HealthAnomaly": [], "Incident": []})
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    assert inc.get_incident_evidence("health:incident:x") == {
+        "anomalies": [],
+        "entities": [],
+    }
+
+
+def test_get_incident_evidence_no_engine_returns_none(monkeypatch):
+    monkeypatch.setattr(hi, "_engine", lambda: None)
+    assert inc.get_incident_evidence("any") is None
+
+
+# --- set_incident_status ---------------------------------------------------- #
+def _open_incident_row(incident_id: str) -> tuple[str, dict]:
+    return (
+        incident_id,
+        {
+            "kind": "hardware",
+            "summary": "storage-node-a under thermal stress",
+            "layers": ["hardware"],
+            "signals": ["cpu_temp_c"],
+            "severity": "warning",
+            "rootCauseLayer": "hardware",
+            "signature": "sig1",
+            "status": "open",
+            "observedAt": "2026-07-01T00:00:00Z",
+        },
+    )
+
+
+def test_set_incident_status_acknowledges_and_preserves_other_fields(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    engine = _FakeEngine({"Incident": [_open_incident_row(incident_id)]})
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    cap = _Capture()
+    monkeypatch.setattr(native_ingest, "ingest_entities", cap)
+
+    result = inc.set_incident_status(incident_id, inc.STATUS_ACKNOWLEDGED, actor="op1")
+
+    assert result == {"nodes": 1, "edges": 0}
+    assert len(cap.calls) == 1
+    node = cap.calls[0]["entities"][0]
+    assert node["id"] == incident_id
+    assert node["status"] == inc.STATUS_ACKNOWLEDGED
+    assert node["ackedBy"] == "op1"
+    assert node["ackedAt"]  # stamped, non-empty
+    assert node.get("resolvedAt") is None
+    # every pre-existing field round-trips instead of being blanked.
+    assert node["kind"] == "hardware"
+    assert node["layers"] == ["hardware"]
+    assert node["signals"] == ["cpu_temp_c"]
+    assert node["severity"] == "warning"
+    assert node["rootCauseLayer"] == "hardware"
+    assert node["signature"] == "sig1"
+    assert node["observedAt"] == "2026-07-01T00:00:00Z"
+    assert node["summary"] == "storage-node-a under thermal stress"
+
+
+def test_set_incident_status_resolve_preserves_a_prior_ack(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    acked_id, acked_props = _open_incident_row(incident_id)
+    acked_props = {
+        **acked_props,
+        "status": inc.STATUS_ACKNOWLEDGED,
+        "ackedAt": "2026-07-01T00:05:00Z",
+        "ackedBy": "op1",
+    }
+    engine = _FakeEngine({"Incident": [(acked_id, acked_props)]})
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    cap = _Capture()
+    monkeypatch.setattr(native_ingest, "ingest_entities", cap)
+
+    result = inc.set_incident_status(incident_id, inc.STATUS_RESOLVED, actor="op2")
+
+    assert result == {"nodes": 1, "edges": 0}
+    node = cap.calls[0]["entities"][0]
+    assert node["status"] == inc.STATUS_RESOLVED
+    # the earlier ack survives the later resolve.
+    assert node["ackedAt"] == "2026-07-01T00:05:00Z"
+    assert node["ackedBy"] == "op1"
+    assert node["resolvedBy"] == "op2"
+    assert node["resolvedAt"]
+
+
+def test_set_incident_status_unknown_incident_returns_none(monkeypatch):
+    engine = _FakeEngine({"Incident": []})
+    monkeypatch.setattr(hi, "_engine", lambda: engine)
+    monkeypatch.setattr(native_ingest, "ingest_entities", _Capture())
+    assert inc.set_incident_status("missing:id", inc.STATUS_ACKNOWLEDGED) is None
+
+
+def test_set_incident_status_no_engine_returns_none(monkeypatch):
+    monkeypatch.setattr(hi, "_engine", lambda: None)
+    assert inc.set_incident_status("any", inc.STATUS_ACKNOWLEDGED) is None
 
 
 # --- propose_remediation --------------------------------------------------- #

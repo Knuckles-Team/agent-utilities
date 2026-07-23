@@ -96,11 +96,16 @@ C4Context
 3. **AHE**: not yet participating in self-improvement cycles; a future wave
    could learn better root-cause-layer weighting from ticket resolution
    outcomes.
-4. **ECO**: not exposed as a new MCP tool/A2A capability in this wave (no live
-   caller beyond the CronJob entry point) — `graph_search`/`graph_query`
-   already reach the written `:Incident`/`:Ticket`/`:RemediationProposal`
-   nodes generically; a dedicated `graph_*` action is a natural follow-up once
-   an operator wants to browse/approve incidents interactively.
+4. **ECO**: exposed as the `graph_incident` MCP tool + `/incident` REST twin
+   (`mcp/tools/incident_tools.py`) — `correlate`/`list`/`get`/`timeline` for
+   interactive browse (`get`/`timeline` also resolve the correlated
+   `:HealthAnomaly` group + affected entities via
+   `incidents.get_incident_evidence`), and `ack`/`resolve` for the approve
+   half (state transitions on the `:Incident` node itself, gated by the same
+   fail-closed `ActionPolicy` `remediation_playbooks.py` uses, kind
+   `incident.ack`/`incident.resolve`). `graph_search`/`graph_query` still
+   reach the written `:Incident`/`:Ticket`/`:RemediationProposal` nodes
+   generically for ad hoc queries.
 5. **OS**: routing/remediation are fail-closed + dry-run-first by default
    (`INCIDENT_TICKET_ENABLE`, `INCIDENT_TICKET_BACKEND=none`); dispatching a
    `:RemediationProposal` into real actuation is a deliberate future step

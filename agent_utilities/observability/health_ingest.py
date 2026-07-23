@@ -213,11 +213,15 @@ def ingest_incident(incident: dict[str, Any]) -> dict[str, int] | None:
     ``incident``: ``{"id"?, "kind"?, "summary"?, "entities": [<entity_id>, ...],
     "anomalies"?: [<HealthAnomaly node id>, ...], "layers"?: [...], "signals"?:
     [...], "severity"?, "root_cause_layer"?, "signature"?, "status"?,
-    "opened_at"?}``. Each listed ``entities`` id is linked ``affectsEntity`` (the
-    asset(s) the incident concerns); each ``anomalies`` id is linked
-    ``correlatesAnomaly`` (the contributing evidence) — populated by
-    :func:`agent_utilities.observability.incidents.correlate_incidents`. Every
-    field beyond ``id``/``entities`` is optional so the minimal Phase-D shape
+    "opened_at"?, "acked_at"?, "acked_by"?, "resolved_at"?, "resolved_by"?}``.
+    Each listed ``entities`` id is linked ``affectsEntity`` (the asset(s) the
+    incident concerns); each ``anomalies`` id is linked ``correlatesAnomaly``
+    (the contributing evidence) — populated by
+    :func:`agent_utilities.observability.incidents.correlate_incidents`. The
+    ``acked_*``/``resolved_*`` pair is the provenance stamp
+    :func:`agent_utilities.observability.incidents.set_incident_status` writes
+    for the ``graph_incident`` tool's ``ack``/``resolve`` actions. Every field
+    beyond ``id``/``entities`` is optional so the minimal Phase-D shape
     (``{"kind","summary","entities"}``) still works unchanged. Best-effort by
     design (engine-guarded via :func:`~.native_ingest.ingest_entities`).
     """
@@ -239,6 +243,10 @@ def ingest_incident(incident: dict[str, Any]) -> dict[str, int] | None:
             "signature": incident.get("signature"),
             "status": incident.get("status") or "open",
             "observedAt": incident.get("opened_at") or _now(),
+            "ackedAt": incident.get("acked_at"),
+            "ackedBy": incident.get("acked_by"),
+            "resolvedAt": incident.get("resolved_at"),
+            "resolvedBy": incident.get("resolved_by"),
         }
     ]
     relationships = [

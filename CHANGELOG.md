@@ -34,6 +34,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cites an optional `incident["claim_id"]` right after `root_cause_layer`
   when the caller has set one — a pure field pass-through, byte-identical
   when absent.
+- **`graph_incident` gains `ack`/`resolve`/`timeline`, and `get`/`list` are
+  enriched.** The Incident Brain's cross-layer correlation engine
+  (`observability/incidents.py`) had a `graph_incident` tool for the read half
+  (`correlate`/`list`/`get`) but no way to acknowledge/resolve an incident or
+  see its event sequence interactively — the surpass-6mo audit's remaining
+  gap. `mcp/tools/incident_tools.py` adds: `ack`/`resolve` (state transitions
+  on the `:Incident` node ITSELF, via the new `incidents.set_incident_status`)
+  FIRST gated by the fail-closed `ActionPolicy` (kind `incident.ack`/
+  `incident.resolve`, mirroring `graph_claims`'s `_gate` pattern) and
+  provenance-stamped (`ackedAt`/`ackedBy`/`resolvedAt`/`resolvedBy`, new
+  optional fields on `health_ingest.ingest_incident`); `timeline` (the
+  incident's opened/acknowledged/resolved lifecycle interleaved with its
+  correlated `:HealthAnomaly` group, oldest first); `get` now also returns the
+  correlated anomaly group and affected entity ids (resolved from the
+  `correlatesAnomaly`/`affectsEntity` edges via the new
+  `incidents.get_incident_evidence`, since the `:Incident` node itself stores
+  no anomaly/entity list property); and `list` gains a `severity` filter
+  alongside the existing `status` filter. Remediation stays REPORT-ONLY exactly
+  as before: `ack`/`resolve` mutate only the `:Incident` node's own status/
+  provenance, never a ticket or infrastructure action.
 - **New `graph_claims` tool — the X-3 claim flywheel becomes directly callable.**
   `knowledge_graph/research/claim_flywheel.py`'s governed five-state lifecycle
   (`proposed -> validated -> accepted -> deprecated -> retracted`, `RETRACTED`

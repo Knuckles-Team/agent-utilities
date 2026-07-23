@@ -170,9 +170,7 @@ def test_ingest_incident_carries_rich_correlation_fields_and_anomaly_edges(monke
         "id": "health:incident:analysis-node-a:sig1",
         "summary": "analysis-node-a under thermal/compute stress",
         "entities": ["fan:host:analysis-node-a", "cm:node:analysis-node-a"],
-        "anomalies": [
-            "health:anomaly:fan:host:analysis-node-a:cpu_temp_c:t1"
-        ],
+        "anomalies": ["health:anomaly:fan:host:analysis-node-a:cpu_temp_c:t1"],
         "layers": ["hardware", "orchestration"],
         "signals": ["cpu_temp_c", "restart_count"],
         "severity": "critical",
@@ -202,6 +200,28 @@ def test_ingest_incident_carries_rich_correlation_fields_and_anomaly_edges(monke
     assert by_type["correlatesAnomaly"] == {
         "health:anomaly:fan:host:analysis-node-a:cpu_temp_c:t1"
     }
+
+
+def test_ingest_incident_carries_ack_resolve_provenance(monkeypatch):
+    """The graph_incident tool's ack/resolve transitions
+    (agent_utilities.observability.incidents.set_incident_status) stamp these
+    fields on re-ingest — round-tripped here directly against ingest_incident."""
+    cap = _Capture()
+    monkeypatch.setattr(native_ingest, "ingest_entities", cap)
+
+    incident = {
+        "id": "health:incident:analysis-node-a:sig1",
+        "status": "acknowledged",
+        "acked_at": "2026-07-11T00:05:00Z",
+        "acked_by": "op1",
+    }
+    hi.ingest_incident(incident)
+    node = cap.calls[0]["entities"][0]
+    assert node["status"] == "acknowledged"
+    assert node["ackedAt"] == "2026-07-11T00:05:00Z"
+    assert node["ackedBy"] == "op1"
+    assert node.get("resolvedAt") is None
+    assert node.get("resolvedBy") is None
 
 
 def test_ingest_functions_are_engine_guarded_no_op(monkeypatch):
