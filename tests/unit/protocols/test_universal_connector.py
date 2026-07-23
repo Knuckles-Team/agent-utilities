@@ -175,19 +175,27 @@ def test_introspect_persists_via_write_batch(sqlite_db):
     assert n >= 1 + 2 + 4  # DataSource + 2 tables + >=4 columns
     assert e >= 1  # at least one HAS_TABLE/HAS_COLUMN/FOREIGN_KEY edge
 
-    # DataSource node persisted with correct type/props.
+    # DataSource node persisted with correct type/props. ``write_batch`` maps
+    # ``GraphNode.type`` onto the canonical ``node_type`` key — plain ``type``
+    # is a retired key that ``write_entities`` rejects outright.
     ds_nodes = {
         nid: props
         for nid, props in backend.nodes.items()
-        if props.get("type") == "DataSource"
+        if props.get("node_type") == "DataSource"
     }
     assert len(ds_nodes) == 1
     (ds_props,) = ds_nodes.values()
     assert ds_props["kind"] == "sqlite"
     assert ds_props["source_ref"].startswith("pref_datasource_")
 
-    # HAS_TABLE edges from the datasource were persisted.
-    assert any(rel == "HAS_TABLE" for _, _, rel in backend.edges)
+    # HAS_TABLE edges from the datasource were persisted. ``write_batch`` maps
+    # ``EnrichmentEdge.rel_type`` onto the canonical ``relationship`` key (a
+    # bare ``type`` key is a retired alias ``write_entities`` rejects), so
+    # read it from the recorded row properties rather than the backend's
+    # ``.edges`` tuple (whose third element is derived from the retired key).
+    assert any(
+        props.get("relationship") == "HAS_TABLE" for props in backend.edge_props
+    )
 
 
 # ---------------------------------------------------------------------- #

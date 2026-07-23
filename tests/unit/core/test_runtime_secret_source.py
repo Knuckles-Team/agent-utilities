@@ -21,6 +21,15 @@ def _isolated_runtime_secret_projection():
     xdg_projection = dict(config._xdg_injected_environment)
     secret_projection = dict(config._xdg_injected_runtime_secrets)
     source_state = config.runtime_secret_source_status()
+    # This module's tests call the REAL ``config.load_config(reload=True)``
+    # against a temp XDG root, which mutates the process-wide typed config
+    # singleton (``_LAZY_CACHE``/``_CONFIG_PROXY._target``) — a side effect
+    # this fixture did not previously restore, so a test that reloads onto
+    # e.g. a synthetic ``embedding_models`` entry silently leaked that
+    # snapshot into every later test in the suite (across files) that reads
+    # ``config``.
+    previous_lazy_cache = config._LAZY_CACHE
+    previous_proxy_target = config._CONFIG_PROXY._current()
     config._env_loaded = False
     config._xdg_injected_environment.clear()
     config._xdg_injected_runtime_secrets.clear()
@@ -36,6 +45,8 @@ def _isolated_runtime_secret_projection():
         config._xdg_injected_runtime_secrets.update(secret_projection)
         config._runtime_secret_source_state.clear()
         config._runtime_secret_source_state.update(source_state)
+        config._LAZY_CACHE = previous_lazy_cache
+        config._CONFIG_PROXY._swap(previous_proxy_target)
 
 
 def _write_config(root: Path, value: object) -> Path:
@@ -367,6 +378,15 @@ def test_schema_invalid_reload_preserves_dynamic_and_typed_generation(
     _select_root(monkeypatch, root)
     monkeypatch.setattr(config, "_LAZY_CACHE", config.BoundedLRUCache(max_size=64))
     monkeypatch.delenv("ENABLE_OTEL", raising=False)
+    # ``_reload_typed_singleton_locked`` only re-populates ``_LAZY_CACHE`` when
+    # a singleton ALREADY exists there (``singleton is not None``) — it is a
+    # *reload*, not a first-time init. A fresh, empty cache has no existing
+    # ``"_config"`` entry, so a bare ``load_config(reload=True)`` on it is a
+    # silent no-op for population — deterministic only because an EARLIER
+    # test in the full suite happens to have already populated the (later
+    # monkeypatched-away) real cache. Force one real population explicitly so
+    # this test's outcome does not depend on suite ordering.
+    config._init_lazy_config(force=True)
     config.load_config(reload=True)
     stable = config.config
     previous = config._LAZY_CACHE["_config"]
@@ -412,6 +432,15 @@ def test_reader_observes_only_complete_snapshot_during_reload(
     _select_root(monkeypatch, root)
     monkeypatch.setattr(config, "_LAZY_CACHE", config.BoundedLRUCache(max_size=64))
     monkeypatch.delenv("ENABLE_OTEL", raising=False)
+    # ``_reload_typed_singleton_locked`` only re-populates ``_LAZY_CACHE`` when
+    # a singleton ALREADY exists there (``singleton is not None``) — it is a
+    # *reload*, not a first-time init. A fresh, empty cache has no existing
+    # ``"_config"`` entry, so a bare ``load_config(reload=True)`` on it is a
+    # silent no-op for population — deterministic only because an EARLIER
+    # test in the full suite happens to have already populated the (later
+    # monkeypatched-away) real cache. Force one real population explicitly so
+    # this test's outcome does not depend on suite ordering.
+    config._init_lazy_config(force=True)
     config.load_config(reload=True)
     stable = config.config
     previous = config._LAZY_CACHE["_config"]

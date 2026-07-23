@@ -244,7 +244,7 @@ async def test_record_specialist_outcome_success(monkeypatch):
         server_name="mcp",
         duration=1.5,
     )
-    fake_engine.graph.add_node.assert_called()
+    fake_engine.add_node.assert_called()
 
 
 @pytest.mark.asyncio
@@ -264,15 +264,15 @@ async def test_record_specialist_outcome_failure_long_duration(monkeypatch):
     )
     await record_specialist_outcome_hook(
         deps=SimpleNamespace(),
-        state=SimpleNamespace(),
+        state=SimpleNamespace(session_id="run-long-duration"),
         agent_name="alpha",
         success=True,
         server_name="mcp",
         duration=99.0,
     )
     # Assert add_node called with reward=0.8
-    call_kwargs = fake_engine.graph.add_node.call_args.kwargs
-    assert call_kwargs["reward"] == 0.8
+    call_kwargs = fake_engine.add_node.call_args.kwargs
+    assert call_kwargs["properties"]["reward"] == 0.8
 
 
 @pytest.mark.asyncio
@@ -282,8 +282,7 @@ async def test_record_specialist_outcome_add_node_error(monkeypatch):
 
     fake_engine = MagicMock()
     fake_engine.backend = MagicMock()
-    fake_engine.graph = MagicMock()
-    fake_engine.graph.add_node.side_effect = RuntimeError("DB down")
+    fake_engine.add_node.side_effect = RuntimeError("DB down")
 
     monkeypatch.setattr(
         IntelligenceGraphEngine, "get_active", staticmethod(lambda: fake_engine)

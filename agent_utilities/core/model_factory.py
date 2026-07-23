@@ -125,7 +125,6 @@ def get_model_config(model_id: str | None = None) -> dict | None:
     from agent_utilities.core.config import config
 
     _cfg = config
-    _cfg.reload()
 
     for m in getattr(_cfg, "chat_models", []):
         if m.id == model_id:
@@ -630,7 +629,7 @@ def _create_model_impl(
             else validate_base_url_resolved(target_base_url, allow_loopback=False)
         )
         if not decision.allowed:
-            raise ValueError("custom/proxy base_url rejected by egress policy")
+            raise ValueError("custom/proxy base_url rejected by egress guard")
 
         if AsyncOpenAI is not None and OpenAIProvider is not None:
             custom_client = AsyncOpenAI(

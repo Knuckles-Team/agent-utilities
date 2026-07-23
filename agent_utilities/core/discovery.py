@@ -84,6 +84,10 @@ def write_canonical_config(overwrite: bool = False) -> Path:
     config_path = config_dir() / "mcp_config.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
+    from agent_utilities.core.log_privacy import sanitize_log_text
+
+    redacted_location = sanitize_log_text(str(config_path))
+
     if config_path.exists() and not overwrite:
         # Merge: add our server entry without overwriting existing servers
         existing = json.loads(config_path.read_text(encoding="utf-8"))
@@ -92,12 +96,12 @@ def write_canonical_config(overwrite: bool = False) -> Path:
             servers.update(generate_mcp_config()["mcpServers"])
             existing["mcpServers"] = servers
             config_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
-            logger.info("Added agent-utilities-kg to existing %s", config_path)
+            logger.info("Added agent-utilities-kg to existing %s", redacted_location)
     else:
         config_path.write_text(
             json.dumps(generate_mcp_config(), indent=2), encoding="utf-8"
         )
-        logger.info("Created canonical MCP config at %s", config_path)
+        logger.info("Created canonical MCP config at %s", redacted_location)
 
     return config_path
 

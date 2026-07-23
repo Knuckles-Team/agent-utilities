@@ -184,7 +184,7 @@ def test_extract_agent_metadata_rejects_persisted_raw_demonstrations():
         }
     )
 
-    with pytest.raises(ValueError, match="raw persisted few-shot"):
+    with pytest.raises(ValueError, match="raw persisted optimizer artifacts"):
         extract_agent_metadata(blueprint)
 
 

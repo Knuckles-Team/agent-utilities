@@ -18,8 +18,15 @@ class TestTraceDistillerRLMIntegration:
     """Verify TraceDistiller routes to RLM for large trace sets."""
 
     @pytest.mark.asyncio
-    async def test_cluster_failures_uses_rlm_above_threshold(self):
-        """When failure count exceeds ahe_trace_threshold, RLM is used."""
+    async def test_cluster_failures_uses_rlm_above_threshold(self, monkeypatch):
+        """When failure count exceeds ahe_trace_threshold, RLM is used.
+
+        Threshold-based auto-triggering requires an explicit
+        ``RLM_AUTO_TRIGGER=true`` opt-in (default false — "off by default so a
+        disabled execution feature cannot auto-start", ``RLMConfig
+        .allow_auto_trigger``): exceeding the threshold alone is not enough.
+        """
+        monkeypatch.setenv("RLM_AUTO_TRIGGER", "true")
         from agent_utilities.harness.continuous_evaluation_engine import TraceDistiller
         from agent_utilities.harness.evidence_corpus import EvidenceEntry, EvidenceLayer
         from agent_utilities.harness.trace_backend import TraceBackend
@@ -103,12 +110,27 @@ class TestEvolveAgentRLMIntegration:
     """Verify EvolveAgent uses RLM for deep evidence analysis."""
 
     @pytest.mark.asyncio
-    async def test_deep_analyze_evidence_triggers_on_large_corpus(self):
-        """When evidence JSON exceeds threshold, RLM is invoked."""
+    async def test_deep_analyze_evidence_triggers_on_large_corpus(self, monkeypatch):
+        """When evidence JSON exceeds threshold, RLM is invoked.
+
+        Threshold-based auto-triggering requires an explicit
+        ``RLM_AUTO_TRIGGER=true`` opt-in (default false — "off by default so a
+        disabled execution feature cannot auto-start", ``RLMConfig
+        .allow_auto_trigger``): exceeding the threshold alone is not enough.
+        """
+        monkeypatch.setenv("RLM_AUTO_TRIGGER", "true")
+        from agent_utilities.harness.component_registry import ComponentType
         from agent_utilities.harness.evidence_corpus import EvidenceCorpus
         from agent_utilities.harness.evolve_agent import EvolveAgent
 
         agent = EvolveAgent(workspace_path=".tmp/test")
+        # A fresh registry starts empty (only populated from a prior run's
+        # persisted ``.specify/harness_registry.json``) — register the
+        # component the mocked RLM edit targets so it is not silently
+        # skipped as "unregistered".
+        agent.registry.register_component(
+            "prompts/router.md", ComponentType.SYSTEM_PROMPT, "Router prompt"
+        )
 
         # Create large evidence corpus
         evidence = EvidenceCorpus(
@@ -137,7 +159,12 @@ class TestEvolveAgentRLMIntegration:
             edits = await agent._deep_analyze_evidence(evidence)
 
             assert len(edits) == 1
-            assert edits[0].edit_summary == "Improve routing instructions"
+            # The governed edit_summary is synthesized from the component
+            # type by the source, not taken from the RLM's raw text — see
+            # ``EvolveAgent._deep_analyze_evidence``.
+            assert edits[0].edit_summary == (
+                "Governed deep analysis proposed a system_prompt change."
+            )
             MockEnv.assert_called_once()
 
     @pytest.mark.asyncio
