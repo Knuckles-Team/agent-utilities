@@ -384,6 +384,58 @@ def _check_kg_mirrors(cfg: Any) -> dict[str, Any]:
     return _ok("kg_mirrors", detail=detail)
 
 
+def _check_embedding_endpoint(cfg: Any) -> dict[str, Any]:
+    """Semantic-search embedding plane — is it on PRIMARY, failed over, or OPEN?
+
+    CONCEPT:AU-KG.retrieval.embedding-fast-fail. Read-only snapshot of the embedder
+    failover router's state (``core.embedding_failover.embedding_endpoint_status``,
+    fed by the SAME circuit breaker the query-time and bulk-ingest embed paths
+    both record into) — never does network I/O of its own, matching the
+    ``kg_mirrors``/``bundled_skills`` read-only-registry-scan convention above.
+
+    Embeddings are an OPTIONAL enhancement over the engine's mandatory keyword/
+    lexical search (CONCEPT:AU-KG.retrieval.embedding-fast-fail's fallback), so a
+    tripped breaker is reported as ``degraded`` detail, NEVER as ``unhealthy`` —
+    same "optional co-service must not pull graph-os out of Service routing"
+    rationale as ``kg_mirrors``. No secret values or endpoint URLs are included
+    (matches this module's redaction convention); only the resolved model
+    id/gpu-group and breaker state.
+    """
+    if getattr(cfg, "default_embedding_model", None) is None:
+        return _not_configured("embedding_endpoint", "no embedding model configured")
+
+    from agent_utilities.core.embedding_failover import embedding_endpoint_status
+
+    status = embedding_endpoint_status()
+    breaker_raw = status.get("primary_breaker")
+    breaker: dict[str, Any] = breaker_raw if isinstance(breaker_raw, dict) else {}
+    detail = {
+        "active_model": status.get("active_model_key"),
+        "active_gpu_group": status.get("active_gpu_group"),
+        "is_fallback": status.get("is_fallback"),
+        "fallback_configured": status.get("fallback_configured"),
+        "breaker_state": breaker.get("state"),
+        "breaker_trips": breaker.get("trips"),
+        "failover_count": status.get("failover_count"),
+        "recovery_count": status.get("recovery_count"),
+    }
+    if breaker.get("state") == "open":
+        return _degraded(
+            "embedding_endpoint",
+            "primary embedder circuit breaker is OPEN — semantic search is "
+            "degraded to keyword/lexical search until it recovers",
+            detail=detail,
+        )
+    if status.get("is_fallback"):
+        return _degraded(
+            "embedding_endpoint",
+            "embedding traffic is routed to the FALLBACK endpoint "
+            "(primary unreachable)",
+            detail=detail,
+        )
+    return _ok("embedding_endpoint", detail=detail)
+
+
 # Ordered so the mandatory check reports first; order is otherwise cosmetic.
 def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
     """Report packaged-skill readiness.
@@ -431,6 +483,7 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("stardog_mirror", _check_stardog_mirror),
     ("bundled_skills", _check_bundled_skills),
     ("kg_mirrors", _check_kg_mirrors),
+    ("embedding_endpoint", _check_embedding_endpoint),
 )
 
 

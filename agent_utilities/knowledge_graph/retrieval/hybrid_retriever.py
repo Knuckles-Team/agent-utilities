@@ -26,6 +26,68 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _EmbeddingCircuitOpenError(Exception):
+    """Sentinel: the embedding endpoint's circuit breaker is already OPEN.
+
+    CONCEPT:AU-KG.retrieval.embedding-fast-fail — raised internally so the query-time
+    embedding fast-fail path reuses the existing keyword-fallback ``except`` branch
+    below instead of duplicating it. Never escapes :meth:`HybridRetriever.retrieve_hybrid`.
+    """
+
+
+def _query_embedding_circuit_breaker() -> tuple[Any, Any]:
+    """Resolve the ACTIVE embedder endpoint + its circuit breaker, best-effort.
+
+    CONCEPT:AU-KG.retrieval.embedding-fast-fail. Mirrors the same breaker the bulk
+    ingest fan-out already feeds (``core.model_concurrency.map_concurrent_sync`` via
+    ``make_embed_fn``) so a single shared per-endpoint breaker governs BOTH bulk
+    embedding and interactive query-time embedding. Returns ``(None, None)`` on any
+    resolution failure (config unavailable, breaker disabled, ...) so callers always
+    degrade to "no breaker" rather than breaking retrieval.
+    """
+    try:
+        from agent_utilities.core.embedding_failover import active_embedding_endpoint
+        from agent_utilities.core.model_circuit_breaker import get_circuit_breaker
+
+        endpoint = active_embedding_endpoint()
+        return endpoint, get_circuit_breaker(endpoint.model_key)
+    except Exception:  # noqa: BLE001 — breaker resolution is best-effort
+        return None, None
+
+
+def _http_status_of(exc: BaseException) -> int | None:
+    """Best-effort HTTP status extraction, mirroring ``model_concurrency._status_of``
+    (duplicated rather than imported — that helper is module-private) so a failed
+    query-time embed feeds the SAME breaker signal shape the bulk ingest fan-out
+    already produces. Returns ``None`` when no status is discernible, which the
+    breaker treats as an opaque connection-level failure."""
+    for attr in ("status_code", "status", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None) if response else None
+    return status_code if isinstance(status_code, int) else None
+
+
+def _describe_embedding_failure(exc: BaseException) -> str:
+    """Render an embedding-call failure WITH its real root cause.
+
+    CONCEPT:AU-KG.retrieval.embedding-fast-fail. SDK-wrapped transport errors (e.g.
+    the OpenAI client's ``APIConnectionError``) carry a fixed, generic message
+    ("Connection error.") that discards WHY the connection failed — the actual
+    reason (DNS failure, TLS failure, or an egress-policy rejection such as
+    ``PinnedEgressViolation`` from an un-allowlisted host) survives only on
+    ``exc.__cause__`` (the SDK raises ``... from err``). Without this, an operator
+    sees an unhelpful, identical message for every distinct failure mode. Falls
+    back to ``str(exc)`` alone when there is no distinct chained cause.
+    """
+    cause = exc.__cause__
+    if cause is not None and cause is not exc and str(cause) != str(exc):
+        return f"{exc} (root cause: {type(cause).__name__}: {cause})"
+    return str(exc)
+
+
 def _parse_instant(value: Any) -> datetime | None:
     """Coerce a timestamp (ISO string or ``datetime``) to a tz-aware UTC instant.
 
@@ -450,9 +512,26 @@ class HybridRetriever:
         # no embeddings the arm is empty and we degrade to keyword search.
         base_nodes = []
         if self.embed_model and self.engine.backend:
-            # Generate query embedding
+            # Generate query embedding. CONCEPT:AU-KG.retrieval.embedding-fast-fail —
+            # resolve the ACTIVE embedder endpoint's circuit breaker first: if it is
+            # already OPEN (a prior call on this same endpoint just failed), skip the
+            # network attempt ENTIRELY instead of re-paying the connection/SDK-retry
+            # cost on every single query. This is what makes the keyword fallback
+            # IMMEDIATE once the endpoint is known-bad, rather than a silent stall on
+            # every call while semantic search is degraded.
+            _embed_endpoint, _embed_breaker = _query_embedding_circuit_breaker()
             try:
+                if _embed_breaker is not None and _embed_breaker.is_tripped():
+                    logger.debug(
+                        "embedding circuit breaker OPEN (endpoint=%s) — skipping "
+                        "semantic search and falling back to keyword immediately",
+                        _embed_endpoint.model_key if _embed_endpoint else "embedding",
+                    )
+                    raise _EmbeddingCircuitOpenError()
+
                 query_emb = self.embed_model.get_text_embedding(query)
+                if _embed_breaker is not None:
+                    _embed_breaker.record(ok=True)
 
                 threshold = (
                     relevance_threshold
@@ -492,7 +571,9 @@ class HybridRetriever:
                 # 1c. Apply Attention-Driven Context Filter (Retrieve query boost on active_task)
                 if active_task:
                     try:
-                        if self.embed_model:
+                        if self.embed_model and not (
+                            _embed_breaker is not None and _embed_breaker.is_tripped()
+                        ):
                             active_task_emb = self.embed_model.get_text_embedding(
                                 active_task
                             )
@@ -551,8 +632,15 @@ class HybridRetriever:
                     base_nodes = self.engine._search_keyword(
                         query, top_k=context_window
                     )
+            except _EmbeddingCircuitOpenError:
+                base_nodes = self.engine._search_keyword(query, top_k=context_window)
             except Exception as e:
-                logger.warning(f"Vector search failed, falling back to keyword: {e}")
+                if _embed_breaker is not None:
+                    _embed_breaker.record(ok=False, status=_http_status_of(e))
+                logger.warning(
+                    "Vector search failed, falling back to keyword: %s",
+                    _describe_embedding_failure(e),
+                )
                 base_nodes = self.engine._search_keyword(query, top_k=context_window)
         else:
             # Fallback to keyword search
