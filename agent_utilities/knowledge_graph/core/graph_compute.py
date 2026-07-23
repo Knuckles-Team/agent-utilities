@@ -2599,38 +2599,60 @@ class GraphComputeEngine:
         ]
 
     def register_materialization(self, derived_id: str) -> dict[str, Any]:
-        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        """Confirm ``derived_id`` is tracked as a live engine-side TruthMaintenance
         materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
-        across the storage boundary).
+        across the storage boundary, W3.2 TMS live-wiring).
 
-        Reaches ``Method::RegisterMaterialization`` via
-        ``client.query.register_materialization`` — the engine reads
-        ``derived_id``'s OWN already-stored provenance (its ``invalidation_deps``
-        property plus any outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a
-        dependency set and tracks it on its process-global truth-maintenance index.
-        Call this ONCE, right after writing a derived node (a mined claim, a
-        computed capability index entry, ...) plus its provenance edges — from then
-        on, ANY committed change to a dependency (through the normal write path)
-        automatically marks this materialization stale, with no further action
-        needed here. Returns ``{"id", "depends_on", "generating_activity"}`` — the
-        dependency set the engine actually resolved, never fabricated client-side;
-        an empty ``depends_on`` means the node carried no recognized provenance
-        (a legitimate answer, not an error). Requires an engine built with the
-        ``epistemic-tms`` feature (opt-in, not part of ``full``); on a build
-        without it the call raises a clear engine error — callers writing a
-        derived artifact should treat this as best-effort, the same posture as
-        every other write-path audit overlay in this codebase.
+        There is no ``Method::RegisterMaterialization`` wire call — registration
+        is IMPLICIT and automatic: the engine's durable reasoning-projection
+        worker (``reasoning_projection::spawn``) tails the committed mutation
+        outbox and, for every ``AddNode``, reads that node's OWN ``invalidation_deps``
+        property; for every ``AddEdge``, recognizes an outgoing ``:DerivedFrom``/
+        ``:GeneratedBy`` relationship — either channel alone is enough to register a
+        dependency set on the engine's process-global truth-maintenance index, the
+        SAME contract ``eg_epistemic::register_from_provenance`` documents. So the
+        real "registration path at write time" is simply: write the derived node
+        with ``invalidation_deps`` in its properties, or write a ``:DerivedFrom``/
+        ``:GeneratedBy`` edge to each base fact — no further call is required here.
+
+        This method is a thin, best-effort READBACK that confirms the CURRENT
+        projected status via :meth:`materialization_status` (the ONE real query
+        this contract exposes) — because the projection worker applies
+        asynchronously, calling this immediately after the write may still see
+        ``None`` (not yet visible) even though registration lands moments later.
+        Returns ``{"id", "status"}``; never fabricated client-side. Requires an
+        engine build with the epistemic TMS surface (in the main ``full`` build).
         """
-        return self._client.query.register_materialization(derived_id) or {}
+        return {"id": derived_id, "status": self.materialization_status(derived_id)}
 
     def materialization_status(self, id: str) -> str | None:
         """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
         never registered) of a materialization tracked on the SAME index
-        :meth:`register_materialization` writes to (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3).
+        :meth:`register_materialization` reads from (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3).
         Read-only — does not itself recompute anything. Requires an engine built
-        with the ``epistemic-tms`` feature (opt-in, not part of ``full``)."""
+        with the epistemic TMS surface (in the main ``full`` build)."""
         result = self._client.query.materialization_status(id) or {}
         return result.get("status") if isinstance(result, dict) else None
+
+    def stale_materializations(self) -> list[str]:
+        """Every opaque materialization reference CURRENTLY ``Stale`` in this
+        graph's durable reasoning projection (CONCEPT:EG-KG.epistemic.truth-maintenance,
+        Seam 3 follow-up — "give staleness a consumer", W3.2).
+
+        Reaches ``Method::StaleMaterializations`` via
+        ``client.query.stale_materializations``. The returned ids are the
+        engine's own privacy-safe, hashed projection identities — NOT the
+        original graph ids — so this is a cheap "is anything stale at all"
+        gate; a caller that needs to know WHICH known artifact went stale must
+        still probe each candidate id individually via
+        :meth:`materialization_status` (which accepts a real id and hashes it
+        internally for the lookup). Requires an engine built with the epistemic
+        TMS surface (in the main ``full`` build)."""
+        result = self._client.query.stale_materializations() or {}
+        if not isinstance(result, dict):
+            return []
+        ids = result.get("ids", [])
+        return [str(ref) for ref in ids] if isinstance(ids, list) else []
 
     def match_ontology_terms(self, query: str) -> list[dict[str, Any]]:
         """Embedding-free lexical capability gate via the engine (CONCEPT:EG-ORCH.routing.lexical-capability-escalation).

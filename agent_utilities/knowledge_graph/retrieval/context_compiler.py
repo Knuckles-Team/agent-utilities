@@ -1079,7 +1079,48 @@ class ContextCompiler:
                     cache_key,
                     stored,
                 )
+                if stored:
+                    self._register_bundle_materialization(bundle, cache_key)
         return bundle
+
+    def _register_bundle_materialization(
+        self, bundle: ContextBundle, cache_key: str
+    ) -> None:
+        """Seam 3 (CONCEPT:EG-KG.epistemic.truth-maintenance, W3.2 TMS live-wiring)
+        — register a bundle that just landed in the KV cache as a live
+        TruthMaintenance materialization, so a later change to any evidence it
+        cites marks it stale (consumed by the ``tms_revalidation`` maintenance
+        task, which drops a stale bundle from the cache).
+
+        Only called after a successful KV-cache store — an ephemeral,
+        in-memory-only bundle (no ``kv_backend``, or a miss that never
+        persisted) has nothing durable to invalidate, so it is never
+        registered. Writes ONE marker node keyed by the SAME ``cache_key`` the
+        KV layer already uses, with ``invalidation_deps`` (the engine's
+        node-property provenance channel) set to the bundle's own cited
+        evidence ids — a single fresh ``add_node`` upsert, no follow-up edges
+        needed. Best-effort: a bare retrieval-only engine with no graph write
+        surface (no ``add_node``), or a write failure, degrades to a no-op.
+        """
+        add_node = getattr(self.engine, "add_node", None)
+        if not callable(add_node):
+            return
+        evidence_ids = sorted({c.node_id for c in bundle.citations if c.node_id})
+        if not evidence_ids:
+            return
+        try:
+            add_node(
+                f"context_bundle:{cache_key}",
+                "ContextBundleMaterialization",
+                properties={"invalidation_deps": evidence_ids, "cache_key": cache_key},
+            )
+        except Exception as exc:  # noqa: BLE001 — registration is a best-effort audit overlay
+            logger.debug(
+                "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] bundle "
+                "materialization registration failed for cache_key=%s: %s",
+                cache_key,
+                exc,
+            )
 
     # ------------------------------------------------------------------
     # Proof graph

@@ -82,6 +82,7 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "reconcile_mirrors",
         "sai_factory",
         "tenant_gc",
+        "tms_revalidation",
         "usage_log_sync",
         "usage_pricing_refresh",
         "warm_parent_reap",

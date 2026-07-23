@@ -348,6 +348,10 @@ _EMBED_BACKFILL_FETCH = 512
 # PerformanceAnomaly consumer cadence (CONCEPT:AU-AHE.optimization.performance-anomaly-consumer): a bounded, LLM-free
 # scan, so a fixed moderate interval suffices — no env knob needed.
 _ANOMALY_CONSUMER_INTERVAL = 900.0
+# TMS staleness consumer cadence (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 follow-up, W3.2): a bounded,
+# LLM-free scan of the engine's own durable reasoning projection — a fixed
+# moderate interval suffices, no env knob needed.
+_TMS_REVALIDATION_INTERVAL = 300.0
 
 # Background-daemon cadences (config discipline): each has
 # one correct default and no per-host correctness requirement, so they are named
@@ -1201,6 +1205,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             _ANOMALY_CONSUMER_INTERVAL,
             enabled=_cfg.kg_anomaly_consumer,
         )
+        # TMS staleness consumer (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3
+        # follow-up, W3.2) — bounded, LLM-free, propose-only; native by default,
+        # like ``compaction``/``evolution`` below (no config flag needed).
+        _maint("tms_revalidation", "tms_revalidation", _TMS_REVALIDATION_INTERVAL)
         _maint(
             "fuseki_publish",
             "fuseki_publish",
@@ -2352,6 +2360,32 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.error("anomaly_consumer tick error: %s", e)
+
+    def _tick_tms_revalidation(self) -> None:
+        """Revalidate every TMS materialization the engine has marked stale.
+
+        One bounded consumer pass (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3
+        follow-up, W3.2): reads the engine's durable ``stale_materializations``
+        projection, and for each stale mined claim / capability-index entry /
+        cached context bundle, routes to that owner's re-validation action —
+        propose a ``:BeliefRevisionProposal`` for a claim (never mutates the
+        claim itself), evict a capability-index cache row, or drop a context
+        bundle from the KV cache. Stateless and propose-only; on by default,
+        background priority.
+        """
+        try:
+            from ..adaptation.tms_revalidation import revalidate_stale_materializations
+
+            report = revalidate_stale_materializations(self)
+            if report.get("stale"):
+                logger.info(
+                    "TMS revalidation: scanned=%s stale=%s revalidated=%s",
+                    report.get("scanned"),
+                    report.get("stale"),
+                    report.get("revalidated"),
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.error("tms_revalidation tick error: %s", e)
 
     def _tick_scheduler(self) -> None:
         """Evaluate every durable ``:Schedule`` and ENQUEUE the jobs that are due.

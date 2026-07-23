@@ -962,7 +962,7 @@ class _TmsAwareCycleStubEngine(_CycleStubEngine):
         deps = {
             target
             for source, target, props in self.edges
-            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+            if source == derived_id and props.get("rel_type") == "DERIVED_FROM"
         }
         self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
         return {

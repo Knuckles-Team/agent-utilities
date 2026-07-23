@@ -369,8 +369,8 @@ class _TmsAwareFlywheelEngine(_FlywheelStubEngine):
     def register_materialization(self, derived_id: str) -> dict[str, Any]:
         deps = {
             target
-            for source, target, _rel_type, props in self.edges
-            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+            for source, target, rel_type, _props in self.edges
+            if source == derived_id and rel_type == "DERIVED_FROM"
         }
         self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
         return {

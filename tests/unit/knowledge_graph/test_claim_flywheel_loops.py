@@ -157,8 +157,8 @@ def test_ontology_gap_claim_accepts_materializes_and_feeds_outcome(monkeypatch):
     # mined source_ids (the SAME src/dst the predicted edge itself connects).
     derived_from = {
         (s, d)
-        for s, d, _, props in eng.edges
-        if s == claim_id and props.get("relationship_type") == "DERIVED_FROM"
+        for s, d, rel_type, _props in eng.edges
+        if s == claim_id and rel_type == "DERIVED_FROM"
     }
     assert derived_from == {
         (claim_id, "concept:mining"),
@@ -196,9 +196,7 @@ def test_predicted_edge_not_promoted_stays_out_of_materialize_path():
     # The propose-time `:DerivedFrom` provenance edges (X-6 / Seam 3) still land
     # regardless -- unconditional, unrelated to promotion.
     assert {
-        (s, d)
-        for s, d, _, props in eng.edges
-        if props.get("relationship_type") == "DERIVED_FROM"
+        (s, d) for s, d, rel_type, _props in eng.edges if rel_type == "DERIVED_FROM"
     } == {
         (claim_id, "concept:mining"),
         (claim_id, "concept:calibration"),

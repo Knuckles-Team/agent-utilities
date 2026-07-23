@@ -8,6 +8,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **TMS live-wiring completion — Seam 3 closes the loop (W3.2, CONCEPT:EG-KG.epistemic.truth-maintenance).**
+  The surpass-6mo audit (`reports/surpass-6mo/01-eg-epistemic-core.md` item 2)
+  found the engine's truth-maintenance auto-registration real and shipped
+  (a durable, always-on reasoning-projection worker registers a materialization
+  the moment a derived node/edge carries recognized provenance —
+  `invalidation_deps` or a `:DerivedFrom`/`:GeneratedBy` edge — no wire RPC
+  needed) but the AU side never actually reached it. Two concrete, previously
+  undetected bugs are fixed: `candidate_insight.register_claim_materialization`
+  and `capability_designation._register_capability_reward_materialization`
+  both called `engine.add_edge(a, b, relationship_type="DERIVED_FROM")` — a
+  keyword name the real `KnowledgeGraphEngine.add_edge` has always rejected as
+  a retired alias (it requires `rel_type` positionally) — so the provenance
+  edges meant to trigger auto-registration were never actually written; every
+  existing unit test used its own loosely-typed stub that happened to accept
+  the wrong keyword, masking it completely. `GraphComputeEngine.
+  register_materialization` separately called a `Method::RegisterMaterialization`
+  wire method that has never existed on the engine protocol or client — every
+  real call silently raised `AttributeError`, caught by every caller's
+  best-effort `except Exception`. Both are now fixed: the two producers write
+  `DERIVED_FROM` edges with the real calling convention, and
+  `register_materialization` is a thin, honest readback of
+  `materialization_status` (the real wire method) instead of a phantom RPC.
+  A third producer is newly wired: `ContextCompiler._register_bundle_
+  materialization` registers a compiled context bundle (via a lightweight
+  `ContextBundleMaterialization` marker node carrying `invalidation_deps` =
+  its own cited evidence ids) the moment it is actually persisted beyond the
+  request (a successful KV-cache store) — an ephemeral, uncached bundle is
+  never registered. Staleness finally has a consumer: a new `tms_revalidation`
+  scheduled maintenance task (`knowledge_graph/adaptation/tms_revalidation.py`,
+  background priority, on by default, bounded per tick, fully stateless — it
+  re-reads the engine's durable `stale_materializations`/`materialization_status`
+  from scratch every tick, so nothing AU-side needs its own persistence) reads
+  the engine's stale-materialization set as a cheap gate, then probes a
+  bounded candidate set per owner kind and routes each genuinely stale
+  artifact to its owner: a mined claim proposes a NEW `:BeliefRevisionProposal`
+  node (propose-only — the claim itself is never mutated), a capability-index
+  entry is evicted from the process-local designation cache, and a context
+  bundle is dropped from the KV cache and its marker node retired
+  (`Retracted`, so it never re-surfaces). New client-side wrapper:
+  `GraphComputeEngine`/`KnowledgeGraphEngine.stale_materializations()`
+  (mirrors `materialization_status`). New read accessor
+  `contextual_model.get_context_compiler_cache()` (counterpart to the existing
+  `set_context_compiler_cache`) lets the revalidation task reach the same
+  KV-cache backend `compile_model_context` writes bundles into. Everything is
+  best-effort throughout: an absent or denied engine surface degrades to a
+  logged skip, never a raised exception on a producer's write path. The SAME
+  broken `add_edge(relationship_type=...)` calling convention also appears
+  (unfixed, out of this change's scope) in `assimilation/feature_matrix.py`
+  and `research/skill_evolution.py` — flagged for a follow-up.
 - **`graph_ops_causal` findings become citable, revisable Claims (`as_claim`, W3.5).**
   `root_cause`/`blast_radius` gain an opt-in `as_claim=true` parameter: the
   call's finding is proposed through the SAME governed `ClaimFlywheel`
