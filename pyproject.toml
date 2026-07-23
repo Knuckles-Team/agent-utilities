@@ -111,6 +111,19 @@ kafka = [
 metrics = [
     "prometheus-client>=0.25.0"
 ]
+# CONCEPT:AU-OS.observability.telemetry-observability (OBS-P1-2/X2) — standalone OTLP
+# trace export. `TelemetryEngine._setup_otel()` (observability/__init__.py) and the
+# engine-RPC span in `knowledge_graph/core/graph_compute.py` import-guard these two
+# packages, so the base install/`[mcp]`/`[serving]` stay unaffected without this extra.
+# `[logfire]` already carries `opentelemetry-sdk` + this same OTLP/HTTP exporter
+# transitively (for the Logfire+pydantic-ai-instrumentation pipeline in
+# `custom_observability.py`) — this extra is for a deployment that wants ONLY the
+# standard OTel SDK + OTLP/HTTP exporter (e.g. a plain k8s Tempo/Alloy collector)
+# without pulling Logfire's heavier dependency chain.
+otel = [
+    "opentelemetry-sdk>=1.30.0,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2",
+]
 nats = [
     "nats-py>=2.15.0"
 ]

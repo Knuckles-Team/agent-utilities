@@ -4,6 +4,7 @@
 # CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw - Engine-authoritative tenant partition placement
 
 import contextlib
+import functools
 import hashlib
 import json
 import logging
@@ -16,6 +17,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from agent_utilities.core.config import setting
+
+try:
+    from opentelemetry import trace as _otel_trace
+except ImportError:  # pragma: no cover - exercised by the OTel-absent import-guard test
+    _otel_trace = None
 
 logger = logging.getLogger(__name__)
 
@@ -296,6 +302,62 @@ _CLIENT_NAMESPACES: tuple[str, ...] = (
 )
 
 
+def _traced_rpc(func: Any) -> Any:
+    """Wrap :meth:`_SessionRoutedAsyncClient._send` with one OTel span per engine RPC.
+
+    CONCEPT:AU-OS.observability.telemetry-observability (X2) — ``_send`` is the SOLE
+    choke point every engine RPC funnels through: the explicit service-level methods
+    below (``ping``/``health``/``checkpoint``/...) AND every dynamically-dispatched
+    namespace method (Cypher, ``add_node``/``add_edge``, ...), since each namespace
+    object is constructed with a ``_SessionRoutedAsyncClient`` instance as its own
+    client and calls back into this ``_send``. The sync client view
+    (:func:`_sync_client_view`) is backed by the SAME instance via a background
+    loop/thread, so this one wrapper covers both sync and async callers.
+
+    Span attributes are ``engine.method`` (the wire RPC name, e.g.
+    ``"ApplyChangeEnvelope"``) and ``engine.graph`` (the target graph name)
+    ONLY — never ``params``, which may carry row content or secrets.
+
+    Routes through whatever ``TracerProvider`` is globally registered
+    (:class:`agent_utilities.observability.TelemetryEngine` sets one when OTel
+    export is configured) rather than a locally-created tracer — a clean,
+    near-zero-overhead no-op when nothing is configured. When the
+    ``opentelemetry`` API itself is not installed, ``_send`` is returned
+    UNCHANGED — zero wrapper indirection on the hot path.
+    """
+    if _otel_trace is None:
+        return func
+
+    @functools.wraps(func)
+    async def _send_traced(
+        self: Any,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        tracer = _otel_trace.get_tracer(
+            "agent_utilities.knowledge_graph.core.graph_compute"
+        )
+        resolved_graph = str(
+            graph
+            or getattr(self, "_fixed_graph", None)
+            or getattr(self, "_graph_name", None)
+            or ""
+        )
+        with tracer.start_as_current_span(f"engine.{method}") as span:
+            if span.is_recording():
+                span.set_attribute("engine.method", str(method))
+                if resolved_graph:
+                    span.set_attribute("engine.graph", resolved_graph)
+            return await func(
+                self, method, params, graph, idempotency_key=idempotency_key
+            )
+
+    return _send_traced
+
+
 class _SessionRoutedAsyncClient:
     """A zero-connection view over one async engine transport.
 
@@ -400,6 +462,7 @@ class _SessionRoutedAsyncClient:
         finally:
             await redirected.close()
 
+    @_traced_rpc
     async def _send(
         self,
         method: str,

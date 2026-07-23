@@ -250,6 +250,21 @@ async def run_agent(
         run_id,
         task,
     )
+    # CONCEPT:AU-OS.observability.telemetry-observability (X2) — one OTel span per
+    # run_agent execution, closed by _record_execution_trace on EVERY exit path
+    # (success/degraded/failed/enterprise). Best-effort: OTel unconfigured (the
+    # default) makes this a clean no-op, never affects the run.
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().on_graph_start(
+            run_id=run_id, agent_id=agent_name, query=task
+        )
+    except Exception as exc:  # noqa: BLE001 — tracing must never break a run
+        logger.debug(
+            "run_agent: OTel span start skipped (exception_type=%s)",
+            type(exc).__name__,
+        )
 
     # Step 1: Resolve engine
     engine = engine or _get_or_create_engine()
@@ -657,6 +672,7 @@ async def run_agent(
             skill_instruction_digest=_skill_instruction_digest,
             model_ref=_model_ref,
             model_class=_model_class,
+            model_name=str(config.get("agent_model") or ""),
         )
         # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
         # (a correct step in a failed trajectory must not be penalized).
@@ -707,6 +723,12 @@ async def run_agent(
         skill_instruction_digest=_skill_instruction_digest,
         model_ref=_model_ref,
         model_class=_model_class,
+        model_name=str(config.get("agent_model") or ""),
+        tool_call_count=(
+            len(result["tool_calls"])
+            if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
+            else None
+        ),
     )
     # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
     # node on this run's RunTrace, so the delegated action is fully visible over
@@ -2132,6 +2154,8 @@ def _record_execution_trace(
     skill_instruction_digest: str = "",
     model_ref: str = "",
     model_class: str = "",
+    model_name: str = "",
+    tool_call_count: int | None = None,
 ) -> None:
     """Record an execution trace in the KG for auditability.
 
@@ -2142,7 +2166,32 @@ def _record_execution_trace(
     drove the run, opaque ``skill_ref``/``server_ref`` properties identify the
     attribution class and a ``USES_SKILL`` edge is written (CONCEPT:AU-ORCH.execution.skill-utilization-provenance)
     so "which runs used skill X, and what tools did it drive" is a single traversal.
+
+    ``model_name``/``tool_call_count`` are OTel-only (X2): unlike ``model_ref``
+    (an opaque reference persisted onto the KG ``RunTrace`` node below),
+    ``model_name`` is the plain model identifier stamped onto the run's OTel
+    span as ``gen_ai.request.model`` — never written to the graph.
     """
+    # This is every exit path of run_agent's dispatch (success/degraded/failed/
+    # enterprise) — closing the run's OTel span HERE (before the ``engine``
+    # guard below) guarantees the span :meth:`on_graph_start` opened is always
+    # closed, independent of whether the KG write that follows runs at all.
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        get_telemetry_engine().on_graph_end(
+            run_id=run_id,
+            status=status,
+            duration_ms=float(duration_ms or 0.0),
+            model=model_name,
+            tool_call_count=tool_call_count,
+        )
+    except Exception as exc:  # noqa: BLE001 — tracing must never break a run
+        logger.debug(
+            "run_agent: OTel span end skipped (exception_type=%s)",
+            type(exc).__name__,
+        )
+
     if not engine:
         return
 

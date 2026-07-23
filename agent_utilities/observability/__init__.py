@@ -61,6 +61,25 @@ _STATUS_VALUES = frozenset(
         "unknown",
     }
 )
+#: The DERIVED epistemic-status vocabulary :func:`~agent_utilities.knowledge_graph.
+#: core.epistemic_row.epistemic_status` returns — distinct from ``_STATUS_VALUES``
+#: (run/graph-execution status). Sharing one validator/frozenset between the two
+#: silently collapsed every real ``epistemic.status`` span attribute to
+#: ``"unresolved"`` (the epistemic default), since none of "confirmed"/"contested"/
+#: "low_confidence" are run-status values (X2 gap-fill).
+_EPISTEMIC_STATUS_VALUES = frozenset(
+    {
+        "confirmed",
+        "contested",
+        "low_confidence",
+        "unresolved",
+    }
+)
+#: ``OTEL_TRACES_EXPORTER`` values that mean "export traces" — the OTel spec
+#: default is ``"otlp"``; any other explicit value (most commonly ``"none"``)
+#: disables trace export even when an endpoint resolves, matching the standard
+#: SDK's own env-based auto-configuration.
+_OTEL_TRACES_EXPORTERS_ENABLED = frozenset({"otlp"})
 
 
 def _telemetry_ref(kind: str, value: Any) -> str:
@@ -75,8 +94,37 @@ def _status_label(value: Any) -> str:
     return normalized if normalized in _STATUS_VALUES else "unknown"
 
 
+def _epistemic_status_label(value: Any) -> str:
+    normalized = str(value or "unresolved").strip().lower()
+    return normalized if normalized in _EPISTEMIC_STATUS_VALUES else "unresolved"
+
+
+def _traces_exporter_disabled() -> bool:
+    """Whether the standard ``OTEL_TRACES_EXPORTER`` var explicitly disables export.
+
+    Unset (the default) preserves current behavior — export is governed purely by
+    endpoint presence. An explicit value that names no ``otlp`` exporter (e.g. the
+    standard ``"none"``, or any other non-"otlp" exporter this engine does not
+    implement) is a hard opt-out, even when a collector endpoint resolves.
+    """
+
+    raw = str(setting("OTEL_TRACES_EXPORTER", "") or "").strip().lower()
+    if not raw:
+        return False
+    requested = {part.strip() for part in raw.split(",") if part.strip()}
+    return not (requested & _OTEL_TRACES_EXPORTERS_ENABLED)
+
+
 def _resolve_otel_endpoint() -> str:
-    """Resolve the canonical OTLP endpoint, preferring the engine collector."""
+    """Resolve the canonical OTLP endpoint, preferring the engine collector.
+
+    Purely standard-env-var driven: ``OTEL_TRACES_EXPORTER`` set to anything
+    other than ``"otlp"`` (e.g. ``"none"``) is a hard kill-switch, checked
+    before either endpoint setting resolves.
+    """
+
+    if _traces_exporter_disabled():
+        return ""
 
     from agent_utilities.observability.custom_observability import (
         _resolve_otel_endpoint as resolve_runtime_otel_endpoint,
@@ -366,6 +414,12 @@ class TelemetryEngine:
                         "run_ref": run_ref,
                         "agent_ref": agent_ref,
                         "query_length": len(query),
+                        # gen_ai semantic conventions (X2): this span covers one
+                        # ``run_agent`` execution, mediated end-to-end by pydantic-ai —
+                        # the invariant "which framework" fact, set once at span-open;
+                        # per-call facts (model/tokens/tool-call count) land at
+                        # :meth:`on_response`/:meth:`on_graph_end` as they become known.
+                        "gen_ai.system": "pydantic_ai",
                     },
                 )
                 span = span_cm.__enter__()
@@ -384,8 +438,36 @@ class TelemetryEngine:
         model: str = "",
         **metadata: Any,
     ) -> None:
-        """Record token usage from an LLM response."""
+        """Record token usage from an LLM response.
+
+        In addition to the token-tracker record and the ``token_counter``
+        metric (both keyed by opaque refs, unchanged), this stamps the
+        gen_ai semantic-convention token/model attributes onto the run's own
+        active span (opened by :meth:`on_graph_start`) when one is tracked —
+        ``gen_ai.request.model`` (the plain model identifier — a name, not a
+        secret) and ``gen_ai.usage.input_tokens``/``gen_ai.usage.
+        output_tokens`` (counts). Best-effort: a run with no tracked span
+        (OTel unconfigured, or called outside ``on_graph_start``/``on_graph_end``)
+        skips span stamping and still records the metric/tracker as before.
+        """
         self._lazy_init()
+        span = self._active_spans.get(run_id)
+        if span is not None and usage:
+            try:
+                if model:
+                    span.set_attribute("gen_ai.request.model", model)
+                input_tokens = usage.get("prompt", 0)
+                if input_tokens:
+                    span.set_attribute("gen_ai.usage.input_tokens", int(input_tokens))
+                output_tokens = usage.get("response", 0)
+                if output_tokens:
+                    span.set_attribute("gen_ai.usage.output_tokens", int(output_tokens))
+            except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+                logger.debug(
+                    "TelemetryEngine: gen_ai span attribute set failed "
+                    "(exception_type=%s)",
+                    type(exc).__name__,
+                )
         if self._token_tracker and usage:
             try:
                 from .token_tracker import TokenUsageRecord
@@ -424,9 +506,19 @@ class TelemetryEngine:
         run_id: str,
         status: str = "success",
         duration_ms: float = 0.0,
+        *,
+        model: str = "",
+        tool_call_count: int | None = None,
         **metadata: Any,
     ) -> None:
-        """Record the end of a graph execution."""
+        """Record the end of a graph execution.
+
+        ``model`` and ``tool_call_count`` are optional gen_ai attrs stamped
+        onto the run's span BEFORE it closes (an ended span rejects further
+        attributes) — the caller passes whatever it has: a run that never
+        resolved a model, or whose tool calls weren't tallied, simply omits
+        them (X2 "tokens/tool-call count if available").
+        """
         self._lazy_init()
         run_ref = _telemetry_ref("run", run_id)
         status_label = _status_label(status)
@@ -460,6 +552,12 @@ class TelemetryEngine:
             try:
                 span.set_attribute("status", status_label)
                 span.set_attribute("duration_ms", duration_ms)
+                if model:
+                    span.set_attribute("gen_ai.request.model", model)
+                if tool_call_count is not None:
+                    span.set_attribute(
+                        "gen_ai.response.tool_call_count", int(tool_call_count)
+                    )
             except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
                     "TelemetryEngine: span attribute set failed (exception_type=%s)",
@@ -499,6 +597,16 @@ class TelemetryEngine:
         (the model that produced/consumed the read, source count as a rough
         analogue of ``gen_ai.response.*``).
 
+        ``status`` is the DERIVED epistemic-status vocabulary (``"confirmed"``/
+        ``"contested"``/``"low_confidence"``/``"unresolved"`` — see
+        :func:`~agent_utilities.knowledge_graph.core.epistemic_row.
+        epistemic_status`), validated against ``_EPISTEMIC_STATUS_VALUES`` — a
+        DIFFERENT vocabulary from :meth:`on_graph_end`'s run/execution status.
+        ``policy_labels`` and ``model`` are stamped as their plain values
+        (controlled-vocabulary tags and a model identifier respectively — names,
+        not secrets or row content), following ``gen_ai.request.model`` semconv
+        literally so a generic gen_ai dashboard/APM can key on it.
+
         Default-on wherever ANY OTel pipeline is already active — this
         engine's OWN provider (:meth:`_setup_otel`), the separate Logfire/
         ``custom_observability.setup_otel()`` pipeline this package also
@@ -519,22 +627,20 @@ class TelemetryEngine:
             if confidence is not None:
                 span.set_attribute("epistemic.confidence", float(confidence))
             if status is not None:
-                span.set_attribute("epistemic.status", _status_label(status))
+                span.set_attribute("epistemic.status", _epistemic_status_label(status))
             if contradiction_count is not None:
                 span.set_attribute(
                     "epistemic.contradiction_count", int(contradiction_count)
                 )
             if policy_labels is not None:
                 span.set_attribute(
-                    "epistemic.policy_label_refs",
-                    [_telemetry_ref("policy", label) for label in policy_labels[:32]],
+                    "epistemic.policy_labels",
+                    [str(label) for label in policy_labels[:32]],
                 )
             if source_count is not None:
                 span.set_attribute("gen_ai.response.source_count", int(source_count))
             if model:
-                span.set_attribute(
-                    "gen_ai.request.model_ref", _telemetry_ref("model", model)
-                )
+                span.set_attribute("gen_ai.request.model", str(model))
         except Exception as exc:  # noqa: BLE001 — tracing must never break a read
             logger.debug(
                 "TelemetryEngine: epistemic span annotation failed (exception_type=%s)",

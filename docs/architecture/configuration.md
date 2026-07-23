@@ -486,8 +486,10 @@ series themselves are catalogued in [`../reference/metrics.md`](../reference/met
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `ENABLE_OTEL` | `false` | OpenTelemetry tracing |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `None` | OTLP collector endpoint |
+| `ENABLE_OTEL` | `false` | OpenTelemetry tracing (the Logfire/Langfuse pipeline, `custom_observability.setup_otel`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `None` | OTLP collector endpoint — also the standard-env-var trigger for `TelemetryEngine`'s standalone OTLP pipeline (X2; `[otel]` extra), independent of `ENABLE_OTEL` |
+| `OTEL_SERVICE_NAME` | package name | OTel resource `service.name` (both OTel pipelines) |
+| `OTEL_TRACES_EXPORTER` | `otlp` | Standard OTel var; `TelemetryEngine` treats any value that isn't (or doesn't include) `otlp` — e.g. `none` — as a hard kill-switch, even when an endpoint resolves |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `None` | OTLP headers |
 | `OTEL_EXPORTER_OTLP_PUBLIC_KEY` / `OTEL_EXPORTER_OTLP_SECRET_KEY` | `None` | OTLP keypair (Langfuse-style basic auth) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` | OTLP protocol |

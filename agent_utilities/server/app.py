@@ -218,6 +218,27 @@ def build_agent_app(
                 protocol=otel_protocol,
             )
 
+        # CONCEPT:AU-OS.observability.telemetry-observability (X2) — the standard-env-var
+        # OTLP pipeline (TelemetryEngine) is independent of the ``ENABLE_OTEL``-gated
+        # Logfire/Langfuse pipeline above: it self-gates purely on
+        # OTEL_EXPORTER_OTLP_ENDPOINT/OTEL_SERVICE_NAME/OTEL_TRACES_EXPORTER (falling
+        # back to EPISTEMIC_GRAPH_OBS_ADDR), so it is triggered unconditionally here —
+        # this app-construction call is the ONE gateway-side bootstrap site, never
+        # per-request setup.
+        try:
+            from agent_utilities.observability import get_telemetry_engine
+
+            configured = get_telemetry_engine().is_otel_configured()
+            logger.info(
+                "Gateway OTLP trace export (standard env vars): %s",
+                "enabled" if configured else "disabled",
+            )
+        except Exception as exc:  # noqa: BLE001 - observability cannot prevent serving
+            logger.warning(
+                "Gateway TelemetryEngine OTel setup failed (exception_type=%s)",
+                type(exc).__name__,
+            )
+
         identity_meta = load_identity()
         _agent_description = identity_meta.get("description", DEFAULT_AGENT_DESCRIPTION)
         _agent_emoji = identity_meta.get("emoji", "🤖")

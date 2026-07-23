@@ -735,6 +735,24 @@ class AgentOrchestrationEngine:
                     type(_ur_exc).__name__,
                 )
 
+            # --- OTel gen_ai span attrs (CONCEPT:AU-OS.observability.telemetry-observability, X2) ---
+            # Reuses the SAME ``_rt_usage``/``_rt_model`` this block already extracted
+            # for the usage recorder above — stamps them onto run_agent's own span
+            # (opened by ``on_graph_start`` in ``agent_runner.run_agent``) as
+            # ``gen_ai.request.model``/``gen_ai.usage.*``. Best-effort; a run with no
+            # tracked span (OTel unconfigured) is a clean no-op.
+            try:
+                from ..observability import get_telemetry_engine
+
+                get_telemetry_engine().on_response(
+                    run_id=run_id, usage=_rt_usage, model=_rt_model
+                )
+            except Exception as _otel_exc:  # noqa: BLE001 — tracing must never crash a run
+                logger.debug(
+                    "run_graph_otel_response_skipped error_type=%s",
+                    type(_otel_exc).__name__,
+                )
+
         if isinstance(result, GraphResponse):
             result.mermaid = mermaid_prefix if mermaid_prefix else None
             result.metadata.update({"run_id": run_id, "domain": state.routed_domain})

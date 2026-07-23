@@ -3710,6 +3710,32 @@ def _configure_graphos_otel() -> None:
         )
 
 
+def _configure_telemetry_engine_otel() -> None:
+    """Eagerly start the standard-env-var OTLP trace pipeline (X2).
+
+    CONCEPT:AU-OS.observability.telemetry-observability — independent of
+    ``_configure_graphos_otel``'s ``ENABLE_OTEL``-gated Logfire/Langfuse
+    pipeline: :class:`~agent_utilities.observability.TelemetryEngine` self-gates
+    purely on the standard ``OTEL_EXPORTER_OTLP_ENDPOINT``/``OTEL_SERVICE_NAME``/
+    ``OTEL_TRACES_EXPORTER`` vars (falling back to ``EPISTEMIC_GRAPH_OBS_ADDR``),
+    so no new env var is introduced here. This is the ONE process-bootstrap
+    call site that activates it for the graph-os MCP server — never per-request.
+    """
+    try:
+        from agent_utilities.observability import get_telemetry_engine
+
+        configured = get_telemetry_engine().is_otel_configured()
+        logger.info(
+            "GraphOS OTLP trace export (standard env vars): %s",
+            "enabled" if configured else "disabled",
+        )
+    except Exception as exc:  # noqa: BLE001 - observability cannot prevent serving
+        logger.warning(
+            "GraphOS TelemetryEngine OTel setup failed (exception_type=%s)",
+            type(exc).__name__,
+        )
+
+
 def mcp_server() -> None:
     """``graph-os`` MCP server entry point (registered as console_scripts).
 
@@ -3725,6 +3751,7 @@ def mcp_server() -> None:
 
     load_config()  # resolve settings through the one shared XDG config.json
     _configure_graphos_otel()
+    _configure_telemetry_engine_otel()
     os.environ["IS_KG_SERVER"] = "true"
     args, mcp, middlewares = _build_server()
 
