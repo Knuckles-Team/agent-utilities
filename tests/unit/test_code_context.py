@@ -108,7 +108,13 @@ class FakeEngine:
 
 @pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_normalize_path_folds_au_mount():
-    assert normalize_path(_AU) == _CANON
+    # CONCEPT:AU-KG.retrieval.every-usage-published-symbol — the ``/au/`` mount alias folds
+    # to a portable ``repo://`` URI (host-independent), not a homelab-specific
+    # absolute path.
+    assert (
+        normalize_path(_AU)
+        == "repo://agent-utilities/agent_utilities/orchestration/engine.py"
+    )
     assert normalize_path(_CANON) == _CANON
     assert normalize_path("") == ""
 

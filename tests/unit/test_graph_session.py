@@ -93,7 +93,12 @@ def test_bound_session_is_the_only_resolvable_authority():
 
 
 def test_current_session_contextvar_propagation():
-    ctx = _fresh()
+    # A genuinely blank context (not ``_fresh()``/copy_context()) — the suite's
+    # own autouse ``isolate_graph_compute_engine`` fixture binds a verified
+    # ambient session for every test, so a *copy* of the running context would
+    # inherit it; this test's starting-state assertion needs a context with no
+    # contextvar values at all, matching ``test_graph_session_enforcement_is_invariant``.
+    ctx = contextvars.Context()
 
     def body():
         assert current_session() is None
