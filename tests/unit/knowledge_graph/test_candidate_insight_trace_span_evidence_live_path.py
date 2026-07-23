@@ -43,8 +43,8 @@ class _StubEngine:
         self.edges: list[tuple[str, str, dict]] = []
         self.materialized: list[str] = []
 
-    def add_edge(self, source: str, target: str, **props) -> None:
-        self.edges.append((source, target, props))
+    def add_edge(self, source: str, target: str, rel_type: str = "", **props) -> None:
+        self.edges.append((source, target, {"rel_type": rel_type, **props}))
 
     def register_materialization(self, derived_id: str) -> None:
         self.materialized.append(derived_id)

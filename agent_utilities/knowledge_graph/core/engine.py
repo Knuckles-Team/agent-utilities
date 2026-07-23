@@ -999,26 +999,33 @@ class IntelligenceGraphEngine(
         )
 
     def register_materialization(self, derived_id: str) -> dict[str, Any]:
-        """Register ``derived_id`` as a live engine-side TruthMaintenance
+        """Confirm ``derived_id`` is tracked as a live engine-side TruthMaintenance
         materialization (CONCEPT:EG-KG.epistemic.truth-maintenance, Seam 3 — X-6
-        across the storage boundary): the engine reads ``derived_id``'s OWN
-        already-stored provenance (its ``invalidation_deps`` property plus any
-        outgoing ``:DerivedFrom``/``:GeneratedBy`` edge) into a dependency set and
-        tracks it so ANY subsequent committed change to a dependency (through the
-        normal write path) automatically marks it stale, with no polling. Call
-        this ONCE, right after writing a derived node (a mined claim, a computed
-        capability index entry, ...) plus its provenance edges. Thin passthrough
-        to :meth:`GraphComputeEngine.register_materialization`; requires an engine
-        built with the ``epistemic-tms`` feature (opt-in, not part of ``full``).
+        across the storage boundary, W3.2).
+
+        Registration itself is IMPLICIT: the engine's background reasoning
+        projection auto-registers any node written with an ``invalidation_deps``
+        property, or any ``:DerivedFrom``/``:GeneratedBy`` edge — there is no
+        separate wire call to trigger it. Call ``add_node``/``add_edge`` with that
+        shape first (a mined claim, a computed capability index entry, ...); this
+        method is then a thin, best-effort readback of the CURRENT projected
+        status. Thin passthrough to :meth:`GraphComputeEngine.register_materialization`.
         """
         return self.graph_compute.register_materialization(derived_id)
 
     def materialization_status(self, id: str) -> str | None:
         """Current status (``"Fresh"``/``"Stale"``/``"Retracted"``, or ``None`` if
         never registered) of a materialization tracked on the same index
-        :meth:`register_materialization` writes to. Thin passthrough to
+        :meth:`register_materialization` reads from. Thin passthrough to
         :meth:`GraphComputeEngine.materialization_status`."""
         return self.graph_compute.materialization_status(id)
+
+    def stale_materializations(self) -> list[str]:
+        """Every opaque materialization reference currently ``Stale`` in this
+        graph's durable reasoning projection (CONCEPT:EG-KG.epistemic.truth-maintenance,
+        Seam 3 follow-up, W3.2). Thin passthrough to
+        :meth:`GraphComputeEngine.stale_materializations`."""
+        return self.graph_compute.stale_materializations()
 
     # --- Background Analysis Methods ---
 

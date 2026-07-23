@@ -519,7 +519,7 @@ def _register_capability_reward_materialization(
     never raises into the caller's durable-write path."""
     for source_id in source_ids:
         try:
-            engine.add_edge(entity_id, source_id, relationship_type="DERIVED_FROM")
+            engine.add_edge(entity_id, source_id, "DERIVED_FROM")
         except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
             logger.debug(
                 "record_capability_outcome: derived_from edge %r->%r failed: %s",

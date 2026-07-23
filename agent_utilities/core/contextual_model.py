@@ -39,6 +39,7 @@ __all__ = [
     "instrument_context_agents",
     "set_context_compiler_engine",
     "set_context_compiler_cache",
+    "get_context_compiler_cache",
     "use_context_compiler_engine",
     "wrap_model_with_context",
 ]
@@ -97,6 +98,19 @@ def set_context_compiler_cache(cache: Any | None) -> None:
 
     global _compiler_cache
     _compiler_cache = cache
+
+
+def get_context_compiler_cache() -> Any | None:
+    """Return the process's configured KV-cache backend, or ``None`` (CONCEPT:
+    AU-KG.retrieval.context-compiler-kv-seam).
+
+    Read-side counterpart to :func:`set_context_compiler_cache` — lets the
+    ``tms_revalidation`` maintenance task (W3.2 TMS live-wiring) reach the SAME
+    backend :func:`compile_model_context` stores compiled bundles into, so a
+    bundle the engine's TMS marks stale can be dropped from the shared cache.
+    """
+
+    return _compiler_cache
 
 
 def _active_engine() -> Any | None:

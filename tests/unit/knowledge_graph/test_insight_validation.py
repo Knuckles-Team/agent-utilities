@@ -167,12 +167,12 @@ def test_persisted_claim_records_derived_from_edges_and_registers_materializatio
     assert len(source_ids) == 2
 
     # A `:DerivedFrom` edge lands from the claim to EACH base fact it was mined
-    # from, tagged with the exact `relationship_type` the engine's
-    # `register_from_provenance` reads (CONCEPT:EG-KG.epistemic.truth-maintenance).
+    # from, tagged with the exact `rel_type` (-> `relationship` property) the
+    # engine's `register_from_provenance` reads (CONCEPT:EG-KG.epistemic.truth-maintenance).
     derived_from_targets = {
         target
         for source, target, props in eng.edges
-        if source == claim_id and props.get("relationship_type") == "DERIVED_FROM"
+        if source == claim_id and props.get("rel_type") == "DERIVED_FROM"
     }
     assert derived_from_targets == set(source_ids)
 
@@ -258,7 +258,7 @@ class _TmsAwareInsightStubEngine(_InsightStubEngine):
         deps = {
             target
             for source, target, props in self.edges
-            if source == derived_id and props.get("relationship_type") == "DERIVED_FROM"
+            if source == derived_id and props.get("rel_type") == "DERIVED_FROM"
         }
         self._materializations[derived_id] = {d: self._versions.get(d, 0) for d in deps}
         return {

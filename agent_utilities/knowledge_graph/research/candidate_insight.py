@@ -196,8 +196,9 @@ def register_claim_materialization(
     them gets reversible-derived-data coverage for free by calling this once,
     rather than each carrying its own copy.
 
-    Writes a ``:DerivedFrom`` edge (``relationship_type="DERIVED_FROM"``, the
-    exact property key ``eg_epistemic::register_from_provenance`` reads) from
+    Writes a ``:DerivedFrom`` edge (``rel_type="DERIVED_FROM"`` on the write,
+    landing as the exact ``relationship`` property key ``eg_epistemic::
+    register_from_provenance`` reads) from
     ``claim.id`` to EACH id in ``claim.source_ids`` — the real base facts the
     finding/proposal was actually mined from, never fabricated — then
     registers ``claim.id`` as a live engine-side TruthMaintenance
@@ -220,7 +221,7 @@ def register_claim_materialization(
     """
     for source_id in claim.source_ids:
         try:
-            engine.add_edge(claim.id, source_id, relationship_type="DERIVED_FROM")
+            engine.add_edge(claim.id, source_id, "DERIVED_FROM")
         except Exception as e:  # noqa: BLE001 — provenance edges are best-effort
             errors.append(f"{context}:derived_from {claim.id}->{source_id}: {e}")
         _persist_code_symbol_evidence(engine, claim, source_id, errors, context=context)
