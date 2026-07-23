@@ -199,8 +199,6 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     # killed. Threads propagate the current contextvars (actor/session) via to_thread.
     _TOOL_CALL_TIMEOUT_S = 320.0
 
-    import asyncio
-
     # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
     # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
     # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
@@ -239,9 +237,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     return await _guarded()
 
 
-def build_native_graphos_toolset(
-    tool_names: list[str], *, toolset_id: str
-) -> Any:
+def build_native_graphos_toolset(tool_names: list[str], *, toolset_id: str) -> Any:
     """Bind registered GraphOS tools for one governed in-process delegation.
 
     Native delegation must not connect GraphOS back to its own HTTP endpoint or
@@ -2480,6 +2476,7 @@ def _ingest_skill_capabilities(
     skip_names: frozenset[str] = frozenset(),
 ) -> int:
     """Persist provider skills as runnable resources without retaining paths."""
+    from agent_utilities.core.providers import is_skill_graph_reference_path
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         ingest_runnable_skill,
         skill_reference,
@@ -2493,7 +2490,11 @@ def _ingest_skill_capabilities(
     skill_files = (
         [root / "SKILL.md"]
         if (root / "SKILL.md").is_file()
-        else sorted(root.rglob("SKILL.md"))
+        else sorted(
+            skill_md
+            for skill_md in root.rglob("SKILL.md")
+            if not is_skill_graph_reference_path(skill_md, root)
+        )
     )
     for skill_md in skill_files:
         skill_dir = skill_md.parent
@@ -2525,12 +2526,14 @@ def _ingest_skill_capabilities(
             )
 
             logger.error(
-                "Failed to ingest %s (stage=%s exception_type=%s)",
+                "Failed to ingest %s (stage=%s %s: %s)",
                 persistence_reference(
                     "skill", fallback_name, namespace="skill-provider-ingest"
                 ),
                 stage,
                 type(exc).__name__,
+                exc,
+                exc_info=True,
             )
     return ingested
 
@@ -2560,11 +2563,16 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
                 raise ValueError("bundled skill body is empty")
             expected[bundled_name] = runnable_skill_digest(body)
     except Exception as exc:
+        # Same reasoning as _start_engine_bootstrap: the exception class alone is
+        # not diagnosable. Keep the message and the chained traceback so the
+        # actual reason a skill could not be ingested is visible in the log.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            "GraphOS packaged-skill readiness check failed (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
     return root, expected
 
 
@@ -2580,14 +2588,31 @@ def _ready_bundled_skill_names(
     query = getattr(engine, "query_cypher", None)
     if not callable(query):
         return frozenset()
-    rows = query(
-        "MATCH (n:CallableResource) WHERE n.name IN $names "
-        "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
-        "n.system_prompt AS system_prompt, "
-        "n.instruction_digest AS instruction_digest, "
-        "n.source_ref AS source_ref, n.runnable_bound AS runnable_bound",
-        {"names": sorted(expected_digests)},
-    )
+    try:
+        rows = query(
+            "MATCH (n:CallableResource) WHERE n.name IN $names "
+            "RETURN n.id AS id, n.name AS name, n.resource_type AS rtype, "
+            "n.system_prompt AS system_prompt, "
+            "n.instruction_digest AS instruction_digest, "
+            "n.source_ref AS source_ref, n.runnable_bound AS runnable_bound",
+            {"names": sorted(expected_digests)},
+        )
+    except Exception as exc:
+        # This is a READINESS PROBE: "which bundled skills are already ingested".
+        # On a graph that does not exist yet — a first boot, or the first boot
+        # after a tenant claim starts scoping this process to a new tenant graph
+        # — the engine answers "Graph '<name>' not found" rather than an empty
+        # result. That is the correct answer to "nothing is ready", not a
+        # failure, and treating it as fatal makes the server unable to perform
+        # the very ingestion that would create the graph. Report none-ready and
+        # let the caller ingest; a genuine engine fault still surfaces there.
+        logger.info(
+            "bundled-skill readiness probe found no existing skill graph "
+            "(%s: %s); treating every bundled skill as not yet ingested",
+            type(exc).__name__,
+            exc,
+        )
+        return frozenset()
     candidates: dict[str, list[dict[str, Any]]] = {}
     for row in rows or []:
         if not isinstance(row, dict):
@@ -2599,26 +2624,40 @@ def _ready_bundled_skill_names(
     ready: set[str] = set()
     for name, expected_digest in expected_digests.items():
         matches = candidates.get(name, [])
-        if len(matches) != 1:
-            continue
-        row = matches[0]
-        body = str(row.get("system_prompt") or "").strip()
-        digest = str(row.get("instruction_digest") or "")
+        if len(matches) > 1:
+            # Readiness asks "is a correct node present", and every check below
+            # pins the exact node id `resource:skill:<name>`, so a second row can
+            # never sneak past them. Requiring exactly ONE row instead conflated
+            # "more than one row came back" with "not ready", which left a skill
+            # permanently unready and — because this is a HARD startup gate —
+            # kept graph-os from serving at all. Log the duplication as the
+            # hygiene problem it is, then evaluate the rows on their merits.
+            logger.warning(
+                "bundled skill %r resolved to %d nodes; readiness is decided by "
+                "the exact id resource:skill:%s",
+                name,
+                len(matches),
+                name,
+            )
         expected_ref = skill_reference(name)
-        if (
-            row.get("id") == f"resource:skill:{name}"
-            and row.get("rtype") == "AGENT_SKILL"
-            and row.get("runnable_bound") is True
-            and row.get("source_ref") == expected_ref
-            and body
-            and digest == expected_digest
-            and runnable_skill_digest(body) == digest
-        ):
-            ready.add(name)
+        for row in matches:
+            body = str(row.get("system_prompt") or "").strip()
+            digest = str(row.get("instruction_digest") or "")
+            if (
+                row.get("id") == f"resource:skill:{name}"
+                and row.get("rtype") == "AGENT_SKILL"
+                and row.get("runnable_bound") is True
+                and row.get("source_ref") == expected_ref
+                and body
+                and digest == expected_digest
+                and runnable_skill_digest(body) == digest
+            ):
+                ready.add(name)
+                break
     return frozenset(ready)
 
 
-def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
+def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     """Synchronously establish the packaged delegation contract before serving."""
     from agent_utilities.skills import BUNDLED_SKILLS
 
@@ -2636,28 +2675,45 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
             )
         ready_after = _ready_bundled_skill_names(engine, expected)
         if ready_after != frozenset(BUNDLED_SKILLS):
+            # Name the skills that did not become ready. A bare count tells an
+            # operator that something is wrong but not which thing, and this is a
+            # HARD startup gate — the difference decides whether the server runs.
             logger.error(
                 "GraphOS packaged-skill readiness incomplete "
-                "(ready_before=%d ingested=%d ready_after=%d required=%d)",
+                "(ready_before=%d ingested=%d ready_after=%d required=%d) "
+                "not_ready=%s",
                 len(ready_before),
                 ingested,
                 len(ready_after),
                 len(BUNDLED_SKILLS),
+                sorted(frozenset(BUNDLED_SKILLS) - ready_after),
             )
-            raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
+        # Same reasoning as _start_engine_bootstrap: the exception class alone is
+        # not diagnosable. Keep the message and the chained traceback so the
+        # actual reason a skill could not be ingested is visible in the log.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (exception_type=%s)",
+            "GraphOS packaged-skill readiness check failed (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        return {
+            "required": len(BUNDLED_SKILLS),
+            "already_ready": 0,
+            "ingested": 0,
+            "ready": 0,
+            "not_ready": sorted(BUNDLED_SKILLS),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "required": len(BUNDLED_SKILLS),
         "already_ready": len(ready_before),
         "ingested": ingested,
         "ready": len(ready_after),
+        "not_ready": sorted(frozenset(BUNDLED_SKILLS) - ready_after),
     }
 
 
@@ -2940,6 +2996,26 @@ def _stop_process_authority_supervisor() -> None:
     _PROCESS_AUTHORITY_THREAD = None
 
 
+_BUNDLED_SKILL_READINESS: dict[str, Any] = {}
+
+
+def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
+    """Publish packaged-skill readiness so /health can report it.
+
+    Readiness no longer gates boot, so it MUST be observable at runtime —
+    otherwise "serving degraded" is indistinguishable from "fully ready" to
+    anything outside the process, which is the silent-failure pattern this
+    codebase keeps getting bitten by.
+    """
+    _BUNDLED_SKILL_READINESS.clear()
+    _BUNDLED_SKILL_READINESS.update(report)
+
+
+def bundled_skill_readiness() -> dict[str, Any]:
+    """The last packaged-skill readiness report (empty before bootstrap runs)."""
+    return dict(_BUNDLED_SKILL_READINESS)
+
+
 def _start_engine_bootstrap(session: Any) -> None:
     """Establish critical skill readiness, then start noncritical services."""
     from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -2959,12 +3035,42 @@ def _start_engine_bootstrap(session: Any) -> None:
             engine = _get_engine()
             readiness = _ensure_bundled_skills_ready(engine)
     except Exception as exc:
+        # Log the cause, not just its class. Reporting only `exception_type=X`
+        # leaves an operator with nothing actionable — every distinct failure
+        # (a missing symbol, an unreachable engine, a denied capability) reads
+        # identically as "graphos_bundled_skills_unready", and `raise ... from
+        # None` then discards the chained traceback too. The message and the
+        # original traceback are what make the next failure diagnosable.
+        # Packaged-skill readiness is a CAPABILITY concern, not a correctness or
+        # security one, so it must not decide whether graph-os serves at all. A
+        # server that refuses to boot because some bundled skills did not ingest
+        # takes down every unrelated tool, the health surface, and the operator's
+        # ability to diagnose the very problem — the failure mode is far worse
+        # than running degraded. Record it, surface it in /health, keep serving.
         logger.error(
-            "GraphOS critical startup readiness failed (exception_type=%s)",
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
             type(exc).__name__,
+            exc,
+            exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from None
+        _set_bundled_skill_readiness(
+            {
+                "required": len(BUNDLED_SKILLS),
+                "ready": 0,
+                "not_ready": sorted(BUNDLED_SKILLS),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        return
 
+    _set_bundled_skill_readiness(readiness)
+    if readiness.get("not_ready"):
+        logger.error(
+            "GraphOS is SERVING DEGRADED: %d/%d packaged skills ready, not_ready=%s",
+            readiness.get("ready", 0),
+            readiness.get("required", 0),
+            readiness.get("not_ready"),
+        )
     logger.info(
         "GraphOS packaged-skill readiness established (%d/%d)",
         readiness["ready"],
@@ -3093,15 +3199,46 @@ def _build_server(
         transport_choices=("stdio", "streamable-http"),
     )
 
-    # Unauthenticated liveness for HTTP deployments. Keep this response
-    # status-only so a probe cannot fingerprint the server or its topology;
-    # authenticated readiness detail remains available through system_doctor,
-    # multiplexer_status, and the gateway daemon/shards surface.
+    # Unauthenticated liveness + readiness for HTTP deployments (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).
+    # Both dispatch into the ONE shared health-check core
+    # (``observability.runtime_health.collect_health``) also used by the REST
+    # gateway's ``/health``/``/health/ready`` and by ``graph_configure(action=
+    # "health")`` — never a second implementation that can drift.
+    #
+    # ``/health`` is LIVENESS: it always answers 200 (this process itself is up
+    # and answering requests) even when the body reports "unhealthy" — a
+    # downstream dependency being down must NOT make kubelet kill/restart an
+    # otherwise-fine process (that would crash-loop the pod for something a
+    # restart cannot fix). The body is the truthful, loud signal: real engine
+    # reachability + circuit-breaker state, plus every configured co-service/
+    # dependency — never a stub that reports "ok" regardless of reality.
+    #
+    # ``/health/ready`` is READINESS: the SAME report, but its overall status
+    # maps onto the HTTP status code (200 healthy / 503 unhealthy) so kubelet
+    # pulls this pod out of Service routing while it's genuinely broken,
+    # without touching the process.
+    #
+    # Both stay status-only-by-default in the sense that only non-secret detail
+    # (counts, booleans, resolved modes, platform ids) is ever included — no
+    # endpoint DSNs, tokens, or credentials.
     @mcp.custom_route("/health", methods=["GET"])
     async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001
+        from agent_utilities.observability.runtime_health import collect_health
+
+        report = await asyncio.to_thread(collect_health)
+        return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+    @mcp.custom_route("/health/ready", methods=["GET"])
+    async def readiness_check(request: Request) -> JSONResponse:  # noqa: ARG001
+        from agent_utilities.observability.runtime_health import (
+            collect_health,
+            is_overall_healthy,
+        )
+
+        report = await asyncio.to_thread(collect_health)
+        status_code = 200 if is_overall_healthy(report) else 503
         return JSONResponse(
-            {"status": "ok"},
-            headers={"Cache-Control": "no-store"},
+            report, status_code=status_code, headers={"Cache-Control": "no-store"}
         )
 
     # ARD registry surface (CONCEPT:AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the graph-os twin of the

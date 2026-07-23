@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-07-18T00:00:00Z",
-  "count": 113,
+  "generated_at": "2026-07-23T01:59:11Z",
+  "count": 114,
   "capabilities": [
     {
       "id": "act",
@@ -115,7 +115,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -231,7 +231,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -369,7 +369,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -543,7 +543,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -701,7 +701,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -860,7 +860,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -1044,7 +1044,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -1338,7 +1338,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -1562,6 +1562,24 @@
           "txn_participation": "Atomic"
         },
         {
+          "action": "renew_tag",
+          "eg_method": "BrokerRenewTag",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "broker",
+            "renew",
+            "tag"
+          ],
+          "mutates": "true",
+          "durability": "Outbox",
+          "authz_action": "broker:ack",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "current-generation result must not be replay-cached across requests"
+        },
+        {
           "action": "stream_commit_offset",
           "eg_method": "Commit",
           "match_confidence": 1.0,
@@ -1747,7 +1765,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 21,
+        "matched_action_count": 22,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -1815,7 +1833,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -2080,7 +2098,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -2104,10 +2122,26 @@
           "durability": "GraphRedb",
           "authz_action": "security:admin",
           "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
+          "audited": "true",
+          "emits_cdc": "true",
           "txn_participation": "Saga",
           "eg_note": "threshold validation translates into the graph MutationBatch gateway"
+        },
+        {
+          "action": "bootstrap_system_identity",
+          "eg_method": "RegisterIdentity",
+          "match_confidence": 0.5,
+          "matched_tokens": [
+            "identity"
+          ],
+          "mutates": "true",
+          "durability": "ControlRedb",
+          "authz_action": "security:admin",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX"
         },
         {
           "action": "register_identity",
@@ -2184,7 +2218,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 2,
+        "matched_action_count": 3,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": true,
@@ -2220,6 +2254,7 @@
       "examples": [
         "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust",
         "engine_consensus action=apply_multisig_mutation",
+        "engine_consensus action=bootstrap_system_identity",
         "engine_consensus action=register_identity"
       ],
       "eligibility_predicates": {
@@ -2244,7 +2279,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -2439,7 +2474,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -2702,7 +2737,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -3974,7 +4009,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -4001,23 +4036,6 @@
           "audited": "true",
           "emits_cdc": "false",
           "txn_participation": "Atomic"
-        },
-        {
-          "action": "batch_cosine_similarity",
-          "eg_method": "MultiGraphBatchUpdate",
-          "match_confidence": 0.5,
-          "matched_tokens": [
-            "batch",
-            "graph"
-          ],
-          "mutates": "true",
-          "durability": "ControlRedb",
-          "authz_action": "node:write",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Saga",
-          "eg_note": "durable parent coordinator with per-graph MutationBatch children"
         },
         {
           "action": "batch_l2_normalize",
@@ -4155,11 +4173,6 @@
           "txn_participation": "Snapshot"
         },
         {
-          "action": "find_similar_pairs",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
           "action": "get_subgraph",
           "eg_method": "GetSubgraph",
           "match_confidence": 1.0,
@@ -4190,11 +4203,6 @@
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Snapshot"
-        },
-        {
-          "action": "hypergraph_encode_interaction",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
           "action": "index_repository",
@@ -4295,11 +4303,6 @@
           "txn_participation": "None"
         },
         {
-          "action": "parse_repository",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
           "action": "resolve_candidates",
           "eg_method": "ResolveCandidates",
           "match_confidence": 1.0,
@@ -4333,11 +4336,6 @@
         },
         {
           "action": "shortest_path",
-          "eg_method": null,
-          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
-        },
-        {
-          "action": "spectral_cluster",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -4447,19 +4445,17 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 23,
-        "unmatched_action_count": 6,
+        "matched_action_count": 22,
+        "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
-          "ControlRedb",
           "GraphRedb",
           "None"
         ],
         "txn_participation_values_seen": [
           "Atomic",
           "None",
-          "Saga",
           "Snapshot"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
@@ -4492,8 +4488,8 @@
       "examples": [
         "engine_graph: Low-level epistemic-graph engine surface for the 'graph' domain (graph",
         "engine_graph action=add_embedding",
-        "engine_graph action=batch_cosine_similarity",
-        "engine_graph action=batch_l2_normalize"
+        "engine_graph action=batch_l2_normalize",
+        "engine_graph action=blast_radius"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -4516,7 +4512,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -4678,7 +4674,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -4702,8 +4698,8 @@
           "durability": "GraphRedb",
           "authz_action": "ledger:write",
           "idempotent": "false",
-          "audited": "false",
-          "emits_cdc": "false",
+          "audited": "true",
+          "emits_cdc": "true",
           "txn_participation": "Atomic",
           "eg_note": "state-backed MutationBatch"
         },
@@ -4719,8 +4715,8 @@
           "durability": "GraphRedb",
           "authz_action": "ledger:admin",
           "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
+          "audited": "true",
+          "emits_cdc": "true",
           "txn_participation": "Atomic",
           "eg_note": "state-backed MutationBatch"
         },
@@ -4859,7 +4855,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -4932,8 +4928,8 @@
           "durability": "GraphRedb",
           "authz_action": "graph:admin",
           "idempotent": "false",
-          "audited": "false",
-          "emits_cdc": "false",
+          "audited": "true",
+          "emits_cdc": "true",
           "txn_participation": "Atomic",
           "eg_note": "state-backed MutationBatch commits the imported authoritative image"
         },
@@ -5159,7 +5155,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -5602,7 +5598,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -5679,6 +5675,25 @@
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Snapshot"
+        },
+        {
+          "action": "create_if_absent",
+          "eg_method": "CreateNodeIfAbsent",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "absent",
+            "create",
+            "if",
+            "node"
+          ],
+          "mutates": "true",
+          "durability": "GraphRedb",
+          "authz_action": "node:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "true",
+          "txn_participation": "Atomic",
+          "eg_note": "atomic create returns true only to the inserting writer, so its result is not cross-request cacheable"
         },
         {
           "action": "has",
@@ -5954,7 +5969,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 16,
+        "matched_action_count": 17,
         "unmatched_action_count": 4,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -6044,7 +6059,167 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
+      }
+    },
+    {
+      "id": "engine_placement",
+      "title": "engine placement",
+      "one_line": "Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 raft PlacementCatalog: route (read) + assign/move/abort_move admin (raft/cluster only)).",
+      "intent_verbs": [
+        "manage"
+      ],
+      "does": [
+        {
+          "action": "abort_move",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "assign",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "move",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "route",
+          "eg_method": "PlacementRoute",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "placement",
+            "route"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "admin:cluster-read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/engine/placement",
+        "tags": [
+          "admin",
+          "engine",
+          "gated",
+          "granular",
+          "graph-os",
+          "placement"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "engine_placement method to call (empty \u21d2 list actions)."
+          },
+          {
+            "name": "params_json",
+            "type": "string",
+            "required": false,
+            "default": "{}",
+            "description": "JSON object of keyword arguments for the method."
+          },
+          {
+            "name": "graph",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Target graph name (empty \u21d2 the deployment default graph)."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "",
+              "description": "engine_placement method to call (empty \u21d2 list actions).",
+              "type": "string"
+            },
+            "params_json": {
+              "default": "{}",
+              "description": "JSON object of keyword arguments for the method.",
+              "type": "string"
+            },
+            "graph": {
+              "default": "",
+              "description": "Target graph name (empty \u21d2 the deployment default graph).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 1,
+        "unmatched_action_count": 3,
+        "any_action_mutates": false,
+        "all_matched_actions_mutate": false,
+        "durability_values_seen": [
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "Snapshot"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
+      },
+      "scopes": [
+        "admin:cluster-read"
+      ],
+      "policy": {
+        "approval_class": "human_approval_required",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "You need the raw, low-level engine primitive directly (1:1 over the epistemic-graph wire protocol) \u2014 precise control, or the condensed `graph_*` tool doesn't expose the operation you need."
+      ],
+      "when_not": [
+        "A condensed `graph_*` tool already covers your intent \u2014 prefer it first; the `engine_*` surface is the escape hatch, not the default."
+      ],
+      "examples": [
+        "engine_placement: Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1",
+        "engine_placement action=abort_move",
+        "engine_placement action=assign",
+        "engine_placement action=move"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "admin",
+          "engine",
+          "gated",
+          "granular",
+          "graph-os",
+          "placement"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -6090,7 +6265,24 @@
           "eg_note": "EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal`"
         },
         {
-          "action": "cypher",
+          "action": "cypher_read",
+          "eg_method": "CypherQuery",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "cypher",
+            "query"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "query:cypher",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "runtime-conditional; writes execute against a staged graph and publish only after durable MutationBatch commit"
+        },
+        {
+          "action": "cypher_write",
           "eg_method": "CypherQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
@@ -6276,7 +6468,7 @@
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Snapshot",
-          "eg_note": "read-only status lookup on the durable per-graph projection; missing or corrupt authority fails closed"
+          "eg_note": "read-only status from the durable per-graph incremental reasoning authority"
         },
         {
           "action": "nl_query",
@@ -6313,6 +6505,23 @@
           "eg_note": "EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal`"
         },
         {
+          "action": "recompute_materialization",
+          "eg_method": "RecomputeMaterialization",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "materialization",
+            "recompute"
+          ],
+          "mutates": "true",
+          "durability": "ReasoningProjection",
+          "authz_action": "reasoning:write",
+          "idempotent": "false",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "fenced recompute/writeback resolves provenance from the authoritative graph and fsyncs the per-graph projection"
+        },
+        {
           "action": "register_foreign_source",
           "eg_method": "RegisterForeignSource",
           "match_confidence": 1.0,
@@ -6329,23 +6538,6 @@
           "emits_cdc": "false",
           "txn_participation": "Saga",
           "eg_note": "opaque prepared/committed control receipt; endpoint configuration is not duplicated in the ledger"
-        },
-        {
-          "action": "register_materialization",
-          "eg_method": "RegisterContinuousQuery",
-          "match_confidence": 0.667,
-          "matched_tokens": [
-            "query",
-            "register"
-          ],
-          "mutates": "true",
-          "durability": "ControlRedb",
-          "authz_action": "cdc:admin",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Saga",
-          "eg_note": "opaque prepared/committed session-control MutationBatch"
         },
         {
           "action": "resolve_conflict",
@@ -6395,7 +6587,7 @@
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Snapshot",
-          "eg_note": "bulk read of every currently-Stale opaque materialization reference from the durable per-graph projection"
+          "eg_note": "bulk opaque stale references from the durable per-graph incremental reasoning authority"
         },
         {
           "action": "unified",
@@ -6492,14 +6684,15 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 22,
+        "matched_action_count": 23,
         "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
           "ControlRedb",
           "GraphRedb",
-          "None"
+          "None",
+          "ReasoningProjection"
         ],
         "txn_participation_values_seen": [
           "Atomic",
@@ -6510,13 +6703,13 @@
       },
       "scopes": [
         "admin:sqlite-file",
-        "cdc:admin",
         "explain:read",
         "federation:admin",
         "query:cypher",
         "query:nl",
         "query:sql",
-        "query:unified"
+        "query:unified",
+        "reasoning:write"
       ],
       "policy": {
         "approval_class": "auto",
@@ -6538,7 +6731,7 @@
         "engine_query: Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher /",
         "engine_query action=causal_counterfactual",
         "engine_query action=causal_estimate",
-        "engine_query action=cypher"
+        "engine_query action=cypher_read"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -6561,7 +6754,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -6708,7 +6901,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -6759,7 +6952,7 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
-          "action": "get_triples",
+          "action": "get_rdf",
           "eg_method": "GetRdf",
           "match_confidence": 1.0,
           "matched_tokens": [
@@ -6851,6 +7044,22 @@
           "audited": "false",
           "emits_cdc": "false",
           "txn_participation": "Snapshot"
+        },
+        {
+          "action": "validate_shacl",
+          "eg_method": "ShaclValidate",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "shacl",
+            "validate"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "validation:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot"
         }
       ],
       "typed_io": {
@@ -6909,7 +7118,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 8,
+        "matched_action_count": 9,
         "unmatched_action_count": 1,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -6927,7 +7136,8 @@
         "owl:read",
         "rdf:read",
         "rdf:write",
-        "sparql:read"
+        "sparql:read",
+        "validation:read"
       ],
       "policy": {
         "approval_class": "auto",
@@ -6972,7 +7182,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -7095,7 +7305,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -7342,7 +7552,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -7623,7 +7833,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -7790,7 +8000,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -7941,7 +8151,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -8369,7 +8579,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -8489,7 +8699,7 @@
         "source_method_eg": "FindCycle",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -8707,7 +8917,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -8894,7 +9104,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -8936,6 +9146,7 @@
           "argumentation",
           "engine",
           "epistemic",
+          "gated",
           "granular",
           "graph-os"
         ],
@@ -9112,6 +9323,7 @@
           "argumentation",
           "engine",
           "epistemic",
+          "gated",
           "granular",
           "graph-os"
         ]
@@ -9124,7 +9336,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-22T06:53:49Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -9272,7 +9484,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -9409,7 +9621,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -9612,7 +9824,7 @@
         "source_method_eg": "BrokerAck",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -9941,7 +10153,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -10100,7 +10312,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -10285,7 +10497,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -10298,7 +10510,12 @@
       ],
       "does": [
         {
-          "action": "graph_compliance",
+          "action": "export",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "posture",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -10398,7 +10615,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 1,
+        "unmatched_action_count": 2,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -10424,7 +10641,8 @@
       ],
       "examples": [
         "graph_compliance: Compliance posture rollup + redacted bulk export \u2014 an aggregation layer over",
-        "graph_compliance action=graph_compliance"
+        "graph_compliance action=export",
+        "graph_compliance action=posture"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -10449,7 +10667,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -10526,6 +10744,21 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "health",
+          "eg_method": "Health",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "health"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "service:control",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "None"
+        },
+        {
           "action": "ingest_connection",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
@@ -10586,8 +10819,8 @@
           "durability": "GraphRedb",
           "authz_action": "graph:write",
           "idempotent": "false",
-          "audited": "false",
-          "emits_cdc": "false",
+          "audited": "true",
+          "emits_cdc": "true",
           "txn_participation": "Saga",
           "eg_note": "state-backed MutationBatch commits the merged image"
         },
@@ -10682,7 +10915,7 @@
             "type": "string",
             "required": false,
             "default": "register_mcp",
-            "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests."
+            "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests."
           },
           {
             "name": "config_key",
@@ -10704,7 +10937,7 @@
           "properties": {
             "action": {
               "default": "register_mcp",
-              "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests.",
+              "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests.",
               "type": "string"
             },
             "config_key": {
@@ -10723,7 +10956,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 3,
+        "matched_action_count": 4,
         "unmatched_action_count": 32,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -10732,6 +10965,7 @@
           "None"
         ],
         "txn_participation_values_seen": [
+          "None",
           "Saga",
           "Snapshot"
         ],
@@ -10740,6 +10974,7 @@
       "scopes": [
         "compute:semantic",
         "graph:write",
+        "service:control",
         "sparql:read"
       ],
       "policy": {
@@ -10785,7 +11020,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -10980,7 +11215,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -11211,7 +11446,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -11475,7 +11710,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -11507,6 +11742,7 @@
         "rest_route": "/graph/engineering",
         "tags": [
           "community",
+          "gated",
           "global-search",
           "granular",
           "graph-os",
@@ -11708,6 +11944,7 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "community",
+          "gated",
           "global-search",
           "granular",
           "graph-os",
@@ -11725,7 +11962,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-22T06:53:49Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -11738,11 +11975,12 @@
       ],
       "does": [
         {
-          "action": "graph_epistemic",
+          "action": "epistemic_status",
           "eg_method": "EpistemicStatus",
-          "match_confidence": 0.5,
+          "match_confidence": 1.0,
           "matched_tokens": [
-            "epistemic"
+            "epistemic",
+            "status"
           ],
           "mutates": "false",
           "durability": "None",
@@ -11752,6 +11990,39 @@
           "emits_cdc": "false",
           "txn_participation": "Snapshot",
           "eg_note": "L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`"
+        },
+        {
+          "action": "explain_belief",
+          "eg_method": "ExplainBelief",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "belief",
+            "explain"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "explain:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot"
+        },
+        {
+          "action": "what_changed",
+          "eg_method": "WhatChanged",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "changed",
+            "what"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "explain:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`"
         }
       ],
       "typed_io": {
@@ -11872,7 +12143,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 1,
+        "matched_action_count": 3,
         "unmatched_action_count": 0,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
@@ -11905,7 +12176,9 @@
       ],
       "examples": [
         "graph_epistemic: Purpose-named epistemic-answer surface over the engine's belief/provenance",
-        "graph_epistemic action=graph_epistemic"
+        "graph_epistemic action=epistemic_status",
+        "graph_epistemic action=explain_belief",
+        "graph_epistemic action=what_changed"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -11927,10 +12200,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": "EpistemicStatus",
+        "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -12133,7 +12406,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -12292,7 +12565,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -12509,7 +12782,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -12684,7 +12957,7 @@
         "source_method_eg": "ExplainBelief",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -12836,7 +13109,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13011,7 +13284,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13164,7 +13437,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13357,7 +13630,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13484,7 +13757,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13638,7 +13911,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13848,7 +14121,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -13861,7 +14134,17 @@
       ],
       "does": [
         {
-          "action": "graph_incident",
+          "action": "correlate",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "get",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "list",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -13960,7 +14243,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 1,
+        "unmatched_action_count": 3,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -13986,7 +14269,9 @@
       ],
       "examples": [
         "graph_incident: Incident Brain (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation):",
-        "graph_incident action=graph_incident"
+        "graph_incident action=correlate",
+        "graph_incident action=get",
+        "graph_incident action=list"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -14010,7 +14295,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -14258,7 +14543,7 @@
             "type": "string",
             "required": false,
             "default": "ingest",
-            "description": "Action to perform. Queue control uses job_id with priority_bucket=0..3 for prioritize; no named priority aliases are accepted."
+            "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor."
           },
           {
             "name": "job_id",
@@ -14323,7 +14608,7 @@
             },
             "action": {
               "default": "ingest",
-              "description": "Action to perform. Queue control uses job_id with priority_bucket=0..3 for prioritize; no named priority aliases are accepted.",
+              "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
               "type": "string"
             },
             "job_id": {
@@ -14416,7 +14701,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -14572,7 +14857,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -14719,7 +15004,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -14732,12 +15017,31 @@
       ],
       "does": [
         {
-          "action": "graph_learn",
+          "action": "fit",
           "eg_method": "GraphLearnFit",
-          "match_confidence": 0.667,
+          "match_confidence": 1.0,
           "matched_tokens": [
+            "fit",
             "graph",
             "learn"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "graphlearn:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "predict",
+          "eg_method": "GraphLearnPredict",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "graph",
+            "learn",
+            "predict"
           ],
           "mutates": "~true",
           "durability": "GraphRedb",
@@ -14809,7 +15113,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 1,
+        "matched_action_count": 2,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": true,
@@ -14842,7 +15146,8 @@
       ],
       "examples": [
         "graph_learn: a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph,",
-        "graph_learn action=graph_learn"
+        "graph_learn action=fit",
+        "graph_learn action=predict"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -14866,10 +15171,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": "GraphLearnFit",
+        "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15204,7 +15509,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15346,7 +15651,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15571,7 +15876,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15583,10 +15888,11 @@
       ],
       "does": [
         {
-          "action": "graph_mine",
-          "eg_method": "MineAnomaly",
-          "match_confidence": 0.5,
+          "action": "associate",
+          "eg_method": "MineAssociate",
+          "match_confidence": 1.0,
           "matched_tokens": [
+            "associate",
             "mine"
           ],
           "mutates": "~true",
@@ -15597,6 +15903,161 @@
           "emits_cdc": "false",
           "txn_participation": "Atomic",
           "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "cluster",
+          "eg_method": "MineCluster",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "cluster",
+            "mine"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "anomaly",
+          "eg_method": "MineAnomaly",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "anomaly",
+            "mine"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "classify_fit",
+          "eg_method": "MineClassifyFit",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "classify",
+            "fit",
+            "mine"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "mining:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "the one Mine* family member that is unconditionally read-only (produces a model blob, never writes back)"
+        },
+        {
+          "action": "classify_predict",
+          "eg_method": "MineClassifyPredict",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "classify",
+            "mine",
+            "predict"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "reduce",
+          "eg_method": "MineReduce",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "mine",
+            "reduce"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field"
+        },
+        {
+          "action": "sequence",
+          "eg_method": "MineSequence",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "mine",
+            "sequence"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path"
+        },
+        {
+          "action": "forecast",
+          "eg_method": "MineForecast",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "forecast",
+            "mine"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound; writeback=true enters the canonical durable mutation path"
+        },
+        {
+          "action": "text",
+          "eg_method": "MineText",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "mine",
+            "text"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound; writeback=true for lda/nmf enters the canonical durable mutation path"
+        },
+        {
+          "action": "subgraph",
+          "eg_method": "MineSubgraph",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "mine",
+            "subgraph"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "mining:write",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "mutates is a conservative upper bound; writeback=true for gspan enters the canonical durable mutation path"
         }
       ],
       "typed_io": {
@@ -15659,19 +16120,22 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 1,
+        "matched_action_count": 10,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
-        "all_matched_actions_mutate": true,
+        "all_matched_actions_mutate": false,
         "durability_values_seen": [
-          "GraphRedb"
+          "GraphRedb",
+          "None"
         ],
         "txn_participation_values_seen": [
-          "Atomic"
+          "Atomic",
+          "Snapshot"
         ],
         "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
       "scopes": [
+        "mining:read",
         "mining:write"
       ],
       "policy": {
@@ -15692,7 +16156,9 @@
       ],
       "examples": [
         "graph_mine: the unified data-mining surface over the engine, compute-near-data (mining runs",
-        "graph_mine action=graph_mine"
+        "graph_mine action=associate",
+        "graph_mine action=cluster",
+        "graph_mine action=anomaly"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -15716,10 +16182,10 @@
         "generator_version": "1.0.0",
         "source_repo_au": "agent-utilities",
         "source_module_au": "agent_utilities.mcp.kg_server",
-        "source_method_eg": "MineAnomaly",
+        "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15733,6 +16199,26 @@
       "does": [
         {
           "action": "deep_forecast",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "deep_classify",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "autoencoder_anomaly",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "xgboost",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "embed",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -15798,7 +16284,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 1,
+        "unmatched_action_count": 5,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -15824,7 +16310,9 @@
       ],
       "examples": [
         "graph_mine_deep: the deep-learning / heavy-Python family the engine core deliberately does NOT",
-        "graph_mine_deep action=deep_forecast"
+        "graph_mine_deep action=deep_forecast",
+        "graph_mine_deep action=deep_classify",
+        "graph_mine_deep action=autoencoder_anomaly"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -15851,7 +16339,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -15989,7 +16477,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -16136,6 +16624,34 @@
             "description": "For action='delete': also attempt to drop materialized inferences (engine-gap aware)."
           },
           {
+            "name": "category",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "For load: optional catalogue category label, e.g. 'finance'. For list: filter to hosted ontologies loaded with this category."
+          },
+          {
+            "name": "tags_json",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "For load: optional JSON array of catalogue tags, e.g. '[\"draft\",\"finance\"]'."
+          },
+          {
+            "name": "search",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "For list: case-insensitive substring filter over iri/version/source."
+          },
+          {
+            "name": "tag",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "For list: filter to hosted ontologies carrying this catalogue tag."
+          },
+          {
             "name": "named_graph",
             "type": "string",
             "required": false,
@@ -16199,6 +16715,26 @@
               "default": false,
               "description": "For action='delete': also attempt to drop materialized inferences (engine-gap aware).",
               "type": "boolean"
+            },
+            "category": {
+              "default": "",
+              "description": "For load: optional catalogue category label, e.g. 'finance'. For list: filter to hosted ontologies loaded with this category.",
+              "type": "string"
+            },
+            "tags_json": {
+              "default": "",
+              "description": "For load: optional JSON array of catalogue tags, e.g. '[\"draft\",\"finance\"]'.",
+              "type": "string"
+            },
+            "search": {
+              "default": "",
+              "description": "For list: case-insensitive substring filter over iri/version/source.",
+              "type": "string"
+            },
+            "tag": {
+              "default": "",
+              "description": "For list: filter to hosted ontologies carrying this catalogue tag.",
+              "type": "string"
             },
             "named_graph": {
               "default": "",
@@ -16279,7 +16815,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -16378,6 +16914,13 @@
             "required": false,
             "default": 0.0,
             "description": "Unix seconds 'current time' for recency weighting (root_cause); 0 \u21d2 no recency weighting."
+          },
+          {
+            "name": "materialize_claims",
+            "type": "boolean",
+            "required": false,
+            "default": true,
+            "description": "root_cause only: persist each above-floor finding as a reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph). Default-on when an engine is active; set False for a pure read with no graph write."
           }
         ],
         "input_schema": {
@@ -16417,6 +16960,11 @@
               "default": 0.0,
               "description": "Unix seconds 'current time' for recency weighting (root_cause); 0 \u21d2 no recency weighting.",
               "type": "number"
+            },
+            "materialize_claims": {
+              "default": true,
+              "description": "root_cause only: persist each above-floor finding as a reviewable :Claim (CONCEPT:AU-KG.enrichment.ops-causal-graph). Default-on when an engine is active; set False for a pure read with no graph write.",
+              "type": "boolean"
             }
           },
           "type": "object"
@@ -16479,7 +17027,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -16575,7 +17123,7 @@
             "type": "string",
             "required": false,
             "default": "",
-            "description": "Optional low|medium|high reasoning effort for this delegation."
+            "description": "CONCEPT:AU-ORCH.execution.delegation-reasoning-off \u2014 reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='execute_agent'). Empty = off / inherit the model's setting."
           },
           {
             "name": "model_class",
@@ -16642,7 +17190,7 @@
             },
             "reasoning_effort": {
               "default": "",
-              "description": "Optional low|medium|high reasoning effort for this delegation.",
+              "description": "CONCEPT:AU-ORCH.execution.delegation-reasoning-off \u2014 reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='execute_agent'). Empty = off / inherit the model's setting.",
               "type": "string"
             },
             "model_class": {
@@ -16715,7 +17263,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -16910,7 +17458,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -17097,7 +17645,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -17319,7 +17867,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -17479,7 +18027,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -17620,7 +18168,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -17940,7 +18488,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18065,7 +18613,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18230,7 +18778,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18418,7 +18966,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18611,7 +19159,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18783,7 +19331,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -18931,7 +19479,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -19072,7 +19620,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -19297,7 +19845,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -19491,7 +20039,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -19696,7 +20244,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20081,7 +20629,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20312,7 +20860,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20461,7 +21009,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20577,7 +21125,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20742,7 +21290,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -20964,7 +21512,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -21086,7 +21634,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -21255,13 +21803,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
       "id": "object_set",
       "title": "object set",
-      "one_line": "Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets.",
+      "one_line": "Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object sets. action='path'",
       "intent_verbs": [
         "ask",
         "write"
@@ -21284,6 +21832,11 @@
         },
         {
           "action": "of_type",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "path",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -21327,7 +21880,7 @@
             "type": "string",
             "required": false,
             "default": "of_type",
-            "description": "of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract."
+            "description": "of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract|path."
           },
           {
             "name": "type_or_interface",
@@ -21398,6 +21951,20 @@
             "required": false,
             "default": 50,
             "description": "Result limit (search)."
+          },
+          {
+            "name": "source_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Source object id (action='path')."
+          },
+          {
+            "name": "target_id",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Target object id (action='path')."
           }
         ],
         "input_schema": {
@@ -21405,7 +21972,7 @@
           "properties": {
             "action": {
               "default": "of_type",
-              "description": "of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract.",
+              "description": "of_type|from_ids|search|filter|search_around|pivot|aggregate|union|intersect|subtract|path.",
               "type": "string"
             },
             "type_or_interface": {
@@ -21457,6 +22024,16 @@
               "default": 50,
               "description": "Result limit (search).",
               "type": "integer"
+            },
+            "source_id": {
+              "default": "",
+              "description": "Source object id (action='path').",
+              "type": "string"
+            },
+            "target_id": {
+              "default": "",
+              "description": "Target object id (action='path').",
+              "type": "string"
             }
           },
           "type": "object"
@@ -21465,7 +22042,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 9,
+        "unmatched_action_count": 10,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -21515,7 +22092,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -21552,6 +22129,11 @@
           "txn_participation": "Snapshot"
         },
         {
+          "action": "generate",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "list",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
@@ -21571,7 +22153,7 @@
             "type": "string",
             "required": false,
             "default": "compute",
-            "description": "'list' declarations, 'compute' one property, 'compute_all', or 'discover_extensions' (propose ontology .ttl extensions from a text sample, CONCEPT:AU-KG.ontology.do-not-auto-merge)."
+            "description": "'list' declarations, 'compute' one property, 'compute_all', 'discover_extensions' (propose ontology .ttl extensions from a text sample, CONCEPT:AU-KG.ontology.do-not-auto-merge), or 'generate' (from-scratch: propose a COMPLETE standalone Interface/LinkType ontology from a text sample against an EMPTY base \u2014 same schema-discovery LLM path, never a diff vs the live ontology, always a human-reviewed proposal)."
           },
           {
             "name": "object_json",
@@ -21592,14 +22174,14 @@
             "type": "string",
             "required": false,
             "default": "",
-            "description": "Optional object type for declaration resolution; the content/source type for action='discover_extensions'."
+            "description": "Optional object type for declaration resolution; the content/source type for action='discover_extensions'/'generate' (a domain hint, e.g. 'clinical_trial')."
           },
           {
             "name": "sample_text",
             "type": "string",
             "required": false,
             "default": "",
-            "description": "Representative document text for action='discover_extensions'."
+            "description": "Representative document/business-scenario text for action='discover_extensions'/'generate'."
           }
         ],
         "input_schema": {
@@ -21607,7 +22189,7 @@
           "properties": {
             "action": {
               "default": "compute",
-              "description": "'list' declarations, 'compute' one property, 'compute_all', or 'discover_extensions' (propose ontology .ttl extensions from a text sample, CONCEPT:AU-KG.ontology.do-not-auto-merge).",
+              "description": "'list' declarations, 'compute' one property, 'compute_all', 'discover_extensions' (propose ontology .ttl extensions from a text sample, CONCEPT:AU-KG.ontology.do-not-auto-merge), or 'generate' (from-scratch: propose a COMPLETE standalone Interface/LinkType ontology from a text sample against an EMPTY base \u2014 same schema-discovery LLM path, never a diff vs the live ontology, always a human-reviewed proposal).",
               "type": "string"
             },
             "object_json": {
@@ -21622,12 +22204,12 @@
             },
             "object_type": {
               "default": "",
-              "description": "Optional object type for declaration resolution; the content/source type for action='discover_extensions'.",
+              "description": "Optional object type for declaration resolution; the content/source type for action='discover_extensions'/'generate' (a domain hint, e.g. 'clinical_trial').",
               "type": "string"
             },
             "sample_text": {
               "default": "",
-              "description": "Representative document text for action='discover_extensions'.",
+              "description": "Representative document/business-scenario text for action='discover_extensions'/'generate'.",
               "type": "string"
             }
           },
@@ -21637,7 +22219,7 @@
       },
       "side_effects": {
         "matched_action_count": 1,
-        "unmatched_action_count": 3,
+        "unmatched_action_count": 4,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -21693,7 +22275,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -21845,7 +22427,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -21868,7 +22450,17 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "graph",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "implementers",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "lint",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -21879,6 +22471,11 @@
         },
         {
           "action": "owl",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "summary",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -21897,7 +22494,7 @@
             "type": "string",
             "required": false,
             "default": "list",
-            "description": "'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), 'owl', or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation)."
+            "description": "'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), 'owl', 'graph' (schema as a node/edge diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo check), or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation)."
           },
           {
             "name": "name",
@@ -21954,7 +22551,7 @@
           "properties": {
             "action": {
               "default": "list",
-              "description": "'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), 'owl', or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation).",
+              "description": "'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), 'owl', 'graph' (schema as a node/edge diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo check), or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation).",
               "type": "string"
             },
             "name": {
@@ -21999,7 +22596,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 5,
+        "unmatched_action_count": 8,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -22027,7 +22624,7 @@
         "ontology_interface: Ontology interfaces: resolve implementers (targeting), check conformance, or",
         "ontology_interface action=conforms",
         "ontology_interface action=explain_routing_eligibility",
-        "ontology_interface action=implementers"
+        "ontology_interface action=graph"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -22049,7 +22646,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -22145,7 +22742,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -22290,7 +22887,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -22429,7 +23026,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -22602,7 +23199,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -22741,7 +23338,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -23053,7 +23650,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:10Z"
       }
     },
     {
@@ -23287,7 +23884,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -23455,7 +24052,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -23566,7 +24163,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -23688,7 +24285,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -23898,7 +24495,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -24176,7 +24773,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -24292,7 +24889,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     },
     {
@@ -24408,7 +25005,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-07-18T06:59:32Z"
+        "generated_at": "2026-07-23T01:59:11Z"
       }
     }
   ]

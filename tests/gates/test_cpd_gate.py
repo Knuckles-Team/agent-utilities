@@ -187,6 +187,10 @@ def test_action_inventory_comes_from_the_generated_manifest() -> None:
             }
         },
         {"engine_graph": ["manifest_action", "another_manifest_action"]},
+        {},  # engine_domains — empty so the manifest-precedence path (under test) is hit
+        (),  # mining_actions
+        (),  # graphlearn_actions
+        (),  # deep_mining_actions
     )
 
     assert actions == ["another_manifest_action", "manifest_action"]
@@ -239,3 +243,34 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
         kg_server.REGISTERED_TOOLS.update(original_registered)
         kg_server.ACTION_TOOL_ROUTES.clear()
         kg_server.ACTION_TOOL_ROUTES.update(original_routes)
+
+
+@_needs_server_stack
+def test_every_registered_non_intent_verb_tool_has_a_cpd() -> None:
+    """Regression guard for the ``engine_placement`` incident.
+
+    graph-os fails EVERY intent-verb call (ask/find/act/why/write/manage)
+    closed the instant one live, registered granular tool has no packaged
+    CPD (``intent_tools._build_candidates`` — CONCEPT:
+    AU-ECO.mcp.intent-surface-cpd-ranking). ``engine_placement`` registered
+    live (the "placement" engine domain became reachable) while the
+    packaged, checked-in ``capabilities-power.json`` stayed one entry short
+    — this asserts that specific invariant directly, against the actual
+    live tool registry (not merely the static ``tool_specs`` universe), so
+    the exact class of drift that broke production cannot silently reship.
+
+    See ``tests/unit/test_intent_surface.py`` for the companion end-to-end
+    regression test that exercises ``resolve_intent`` itself.
+    """
+    from agent_utilities.knowledge_graph.retrieval.capability_context import (
+        load_cpds,
+    )
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools.intent_tools import INTENT_VERBS as _VERBS
+
+    kg_server.ensure_tools_registered()
+    live_tools = set(kg_server.REGISTERED_TOOLS) - set(_VERBS)
+    assert live_tools, "fixture precondition: at least one granular tool registered"
+    packaged_ids = set(load_cpds())
+    missing = live_tools - packaged_ids
+    assert not missing, f"Tools with no packaged CPD: {sorted(missing)}"

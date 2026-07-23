@@ -76,12 +76,34 @@ def mock_engine():
 
 
 @pytest.mark.asyncio
-async def test_graphos_health_is_status_only(server_tools):
-    """Unauthenticated liveness must not disclose GraphOS topology or identity."""
+async def test_graphos_health_is_liveness_always_200_with_real_report(server_tools):
+    """``/health`` is LIVENESS: always 200, and the body is the real shared
+    health report (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split) — no
+    longer the unconditional ``{"status": "ok"}`` stub that never checked
+    anything. Still non-fingerprinting: no raw endpoint/hostname strings, only
+    counts/booleans/resolved-mode/platform-id detail.
+    """
     response = await server_tools["health_check"](MagicMock())
 
-    assert json.loads(response.body) == {"status": "ok"}
+    assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
+    body = json.loads(response.body)
+    assert body["status"] in ("healthy", "unhealthy")
+    names = {c["name"] for c in body["checks"]}
+    assert "engine" in names
+    for check in body["checks"]:
+        assert check["status"] in ("ok", "unhealthy", "not_configured")
+        assert isinstance(check["latency_ms"], (int, float))
+
+
+@pytest.mark.asyncio
+async def test_graphos_health_ready_reflects_status_in_http_code(server_tools):
+    """``/health/ready`` is READINESS: the same report, 200/503 mirrors it
+    (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split)."""
+    response = await server_tools["readiness_check"](MagicMock())
+
+    body = json.loads(response.body)
+    assert response.status_code == (200 if body["status"] == "healthy" else 503)
 
 
 # ── graph_ingest: ingestion ──────────────────────────────────────────

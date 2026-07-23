@@ -2527,7 +2527,7 @@ def register_analysis_tools(mcp):
                 "schema_pack, schema_candidates, add_connection, remove_connection, "
                 "list_connections, mirror_status, reconcile, "
                 "generate_config, config_doctor, config_reference, get_config, "
-                "set_config, list_config, system_doctor, and preflight. Universal "
+                "set_config, list_config, system_doctor, health, and preflight. Universal "
                 "external-source lifecycle actions are discover_connection_schema, "
                 "propose_connection_mapping, approve_connection_mapping, "
                 "connection_mapping_status, external_graph_doctor, and "
@@ -3661,6 +3661,17 @@ def register_analysis_tools(mcp):
                     },
                     default=str,
                 )
+            # ── Authenticated runtime health (CONCEPT:AU-OS.config.two-surfaces-by-default) ──
+            # The MCP twin of GET /health and GET /health/ready: dispatches into
+            # the SAME shared core those unauthenticated HTTP routes use, so this
+            # tool call, the REST route, and the gateway's own /health never
+            # drift. Unlike the raw HTTP routes this goes through the normal
+            # authenticated tool-dispatch path (_execute_tool's verified
+            # GraphSession requirement) rather than being unauthenticated.
+            if action == "health":
+                from agent_utilities.observability.runtime_health import collect_health
+
+                return json.dumps(collect_health(), default=str)
             # ── Holistic deployment health sweep (brew/flutter-doctor style) ──
             if action == "system_doctor":
                 from agent_utilities.deployment import run_doctor

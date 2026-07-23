@@ -99,9 +99,14 @@ def secure_client(mock_agent):
 
 
 def test_health_probe_no_bearer(secure_client):
+    """``/health`` stays unauthenticated liveness even with auth enforced
+    elsewhere — always 200, body is the real shared health report.
+    """
     response = secure_client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] in ("healthy", "unhealthy")
+    assert isinstance(body["checks"], list)
 
 
 def test_secure_endpoint_no_bearer(secure_client):

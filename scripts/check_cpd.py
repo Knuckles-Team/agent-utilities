@@ -94,18 +94,54 @@ def _check_drift() -> tuple[list[str], list]:
 
 
 def _check_coverage(cpds) -> list[str]:
+    """Coverage MUST be checked against the packaged, CHECKED-IN CPD set —
+    the exact artifact ``capability_context.load_cpds()`` reads at runtime
+    (the same file ``intent_tools._build_candidates`` fails closed against)
+    — never against a freshly-``generate()``d ``cpds`` in this same process.
+
+    A fresh generation is built FROM the live tool registry, so comparing it
+    back to that same live registry is tautological: it can never disagree
+    with itself, no matter how stale the checked-in file on disk is. That
+    exact blind spot is what let ``engine_placement`` register live while
+    the packaged ``capabilities-power.json`` on disk stayed 113-entries-and-
+    one-short — ``_check_drift`` (the byte-diff above) happened to still
+    catch that specific incident, but coverage must not silently depend on
+    drift catching every case; it has to independently assert the one
+    invariant it exists for against the artifact production actually loads.
+    """
+    from agent_utilities.knowledge_graph.retrieval.capability_context import (
+        load_cpds,
+    )
     from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools.intent_tools import INTENT_VERBS
 
     kg_server.ensure_tools_registered()
-    tool_names = set(kg_server.REGISTERED_TOOLS)
-    cpd_ids = {c.id for c in cpds}
+    # Mirror intent_tools._build_candidates' own fail-closed comparison
+    # exactly: live granular tools (registered tools minus the six intent
+    # verbs, which have CPDs but are never resolver targets) against the
+    # packaged, checked-in CPD ids actually shipped on disk.
+    tool_names = set(kg_server.REGISTERED_TOOLS) - set(INTENT_VERBS)
+    packaged_ids = set(load_cpds())
     errors: list[str] = []
-    missing = tool_names - cpd_ids
+    missing = tool_names - packaged_ids
     if missing:
-        errors.append(f"Tools with no CPD: {sorted(missing)}")
-    phantom = cpd_ids - tool_names
+        errors.append(
+            "Tools with no CPD in the packaged, checked-in "
+            f"capabilities-power.json: {sorted(missing)} — run "
+            "`python scripts/gen_capability_power.py --write`."
+        )
+    # Freshly-generated ids ARE the authoritative "what should be packaged"
+    # set (mirrors the coverage the drift/byte-diff check above already
+    # enforces for content); a checked-in id that no longer corresponds to
+    # any freshly-generated capability is a phantom entry the next --write
+    # would silently drop.
+    fresh_ids = {c.id for c in cpds}
+    phantom = packaged_ids - fresh_ids
     if phantom:
-        errors.append(f"CPDs for non-existent tools: {sorted(phantom)}")
+        errors.append(
+            f"Packaged CPDs for non-existent/stale tools: {sorted(phantom)} — "
+            "run `python scripts/gen_capability_power.py --write`."
+        )
     return errors
 
 
