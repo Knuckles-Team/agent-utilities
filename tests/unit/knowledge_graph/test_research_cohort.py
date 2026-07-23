@@ -32,7 +32,7 @@ def _native_graph_slice(monkeypatch):
         for entity in entities:
             row = dict(entity)
             node_id = row.pop("id")
-            node_type = row.pop("type")
+            node_type = row.pop("node_type")
             engine.add_node(node_id, node_type=node_type, properties=row)
         return {"status": "success"}
 
@@ -102,6 +102,14 @@ class _FakeEngine:
             ]
         return []
 
+    def _ingest_work_item_index(self):
+        # Mirrors GraphComputeEngine._ingest_work_item_index: WorkItems keyed by
+        # public job id, each carrying its status + decoded metadata.
+        return {
+            job_id: {"status": t["status"], "metadata": t["meta"]}
+            for job_id, t in self.tasks.items()
+        }
+
     def set_status(self, job_id, status):
         self.tasks[job_id]["status"] = status
 
@@ -152,7 +160,7 @@ def test_readiness_terminal_poison_member_and_deadline():
     assert not ready and st["total"] == 2 and st["pending"] == 2
 
     # one completes, one FAILS — both terminal → cohort still proceeds (no wedge)
-    eng.set_status(f"{cid}:p0", "completed")
+    eng.set_status(f"{cid}:p0", "succeeded")
     eng.set_status(f"{cid}:p1", "failed")
     ready, st = cohort_ready(eng, cid, deadline_unix=0.0)
     assert ready and st["completed"] == 1 and st["failed"] == 1 and st["terminal"] == 2
@@ -179,18 +187,18 @@ def test_cohort_source_ids_from_task_provenance():
     from agent_utilities.knowledge_graph.research.cohort import cohort_source_ids
 
     eng = _FakeEngine()
-    cid = create_cohort(eng, papers=["2606.1", "2606.2"], repos=[])["cohort_id"]
-    eng.tasks[f"{cid}:p0"]["status"] = "completed"
-    eng.tasks[f"{cid}:p0"]["meta"]["article_id"] = "article:scholarx:arxiv-2606.1"
+    cid = create_cohort(eng, papers=["2606.00001", "2606.00002"], repos=[])["cohort_id"]
+    eng.tasks[f"{cid}:p0"]["status"] = "succeeded"
+    eng.tasks[f"{cid}:p0"]["meta"]["article_id"] = "article:scholarx:arxiv-2606.00001"
     eng.tasks[f"{cid}:p1"]["status"] = "failed"  # no article_id recorded
-    assert cohort_source_ids(eng, cid) == {"article:scholarx:arxiv-2606.1"}
+    assert cohort_source_ids(eng, cid) == {"article:scholarx:arxiv-2606.00001"}
 
 
 def test_finalize_is_scoped_and_marks_synthesized(monkeypatch):
     eng = _FakeEngine()
     cid = create_cohort(eng, papers=["2606.18381"], repos=[])["cohort_id"]
     # simulate the research_paper_fetch handler: completed + recorded article_id
-    eng.tasks[f"{cid}:p0"]["status"] = "completed"
+    eng.tasks[f"{cid}:p0"]["status"] = "succeeded"
     eng.tasks[f"{cid}:p0"]["meta"]["article_id"] = "article:arxiv-2606.18381"
 
     captured: dict = {}
