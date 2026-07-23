@@ -63,7 +63,12 @@ class TestEntitledResources:
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_grants_all_in_namespace(self):
         assert grants_all_in_namespace(["k8s:all"], "k8s")
-        assert not grants_all_in_namespace(["system"], "k8s")
+        # "system" IS a documented DEFAULT_SUPER_CAPS entry (module docstring's
+        # capability grammar: "admin"/"system" entitles all) — a bare, ordinary
+        # capability that is NOT one of the super-caps and NOT namespaced to
+        # "k8s" must not grant blanket access.
+        assert grants_all_in_namespace(["system"], "k8s")
+        assert not grants_all_in_namespace(["operator"], "k8s")
         assert not grants_all_in_namespace(["k8s:prod"], "k8s")
 
 
