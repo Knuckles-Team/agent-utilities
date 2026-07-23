@@ -38,7 +38,8 @@ client ──▶ graph-os (graph-os.arpa, streamable-http :8000)   ← inbound J
 |-----|----------------|---------|
 | `MCP_CONFIG` | `/root/.config/agent-utilities/mcp_config.json` (the central fleet list — the file `mcp_config_central.json` the multiplexer used, mounted via the XDG config volume) | **The fleet server list.** ⚠️ **Gotcha:** the fleet loader's `_resolve_config_path` checks `~/.gemini/antigravity/mcp_config.json` **first**, so you MUST set `MCP_CONFIG` explicitly or graph-os silently loads a stale default (symptom: `list_catalog` shows a handful of servers, not the fleet; `github-mcp` "not in catalog"). |
 | `MCP_CLIENT_AUTH` | `oidc-client-credentials` | Turn on the **outbound fleet-child minter**. |
-| `OIDC_ISSUER` | `https://keycloak.arpa/realms/homelab` | Token endpoint auto-discovered (OS-5.46 — no `OIDC_TOKEN_URL` needed). **HTTPS**: the OAuth2 client rejects a plaintext `http` token endpoint, so the host must trust the issuer CA — see **Host CA trust** below. |
+| `OIDC_ISSUER` | `https://keycloak.arpa/realms/homelab` | Token endpoint auto-discovered (OS-5.46 — no `OIDC_TOKEN_URL` needed **on a flat network**). **HTTPS**: the OAuth2 client rejects a plaintext `http` token endpoint, so the host must trust the issuer CA — see **Host CA trust** below. ⚠️ **On Kubernetes, pin `OIDC_TOKEN_URL` explicitly** (next row) — auto-discovery routes the mint through the edge, which can 502 mid-migration. |
+| `OIDC_TOKEN_URL` | *(flat network: omit)* — **on k8s: `https://<idp-service>.<idp-ns>.svc:8443/realms/homelab/protocol/openid-connect/token`** | **The fleet-wide-401 fix.** Auto-discovery dials the *public* issuer host, which routes through the **edge** — during a progressive migration the edge can **502 the token endpoint**, the mint **silently returns no header**, and **every child 401s** (`Session terminated` / `no such host`). Pin the mint to the **in-cluster IdP Service** to take the edge out of the auth path — same resilience trick as pinning JWKS for *inbound* validation. The IdP stamps the external issuer claim regardless of which endpoint minted the token, so child issuer-validation still matches. |
 | `OIDC_CLIENT_ID` | `mcp-multiplexer` (reuses the multiplexer's Keycloak client; a dedicated `graph-os` client is optional) | Client-credentials principal. |
 | `OIDC_CLIENT_SECRET_REF` | `vault://apps/graph-os/OIDC_CLIENT_SECRET` (or `env://<VAR>`) — **never the inline secret** | Client-secret **reference** (durable-secret policy). |
 | `OIDC_AUDIENCE` | `agent-services` | Token audience the children validate. |
@@ -111,3 +112,10 @@ load_tools(servers=["github-mcp"])   # → mounted, callable
 ```
 
 Retire the standalone `mcp-multiplexer` service once graph-os is durable — it is redundant.
+
+## Migrating this onto a new orchestrator
+
+When moving the gateway + fleet to another orchestrator (**e.g.** k8s), the outbound-mint
+`OIDC_TOKEN_URL` pinning above is one of several cutover-hardening rules — see the
+migrate-mode runbook [`orchestrator-migration-cutover.md`](orchestrator-migration-cutover.md)
+(and `docs/architecture/orchestrator-migration-cutover.md` for the full rationale).
