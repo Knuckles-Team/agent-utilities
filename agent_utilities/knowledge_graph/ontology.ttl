@@ -123,8 +123,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/uptimekuma>,
         <http://knuckles.team/kg/vector>,
         <http://knuckles.team/kg/wellness>,
-        <http://knuckles.team/kg/worldview>,
-        <https://agent-utilities.dev/ontology/infrastructure> .
+        <http://knuckles.team/kg/worldview> .
 
 :Agreement a owl:Class ;
     rdfs:label "Agreement" ;
