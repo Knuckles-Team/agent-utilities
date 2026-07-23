@@ -137,6 +137,7 @@ The self-test across all layers is **`agent-utilities-doctor`** (CLI, or MCP
 `engine`, `graph_backend`, `graph_connections`, `mcp_fleet_secrets`,
 `mcp_fleet` (live-probing),
 `ingestion_coverage` (AU-OS.deployment.flagging-repos), `skills` (OS-5.52), `bus`, `observability`, `secrets`,
+`secrets_backend` (vault:// / secret:// scheme vs the configured `SECRETS_BACKEND`),
 `auth` — are the one-shot answer to *which layer is unhealthy*, each with a remediation +
 the skill that fixes it. Run the doctor first, then drill into the failing layer with the
 provider's per-layer tool.
