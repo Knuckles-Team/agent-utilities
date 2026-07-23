@@ -825,6 +825,14 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_nodes", "action": "remove", "name": "engine_nodes_remove"},
     {"tool": "engine_nodes", "action": "successors", "name": "engine_nodes_successors"},
     {
+        "tool": "engine_placement",
+        "action": "abort_move",
+        "name": "engine_placement_abort_move",
+    },
+    {"tool": "engine_placement", "action": "assign", "name": "engine_placement_assign"},
+    {"tool": "engine_placement", "action": "move", "name": "engine_placement_move"},
+    {"tool": "engine_placement", "action": "route", "name": "engine_placement_route"},
+    {
         "tool": "engine_query",
         "action": "causal_counterfactual",
         "name": "engine_query_causal_counterfactual",
@@ -1234,11 +1242,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "harness_fence",
         "name": "graph_configure_harness_fence",
     },
-    {
-        "tool": "graph_configure",
-        "action": "health",
-        "name": "graph_configure_health",
-    },
+    {"tool": "graph_configure", "action": "health", "name": "graph_configure_health"},
     {
         "tool": "graph_configure",
         "action": "ingest_connection",

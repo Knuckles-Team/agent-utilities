@@ -61,6 +61,7 @@ from agent_utilities.knowledge_graph.retrieval.capability_power_descriptor impor
     strip_generation_timestamp,
     truncate_at_word,
 )
+from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS  # noqa: E402
 
 MD_PATH = ROOT / "docs" / "capabilities-power.md"
 JSON_PATH = ROOT / "docs" / "capabilities-power.json"
@@ -381,6 +382,31 @@ def build_eligibility_predicates(tool_name: str, tags: set[str]) -> dict[str, An
 # ---------------------------------------------------------------------------
 
 
+def resolve_intent_verbs(tool_name: str, tags: set[str]) -> list[str]:
+    """The tool's ``intent_verbs`` — the ``tool_specs.TOOL_VERBS`` routing
+    authority, copied EXACTLY (order preserved), for any tool it covers.
+
+    ``intent_tools._build_candidates`` fails closed the instant a packaged
+    CPD's ``intent_verbs`` differs from ``TOOL_VERBS[tool]`` (CONCEPT:
+    AU-ECO.mcp.intent-surface-cpd-ranking) — so this generator MUST treat
+    ``TOOL_VERBS`` as authoritative, not merely inspire a heuristic guess.
+    :func:`infer_intent_verbs` (tag/name-derived, dependency-free) is only a
+    fallback for a candidate the authority does not (yet) cover — e.g. a
+    brand-new tool mid-rollout — where an honest best-effort beats nothing.
+
+    One of the six intent-verb tools itself (``ask``/``find``/``write``/
+    ``act``/``manage``/``why``) is not a key in ``TOOL_VERBS`` (that table is
+    the routing authority for GRANULAR tools, not the verbs themselves) —
+    its own intent verb is trivially its own name.
+    """
+    if tool_name in INTENT_VERBS:
+        return [tool_name]
+    authority = TOOL_VERBS.get(tool_name)
+    if authority:
+        return list(authority)
+    return infer_intent_verbs(tool_name, tags)
+
+
 def build_cpd(
     tool: Any,
     action_tool_routes: dict[str, str],
@@ -431,7 +457,7 @@ def build_cpd(
         id=name,
         title=name.replace("_", " "),
         one_line=one_line,
-        intent_verbs=infer_intent_verbs(name, tags),
+        intent_verbs=resolve_intent_verbs(name, tags),
         does=does,
         typed_io=build_typed_io(tool, rest_route),
         side_effects=side_effects,
@@ -485,15 +511,6 @@ def generate(
     from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
     from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
 
-    # Generate CPDs over the FULL granular surface, independent of the deployment
-    # default. Now that `MCP_TOOL_MODE=intent` is the default (Seam 8), an
-    # unforced build would list the six intent verb-tools instead of / on top of
-    # the ~95 granular capabilities the CPD must describe (the resolver's
-    # substrate). Pin `condensed` so the CPD stays deterministic + drift-stable
-    # regardless of what the running server defaults to.
-    os.environ["MCP_TOOL_MODE"] = "condensed"
-    args, mcp, _mw = kg_server._build_server(bootstrap=False)
-
     manifest_by_tool: dict[str, list[str | None]] = {}
     for entry in GRAPHOS_ACTIONS:
         manifest_by_tool.setdefault(entry["tool"], []).append(entry["action"])
@@ -515,11 +532,46 @@ def generate(
     # the same canonical order, so live-render == cache-render byte-for-byte.
     ledger = dict(sorted(ledger.items()))
 
-    tools = asyncio.run(_list_tools(mcp))
+    # Generate CPDs over the FULL canonical surface — every granular tool AND
+    # the six intent verbs (they are first-class MCP/REST entry points with
+    # their own CPDs, even though they are never resolver targets themselves;
+    # see intent_tools.py's module docstring) — independent of the ambient
+    # deployment's ``MCP_TOOL_MODE``/feature toggles. ``tool_profile="intent"``
+    # is the one mode whose ``mcp.list_tools()`` returns BOTH surfaces
+    # together (the granular tools stay fully registered under intent mode,
+    # merely tagged "gated" for the default client view — see
+    # verbose_tools.py); ``canonical_surface=True`` registers every condensed
+    # domain regardless of deployment toggles, so an optional/disabled family
+    # on THIS box can't silently drop out of the catalog. Mirrors
+    # ``gen_graphos_manifest.py::build_manifest()``'s identical save/rebuild/
+    # restore of the global tool registries — same reason: a script import
+    # must never leave ``kg_server.REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES``
+    # (or the ambient ``MCP_TOOL_MODE``) mutated for whatever process imports
+    # this module next (a test process, or a second generator run in the same
+    # interpreter).
+    registered_before = dict(kg_server.REGISTERED_TOOLS)
+    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
+    try:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
+        args, mcp, _mw = kg_server._build_server(
+            bootstrap=False,
+            tool_profile="intent",
+            canonical_surface=True,
+        )
+        tools = asyncio.run(_list_tools(mcp))
+        action_tool_routes = dict(kg_server.ACTION_TOOL_ROUTES)
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(registered_before)
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
+
     cpds = [
         build_cpd(
             t,
-            kg_server.ACTION_TOOL_ROUTES,
+            action_tool_routes,
             ledger,
             ledger_path,
             ledger_live,

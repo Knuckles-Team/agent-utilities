@@ -407,6 +407,39 @@ def test_graph_query_still_registered_and_resolvable_under_ask():
     assert "graph_query" in {c.tool for c in candidates}
 
 
+def test_every_registered_non_intent_verb_tool_has_a_cpd():
+    """Regression guard for the ``engine_placement`` production incident.
+
+    A registered granular tool with no packaged Capability Power Descriptor
+    makes ``_build_candidates`` raise ``RuntimeError`` for EVERY intent-verb
+    call (ask/find/act/why/write/manage), not just the one missing tool —
+    the fail-closed design is correct and must stay; the missing descriptor
+    is the bug. Assert the invariant directly against the live tool
+    registry, mirroring ``_build_candidates`` exactly.
+    """
+    from agent_utilities.knowledge_graph.retrieval.capability_context import (
+        load_cpds,
+    )
+
+    kg_server.ensure_tools_registered()
+    live_tools = set(kg_server.REGISTERED_TOOLS) - set(intent_tools.INTENT_VERBS)
+    assert live_tools, "fixture precondition: at least one granular tool registered"
+    missing = live_tools - set(load_cpds())
+    assert not missing, f"Tools with no packaged CPD: {sorted(missing)}"
+
+
+def test_engine_placement_resolves_under_manage_without_failing_closed():
+    """Direct regression test for the incident itself: calling any intent
+    verb used to raise ``RuntimeError: GraphOS capability descriptors are
+    missing for registered tools: engine_placement`` unconditionally."""
+    assert "engine_placement" in kg_server.REGISTERED_TOOLS
+    candidates = intent_tools.resolve_intent(
+        "manage", "assign or move a tenant's raft cluster placement", top_k=20
+    )
+    assert candidates  # _build_candidates did not fail closed
+    assert "engine_placement" in {c.tool for c in candidates}
+
+
 def test_query_workflow_skill_documents_the_registered_cypher_argument():
     """The consolidated query workflow remains the operator-facing guide for
     ``graph_query`` and explicitly claims the verb in its sidecar."""
