@@ -502,7 +502,7 @@ def _native_occ_backoff(attempt: int) -> None:
         _NATIVE_OCC_BACKOFF_CAP_SECONDS,
         _NATIVE_OCC_BACKOFF_BASE_SECONDS * (2 ** max(0, attempt)),
     )
-    time.sleep(random.uniform(0.0, ceiling))
+    time.sleep(random.SystemRandom().uniform(0.0, ceiling))
 
 
 def _has_change_client(value: Any) -> bool:

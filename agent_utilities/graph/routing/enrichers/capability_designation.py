@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # engine is). This caps its resident id count; LRU-evicted beyond it.
 _DEFAULT_BOUND = 4096
 
-# Registry node types considered "callable" (invokable via routing) — mirrors
+# Registry node types considered "callable" (invocable via routing) — mirrors
 # agent_utilities.models.knowledge_graph.RegistryNodeType's AGENT/TOOL/SKILL
 # values, the resource kinds designate_specialists routes callers to.
 _CALLABLE_TYPES = frozenset({"agent", "tool", "skill"})
