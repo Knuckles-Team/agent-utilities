@@ -2166,7 +2166,7 @@ def _ingest_entities_via_envelope(
     themselves or this function's return value.
     """
     from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import _ambient_epistemic_enabled, ingest_envelope
+    from ..ingestion.envelope_ingest import _ambient_epistemic_enabled, ingest_envelopes
 
     activity_id: str | None = None
     if entities and _ambient_epistemic_enabled(connector):
@@ -2183,6 +2183,10 @@ def _ingest_entities_via_envelope(
     ordered_entities = sorted(
         entities, key=lambda item: _checkpoint_order(item.get(version_field))
     )
+    # Build the whole checkpoint-ordered page, then commit it in ONE batched engine
+    # round-trip. A page for one connector targets one graph, so the whole page is one
+    # atomic graph-batch (CONCEPT:AU-KG.ingest.envelope-atomic-transaction).
+    batch: list[ChangeEnvelope] = []
     for record in ordered_entities:
         if activity_id:
             links = [
@@ -2190,15 +2194,21 @@ def _ingest_entities_via_envelope(
                 {"target": activity_id, "type": "derived_from"},
             ]
             record = {**record, "_links": links}
-        env = ChangeEnvelope.from_connector_record(
-            record,
-            connector=connector,
-            source_instance=source_instance,
-            id_field="id",
-            version_field=version_field,
-            checkpoint=record.get(version_field),
+        batch.append(
+            ChangeEnvelope.from_connector_record(
+                record,
+                connector=connector,
+                source_instance=source_instance,
+                id_field="id",
+                version_field=version_field,
+                checkpoint=record.get(version_field),
+            )
         )
-        result = ingest_envelope(engine, env)
+    # Walk the per-envelope results in checkpoint order and advance the watermark ONLY
+    # through the last CONTIGUOUS success — identical guarantee to the prior per-record
+    # break-on-first-failure loop (a later envelope can carry a newer cursor, so a gap
+    # must never be crossed). Same status vocabulary as the single path.
+    for env, result in zip(batch, ingest_envelopes(engine, batch), strict=True):
         if result.get("status") not in {"success", "skipped"}:
             failed += 1
             logger.warning(
@@ -2207,8 +2217,6 @@ def _ingest_entities_via_envelope(
                 env.idempotency_key,
                 result.get("error"),
             )
-            # A later envelope can carry a newer source cursor. Stop on the
-            # first failure so crash-resume cannot skip this record.
             break
         ok += 1
 
