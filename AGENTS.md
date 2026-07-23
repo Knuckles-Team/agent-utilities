@@ -339,9 +339,11 @@ case itself next time. The goal is orchestrating completely off the harness.
   `STATE_DB_URI` externalizes checkpoints/sessions/queues onto shared Postgres
   with SKIP LOCKED claims + advisory-lock daemon leadership
   (`core/state_store.py`, `core/leadership.py`, AU-OS.state.unified-durable-state-externalization–5.18). Engines shard
-  by tenant with engine-authoritative placement routing; the client contacts the engine's
-  `PlacementCatalog` RPC for graph location, falling back to static HRW only if the catalog is
-  unavailable (`GRAPH_SERVICE_ENDPOINTS`, `knowledge_graph/core/placement_catalog.py`,
+  by tenant with engine-authoritative placement routing; the client resolves graph location
+  through the engine's `PlacementCatalog` RPC and never hashes or guesses placement itself —
+  the only client-side inputs are the static `GRAPH_RAFT_GROUP_ENDPOINTS` override map and the
+  single-contact case (`GRAPH_SERVICE_ENDPOINTS` is a seed/contact list, not a placement ring;
+  `knowledge_graph/core/placement_catalog.py`,
   `knowledge_graph/core/shard_topology.py`, AU-KG.sharding.tenant-partitioned-sharding-hrw). Work scales via
   fail-loud queue backends (`TASK_QUEUE_BACKEND`, KG-2.55–2.57) and
   queue-driven dispatch (`AGENT_DISPATCH_BACKEND=queue`,
