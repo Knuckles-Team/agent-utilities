@@ -136,6 +136,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_resharding": ("manage",),
         "engine_rbac": ("manage",),
         "engine_admin": ("manage",),
+        "engine_placement": ("manage", "ask"),
         # ── why / explain / evaluate / observe ──
         "graph_explain": ("why",),
         "graph_evaluate": ("why",),
