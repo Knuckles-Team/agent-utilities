@@ -143,6 +143,37 @@ _MEMORY_ACTION_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
 }
 
 
+# ── graph_mine action manifest (CONCEPT:EG-KG.mining.frequent-itemset-mining) ─
+def _mining_actions() -> frozenset[str]:
+    """The valid ``graph_mine`` actions.
+
+    Reuses ``engine_tools.ENGINE_DOMAINS['mining']`` — the SAME
+    client-introspected manifest (``inspect.getmembers`` over ``MiningClient``,
+    mirroring ``engine_tools._discover_domains``) that already drives the
+    granular ``engine_mining`` 1:1 tool — as the one source of truth, so this
+    surface can never drift out of sync with the real client again
+    (CONCEPT:AU-KG.compute.engine-surface-manifest). Empty only when the
+    ``epistemic_graph`` client itself can't be imported (an environment/build
+    issue unrelated to action naming); callers then skip the allow-list check
+    below and fall through to the normal dispatch/degrade path.
+    """
+    from agent_utilities.mcp.tools import engine_tools
+
+    return frozenset(engine_tools.ENGINE_DOMAINS.get("mining", ()))
+
+
+#: Guessable alternate spellings that would otherwise silently miss their real
+#: ``MiningClient`` attribute and fall through to a misleading "whole surface
+#: degraded" payload — ``entity_resolution`` (the family's doc/CONCEPT name) is
+#: actually bound as ``entity_resolve``, and ``process_mining`` as ``process``.
+#: Looked up AFTER the hyphen->underscore normalization below, so the
+#: hyphenated spellings (``entity-resolution``, ``process-mining``) resolve too.
+_MINING_ACTION_ALIASES: dict[str, str] = {
+    "entity_resolution": "entity_resolve",
+    "process_mining": "process",
+}
+
+
 # ── Transport resolution (reuse the one engine client; injectable for tests) ──
 def _client(graph: str) -> Any:
     """Resolve the shared ``SyncEpistemicGraphClient`` for ``graph``.
@@ -1164,12 +1195,24 @@ def register_engine_surface_tools(mcp) -> None:
         description=(
             "CONCEPT:EG-KG.mining.frequent-itemset-mining — the unified data-mining surface "
             "over the engine, compute-near-data (mining runs where the graph lives). "
-            "Actions: 'associate' (association rules), 'cluster' (clustering), "
+            "Actions (18): 'associate' (association rules), 'cluster' (clustering), "
             "'anomaly' (outlier detection), 'classify_fit'/'classify_predict' "
             "(classification), 'reduce' (dimensionality reduction), 'sequence' "
             "(sequential-pattern mining), 'forecast' (classical time-series forecasting), "
             "'text' (TF-IDF / topic modeling), 'subgraph' (frequent-subgraph mining / "
-            "motif counting — mines the RESIDENT GRAPH's own topology, no input rows). "
+            "motif counting — mines the RESIDENT GRAPH's own topology, no input rows), "
+            "'entity_resolve' (record linkage / entity resolution; alias "
+            "'entity_resolution'), 'causal_impact' (interrupted-time-series / "
+            "difference-in-differences causal effect estimation), 'process' (process "
+            "mining — directly-follows graph + alpha-algorithm footprint; alias "
+            "'process_mining'), 'root_cause' (root-cause propagation over a dependency "
+            "graph), 'risk_propagation' (seeded personalized-PageRank risk propagation), "
+            "'ontology_gap' (ontology completeness-gap detection), 'retrieval_quality' "
+            "(precision@k / recall@k / MRR over retrieval traces), 'community' (Louvain / "
+            "label-propagation community detection with epistemic writeback). An "
+            "unrecognized action returns a clear error listing every valid action "
+            "(introspected from the connected MiningClient) rather than silently "
+            "degrading as if the whole mining surface were unavailable. "
             "• associate — frequent-itemset + rules (Apriori/FP-Growth/Eclat; support, "
             "confidence, lift). Provide 'transactions' (baskets of item labels) OR a "
             "graph-derived 'source' {node_label, direction(out|in|any), "
@@ -1229,18 +1272,61 @@ def register_engine_surface_tools(mcp) -> None:
             ":FrequentSubgraph nodes linked SUBGRAPH_MEMBER to every node in any embedding. "
             "Returns {patterns:[{nodes,edges,support,count}],...} (gspan) or "
             "{motifs:{wedge,triangle,directed_cycle3},...} (motif). "
+            "• entity_resolve — record linkage: which record PAIRS refer to the same "
+            "real-world entity, over token 'records' (Jaccard, blocked by 'block_keys') "
+            "OR embeddings ('vectors' or a vector 'source' {node_label, field}, Cosine, "
+            "blocked by 'bucket_precision'). Params: threshold. writeback ⇒ :EntityMatch "
+            "nodes linked to both members. Returns {matches:[{a,b,score}],...}. "
+            "• causal_impact — estimate an intervention's causal effect in a time series "
+            "at 'intervention_index': interrupted-time-series (post_mean − pre_mean) over "
+            "'series' alone, or difference-in-differences when a non-empty 'control' "
+            "series is also given (isolates the treatment effect from a shared trend). "
+            "Returns {effect_size, standard_error, confidence,...}. writeback (+ "
+            "'series_id') ⇒ :CausalEffect node. "
+            "• process — process mining over ordered event 'traces' (activity-label "
+            "sequences, repeats allowed): mines the directly-follows graph + the "
+            "alpha-algorithm footprint (causal 'a>b' / parallel 'a||b' / choice 'a#b') "
+            "plus start/end activity sets. writeback (+ 'process_id') ⇒ :ProcessModel "
+            "node. "
+            "• root_cause — bounded-depth ('max_hops'), decaying ('decay') backward "
+            "search over a weighted dependency graph ('nodes','edges' cause→effect, "
+            "per-node anomaly 'scores') to rank the most-likely upstream root cause of a "
+            "flagged 'symptom' node. writeback ⇒ :RootCause node linked to the symptom. "
+            "• risk_propagation — personalized PageRank over a weighted dependency graph "
+            "('nodes','edges'), restarting to a 'seed' risk distribution instead of "
+            "teleporting uniformly — propagates risk from seeded nodes along dependency "
+            "edges. Params: damping, tolerance, max_iterations. writeback ⇒ one "
+            ":RiskScore node per input node. "
+            "• ontology_gap — GRAPH-NATIVE completeness scan of the resident graph's own "
+            "node-type/edge-relationship class shape (no rdf/OWL-reasoner dependency): a "
+            "class with no declared properties, an unresolved subClassOf parent, or a "
+            "fully disconnected class. Optional 'label' restricts the scan to one class. "
+            "writeback ⇒ :OntologyGap node per gap. "
+            "• retrieval_quality — precision@k / recall@k / MRR over stored retrieval "
+            "'traces' ([{retrieved,relevant}]) — audits a RAG/search pipeline's own "
+            "quality. Params: k. writeback (+ 'query_id') ⇒ :RetrievalQuality node. "
+            "• community — wraps the EXISTING Louvain / label-propagation GDS kernels "
+            "(adds no new algorithm, only epistemic writeback) over the resident graph, "
+            "optional 'label' restriction. Params: algorithm(louvain|label_propagation), "
+            "resolution, weighted. writeback ⇒ one :Community node per community, linked "
+            "to every member. "
             "REST twins: POST /api/mining/{associate,cluster,anomaly,classify_fit,"
-            "classify_predict,reduce,sequence,forecast,text,subgraph} (same _execute_tool "
-            "core). Degrades cleanly on a no-mining engine build."
+            "classify_predict,reduce,sequence,forecast,text,subgraph,entity_resolve,"
+            "causal_impact,process,root_cause,risk_propagation,ontology_gap,"
+            "retrieval_quality,community} (same _execute_tool core). Degrades cleanly "
+            "on a no-mining engine build."
         ),
         tags=["graph-os", "engine", "mining", "clustering", "anomaly", "data-mining"],
     )
     def graph_mine(
         action: str = Field(
             default="associate",
-            description="Mining action: 'associate' | 'cluster' | 'anomaly' | "
+            description="Mining action (18): 'associate' | 'cluster' | 'anomaly' | "
             "'classify_fit' | 'classify_predict' | 'reduce' | 'sequence' | 'forecast' | "
-            "'text' | 'subgraph'.",
+            "'text' | 'subgraph' | 'entity_resolve' (alias 'entity_resolution') | "
+            "'causal_impact' | 'process' (alias 'process_mining') | 'root_cause' | "
+            "'risk_propagation' | 'ontology_gap' | 'retrieval_quality' | 'community'. "
+            "An unrecognized action returns an error listing every valid action.",
         ),
         params_json: str = Field(
             default="{}",
@@ -1264,7 +1350,24 @@ def register_engine_surface_tools(mcp) -> None:
             '{"source":{"node_label":"Doc","field":"body"},"algorithm":"lda","k":5,'
             '"writeback":true} (text); '
             '{"min_support":0.1,"max_edges":2,"writeback":true} or '
-            '{"label":"Concept","algorithm":"motif"} (subgraph).',
+            '{"label":"Concept","algorithm":"motif"} (subgraph); '
+            '{"records":[["john","smith"],["jon","smith"]],"block_keys":["smith","smith"],'
+            '"threshold":0.5} or {"source":{"node_label":"Person","field":"embedding"},'
+            '"threshold":0.85,"writeback":true} (entity_resolve); '
+            '{"series":[1,1,1,1,5,5,5,5],"intervention_index":4} or '
+            '{"series":[...],"control":[...],"intervention_index":10,"writeback":true} '
+            "(causal_impact); "
+            '{"traces":[["login","browse","checkout"]]} or '
+            '{"traces":[...],"process_id":"checkout-flow","writeback":true} (process); '
+            '{"nodes":["a","b"],"scores":[0.1,0.9],"edges":[["a","b",1.0]],"symptom":"b"} '
+            "(root_cause); "
+            '{"nodes":["a","b"],"seed":[1.0,0.0],"edges":[["a","b",1.0]]} '
+            "(risk_propagation); "
+            '{"label":"Concept"} or {"writeback":true} (ontology_gap); '
+            '{"traces":[{"retrieved":["d1","d2"],"relevant":["d1"]}],"k":2} '
+            "(retrieval_quality); "
+            '{"label":"Concept","algorithm":"louvain"} or '
+            '{"algorithm":"label_propagation","writeback":true} (community).',
         ),
         graph: str = Field(
             default="", description="Target graph (empty ⇒ deployment default)."
@@ -1272,6 +1375,7 @@ def register_engine_surface_tools(mcp) -> None:
     ) -> str:
         """Thin action-router over the engine mining surface (CONCEPT:EG-KG.mining.frequent-itemset-mining)."""
         action = (action or "").strip().replace("-", "_") or "associate"
+        action = _MINING_ACTION_ALIASES.get(action, action)
         try:
             params = json.loads(params_json) if params_json else {}
         except (TypeError, ValueError) as exc:
@@ -1280,11 +1384,28 @@ def register_engine_surface_tools(mcp) -> None:
             return json.dumps(
                 {"surface": "mining", "error": "params_json must decode to an object"}
             )
+        # CONCEPT:AU-KG.compute.engine-surface-manifest — an action that isn't one of the
+        # 18 real MiningClient methods is a NAME error (typo/guess), not "this engine
+        # build lacks mining" — report it as such, with the introspected valid-action
+        # list, instead of falling through to _invoke's generic degraded payload (which
+        # previously made a guessed name like 'entity_resolution' or 'process_mining'
+        # look identical to the whole mining surface being absent).
+        valid_actions = _mining_actions()
+        if valid_actions and action not in valid_actions:
+            return json.dumps(
+                {
+                    "surface": "mining",
+                    "action": action,
+                    "error": f"unknown action {action!r} for graph_mine; choose one of "
+                    f"{sorted(valid_actions)}",
+                    "actions": sorted(valid_actions),
+                }
+            )
         return _invoke(
             surface="mining",
             action=action,
             graph=graph,
-            candidates=((("mining", action),)),
+            candidates=(("mining", action),),
             params=params,
         )
 

@@ -283,6 +283,7 @@ graph TD
 | AU-ECO.mcp.client-side-chat-session | Remote Usage Ingest | Clients parse local logs and POST normalized usage to the server sink |
 | AU-ECO.connector.git-task-resolver | Document → KG Fact Extraction UI | Interactive document/URL → atomic-triple extraction with live force-graph, edge-fact cards, and JSONL across all three frontends over `/api/enhanced/extract/*` |
 | ECO-4.82 | MCP Tool Surface Modes | `MCP_TOOL_MODE` (`intent` default / `condensed` / `verbose` / `both`) over a shared `register_tool_surface`; intent keeps granular tools gated for on-demand loading while verbose exposes the typed 1:1 tier |
+| ECO-4.90 | Verbose Auto-Wire Dynamic Action Enumeration | Enumerates a client's full runtime action set onto its `verbose`-mode MCP tool(s) so every product operation is reachable through exactly one tool, instead of hand-maintained per-action wiring (`agents/atlassian-agent`) |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)
 

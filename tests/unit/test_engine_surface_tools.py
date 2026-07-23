@@ -26,10 +26,12 @@ class _CollectingMCP:
 
     def __init__(self) -> None:
         self.tools: dict[str, object] = {}
+        self.descriptions: dict[str, str] = {}
 
     def tool(self, *, name, description="", tags=None):  # noqa: ANN001
         def _deco(fn):
             self.tools[name] = fn
+            self.descriptions[name] = description
             return fn
 
         return _deco
@@ -67,6 +69,29 @@ _EXPECTED_ROUTES = {
     "graph_gis": "/graph/gis",
     "graph_memory": "/graph/memory",
 }
+
+# The full 18-action graph_mine surface (CONCEPT:EG-KG.mining.frequent-itemset-mining
+# / W0.9) — matches the client-introspected MiningClient method set 1:1.
+_MINING_ACTIONS = (
+    "associate",
+    "cluster",
+    "anomaly",
+    "classify_fit",
+    "classify_predict",
+    "reduce",
+    "sequence",
+    "forecast",
+    "text",
+    "subgraph",
+    "entity_resolve",
+    "causal_impact",
+    "process",
+    "root_cause",
+    "risk_propagation",
+    "ontology_gap",
+    "retrieval_quality",
+    "community",
+)
 
 
 def test_kg_2_310_all_tools_registered_with_rest_twins(tools):
@@ -480,6 +505,171 @@ def test_kg_2_310_engine_unavailable_is_reported(monkeypatch, tools):
     monkeypatch.setattr(engine_surface_tools, "_client", _boom)
     out = json.loads(tools["graph_gis"](action="route", params_json="{}", graph=""))
     assert out["error"]["code"] == "dependency_unavailable"
+
+
+# ── graph_mine (CONCEPT:EG-KG.mining.frequent-itemset-mining — W0.9 full 18-action surface) ──
+def test_graph_mine_registered_with_rest_twin(tools):
+    assert "graph_mine" in tools
+    assert kg_server.REGISTERED_TOOLS.get("graph_mine") is not None
+    assert kg_server.ACTION_TOOL_ROUTES.get("graph_mine") == "/mining/associate"
+
+
+def test_graph_mine_description_enumerates_all_18_actions():
+    """The tool description documents the full 18-action mining surface — not
+    just the 10 it originally shipped with."""
+    mcp = _CollectingMCP()
+    engine_surface_tools.register_engine_surface_tools(mcp)
+    description = mcp.descriptions["graph_mine"]
+    missing = [name for name in _MINING_ACTIONS if f"'{name}'" not in description]
+    assert not missing, f"graph_mine description is missing actions: {missing}"
+
+
+def test_graph_mine_manifest_matches_introspected_mining_client():
+    """CONCEPT:AU-KG.compute.engine-surface-manifest — the SAME manifest
+    engine_mining is built from (client-introspected, not hand-maintained) has
+    exactly the 18 real MiningClient methods."""
+    assert engine_surface_tools._mining_actions() == frozenset(_MINING_ACTIONS)
+
+
+def test_graph_mine_dispatches_a_newly_exposed_family(monkeypatch, tools):
+    """One of the 8 families that were previously undocumented/unreachable by
+    name (root_cause) now dispatches like any other action."""
+    calls: list = []
+    mining = SimpleNamespace(root_cause=_recording_method(calls, "root_cause"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    out = json.loads(
+        tools["graph_mine"](
+            action="root_cause",
+            params_json=json.dumps(
+                {
+                    "nodes": ["a", "b"],
+                    "scores": [0.1, 0.9],
+                    "edges": [["a", "b", 1.0]],
+                    "symptom": "b",
+                }
+            ),
+            graph="",
+        )
+    )
+    assert out["surface"] == "mining"
+    assert out["action"] == "root_cause"
+    assert calls == [
+        (
+            "root_cause",
+            {
+                "nodes": ["a", "b"],
+                "scores": [0.1, 0.9],
+                "edges": [["a", "b", 1.0]],
+                "symptom": "b",
+            },
+        )
+    ]
+
+
+def test_graph_mine_alias_entity_resolution_hits_entity_resolve(monkeypatch, tools):
+    """The guessable name 'entity_resolution' used to silently degrade (a
+    MiningClient miss on a name that isn't its real 'entity_resolve' attr) —
+    it must now resolve and dispatch for real."""
+    calls: list = []
+    mining = SimpleNamespace(entity_resolve=_recording_method(calls, "entity_resolve"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    out = json.loads(
+        tools["graph_mine"](
+            action="entity_resolution",
+            params_json=json.dumps({"records": [["a"], ["a"]], "threshold": 0.5}),
+            graph="",
+        )
+    )
+    assert out.get("degraded") is not True
+    assert out["surface"] == "mining"
+    assert out["action"] == "entity_resolve"
+    assert calls == [("entity_resolve", {"records": [["a"], ["a"]], "threshold": 0.5})]
+
+
+def test_graph_mine_alias_process_mining_hits_process(monkeypatch, tools):
+    """The guessable name 'process_mining' used to silently degrade (the real
+    attr is 'process') — it must now resolve and dispatch for real."""
+    calls: list = []
+    mining = SimpleNamespace(process=_recording_method(calls, "process"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    out = json.loads(
+        tools["graph_mine"](
+            action="process_mining",
+            params_json=json.dumps({"traces": [["a", "b"]]}),
+            graph="",
+        )
+    )
+    assert out.get("degraded") is not True
+    assert out["action"] == "process"
+    assert calls == [("process", {"traces": [["a", "b"]]})]
+
+
+def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
+    """'entity-resolution' normalizes to 'entity_resolution' (the existing
+    hyphen->underscore fold) THEN resolves via the alias map to
+    'entity_resolve'."""
+    calls: list = []
+    mining = SimpleNamespace(entity_resolve=_recording_method(calls, "entity_resolve"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(mining=mining)
+    )
+    out = json.loads(
+        tools["graph_mine"](action="entity-resolution", params_json="{}", graph="")
+    )
+    assert out["action"] == "entity_resolve"
+    assert calls == [("entity_resolve", {})]
+
+
+def test_graph_mine_unknown_action_lists_valid_actions_from_the_real_manifest(tools):
+    """A genuinely bogus action gets a proper 'unknown action' error listing the
+    introspected valid actions — NOT the old silent {"degraded": true} path that
+    made a typo indistinguishable from the whole mining surface being absent."""
+    out = json.loads(
+        tools["graph_mine"](
+            action="not_a_real_mining_action", params_json="{}", graph=""
+        )
+    )
+    assert out.get("degraded") is not True
+    assert "unknown action" in out["error"]
+    assert set(out["actions"]) == set(_MINING_ACTIONS)
+
+
+def test_graph_mine_unknown_action_with_mocked_manifest(monkeypatch, tools):
+    """Same behavior, isolated from the real installed epistemic_graph package."""
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_mining_actions",
+        lambda: frozenset({"associate", "cluster"}),
+    )
+    out = json.loads(
+        tools["graph_mine"](action="bogus_action", params_json="{}", graph="")
+    )
+    assert out.get("degraded") is not True
+    assert out["error"] == (
+        "unknown action 'bogus_action' for graph_mine; choose one of "
+        "['associate', 'cluster']"
+    )
+    assert out["actions"] == ["associate", "cluster"]
+
+
+def test_graph_mine_still_degrades_for_a_valid_action_the_client_lacks(
+    monkeypatch, tools
+):
+    """Distinguishes the two failure modes: a VALID action name the connected
+    client genuinely doesn't expose (e.g. a slim/mining-less engine build)
+    still degrades cleanly — only a NAME miss stopped silently degrading."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    out = json.loads(
+        tools["graph_mine"](action="associate", params_json="{}", graph="")
+    )
+    assert out["degraded"] is True
+    assert out["surface"] == "mining"
 
 
 # ── graph_mine_deep (CONCEPT:AU-KG.mining.dsm-forecast-delegation — Phase 6) ─────────────────

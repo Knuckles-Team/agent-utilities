@@ -491,18 +491,28 @@ reward store. **Two loops closed this cycle:** an accepted ontology-gap claim no
 materializes as a real KG edge, and an accepted routing-quality claim's outcome
 survives a process restart via that durable bandit.
 
-**Two surfaces: none directly.** `ClaimFlywheel` has no standalone
-`graph_claim_flywheel` tool — it is invoked internally by
-`knowledge_graph/research/loop_controller.py` (`_run_insight_validation`/
-`_run_trace_mining`), which is itself reached through the loop engine
-(`graph_loops`, MCP+REST) or `graph_orchestrate action=execute_workflow`'s
-loop-cycle path. A caller cannot directly call `flywheel.propose()`/`.accept()`
-through either surface today — only *trigger a mining pass* that exercises the
-whole state machine internally. This module is **not** listed in
-`scripts/surface_parity_baseline.txt`, but that is because the static
+**Two surfaces: none directly** *(at the time of this audit — see the closure
+note below).* `ClaimFlywheel` had no standalone `graph_claim_flywheel` tool — it
+was invoked only internally by `knowledge_graph/research/loop_controller.py`
+(`_run_insight_validation`/`_run_trace_mining`), which is itself reached through
+the loop engine (`graph_loops`, MCP+REST) or `graph_orchestrate
+action=execute_workflow`'s loop-cycle path. A caller could not directly call
+`flywheel.propose()`/`.accept()` through either surface — only *trigger a mining
+pass* that exercised the whole state machine internally. This module was **not**
+listed in `scripts/surface_parity_baseline.txt`, but that was because the static
 surface-parity checker's reachability scan considers it reachable (its importer,
 `loop_controller.py`, is itself reachable from the `graph_loops` surface root) —
-not because its individual lifecycle methods are each independently invocable.
+not because its individual lifecycle methods were each independently invocable.
+
+**Update — closed.** `mcp/tools/claim_tools.py` adds a standalone `graph_claims`
+tool (MCP + REST `/graph/claims`): `propose`/`validate`/`accept`/`deprecate`/
+`retract`/`get`/`list`, thin dispatch onto this SAME `ClaimFlywheel` — no
+lifecycle rule is reimplemented in the tool layer. Every state-changing action
+first passes the fail-closed `ActionPolicy` gate (kind `claim.<action>`,
+mirroring `graph_secret`'s `_gate` pattern) before the flywheel method runs; a
+denied/queued decision blocks the mutation. The indirect mining-pass path above
+is unchanged and remains the autonomous entry point — the new tool is the
+direct, single-claim entry point this section originally found missing.
 
 ### 4.3 X-4 — Ontology-driven tool/agent routing
 
@@ -647,19 +657,33 @@ of a `:AgentDigitalTwin` KG node + `TWIN_OF`/`REFERENCES` edges — mirrors
 touches (the WorkItem DAG, `:ToolCall` shape, `AgentPolicyDecisionNode`, the
 `run_vcs` event kernel/replay machinery) is **reused, not duplicated**.
 
-**Two surfaces: genuinely none — the most significant honest gap in this
-program.** Confirmed by grepping every `agent_utilities/mcp/*` and
-`agent_utilities/gateway/*` module for any reference to `agent_digital_twin`,
-`capture_twin`, `AgentDigitalTwin`, `replay_twin`, or `counterfactual_replay`: **zero
-hits outside the module itself and its own test file.** The pre-existing
-`graph_runvcs` MCP tool (`mcp/tools/state_tools.py::graph_runvcs`, action
-`replay`) calls the **generic** `run_vcs.replay.replay_run` directly — it does
-**not** go through `agent_digital_twin.replay_twin`/`counterfactual_replay`, so a
-caller cannot reach the twin's version-pinning, counterfactual-swap, or
-incident-step-through behavior from either the MCP or REST surface today. The only
-way to exercise X-8 is a direct Python import (or by querying a `persist_twin()`-
-written `:AgentDigitalTwin` node with a generic `graph_query` Cypher call, which
-surfaces the *data* but none of the replay/counterfactual *behavior*).
+**Two surfaces: genuinely none at the time of this audit — the most significant
+honest gap in this program** *(closed since — see the update below).* Confirmed
+by grepping every `agent_utilities/mcp/*` and `agent_utilities/gateway/*` module
+for any reference to `agent_digital_twin`, `capture_twin`, `AgentDigitalTwin`,
+`replay_twin`, or `counterfactual_replay`: **zero hits outside the module itself
+and its own test file.** The pre-existing `graph_runvcs` MCP tool
+(`mcp/tools/state_tools.py::graph_runvcs`, action `replay`) called the
+**generic** `run_vcs.replay.replay_run` directly — it did **not** go through
+`agent_digital_twin.replay_twin`/`counterfactual_replay`, so a caller could not
+reach the twin's version-pinning, counterfactual-swap, or incident-step-through
+behavior from either the MCP or REST surface. The only way to exercise X-8 was a
+direct Python import (or by querying a `persist_twin()`-written
+`:AgentDigitalTwin` node with a generic `graph_query` Cypher call, which surfaced
+the *data* but none of the replay/counterfactual *behavior*).
+
+**Update — closed.** A later wiring pass ("Seam 7") added `twin_capture`/
+`twin_replay`/`twin_counterfactual`/`twin_incident` actions to `graph_runvcs`
+(`mcp/tools/state_tools.py`), each dispatching into the real
+`capture_twin_from_kg`/`replay_twin`/`counterfactual_replay`/`twin_incident_steps`
+— see `tests/unit/test_seam7_twin_routing_wiring.py`. `twin_capture` initially
+only reached the KG-hydration path (`capture_twin_from_kg`); it now ALSO takes
+`tool_calls`/`model_exchanges`/`budget`/`work_item_ids` to reach the module's
+canonical explicit-data path (`capture_twin` — the one "a live run, or a test
+standing in for one, uses" per its own docstring) directly, and forwards
+`policy_decisions`/`evidence` on both paths (previously silently dropped even
+though both capture functions already accepted them). X-8 is fully reachable
+from both the MCP and REST surfaces today.
 
 This gap is also **invisible to the automated "Two surfaces by default" gate**:
 `scripts/check_surface_parity.py`'s `CAPABILITY_PREFIXES` list (the set of packages
@@ -692,12 +716,12 @@ next — not just a missing baseline entry.
 | Workload contract + soak harness | **none** | **none** | Offline artifact, not runtime |
 | `ActionPolicy` caching | (transparent) | — | None (perf fix) |
 | X-2 ops-causal graph | `graph_ops_causal` (5 actions) | `POST /ops/causal` | **Standalone** |
-| X-3 claim flywheel | `graph_loops` (indirect, whole-pass only) | `/graph/loops`-family | Piggybacked, coarse-grained |
+| X-3 claim flywheel | `graph_loops` (indirect, whole-pass), `graph_claims` (direct, single-claim) | `/graph/loops`-family, `/graph/claims` | Piggybacked (indirect) **+ Standalone** (direct, closed) |
 | X-4 ontology routing | `graph_orchestrate` (designation, filtering only) | `/graph/orchestrate` | Piggybacked; `explain_routing_eligibility` itself has **no** caller |
 | X-5 placement mining | **none** | **none** | Internal machinery (baselined); **no automatic trigger either** |
 | X-6 (`ContextCompiler` epistemic columns — EG-side TMS/recompute, consumed not built here) | `graph_search` (`compiled`) | `/graph/search` | Piggybacked |
 | X-7 context compiler | `graph_search` (`compiled`) | `/graph/search` | **Standalone mode on an existing tool** |
-| X-8 agent digital twin | **none** | **none** | **No surface at all — confirmed gap** |
+| X-8 agent digital twin | `graph_runvcs` (`twin_capture`/`twin_replay`/`twin_counterfactual`/`twin_incident`) | `/graph/runvcs` | **Standalone actions on an existing tool (closed)** |
 
 ---
 

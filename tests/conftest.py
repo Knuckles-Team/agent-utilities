@@ -314,6 +314,17 @@ def isolate_graph_compute_engine(monkeypatch):
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
 
+    # Reset the CLASS-LEVEL process-engine singleton for the duration of this
+    # test, and restore it afterwards. Monkeypatching __init__ alone is not
+    # enough: `_PROCESS_ENGINE` persists across tests in the same process, so
+    # the FIRST test to provision it makes every later test that constructs
+    # `GraphComputeEngine()`/`EpistemicGraphBackend()` fail with "A process
+    # graph transport already exists" — tests that pass in isolation ERROR when
+    # run together. 87 test files construct one directly, so this leaked widely
+    # and made whole files look broken when only their ordering was.
+    # monkeypatch.setattr restores the previous value at teardown.
+    monkeypatch.setattr(graph_compute.GraphComputeEngine, "_PROCESS_ENGINE", None)
+
     actor = ActorContext(
         actor_id=TEST_AGENT_ID,
         actor_type=ActorType.AUTOMATED_SERVICE,

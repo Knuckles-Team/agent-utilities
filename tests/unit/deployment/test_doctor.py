@@ -1134,9 +1134,10 @@ def _patch_valid_release_verification(monkeypatch) -> MagicMock:
     def verify(manifest, _matrix, **kwargs):
         assert kwargs["verify_signatures"] is True
         assert kwargs["manifest_path"].name == "release.json"
-        assert check_compatibility.file_digest(kwargs["matrix_path"]) == manifest[
-            "matrixDigest"
-        ]
+        assert (
+            check_compatibility.file_digest(kwargs["matrix_path"])
+            == manifest["matrixDigest"]
+        )
         check_compatibility._validate_manifest_signature(manifest)
         return {"ok": True, "signaturesVerified": True}
 
@@ -1390,6 +1391,125 @@ def test_secret_doctor_fails_closed_when_backend_evaluation_raises(monkeypatch):
     assert result["status"] == "fail"
     assert result["data"]["redacted"] is True
     assert "private detail" not in rendered
+
+
+def _patch_secrets_backend_scan(monkeypatch, *, backend, counts):
+    monkeypatch.setattr(
+        "agent_utilities.core.config.AgentConfig",
+        lambda: SimpleNamespace(secrets_backend=backend),
+    )
+    monkeypatch.setattr(
+        "agent_utilities.deployment.config_generator.secret_reference_scheme_counts",
+        lambda _cfg: counts,
+    )
+
+
+def test_secrets_backend_doctor_fails_when_engine_backend_has_vault_refs(
+    monkeypatch,
+):
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="engine", counts={"env": 0, "vault": 2, "secret": 0}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "fail"
+    assert result["data"] == {
+        "configured_backend": "engine",
+        "vault_scheme_ref_count": 2,
+        "secret_scheme_ref_count": 0,
+        "redacted": True,
+    }
+    assert "SECRETS_BACKEND=vault" in result["remediation"]
+
+
+def test_secrets_backend_doctor_passes_when_vault_backend_has_vault_refs(
+    monkeypatch,
+):
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="vault", counts={"env": 0, "vault": 3, "secret": 0}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "ok"
+    assert result["data"]["configured_backend"] == "vault"
+
+
+def test_secrets_backend_doctor_passes_when_engine_backend_has_only_secret_refs(
+    monkeypatch,
+):
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="engine", counts={"env": 1, "vault": 0, "secret": 2}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "ok"
+
+
+def test_secrets_backend_doctor_warns_when_vault_backend_has_secret_scheme_refs(
+    monkeypatch,
+):
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="vault", counts={"env": 0, "vault": 0, "secret": 1}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "warn"
+    assert result["data"]["secret_scheme_ref_count"] == 1
+
+
+def test_secrets_backend_doctor_prefers_fail_when_both_directions_present(
+    monkeypatch,
+):
+    """A vault:// mismatch is the more severe finding; it wins over the warn."""
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="engine", counts={"env": 0, "vault": 1, "secret": 5}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "fail"
+
+
+def test_secrets_backend_doctor_ok_with_no_references_at_all(monkeypatch):
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="engine", counts={"env": 0, "vault": 0, "secret": 0}
+    )
+
+    result = D._check_secrets_backend()
+
+    assert result["status"] == "ok"
+
+
+def test_secrets_backend_doctor_fails_closed_when_scan_raises(monkeypatch):
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: object())
+    monkeypatch.setattr(
+        "agent_utilities.deployment.config_generator.secret_reference_scheme_counts",
+        lambda _cfg: (_ for _ in ()).throw(RuntimeError("private detail")),
+    )
+
+    result = D._check_secrets_backend()
+    rendered = json.dumps(result, sort_keys=True)
+
+    assert result["status"] == "fail"
+    assert result["data"]["redacted"] is True
+    assert "private detail" not in rendered
+
+
+def test_secrets_backend_doctor_never_leaks_reference_paths(monkeypatch):
+    """Only counts/backend name may appear — never the reference path/value."""
+    _patch_secrets_backend_scan(
+        monkeypatch, backend="engine", counts={"env": 0, "vault": 1, "secret": 0}
+    )
+
+    result = D._check_secrets_backend()
+    rendered = json.dumps(result, sort_keys=True)
+
+    assert "apps/" not in rendered
+    assert result["data"]["redacted"] is True
 
 
 @pytest.mark.parametrize("selection", [[], ["unknown"], ["config", "config"]])
