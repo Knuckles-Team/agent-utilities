@@ -25,13 +25,20 @@ never lets a broken probe read as healthy, and it never lets a probe hang the
 endpoint past its bound (each check runs in its own thread with a hard wall-
 clock ceiling; a stuck check is abandoned, not awaited).
 
-Three-state semantics per check (CONCEPT:AU-OS.observability.co-service-visibility):
+Four-state semantics per check (CONCEPT:AU-OS.observability.co-service-visibility):
 
 * ``ok``             — configured (or mandatory) and verified reachable/healthy.
 * ``unhealthy``       — configured (or mandatory) and NOT healthy. Always carries
   a ``reason``.
 * ``not_configured``  — optional co-service/dependency that is simply not turned
   on in this deployment. Informational only; never fails the overall rollup.
+* ``degraded``        — configured and PARTIALLY impaired in a way that is, by
+  design, never part of the mandatory contract — e.g. an optional read-only
+  kg_connections mirror (neo4j/falkordb/ladybug/...) that failed to construct.
+  The epistemic-graph engine authority is independent of these by
+  construction, so readiness must not pull graph-os out of Service routing
+  over one; ``degraded`` carries a ``reason``/``detail`` like ``unhealthy``
+  does, but — same as ``not_configured`` — never fails the overall rollup.
 
 Liveness vs readiness (CONCEPT:AU-OS.deployment.liveness-vs-readiness-split — see the callers):
 this module computes ONE truthful report; it is the callers (the HTTP routes)
@@ -97,6 +104,19 @@ def _not_configured(name: str, reason: str | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {"name": name, "status": "not_configured"}
     if reason:
         out["reason"] = reason
+    return out
+
+
+def _degraded(
+    name: str, reason: str, *, detail: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Configured-but-partially-impaired, where the impairment is, by design,
+    outside the mandatory contract (see the module docstring's four-state
+    semantics). Never counted as ``unhealthy`` by :func:`collect_health`'s
+    rollup — informational only, same as ``not_configured``."""
+    out: dict[str, Any] = {"name": name, "status": "degraded", "reason": reason}
+    if detail:
+        out["detail"] = detail
     return out
 
 
@@ -309,6 +329,61 @@ def _check_stardog_mirror(cfg: Any) -> dict[str, Any]:
     return _unhealthy("stardog_mirror", "stardog mirror endpoint unreachable")
 
 
+def _check_kg_mirrors(cfg: Any) -> dict[str, Any]:
+    """Optional read-only ``kg_connections`` mirrors (neo4j/falkordb/ladybug/
+    pg-age/stardog, CONCEPT:AU-KG.backend.mirror-health-repair) — interop/BI/DR
+    projections the epistemic-graph engine authority is completely independent
+    of by construction. Read-only snapshot of the last real fan-out build
+    attempt (``knowledge_graph/backends/__init__.py``'s ``_build_mirror_set``,
+    run once when the operational backend is constructed); never builds,
+    reconnects, or does any network I/O of its own — same read-only-registry-
+    scan convention as the ``messaging`` check above.
+
+    A mirror that failed to construct (missing driver / unreachable host / bad
+    credentials / invalid ``connection_profile_ref``) is reported here as
+    ``degraded`` detail, NEVER as ``unhealthy``: an optional mirror going down
+    must not pull graph-os out of Service routing (see the module docstring's
+    four-state semantics — the same "optional co-service never fails
+    readiness" rationale ``not_configured`` already encodes elsewhere in this
+    file, applied to a partially-impaired optional dependency instead of an
+    absent one).
+    """
+    from agent_utilities.knowledge_graph.backends import (
+        _resolve_mirror_target_names,
+        get_mirror_build_status,
+    )
+
+    configured = _resolve_mirror_target_names()
+    if not configured:
+        return _not_configured(
+            "kg_mirrors",
+            "no kg_connections mirror role / GRAPH_MIRROR_TARGETS configured",
+        )
+
+    status = get_mirror_build_status()
+    healthy = [name for name in configured if status.get(name, {}).get("ok")]
+    failed = {
+        name: status[name].get("reason", "unknown cause")
+        for name in configured
+        if name in status and not status[name].get("ok")
+    }
+    unobserved = [name for name in configured if name not in status]
+    detail = {
+        "configured": configured,
+        "healthy": healthy,
+        "failed": failed,
+        "unobserved": unobserved,
+    }
+    if failed:
+        return _degraded(
+            "kg_mirrors",
+            f"{len(failed)}/{len(configured)} optional mirror(s) unavailable "
+            f"(engine authority unaffected): {', '.join(sorted(failed))}",
+            detail=detail,
+        )
+    return _ok("kg_mirrors", detail=detail)
+
+
 # Ordered so the mandatory check reports first; order is otherwise cosmetic.
 def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
     """Report packaged-skill readiness.
@@ -355,6 +430,7 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("kafka_bus", _check_kafka_bus),
     ("stardog_mirror", _check_stardog_mirror),
     ("bundled_skills", _check_bundled_skills),
+    ("kg_mirrors", _check_kg_mirrors),
 )
 
 
@@ -388,13 +464,18 @@ def collect_health() -> dict[str, Any]:
         {
           "status": "healthy" | "unhealthy",
           "checks": [
-            {"name": str, "status": "ok"|"unhealthy"|"not_configured",
-             "latency_ms": float, "reason": str (on unhealthy/not_configured),
+            {"name": str, "status": "ok"|"unhealthy"|"not_configured"|"degraded",
+             "latency_ms": float,
+             "reason": str (on unhealthy/not_configured/degraded),
              "detail": {...} (optional, non-secret)},
             ...
           ],
           "generated_at": "<iso8601 UTC>",
         }
+
+    Only ``unhealthy`` checks flip the overall rollup — ``degraded`` and
+    ``not_configured`` are both informational-only (four-state semantics, see
+    the module docstring).
 
     Never raises. Never blocks past ``_CHECK_WALL_TIMEOUT_S`` per check (all
     checks run in parallel, so the wall-clock cost of this whole function is
