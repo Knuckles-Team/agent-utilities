@@ -878,6 +878,56 @@ Bootstrap the deployed **CISO Assistant** GRC stack so its API is usable headles
 - Requires: `portainer-mcp`/`container-manager-mcp` (docker exec), `openbao-mcp`, `caddy-mcp`
 - Expected: `ciso-superuser-set, ciso-token-minted, ciso-token-in-openbao, ciso-connector-wired`
 
+### Step 14d: mcp-client-auth-config (the DEFAULT authenticated client config)
+[depends_on: Step 14]
+Wire every MCP **client** (Claude Code, IDEs, agents) to graph-os so tokens are obtained and
+**refreshed automatically**. A hand-pasted bearer token is **never** the default — it is the
+configuration this step exists to prevent.
+
+**Why (outage, 2026-07-23):** the graph-os entry in `~/.claude.json` held a static
+`Authorization: Bearer <jwt>` with a 10h lifetime (`exp - iat = 36000`). When it expired the MCP
+server silently disconnected mid-session and every `graph_*`/`engine_*` tool vanished. Nothing
+renewed it because **nothing could** — a header string in a config file has no refresh path, so
+recovery required a human with Keycloak admin access.
+
+Client config — note there is **no `headers` block at all**:
+```jsonc
+{ "type": "http", "url": "https://graph-os.arpa/mcp" }
+```
+`https` is load-bearing: OAuth flows must not carry tokens in cleartext, which makes the Step 1b
+CA trust a hard prerequisite on every **client** host, not just servers.
+
+Server side, graph-os MUST do both halves of RFC 9728 / the MCP authorization spec — a client
+can only self-refresh if it can *discover* the auth server:
+1. serve `/.well-known/oauth-protected-resource` (+ the `/mcp` variant) naming
+   `https://keycloak.arpa/realms/homelab` in `authorization_servers`, and
+2. return `WWW-Authenticate: Bearer resource_metadata="https://graph-os.arpa/.well-known/oauth-protected-resource"`
+   on 401. ★A bare `WWW-Authenticate: Bearer` tells the client nothing and is the failure mode.
+
+**Gotcha (`AUTH_TYPE=jwt` ships neither half):** the jwt path returns a bare `JWTVerifier`, whose
+FastMCP base class provides **no routes** and **no `resource_metadata`**. FastMCP already has a
+compliant `RemoteAuthProvider` — the fix is to wrap the existing verifier in it once
+`MCP_PUBLIC_BASE_URL` is set, not to implement OAuth. Plan:
+[`reports/graphos-oauth-autorefresh.md`](../../../../../reports/graphos-oauth-autorefresh.md).
+
+**Gotcha (credential must be recoverable):** if a service account is used (headless/CI, no browser
+flow), its credentials belong in OpenBao under the `apps/` mount — e.g. `apps/claude-code` with
+`OIDC_CLIENT_ID`/`OIDC_CLIENT_SECRET`/`OIDC_ISSUER`/`OIDC_TOKEN_URL`/`OIDC_SCOPE`. The 2026-07-23
+outage was unrecoverable-without-a-human precisely because that client's secret was stored
+**nowhere** — not in k8s, not in OpenBao. ★`apps/` is its **own KV v2 mount**
+(`/v1/apps/data/<name>`); `secret/apps/...` silently returns nothing.
+
+**Gotcha (diagnosis):** `curl` to any `.arpa` HTTPS from a host missing the CA fails with **exit
+60** and renders as `HTTP 000` — indistinguishable from "server is down". Retry with `-k` to tell
+a trust gap from an outage before chasing the wrong fault.
+
+- Requires: `keycloak-mcp`, `openbao-mcp` (+ Step 1b CA trust on every client host)
+- Expected: `oauth-metadata-served, challenge-advertises-resource-metadata, client-config-tokenless, service-credential-in-openbao`
+- **Completion gate:** a token expiring MUST NOT require human intervention — verify by minting a
+  short-lived token and confirming the client recovers on its own. Full config, verification
+  commands and checklist:
+  [`reports/graphos-authenticated-mcp-config.md`](../../../../../reports/graphos-authenticated-mcp-config.md).
+
 ### Step 15: observability-and-backups
 [depends_on: Step 14]
 Stand up the full LGTM observability standard (CONCEPT:AU-OS.observability.no-op-without-metrics) + Borgmatic backups:
