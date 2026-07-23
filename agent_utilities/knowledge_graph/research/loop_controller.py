@@ -1823,7 +1823,6 @@ class LoopController:
                     f"BeliefRevisionProposal:{revision.belief_id}:{revision.last_reviewed}",
                     "BeliefRevisionProposal",
                     properties={
-                        "type": "BeliefRevisionProposal",
                         "status": "proposal",
                         **payload,
                     },
