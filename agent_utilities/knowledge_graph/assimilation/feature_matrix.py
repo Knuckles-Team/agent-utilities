@@ -362,7 +362,7 @@ def _register_matrix_materialization(
                 deps.append(dep)
     for dep in deps:
         try:
-            engine.add_edge(node_id, dep, relationship_type="DERIVED_FROM")
+            engine.add_edge(node_id, dep, "DERIVED_FROM")
         except Exception:  # noqa: BLE001 — provenance edges are best-effort
             pass
     try:

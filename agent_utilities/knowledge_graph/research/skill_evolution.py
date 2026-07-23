@@ -604,7 +604,7 @@ def run_reflact_cycle(
     # Two-key autonomy satisfied: benchmark win AND action-policy allow.
     try:
         if engine is not None:
-            engine.add_edge(candidate_id, incumbent_id, relationship_type="SUPERSEDES")
+            engine.add_edge(candidate_id, incumbent_id, "SUPERSEDES")
         _persist_skill_version(
             engine,
             skill_id=skill_id,

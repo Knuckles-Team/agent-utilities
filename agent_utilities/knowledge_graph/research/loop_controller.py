@@ -1821,7 +1821,8 @@ class LoopController:
             try:
                 self.engine.add_node(
                     f"BeliefRevisionProposal:{revision.belief_id}:{revision.last_reviewed}",
-                    {
+                    "BeliefRevisionProposal",
+                    properties={
                         "type": "BeliefRevisionProposal",
                         "status": "proposal",
                         **payload,
