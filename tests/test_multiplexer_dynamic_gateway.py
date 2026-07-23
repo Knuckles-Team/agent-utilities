@@ -167,6 +167,77 @@ def test_load_catalog_classifies_native_langfuse_failure(tmp_path, monkeypatch, 
     assert catalog == {}
     assert "credentials configuration invalid" in caplog.text
     assert "invalid CA bundle" not in caplog.text
+    # The anti-pattern this regression guards: only logging the generic
+    # category ("credentials") discards *why* -- the actual reason string
+    # must also reach the log text.
+    assert "langfuse_credentials_missing" in caplog.text
+
+
+def test_load_catalog_admits_explicit_remote_langfuse_entry_via_direct_key_pair(
+    tmp_path, monkeypatch
+):
+    """Regression test for the graph-os fleet-catalog gap.
+
+    An explicit remote (streamable-http) ``langfuse-mcp`` entry ships with no
+    ``env`` block, so credential resolution falls through to the parent
+    process environment. That resolution must accept the direct
+    ``LANGFUSE_PUBLIC_KEY`` / ``LANGFUSE_SECRET_KEY`` pair -- the same names
+    ``langfuse_agent.auth.get_client`` reads for the standalone agent/MCP
+    server -- not only the ``LANGFUSE_PUBLIC_KEY_REF`` / ``LANGFUSE_SECRET_KEY_REF``
+    secret-reference form.
+    """
+    config_path = _write_config(
+        tmp_path,
+        {
+            "langfuse-mcp": {
+                "transport": "streamable-http",
+                "url": "http://langfuse-mcp.example.test/mcp",
+                "timeout": 120,
+                "call_timeout": 600,
+                "disabled": False,
+            }
+        },
+    )
+    for name in ("LANGFUSE_PUBLIC_KEY_REF", "LANGFUSE_SECRET_KEY_REF"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LANGFUSE_HOST", "https://langfuse.example.test")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-synthetic")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-synthetic")
+
+    catalog = MCPMultiplexer(config_path).load_catalog()
+
+    assert "langfuse-mcp" in catalog
+    assert catalog["langfuse-mcp"]["transport"] == "streamable-http"
+    assert catalog["langfuse-mcp"]["env"]["LANGFUSE_PUBLIC_KEY"] == "pk-lf-synthetic"
+    assert catalog["langfuse-mcp"]["env"]["LANGFUSE_SECRET_KEY"] == "sk-lf-synthetic"
+
+
+def test_load_catalog_still_rejects_when_neither_ref_nor_direct_key_present(
+    tmp_path, monkeypatch, caplog
+):
+    config_path = _write_config(
+        tmp_path,
+        {
+            "langfuse-mcp": {
+                "transport": "streamable-http",
+                "url": "http://langfuse-mcp.example.test/mcp",
+                "disabled": False,
+            }
+        },
+    )
+    for name in (
+        "LANGFUSE_PUBLIC_KEY_REF",
+        "LANGFUSE_SECRET_KEY_REF",
+        "LANGFUSE_PUBLIC_KEY",
+        "LANGFUSE_SECRET_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("LANGFUSE_HOST", "https://langfuse.example.test")
+
+    catalog = MCPMultiplexer(config_path).load_catalog()
+
+    assert "langfuse-mcp" not in catalog
+    assert "langfuse_credentials_missing" in caplog.text
 
 
 async def test_mount_child_lazy_and_idempotent(tmp_path):
