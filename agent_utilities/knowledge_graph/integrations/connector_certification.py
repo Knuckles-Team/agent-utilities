@@ -461,15 +461,16 @@ class RuntimeCommandCertificationDriver:
             timeout=self.limits.timeout_seconds,
         )
         assert process.stdin is not None and process.stdout is not None
+        stdin, stdout = process.stdin, process.stdout
 
         async def exchange() -> tuple[bytes, int]:
-            process.stdin.write(raw)
-            await process.stdin.drain()
-            process.stdin.close()
+            stdin.write(raw)
+            await stdin.drain()
+            stdin.close()
             chunks: list[bytes] = []
             total = 0
             while True:
-                chunk = await process.stdout.read(
+                chunk = await stdout.read(
                     min(65_536, self.limits.max_response_bytes + 1 - total)
                 )
                 if not chunk:

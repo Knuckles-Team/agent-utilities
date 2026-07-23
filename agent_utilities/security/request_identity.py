@@ -422,6 +422,7 @@ def acquire_process_identity_token(config: Any = None) -> str:
         else:
             from .oauth_client_credentials import build_provider_from_config
 
+            assert oauth2 is not None  # guaranteed by the XOR check above
             token = build_provider_from_config(oauth2).get_token()
     except Exception:
         raise RuntimeError("Graph process identity acquisition failed") from None

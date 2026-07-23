@@ -10,6 +10,7 @@ from pathlib import Path
 from ..ontology.ontology_integrity import ReleaseSigner
 from .connector_certification import (
     CertificationBundle,
+    CertificationDriver,
     CertificationLimits,
     CertificationPolicy,
     ReferenceCertificationDriver,
@@ -52,7 +53,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.profile_ref:
             raise SystemExit("external-live mode requires --profile-ref")
         profile = load_live_profile(args.profile_ref)
-        driver = RuntimeCommandCertificationDriver(profile=profile, limits=limits)
+        driver: CertificationDriver = RuntimeCommandCertificationDriver(
+            profile=profile, limits=limits
+        )
         policy = CertificationPolicy(
             tenant=profile.tenant,
             retention=profile.retention,

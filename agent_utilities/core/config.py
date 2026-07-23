@@ -14,7 +14,7 @@ import re
 import threading
 from collections import OrderedDict
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlsplit
 
 import platformdirs
@@ -5986,12 +5986,13 @@ def _fetch_specialist_agents(engine: Any) -> list[MCPAgent]:
     agents: list[MCPAgent] = []
     try:
         agent_rows = engine.backend.execute(
-            "MATCH (a:Agent) RETURN a.name AS name, a.description AS descriptionription, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
+            "MATCH (a:Agent) RETURN a.name AS name, a.description AS description, a.agent_type AS agent_type, a.system_prompt AS system_prompt, a.tool_count AS tool_count, a.mcp_server AS mcp_server"
         )
         for row in agent_rows:
-            agent_type = str(row.get("agent_type") or "")
-            if agent_type not in {"specialist", "a2a"}:
+            raw_agent_type = str(row.get("agent_type") or "")
+            if raw_agent_type not in {"specialist", "a2a"}:
                 raise RuntimeError("stored Agent uses a non-current agent_type")
+            agent_type = cast(Literal["specialist", "a2a"], raw_agent_type)
             agents.append(
                 MCPAgent(
                     name=row.get("name", "unknown"),

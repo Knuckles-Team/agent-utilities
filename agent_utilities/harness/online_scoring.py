@@ -108,7 +108,10 @@ async def _run_metric_isolated(source: str, trace: dict[str, Any]) -> float:
             continue
         if result.error:
             raise ValueError("metric execution failed")
-        value = float(captured.get("__metric_score__"))
+        raw_score = captured.get("__metric_score__")
+        if raw_score is None:
+            raise ValueError("metric never set __metric_score__")
+        value = float(raw_score)
         if not math.isfinite(value):
             raise ValueError("metric returned a non-finite score")
         return max(0.0, min(1.0, value))

@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from agent_utilities.knowledge_graph._engine_protocol import _EngineProtocol
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def runnable_skill_digest(instructions: str) -> str:
 
 
 def ingest_runnable_skill(
-    engine: IntelligenceGraphEngine,
+    engine: "_EngineProtocol | IntelligenceGraphEngine",
     *,
     name: str,
     description: str,

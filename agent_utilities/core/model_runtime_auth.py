@@ -60,6 +60,7 @@ def resolve_model_api_key(
     """Return one bounded API key from a direct runtime value or a reference."""
     if value and reference:
         raise ModelRuntimeAuthError("model authentication source is ambiguous")
+    resolved: str | None
     if reference:
         resolved = _resolve(reference)
     else:

@@ -206,8 +206,11 @@ class InfrastructureEngineMixin(_Base):
                 ("capacity_tb", 1_000_000_000),
                 ("vram_gb", 1_000_000),
             ):
+                raw_value = merged_info.get(key)
+                if raw_value is None:
+                    continue
                 try:
-                    number = float(merged_info.get(key))
+                    number = float(raw_value)
                 except (TypeError, ValueError):
                     continue
                 if math.isfinite(number) and 0 < number <= upper:

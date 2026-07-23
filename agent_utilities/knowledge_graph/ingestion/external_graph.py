@@ -954,6 +954,7 @@ def ingest_registered_graph(
     current_cursor: str | None = None
     next_cursor: str | None = None
     if use_cdc:
+        assert reader is not None  # guaranteed by use_cdc's `reader is not None` term
         try:
             current_cursor = read_change_cursor(
                 authority_engine,

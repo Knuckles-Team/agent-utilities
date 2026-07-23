@@ -611,7 +611,8 @@ def _operation_plan(
     if declared_idempotency is None and mutates is False:
         declared_idempotency = True
 
-    policy = cpd.get("policy") if isinstance(cpd.get("policy"), dict) else {}
+    _raw_policy = cpd.get("policy")
+    policy = _raw_policy if isinstance(_raw_policy, dict) else {}
     approval_class = str(policy.get("approval_class") or "unclassified")
     approval_required = destructive or approval_class != "auto"
     cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
