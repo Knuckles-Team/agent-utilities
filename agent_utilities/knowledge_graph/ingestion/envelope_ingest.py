@@ -22,6 +22,17 @@ with the same idempotency key.
 
 There is no fallback to a Python multi-step write sequence. An engine without
 the authoritative redb capability fails closed.
+
+**Ambient epistemics (W3.4, CONCEPT:AU-KG.temporal.ambient-connector-valid-time).**
+A row's bitemporal ``valid_from`` is mapped from the envelope's own
+``valid_time``/``event_time`` (the source's reported modification/creation
+timestamp) with no per-connector code change, and a delete/reconcile-tombstone
+closes ``valid_to`` at the same instant — so an ``as_of`` read over
+connector-ingested data answers ``VALID AS OF`` out of the box. Flag-gated
+(``KG_AMBIENT_EPISTEMIC``, default ON; per-source opt-out via
+``KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES``) and never-fabricating: a source with
+no usable timestamp leaves the row exactly as it was before this feature
+existed. See :func:`_stamp_ambient_valid_time` / :func:`_stamp_ambient_valid_until`.
 """
 
 from __future__ import annotations
@@ -730,6 +741,72 @@ def _native_session(
     return _NativeAuthority(compute, authority.backend), session
 
 
+# ── ambient epistemics (CONCEPT:AU-KG.temporal.ambient-connector-valid-time) ──
+#
+# W3.4: connector-ingested rows carry epistemic value BY DEFAULT — the source's
+# own reported timestamp becomes the row's bitemporal ``valid_from`` (and a
+# delete/tombstone's ``valid_to``) with no per-connector code change required.
+# Flag-gated so a deployment can restore byte-identical legacy behavior (no
+# ``valid_from``/``valid_to`` at all) globally or for one noisy/untrusted
+# source, per the repo's configuration-discipline convention of a CSV
+# per-source allowlist (mirrors ``source_sync._reconcile_allowed_empty_sources``).
+
+
+def _ambient_epistemic_enabled(connector: str) -> bool:
+    """Whether ambient bitemporal/provenance stamping applies to ``connector``.
+
+    Default ON (``KG_AMBIENT_EPISTEMIC``); a source named in the CSV
+    ``KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`` opts out even when the global
+    default stays ON.
+    """
+    from ...core.config import setting
+
+    # ``cast`` omitted: auto-inferred as ``to_boolean`` from the ``True``
+    # default (see ``core._env.setting``'s docstring) — also keeps this call
+    # compatible with a caller-test's simpler ``setting`` monkeypatch that
+    # only accepts ``(key, default)``.
+    if not bool(setting("KG_AMBIENT_EPISTEMIC", True)):
+        return False
+    disabled = setting("KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES", "") or ""
+    disabled_sources = {
+        s.strip().lower() for s in str(disabled).split(",") if s.strip()
+    }
+    return (connector or "").strip().lower() not in disabled_sources
+
+
+def _stamp_ambient_valid_time(row: dict[str, Any], envelope: ChangeEnvelope) -> None:
+    """Map the source's own reported timestamp onto ``valid_from`` (in place).
+
+    Prefers the envelope's explicit ``valid_time`` (the fact's own asserted
+    domain validity, e.g. a backdated ticket) over ``event_time`` (the
+    connector's per-record modification/version timestamp); never invents a
+    value — a source with neither leaves ``row`` untouched, exactly the legacy
+    shape (:func:`~..core.bitemporal.stamp_valid_from_source`'s contract).
+    """
+    if not _ambient_epistemic_enabled(envelope.connector):
+        return
+    from ..core.bitemporal import stamp_valid_from_source
+
+    stamp_valid_from_source(row, valid_from=envelope.valid_time or envelope.event_time)
+
+
+def _stamp_ambient_valid_until(row: dict[str, Any], envelope: ChangeEnvelope) -> None:
+    """Close the bitemporal validity interval on a tombstone/archive write (in place).
+
+    Uses the envelope's own ``event_time`` when the source reported a real
+    supersession instant, else ``observed_time`` (always populated — this
+    system's own observation instant is never a fabrication: it really did
+    learn of the removal at that moment).
+    """
+    if not _ambient_epistemic_enabled(envelope.connector):
+        return
+    from ..core.bitemporal import stamp_valid_until_from_source
+
+    stamp_valid_until_from_source(
+        row, valid_until=envelope.event_time or envelope.observed_time
+    )
+
+
 def _prepare_node_rows(
     client: Any, envelope: ChangeEnvelope
 ) -> tuple[
@@ -773,6 +850,7 @@ def _prepare_node_rows(
                 updated = dict(properties)
                 updated["archived"] = True
                 updated["archivedReason"] = f"absent-from-{envelope.connector}"
+                _stamp_ambient_valid_until(updated, envelope)
                 stale.append((existing_id, updated))
         marker_digest = _digest(
             {
@@ -802,6 +880,7 @@ def _prepare_node_rows(
                 "archivedReason": f"tombstoned-by-{envelope.connector}",
             }
         )
+        _stamp_ambient_valid_until(current, envelope)
         return node_id, [(node_id, current)], links, features, evidence
 
     if row is None:
@@ -831,6 +910,7 @@ def _prepare_node_rows(
     from ..enrichment.provenance import stamp_source
 
     stamp_source(row, envelope.connector)
+    _stamp_ambient_valid_time(row, envelope)
     current = _node_properties(client, node_id)
     current.update(row)
     current["id"] = node_id
@@ -848,6 +928,11 @@ def _prepare_node_rows(
                 )
             seen_ids.add(auxiliary_id)
             stamp_source(auxiliary, envelope.connector)
+            # Deliberately NOT ``_stamp_ambient_valid_time`` here: an auxiliary
+            # node is a distinct entity (e.g. "this image's repo") whose own
+            # validity start is unknown to this envelope — the primary row's
+            # event_time is not evidence about when the auxiliary became true,
+            # so stamping it would be a fabrication, not an inference.
             existing = _node_properties(client, auxiliary_id)
             existing.update(auxiliary)
             existing["id"] = auxiliary_id

@@ -203,6 +203,12 @@ class ServiceNowSink:
             if not (sys_id and note):
                 result.skipped += 1
                 continue
+            # X5 (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers): work_notes IS the
+            # ServiceNow-native audit-trail field, so the KG-state instant this
+            # recommendation derived from is appended directly into the note text
+            # sent to ServiceNow — not just our own returned proposal/manifest.
+            if ctx.as_of:
+                note = f"{note}\n\n(KG state as of {ctx.as_of})"
             if dry_run:
                 result.proposals.append(
                     {"op": "work_notes", "table": table, "sys_id": sys_id, "note": note}

@@ -13,6 +13,8 @@ from agent_utilities.knowledge_graph.core.bitemporal import (
     is_valid_as_of,
     resolve_precedence,
     stamp_bitemporal,
+    stamp_valid_from_source,
+    stamp_valid_until_from_source,
     supersede,
 )
 from agent_utilities.models.knowledge_graph import MemoryNode
@@ -122,3 +124,42 @@ def test_memory_node_procedural_layer_fields():
     assert rule.target_entity == "global"
     # Backward compatible default.
     assert MemoryNode(id="m2", name="x").memory_type == "semantic"
+
+
+# ── W3.4 ambient connector valid-time (never-fabricate stamping) ────────────
+# (CONCEPT:AU-KG.temporal.ambient-connector-valid-time)
+
+
+@pytest.mark.concept(id="AU-KG.temporal.ambient-connector-valid-time")
+def test_stamp_valid_from_source_uses_a_real_timestamp():
+    props = stamp_valid_from_source({}, valid_from="2026-02-01T00:00:00+00:00")
+    assert props["valid_from"] == "2026-02-01T00:00:00+00:00"
+
+
+@pytest.mark.concept(id="AU-KG.temporal.ambient-connector-valid-time")
+def test_stamp_valid_from_source_never_fabricates_when_falsy():
+    props = stamp_valid_from_source({"id": "n1"}, valid_from=None)
+    assert "valid_from" not in props
+    props = stamp_valid_from_source({"id": "n1"}, valid_from="")
+    assert "valid_from" not in props
+
+
+@pytest.mark.concept(id="AU-KG.temporal.ambient-connector-valid-time")
+def test_stamp_valid_from_source_preserves_an_existing_value():
+    props = stamp_valid_from_source(
+        {"valid_from": "2020-01-01T00:00:00+00:00"},
+        valid_from="2026-02-01T00:00:00+00:00",
+    )
+    assert props["valid_from"] == "2020-01-01T00:00:00+00:00"
+
+
+@pytest.mark.concept(id="AU-KG.temporal.ambient-connector-valid-time")
+def test_stamp_valid_until_from_source_uses_a_real_timestamp():
+    props = stamp_valid_until_from_source({}, valid_until="2026-03-01T00:00:00+00:00")
+    assert props["valid_to"] == "2026-03-01T00:00:00+00:00"
+
+
+@pytest.mark.concept(id="AU-KG.temporal.ambient-connector-valid-time")
+def test_stamp_valid_until_from_source_never_fabricates_when_falsy():
+    props = stamp_valid_until_from_source({"id": "n1"}, valid_until=None)
+    assert "valid_to" not in props

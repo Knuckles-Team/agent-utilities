@@ -36,6 +36,19 @@ downgrades to the historical Python write sequence. Every durable handler in
 :data:`ORCHESTRATION_ONLY_SOURCES` entry, ``package_install``, emits no graph
 material itself; a static architecture gate proves it only delegates to its
 owned package-reload orchestrator.
+
+**Ambient epistemics (W3.4, CONCEPT:AU-KG.ingest.ambient-connector-provenance /
+AU-KG.temporal.ambient-connector-valid-time).** Connector-ingested rows carry
+epistemic value BY DEFAULT: each record's own reported timestamp becomes its
+bitemporal ``valid_from`` (never fabricated —
+:mod:`~..ingestion.envelope_ingest`'s ``_stamp_ambient_valid_time``), and every
+:func:`_ingest_entities_via_envelope` call records ONE PROV-O Activity for that
+run plus one summary ``:Claim`` ("source X said N records as of T") —
+:mod:`~..etl.lineage`'s ``record_connector_sync_activity`` /
+``record_connector_sync_claim`` — never a claim per row. Flag-gated
+(``KG_AMBIENT_EPISTEMIC``, default ON; per-source opt-out via
+``KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES``); flag off reproduces this module's
+pre-W3.4 behavior byte-for-byte.
 """
 
 from __future__ import annotations
@@ -2137,15 +2150,46 @@ def _ingest_entities_via_envelope(
     Returns ``(succeeded, failed)`` entity counts. The watermark advance
     happens per-envelope, atomically, inside :func:`~..ingestion.envelope_ingest.ingest_envelope`
     itself — there is no separate ``_write_watermark`` call left to make here.
+
+    **Ambient provenance (W3.4, CONCEPT:AU-KG.ingest.ambient-connector-provenance).**
+    When ambient epistemics is enabled for ``connector``
+    (:func:`~..ingestion.envelope_ingest._ambient_epistemic_enabled`) and this
+    call has entities to ingest, ONE PROV-O Activity node is recorded for this
+    whole call (:func:`~..etl.lineage.record_connector_sync_activity`) — never
+    per row — and every entity's own ``_links`` gains a ``"derived_from"`` edge
+    to it, committed atomically with that entity's own envelope (no extra
+    engine round-trip). After the loop, the Activity is updated with final
+    counts/status and ONE summary ``:Claim`` is persisted
+    (:func:`~..etl.lineage.record_connector_sync_claim`) — "``connector``
+    reported N record(s) as of T". Both are best-effort: a provenance-write
+    failure (or ambient epistemics disabled) never affects the entities
+    themselves or this function's return value.
     """
     from ..ingestion.change_envelope import ChangeEnvelope
-    from ..ingestion.envelope_ingest import ingest_envelope
+    from ..ingestion.envelope_ingest import _ambient_epistemic_enabled, ingest_envelope
+
+    activity_id: str | None = None
+    if entities and _ambient_epistemic_enabled(connector):
+        from ..etl.lineage import record_connector_sync_activity
+
+        activity_id = record_connector_sync_activity(
+            engine,
+            connector=connector,
+            source_instance=source_instance,
+            status="running",
+        )
 
     ok = failed = 0
     ordered_entities = sorted(
         entities, key=lambda item: _checkpoint_order(item.get(version_field))
     )
     for record in ordered_entities:
+        if activity_id:
+            links = [
+                *(record.get("_links") or []),
+                {"target": activity_id, "type": "derived_from"},
+            ]
+            record = {**record, "_links": links}
         env = ChangeEnvelope.from_connector_record(
             record,
             connector=connector,
@@ -2167,6 +2211,29 @@ def _ingest_entities_via_envelope(
             # first failure so crash-resume cannot skip this record.
             break
         ok += 1
+
+    if activity_id:
+        from ..etl.lineage import (
+            record_connector_sync_activity,
+            record_connector_sync_claim,
+        )
+
+        record_connector_sync_activity(
+            engine,
+            connector=connector,
+            source_instance=source_instance,
+            status="ok" if not failed else "partial",
+            record_count=ok,
+            failed_count=failed,
+            activity_id=activity_id,
+        )
+        record_connector_sync_claim(
+            engine,
+            connector=connector,
+            source_instance=source_instance,
+            record_count=ok,
+            activity_id=activity_id,
+        )
     return ok, failed
 
 

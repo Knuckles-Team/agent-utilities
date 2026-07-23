@@ -117,3 +117,42 @@ def supersede(winner: dict[str, Any], loser: dict[str, Any]) -> dict[str, Any]:
     boundary = winner.get("event_time") or winner.get("storage_time") or _now_iso()
     loser["valid_to"] = boundary
     return loser
+
+
+def stamp_valid_from_source(
+    props: dict[str, Any], *, valid_from: str | None
+) -> dict[str, Any]:
+    """Stamp ``valid_from`` ONLY from a genuine source-reported timestamp (in place, returned).
+
+    CONCEPT:AU-KG.temporal.ambient-connector-valid-time — the ambient-epistemics
+    counterpart of :func:`stamp_bitemporal` for connector-ingested rows: unlike
+    that function (which falls back to wall-clock "now" when no event time is
+    known), this one NEVER fabricates a validity start. A falsy ``valid_from``
+    (the source reported no usable modification/creation timestamp) leaves
+    ``props`` untouched — :func:`is_valid_as_of` already treats a missing
+    ``valid_from`` as "always valid" (-inf), which is the honest default for
+    data with no source-asserted validity, rather than inventing today's date
+    as if the source had said so. Idempotent: an already-stamped ``valid_from``
+    is preserved (``setdefault``), never overwritten by a later, possibly less
+    precise, re-ingest of the same row.
+    """
+    if valid_from:
+        props.setdefault("valid_from", valid_from)
+    return props
+
+
+def stamp_valid_until_from_source(
+    props: dict[str, Any], *, valid_until: str | None
+) -> dict[str, Any]:
+    """Close ``valid_to`` from a genuine supersession instant (in place, returned).
+
+    CONCEPT:AU-KG.temporal.ambient-connector-valid-time — the delete/tombstone
+    twin of :func:`stamp_valid_from_source`: called when a connector reports a
+    row is gone (a genuine "this fact stopped being true" event), so the read
+    path's ``valid_from <= as_of < valid_to`` window closes at the right
+    instant instead of staying open forever. Same never-fabricate contract: a
+    falsy ``valid_until`` leaves ``props`` untouched.
+    """
+    if valid_until:
+        props.setdefault("valid_to", valid_until)
+    return props

@@ -46,16 +46,12 @@ class _FakeEngine:
 
     def out_edges(self, node_id: str, data: bool = False):
         return [
-            (s, t, {"relationship": r})
-            for (s, r, t) in self._edges
-            if s == node_id
+            (s, t, {"relationship": r}) for (s, r, t) in self._edges if s == node_id
         ]
 
     def in_edges(self, node_id: str, data: bool = False):
         return [
-            (s, t, {"relationship": r})
-            for (s, r, t) in self._edges
-            if t == node_id
+            (s, t, {"relationship": r}) for (s, r, t) in self._edges if t == node_id
         ]
 
     def get_nodes_by_label(self, label: str, limit: int = 0):
@@ -433,6 +429,38 @@ def test_run_trm_assessment_writes_graph_and_routes_writeback(monkeypatch):
     assert cap.calls, "expected Assessment/Recommendation nodes to be written"
     written_types = {e["type"] for call in cap.calls for e in call["entities"]}
     assert {"Assessment", "Recommendation", "TRMRequest"} <= written_types
+
+
+def test_run_trm_assessment_threads_one_as_of_into_graph_and_writeback(monkeypatch):
+    """X5 (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers): the persisted
+    ``:Assessment``'s own ``runTimestamp`` and the backfed ServiceNow work-note
+    agree on the SAME KG-state instant — computed once, threaded to both."""
+    cap = _Capture()
+    monkeypatch.setattr(native_ingest, "ingest_entities", cap)
+    monkeypatch.setenv("TRM_WRITEBACK_BACKEND", "servicenow")
+    monkeypatch.delenv("SERVICENOW_ENABLE_WRITE", raising=False)
+    captured_writeback: dict[str, Any] = {}
+
+    def fake_run_writeback(target, *, dry_run, as_of=None, **ops):
+        captured_writeback["as_of"] = as_of
+        captured_writeback["note"] = (ops.get("work_notes") or [{}])[0].get("note")
+        return {"status": "completed", "proposals": []}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.writeback.core.run_writeback",
+        fake_run_writeback,
+    )
+    engine = _FakeEngine(edges=_capability_edges())
+
+    pi.run_trm_assessment(
+        {"id": "trm:req:1", "candidateId": "prod-a", "sysId": "sys123"}, engine=engine
+    )
+
+    assessment = next(
+        e for call in cap.calls for e in call["entities"] if e["type"] == "Assessment"
+    )
+    assert assessment["runTimestamp"]
+    assert captured_writeback["as_of"] == assessment["runTimestamp"]
 
 
 # ── 6. guarded no-engine no-op ─────────────────────────────────────────────────

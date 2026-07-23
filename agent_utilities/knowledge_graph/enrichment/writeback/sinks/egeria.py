@@ -68,13 +68,20 @@ class EgeriaSink:
                     {"op": "create_asset", "type": asset_type, "name": name}
                 )
                 continue
+            # X5 (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers): additional_properties
+            # is Egeria's free-form provenance channel — the KG-state instant this
+            # asset was derived from rides along in the SAME live payload, not just
+            # our own returned proposal/manifest.
+            additional_properties: dict[str, Any] = {"source": "graph-os"}
+            if ctx.as_of:
+                additional_properties["as_of"] = ctx.as_of
             try:
                 res = client.create_asset(  # type: ignore[union-attr]  # client None-checked above
                     asset_type,
                     qn,
                     name,
                     description=c.get("description", "KG-derived asset."),
-                    additional_properties={"source": "graph-os"},
+                    additional_properties=additional_properties,
                 )
                 if isinstance(res, dict) and res.get("guid"):
                     result.created += 1

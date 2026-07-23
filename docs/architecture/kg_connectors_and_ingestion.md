@@ -154,6 +154,47 @@ connector.
 
 ---
 
+## 4b. Ambient epistemics (valid-time + provenance, W3.4)
+
+Connector-ingested rows carry epistemic value **by default**, with no
+per-connector code change — `KG_AMBIENT_EPISTEMIC` (default ON; per-source
+opt-out via `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`):
+
+- **Valid-time from the source's own timestamp.** Every envelope already
+  carries `event_time`/`valid_time` (populated from the connector's own
+  `updated_field`/version-field). `envelope_ingest._stamp_ambient_valid_time`
+  maps that onto the written row's bitemporal `valid_from`; a delete/reconcile
+  tombstone closes `valid_to` at the supersession instant
+  (`_stamp_ambient_valid_until`). **Never fabricated** — a source with no
+  usable timestamp writes neither property, so `is_valid_as_of` still treats
+  it as "always valid" rather than inventing a start date.
+- **One PROV-O Activity + one summary Claim per sync run, never per row.**
+  `source_sync._ingest_entities_via_envelope` (the shared tail ~20 connector
+  handlers route through) mints one `:Activity` node
+  (`etl.lineage.record_connector_sync_activity`,
+  `RegistryNodeType.PROVENANCE_ACTIVITY`) per call, links every synced row to
+  it via a `derived_from` edge riding the SAME `ApplyChangeEnvelope`
+  transaction as that row's own write (no extra round trip), and persists one
+  `:Claim` after the batch ("source X reported N records as of T",
+  `etl.lineage.record_connector_sync_claim`) through the lightweight direct
+  `ClaimNode` + `add_node` path (`orchestration.agent_dispatch_worker`'s
+  convention) — not the governed mining-flywheel lifecycle, which is reserved
+  for inferred findings needing review.
+
+```mermaid
+flowchart LR
+  R["source_sync handler\n(one run)"] -->|mints once| A[":Activity\nkind=connector_sync"]
+  R -->|per record| E["ChangeEnvelope\nvalid_from ← event_time/valid_time"]
+  E -->|derived_from edge\n(same tx as the row)| A
+  R -->|after the batch, once| C[":Claim\n'reported N records as of T'"]
+  A --> C
+```
+
+The write-path X5 closure applies the same idea to **outbound** writes: see
+§6's writeback bullet below.
+
+---
+
 ## 5. Background ingestion across the board
 
 A single host-role daemon runs `skill_scheduler` every 60s, reading
@@ -189,7 +230,14 @@ lands in **one ontology** and is reasoned over together:
   fact extractor (text → atomic fact edges), process lift (Camunda/ARIS → ArchiMate).
 - **Writeback sinks** — the outbound half: KG intelligence is pushed *back* into
   the source systems (issues, CMDB CIs, fact-sheet attributes). High-stakes sinks
-  are propose-only via the ProposalQueue. (`enrichment/writeback/sinks/`)
+  are propose-only via the ProposalQueue. (`enrichment/writeback/sinks/`) The
+  write path's `as_of` (X5, W3.4) closes the read path's long-standing
+  bitemporal `as_of` support: `run_writeback` stamps `as_of` onto every
+  returned proposal (audit-trail coverage for every sink with no per-sink
+  change), and the ServiceNow/Egeria sinks additionally embed it into the
+  LIVE outbound payload (ServiceNow `work_notes` text; Egeria
+  `additional_properties`) — so a backfeed records which KG state it derived
+  from, not just that a write happened.
 
 See also: [KG as Bidirectional ETL Hub](kg_etl_hub.md),
 [Content-Aware Ingestion](content-aware-ingestion.md),
