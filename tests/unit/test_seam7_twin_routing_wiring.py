@@ -247,6 +247,110 @@ async def test_graph_runvcs_twin_actions_require_expected_inputs(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# X-8 gap-closure: the EXPLICIT-DATA capture_twin path + policy_decisions/
+# evidence passthrough (previously reachable in agent_digital_twin.py but not
+# from either MCP action) is now itself first-class on twin_capture.
+# ---------------------------------------------------------------------------
+
+
+async def test_graph_runvcs_twin_capture_explicit_data_path_never_touches_the_kg(
+    monkeypatch,
+):
+    """Passing `tool_calls` routes through capture_twin (the canonical live-run
+    path), NOT capture_twin_from_kg — proven by using data that DIVERGES from
+    what the (seeded) fake KG holds: if the KG-hydration path fired instead,
+    the captured tool_name would be the KG's "kg_query", not this."""
+    engine = _seed_engine()  # seeded with tool_name="kg_query" for run:seam7-demo
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    kg_server.ensure_tools_registered()
+
+    res = await kg_server._execute_tool(
+        "graph_runvcs",
+        action="twin_capture",
+        run_id="run:seam7-demo",
+        tool_calls=json.dumps(
+            [{"tool_name": "explicit_tool", "args": "{}", "result": "ok", "error": ""}]
+        ),
+        persist=False,
+    )
+    payload = json.loads(res)
+    twin = payload["twin"]
+    assert len(twin["tool_call_ids"]) == 1
+    steps = twin["events"]
+    tool_names = {
+        e["payload"].get("tool_name")
+        for e in steps
+        if e.get("mode") == "declaration" and "tool_name" in e.get("payload", {})
+    }
+    assert tool_names == {"explicit_tool"}
+
+
+async def test_graph_runvcs_twin_capture_explicit_data_path_attaches_policy_and_evidence(
+    monkeypatch,
+):
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
+    kg_server.ensure_tools_registered()
+
+    decision = {
+        "request": {
+            "kind": "diagnose",
+            "target": "fleet",
+            "params": {},
+            "source": "test",
+            "reason": "",
+            "actor_id": "",
+        },
+        "decision": "allow",
+        "tier": "auto",
+        "reason": "tier auto",
+        "rule_origin": "file",
+        "approval_id": None,
+        "audit_id": "action_decision:explicit-1",
+    }
+    res = await kg_server._execute_tool(
+        "graph_runvcs",
+        action="twin_capture",
+        run_id="run:seam7-explicit",
+        tool_calls=json.dumps(
+            [{"tool_name": "explicit_tool", "args": "{}", "result": "ok", "error": ""}]
+        ),
+        policy_decisions=json.dumps([decision]),
+        evidence=json.dumps([{"source": "unit-test", "confidence": 0.9}]),
+    )
+    payload = json.loads(res)
+    twin = payload["twin"]
+    assert twin["policy_decisions"] == [decision]
+    assert twin["evidence"] == [{"source": "unit-test", "confidence": 0.9}]
+
+
+async def test_graph_runvcs_twin_capture_kg_hydration_path_also_attaches_policy_and_evidence(
+    monkeypatch,
+):
+    """The KG-hydration path (run_id only, no explicit tool_calls/model_exchanges)
+    previously silently dropped policy_decisions/evidence even though
+    capture_twin_from_kg already accepted them — now the MCP action forwards
+    them through on this path too."""
+    engine = _seed_engine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    kg_server.ensure_tools_registered()
+
+    res = await kg_server._execute_tool(
+        "graph_runvcs",
+        action="twin_capture",
+        run_id="run:seam7-demo",
+        evidence=json.dumps([{"source": "hydration-path", "confidence": 0.5}]),
+        persist=False,
+    )
+    payload = json.loads(res)
+    twin = payload["twin"]
+    # Still hydrated for real from the fake KG (the pre-existing behavior).
+    assert twin["work_item_ids"] == ["workitem:seam7-1"]
+    assert len(twin["tool_call_ids"]) == 1
+    # AND the explicitly-passed evidence now actually attaches.
+    assert twin["evidence"] == [{"source": "hydration-path", "confidence": 0.5}]
+
+
+# ---------------------------------------------------------------------------
 # X-4 — ontology_interface explain_routing_eligibility action
 # ---------------------------------------------------------------------------
 

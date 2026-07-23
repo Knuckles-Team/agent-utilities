@@ -120,6 +120,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_broker": ("act", "manage", "ask"),
         "engine_ledger": ("write", "act"),
         # ── manage / configure / admin ──
+        "graph_claims": ("manage", "act"),
         "graph_configure": ("manage",),
         "graph_secret": ("manage",),
         "graph_sessions": ("manage", "ask"),
