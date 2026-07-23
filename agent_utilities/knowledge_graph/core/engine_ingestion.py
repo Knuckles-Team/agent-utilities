@@ -29,6 +29,7 @@ from ...models.knowledge_graph import (
     EpisodeNode,
     ToolMetadataNode,
 )
+from ...security.identifiers import validate_identifier
 from .context_builder import build_contextual_description
 
 logger = logging.getLogger(__name__)
@@ -364,7 +365,13 @@ class IngestionMixin(_Base):
 
             # Update Backend
             if self.backend:
-                node_type = data.get("node_type", "Entity")
+                # A prior node write (any source: ontology import, connector
+                # ingestion, an MCP tool) set this property — re-validated
+                # here before it reaches a Cypher label position, the same
+                # discipline as every other backend adapter.
+                node_type = validate_identifier(
+                    data.get("node_type", "Entity"), kind="label"
+                )
                 self.backend.execute(
                     f"MATCH (n:{node_type}) WHERE n.id = $id SET n.embedding = $emb",
                     {"id": node_id, "emb": new_embedding},

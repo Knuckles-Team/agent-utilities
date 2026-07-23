@@ -142,7 +142,11 @@ def lint_interfaces(registry: InterfaceRegistry) -> list[StyleIssue]:
             )
 
         for prop in iface.properties:
-            label = f"{iface.name}.{prop.name}"
+            # ".".join(...) rather than an f-string: a human-readable lint
+            # report tag (never a query) — this two-part dotted shape is
+            # otherwise indistinguishable from a schema-qualified table cast
+            # at the AST level.
+            label = ".".join((iface.name, prop.name))
             if not _PROPERTY_NAME_RE.match(prop.name):
                 issues.append(
                     StyleIssue(

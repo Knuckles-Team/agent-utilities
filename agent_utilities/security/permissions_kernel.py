@@ -742,11 +742,10 @@ class PermissionsKernel:
                     )
                 except Exception as e:
                     logger.warning(
-                        "Failed to register identity with Rust backend (%s)",
-                        type(e).__name__,
+                        "Failed to register identity with Rust backend: %s", e
                     )
         except Exception as e:
-            logger.debug("Failed to persist identity (%s)", type(e).__name__)
+            logger.debug("Failed to persist identity: %s", e)
 
 
 def resolve_permission_context(

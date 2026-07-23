@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from agent_utilities.core.contextual_model import create_context_agent
 from agent_utilities.core.embedding_utilities import create_embedding_model
 from agent_utilities.core.model_factory import create_model
+from agent_utilities.security.identifiers import validate_identifier
 
 from ..core.engine import IntelligenceGraphEngine, cosine_similarity
 from ..core.hypergraph import PositionalInteractionEncoder
@@ -844,8 +845,9 @@ class HybridRetriever:
 
         nodes: list[dict[str, Any]] = []
         if self.engine.backend:
-            for label in labels:
+            for raw_label in labels:
                 try:
+                    label = validate_identifier(raw_label, kind="label")
                     rows = (
                         self.engine.backend.execute(
                             f"MATCH (n:{label}) RETURN n.id as id, n as data "
@@ -854,7 +856,7 @@ class HybridRetriever:
                         or []
                     )
                 except Exception as e:
-                    logger.debug("direct_search label %s failed: %s", label, e)
+                    logger.debug("direct_search label %s failed: %s", raw_label, e)
                     continue
                 for r in rows:
                     if not isinstance(r, dict):

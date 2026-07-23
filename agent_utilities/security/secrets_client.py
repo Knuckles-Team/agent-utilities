@@ -416,10 +416,7 @@ class VaultBackend(SecretsBackend):
             logger.info("Vault OIDC/JWT authentication succeeded")
             return True
         except Exception as e:
-            logger.debug(
-                "Vault OIDC authentication failed (exception_type=%s)",
-                type(e).__name__,
-            )
+            logger.debug("Vault OIDC authentication failed: %s", e)
             return False
 
     def _try_approle(self) -> bool:
@@ -439,10 +436,7 @@ class VaultBackend(SecretsBackend):
             logger.info("Vault: AppRole auth successful.")
             return True
         except Exception as e:
-            logger.debug(
-                "Vault AppRole authentication failed (exception_type=%s)",
-                type(e).__name__,
-            )
+            logger.debug("Vault AppRole authentication failed: %s", e)
             return False
 
     def _try_kubernetes(self) -> bool:
@@ -464,10 +458,7 @@ class VaultBackend(SecretsBackend):
             logger.info("Vault: Kubernetes auth successful.")
             return True
         except Exception as e:
-            logger.debug(
-                "Vault Kubernetes authentication failed (exception_type=%s)",
-                type(e).__name__,
-            )
+            logger.debug("Vault Kubernetes authentication failed: %s", e)
             return False
 
     def _ensure_authenticated(self) -> None:
@@ -510,10 +501,7 @@ class VaultBackend(SecretsBackend):
             data = resp.get("data", {}).get("data", {})
             return data.get(field if separator else "value")
         except Exception as exc:
-            logger.debug(
-                "Vault secret lookup failed (exception_type=%s)",
-                type(exc).__name__,
-            )
+            logger.debug("Vault secret lookup failed: %s", exc)
             return None
 
     def set(self, key: str, value: str, **metadata: Any) -> None:

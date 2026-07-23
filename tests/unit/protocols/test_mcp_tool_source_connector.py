@@ -29,6 +29,7 @@ from agent_utilities.protocols.source_connectors.tool_schema import (
     canonical_input_schema,
     compatibility_fingerprint,
 )
+from tests.unit.knowledge_graph.test_identifier_validation import MALICIOUS_IDENTIFIERS
 
 # ── canned fleet servers ─────────────────────────────────────────────────────
 
@@ -444,17 +445,59 @@ def test_sql_table_bootstrap_discovers_columns_and_polls_incrementally():
 
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
-def test_sql_table_rejects_unsafe_identifiers():
+@pytest.mark.parametrize("bad_table", MALICIOUS_IDENTIFIERS)
+def test_sql_table_rejects_unsafe_identifiers(bad_table):
+    if not bad_table:
+        pytest.skip("empty table takes a different ('required') validation path")
     with pytest.raises(ValueError, match="identifier"):
         conn = build_connector(
             "mcp_tool",
             {
                 "preset": "sql-table",
                 "client": make_sql_server(),
-                "sql_table": {"table": "articles; DROP", "text_column": "body"},
+                "sql_table": {"table": bad_table, "text_column": "body"},
             },
         )
         list(conn.load())
+
+
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
+@pytest.mark.parametrize("bad_column", MALICIOUS_IDENTIFIERS)
+def test_sql_table_rejects_unsafe_key_column(bad_column):
+    if not bad_column:
+        pytest.skip("empty key_column falls back to the 'id' default")
+    with pytest.raises(ValueError, match="identifier"):
+        conn = build_connector(
+            "mcp_tool",
+            {
+                "preset": "sql-table",
+                "client": make_sql_server(),
+                "sql_table": {
+                    "table": "articles",
+                    "key_column": bad_column,
+                    "text_column": "body",
+                },
+            },
+        )
+        list(conn.load())
+
+
+@pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
+def test_sql_table_rejects_unsafe_identifiers_does_not_echo_value():
+    """The identifiers module's no-leak discipline: the raised message must
+    never contain the offending value (see ``_ident``'s docstring)."""
+    secret_marker = "x; DROP TABLE super_secret_table_name --"
+    with pytest.raises(ValueError) as exc_info:
+        conn = build_connector(
+            "mcp_tool",
+            {
+                "preset": "sql-table",
+                "client": make_sql_server(),
+                "sql_table": {"table": secret_marker, "text_column": "body"},
+            },
+        )
+        list(conn.load())
+    assert secret_marker not in str(exc_info.value)
 
 
 # ── objectstore shapes ───────────────────────────────────────────────────────

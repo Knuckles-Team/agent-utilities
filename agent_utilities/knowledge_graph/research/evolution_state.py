@@ -30,6 +30,8 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
 logger = logging.getLogger(__name__)
 
 #: The singleton live-beacon node — upserted in place at every stage entry so a
@@ -352,7 +354,16 @@ def artifact_evolution_summary(
     if engine is None:
         return empty
 
-    scan_labels = tuple(labels) if labels else ARTIFACT_VERSION_LABELS
+    # ``labels`` is caller-supplied — unlike ``ARTIFACT_VERSION_LABELS``, it is
+    # not a fixed vocabulary, so it is filtered to plain Cypher identifiers
+    # before any label reaches the query below (best-effort, matching this
+    # function's own "degrade, never raise" discipline: an invalid label is
+    # skipped, not fatal).
+    scan_labels = (
+        tuple(lbl for lbl in labels if CYPHER_IDENTIFIER_RE.fullmatch(lbl))
+        if labels
+        else ARTIFACT_VERSION_LABELS
+    )
     rows: list[dict[str, Any]] = []
     for label in scan_labels:
         try:

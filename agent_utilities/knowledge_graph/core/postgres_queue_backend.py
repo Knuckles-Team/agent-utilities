@@ -35,6 +35,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from agent_utilities.security.identifiers import validate_sql_identifier
+
 from .queue_backend import QueueBackend
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,11 @@ def _queue_table_ddl(table: str) -> str:
     CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the agent dispatch queue (``agent_dispatch_queue``)
     reuses this backend with its own table; same columns, same claim contract.
     """
+    # ``table`` is already constrained to the closed ``_QUEUE_TABLES``
+    # vocabulary by the sole caller (``PostgresTaskQueue.__init__``) —
+    # re-validated here too so this DDL-building function is self-evidently
+    # safe on its own, independent of that caller.
+    table = validate_sql_identifier(table, kind="table")
     return f"""
 CREATE TABLE IF NOT EXISTS {table} (
     id BIGSERIAL PRIMARY KEY,
@@ -186,14 +193,17 @@ class PostgresTaskQueue(QueueBackend):
         """Claim the scheduled row selected by priority/deadline/fairness."""
         now = time.time()
         cutoff = now - _VISIBILITY_TIMEOUT_S
+        # Re-validated at the point of use (already constrained to the closed
+        # ``_QUEUE_TABLES`` vocabulary in __init__).
+        queue_table = validate_sql_identifier(self.queue_table, kind="table")
         sql = f"""
             WITH candidate AS (
                 SELECT q.id
-                FROM {self.queue_table} AS q
-                LEFT JOIN {self.queue_table}_fairness AS tenant_fairness
+                FROM {queue_table} AS q
+                LEFT JOIN {queue_table}_fairness AS tenant_fairness
                   ON tenant_fairness.tenant_ref = q.tenant_ref
                  AND tenant_fairness.fairness_group_ref = ''
-                LEFT JOIN {self.queue_table}_fairness AS group_fairness
+                LEFT JOIN {queue_table}_fairness AS group_fairness
                   ON group_fairness.tenant_ref = q.tenant_ref
                  AND group_fairness.fairness_group_ref = q.fairness_group_ref
                 WHERE q.claimed_at IS NULL OR q.claimed_at < %s
@@ -212,7 +222,7 @@ class PostgresTaskQueue(QueueBackend):
                 LIMIT 1
                 FOR UPDATE OF q SKIP LOCKED
             )
-            UPDATE {self.queue_table} AS q
+            UPDATE {queue_table} AS q
                SET claimed_by = %s, claimed_at = %s
               FROM candidate
              WHERE q.id = candidate.id
@@ -224,7 +234,7 @@ class PostgresTaskQueue(QueueBackend):
             if row is not None:
                 conn.execute(
                     f"""
-                    INSERT INTO {self.queue_table}_fairness
+                    INSERT INTO {queue_table}_fairness
                         (tenant_ref, fairness_group_ref, last_claimed_at)
                     VALUES (%s, '', %s), (%s, %s, %s)
                     ON CONFLICT (tenant_ref, fairness_group_ref) DO UPDATE
@@ -292,9 +302,10 @@ class PostgresTaskQueue(QueueBackend):
         tenant_ref, fairness_ref, priority, deadline, enqueued_at = (
             self._schedule_fields(item)
         )
+        queue_table = validate_sql_identifier(self.queue_table, kind="table")
         conn.execute(
             f"""
-            INSERT INTO {self.queue_table}
+            INSERT INTO {queue_table}
                 (data, tenant_ref, fairness_group_ref, prio_bucket,
                  deadline_unix, enqueued_at)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -323,13 +334,14 @@ class PostgresTaskQueue(QueueBackend):
         """Atomically admit under ``max_depth`` across all producer hosts."""
         if max_depth < 1:
             raise ValueError("max_depth must be positive")
+        queue_table = validate_sql_identifier(self.queue_table, kind="table")
         with self._pool.connection() as conn:
             conn.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (self.queue_table,),
             )
             row = conn.execute(
-                f"SELECT COUNT(*) FROM {self.queue_table}"  # nosec B608
+                f"SELECT COUNT(*) FROM {queue_table}"  # nosec B608
             ).fetchone()
             if row and int(row[0]) >= max_depth:
                 return False
@@ -348,10 +360,11 @@ class PostgresTaskQueue(QueueBackend):
     def ack(self, item_id: Any) -> None:
         if not isinstance(item_id, _PostgresReceipt):
             raise TypeError("Postgres acknowledgement requires a fenced receipt")
+        queue_table = validate_sql_identifier(self.queue_table, kind="table")
         with self._pool.connection() as conn:
             row = conn.execute(
                 f"""
-                DELETE FROM {self.queue_table}
+                DELETE FROM {queue_table}
                  WHERE id = %s AND claimed_by = %s AND claimed_at = %s
                 RETURNING tenant_ref, fairness_group_ref
                 """,  # nosec B608 — closed table vocabulary
@@ -361,13 +374,13 @@ class PostgresTaskQueue(QueueBackend):
                 raise RuntimeError("Postgres acknowledgement was fenced")
             conn.execute(
                 f"""
-                    DELETE FROM {self.queue_table}_fairness AS f
+                    DELETE FROM {queue_table}_fairness AS f
                      WHERE f.tenant_ref = %s
                        AND (
                             (
                                 f.fairness_group_ref = %s
                                 AND NOT EXISTS (
-                                    SELECT 1 FROM {self.queue_table} AS q
+                                    SELECT 1 FROM {queue_table} AS q
                                      WHERE q.tenant_ref = f.tenant_ref
                                        AND q.fairness_group_ref = f.fairness_group_ref
                                 )
@@ -375,7 +388,7 @@ class PostgresTaskQueue(QueueBackend):
                             OR (
                                 f.fairness_group_ref = ''
                                 AND NOT EXISTS (
-                                    SELECT 1 FROM {self.queue_table} AS q
+                                    SELECT 1 FROM {queue_table} AS q
                                      WHERE q.tenant_ref = f.tenant_ref
                                 )
                             )
@@ -385,9 +398,10 @@ class PostgresTaskQueue(QueueBackend):
             )
 
     def get_queue_size(self) -> int:
+        queue_table = validate_sql_identifier(self.queue_table, kind="table")
         with self._pool.connection() as conn:
             row = conn.execute(
-                f"SELECT COUNT(*) FROM {self.queue_table}"  # nosec B608 — constant table
+                f"SELECT COUNT(*) FROM {queue_table}"  # nosec B608 — constant table
             ).fetchone()
         return int(row[0]) if row else 0
 

@@ -7,6 +7,8 @@ SQL is shared and query-shape parity holds (agentsview backend-parity rule).
 
 from __future__ import annotations
 
+from agent_utilities.security.identifiers import validate_sql_identifier
+
 PRIVACY_SCHEMA_VERSION = "usage-privacy-metadata-v1"
 
 # Shared base tables (valid on SQLite + Postgres; INTEGER/TEXT/REAL are accepted
@@ -183,6 +185,10 @@ def enforce_privacy_schema(conn) -> bool:
         "sessions",
         "skipped_files",
     ):
+        # Fixed literals today, not caller data — validated anyway (no
+        # bound-parameter position exists for a table name) so this stays
+        # safe if the table set is ever derived from configuration.
+        table = validate_sql_identifier(table, kind="table")
         if conn.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is not None:
             raise RuntimeError("usage store privacy schema is incompatible")
     conn.execute("DELETE FROM usage_store_metadata WHERE key = ?", ("privacy_schema",))

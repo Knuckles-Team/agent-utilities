@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from agent_utilities.pricing import ModelPricing
+from agent_utilities.security.identifiers import validate_sql_identifier
 from agent_utilities.security.persistence_privacy import persistence_reference
 
 from ..backend import UsageBackend
@@ -119,8 +120,12 @@ class SqlUsageBackend(UsageBackend):
         ph = self._ph()
         with self._connect() as conn:
             self._ensure_search(conn)
-            # Replace existing rows for idempotent re-ingest.
+            # Replace existing rows for idempotent re-ingest. ``tbl`` is a
+            # fixed literal today, not caller data — validated anyway (no
+            # bound-parameter position exists for a table name) so this stays
+            # safe if the table set is ever derived from configuration.
             for tbl in ("messages", "tool_calls", "usage_events"):
+                tbl = validate_sql_identifier(tbl, kind="table")
                 conn.execute(f"DELETE FROM {tbl} WHERE session_id = {ph}", (s.id,))
             self._clear_search(conn, s.id)
             conn.execute(f"DELETE FROM sessions WHERE id = {ph}", (s.id,))

@@ -580,7 +580,7 @@ class RLMEnvironment:
             f"CONTEXT METADATA:\n"
             f"  type: {ctx_type}\n"
             f"  length: {len(ctx_str):,} characters\n"
-            f'  prefix: "{prefix}..."\n'
+            f"  prefix: {prefix!r}...\n"
             f"ACCESS INSTRUCTIONS:\n"
             f"  - The full context is in the `context` variable.\n"
             f"  - Peek at slices: `context[start:end]`\n"

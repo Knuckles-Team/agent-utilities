@@ -46,6 +46,11 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
+from agent_utilities.security.identifiers import (
+    InvalidIdentifierError,
+    validate_sql_identifier,
+)
+
 from ..base import (
     CheckpointedBatch,
     ConnectorCheckpoint,
@@ -1300,14 +1305,22 @@ def list_tool_presets() -> list[str]:
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
 
 def _ident(name: str, what: str) -> str:
-    """Validate a SQL identifier from config (defense against SQL splicing)."""
-    if not _IDENT_RE.match(name or ""):
-        raise ValueError(f"sql_table {what} {name!r} is not a plain SQL identifier")
-    return name
+    """Validate a SQL identifier from config (defense against SQL splicing).
+
+    Thin, message-preserving-shape shim over the shared
+    ``agent_utilities.security.identifiers`` SQL gate — kept under this name
+    because it's called from several sites in this module with its own
+    ``sql_table <what>`` message shape. Unlike the prior hand-rolled regex,
+    the raised message never echoes the offending value back (the identifiers
+    module's no-leak discipline: a crafted identifier must not be smuggled
+    into a log line or error response via the exception it triggers).
+    """
+    try:
+        return validate_sql_identifier(name, kind=what)
+    except InvalidIdentifierError as exc:
+        raise ValueError(f"sql_table {what} is not a plain SQL identifier") from exc
 
 
 def _extract_query_param(url: str, key: str) -> str | None:

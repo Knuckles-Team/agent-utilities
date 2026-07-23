@@ -133,6 +133,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-swallowed-errors
+    name: Swallowed errors — no NEW cause-dropping exception handler (ratchet)
+    entry: python3 scripts/check_swallowed_errors.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
     entry: python3 scripts/check_skill_name_collision.py

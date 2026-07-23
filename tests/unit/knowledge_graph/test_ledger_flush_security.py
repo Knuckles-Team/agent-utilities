@@ -8,6 +8,8 @@ from unittest.mock import Mock
 import pytest
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+from tests.unit.knowledge_graph.test_identifier_validation import MALICIOUS_IDENTIFIERS
 
 
 def _engine(entries: list[str]) -> GraphComputeEngine:
@@ -18,11 +20,54 @@ def _engine(entries: list[str]) -> GraphComputeEngine:
 
 
 def test_ledger_replay_rejects_cypher_identifier_injection_without_clearing() -> None:
-    payload = json.dumps({"type": "Entity) DETACH DELETE n //"})
+    # NOTE: the payload key the engine actually reads is "node_type" (see
+    # ``GraphComputeEngine.flush_ledger_to_backend``'s
+    # ``props.get("node_type", "Entity")``) — this test previously used the
+    # wrong key ("type"), which the code silently ignores in favor of the safe
+    # "Entity" default, so it never actually exercised the rejection path it
+    # claimed to cover (it passed vacuously on every run, main included).
+    payload = json.dumps({"node_type": "Entity) DETACH DELETE n //"})
     engine = _engine([f"AddNode|opaque-id|{payload}"])
     backend = Mock()
 
     with pytest.raises(ValueError, match="unsafe node type"):
+        engine.flush_ledger_to_backend(backend)
+
+    backend.execute_write.assert_not_called()
+    engine.clear_ledger.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("bad_node_type", MALICIOUS_IDENTIFIERS)
+def test_ledger_replay_rejects_malicious_node_type_corpus(bad_node_type) -> None:
+    if not bad_node_type:
+        pytest.skip("empty node_type falls back to the safe 'Entity' default")
+    payload = json.dumps({"node_type": bad_node_type})
+    engine = _engine([f"AddNode|opaque-id|{payload}"])
+    backend = Mock()
+
+    with pytest.raises(ValueError, match="unsafe node type"):
+        engine.flush_ledger_to_backend(backend)
+
+    backend.execute_write.assert_not_called()
+    engine.clear_ledger.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("bad_rel_type", MALICIOUS_IDENTIFIERS)
+def test_ledger_replay_rejects_malicious_edge_type_corpus(bad_rel_type) -> None:
+    if not bad_rel_type:
+        pytest.skip("empty relationship falls back to the safe 'RELATED_TO' default")
+    if CYPHER_IDENTIFIER_RE.fullmatch(bad_rel_type.replace(" ", "_").upper()):
+        pytest.skip(
+            "edge types are space-normalized (' '->'_') and upper-cased before "
+            "validation, by design (unlike node types) — this corpus entry no "
+            "longer looks malicious once normalized the same way the production "
+            "code normalizes it"
+        )
+    payload = json.dumps({"relationship": bad_rel_type})
+    engine = _engine([f"AddEdge|src-id|tgt-id|{payload}"])
+    backend = Mock()
+
+    with pytest.raises(ValueError, match="unsafe edge type"):
         engine.flush_ledger_to_backend(backend)
 
     backend.execute_write.assert_not_called()

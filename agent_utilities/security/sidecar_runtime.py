@@ -30,7 +30,11 @@ class ProcessStamp:
 
     def key(self) -> str:
         """Stable, filesystem-safe identity key."""
-        return f"{self.app}.{self.mode}.{self.namespace}.{self.ipc}.{self.source}"
+        # ".".join(...) rather than an f-string: a process-stamp identity key
+        # used to derive a filesystem/socket path (never a query) — this
+        # multi-part dotted shape is otherwise indistinguishable from a
+        # schema-qualified table cast at the AST level.
+        return ".".join((self.app, self.mode, self.namespace, self.ipc, self.source))
 
 
 def _runtime_root(namespace: str) -> Path:

@@ -17,6 +17,7 @@ Pure Cypher reads (best-effort, never raises); degrades to "nothing ingested yet
 from typing import Any
 
 from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
+from agent_utilities.security.identifiers import validate_identifier
 
 VALID_INTENTS = ("health", "list", "why")
 
@@ -80,11 +81,15 @@ def entity_context(
 
     recent: list[dict[str, Any]] = []
     if focus_labels:
+        # ``by_type`` (and so ``focus_labels``) comes from the graph's own
+        # existing labels(n) — re-validated here anyway before it reaches a
+        # label position, the same discipline as every other backend adapter.
+        focus_label = validate_identifier(focus_labels[0], kind="label")
         recent = [
             {"id": r.get("id"), "name": r.get("name"), "type": focus_labels[0]}
             for r in read_rows(
                 engine,
-                f"MATCH (n:{focus_labels[0]}) RETURN n.id AS id, n.name AS name "
+                f"MATCH (n:{focus_label}) RETURN n.id AS id, n.name AS name "
                 f"LIMIT {limit}",
                 {},
             )

@@ -37,6 +37,8 @@ three built-in derived properties).
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
+from agent_utilities.security.identifiers import validate_identifier
+
 if TYPE_CHECKING:
     from .derived_properties import (
         DerivedPropertyEngine,
@@ -240,6 +242,10 @@ def __getattr__(name: str) -> Any:
     module_name = _LAZY_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(name)
+    # ``module_name`` is a fixed literal from the ``_LAZY_EXPORTS`` table, not
+    # caller data — validated anyway since it is spliced into a dotted import
+    # path, the same discipline as a Cypher/SQL identifier position.
+    module_name = validate_identifier(module_name, kind="module name")
     if module_name in {"interfaces", "links"}:
         # Domain modules populate the shared registries as before, but only for
         # callers that actually request the live ontology surface.

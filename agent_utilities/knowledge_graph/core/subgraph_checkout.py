@@ -262,6 +262,10 @@ class CheckedOutSubgraph:
                 summary["skipped_conflicts"] += 1
                 continue
             try:
+                # Already sanitized when captured (remove_node) — re-sanitized
+                # here too so this delete site is self-evidently safe on its
+                # own, independent of that other method.
+                label = _sanitize_label(label)
                 durable.execute(
                     f"MATCH (n:{label} {{id: $id}}) DETACH DELETE n", {"id": nid}
                 )

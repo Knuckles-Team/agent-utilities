@@ -38,7 +38,8 @@ def public_error_payload(
     code: str = "operation_failed",
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Return a strict ``OperationResult`` failure and a type-only correlation log.
+    """Return a strict ``OperationResult`` failure and a correlation log that
+    preserves the real cause.
 
     Unknown codes fail closed to ``operation_failed``.  Callers cannot supply a
     log message or public message, which prevents an untrusted value from being
@@ -46,17 +47,28 @@ def public_error_payload(
     diagnostic mapping (e.g. ``{"action": ..., "tool": ...}``): only its **keys**
     are logged (never values, and never the public payload) so it can aid
     correlation without reintroducing an untrusted value.
+
+    The exception itself IS logged (not just its class name): this is the
+    single public-failure boundary for REST/MCP/streaming (~200+ call sites),
+    so collapsing it to ``type(exc).__name__`` here made every failure across
+    the whole external surface equally undiagnosable server-side (a denied
+    scope, a missing driver, an unreadable durable record all looked like the
+    same bare "RuntimeError") even though the PUBLIC payload already stays
+    minimal (``detail_ref=None``, a fixed generic message) by design. The
+    process-wide log-privacy boundary (``core/log_privacy.py``) still
+    sanitizes the exception's message text (redacts endpoints/paths/emails)
+    before it reaches any handler, so this does not reintroduce a leak.
     """
 
     safe_code = code if code in PUBLIC_ERROR_MESSAGES else "operation_failed"
     correlation_id = f"correlation:{uuid.uuid4().hex}"
     sink = logger or _DEFAULT_LOGGER
     sink.warning(
-        "External operation failed (code=%s correlation_id=%s exception_type=%s "
+        "External operation failed (code=%s correlation_id=%s exception=%s "
         "context_keys=%s)",
         safe_code,
         correlation_id,
-        type(exc).__name__,
+        exc,
         sorted(context) if context else [],
     )
     return OperationResult(

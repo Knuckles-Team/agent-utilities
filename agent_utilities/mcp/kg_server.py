@@ -359,7 +359,7 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
             "file_path": f"skill://{name}",
         }
     except Exception as e:
-        logger.error("Failed to parse SKILL.md (%s)", type(e).__name__)
+        logger.error("Failed to parse SKILL.md: %s", e)
         name = path_obj.parent.name
         return {
             "id": name,
@@ -524,7 +524,7 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                     }
                 )
         except Exception as e:
-            logger.error("Failed to parse MCP config (%s)", type(e).__name__)
+            logger.error("Failed to parse MCP config: %s", e)
 
     # 2. Built-in Agent Tools
     builtin_tools = []
@@ -2801,7 +2801,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
         if ingested:
             logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
-        logger.error("Failed to ingest skills (%s)", type(e).__name__)
+        logger.error("Failed to ingest skills: %s", e)
 
     # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
     # server declaration above; probing every child here would launch the whole
