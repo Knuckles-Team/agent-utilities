@@ -366,11 +366,15 @@ class TestXDGMessagingPaths:
     """CONCEPT:AU-ECO.messaging.native-backend-abstraction + CONCEPT:AU-OS.safety.doom-loop-detection — XDG path integration."""
 
     def test_messaging_sessions_dir(self) -> None:
-        from agent_utilities.core.paths import messaging_sessions_dir
+        from agent_utilities.core.paths import data_dir, messaging_sessions_dir
 
         path = messaging_sessions_dir()
         assert str(path).endswith("messaging")
-        assert "agent-utilities" in str(path)
+        # Anchored under the app's data dir (this suite's autouse
+        # ``clean_graph_globals`` fixture in tests/conftest.py overrides
+        # ``AGENT_UTILITIES_DATA_DIR`` to an isolated tmp path per test, so
+        # the literal "agent-utilities" segment is not present here).
+        assert path == data_dir() / "messaging"
 
     def test_messaging_config_path(self) -> None:
         from agent_utilities.core.paths import messaging_config_path

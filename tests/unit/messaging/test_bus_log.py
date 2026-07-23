@@ -29,7 +29,18 @@ from agent_utilities.messaging.bus_log import (
 # ── tenant-qualified keying ───────────────────────────────────────────────────
 
 
-def test_current_bus_tenant_defaults_to_default():
+def test_current_bus_tenant_defaults_to_default(monkeypatch):
+    """Outside any bound actor, the bus falls back to the literal tenant
+    "default". This suite's autouse ``isolate_graph_compute_engine`` fixture
+    (tests/conftest.py) binds an ambient test actor for every test, so
+    "no actor bound" must be simulated explicitly here rather than relied on
+    ambiently."""
+    import agent_utilities.security.brain_context as brain_context
+
+    def _no_actor() -> None:
+        raise brain_context.IdentityRequiredError("no actor bound")
+
+    monkeypatch.setattr(brain_context, "current_actor", _no_actor)
     assert current_bus_tenant() == "default"
 
 
@@ -93,11 +104,12 @@ class FakeBroker:
             "delivery_tag": self.tag,
         }
 
-    def ack_tag(self, delivery_tag):
+    def ack_tag(self, delivery_tag, *, consumer=None):
+        del consumer
         return self.inflight.pop(delivery_tag, None) is not None
 
-    def nack_tag(self, delivery_tag, requeue=True, now_ms=None):
-        del now_ms
+    def nack_tag(self, delivery_tag, *, consumer=None, requeue=True, now_ms=None):
+        del consumer, now_ms
         item = self.inflight.pop(delivery_tag, None)
         if item is None:
             return "absent"
@@ -149,8 +161,8 @@ def test_engine_log_is_pinned_to_the_current_broker_client_contract() -> None:
             "lease_ms",
             "prefetch",
         ),
-        "ack_tag": ("self", "delivery_tag"),
-        "nack_tag": ("self", "delivery_tag", "requeue", "now_ms"),
+        "ack_tag": ("self", "delivery_tag", "consumer"),
+        "nack_tag": ("self", "delivery_tag", "consumer", "requeue", "now_ms"),
     }
     observed = {
         method: tuple(inspect.signature(getattr(BrokerClient, method)).parameters)

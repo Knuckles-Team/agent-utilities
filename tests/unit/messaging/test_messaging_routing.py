@@ -24,6 +24,24 @@ from agent_utilities.messaging.router import (
 )
 from agent_utilities.messaging.service import MessagingService
 
+
+class _EmptyEvidenceEngine:
+    """Bare ``ContextCompiler`` source (CONCEPT:AU-KG.retrieval.context-compiler)
+    standing in for the real epistemic-graph engine this sandbox has no
+    native binary for — an explicit empty-evidence retrieval surface, not a
+    ContextCompiler bypass."""
+
+    def search_hybrid(
+        self, query: str, *, top_k: int = 8, as_of: str | None = None
+    ) -> list[dict[str, Any]]:
+        del query, top_k, as_of
+        return []
+
+    def retrieve_epistemic_view(self, query: str, *, top_k: int = 8) -> dict[str, Any]:
+        del query, top_k
+        return {}
+
+
 # ── Responder selection (local default / Claude address) ─────────────
 
 
@@ -217,9 +235,16 @@ async def test_reply_error_falls_back_to_plain_chat(
     monkeypatch.setattr(mgr, "Orchestrator", _BoomOrch)
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
 
-    reply = await _graph_agent_reply(
-        object(), "hello there", session="messaging:telegram:42"
-    )
+    from agent_utilities.core.contextual_model import use_context_compiler_engine
+
+    # The plain-chat fallback's model call is mandatorily context-compiled
+    # (CONCEPT:AU-KG.retrieval.context-compiler) — an explicit (bare, empty-
+    # evidence) engine stands in for the real epistemic-graph engine this
+    # sandbox has no native binary for.
+    with use_context_compiler_engine(_EmptyEvidenceEngine()):
+        reply = await _graph_agent_reply(
+            object(), "hello there", session="messaging:telegram:42"
+        )
     assert reply.startswith("[local] ")
     assert "couldn't draft a reply" not in reply
 
@@ -228,7 +253,11 @@ async def test_reply_error_falls_back_to_plain_chat(
 async def test_plain_chat_reply_tags_responder(monkeypatch: pytest.MonkeyPatch) -> None:
     # The plain-chat fallback tags the reply with who answered (CONCEPT:AU-ECO.messaging.model-routed-inbound-responder).
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "true")
-    reply = await _plain_chat_reply("hello there")
+
+    from agent_utilities.core.contextual_model import use_context_compiler_engine
+
+    with use_context_compiler_engine(_EmptyEvidenceEngine()):
+        reply = await _plain_chat_reply("hello there")
     assert reply.startswith("[local] ")
     assert "couldn't draft a reply" not in reply
 

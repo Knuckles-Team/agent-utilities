@@ -63,16 +63,21 @@ def _reset_registry():
 async def test_unknown_target_is_reported_via_registry():
     # A single unknown named target must surface a registry KeyError as a tool
     # error — proving the tool consulted the registry (no daemon needed; the
-    # unknown name raises before any engine is built).
+    # unknown name raises before any engine is built). The PUBLIC response is
+    # the standardized, privacy-safe operation-failure envelope
+    # (agent_utilities.security.error_surface's public error boundary): raw
+    # exception text/target names are never echoed back to the caller — only
+    # a generic code + correlation_id.
     kg_server.ensure_tools_registered()
-    out = await kg_server._execute_tool(
+    bundle = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (n) RETURN n AS n",
         target="does-not-exist",
     )
-    payload = json.loads(out)
-    assert "error" in payload
-    assert "does-not-exist" in payload["error"]
+    payload = bundle.claims[0]
+    assert payload["status"] == "failed"
+    assert payload["error"]["code"] == "operation_failed"
+    assert "does-not-exist" not in json.dumps(payload)
 
 
 async def test_fanout_returns_labeled_per_connection_results():
@@ -84,12 +89,12 @@ async def test_fanout_returns_labeled_per_connection_results():
     kg_server._CONNECTION_REGISTRY = registry
 
     kg_server.ensure_tools_registered()
-    out = await kg_server._execute_tool(
+    bundle = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (n) RETURN n AS n",
         target="all",
     )
-    payload = json.loads(out)
+    payload = bundle.claims[0]
     assert set(payload["targets"]) == {"default", "other"}
     assert payload["targets"]["default"] == [{"engine": "default"}]
     assert payload["targets"]["other"] == [{"engine": "other"}]
@@ -202,7 +207,10 @@ async def test_recall_media_rejects_non_opaque_filter_before_query():
         )
     )
 
-    assert payload["action"] == "recall_media"
+    # The standardized operation envelope (schema_version/operation_id/status/
+    # error.code/correlation_id) no longer echoes the requested action back —
+    # only the fact and code of the failure.
+    assert payload["status"] == "failed"
     assert payload["error"]["code"] == "invalid_request"
     assert "message' OR true" not in json.dumps(payload)
 

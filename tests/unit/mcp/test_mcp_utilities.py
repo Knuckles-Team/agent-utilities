@@ -30,6 +30,7 @@ def test_create_mcp_server_basic(mock_fastmcp):
     # Mocking parse_known_args to return default values
     with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
         mock_args = MagicMock()
+        mock_args.transport = "stdio"
         mock_args.port = 8000
         mock_args.enable_delegation = False
         mock_args.auth_type = "none"
@@ -39,7 +40,13 @@ def test_create_mcp_server_basic(mock_fastmcp):
         args, mcp, middlewares = mcp_utilities.create_mcp_server(name="TestServer")
 
         assert args == mock_args
-        mock_fastmcp.assert_called_once_with("TestServer", auth=None, instructions="")
+        # ``create_mcp_server`` now always stamps the package version onto
+        # the FastMCP instance (``version: str = __version__`` default).
+        from agent_utilities._version import __version__
+
+        mock_fastmcp.assert_called_once_with(
+            "TestServer", version=__version__, auth=None, instructions=""
+        )
         assert len(middlewares) >= 2  # Default middlewares
 
 
@@ -104,6 +111,7 @@ def test_create_mcp_server_delegation_error(mock_get):
     # Test that delegation requires oidc-proxy
     with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
         mock_args = MagicMock()
+        mock_args.transport = "stdio"
         mock_args.port = 8000
         mock_args.help = False
         mock_args.enable_delegation = True
@@ -123,6 +131,7 @@ def test_create_mcp_server_delegation_error(mock_get):
 def test_create_mcp_server_invalid_port():
     with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
         mock_args = MagicMock()
+        mock_args.transport = "stdio"
         mock_args.help = False
         mock_args.port = 70000  # Invalid
         mock_parse.return_value = (mock_args, [])
@@ -132,12 +141,19 @@ def test_create_mcp_server_invalid_port():
         assert excinfo.value.code == 1
 
 
-@patch("eunomia_mcp.create_eunomia_middleware")
+@patch("agent_utilities.mcp.eunomia_principal.create_eunomia_middleware")
 def test_create_mcp_server_eunomia(mock_create_mw):
+    # ``server_factory._configure_middleware`` calls
+    # ``agent_utilities.mcp.eunomia_principal.create_eunomia_middleware`` (its
+    # own wrapper — which does its own policy-file validation before ever
+    # reaching the external ``eunomia_mcp`` package), not the external
+    # package's function directly — that must be the patch target.
+    #
     # Mocking parse_known_args to return Eunomia options
     with patch("argparse.ArgumentParser.parse_known_args") as mock_parse:
         # Test Case 1: Embedded Eunomia
         mock_args = MagicMock()
+        mock_args.transport = "stdio"
         mock_args.port = 8000
         mock_args.enable_delegation = False
         mock_args.auth_type = "none"
@@ -145,12 +161,14 @@ def test_create_mcp_server_eunomia(mock_create_mw):
         mock_args.eunomia_type = "embedded"
         mock_args.eunomia_policy_file = "my_custom_policy.json"
         mock_args.eunomia_remote_url = None
+        mock_args.eunomia_api_key_ref = None
         mock_parse.return_value = (mock_args, [])
 
         mcp_utilities.create_mcp_server(name="TestServerEmbedded")
         mock_create_mw.assert_called_with(
             policy_file="my_custom_policy.json",
             use_remote_eunomia=False,
+            require_verified_principal=False,
         )
 
         mock_create_mw.reset_mock()
@@ -165,4 +183,6 @@ def test_create_mcp_server_eunomia(mock_create_mw):
             policy_file=None,
             use_remote_eunomia=True,
             eunomia_endpoint="http://eunomia:8421",
+            api_key_ref=None,
+            require_verified_principal=False,
         )

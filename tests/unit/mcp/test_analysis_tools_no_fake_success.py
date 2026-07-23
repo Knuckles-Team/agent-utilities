@@ -8,26 +8,46 @@ no-op (worse than an error: a caller gating on "success" is misled).
 The fix replaces each with an honest ``{"status": "not_implemented", "error":
 ...}`` payload naming the real tool/service to use instead — no fake success,
 ever, for these six actions.
+
+Both the tool surface and the response envelope have since moved on:
+``evaluate``/``evolve_model``/``forecast``/``causal``/``invariant`` were split
+off ``graph_analyze`` onto the dedicated ``graph_evaluate`` tool
+(``security_scan`` stayed on ``graph_analyze``); and every action now returns
+the sole typed :class:`~agent_utilities.models.evidence_bundle.EvidenceBundle`
+envelope, not a raw JSON string — ``EvidenceBundle.from_payload`` losslessly
+retains the original ``{"status": ..., "error": ..., "action": ...}`` payload
+as its (only) claim.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 
 from agent_utilities.mcp import kg_server
 
+# evaluate/evolve_model/forecast/causal/invariant now live on graph_evaluate;
+# security_scan stayed on graph_analyze.
+_TOOL_FOR_ACTION = {
+    "evaluate": "graph_evaluate",
+    "evolve_model": "graph_evaluate",
+    "forecast": "graph_evaluate",
+    "causal": "graph_evaluate",
+    "invariant": "graph_evaluate",
+    "security_scan": "graph_analyze",
+}
 
-def _get_tool():
+
+def _get_tool(action: str):
     kg_server.ensure_tools_registered()
-    return kg_server.REGISTERED_TOOLS["graph_analyze"]
+    return kg_server.REGISTERED_TOOLS[_TOOL_FOR_ACTION[action]]
 
 
 def _run(monkeypatch, action: str) -> dict:
     monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    tool = _get_tool()
-    out = asyncio.run(tool(action=action, target="some-target"))
-    return json.loads(out)
+    tool = _get_tool(action)
+    bundle = asyncio.run(tool(action=action, target="some-target"))
+    # The not-implemented payload is the bundle's sole (lossless) claim.
+    return bundle.claims[0]
 
 
 def test_evaluate_no_longer_fake_succeeds(monkeypatch):

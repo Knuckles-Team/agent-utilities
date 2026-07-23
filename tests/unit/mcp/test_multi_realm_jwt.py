@@ -16,6 +16,8 @@ from agent_utilities.mcp.server_factory import _configure_jwt_auth
 
 
 def _args(**kw: object) -> SimpleNamespace:
+    # NOTE: fake issuer/JWKS URLs below use https:// — ``_secure_auth_url``
+    # requires HTTPS for any non-loopback hostname (AU-OS.identity hardening).
     base: dict[str, object] = {
         "token_jwks_uri": None,
         "token_issuer": None,
@@ -34,8 +36,8 @@ def test_single_realm_returns_plain_jwtverifier() -> None:
 
     verifier = _configure_jwt_auth(
         _args(
-            token_jwks_uri="http://kc.test/realms/master/protocol/openid-connect/certs",
-            token_issuer="http://kc.test/realms/master",
+            token_jwks_uri="https://kc.test/realms/master/protocol/openid-connect/certs",
+            token_issuer="https://kc.test/realms/master",
         )
     )
     assert isinstance(verifier, JWTVerifier)
@@ -45,10 +47,10 @@ def test_multi_realm_builds_one_verifier_per_realm() -> None:
     verifier = _configure_jwt_auth(
         _args(
             token_jwks_uri=(
-                "http://kc.test/realms/master/protocol/openid-connect/certs,"
-                "http://kc.test/realms/homelab/protocol/openid-connect/certs"
+                "https://kc.test/realms/master/protocol/openid-connect/certs,"
+                "https://kc.test/realms/homelab/protocol/openid-connect/certs"
             ),
-            token_issuer="http://kc.test/realms/master,http://kc.test/realms/homelab",
+            token_issuer="https://kc.test/realms/master,https://kc.test/realms/homelab",
         )
     )
     assert hasattr(verifier, "_verifiers")
@@ -59,8 +61,8 @@ def test_multi_realm_mismatched_list_lengths_exit() -> None:
     with pytest.raises(SystemExit):
         _configure_jwt_auth(
             _args(
-                token_jwks_uri="http://kc.test/realms/master/protocol/openid-connect/certs",
-                token_issuer="http://kc.test/realms/master,http://kc.test/realms/homelab",
+                token_jwks_uri="https://kc.test/realms/master/protocol/openid-connect/certs",
+                token_issuer="https://kc.test/realms/master,https://kc.test/realms/homelab",
             )
         )
 
@@ -69,10 +71,10 @@ def _multi() -> object:
     return _configure_jwt_auth(
         _args(
             token_jwks_uri=(
-                "http://kc.test/realms/master/protocol/openid-connect/certs,"
-                "http://kc.test/realms/homelab/protocol/openid-connect/certs"
+                "https://kc.test/realms/master/protocol/openid-connect/certs,"
+                "https://kc.test/realms/homelab/protocol/openid-connect/certs"
             ),
-            token_issuer="http://kc.test/realms/master,http://kc.test/realms/homelab",
+            token_issuer="https://kc.test/realms/master,https://kc.test/realms/homelab",
         )
     )
 

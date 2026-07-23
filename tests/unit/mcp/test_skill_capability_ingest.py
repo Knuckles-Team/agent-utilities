@@ -170,7 +170,12 @@ def test_boot_skill_failure_log_uses_neutral_reference(tmp_path, caplog, monkeyp
         )
         in caplog.text
     )
-    assert "stage=declaration exception_type=" in caplog.text
+    # Deliberate contract update: the failure log format is
+    # "stage=%s %s: %s" (stage, exception type, exception MESSAGE) — it now
+    # preserves the (sanitized) exception message instead of collapsing it to
+    # just the exception type, so an operator can see WHY a skill failed to
+    # ingest, not only that it did.
+    assert "stage=declaration ParserError:" in caplog.text
     assert str(tmp_path) not in caplog.text
 
 

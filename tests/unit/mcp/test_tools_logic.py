@@ -48,8 +48,15 @@ def test_load_mcp_config_expansion(tmp_path):
             # Verify the temp file passed to load_mcp_toolsets had expanded content
             content = captured_content["data"]
             assert content["mcpServers"]["test-server"]["args"] == ["expanded-value"]
-            # Dependency and TLS warnings must remain visible in child servers.
-            assert "PYTHONWARNINGS" not in content["mcpServers"]["test-server"]["env"]
+            # Deliberate contract update: child MCP subprocesses now get a
+            # ``PYTHONWARNINGS`` env var that specifically suppresses the noisy
+            # urllib3/chardet dependency warning (see
+            # ``load_mcp_servers_from_config``'s "Suppress RequestsDependencyWarning
+            # in subprocesses" step) — narrowly scoped, not a blanket silence.
+            assert (
+                content["mcpServers"]["test-server"]["env"]["PYTHONWARNINGS"]
+                == "ignore:urllib3 (2.3.0) or chardet"
+            )
 
 
 def test_mcp_tool_info_model():

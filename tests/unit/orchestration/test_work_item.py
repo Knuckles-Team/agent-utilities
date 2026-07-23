@@ -393,7 +393,7 @@ class NativeEngine:
         if node.get("status") == "cancelled":
             return {"status": "cancelled"}
         if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
-            return {"status": "conflict"}
+            return {"status": "not_cancellable"}
         node["status"] = "cancelled"
         return {"status": "cancelled"}
 
@@ -719,6 +719,167 @@ class CasEngine:
             node.update(updates)
             return True
 
+    # -- engine-native WorkItem verbs (AU-P1-1) --------------------------
+    #
+    # ``work_item.py``'s claim/renew/commit/cancel/defer primitives now
+    # dispatch exclusively through these five generated verbs (mirroring
+    # ``graph_compute.py``'s real ``self._client.work_items.*`` bridge) —
+    # there is no Python-side CAS-scan fallback left in production. This
+    # double implements them directly over its own CAS-backed node store so
+    # it keeps exercising the same lease/fencing/idempotency mechanics the
+    # "cas_engine" fixture name promises, just through the current
+    # engine-native surface instead of the retired raw-CAS claim path.
+
+    @staticmethod
+    def _owns(node: dict[str, Any] | None, request: dict[str, Any]) -> bool:
+        return bool(
+            node
+            and node.get("lease_owner") == request.get("worker_ref")
+            and node.get("lease_epoch") == request.get("expected_epoch")
+            and node.get("fencing_token") == request.get("fencing_token")
+        )
+
+    def _candidate(self, request: Any) -> tuple[str, dict[str, Any]] | None:
+        item_id = request.work_item_id
+        candidates = (
+            [(str(item_id), self.nodes.get(str(item_id)))]
+            if item_id
+            else sorted(
+                self.nodes.items(),
+                key=lambda pair: (
+                    int(pair[1].get("prio_bucket") or 0),
+                    float(pair[1].get("created_at") or 0),
+                ),
+            )
+        )
+        now = float(request.now_ms) / 1000.0
+        for candidate_id, node in candidates:
+            if not node or node.get("label") != "WorkItem":
+                continue
+            if request.queue_ref and node.get("queue") != request.queue_ref:
+                continue
+            if (
+                request.resource_class
+                and node.get("resource_class") != request.resource_class
+            ):
+                continue
+            status = node.get("status")
+            if status in {"leased", "running"}:
+                if float(node.get("lease_expires_at") or 0) >= now:
+                    continue
+            elif status != "ready":
+                continue
+            if float(node.get("next_retry_at") or 0) > now:
+                continue
+            return candidate_id, node
+        return None
+
+    def claim_work_item(self, request: Any) -> dict[str, Any]:
+        with self._lock:
+            selected = self._candidate(request)
+            if selected is None:
+                return _negative_claim("empty")
+            item_id, node = selected
+            attempt = int(node.get("attempt") or 0) + 1
+            if attempt > int(node.get("max_attempts") or 1):
+                node.update(status="dead_letter", error_ref="lease_exhausted")
+                return _negative_claim("empty")
+            epoch = int(node.get("lease_epoch") or 0) + 1
+            node.update(
+                status="leased",
+                lease_owner=request.worker_ref,
+                lease_epoch=epoch,
+                fencing_token=epoch,
+                attempt=attempt,
+                lease_expires_at=float(request.now_ms + request.lease_ms) / 1000.0,
+            )
+            return {
+                "schema_version": "1",
+                "claimed": True,
+                "reason": "claimed",
+                "work_item_id": item_id,
+                "kind": node.get("kind"),
+                "payload_ref": node.get("payload_ref"),
+                "lease_holder_ref": request.worker_ref,
+                "lease_epoch": epoch,
+                "fencing_token": epoch,
+                "lease_expires_at_ms": request.now_ms + request.lease_ms,
+                "attempt": attempt,
+                "max_attempts": node["max_attempts"],
+                "tenant_in_flight": 1,
+                "changed_work_item_ids": [item_id],
+            }
+
+    def renew_work_item_lease(self, request: dict[str, Any]) -> dict[str, Any]:
+        node = self.nodes.get(request["work_item_id"])
+        if not self._owns(node, request):
+            return {"renewed": False}
+        node["lease_expires_at"] = float(request["now_unix"]) + float(
+            request["lease_ttl"]
+        )
+        return {"renewed": True}
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> dict[str, Any]:
+        node = self.nodes.get(request["work_item_id"])
+        if node is None:
+            return {"status": "missing"}
+        if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
+            return {"status": "noop"}
+        if not self._owns(node, request):
+            return {"status": "fenced"}
+        outcome = request["outcome"]
+        if outcome == "failed" and request["retryable"]:
+            if int(node["attempt"]) >= int(node["max_attempts"]):
+                node.update(status="dead_letter", error_ref=request.get("error_ref"))
+                return {"status": "dead_letter"}
+            node.update(
+                status="ready",
+                next_retry_at=float(request["now_unix"])
+                + float(node["backoff_base_s"]) * (2 ** (int(node["attempt"]) - 1)),
+                lease_epoch=int(node["lease_epoch"]) + 1,
+                lease_owner=None,
+                lease_expires_at=None,
+            )
+            return {"status": "retry_scheduled"}
+        node.update(
+            status=outcome,
+            result_ref=request.get("result_ref"),
+            error_ref=request.get("error_ref"),
+            completed_at=request["now_unix"],
+            lease_owner=None,
+            lease_expires_at=None,
+        )
+        if outcome == "succeeded":
+            for child_id in node.get("downstream_ids") or []:
+                child = self.nodes[child_id]
+                child["dep_count"] = max(0, int(child["dep_count"]) - 1)
+                if child["dep_count"] == 0:
+                    child["status"] = "ready"
+        return {"status": "committed"}
+
+    def cancel_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
+        node = self.nodes.get(request["work_item_id"])
+        if node is None:
+            return {"status": "missing"}
+        if node.get("status") == "cancelled":
+            return {"status": "cancelled"}
+        if node.get("status") in wi.TERMINAL_WORK_ITEM_STATUSES:
+            return {"status": "not_cancellable"}
+        node["status"] = "cancelled"
+        return {"status": "cancelled"}
+
+    def defer_work_item(self, request: dict[str, Any]) -> dict[str, Any]:
+        node = self.nodes.get(request["work_item_id"])
+        if not self._owns(node, request):
+            return {"status": "fenced"}
+        node.update(
+            status="ready",
+            next_retry_at=request["next_retry_at"],
+            lease_owner=None,
+            lease_expires_at=None,
+        )
+        return {"status": "deferred"}
+
     # -- read surface ----------------------------------------------------
 
     def query_cypher(
@@ -831,10 +992,17 @@ class CasEngine:
 
 
 class NoCasEngine(CasEngine):
-    """Otherwise-identical to CasEngine, but with no atomic CAS — must fail
-    loud when a WorkItem transition needs one, never silently no-op."""
+    """Otherwise-identical to CasEngine, but with no atomic backend at all —
+    must fail loud when a WorkItem transition needs one, never silently
+    no-op. Nils out both the raw CAS primitive and the engine-native verbs
+    built on top of it, mirroring ``NativeEngine``'s ``NoNativeEngine``."""
 
     compare_and_set_node_fields = None  # type: ignore[assignment]
+    claim_work_item = None  # type: ignore[assignment]
+    renew_work_item_lease = None  # type: ignore[assignment]
+    commit_work_item_result = None  # type: ignore[assignment]
+    cancel_work_item = None  # type: ignore[assignment]
+    defer_work_item = None  # type: ignore[assignment]
 
 
 @pytest.fixture
@@ -957,7 +1125,11 @@ def test_mark_running_and_heartbeat_extend_the_lease(cas_engine: CasEngine) -> N
     )
     assert wi.mark_running(cas_engine, item_id, claim, now=1001.0)
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == "running"
+    # ``mark_running`` only VALIDATES that the claim came from the native
+    # ClaimWorkItem transaction (AU-P1-1) — it never writes a separate
+    # "running" status; the engine-native lease already IS the running
+    # ownership decision (see ``work_item.mark_running``'s docstring).
+    assert item["status"] == "leased"
 
     assert wi.heartbeat(cas_engine, item_id, claim, now=1030.0, lease_ttl_s=60.0)
     item = wi.get_work_item(cas_engine, item_id)
@@ -965,11 +1137,13 @@ def test_mark_running_and_heartbeat_extend_the_lease(cas_engine: CasEngine) -> N
 
 
 def test_claim_next_respects_priority_bucket_ordering(cas_engine: CasEngine) -> None:
+    # ``prio_bucket`` is a plain integer 0..3 (0 = highest priority, claimed
+    # first); ``_coerce_prio_bucket`` no longer accepts string labels.
     low_id = wi.submit_work_item(
-        cas_engine, kind="generic", payload_ref="low", priority="background", now=1.0
+        cas_engine, kind="generic", payload_ref="low", priority=3, now=1.0
     )
     high_id = wi.submit_work_item(
-        cas_engine, kind="generic", payload_ref="high", priority="critical", now=2.0
+        cas_engine, kind="generic", payload_ref="high", priority=0, now=2.0
     )
 
     claim = wi.claim_next(cas_engine, now=1000.0)
@@ -1016,14 +1190,22 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
     )
     wi.mark_running(cas_engine, item_id, claim, now=1000.0)
 
-    # Worker "dies" — the lease is now expired at t=1500.
+    # Worker "dies" — the lease is now expired at t=1500. There is no
+    # Python-side reaper transition writer (AU-P1-1): ClaimWorkItem reclaims
+    # expired leases atomically as part of selection, so the confirmation
+    # call itself is always a no-op (matches
+    # ``test_reaper_has_no_python_transition_writer``).
     result = wi.reap_expired_leases(cas_engine, now=1500.0)
-    assert result["reaped_ready"] == [item_id]
-    assert result["reaped_dead_letter"] == []
+    assert result == {"reaped_ready": [], "reaped_dead_letter": []}
+
+    # The actual reclaim happens on the next claim attempt.
+    reclaimed = wi.claim_specific(cas_engine, item_id, token="host:2", now=1500.0)
+    assert reclaimed is not None
+    assert reclaimed["lease_epoch"] == 2  # bumped past the dead holder's epoch (1)
 
     item = wi.get_work_item(cas_engine, item_id)
-    assert item["status"] == "ready"
-    assert item["lease_epoch"] == 2  # bumped past the dead holder's epoch (1)
+    assert item["status"] == "leased"
+    assert item["lease_owner"] == "host:2"
 
     # The dead holder eventually "finishes" and tries to commit with its
     # stale claim — must be rejected, never overwrite the reclaimed item.
@@ -1032,7 +1214,7 @@ def test_reap_expired_lease_requeues_to_ready_and_stale_commit_is_fenced(
     )
     assert outcome == "fenced"
     assert (
-        wi.get_work_item(cas_engine, item_id)["status"] == "ready"
+        wi.get_work_item(cas_engine, item_id)["status"] == "leased"
     )
 
 
@@ -1048,12 +1230,18 @@ def test_reap_expired_lease_exhausted_retries_goes_to_dead_letter(
     wi.mark_running(cas_engine, item_id, claim, now=1000.0)
     assert wi.get_work_item(cas_engine, item_id)["attempt"] == 1  # == max_attempts
 
+    # No Python-side reaper transition writer (AU-P1-1) — confirmation only.
     result = wi.reap_expired_leases(cas_engine, now=1500.0)
-    assert result["reaped_dead_letter"] == [item_id]
-    assert result["reaped_ready"] == []
+    assert result == {"reaped_ready": [], "reaped_dead_letter": []}
+
+    # Exhausted-retry dead-lettering happens inside the next native claim
+    # attempt's selection, same as a live engine's ClaimWorkItem.
+    reclaim = wi.claim_specific(cas_engine, item_id, token="host:2", now=1500.0)
+    assert reclaim is None  # attempts exhausted -> dead_letter, not reclaimable
+
     item = wi.get_work_item(cas_engine, item_id)
     assert item["status"] == "dead_letter"
-    assert "lease_expired" in item["error_ref"]
+    assert item["error_ref"] == "lease_exhausted"
 
 
 # ---------------------------------------------------------------------------
@@ -1302,6 +1490,11 @@ def test_ensure_ingest_task_work_item_is_idempotent(cas_engine: CasEngine) -> No
 def test_claim_ingest_task_work_item_wins_then_a_second_claim_loses(
     cas_engine: CasEngine,
 ) -> None:
+    # claim_ingest_task_work_item never creates/adopts a missing WorkItem
+    # (see ``test_ingest_claim_never_creates_a_missing_work_item``) — the
+    # ingestion queue must have already indexed it first.
+    wi.ensure_ingest_task_work_item(cas_engine, "job-1")
+
     claim1 = wi.claim_ingest_task_work_item(cas_engine, "job-1", token="host-a")
     assert claim1 is not None
     assert claim1["work_item_id"] == wi.ingest_task_work_item_id("job-1")
@@ -1310,7 +1503,7 @@ def test_claim_ingest_task_work_item_wins_then_a_second_claim_loses(
     assert claim2 is None  # already leased/running by host-a
 
     item = wi.get_work_item(cas_engine, claim1["work_item_id"])
-    assert item["status"] == "running"
+    assert item["status"] == "leased"
     assert item["lease_owner"] == "host-a"
 
 
@@ -1338,7 +1531,7 @@ def test_start_team_task_work_item_claims_and_runs(cas_engine: CasEngine) -> Non
     claim = wi.start_team_task_work_item(cas_engine, "task_1", tenant="team_x")
     assert claim is not None
     item = wi.get_work_item(cas_engine, claim["work_item_id"])
-    assert item["status"] == "running"
+    assert item["status"] == "leased"
 
     # A second start (already running) is a no-op (None) — matches
     # TeamCapability.update_task_status's "nothing to transition" handling.

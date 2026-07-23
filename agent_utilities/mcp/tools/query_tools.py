@@ -530,15 +530,19 @@ def register_query_tools(mcp):
                 return public_error_json(e)
 
         # Fan-out — per-target timeout so one slow backend can't stall the set.
-        results, fan_errors = kg_server.fanout_execute(
-            entries,
-            lambda name, engine: engine.query_cypher(
-                cypher,
-                parsed_params,
-                as_of=as_of or None,
-                include_epistemic=include_epistemic_flag,
-            ),
-        )
+        def _fanout_query(name: str, engine: Any) -> Any:
+            del name
+            # Same defensive kwarg omission as the single-connection branch
+            # above: only pass `include_epistemic` when actually requested,
+            # so a `query_cypher` implementation (real or test double) that
+            # predates this parameter and doesn't accept it keeps working.
+            if include_epistemic_flag:
+                return engine.query_cypher(
+                    cypher, parsed_params, as_of=as_of or None, include_epistemic=True
+                )
+            return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
+
+        results, fan_errors = kg_server.fanout_execute(entries, _fanout_query)
         if _union_read:
             # Merge the per-graph row lists into one id-deduped canonical row set.
             merged: list[Any] = []

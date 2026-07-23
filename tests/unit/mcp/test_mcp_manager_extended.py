@@ -401,7 +401,7 @@ def test_should_sync_no_last_sync(
 
     engine = MagicMock()
     engine.backend = MagicMock()
-    engine.backend.execute.return_value = [{"last_sync": 0}]
+    engine.query_cypher.return_value = [{"last_sync": 0}]
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -422,7 +422,7 @@ def test_should_sync_stale_config(
     engine = MagicMock()
     engine.backend = MagicMock()
     # last_sync is way in the past
-    engine.backend.execute.return_value = [{"last_sync": 1.0}]
+    engine.query_cypher.return_value = [{"last_sync": 1.0}]
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -444,7 +444,7 @@ def test_should_sync_up_to_date(
     engine = MagicMock()
     engine.backend = MagicMock()
     # last_sync is after the config mtime (by more than 2 seconds)
-    engine.backend.execute.return_value = [{"last_sync": current_mtime + 10.0}]
+    engine.query_cypher.return_value = [{"last_sync": current_mtime + 10.0}]
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -464,7 +464,7 @@ def test_should_sync_execute_exception(
 
     engine = MagicMock()
     engine.backend = MagicMock()
-    engine.backend.execute.side_effect = RuntimeError("db error")
+    engine.query_cypher.side_effect = RuntimeError("db error")
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -484,7 +484,7 @@ def test_should_sync_empty_result(
 
     engine = MagicMock()
     engine.backend = MagicMock()
-    engine.backend.execute.return_value = []
+    engine.query_cypher.return_value = []
     fake_kg = MagicMock()
     fake_kg.IntelligenceGraphEngine.get_active.return_value = engine
     monkeypatch.setitem(
@@ -641,9 +641,11 @@ async def test_sync_mcp_agents_success_path(
     )
 
     await mgr.sync_mcp_agents(config_path=cfg)
-    # Expect at least 2 execute calls for upsert per tool plus 2 for server link
-    # = 4 or 5 calls (incl. cleanup).  We just verify >0.
-    assert backend.execute.call_count >= 4
+    # Upserts now go through the engine's typed node/edge API, not a raw
+    # ``backend.execute`` Cypher call: one Server node (deduplicated) + one
+    # Tool node per tool, each tool linked to its server.
+    assert engine.add_node.call_count >= 3  # 1 server + 2 tools
+    assert engine.link_nodes.call_count == 2
     assert tool1.relevance_score > 0
     assert tool2.relevance_score > 0
 
@@ -946,7 +948,10 @@ async def test_extract_list_result_tools_attribute() -> None:
 
 @pytest.mark.asyncio
 async def test_extract_exception_group_reports_first() -> None:
-    """ExceptionGroup from aexit -> error_msg uses first sub-exception."""
+    """A connection failure (ExceptionGroup or otherwise) is fail-closed: no
+    synthetic/fabricated tool is ever returned — "environment/config metadata
+    is never converted into synthetic tools" (see this function's docstring).
+    A later successful discovery populates the inventory instead."""
 
     # Simulate ExceptionGroup-like object.  Python 3.11+ has it built in,
     # but our fallback code just checks for `.exceptions`.
@@ -960,18 +965,28 @@ async def test_extract_exception_group_reports_first() -> None:
     server.__aenter__.side_effect = FakeExceptionGroup()
 
     tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
-    # Falls back to general tool
-    assert len(tools) == 1
+    assert tools == []
 
 
 @pytest.mark.asyncio
 async def test_extract_server_uses_id_when_name_missing() -> None:
-    """Server without .name uses ._id fallback."""
-    failing = MagicMock(spec=["_id", "__aenter__", "__aexit__"])
-    failing._id = "byid"
-    failing.__aenter__.side_effect = RuntimeError("boom")
+    """Server without .name uses ._id fallback for a real discovered tool's
+    ``mcp_server`` (fabricating a synthetic tool on connection FAILURE is no
+    longer supported — see ``test_extract_exception_group_reports_first``)."""
+    tool = MagicMock()
+    tool.name = "t1"
+    tool.description = "desc"
+    tool.annotations = {}
 
-    tools = await mgr._extract_single_server_metadata_inner(failing, timeout=5)
+    session = AsyncMock()
+    session.list_tools.return_value = [tool]
+
+    server = MagicMock(spec=["_id", "__aenter__", "__aexit__"])
+    server._id = "byid"
+    server.__aenter__.return_value = session
+    server.__aexit__.return_value = None
+
+    tools = await mgr._extract_single_server_metadata_inner(server, timeout=5)
     assert len(tools) == 1
     assert tools[0].mcp_server == "byid"
 

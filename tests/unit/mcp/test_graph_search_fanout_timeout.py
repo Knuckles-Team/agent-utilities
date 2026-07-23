@@ -225,7 +225,7 @@ def test_graph_search_default_grounds_primary_backend_and_skips_slow_backends(
     # silently missing and not blocking the call.
     for i in range(5):
         assert f"=== code:repo-{i} (error) ===" in out
-        assert "timed out" in out
+        assert "target_timeout" in out
 
 
 # ── (4) regression: primary grounds even when supplementary starve the pool ─
@@ -262,7 +262,7 @@ def test_graph_search_primary_grounds_when_all_supplementary_time_out(monkeypatc
     assert "concept:delegation-router" in out
     assert elapsed < 3.0
     # Every supplementary backend timed out; none blocked the primary.
-    assert out.count("timed out") >= 20
+    assert out.count("target_timeout") >= 20
 
 
 def test_graph_search_primary_grounds_when_no_default_named_entry(monkeypatch):
