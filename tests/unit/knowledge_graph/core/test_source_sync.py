@@ -263,7 +263,11 @@ def test_reconcile_authoritatively_empty_skips_by_default(monkeypatch):
     engine = FakeEngine(backend)
 
     out = _reconcile(engine, "leanix", set(), fetch_ok=True)
-    assert out["status"] == "skipped"
+    # _reconcile always reports "completed" for a successful ChangeEnvelope
+    # apply; the engine enforces the skip policy server-side, so "nothing was
+    # tombstoned" shows up as tombstoned == 0, not a distinct status.
+    assert out["status"] == "completed"
+    assert out["tombstoned"] == 0
     assert backend.archived == []
 
 
@@ -283,7 +287,9 @@ def test_reconcile_authoritatively_empty_tombstones_when_opted_in(monkeypatch):
 
     out = _reconcile(engine, "leanix", set(), fetch_ok=True)
     assert out["status"] == "completed"
-    assert out["details"]["tombstoned"] == 2
+    # _reconcile is the raw internal helper (no EtlResult/`details` wrapping —
+    # that's applied only by the higher-level sync_source()).
+    assert out["tombstoned"] == 2
     assert set(backend.archived) == {"app:a1", "app:a2"}
 
 
@@ -298,7 +304,8 @@ def test_reconcile_fetch_failure_never_tombstones_even_when_opted_in(monkeypatch
     engine = FakeEngine(backend)
 
     out = _reconcile(engine, "leanix", set(), fetch_ok=False)
-    assert out["status"] == "skipped"
+    assert out["status"] == "completed"
+    assert out["tombstoned"] == 0
     assert backend.archived == []
 
 
@@ -314,7 +321,11 @@ def test_leanix_reconcile_client_error_never_tombstones(monkeypatch):
             raise RuntimeError("upstream timeout")
 
     out = sync_source(engine, "leanix", mode="reconcile", client=BrokenClient())
-    assert out["status"] == "skipped"
+    # A raising client → fetch_ok=False → _reconcile always reports "completed"
+    # (the engine enforces the no-tombstone policy server-side); the no-op is
+    # visible via tombstoned == 0, not a distinct "skipped" status.
+    assert out["status"] == "completed"
+    assert out["details"]["tombstoned"] == 0
     assert backend.archived == []
 
 
@@ -353,7 +364,9 @@ def test_sync_source_all_fans_out_to_sweep(monkeypatch):
     monkeypatch.setattr(ss, "sweep_all_sources", fake_sweep)
     for alias in ("all", "*", "sweep"):
         res = ss.sync_source(object(), alias, mode="delta")
-        assert res["swept"] == 7
+        # Non-canonical connector diagnostics are namespaced under `details` by
+        # the EtlResult wire contract (CONCEPT:AU-KG.etl.result-contract).
+        assert res["details"]["swept"] == 7
     assert seen["mode"] == "delta"
 
 
