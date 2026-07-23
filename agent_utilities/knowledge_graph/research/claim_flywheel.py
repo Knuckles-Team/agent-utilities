@@ -82,6 +82,7 @@ __all__ = [
     "IllegalTransition",
     "LifecycleTransition",
     "ClaimFlywheel",
+    "list_claims",
 ]
 
 #: Reward below which an ACCEPTED claim's observed outcome auto-deprecates it
@@ -525,3 +526,59 @@ class ClaimFlywheel:
             )
         self._cache[claim_id] = to_state
         return record
+
+
+# ---------------------------------------------------------------------------
+# Enumeration — the "list" half of the get/list read surface (graph_claims MCP
+# tool). A thin, read-only companion to ClaimFlywheel: it never derives or
+# reinterprets the state machine, it only reports each claim's LAST recorded
+# transition from the SAME audit trail `.history()` reads.
+# ---------------------------------------------------------------------------
+
+
+def list_claims(
+    engine: Any, *, state: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Enumerate claims by their CURRENT (latest) lifecycle state (X-3).
+
+    Reads the SAME append-only ``ClaimLifecycleEvent`` audit trail
+    :meth:`ClaimFlywheel.history` does — never a second store. A claim's
+    current state is simply its last recorded transition (chronological order
+    from the query, reduced in Python — the identical pattern ``.history()``
+    already uses for a single claim, just unfiltered by id here). ``state``
+    (one of :class:`ClaimLifecycleState`'s values) filters to claims whose
+    current state matches; omit it to list every claim with at least one
+    lifecycle event. Newest-transition first. Best-effort: an engine that
+    cannot run the query (or has none) returns ``[]``.
+    """
+    try:
+        rows = (
+            engine.query_cypher(
+                "MATCH (e:ClaimLifecycleEvent) RETURN "
+                "e.claim_id AS claim_id, e.to_state AS to_state, "
+                "e.reason AS reason, e.timestamp AS timestamp "
+                "ORDER BY e.timestamp"
+            )
+            or []
+        )
+    except Exception as e:  # noqa: BLE001 — list is best-effort introspection
+        logger.debug("[X3] flywheel list_claims query failed: %s", e)
+        rows = []
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict) or not row.get("claim_id"):
+            continue
+        cid = str(row["claim_id"])
+        # Rows are chronological (ORDER BY timestamp) — the last write per id
+        # wins, so `latest` always ends up holding each claim's CURRENT state.
+        latest[cid] = {
+            "claim_id": cid,
+            "current_state": str(row.get("to_state") or ""),
+            "reason": str(row.get("reason") or ""),
+            "last_transition_at": row.get("timestamp"),
+        }
+    out = list(latest.values())
+    if state:
+        out = [r for r in out if r["current_state"] == state]
+    out.sort(key=lambda r: str(r.get("last_transition_at") or ""), reverse=True)
+    return out[:limit]

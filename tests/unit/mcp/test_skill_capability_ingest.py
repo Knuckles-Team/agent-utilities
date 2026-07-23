@@ -360,6 +360,80 @@ def test_bundled_skill_readiness_failure_is_controlled(monkeypatch, caplog):
     assert "readiness incomplete" in caplog.text
 
 
+def test_ensure_bundled_skills_ready_reaches_full_readiness_on_first_boot(
+    monkeypatch,
+):
+    """The exact first-boot path: a brand-new tenant graph with NOTHING
+    ingested yet must reach 10/10 bundled-skill readiness from ONE
+    ``_ensure_bundled_skills_ready`` call against the REAL packaged
+    ``agent_utilities/skills/`` tree — not a pre-seeded idempotency check
+    (``test_bundled_skill_readiness_is_idempotent`` above already covers the
+    already-ingested case).
+
+    Regression test for the ``agent-utilities-deployment`` /
+    ``agent-utilities-development`` skill_graphs-reference-page collision
+    that left a first boot at "SERVING DEGRADED: 8/10 ready" (W0.20,
+    HANDOFF-2026-07-22): fixed by ``is_skill_graph_reference_path`` excluding
+    ``skill_graphs/`` pages from both ``_ingest_skill_capabilities`` and
+    ``core.providers._skill_dirs``, so this must resolve cleanly end-to-end.
+    """
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
+    engine = RecordingEngine()
+
+    readiness = kg_server._ensure_bundled_skills_ready(engine)
+
+    assert readiness == {
+        "required": len(BUNDLED_SKILLS),
+        "already_ready": 0,
+        "ingested": len(BUNDLED_SKILLS),
+        "ready": len(BUNDLED_SKILLS),
+        "not_ready": [],
+    }
+
+
+def test_ready_bundled_skill_names_rejects_content_drifted_stored_node(
+    monkeypatch,
+):
+    """A stored ``CallableResource`` whose content has drifted from the
+    packaged ``SKILL.md`` (e.g. a stale KG row left by an older package
+    version — the "version pin mismatch" failure mode) must NOT be counted
+    ready even though it is internally self-consistent (its own digest
+    matches its own stored body) — proving the gate is fail-closed against
+    genuine drift, not just a missing node
+    (``test_bundled_skill_readiness_repairs_only_missing_resource`` above
+    covers the missing case). ``_ensure_bundled_skills_ready`` then self-heals
+    it back to the packaged contract on the next boot cycle.
+    """
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    root = Path(kg_server.__file__).resolve().parents[1] / "skills"
+    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
+    engine = RecordingEngine()
+    assert (
+        kg_server._ingest_skill_capabilities(
+            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+        )
+        == 10
+    )
+
+    drifted = BUNDLED_SKILLS[0]
+    node = engine.nodes[f"resource:skill:{drifted}"]
+    node["system_prompt"] = node["system_prompt"] + "\n<stale drifted content>"
+    node["instruction_digest"] = runnable_skill_digest(node["system_prompt"])
+
+    ready = kg_server._ready_bundled_skill_names(
+        engine, kg_server._bundled_skill_contract()[1]
+    )
+    assert drifted not in ready
+    assert len(ready) == len(BUNDLED_SKILLS) - 1
+
+    readiness = kg_server._ensure_bundled_skills_ready(engine)
+    assert readiness["not_ready"] == []
+    assert readiness["ready"] == len(BUNDLED_SKILLS)
+
+
 def test_provider_resolution_ignores_unmarked_nested_xdg_root(tmp_path, monkeypatch):
     direct = tmp_path / "direct-skill"
     nested = tmp_path / "provider-a" / "nested-skill"

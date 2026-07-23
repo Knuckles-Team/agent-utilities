@@ -216,6 +216,16 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 | `secret://` | `secret://path/to/secret` | Alias for vault:// |
 | `env://` | `env://GITLAB_TOKEN` | Reads an explicit or referenced XDG-projected process value |
 
+**The confirmed trap:** `resolve_ref` looks up EVERY `vault://`/`secret://` reference
+through whichever `SECRETS_BACKEND` is currently active — the scheme itself never
+selects a backend. A `vault://` reference therefore silently resolves against the
+engine-backed `__secrets__` store instead of the named Vault/OpenBao instance
+whenever `SECRETS_BACKEND != vault` (and can even appear to "resolve" if a
+same-named key happens to exist in the wrong store). `agent-utilities doctor`'s
+**`secrets_backend`** check catches this: it FAILS when any `vault://` reference is
+configured while the backend isn't `vault`, and warns (best-effort) on the reverse
+mismatch. Run it after any backend change.
+
 ### Current storage contract
 
 ```

@@ -20,6 +20,7 @@ from agent_utilities.knowledge_graph.research.claim_flywheel import (
     ClaimFlywheel,
     ClaimLifecycleState,
     IllegalTransition,
+    list_claims,
 )
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.mining-flywheel")
@@ -50,14 +51,16 @@ class _FlywheelStubEngine:
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         if "ClaimLifecycleEvent" in query:
-            cid = (params or {}).get("id")
             rows = [
-                n
-                for n in self.nodes.values()
-                if n.get("type") == "ClaimLifecycleEvent" and n.get("claim_id") == cid
+                n for n in self.nodes.values() if n.get("type") == "ClaimLifecycleEvent"
             ]
+            cid = (params or {}).get("id")
+            if cid is not None:  # ClaimFlywheel.history()'s per-claim shape
+                rows = [r for r in rows if r.get("claim_id") == cid]
+            # else: list_claims()'s unfiltered shape (no `id` param at all).
             return [
                 {
+                    "claim_id": r.get("claim_id"),
                     "from_state": r.get("from_state"),
                     "to_state": r.get("to_state"),
                     "reason": r.get("reason"),
@@ -185,6 +188,54 @@ def test_propose_refuses_to_reopen_a_retracted_claim_new_cycle():
     assert fresh.is_retracted("claim:1") is True
     assert fresh.propose("claim:1", reason="re-mined cycle 2") is None
     assert fresh.current_state("claim:1") == ClaimLifecycleState.RETRACTED
+
+
+# ---------------------------------------------------------------------------
+# list_claims — the read-only enumeration companion (graph_claims 'list')
+# ---------------------------------------------------------------------------
+
+
+def test_list_claims_enumerates_every_claim_by_its_current_state():
+    eng = _FlywheelStubEngine()
+    fw = ClaimFlywheel(eng)
+    fw.propose("claim:a")
+    fw.propose("claim:b")
+    fw.validate("claim:b", True)
+
+    rows = list_claims(eng)
+    by_id = {r["claim_id"]: r for r in rows}
+    assert by_id["claim:a"]["current_state"] == "proposed"
+    assert by_id["claim:b"]["current_state"] == "validated"
+
+
+def test_list_claims_filters_by_current_state():
+    eng = _FlywheelStubEngine()
+    fw = ClaimFlywheel(eng)
+    fw.propose("claim:a")
+    fw.propose("claim:b")
+    fw.validate("claim:b", True)
+
+    assert {r["claim_id"] for r in list_claims(eng, state="proposed")} == {"claim:a"}
+    assert {r["claim_id"] for r in list_claims(eng, state="validated")} == {"claim:b"}
+    assert list_claims(eng, state="retracted") == []
+
+
+def test_list_claims_respects_limit():
+    eng = _FlywheelStubEngine()
+    fw = ClaimFlywheel(eng)
+    for i in range(5):
+        fw.propose(f"claim:{i}")
+
+    assert len(list_claims(eng, limit=2)) == 2
+    assert len(list_claims(eng, limit=50)) == 5
+
+
+def test_list_claims_never_raises_on_an_unreachable_engine():
+    class _BareEngine:
+        def query_cypher(self, *a, **kw):
+            raise RuntimeError("kg unreachable")
+
+    assert list_claims(_BareEngine()) == []
 
 
 # ---------------------------------------------------------------------------

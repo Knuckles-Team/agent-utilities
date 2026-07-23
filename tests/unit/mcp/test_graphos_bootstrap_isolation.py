@@ -314,6 +314,14 @@ def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
     ``DuplicateSkillIdentity`` sweep resilience in ``core/providers.py``.
     Background/noncritical service startup still does not run this cycle
     (it is gated behind readiness having been established at all).
+
+    "Logged loudly" means the actual cause, not just its class: this is the
+    same critical-startup-path diagnosability fix as
+    ``fix(graphos): surface startup failures instead of logging only their
+    type`` — swallowing the message here is exactly what turned one real
+    boot failure into an hours-long "graphos_bundled_skills_unready" dead
+    end (HANDOFF-2026-07-22). So the failure detail MUST appear in the log,
+    not be redacted.
     """
     from agent_utilities.mcp import kg_server
 

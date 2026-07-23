@@ -20,6 +20,8 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from agent_utilities.security.identifiers import validate_identifier
+
 from ..ingestion.gpu_slot_scheduler import (
     CheckpointStore,
     GpuSlotScheduler,
@@ -36,7 +38,7 @@ from .fact_extractor import (
 
 logger = logging.getLogger(__name__)
 
-_JOB_NODE_TYPE = "extraction_job"
+_JOB_NODE_TYPE = validate_identifier("extraction_job", kind="label")
 _OWNER_PARAM = "_owner_ref"
 _MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 _MAX_CORPUS_BYTES = 16 * 1024 * 1024

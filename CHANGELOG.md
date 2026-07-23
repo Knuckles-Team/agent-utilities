@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **New `graph_claims` tool — the X-3 claim flywheel becomes directly callable.**
+  `knowledge_graph/research/claim_flywheel.py`'s governed five-state lifecycle
+  (`proposed -> validated -> accepted -> deprecated -> retracted`, `RETRACTED`
+  terminal/sticky) previously only fired as a side effect of a mining pass
+  (`loop_controller._run_insight_validation`/`_run_trace_mining`) — no MCP/REST
+  surface could directly `propose`/`validate`/`accept`/`deprecate`/`retract` one
+  claim. `mcp/tools/claim_tools.py` adds a standalone `graph_claims` tool
+  (`propose`/`validate`/`accept`/`deprecate`/`retract`/`get`/`list`, REST twin
+  `/graph/claims`) — thin dispatch only: every state-changing action FIRST passes
+  the fail-closed `ActionPolicy` gate (`orchestration/action_policy.py`, kind
+  `claim.<action>`, mirroring `graph_secret`'s `_gate` pattern) and only then calls
+  the real `ClaimFlywheel` method; a denied/queued decision blocks the mutation
+  without ever touching the flywheel. Provenance is inherited, not re-implemented:
+  `ActionPolicy.decide()`'s own `ActionDecision` audit write and `ClaimFlywheel`'s
+  own `ClaimLifecycleEvent` write both already exist upstream. Adds
+  `claim_flywheel.list_claims()` as the read-only enumeration companion behind
+  the new `list` action.
+- **`graph_runvcs`'s `twin_capture` gains the explicit-data capture path (X-8).**
+  The Seam-7 wiring pass had already reached `agent_digital_twin.
+  capture_twin_from_kg` (best-effort KG hydration) from `twin_capture`, but the
+  module's OWN canonical path — `capture_twin` (build a twin straight from a live
+  run's already-collected `tool_calls`/`model_exchanges`, never re-derived from
+  the KG) — stayed unreachable from either surface, and `policy_decisions`/
+  `evidence` (accepted by both capture functions, but "NEVER auto-discovered from
+  the KG" per the module's own docstring) were silently dropped by the tool
+  either way. `twin_capture` now takes `tool_calls`/`model_exchanges`/`budget`/
+  `work_item_ids` (routing to `capture_twin` when either is non-empty) and
+  forwards `policy_decisions`/`evidence` on BOTH paths.
 - **Light epistemic layer, default-on.** `KnowledgeGraph.query` / `GraphComputeEngine.
   query_unified` / `IntelligenceGraphEngine.uql` now attach the light epistemic envelope
   (`confidence`/`source_refs`/`evidence_refs`/`policy_labels`/`provenance`) onto every plain
@@ -55,6 +83,25 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 — are not present in this codebase and are **not** claimed here.)
 
 ### Fixed
+- **Centralized identifier validation across mirror-backend adapters (Wave-0 S10).**
+  Several backends f-string-interpolated a label/table/relationship-type/column
+  name directly into Cypher/SQL/DDL — bound *values* were parameterized, but
+  *identifiers* (which neither Cypher nor SQL/DDL can bind) were not validated,
+  most notably `LadybugBackend.prune()`'s caller-supplied `criteria["node_type"]`
+  reaching a `MATCH (n{label})` label position unchecked. The one correct
+  pattern that already existed (`epistemic_graph_backend.py`'s
+  `_CYPHER_IDENTIFIER_RE`) is now extracted into a shared
+  `agent_utilities/security/identifiers.py` (`validate_identifier`/
+  `validate_sql_identifier`/`quote_sql_identifier`, raising a typed, non-leaking
+  `InvalidIdentifierError`) and applied at every f-string identifier-
+  interpolation site in `postgresql_backend.py`, `contrib/ladybug_backend.py`,
+  `migration.py`, `extraction/job_manager.py`, `ingestion/manifest.py`, and
+  `pipeline/phases/sync.py` (which now reuses the shared regex instead of its
+  own duplicate). A new AST-based guardrail
+  (`scripts/check_identifier_interpolation.py`, wired into
+  `.pre-commit-config.yaml`) flags any future f-string identifier interpolation
+  left unguarded across the mirror-backend adapters. No query semantics changed
+  for valid, ontology-normalized identifiers.
 - **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
   previously failed OPEN when the engine was unavailable or the fence-check query
   raised — a worker unable to confirm it still held the lease could still commit.
