@@ -525,9 +525,7 @@ def test_format_probe_error_unwraps_exceptiongroup():
     # leaves) — a bare "RuntimeError" gives no diagnostic signal (this exact
     # anti-pattern made the whole MCP fleet's outage undiagnosable).
     assert msg == "RuntimeError: HTTP 502 Bad Gateway"
-    assert (
-        _format_probe_error(ConnectionError("refused")) == "ConnectionError: refused"
-    )
+    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError: refused"
     assert _format_probe_error(RuntimeError("")) == "RuntimeError"
 
 

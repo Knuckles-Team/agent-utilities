@@ -56,6 +56,8 @@ class _FakeSessionCM:
 
 @pytest.fixture
 def transports(monkeypatch):
+    from agent_utilities.core.config import config
+
     rec = {"stdio": [], "http": [], "sse": []}
     # streamable-http yields a 3-tuple (read, write, get_session_id); the others 2.
     monkeypatch.setattr(mod, "stdio_client", _fake_client(("r", "w"), rec["stdio"]))
@@ -64,6 +66,14 @@ def transports(monkeypatch):
     )
     monkeypatch.setattr(mod, "sse_client", _fake_client(("r", "w"), rec["sse"]))
     monkeypatch.setattr(mod, "ClientSession", _FakeSessionCM)
+    # These tests use plain-http fixture hostnames on purpose (mirroring a real
+    # deployment's TLS-terminated-at-ingress children); declare them trusted the
+    # same way a real deployment would via MCP_HTTP_ALLOWED_PRIVATE_HOSTS.
+    monkeypatch.setattr(
+        config,
+        "mcp_http_allowed_private_hosts",
+        ["egeria-mcp.arpa", "foo.arpa", "bar.arpa", "auth.arpa"],
+    )
     return rec
 
 
@@ -74,6 +84,38 @@ async def test_remote_child_uses_streamable_http(transports, tmp_path):
     assert res is not None and res[0] == "egeria-mcp"
     assert len(transports["http"]) == 1 and not transports["stdio"]
     assert transports["http"][0]["args"][0] == "http://egeria-mcp.arpa/mcp"
+
+
+@pytest.mark.asyncio
+async def test_remote_http_child_rejected_when_host_not_allowlisted(
+    transports, tmp_path
+):
+    """A plain-http remote child whose host is NOT declared in
+    MCP_HTTP_ALLOWED_PRIVATE_HOSTS (or the child's own ``allowed_private_hosts``)
+    still fails closed — the allowlist opts specific trusted hosts IN, it does
+    not disable the check fleet-wide."""
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child(
+        "untrusted-mcp", {"url": "http://untrusted-mcp.arpa/mcp"}
+    )
+    assert res is None
+    assert not transports["http"]
+
+
+@pytest.mark.asyncio
+async def test_remote_http_child_allowed_via_per_child_allowlist(transports, tmp_path):
+    """A host absent from the fleet-wide MCP_HTTP_ALLOWED_PRIVATE_HOSTS can still
+    be trusted per-child via the server's own ``allowed_private_hosts``."""
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child(
+        "scoped-mcp",
+        {
+            "url": "http://scoped-mcp.arpa/mcp",
+            "allowed_private_hosts": ["scoped-mcp.arpa"],
+        },
+    )
+    assert res is not None
+    assert len(transports["http"]) == 1
 
 
 @pytest.mark.asyncio
