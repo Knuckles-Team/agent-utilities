@@ -479,7 +479,13 @@ def _direct_semantic_output_type(case: ValidationCase) -> Any:
 
     route_literal = Literal.__getitem__(expected_routes)
     selected_routes_type = Annotated[
-        list[route_literal],
+        # `route_literal` is a Literal type built from a runtime tuple (the
+        # per-case route set), so it can never be a statically-recognized
+        # type alias -- mypy's "variable vs type alias" rule (valid-type)
+        # rejects any name used here that wasn't defined via a literal
+        # `Literal[...]`/`Union[...]` expression, regardless of annotation
+        # or cast. This is unavoidable runtime type construction, not a bug.
+        list[route_literal],  # type: ignore[valid-type]
         Field(min_length=len(expected_routes), max_length=len(expected_routes)),
         AfterValidator(validate_exact_routes),
     ]
@@ -1587,9 +1593,12 @@ async def _run_delegated_case(
             terminal_error = _delegation_terminal_error_code(status)
             if terminal_error:
                 result.add_error(terminal_error)
-            evidence_errors, model_ref, skill_ref, digest = (
-                _validate_delegated_runtime_evidence(case, status)
-            )
+            (
+                evidence_errors,
+                model_ref,
+                skill_ref,
+                digest,
+            ) = _validate_delegated_runtime_evidence(case, status)
             for error in evidence_errors:
                 result.add_error(error)
             result.model_ref = model_ref
