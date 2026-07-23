@@ -206,7 +206,9 @@ def _persist_slide_page_evidence(
             page=page,
             x=0.0,
             y=0.0,
-            width=float(width) if isinstance(width, (int, float, str)) and width else 0.0,
+            width=float(width)
+            if isinstance(width, (int, float, str)) and width
+            else 0.0,
             height=float(height)
             if isinstance(height, (int, float, str)) and height
             else 0.0,

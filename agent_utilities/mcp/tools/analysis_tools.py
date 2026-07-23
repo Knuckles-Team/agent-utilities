@@ -2153,9 +2153,7 @@ def register_analysis_tools(mcp):
                 return _json.dumps(
                     {
                         "status": "ok",
-                        "reproduced": sum(
-                            1 for r in hf_results if r.claim_reproduced
-                        ),
+                        "reproduced": sum(1 for r in hf_results if r.claim_reproduced),
                         "total": len(hf_results),
                         "results": [
                             {

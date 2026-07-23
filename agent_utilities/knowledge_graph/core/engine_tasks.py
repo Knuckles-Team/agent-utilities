@@ -445,6 +445,7 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
         "dead_letter": "dead_letter",
     }.get(status, "unknown")
 
+
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # per-batch summarization concurrency is CPU/mem auto-sized via
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env

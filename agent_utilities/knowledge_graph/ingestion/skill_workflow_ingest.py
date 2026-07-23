@@ -92,7 +92,7 @@ def runnable_skill_digest(instructions: str) -> str:
 
 
 def ingest_runnable_skill(
-    engine: "_EngineProtocol | IntelligenceGraphEngine",
+    engine: _EngineProtocol | IntelligenceGraphEngine,
     *,
     name: str,
     description: str,

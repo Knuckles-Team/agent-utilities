@@ -47,7 +47,7 @@ class _EngineProtocol(Protocol):
         properties: dict[str, Any] | None = None,
         ephemeral: bool = False,
         *,
-        session: "GraphSession | None" = None,
+        session: GraphSession | None = None,
     ) -> None: ...
 
     def add_node(

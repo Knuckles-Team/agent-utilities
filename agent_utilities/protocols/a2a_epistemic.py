@@ -433,9 +433,7 @@ class EpistemicGraphA2ARuntime:
             if (
                 session is None
                 or not tenant
-                or not getattr(
-                    getattr(session, "actor", None), "authenticated", False
-                )
+                or not getattr(getattr(session, "actor", None), "authenticated", False)
             ):
                 raise RuntimeError("A2A persistence requires verified tenant authority")
             session.require_scope("kg:read")

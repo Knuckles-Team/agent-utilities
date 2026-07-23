@@ -3293,7 +3293,11 @@ class IngestionEngine:
                 sem = _asyncio.Semaphore(concurrency)
 
                 async def _disc(entry):
-                    if not discover or entry["name"] in self_names or discover_fn is None:
+                    if (
+                        not discover
+                        or entry["name"] in self_names
+                        or discover_fn is None
+                    ):
                         return entry, [], False
                     async with sem:
                         try:
