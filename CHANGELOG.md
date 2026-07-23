@@ -55,6 +55,25 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 — are not present in this codebase and are **not** claimed here.)
 
 ### Fixed
+- **Centralized identifier validation across mirror-backend adapters (Wave-0 S10).**
+  Several backends f-string-interpolated a label/table/relationship-type/column
+  name directly into Cypher/SQL/DDL — bound *values* were parameterized, but
+  *identifiers* (which neither Cypher nor SQL/DDL can bind) were not validated,
+  most notably `LadybugBackend.prune()`'s caller-supplied `criteria["node_type"]`
+  reaching a `MATCH (n{label})` label position unchecked. The one correct
+  pattern that already existed (`epistemic_graph_backend.py`'s
+  `_CYPHER_IDENTIFIER_RE`) is now extracted into a shared
+  `agent_utilities/security/identifiers.py` (`validate_identifier`/
+  `validate_sql_identifier`/`quote_sql_identifier`, raising a typed, non-leaking
+  `InvalidIdentifierError`) and applied at every f-string identifier-
+  interpolation site in `postgresql_backend.py`, `contrib/ladybug_backend.py`,
+  `migration.py`, `extraction/job_manager.py`, `ingestion/manifest.py`, and
+  `pipeline/phases/sync.py` (which now reuses the shared regex instead of its
+  own duplicate). A new AST-based guardrail
+  (`scripts/check_identifier_interpolation.py`, wired into
+  `.pre-commit-config.yaml`) flags any future f-string identifier interpolation
+  left unguarded across the mirror-backend adapters. No query semantics changed
+  for valid, ontology-normalized identifiers.
 - **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
   previously failed OPEN when the engine was unavailable or the fence-check query
   raised — a worker unable to confirm it still held the lease could still commit.

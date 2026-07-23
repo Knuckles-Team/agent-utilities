@@ -29,6 +29,8 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from agent_utilities.security.identifiers import validate_identifier
+
 from .backends.base import GraphBackend, sanitize_label
 
 logger = logging.getLogger(__name__)
@@ -175,7 +177,8 @@ def _ensure_id_indexes(backend: GraphBackend, labels: set[str]) -> int:
         # writes). Re-running the bare form on an existing index raises a genuine
         # "already/equivalent index" error, which IS success.
         try:
-            backend.execute(f"CREATE INDEX FOR (n:`{label}`) ON (n.id)")
+            safe_label = validate_identifier(label, kind="label")
+            backend.execute(f"CREATE INDEX FOR (n:`{safe_label}`) ON (n.id)")
             made += 1
         except Exception as exc:  # noqa: BLE001
             m = str(exc).lower()
@@ -292,7 +295,10 @@ def copy_graph(
     # --- exact post-condition drift: per-label node counts + edge count ---
     for label, n_src in labels_seen.items():
         try:
-            rows = target_backend.execute(f"MATCH (n:{label}) RETURN count(n) AS c")
+            safe_label = validate_identifier(label, kind="label")
+            rows = target_backend.execute(
+                f"MATCH (n:{safe_label}) RETURN count(n) AS c"
+            )
             tgt = int(rows[0]["c"]) if rows and "c" in rows[0] else None
         except Exception:  # noqa: BLE001
             tgt = None
