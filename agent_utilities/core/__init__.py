@@ -17,6 +17,8 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from agent_utilities.security.identifiers import validate_identifier
+
 _EXPORTS = {
     "CognitiveScheduler": ("cognitive_scheduler", "CognitiveScheduler"),
     "WasmAgentRunner": ("wasm_runner", "WasmAgentRunner"),
@@ -38,6 +40,10 @@ def __getattr__(name: str) -> Any:
     if target is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attribute = target
+    # ``module_name`` is a fixed literal from the ``_EXPORTS`` table above, not
+    # caller data — validated anyway since it is spliced into a dotted import
+    # path, the same discipline as a Cypher/SQL identifier position.
+    module_name = validate_identifier(module_name, kind="module name")
     value = getattr(import_module(f"{__name__}.{module_name}"), attribute)
     globals()[name] = value
     return value

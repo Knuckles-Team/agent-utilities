@@ -1128,7 +1128,7 @@ async def create_goal(request: Request) -> JSONResponse:
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error("Error initializing goal session (%s)", type(e).__name__)
+        logger.error("Error initializing goal session: %s", e)
         return JSONResponse(
             {"error": "Database initialization failed"}, status_code=500
         )

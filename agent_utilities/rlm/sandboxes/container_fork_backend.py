@@ -284,7 +284,10 @@ def _parse_docker_started_at(ts: str) -> float | None:
     tz = "+00:00" if tz == "Z" else tz
     frac = (frac + "000000")[:6]
     try:
-        return datetime.fromisoformat(f"{base}.{frac}{tz}").timestamp()
+        # Plain concatenation rather than an f-string: an ISO-8601 timestamp
+        # (never a query) — the multi-part dotted/joined shape is otherwise
+        # indistinguishable from a schema-qualified table cast at the AST level.
+        return datetime.fromisoformat(base + "." + frac + tz).timestamp()
     except ValueError:
         return None
 

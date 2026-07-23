@@ -31,6 +31,8 @@ import time
 import typing
 from typing import Any, Literal
 
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
 # Rust-native graph compute — using GraphComputeEngine
 from ...models.knowledge_graph import (
     EvolutionCandidateNode,
@@ -47,7 +49,6 @@ logger = logging.getLogger(__name__)
 _ARTICLE_URL_RE = re.compile(
     r"https?://(?:x\.com|twitter\.com)/\w+/articles?/\w+", re.IGNORECASE
 )
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _canonical_node_dump(node: object) -> dict[str, Any]:
@@ -466,7 +467,7 @@ class XIngestionBridge:
                 k: v
                 for k, v in data.items()
                 if isinstance(k, str)
-                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and CYPHER_IDENTIFIER_RE.fullmatch(k)
                 and isinstance(v, str | int | float | bool)
                 and k != "id"
             }
@@ -474,7 +475,10 @@ class XIngestionBridge:
             query = f"MERGE (n:{table} {{id: $id}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
         except Exception as exc:
-            logger.debug("Backend persist failed: error_type=%s", type(exc).__name__)
+            # Best-effort mirror write (the graph-compute node above is already
+            # the source of truth) — log the real cause, not just the class
+            # name, so a persistently-failing backend is diagnosable.
+            logger.debug("Backend persist failed: %s", exc)
 
 
 def _extract_engagement(answer_text: str) -> dict[str, int]:

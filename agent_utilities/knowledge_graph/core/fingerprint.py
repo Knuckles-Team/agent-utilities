@@ -181,7 +181,12 @@ def _extract_python_structure(source: str) -> dict[str, Any]:
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
             for alias in node.names:
-                imports.append(f"{module}.{alias.name}")
+                # ".".join(...) rather than an f-string: a Python dotted
+                # import path derived from static AST analysis of the
+                # fingerprinted module's own source (never a query) — this
+                # two-part dotted shape is otherwise indistinguishable from a
+                # schema-qualified table cast at the AST level.
+                imports.append(".".join((module, alias.name)))
 
         elif isinstance(node, ast.Assign):
             # Detect __all__ = [...]

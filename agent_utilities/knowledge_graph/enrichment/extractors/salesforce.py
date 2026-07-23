@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_utilities.security.identifiers import validate_identifier
+
 from ..models import EnrichmentEdge, ExtractionBatch, GraphNode
 from ..registry import register_extractor
 
@@ -51,6 +53,10 @@ def extract(config: Any) -> ExtractionBatch:
         return ExtractionBatch(category=CATEGORY, nodes=nodes, edges=edges)
 
     for sobject, label, prefix in _OBJECTS:
+        # Fixed literal from ``_OBJECTS`` above, not caller data — validated
+        # anyway (no bound-parameter position exists for a SOQL object name)
+        # so this stays safe if the object list is ever derived from config.
+        sobject = validate_identifier(sobject, kind="sobject")
         soql = f"SELECT Id, Name, AccountId FROM {sobject} LIMIT 2000"
         for r in _records(client, soql):
             sid = r.get("Id")

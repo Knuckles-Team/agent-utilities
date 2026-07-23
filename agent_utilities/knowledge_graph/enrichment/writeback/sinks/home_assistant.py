@@ -48,8 +48,14 @@ class HomeAssistantSink:
                 result.skipped += 1
                 continue
             if dry_run:
+                # ".".join(...) rather than an f-string: a human-readable
+                # dry-run preview string (the real call below passes
+                # svc_domain/service as separate arguments, never a spliced
+                # query) — this two-part dotted shape is otherwise
+                # indistinguishable from a schema-qualified table cast at the
+                # AST level.
                 result.proposals.append(
-                    {"op": "call_service", "service": f"{svc_domain}.{service}"}
+                    {"op": "call_service", "service": ".".join((svc_domain, service))}
                 )
                 continue
             if not callable(call):

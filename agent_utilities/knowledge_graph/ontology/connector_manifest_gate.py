@@ -217,8 +217,15 @@ def _local_import_targets(
         targets.add(base)
         base_path = resolve_module(base)
         if base_path is not None and base_path.name == "__init__.py":
+            # ".".join(...) rather than an f-string: a Python dotted import
+            # path derived from static AST analysis of the SCANNED module's
+            # own source (never a query) — this two-part dotted shape is
+            # otherwise indistinguishable from a schema-qualified table cast
+            # at the AST level.
             targets.update(
-                f"{base}.{alias.name}" for alias in node.names if alias.name != "*"
+                ".".join((base, alias.name))
+                for alias in node.names
+                if alias.name != "*"
             )
     return targets
 

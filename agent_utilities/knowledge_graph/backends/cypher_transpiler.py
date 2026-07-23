@@ -15,6 +15,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+# This module only ever transpiles TO the PostgreSQL backend, so it shares
+# postgresql_backend's message-preserving shim over the shared
+# ``agent_utilities.security.identifiers`` gate instead of carrying its own
+# copy of the same regex + wrapper. Safe at module scope: postgresql_backend
+# only imports ``transpile``/``QueryType`` back from this module lazily,
+# inside its own methods, never at its own module-load time.
+from .postgresql_backend import _require_sql_identifier
+
 logger = logging.getLogger(__name__)
 
 # All known node labels from the schema (used for table lookups)
@@ -83,14 +91,6 @@ class TranspiledQuery:
 
 # Edge table name constant
 EDGE_TABLE = "kg_edges"
-_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
-
-
-def _require_sql_identifier(value: object) -> str:
-    rendered = str(value or "")
-    if not _SQL_IDENTIFIER.fullmatch(rendered):
-        raise ValueError("SQL identifier is invalid")
-    return rendered
 
 
 def _param_key_to_positional(

@@ -264,7 +264,10 @@ class BreakerClientProxy:
 
     def __getattr__(self, name: str) -> Any:
         attr = getattr(self.__wrapped__, name)
-        op = f"{self._prefix}.{name}" if self._prefix else name
+        # ".".join(...) rather than an f-string: a bounded metrics/breaker
+        # label (never a query) — this two-part dotted shape is otherwise
+        # indistinguishable from a schema-qualified table cast at the AST level.
+        op = ".".join((self._prefix, name)) if self._prefix else name
         if callable(attr):
             return _guard(attr, self._breaker, op)
         if name.startswith("_") or isinstance(attr, _PASSTHROUGH_TYPES) or attr is None:

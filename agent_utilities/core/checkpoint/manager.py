@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 from pydantic import TypeAdapter
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.identifiers import validate_sql_identifier
 
 from ...models.knowledge_graph import RegistryNodeType
 
@@ -154,7 +155,10 @@ class PostgresBackend(BaseStatePersistence[StateT]):
 
     def __init__(self, dsn: str, table_name: str = "graph_snapshots"):
         self.dsn = dsn
-        self.table_name = table_name
+        # ``table_name`` is spliced directly into CREATE TABLE/INDEX/INSERT
+        # DDL below (no bound-parameter position exists for a table name) —
+        # validate it once here so every later interpolation is already safe.
+        self.table_name = validate_sql_identifier(table_name, kind="table")
         self._pool = None
         self._run_id = ""
 
@@ -168,10 +172,14 @@ class PostgresBackend(BaseStatePersistence[StateT]):
             self._pool = await asyncpg.create_pool(self.dsn)
         if self._pool is None:
             raise RuntimeError("Failed to create postgres pool")
+        # Re-validated at the point of use (already validated once in
+        # __init__): keeps this DDL site self-evidently safe on its own,
+        # independent of the constructor.
+        table = validate_sql_identifier(self.table_name, kind="table")
         async with self._pool.acquire() as conn:
             await conn.execute(
                 f"""
-                    CREATE TABLE IF NOT EXISTS {self.table_name} (
+                    CREATE TABLE IF NOT EXISTS {table} (
                         run_id TEXT,
                         timestamp TIMESTAMPTZ,
                         snapshot_id TEXT PRIMARY KEY,
@@ -180,7 +188,7 @@ class PostgresBackend(BaseStatePersistence[StateT]):
                         state JSONB,
                         is_end BOOLEAN DEFAULT FALSE
                     );
-                    CREATE INDEX IF NOT EXISTS idx_{self.table_name}_run_id ON {self.table_name}(run_id);
+                    CREATE INDEX IF NOT EXISTS idx_{table}_run_id ON {table}(run_id);
                 """
             )
         return self._pool
@@ -194,10 +202,11 @@ class PostgresBackend(BaseStatePersistence[StateT]):
         self, snapshot_id: str, state: StateT, next_node: Any
     ) -> None:
         pool = await self._get_pool()
+        table = validate_sql_identifier(self.table_name, kind="table")
         async with pool.acquire() as conn:
             await conn.execute(
                 f"""
-                INSERT INTO {self.table_name} (run_id, timestamp, snapshot_id, node_id, data, state, is_end)
+                INSERT INTO {table} (run_id, timestamp, snapshot_id, node_id, data, state, is_end)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (snapshot_id) DO NOTHING
                 """,  # nosec B608
@@ -224,10 +233,11 @@ class PostgresBackend(BaseStatePersistence[StateT]):
 
     async def snapshot_end(self, state: StateT, end: Any) -> None:
         pool = await self._get_pool()
+        table = validate_sql_identifier(self.table_name, kind="table")
         async with pool.acquire() as conn:
             await conn.execute(
                 f"""
-                INSERT INTO {self.table_name} (run_id, timestamp, snapshot_id, data, state, is_end)
+                INSERT INTO {table} (run_id, timestamp, snapshot_id, data, state, is_end)
                 VALUES ($1, $2, $3, $4, $5, $6)
                 """,  # nosec B608
                 self._run_id,
@@ -523,7 +533,11 @@ class KGBackend:
                 state_dict["state_data"] = sd
 
             return state_dict
-        except Exception:
+        except Exception as exc:
+            # Best-effort: a malformed prior checkpoint must not crash
+            # resumption, but "no checkpoint" and "checkpoint unreadable" are
+            # different operator questions — log which one this is.
+            logger.debug("Checkpoint state could not be decoded: %s", exc)
             return None
 
     def list_sessions(
@@ -548,8 +562,11 @@ class KGBackend:
                             "timestamp": r.get("ts", ""),
                         }
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Best-effort listing — an empty result is preferable to a
+                # crashed UI, but log the real cause so a broken backend
+                # doesn't masquerade as "no sessions".
+                logger.warning("Failed to list checkpoint sessions: %s", exc)
         return sessions
 
     def mark_completed(self, session_id: str, success: bool = True) -> None:
@@ -560,8 +577,12 @@ class KGBackend:
                     "MATCH (c:SessionCheckpoint) WHERE c.session_id = $sid SET c.status = $status",
                     {"sid": session_id, "status": status},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Best-effort (matches checkpoint()/restore() above in this
+                # class) — callers treat this as fire-and-forget and must not
+                # raise, but a silently-stuck "active" session is exactly the
+                # kind of bug this log line exists to catch.
+                logger.warning("Failed to mark checkpoint session completed: %s", exc)
 
 
 class CheckpointManager:

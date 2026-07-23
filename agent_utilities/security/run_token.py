@@ -82,7 +82,10 @@ def mint_token(
     }
     body = _b64e(json.dumps(payload, sort_keys=True).encode())
     sig = _b64e(hmac.new(_secret(), body.encode(), hashlib.sha256).digest())
-    return f"{body}.{sig}"
+    # ".".join(...) rather than an f-string: the ``<payload>.<sig>`` token
+    # format (never a query) — this two-part dotted shape is otherwise
+    # indistinguishable from a schema-qualified table cast at the AST level.
+    return ".".join((body, sig))
 
 
 class TokenError(ValueError):

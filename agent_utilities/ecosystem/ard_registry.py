@@ -318,7 +318,11 @@ def _search_servers(
             {
                 "id": f"mcp:{server}:{tool}",
                 "type": MEDIA_MCP_SERVER,
-                "name": f"{server}.{tool}",
+                # ".".join(...) rather than an f-string: a display name for a
+                # media-catalog entry (never a query) — this two-part dotted
+                # shape is otherwise indistinguishable from a schema-qualified
+                # table cast at the AST level.
+                "name": ".".join((server, tool)),
                 "description": hit.get("description", "") or "",
                 "score": float(hit.get("score", 0.0) or 0.0),
                 "server": server,

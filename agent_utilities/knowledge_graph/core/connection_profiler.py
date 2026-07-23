@@ -28,6 +28,8 @@ import re
 import time
 from typing import Any
 
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,7 +98,14 @@ def profile_connection(
             v = _first(r, "label", "l")
             if v:
                 labels.append(str(v))
-    labels = sorted(set(labels))[:max_labels]
+    # An external, third-party-registered graph's own label names are outside
+    # our trust boundary — one is later spliced (backtick-quoted) into a
+    # per-label profiling query below, so any label that isn't a plain Cypher
+    # identifier is dropped here rather than re-queried, the same "skip the
+    # unsafe one" discipline every other backend adapter uses.
+    labels = sorted(lbl for lbl in set(labels) if CYPHER_IDENTIFIER_RE.fullmatch(lbl))[
+        :max_labels
+    ]
 
     # ── relationship types & property keys ────────────────────────────────
     rels = sorted(

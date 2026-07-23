@@ -15,6 +15,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from agent_utilities.security.identifiers import validate_identifier
+
 
 @dataclass(frozen=True)
 class MessagingCommand:
@@ -139,6 +141,10 @@ def _capability_summary(service: Any) -> str:
 
     def _count(label: str) -> int:
         try:
+            # Fixed literals at every call site below, not caller data —
+            # validated anyway so this stays safe if a caller ever passes a
+            # dynamic label.
+            label = validate_identifier(label, kind="label")
             rows = query(f"MATCH (n:{label}) RETURN count(n) AS c", {})
             return int((rows or [{}])[0].get("c", 0)) if rows else 0
         except Exception:  # noqa: BLE001
@@ -146,6 +152,7 @@ def _capability_summary(service: Any) -> str:
 
     def _names(label: str, limit: int = 6) -> list[str]:
         try:
+            label = validate_identifier(label, kind="label")
             rows = query(f"MATCH (n:{label}) RETURN n.name AS name LIMIT {limit}", {})
             return [r.get("name") for r in (rows or []) if r.get("name")]
         except Exception:  # noqa: BLE001

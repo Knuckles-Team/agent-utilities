@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 
 try:
     from opentelemetry import trace as _otel_trace
@@ -45,7 +46,6 @@ _coupled_children: list[Any] = []
 _coupled_handlers_installed = False
 
 
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 _MAX_LEDGER_ENTRY_BYTES = 8 * 1024 * 1024
 _OPAQUE_PROGRAM_REF = re.compile(
     r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
@@ -801,7 +801,7 @@ def _load_or_create_engine_secret() -> str:
         logger.warning(
             "Could not persist engine secret (%s); using a process-local secret — "
             "sibling processes will not share it.",
-            type(exc).__name__,
+            exc,
         )
         return _secrets.token_hex(32)
 
@@ -1952,9 +1952,12 @@ class GraphComputeEngine:
                                 payload["event_type"], payload["query"]
                             )
                     except Exception as exc:
+                        # Per-message isolation: one bad mutation must not kill
+                        # the whole subscriber (the outer try below does that
+                        # deliberately for a broken subscription itself).
                         logger.error(
-                            "Failed to forward mutation to epistemic-graph (%s)",
-                            type(exc).__name__,
+                            "Failed to forward mutation to epistemic-graph: %s",
+                            exc,
                         )
 
             async def run_subscriber() -> None:
@@ -1966,7 +1969,7 @@ class GraphComputeEngine:
             try:
                 loop.run_until_complete(run_subscriber())
             except Exception as e:
-                logger.error("Event bridge worker failed (%s)", type(e).__name__)
+                logger.error("Event bridge worker failed: %s", e)
 
         t = threading.Thread(
             target=bridge_worker, daemon=True, name="EventBridgeWorker"
@@ -2975,7 +2978,7 @@ class GraphComputeEngine:
                     )
 
                 node_type = props.get("node_type", "Entity")
-                if not isinstance(node_type, str) or not _CYPHER_IDENTIFIER.fullmatch(
+                if not isinstance(node_type, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
                     node_type
                 ):
                     raise ValueError("unsafe node type in mutation ledger")
@@ -3045,7 +3048,7 @@ class GraphComputeEngine:
                 if not isinstance(edge_type, str):
                     raise ValueError("edge type in mutation ledger must be a string")
                 edge_type = edge_type.replace(" ", "_").upper()
-                if not _CYPHER_IDENTIFIER.fullmatch(edge_type):
+                if not CYPHER_IDENTIFIER_RE.fullmatch(edge_type):
                     raise ValueError("unsafe edge type in mutation ledger")
                 query = (
                     f"MATCH (a {{id: $src}}), (b {{id: $tgt}}) "

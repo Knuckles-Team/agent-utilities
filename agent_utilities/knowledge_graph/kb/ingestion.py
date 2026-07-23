@@ -12,11 +12,11 @@ changed/new files are re-processed, saving both I/O and LLM tokens.
 
 import hashlib
 import logging
-import re
 import time
 from pathlib import Path
 
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 
 from ...models.knowledge_base import (
     KBArchiveResult,
@@ -39,7 +39,6 @@ from .extractor import KBExtractor
 from .parser import KBDocumentParser
 
 logger = logging.getLogger(__name__)
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _now() -> str:
@@ -742,7 +741,7 @@ class KBIngestionEngine:
                 k: v
                 for k, v in data.items()
                 if isinstance(k, str)
-                and _CYPHER_IDENTIFIER.fullmatch(k)
+                and CYPHER_IDENTIFIER_RE.fullmatch(k)
                 and isinstance(v, str | int | float | bool)
                 and k != "id"
             }
@@ -759,4 +758,7 @@ class KBIngestionEngine:
             query = f"MERGE (n:{table} {{{merge_key}}}) SET {set_clause}"
             self.backend.execute(query, {"id": node_id, **fields})
         except Exception as exc:
-            logger.debug("Backend persist failed: error_type=%s", type(exc).__name__)
+            # Best-effort mirror write (the graph-compute node above is already
+            # the source of truth) — log the real cause, not just the class
+            # name, so a persistently-failing backend is diagnosable.
+            logger.debug("Backend persist failed: %s", exc)

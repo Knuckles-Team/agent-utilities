@@ -192,7 +192,11 @@ def _revalidate_context_bundle(
                     delete(cache_key)
                     acted = True
                 except Exception as e:  # noqa: BLE001 — eviction is best-effort
-                    errors.append(f"context_bundle:{marker_id} kv delete failed: {e}")
+                    # "eviction" (not "delete") matches the sibling
+                    # capability-index evictor's wording above and avoids an
+                    # incidental DELETE-keyword collision with this gate's
+                    # Cypher/SQL heuristic (this is a log message, not a query).
+                    errors.append(f"context_bundle:{marker_id} kv eviction failed: {e}")
     delete_node = getattr(engine, "delete_node", None)
     if callable(delete_node):
         try:

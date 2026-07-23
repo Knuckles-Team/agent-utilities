@@ -1006,10 +1006,11 @@ class MCPMultiplexer:
             return result
         except MCPChildError as e:
             # Typed per-child failure (busy/restarting/failed/circuit-open):
-            # surface the error class name so callers can branch on it.
-            logger.warning(
-                "Child tool call rejected (exception_type=%s)", type(e).__name__
-            )
+            # the CALLER-facing result is deliberately just the class name (so
+            # callers can branch on it) — but the server-side log keeps the
+            # full message (e.g. which server, timing), which the class name
+            # alone drops.
+            logger.warning("Child tool call rejected: %s", e)
             return mcp.types.CallToolResult(
                 content=[mcp.types.TextContent(type="text", text=type(e).__name__)],
                 isError=True,
@@ -1519,10 +1520,7 @@ class MCPMultiplexer:
             _close_policy()
             return None
         except Exception as exc:
-            logger.error(
-                "Failed to start MCP child (%s)",
-                type(exc).__name__,
-            )
+            logger.error("Failed to start MCP child: %s", exc)
             _close_policy()
             return None
 
@@ -1554,7 +1552,7 @@ class MCPMultiplexer:
             try:
                 content = _read_catalog_text(self.config_path)
             except Exception as exc:
-                logger.error("Failed to read MCP config (%s)", type(exc).__name__)
+                logger.error("Failed to read MCP config: %s", exc)
                 content = ""
             if content:
                 try:
@@ -1563,7 +1561,7 @@ class MCPMultiplexer:
                     # them, so secret values never enter this catalog wholesale.
                     config_data = json.loads(content)
                 except Exception as exc:
-                    logger.error("Failed to parse MCP config (%s)", type(exc).__name__)
+                    logger.error("Failed to parse MCP config: %s", exc)
                     config_data = {"mcpServers": {}}
 
         servers = config_data.get("mcpServers") or {}
@@ -2117,9 +2115,8 @@ class MCPMultiplexer:
             qv = (await asyncio.to_thread(embed, [query]))[0]
         except Exception as exc:
             logger.debug(
-                "find_tools embedding rerank unavailable; token-overlap only "
-                "(exception_type=%s)",
-                type(exc).__name__,
+                "find_tools embedding rerank unavailable; token-overlap only: %s",
+                exc,
             )
             return
         if not qv:
@@ -2525,10 +2522,7 @@ async def _notify_tools_changed(mcp) -> None:
 
         await get_context().send_notification(mcp_types.ToolListChangedNotification())
     except Exception as e:  # pragma: no cover - context not always present
-        logger.warning(
-            "Could not send tools/list_changed notification (exception_type=%s)",
-            type(e).__name__,
-        )
+        logger.warning("Could not send tools/list_changed notification: %s", e)
 
 
 def _session_key() -> str:

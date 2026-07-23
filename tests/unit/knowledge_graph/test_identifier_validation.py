@@ -440,3 +440,247 @@ class TestModuleLevelConstantsValidatedAtImport:
 
         assert _JOB_NODE_TYPE == "extraction_job"
         assert CYPHER_IDENTIFIER_RE.fullmatch(_JOB_NODE_TYPE)
+
+
+# ---------------------------------------------------------------------------
+# DEBT-2 follow-up sites (B15) — core/checkpoint/manager.py,
+# mcp/tools/engine_surface_tools.py, core/ogm.py, core/engine.py
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointPostgresBackendRejectsMaliciousTableName:
+    """``core/checkpoint/manager.py``'s ``PostgresBackend`` — a follow-up
+    injection-guard site (B15): ``table_name`` is a public constructor
+    argument spliced into CREATE TABLE/INDEX/INSERT DDL with no prior guard.
+    No live connection needed: ``asyncpg`` is imported lazily inside
+    ``_get_pool``, never at construction time."""
+
+    @pytest.mark.parametrize("bad_table", MALICIOUS_IDENTIFIERS)
+    def test_rejects_malicious_table_name(self, bad_table):
+        from agent_utilities.core.checkpoint.manager import PostgresBackend
+
+        with pytest.raises(InvalidIdentifierError):
+            PostgresBackend("postgresql://example.invalid/db", table_name=bad_table)
+
+    def test_accepts_the_default_table_name(self):
+        from agent_utilities.core.checkpoint.manager import PostgresBackend
+
+        backend = PostgresBackend("postgresql://example.invalid/db")
+        assert backend.table_name == "graph_snapshots"
+
+    def test_accepts_a_valid_custom_table_name(self):
+        from agent_utilities.core.checkpoint.manager import PostgresBackend
+
+        backend = PostgresBackend(
+            "postgresql://example.invalid/db", table_name="agent_snapshots"
+        )
+        assert backend.table_name == "agent_snapshots"
+
+
+class TestEngineSurfaceToolsRejectsMaliciousNodeLabelAndFields:
+    """``mcp/tools/engine_surface_tools.py``'s ``_gather_kg_feature_rows`` —
+    the KV-feature-projection source for the fleet's data-science delegation
+    (CONCEPT:AU-KG.mining.dsm-forecast-delegation); had no malicious-corpus
+    coverage before this sweep."""
+
+    @pytest.mark.parametrize("bad_label", MALICIOUS_IDENTIFIERS)
+    def test_rejects_malicious_node_label(self, bad_label):
+        from agent_utilities.mcp.tools.engine_surface_tools import (
+            _gather_kg_feature_rows,
+        )
+
+        if not bad_label:
+            pytest.skip("empty node_label already covered by the 'required' message")
+        with pytest.raises(ValueError, match="source.node_label"):
+            _gather_kg_feature_rows(
+                {"node_label": bad_label, "fields": ["f0"], "limit": 10}, "graph"
+            )
+
+    @pytest.mark.parametrize("bad_field", MALICIOUS_IDENTIFIERS)
+    def test_rejects_malicious_field_name(self, bad_field):
+        from agent_utilities.mcp.tools.engine_surface_tools import (
+            _gather_kg_feature_rows,
+        )
+
+        if not bad_field:
+            pytest.skip("empty field name already covered by the 'required' message")
+        with pytest.raises(ValueError, match="source.fields"):
+            _gather_kg_feature_rows(
+                {"node_label": "Doc", "fields": [bad_field], "limit": 10}, "graph"
+            )
+
+
+class TestOgmRequireIdentifierRejectsMaliciousInput:
+    """``core/ogm.py``'s ``_require_identifier`` — the shim consolidated onto
+    the shared gate in this sweep — via its public callers ``resolve_label``
+    (custom-label fallback path) and ``kg_label`` (decorator)."""
+
+    @pytest.mark.parametrize("bad_label", MALICIOUS_IDENTIFIERS)
+    def test_kg_label_decorator_rejects_malicious_label(self, bad_label):
+        from agent_utilities.knowledge_graph.core.ogm import kg_label
+        from agent_utilities.models.knowledge_graph import RegistryNode
+
+        if not bad_label:
+            pytest.skip("empty label is falsy; the regex-fail path needs content")
+        with pytest.raises(ValueError, match="not a safe Cypher identifier"):
+
+            @kg_label(bad_label)
+            class _BadLabelNode(RegistryNode):
+                pass
+
+    def test_kg_label_decorator_accepts_a_valid_label(self):
+        from agent_utilities.knowledge_graph.core.ogm import _CUSTOM_LABELS, kg_label
+        from agent_utilities.models.knowledge_graph import RegistryNode
+
+        @kg_label("CustomOgmLabel")
+        class _GoodLabelNode(RegistryNode):
+            pass
+
+        assert _CUSTOM_LABELS[_GoodLabelNode] == "CustomOgmLabel"
+
+
+class TestEngineLinkNodesAndUpsertRejectMaliciousRelTypeAndLabel:
+    """``core/engine.py``'s ``IntelligenceGraphEngine`` — the central graph
+    engine's own ``_upsert_edge``/``resolve_and_link``/``delete_edge``
+    (relationship type) and ``_normalize_label`` (node label, backing
+    ``_upsert_node``/``add_node``/``link_nodes``'s endpoint lookup) had ZERO
+    character-set validation before this sweep: a caller-supplied
+    ``rel_type``/``label`` reached a raw Cypher identifier position after only
+    ``.upper()``/schema-case-lookup, neither of which rejects anything."""
+
+    @pytest.fixture
+    def engine(self):
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+
+        # __new__ bypasses __init__ — no engine/backend construction; every
+        # method under test either short-circuits on ``self.backend`` being
+        # unset (not exercised here) or validates before touching it.
+        return IntelligenceGraphEngine.__new__(IntelligenceGraphEngine)
+
+    @pytest.mark.parametrize("bad_rel_type", MALICIOUS_IDENTIFIERS)
+    def test_upsert_edge_rejects_malicious_rel_type(self, engine, bad_rel_type):
+        engine.backend = MagicMock()
+        with pytest.raises(InvalidIdentifierError):
+            engine._upsert_edge("s", "t", bad_rel_type, {})
+        engine.backend.execute.assert_not_called()
+
+    @pytest.mark.parametrize("bad_rel_type", MALICIOUS_IDENTIFIERS)
+    def test_resolve_and_link_rejects_malicious_rel_type(self, engine, bad_rel_type):
+        if not bad_rel_type:
+            pytest.skip("empty rel_type takes the falsy short-circuit, not this gate")
+        engine.backend = MagicMock()
+        with pytest.raises(InvalidIdentifierError):
+            engine.resolve_and_link("Alice", "Bob", bad_rel_type)
+        engine.backend.execute.assert_not_called()
+
+    @pytest.mark.parametrize("bad_rel_type", MALICIOUS_IDENTIFIERS)
+    def test_delete_edge_rejects_malicious_rel_type(self, engine, bad_rel_type):
+        if not bad_rel_type:
+            pytest.skip("empty rel_type takes the label-less DELETE branch")
+        engine.backend = MagicMock()
+        # Authority is the backend alone here, so delete_edge's second
+        # (graph_compute) tier is skipped — isolates the assertion to the
+        # backend DELETE path this test is about.
+        engine._compute_is_authority = True
+        engine.delete_edge("s", "t", bad_rel_type)
+        # Best-effort delete: the invalid rel_type is caught, logged, and
+        # swallowed (matching every other backend.execute call in this
+        # method) — the proof is that execute() is never reached with it.
+        engine.backend.execute.assert_not_called()
+
+    @pytest.mark.parametrize("bad_label", MALICIOUS_IDENTIFIERS)
+    def test_normalize_label_rejects_malicious_label(self, engine, bad_label):
+        if not bad_label:
+            pytest.skip("empty label passes through unchanged by design")
+        with pytest.raises(InvalidIdentifierError):
+            engine._normalize_label(bad_label)
+
+    def test_normalize_label_accepts_a_schema_unknown_but_valid_label(self, engine):
+        # Not in SCHEMA.nodes → normalize_label returns it unchanged; still a
+        # plain identifier, so the gate must pass it through.
+        assert engine._normalize_label("SomeNovelOntologyClass") == (
+            "SomeNovelOntologyClass"
+        )
+
+
+# ---------------------------------------------------------------------------
+# kb/x_ingestion.py + kb/ingestion.py — _persist_node's property-key filter
+# (a duplicate-regex consolidation site, not a raise-based gate: an invalid
+# property KEY is silently excluded from the MERGE SET clause, not fatal)
+# ---------------------------------------------------------------------------
+
+
+class TestXIngestionPersistNodeFiltersMaliciousPropertyKeys:
+    @pytest.fixture
+    def bridge(self):
+        from agent_utilities.knowledge_graph.kb.x_ingestion import XIngestionBridge
+
+        return XIngestionBridge.__new__(XIngestionBridge)
+
+    @pytest.mark.parametrize("bad_key", MALICIOUS_IDENTIFIERS)
+    def test_persist_node_excludes_malicious_property_key(self, bridge, bad_key):
+        if not bad_key:
+            pytest.skip("an empty-string key can't appear in a real node dict")
+        calls: list[tuple[str, dict]] = []
+        bridge.graph = MagicMock()
+        bridge.graph.nodes = {
+            "n1": {
+                "id": "n1",
+                "node_type": "person",
+                "safe_key": "ok",
+                bad_key: "unsafe",
+            }
+        }
+        bridge.backend = MagicMock()
+        bridge.backend.execute = lambda q, p: calls.append((q, p))
+
+        bridge._persist_node("n1")
+
+        assert len(calls) == 1
+        query, params = calls[0]
+        assert "safe_key" in query
+        assert bad_key not in query
+        assert bad_key not in params
+
+    def test_persist_node_keeps_a_valid_property_key(self, bridge):
+        calls: list[tuple[str, dict]] = []
+        bridge.graph = MagicMock()
+        bridge.graph.nodes = {"n1": {"id": "n1", "node_type": "person", "safe_key": "ok"}}
+        bridge.backend = MagicMock()
+        bridge.backend.execute = lambda q, p: calls.append((q, p))
+
+        bridge._persist_node("n1")
+
+        assert len(calls) == 1
+        assert "safe_key" in calls[0][0]
+        assert calls[0][1]["safe_key"] == "ok"
+
+
+class TestKbIngestionPersistNodeFiltersMaliciousPropertyKeys:
+    @pytest.fixture
+    def engine(self):
+        from agent_utilities.knowledge_graph.kb.ingestion import KBIngestionEngine
+
+        return KBIngestionEngine.__new__(KBIngestionEngine)
+
+    @pytest.mark.parametrize("bad_key", MALICIOUS_IDENTIFIERS)
+    def test_persist_node_excludes_malicious_property_key(self, engine, bad_key):
+        if not bad_key:
+            pytest.skip("an empty-string key can't appear in a real node dict")
+        calls: list[tuple[str, dict]] = []
+        engine.graph = MagicMock()
+        engine.graph.nodes = {
+            "n1": {"id": "n1", "node_type": "article", "safe_key": "ok", bad_key: "x"}
+        }
+        engine.backend = MagicMock()
+        engine.backend.execute = lambda q, p: calls.append((q, p))
+
+        engine._persist_node("n1")
+
+        assert len(calls) == 1
+        query, params = calls[0]
+        assert "safe_key" in query
+        assert bad_key not in query
+        assert bad_key not in params

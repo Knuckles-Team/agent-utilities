@@ -3,6 +3,8 @@ from typing import Any
 
 import httpx
 
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
+
 from ..types import (
     PhaseResult,
     PipelineContext,
@@ -143,7 +145,12 @@ async def execute_embedding(
         if ctx.backend:
             try:
                 label = data.get("node_type")
-                if label and str(label).isidentifier():
+                # ``str.isidentifier()`` is Unicode-aware (accepts
+                # homoglyph/lookalike characters) — the shared Cypher gate is
+                # deliberately ASCII-only, so a node whose stored ``node_type``
+                # was written by an untrusted or ontology-derived path can't
+                # smuggle a crafted label through here.
+                if label and CYPHER_IDENTIFIER_RE.fullmatch(str(label)):
                     cache_q = f"MATCH (n:{label}) WHERE n.id = $id RETURN n"
                 else:
                     cache_q = "MATCH (n) WHERE n.id = $id RETURN n"

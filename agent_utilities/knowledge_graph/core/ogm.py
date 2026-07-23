@@ -29,6 +29,11 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from agent_utilities.security.identifiers import (
+    InvalidIdentifierError,
+    validate_identifier,
+)
+
 from ...models.knowledge_graph import RegistryNode, RegistryNodeType
 
 logger = logging.getLogger(__name__)
@@ -40,7 +45,6 @@ T = TypeVar("T", bound=RegistryNode)
 # Maps RegistryNodeType enum values to PascalCase KG labels.
 # Built lazily on first access and cached.
 _LABEL_CACHE: dict[str, str] | None = None
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 _SAFE_WHERE = re.compile(
     r"^n\.[A-Za-z_][A-Za-z0-9_]{0,127}\s*"
     r"(?:=|<>|!=|<=|>=|<|>|IN|CONTAINS|STARTS\s+WITH|ENDS\s+WITH)\s*"
@@ -53,10 +57,19 @@ _SAFE_WHERE = re.compile(
 
 
 def _require_identifier(value: object, *, kind: str) -> str:
-    rendered = str(value or "")
-    if not _CYPHER_IDENTIFIER.fullmatch(rendered):
-        raise ValueError(f"{kind} is not a safe Cypher identifier")
-    return rendered
+    """Validate a Cypher identifier from the OGM's own callers.
+
+    Thin, message-preserving shim over the shared
+    ``agent_utilities.security.identifiers`` gate (mirrors
+    ``postgresql_backend._require_sql_identifier``) — kept under this name and
+    with this exact raised-message shape because it is called from four sites
+    in this module with the OGM's own ``kind`` labels ("KG label",
+    "relationship type", "relationship property").
+    """
+    try:
+        return validate_identifier(value or "", kind=kind)
+    except InvalidIdentifierError as exc:
+        raise ValueError(f"{kind} is not a safe Cypher identifier") from exc
 
 
 def _build_label_cache() -> dict[str, str]:
@@ -301,9 +314,10 @@ class KGMapper:
             try:
                 self.engine.backend.execute(query, params)
             except Exception as exc:
-                logger.warning(
-                    "OGM edge upsert failed: error_type=%s", type(exc).__name__
-                )
+                # Best-effort mirror write — engine.graph.add_edge() above
+                # already holds the authoritative edge; log the real cause so
+                # a persistently-failing backend is diagnosable.
+                logger.warning("OGM edge upsert failed: %s", exc)
 
         logger.debug("OGM edge upsert completed for type=%s", edge_type)
 
@@ -377,10 +391,10 @@ class KGMapper:
                 try:
                     results.append(self._deserialize(data, model_cls))
                 except Exception as exc:
-                    logger.debug(
-                        "OGM load_by_label skipped a row: error_type=%s",
-                        type(exc).__name__,
-                    )
+                    # Best-effort per-row hydration — one malformed row must
+                    # not fail the whole listing; log the real cause so a
+                    # systematically bad row shape is diagnosable.
+                    logger.debug("OGM load_by_label skipped a row: %s", exc)
         else:
             # graph compute fallback
             type_val = model_cls.model_fields["type"].default

@@ -43,6 +43,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.identifiers import validate_identifier
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -617,7 +618,10 @@ class MemoryMaterializer:
     def _query_nodes(self, node_type: str, limit: int) -> list[dict[str, Any]]:
         if not self.engine.backend:
             return self._query_nx(node_type, limit)
-        label = node_type.title()
+        # Fixed literals at every call site today, not caller data — validated
+        # anyway (no bound-parameter position exists for a label) so this
+        # stays safe if a caller ever passes a dynamic node_type.
+        label = validate_identifier(node_type.title(), kind="label")
         try:
             res = self.engine.backend.execute(
                 f"MATCH (n:{label}) RETURN n ORDER BY n.timestamp DESC LIMIT $limit",

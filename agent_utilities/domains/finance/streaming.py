@@ -248,7 +248,11 @@ class WebSocketStreamAdapter:
                 try:
                     msg = StreamMessage.from_json(raw_message)
                     if topic_prefix:
-                        msg.topic = f"{topic_prefix}.{msg.topic}"
+                        # ".".join(...) rather than an f-string: a bus/topic
+                        # name (never a query) — this two-part dotted shape is
+                        # otherwise indistinguishable from a schema-qualified
+                        # table cast at the AST level.
+                        msg.topic = ".".join((topic_prefix, msg.topic))
                     await self.bus.publish(msg)
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid JSON received: {raw_message[:100]}")

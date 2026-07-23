@@ -39,6 +39,20 @@ def _with_au_prefix(sparql: str) -> str:
     return _AU_PREFIX_DECL + sparql
 
 
+def _safe_rel_type(rtype: str) -> str:
+    """Sanitise an OWL-inferred predicate for safe Cypher interpolation.
+
+    Same sanitize-then-fallback contract as
+    ``knowledge_graph.core.maintainer._safe_rel_type`` (a DB-sourced
+    relationship type is never rejected outright — one non-word character
+    must not abort a whole batch of otherwise-valid inferred edges).
+    """
+    import re
+
+    cleaned = re.sub(r"\W", "_", str(rtype)).upper()
+    return cleaned or "INFERRED_RELATION"
+
+
 # Node types registered at runtime from an external metamodel (e.g. the live
 # LeanIX data model compiled by ``ontology.leanix_metamodel``). Unioned into
 # every bridge's effective promotable set so generated types reach the reasoner
@@ -1133,8 +1147,6 @@ class OWLBridge:
         engine's ``link_nodes`` (MERGE-based; carries edge properties + provenance),
         with a direct-backend MERGE fallback. (CONCEPT:AU-KG.ontology.owl-durable-backfeed — durable backfeed.)
         """
-        import re as _re
-
         from .engine import IntelligenceGraphEngine
 
         engine = IntelligenceGraphEngine.get_active()
@@ -1159,7 +1171,7 @@ class OWLBridge:
                 ):
                     engine.link_nodes(src, tgt, predicate, props)
                 elif self.backend is not None:
-                    rel = _re.sub(r"\W", "_", predicate).upper() or "INFERRED_RELATION"
+                    rel = _safe_rel_type(predicate)
                     self.backend.execute(
                         f"MATCH (s {{id: $sid}}), (t {{id: $tid}}) "
                         f"MERGE (s)-[r:{rel}]->(t) "

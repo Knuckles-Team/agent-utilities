@@ -36,6 +36,7 @@ from graphql.language import (
     VariableNode,
 )
 
+from agent_utilities.security.identifiers import validate_identifier
 from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 BackendKind = Literal[
@@ -860,7 +861,11 @@ class OpenCypherDiscoveryAdapter:
         per_label: dict[str, tuple[str, ...]] = {}
         per_label_partial = False
         for label in labels:
-            # label passed through the strict identifier gate above.
+            # label passed through the strict identifier gate above
+            # (``_try``/``_identifiers``'s ``_IDENT_RE.fullmatch`` filter) —
+            # re-validated here too, through the shared gate, so this
+            # per-label query site is self-evidently safe on its own.
+            label = validate_identifier(label, kind="label")
             try:
                 rows = _read(
                     engine,

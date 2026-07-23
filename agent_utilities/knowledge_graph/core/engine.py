@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
+from ...security.identifiers import validate_identifier
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
 from ..orchestration.engine_ahe import AHEMixin
@@ -372,10 +373,22 @@ class IntelligenceGraphEngine(
 
     def _normalize_label(self, label: str) -> str:
         """Find canonical case for a label from the schema. Delegates to the one
-        materialization helper (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — single source of truth."""
+        materialization helper (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — single source of truth.
+
+        ``normalize_label`` only case-canonicalizes against the known schema —
+        an unrecognized label (e.g. an ontology-derived or connector-declared
+        type never registered in ``SCHEMA.nodes``) passes through UNCHANGED,
+        not rejected. Every caller of this method (``_upsert_node``/``add_node``,
+        ``link_nodes``'s endpoint-label lookup) then splices the result
+        directly into a Cypher label position, so it is validated here, once,
+        for every caller — the same identifier gate every other backend uses.
+        """
         from .materialization import normalize_label
 
-        return normalize_label(label)
+        normalized = normalize_label(label)
+        if not normalized:
+            return normalized
+        return validate_identifier(normalized, kind="label")
 
     def _get_allowed_columns(self, label: str) -> list[str]:
         """Get the list of allowed columns for a given node label from the schema."""
@@ -665,6 +678,10 @@ class IntelligenceGraphEngine(
         """
         if not self.backend:
             return
+        # ``rel_type`` reaches a raw Cypher relationship-type position below
+        # (non-native backends) — validated here, once, regardless of which
+        # backend ultimately consumes it.
+        rel_type = validate_identifier(rel_type, kind="relationship type")
 
         # Epistemic Graph's typed mutation carries the complete property value
         # domain (including arrays/nested values) and avoids two label-lookup
@@ -768,6 +785,7 @@ class IntelligenceGraphEngine(
         session = resolve_session(session, required_scope="kg:write")
         if self.backend and not ephemeral:
             # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
+            rel_type = validate_identifier(rel_type, kind="relationship type")
             props = properties or {}
             set_clause = self._get_set_clause(props, alias="r")
             q = f"""
@@ -1254,7 +1272,9 @@ class IntelligenceGraphEngine(
             if self.backend and not ephemeral:
                 try:
                     if rel_type:
-                        rel_type = rel_type.upper()
+                        rel_type = validate_identifier(
+                            rel_type.upper(), kind="relationship type"
+                        )
                         query = (
                             f"MATCH (s {{id: $sid}})-[r:{rel_type}]->(t {{id: $tid}}) "
                             "DELETE r"

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from agent_utilities.models.knowledge_graph import RegistryEdgeType
+from agent_utilities.security.identifiers import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -142,8 +143,10 @@ def traverse(engine: Any, rq: RelationalQuery, top_k: int = 10) -> list[dict[str
     if not seed_id or not getattr(engine, "backend", None):
         return []
 
-    # Validated, fixed-vocabulary edge type — safe to inline as a relationship label.
-    edge = rq.verb_edge
+    # Validated, fixed-vocabulary edge type (checked against _VALID_EDGE_VALUES
+    # above) — re-validated here too through the shared gate so this site is
+    # self-evidently safe on its own.
+    edge = validate_identifier(rq.verb_edge, kind="relationship type")
     if rq.direction == "out":
         cypher = f"MATCH (s {{id: $id}})-[:`{edge}`]->(t) RETURN t.id AS id, t AS data LIMIT {int(top_k)}"
     else:

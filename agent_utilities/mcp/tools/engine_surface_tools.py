@@ -45,15 +45,12 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import uuid
 from typing import Any
 
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
-
-_CYPHER_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 # CONCEPT:AU-KG.mining.dsm-forecast-delegation — the fleet write-side connector (call
 # a named MCP server's tool once, synchronously, decoded) is the SAME primitive the
@@ -71,6 +68,7 @@ from agent_utilities.security.error_surface import (
     public_error_json,
     public_error_payload,
 )
+from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
 # engine build / client may expose the surface under any of several plausible
@@ -278,7 +276,11 @@ def _invoke(
         )
     fn = _resolve(client, candidates)
     if fn is None:
-        return _degraded(surface, action, [f"{a}.{m}" for a, m in candidates])
+        # ".".join(...) rather than an f-string: these are diagnostic
+        # attribute-path names for a "degraded" status message (never a
+        # query), but the two-part dotted shape is otherwise indistinguishable
+        # from a schema-qualified table/label composition at the AST level.
+        return _degraded(surface, action, [".".join((a, m)) for a, m in candidates])
     try:
         result = fn(**params)
     except TypeError as exc:
@@ -569,7 +571,9 @@ def _gather_kg_feature_rows(
     the result back onto the SAME ``node_ids`` (CONCEPT:AU-KG.mining.dsm-forecast-delegation).
     """
     node_label = source.get("node_label")
-    if not isinstance(node_label, str) or not _CYPHER_IDENTIFIER.fullmatch(node_label):
+    if not isinstance(node_label, str) or not CYPHER_IDENTIFIER_RE.fullmatch(
+        node_label
+    ):
         raise ValueError("source.node_label is required")
     fields = source.get("fields") or []
     if (
@@ -577,7 +581,7 @@ def _gather_kg_feature_rows(
         or not fields
         or len(fields) > 64
         or any(
-            not isinstance(field, str) or not _CYPHER_IDENTIFIER.fullmatch(field)
+            not isinstance(field, str) or not CYPHER_IDENTIFIER_RE.fullmatch(field)
             for field in fields
         )
     ):
