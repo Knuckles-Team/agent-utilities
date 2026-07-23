@@ -212,15 +212,19 @@ class OntologyValidateRequest(BaseModel):
     """Request body for ``POST /ontology/validate``."""
 
     source: str = Field(
-        default="", description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text."
+        default="",
+        description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text.",
     )
     source_type: str = Field(
-        default="auto", description="How to read `source`: 'file' | 'url' | 'text' | 'auto'."
+        default="auto",
+        description="How to read `source`: 'file' | 'url' | 'text' | 'auto'.",
     )
 
 
 @ontology_router.post("/ontology/validate", response_model=OntologyEnvelope)
-async def validate_ontology_candidate(body: OntologyValidateRequest) -> OntologyEnvelope:
+async def validate_ontology_candidate(
+    body: OntologyValidateRequest,
+) -> OntologyEnvelope:
     """Run the valid/connected/SHACL gate on a candidate WITHOUT committing it.
 
     Granular typed twin of ``graph_ontology(action='validate')`` — dispatches
@@ -249,15 +253,26 @@ class OntologyLoadRequest(BaseModel):
     """Request body for ``POST /ontology/load``."""
 
     source: str = Field(
-        default="", description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text."
+        default="",
+        description="A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text.",
     )
     source_type: str = Field(
-        default="auto", description="How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff)."
+        default="auto",
+        description="How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff).",
     )
-    iri: str = Field(default="", description="Optional IRI override (defaults to the ontology's own declared IRI).")
-    version: str = Field(default="", description="Optional version (defaults to '1.0.0').")
-    category: str = Field(default="", description="Optional catalogue category label, e.g. 'finance'.")
-    tags: list[str] = Field(default_factory=list, description="Optional catalogue tags.")
+    iri: str = Field(
+        default="",
+        description="Optional IRI override (defaults to the ontology's own declared IRI).",
+    )
+    version: str = Field(
+        default="", description="Optional version (defaults to '1.0.0')."
+    )
+    category: str = Field(
+        default="", description="Optional catalogue category label, e.g. 'finance'."
+    )
+    tags: list[str] = Field(
+        default_factory=list, description="Optional catalogue tags."
+    )
 
 
 @ontology_router.post("/ontology/load", response_model=OntologyEnvelope)
@@ -288,7 +303,9 @@ async def load_ontology(body: OntologyLoadRequest) -> OntologyEnvelope:
 @ontology_router.get("/ontology/export", response_model=OntologyEnvelope)
 async def export_ontology(
     iri: str = Query(..., description="Ontology IRI to export."),
-    version: str = Query("", description="Version to export (omit for the newest loaded)."),
+    version: str = Query(
+        "", description="Version to export (omit for the newest loaded)."
+    ),
 ) -> OntologyEnvelope:
     """Re-serialize a hosted ontology to turtle (the Import/Export modal's Export button).
 
@@ -310,10 +327,19 @@ async def export_ontology(
 
 @ontology_router.get("/ontology/catalogue", response_model=OntologyEnvelope)
 async def get_ontology_catalogue(
-    search: str = Query("", description="Case-insensitive substring filter over iri/version/source."),
-    category: str = Query("", description="Filter to ontologies loaded with this catalogue category."),
-    source: str = Query("", description="Filter by how the ontology was loaded: 'file' | 'url' | 'text'."),
-    tag: str = Query("", description="Filter to ontologies carrying this catalogue tag."),
+    search: str = Query(
+        "", description="Case-insensitive substring filter over iri/version/source."
+    ),
+    category: str = Query(
+        "", description="Filter to ontologies loaded with this catalogue category."
+    ),
+    source: str = Query(
+        "",
+        description="Filter by how the ontology was loaded: 'file' | 'url' | 'text'.",
+    ),
+    tag: str = Query(
+        "", description="Filter to ontologies carrying this catalogue tag."
+    ),
 ) -> OntologyEnvelope:
     """Browsable gallery over the hosted-ontology registry.
 

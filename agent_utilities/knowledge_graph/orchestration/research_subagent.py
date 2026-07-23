@@ -92,7 +92,10 @@ class CitationGraphWalker:
             Paper metadata dict or None if not found.
         """
         normalized_id = str(paper_id).strip()
-        if not normalized_id or len(normalized_id.encode("utf-8")) > _MAX_PAPER_ID_BYTES:
+        if (
+            not normalized_id
+            or len(normalized_id.encode("utf-8")) > _MAX_PAPER_ID_BYTES
+        ):
             return None
         if any(ord(character) < 32 for character in normalized_id):
             return None
@@ -124,7 +127,9 @@ class CitationGraphWalker:
             self._last_request_time = time.time()
             return data
         except Exception as e:
-            logger.warning("Paper metadata fetch failed: error_type=%s", type(e).__name__)
+            logger.warning(
+                "Paper metadata fetch failed: error_type=%s", type(e).__name__
+            )
             self._last_request_time = time.time()
             return None
 

@@ -159,9 +159,7 @@ def transpile(
             inventory is required; guessing from all tables is unsafe.
     """
     params = params or {}
-    known_tables = {
-        _require_sql_identifier(table) for table in (known_tables or set())
-    }
+    known_tables = {_require_sql_identifier(table) for table in (known_tables or set())}
     node_tables = {_require_sql_identifier(table) for table in node_tables}
     cypher_stripped = cypher.strip().rstrip(";")
 

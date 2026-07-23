@@ -607,6 +607,7 @@ def _register_mcp_server(name: str, raw_definition: str) -> None:
     servers[name.strip()] = definition
     _atomic_private_json_write(path, document)
 
+
 logger = logging.getLogger(__name__)
 
 

@@ -190,10 +190,9 @@ def _already_compiled(messages: list[Any]) -> bool:
     # mandatory compiler. The marker is an idempotency sentinel, not an auth
     # token, and its position is therefore part of the boundary contract.
     first = parts[0]
-    return (
-        str(getattr(first, "part_kind", "")) == "system-prompt"
-        and _part_text(first).lstrip().startswith(_CONTEXT_MARKER)
-    )
+    return str(getattr(first, "part_kind", "")) == "system-prompt" and _part_text(
+        first
+    ).lstrip().startswith(_CONTEXT_MARKER)
 
 
 def _compile_messages(messages: list[Any], model_name: str) -> list[Any]:
@@ -245,9 +244,7 @@ def _wrapper_class() -> Any | None:
         async def compact_messages(
             self, request_context: Any, *, instructions: str | None = None
         ) -> Any:
-            governed = _compile_messages(
-                request_context.messages, self.model_name
-            )
+            governed = _compile_messages(request_context.messages, self.model_name)
             return await super().compact_messages(
                 replace(request_context, messages=governed),
                 instructions=instructions,

@@ -346,9 +346,7 @@ def resolve_prompt(prompt_str: str) -> str:
 def extract_agent_metadata(
     content: str,
     *,
-    demonstration_resolver: Callable[
-        [list[str]], Sequence[Mapping[str, Any]]
-    ]
+    demonstration_resolver: Callable[[list[str]], Sequence[Mapping[str, Any]]]
     | None = None,
 ) -> dict[str, Any]:
     """Extract metadata (name, description, emoji, vibe, etc.) from a JSON blueprint.

@@ -477,9 +477,7 @@ class EngineBrokerBusLog(BusLogBackend):
         )
         return exchange, queue, routing_key
 
-    def _to_dlq(
-        self, tenant: str, source_queue: str, raw: bytes, error: str
-    ) -> None:
+    def _to_dlq(self, tenant: str, source_queue: str, raw: bytes, error: str) -> None:
         exchange, _dlq, routing_key = self._dlq_queue(tenant)
         raw_bytes = bytes(raw)
         payload = json.dumps(

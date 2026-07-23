@@ -72,11 +72,15 @@ def _require_model_invoke(request: Request) -> None:
             )
         )
     except Exception:
-        raise HTTPException(status_code=403, detail="model invocation capability required") from None
+        raise HTTPException(
+            status_code=403, detail="model invocation capability required"
+        ) from None
     if not capabilities.intersection(
         {"model:invoke", "agent:invoke", "model:admin", "admin"}
     ):
-        raise HTTPException(status_code=403, detail="model invocation capability required")
+        raise HTTPException(
+            status_code=403, detail="model invocation capability required"
+        )
 
 
 def _message_query(messages: list[dict], system: object = None) -> str:
@@ -217,9 +221,7 @@ async def proxy_stream(
     )
     if not decision.allowed:
         # SSRF gate: reject BEFORE any upstream fetch.
-        return JSONResponse(
-            {"error": "blocked base_url"}, status_code=400
-        )
+        return JSONResponse({"error": "blocked base_url"}, status_code=400)
 
     if "api_key" in data:
         return JSONResponse(

@@ -334,18 +334,14 @@ class ActionDispatcher:
                 os.close(descriptor)
         finally:
             os.close(parent_fd)
-        return FileWriteObservation(
-            path=action.path, bytes_written=len(content)
-        )
+        return FileWriteObservation(path=action.path, bytes_written=len(content))
 
     def _edit(self, action: FileEditAction, backend: WorkspaceBackend) -> Observation:
         parent_fd, leaf = self._workspace_parent(backend, action.path, create=False)
         try:
             descriptor = os.open(
                 leaf,
-                os.O_RDWR
-                | getattr(os, "O_NOFOLLOW", 0)
-                | getattr(os, "O_NONBLOCK", 0),
+                os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
                 dir_fd=parent_fd,
             )
             try:

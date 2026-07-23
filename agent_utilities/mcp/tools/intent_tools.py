@@ -260,7 +260,9 @@ def _cache_key(
     crossing an authorization-policy boundary.
     """
     normalized = _normalize_intent(intent)
-    hints_json = json.dumps(hints or {}, sort_keys=True, default=str, separators=(",", ":"))
+    hints_json = json.dumps(
+        hints or {}, sort_keys=True, default=str, separators=(",", ":")
+    )
     return (
         verb,
         persistence_reference("intent", normalized),
@@ -359,9 +361,7 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
                 f"packaged {packaged_verbs!r}"
             )
         examples_text = " ".join(str(e) for e in (cpd.get("examples") or ()))
-        does_text = " ".join(
-            str(d.get("action", "")) for d in (cpd.get("does") or ())
-        )
+        does_text = " ".join(str(d.get("action", "")) for d in (cpd.get("does") or ()))
         doc = (
             f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
             f"{cpd.get('one_line', '')} {examples_text} {does_text}"
@@ -617,13 +617,9 @@ def _operation_plan(
     cost = cpd.get("cost") if isinstance(cpd.get("cost"), dict) else {}
     latency = cpd.get("latency") if isinstance(cpd.get("latency"), dict) else {}
     scopes = sorted(str(scope) for scope in (cpd.get("scopes") or ()))
-    durability = (
-        str(operation.get("durability") or "") if operation is not None else ""
-    )
+    durability = str(operation.get("durability") or "") if operation is not None else ""
     transaction = (
-        str(operation.get("txn_participation") or "")
-        if operation is not None
-        else ""
+        str(operation.get("txn_participation") or "") if operation is not None else ""
     )
 
     if destructive:
@@ -722,13 +718,17 @@ def _action_ambiguity_evidence(
     top_score = ranked_actions[0][1]
     second_score = ranked_actions[1][1] if len(ranked_actions) > 1 else None
     margin = top_score - second_score if second_score is not None else None
-    ambiguous = not explicit and len(ranked_actions) > 1 and (
-        top_score <= 0.0
-        or (
-            second_score is not None
-            and second_score > 0.0
-            and margin is not None
-            and margin < _AMBIGUITY_MARGIN
+    ambiguous = (
+        not explicit
+        and len(ranked_actions) > 1
+        and (
+            top_score <= 0.0
+            or (
+                second_score is not None
+                and second_score > 0.0
+                and margin is not None
+                and margin < _AMBIGUITY_MARGIN
+            )
         )
     )
     return {
@@ -849,13 +849,9 @@ async def dispatch_intent(
     explicit_tool = bool(raw_hints.get("tool") or raw_hints.get("_tool"))
     explicit_action = raw_hints.get("action")
     supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
-    call_kwargs = {
-        k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS
-    }
+    call_kwargs = {k: v for k, v in raw_hints.items() if k not in _CONTROL_HINT_FIELDS}
 
-    candidates = resolve_intent(
-        verb, intent, hints=raw_hints, top_k=max(2, int(top_k))
-    )
+    candidates = resolve_intent(verb, intent, hints=raw_hints, top_k=max(2, int(top_k)))
     if not candidates:
         return {
             "error": (
@@ -981,9 +977,7 @@ async def dispatch_intent(
                 "capability_source": "packaged_graphos_cpd",
             },
             "policy": {
-                "verb_class": (
-                    "read_only" if verb in _READ_ONLY_VERBS else "non_read"
-                ),
+                "verb_class": ("read_only" if verb in _READ_ONLY_VERBS else "non_read"),
                 "read_only_enforced": verb in _READ_ONLY_VERBS,
                 "preview_required": plan["preview_required"],
                 "approval": plan["approval"],

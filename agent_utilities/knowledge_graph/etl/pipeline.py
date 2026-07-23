@@ -106,9 +106,7 @@ def run_etl(
                 mode=mode,
             )
         except Exception as e:  # noqa: BLE001 - report, don't crash the surface
-            inbound = EtlResult(
-                status="error", source=source, mode=mode, error=str(e)
-            )
+            inbound = EtlResult(status="error", source=source, mode=mode, error=str(e))
             status = "partial"
 
     # ── outbound: KG → sink (writeback system-of-record, graph store, or SQL table) ──

@@ -50,14 +50,17 @@ class ProtocolModel(BaseModel):
 
 class RequestContext(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['2']
+
+    schema_version: Literal["2"]
     request_id: Annotated[str, Field(min_length=1)]
     subject_id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[str, Field(min_length=1)]
     agent_id: Annotated[str, Field(min_length=1)]
     scopes: list[Annotated[str, Field(min_length=1)]]
     audience: Annotated[str, Field(min_length=1)]
-    authentication_method: Literal['workload_identity', 'oidc', 'mutual_tls', 'local_process']
+    authentication_method: Literal[
+        "workload_identity", "oidc", "mutual_tls", "local_process"
+    ]
     policy_version: Annotated[str, Field(min_length=1)]
     graph: Annotated[str, Field(min_length=1)]
     placement_epoch: Annotated[int, Field(ge=0)] | None
@@ -68,7 +71,8 @@ class RequestContext(ProtocolModel):
 
 class MutationBatch(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     batch_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     graph: Annotated[str, Field(min_length=1)]
@@ -81,32 +85,36 @@ class MutationBatch(ProtocolModel):
 
 class MutationOperation(ProtocolModel):
     """Schema-generated strict projection."""
+
     operation_id: Annotated[str, Field(min_length=1)]
-    domain: Literal['graph', 'rdf', 'vector', 'timeseries', 'artifact', 'job', 'work_item']
-    action: Literal['upsert', 'delete', 'append', 'transition', 'link', 'unlink']
+    domain: Literal[
+        "graph", "rdf", "vector", "timeseries", "artifact", "job", "work_item"
+    ]
+    action: Literal["upsert", "delete", "append", "transition", "link", "unlink"]
     target_id: Annotated[str, Field(min_length=1)]
     payload_ref: Annotated[str, Field(min_length=1)] | None
-    payload_digest: Annotated[str, Field(pattern='^sha256:[0-9a-f]{64}$')] | None
+    payload_digest: Annotated[str, Field(pattern="^sha256:[0-9a-f]{64}$")] | None
     expected_version: Annotated[int, Field(ge=0)] | None
 
 
 class ChangeEnvelope(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     envelope_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     connector_kind: Annotated[str, Field(min_length=1)]
     source_instance_id: Annotated[str, Field(min_length=1)]
     source_object_id: Annotated[str, Field(min_length=1)]
     source_version: Annotated[str, Field(min_length=1)]
-    operation: Literal['upsert', 'delete', 'snapshot_complete']
+    operation: Literal["upsert", "delete", "snapshot_complete"]
     schema_id: Annotated[str, Field(min_length=1)]
     event_time_ms: Annotated[int, Field(ge=0)] | None
     valid_time_ms: Annotated[int, Field(ge=0)] | None
     observed_time_ms: Annotated[int, Field(ge=0)]
     artifact_refs: list[Annotated[str, Field(min_length=1)]]
     payload_ref: Annotated[str, Field(min_length=1)] | None
-    payload_digest: Annotated[str, Field(pattern='^sha256:[0-9a-f]{64}$')] | None
+    payload_digest: Annotated[str, Field(pattern="^sha256:[0-9a-f]{64}$")] | None
     access: SourceAccess
     provenance_refs: list[Annotated[str, Field(min_length=1)]]
     checkpoint_ref: Annotated[str, Field(min_length=1)] | None
@@ -115,7 +123,10 @@ class ChangeEnvelope(ProtocolModel):
 
 class SourceAccess(ProtocolModel):
     """Schema-generated strict projection."""
-    classification: Literal['public', 'internal', 'confidential', 'restricted', 'regulated']
+
+    classification: Literal[
+        "public", "internal", "confidential", "restricted", "regulated"
+    ]
     read_scopes: list[Annotated[str, Field(min_length=1)]]
     purpose_tags: list[Annotated[str, Field(min_length=1)]]
     retention_policy_id: Annotated[str, Field(min_length=1)] | None
@@ -124,11 +135,21 @@ class SourceAccess(ProtocolModel):
 
 class WorkItem(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     work_item_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     kind: Annotated[str, Field(min_length=1)]
-    state: Literal['submitted', 'ready', 'leased', 'running', 'succeeded', 'failed', 'cancelled', 'dead_letter']
+    state: Literal[
+        "submitted",
+        "ready",
+        "leased",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "dead_letter",
+    ]
     priority: int
     depends_on: list[Annotated[str, Field(min_length=1)]]
     input_artifact_refs: list[Annotated[str, Field(min_length=1)]]
@@ -144,14 +165,17 @@ class WorkItem(ProtocolModel):
 
 class Artifact(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     artifact_id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[str, Field(min_length=1)]
     media_type: Annotated[str, Field(min_length=1)]
-    digest: Annotated[str, Field(pattern='^sha256:[0-9a-f]{64}$')]
+    digest: Annotated[str, Field(pattern="^sha256:[0-9a-f]{64}$")]
     byte_length: Annotated[int, Field(ge=0)]
     content_ref: Annotated[str, Field(min_length=1)]
-    classification: Literal['public', 'internal', 'confidential', 'restricted', 'regulated']
+    classification: Literal[
+        "public", "internal", "confidential", "restricted", "regulated"
+    ]
     provenance_refs: list[Annotated[str, Field(min_length=1)]]
     occurrence_ids: list[Annotated[str, Field(min_length=1)]]
     rendition_ids: list[Annotated[str, Field(min_length=1)]]
@@ -164,7 +188,17 @@ class Artifact(ProtocolModel):
 
 class ArtifactLocus(ProtocolModel):
     """Schema-generated strict projection."""
-    kind: Literal['document_span', 'table_cell_range', 'image_region', 'page_box', 'audio_segment', 'video_frame_range', 'metric_window', 'row_version']
+
+    kind: Literal[
+        "document_span",
+        "table_cell_range",
+        "image_region",
+        "page_box",
+        "audio_segment",
+        "video_frame_range",
+        "metric_window",
+        "row_version",
+    ]
     start: Annotated[int, Field(ge=0)] | None
     end: Annotated[int, Field(ge=0)] | None
     selector: dict[str, Any]
@@ -172,11 +206,12 @@ class ArtifactLocus(ProtocolModel):
 
 class KnowledgeBatch(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     batch_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     fields: list[KnowledgeField]
-    encoding: Literal['json_rows', 'arrow_ipc']
+    encoding: Literal["json_rows", "arrow_ipc"]
     rows: list[list[Any]]
     data_ref: Annotated[str, Field(min_length=1)] | None
     cursor: Annotated[str, Field(min_length=1)] | None
@@ -186,20 +221,24 @@ class KnowledgeBatch(ProtocolModel):
 
 class KnowledgeField(ProtocolModel):
     """Schema-generated strict projection."""
+
     name: Annotated[str, Field(min_length=1)]
-    data_type: Literal['null', 'boolean', 'i64', 'u64', 'f64', 'utf8', 'binary', 'timestamp_ms', 'json']
+    data_type: Literal[
+        "null", "boolean", "i64", "u64", "f64", "utf8", "binary", "timestamp_ms", "json"
+    ]
     nullable: bool
 
 
 class AnalyticsJob(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     job_id: Annotated[str, Field(min_length=1)]
     context: RequestContext
     kind: Annotated[str, Field(min_length=1)]
-    state: Literal['submitted', 'running', 'succeeded', 'failed', 'cancelled']
+    state: Literal["submitted", "running", "succeeded", "failed", "cancelled"]
     input_artifact_refs: list[Annotated[str, Field(min_length=1)]]
-    parameters_digest: Annotated[str, Field(pattern='^sha256:[0-9a-f]{64}$')]
+    parameters_digest: Annotated[str, Field(pattern="^sha256:[0-9a-f]{64}$")]
     algorithm: Annotated[str, Field(min_length=1)]
     algorithm_version: Annotated[str, Field(min_length=1)]
     checkpoint_ref: Annotated[str, Field(min_length=1)] | None
@@ -214,6 +253,7 @@ class AnalyticsJob(ProtocolModel):
 
 class AnalyticsError(ProtocolModel):
     """Schema-generated strict projection."""
+
     code: Annotated[str, Field(min_length=1)]
     retryable: bool
     detail_ref: Annotated[str, Field(min_length=1)] | None
@@ -221,18 +261,19 @@ class AnalyticsError(ProtocolModel):
 
 class TraceOutcome(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     outcome_id: Annotated[str, Field(min_length=1)]
     trace_id: Annotated[str, Field(min_length=1)]
     context_id: Annotated[str, Field(min_length=1)]
     operation: Annotated[str, Field(min_length=1)]
-    status: Literal['succeeded', 'failed', 'cancelled', 'denied']
+    status: Literal["succeeded", "failed", "cancelled", "denied"]
     started_at_ms: Annotated[int, Field(ge=0)]
     ended_at_ms: Annotated[int, Field(ge=0)]
     input_artifact_refs: list[Annotated[str, Field(min_length=1)]]
     output_artifact_refs: list[Annotated[str, Field(min_length=1)]]
     metrics: dict[str, float]
-    policy_decision: Literal['allow', 'deny', 'not_applicable']
+    policy_decision: Literal["allow", "deny", "not_applicable"]
     error_code: Annotated[str, Field(min_length=1)] | None
     error_detail_ref: Annotated[str, Field(min_length=1)] | None
     evaluation_scores: dict[str, float]
@@ -240,7 +281,8 @@ class TraceOutcome(ProtocolModel):
 
 class PlacementRoute(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     route_id: Annotated[str, Field(min_length=1)]
     tenant_ref: Annotated[str, Field(min_length=1)]
     partition_ref: Annotated[str, Field(min_length=1)]
@@ -255,7 +297,8 @@ class PlacementRoute(ProtocolModel):
 
 class PlacementRouteRequest(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     tenant_ref: Annotated[str, Field(min_length=1)]
     partition_ref: Annotated[str, Field(min_length=1)]
     client_epoch: Annotated[int, Field(ge=0)]
@@ -263,7 +306,8 @@ class PlacementRouteRequest(ProtocolModel):
 
 class ClaimWorkItemRequest(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     tenant_ref: Annotated[str, Field(min_length=1)]
     work_item_id: Annotated[str, Field(min_length=1)] | None
     queue_ref: Annotated[str, Field(min_length=1)] | None
@@ -277,9 +321,10 @@ class ClaimWorkItemRequest(ProtocolModel):
 
 class ClaimWorkItemResult(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     claimed: bool
-    reason: Literal['claimed', 'empty', 'tenant_quota']
+    reason: Literal["claimed", "empty", "tenant_quota"]
     work_item_id: Annotated[str, Field(min_length=1)] | None
     kind: Annotated[str, Field(min_length=1)] | None
     payload_ref: Annotated[str, Field(min_length=1)] | None
@@ -295,7 +340,8 @@ class ClaimWorkItemResult(ProtocolModel):
 
 class EvidenceBundle(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     bundle_id: Annotated[str, Field(min_length=1)]
     resolved: bool
     answer_ref: Annotated[str, Field(min_length=1)] | None
@@ -306,6 +352,7 @@ class EvidenceBundle(ProtocolModel):
 
 class EvidenceClaim(ProtocolModel):
     """Schema-generated strict projection."""
+
     claim_ref: Annotated[str, Field(min_length=1)]
     kind: str
     score: float | None
@@ -321,15 +368,17 @@ class EvidenceClaim(ProtocolModel):
 
 class EvidenceTimeRange(ProtocolModel):
     """Schema-generated strict projection."""
+
     start_ms: Annotated[int, Field(ge=0)] | None
     end_ms: Annotated[int, Field(ge=0)] | None
 
 
 class OperationResult(ProtocolModel):
     """Schema-generated strict projection."""
-    schema_version: Literal['1']
+
+    schema_version: Literal["1"]
     operation_id: Annotated[str, Field(min_length=1)]
-    status: Literal['succeeded', 'failed', 'redirected']
+    status: Literal["succeeded", "failed", "redirected"]
     result_kind: Annotated[str, Field(min_length=1)] | None
     result_ref: Annotated[str, Field(min_length=1)] | None
     error: OperationError | None
@@ -338,6 +387,7 @@ class OperationResult(ProtocolModel):
 
 class OperationError(ProtocolModel):
     """Schema-generated strict projection."""
+
     code: Annotated[str, Field(min_length=1)]
     retryable: bool
     correlation_id: Annotated[str, Field(min_length=1)]
@@ -346,7 +396,8 @@ class OperationError(ProtocolModel):
 
 class OperationRedirect(ProtocolModel):
     """Schema-generated strict projection."""
-    kind: Literal['placement']
+
+    kind: Literal["placement"]
     target_ref: Annotated[str, Field(min_length=1)]
     group: Annotated[int, Field(ge=0)]
     epoch: Annotated[int, Field(ge=0)]

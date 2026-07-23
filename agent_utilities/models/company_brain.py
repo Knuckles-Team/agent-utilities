@@ -385,9 +385,7 @@ class ConflictNode(BaseModel):
         detected_at: ISO timestamp when conflict was detected.
     """
 
-    conflict_id: str = Field(
-        default_factory=lambda: f"conflict:{uuid.uuid4().hex}"
-    )
+    conflict_id: str = Field(default_factory=lambda: f"conflict:{uuid.uuid4().hex}")
     node_id: str
     field_name: str
     value_a: Any = None

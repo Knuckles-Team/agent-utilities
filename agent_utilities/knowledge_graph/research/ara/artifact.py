@@ -314,6 +314,7 @@ class ResearchArtifact(BaseModel):
             source_ref=source_ref or (f"article:{article_id}"),
         )
 
+
 __all__ = [
     "Claim",
     "CodeSpec",

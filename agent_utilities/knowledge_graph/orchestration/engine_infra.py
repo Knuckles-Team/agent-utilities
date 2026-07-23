@@ -184,7 +184,9 @@ class InfrastructureEngineMixin(_Base):
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         for alias, host_info, vars_dict in discovered:
-            ansible_host = host_info.get("ansible_host") or vars_dict.get("ansible_host")
+            ansible_host = host_info.get("ansible_host") or vars_dict.get(
+                "ansible_host"
+            )
             if not ansible_host:
                 continue
 
@@ -311,7 +313,9 @@ class InfrastructureEngineMixin(_Base):
                     self._upsert_node("StorageArray", storage_id, s_storage)
 
                 # Add edge attached_storage
-                self.graph.add_edge(host_id, storage_id, relationship="attached_storage")
+                self.graph.add_edge(
+                    host_id, storage_id, relationship="attached_storage"
+                )
                 if self.backend:
                     self.backend.execute(
                         "MATCH (h:Host {id: $hid}), (s:StorageArray {id: $sid}) "

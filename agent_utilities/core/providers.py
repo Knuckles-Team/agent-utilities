@@ -46,9 +46,7 @@ _GROUP_LEGS = {
 _MODULE_NAME = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$", re.ASCII
 )
-_PROVIDER_GROUP = re.compile(
-    r"^agent_utilities\.[A-Za-z0-9_.-]+_providers$", re.ASCII
-)
+_PROVIDER_GROUP = re.compile(r"^agent_utilities\.[A-Za-z0-9_.-]+_providers$", re.ASCII)
 _FRONTMATTER_NAME = re.compile(r"(?m)^name:\s*[\"']?([^\r\n#\"']+?)[\"']?\s*$")
 
 
@@ -99,7 +97,9 @@ def _distribution_identity(distribution: Distribution) -> tuple[str, str]:
         name = str(distribution.metadata["Name"]).strip()
         version = str(distribution.version).strip()
     except Exception as exc:  # noqa: BLE001 - converted to a path-free typed failure
-        raise ProviderRegistrationError("provider owner metadata is incomplete") from exc
+        raise ProviderRegistrationError(
+            "provider owner metadata is incomplete"
+        ) from exc
     if not name or not version:
         raise ProviderRegistrationError("provider owner metadata is incomplete")
     return name, version
@@ -110,7 +110,9 @@ def _owned_source_root(
 ) -> tuple[Path, frozenset[str]]:
     target = entry_point.value.strip()
     if _MODULE_NAME.fullmatch(target) is None:
-        raise ProviderRegistrationError("provider target must be one data package module")
+        raise ProviderRegistrationError(
+            "provider target must be one data package module"
+        )
     prefix = PurePosixPath(*target.split("."))
     distribution_files = distribution.files
     if distribution_files is None:
@@ -131,11 +133,11 @@ def _owned_source_root(
         for _ in relative.parts[len(prefix.parts) :]:
             root = root.parent
         roots.add(root)
-        owned_paths.add(
-            PurePosixPath(*relative.parts[len(prefix.parts) :]).as_posix()
-        )
+        owned_paths.add(PurePosixPath(*relative.parts[len(prefix.parts) :]).as_posix())
     if not owned_paths or len(roots) != 1:
-        raise ProviderRegistrationError("provider target is not owned by its distribution")
+        raise ProviderRegistrationError(
+            "provider target is not owned by its distribution"
+        )
     root = roots.pop()
     try:
         root = root.resolve(strict=True)
@@ -143,7 +145,9 @@ def _owned_source_root(
     except OSError as exc:
         raise ProviderRegistrationError("provider source root is unavailable") from exc
     if _is_linklike(root) or not stat.S_ISDIR(info.st_mode):
-        raise ProviderRegistrationError("provider source root is not a regular directory")
+        raise ProviderRegistrationError(
+            "provider source root is not a regular directory"
+        )
     return root, frozenset(owned_paths)
 
 
@@ -155,7 +159,9 @@ def provider_registrations(group: str) -> tuple[ProviderRegistration, ...]:
     try:
         discovered = tuple(entry_points(group=group))
     except Exception as exc:  # noqa: BLE001
-        raise ProviderRegistrationError("provider metadata cannot be enumerated") from exc
+        raise ProviderRegistrationError(
+            "provider metadata cannot be enumerated"
+        ) from exc
 
     registrations: list[ProviderRegistration] = []
     identities: dict[str, str] = {}
@@ -272,13 +278,16 @@ def resolve_base_prompt_dir() -> Path:
     from agent_utilities.core.unified_install import OWN_PROVIDER, own_provider_asset
 
     source, digest, manifest = own_provider_asset("prompts")
-    return resolve_managed_generation(
-        unified_prompts_dir() / OWN_PROVIDER,
-        provider=OWN_PROVIDER,
-        leg="prompts",
-        registration=digest,
-        source_manifest=manifest,
-    ) or source
+    return (
+        resolve_managed_generation(
+            unified_prompts_dir() / OWN_PROVIDER,
+            provider=OWN_PROVIDER,
+            leg="prompts",
+            registration=digest,
+            source_manifest=manifest,
+        )
+        or source
+    )
 
 
 def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
@@ -306,7 +315,11 @@ def _skill_identity(skill_root: Path) -> str:
     path = skill_root / "SKILL.md"
     try:
         info = path.lstat()
-        if _is_linklike(path) or not path.is_file() or info.st_size > MAX_PROVIDER_FILE_BYTES:
+        if (
+            _is_linklike(path)
+            or not path.is_file()
+            or info.st_size > MAX_PROVIDER_FILE_BYTES
+        ):
             raise ProviderAssetError("skill instruction file is invalid")
         with path.open("r", encoding="utf-8") as handle:
             text = handle.read(MAX_PROVIDER_FILE_BYTES + 1)
@@ -320,7 +333,11 @@ def _skill_identity(skill_root: Path) -> str:
         match = _FRONTMATTER_NAME.search(frontmatter)
         if match:
             identity = match.group(1).strip()
-            if identity and len(identity) <= 256 and all(ord(ch) >= 32 for ch in identity):
+            if (
+                identity
+                and len(identity) <= 256
+                and all(ord(ch) >= 32 for ch in identity)
+            ):
                 return identity
     return skill_root.name
 
@@ -372,9 +389,7 @@ def resolve_skill_provider_dirs() -> list[tuple[str, Path]]:
         registration=own_digest,
         source_manifest=own_manifest,
     )
-    provider_roots: list[tuple[str, Path]] = [
-        (own_name, own_materialized or own_root)
-    ]
+    provider_roots: list[tuple[str, Path]] = [(own_name, own_materialized or own_root)]
     provider_roots.extend(
         (
             assets.registration.name,

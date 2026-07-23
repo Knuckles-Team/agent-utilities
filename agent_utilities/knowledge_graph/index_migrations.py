@@ -78,7 +78,9 @@ def run_index_migration(
     """Execute the one current registered migration through the authority API."""
 
     if migration_id != EMBEDDING_AUTHORITY_ANN.migrationId:
-        raise ValueError("index migration is not registered in the exact release catalog")
+        raise ValueError(
+            "index migration is not registered in the exact release catalog"
+        )
     if batch_log_every < 1:
         raise ValueError("index migration log interval must be positive")
     return int(backend.hydrate_engine_embeddings(batch_log_every=batch_log_every))

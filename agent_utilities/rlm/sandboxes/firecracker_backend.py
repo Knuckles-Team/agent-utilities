@@ -54,7 +54,9 @@ def _forkd_identifier(value: object) -> str:
     if (
         not 1 <= len(rendered) <= 128
         or not rendered[0].isalnum()
-        or any(not (character.isalnum() or character in "._:-") for character in rendered)
+        or any(
+            not (character.isalnum() or character in "._:-") for character in rendered
+        )
     ):
         raise SandboxFatalError("forkd returned an invalid sandbox identifier")
     return rendered
@@ -111,9 +113,7 @@ class _ForkdClient:
             return {}
         return {"Authorization": f"Bearer {self._token}"}
 
-    def request(
-        self, method: str, path: str, body: dict | None = None
-    ) -> dict | list:
+    def request(self, method: str, path: str, body: dict | None = None) -> dict | list:
         selected_method = str(method).upper()
         url = f"{self.base_url}{self._validated_path(path)}"
         kwargs = {
@@ -141,7 +141,9 @@ class _ForkdClient:
         else:
             raise ValueError("Unsupported forkd HTTP method")
         if not isinstance(response, (dict, list)):
-            raise SourceEgressError("Forkd controller returned an invalid JSON envelope")
+            raise SourceEgressError(
+                "Forkd controller returned an invalid JSON envelope"
+            )
         return response
 
     def healthy(self) -> bool:
@@ -217,9 +219,7 @@ class FirecrackerSandbox(ForkableSandbox):
                 for s in (snaps.get("snapshots") or snaps.get("items") or [])
             }
             if tags and tag not in tags:
-                raise SandboxFatalError(
-                    "configured forkd snapshot was not found"
-                )
+                raise SandboxFatalError("configured forkd snapshot was not found")
         except SandboxFatalError:
             raise
         except Exception as exc:  # noqa: BLE001

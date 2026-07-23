@@ -36,7 +36,9 @@ def _sparql_iri(value: object) -> str:
     if (
         not 1 <= len(rendered) <= 2_048
         or parsed.scheme not in {"http", "https", "urn"}
-        or any(character.isspace() or character in '<>"{}|^`\\' for character in rendered)
+        or any(
+            character.isspace() or character in '<>"{}|^`\\' for character in rendered
+        )
         or any(ord(character) < 32 or ord(character) == 127 for character in rendered)
     ):
         raise ValueError("SPARQL IRI is invalid")
@@ -128,7 +130,11 @@ def pull_from_stardog(
     """
     if source and not graph_uri:
         graph_uri = graph_uri_for_source(source)
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100_000:
+    if (
+        isinstance(limit, bool)
+        or not isinstance(limit, int)
+        or not 1 <= limit <= 100_000
+    ):
         raise ValueError("limit must be an integer between 1 and 100000")
     g_open = f"GRAPH {_sparql_iri(graph_uri)} {{ " if graph_uri else ""
     g_close = " }" if graph_uri else ""

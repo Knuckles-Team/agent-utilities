@@ -3323,9 +3323,7 @@ class IngestionEngine:
                     if failed:
                         unavailable += 1
                         continue
-                    server_name = _neutral_mcp_alias(
-                        config_hash=entry["config_hash"]
-                    )
+                    server_name = _neutral_mcp_alias(config_hash=entry["config_hash"])
                     safe_tools, _privacy = sanitize_for_persistence(tools)
                     self.kg.ingest_mcp_server(
                         name=server_name,

@@ -409,9 +409,7 @@ class MemoryMixin(_Base):
                     )
                     return memory_id
                 except Exception as e:  # noqa: BLE001 — fail closed at the plane boundary
-                    logger.error(
-                        "memory ingest enqueue failed (%s)", type(e).__name__
-                    )
+                    logger.error("memory ingest enqueue failed (%s)", type(e).__name__)
                     raise RuntimeError(
                         "memory ingest authority unavailable; "
                         f"error_type={type(e).__name__}"

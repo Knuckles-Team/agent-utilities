@@ -95,7 +95,17 @@ SCHEME_CLASS_BY_KIND: dict[str, str] = {
 #: Node property keys minted on import that are never end-user metadata (used
 #: to split "known" from "extra" fields both ways across the JSON bridge).
 _KNOWN_NODE_KEYS = frozenset(
-    {"nodeID", "id", "node_id", "type", "node_type", "text", "content", "scheme", "schemeName"}
+    {
+        "nodeID",
+        "id",
+        "node_id",
+        "type",
+        "node_type",
+        "text",
+        "content",
+        "scheme",
+        "schemeName",
+    }
 )
 _KNOWN_EDGE_KEYS = frozenset(
     {"edgeID", "id", "fromID", "source", "from", "toID", "target", "to"}
@@ -215,7 +225,9 @@ def validate_argument_map(argument_map: ArgumentMap) -> list[str]:
     node_ids = {n.node_id for n in argument_map.nodes}
     for e in argument_map.edges:
         if e.from_id not in node_ids:
-            violations.append(f"edge {e.edge_id!r} references unknown fromID {e.from_id!r}")
+            violations.append(
+                f"edge {e.edge_id!r} references unknown fromID {e.from_id!r}"
+            )
         if e.to_id not in node_ids:
             violations.append(f"edge {e.edge_id!r} references unknown toID {e.to_id!r}")
 
@@ -259,7 +271,9 @@ def from_aifdb_json(data: dict[str, Any], *, map_id: str | None = None) -> Argum
 
     nodes: list[AIFNode] = []
     for raw in raw_nodes:
-        node_id = str(raw.get("nodeID") or raw.get("id") or raw.get("node_id") or "").strip()
+        node_id = str(
+            raw.get("nodeID") or raw.get("id") or raw.get("node_id") or ""
+        ).strip()
         if not node_id:
             raise ValueError(f"AIF node missing nodeID/id: {raw!r}")
         node_type = str(raw.get("type") or raw.get("node_type") or "").strip().upper()
@@ -283,14 +297,18 @@ def from_aifdb_json(data: dict[str, Any], *, map_id: str | None = None) -> Argum
     edges: list[AIFEdge] = []
     for idx, raw in enumerate(raw_edges):
         edge_id = str(raw.get("edgeID") or raw.get("id") or f"e{idx}")
-        from_id = str(raw.get("fromID") or raw.get("source") or raw.get("from") or "").strip()
+        from_id = str(
+            raw.get("fromID") or raw.get("source") or raw.get("from") or ""
+        ).strip()
         to_id = str(raw.get("toID") or raw.get("target") or raw.get("to") or "").strip()
         if not from_id or not to_id:
             raise ValueError(f"AIF edge missing fromID/toID: {raw!r}")
         edges.append(AIFEdge(edge_id=edge_id, from_id=from_id, to_id=to_id))
 
     resolved_map_id = (
-        map_id or str(data.get("map_id") or data.get("id") or "") or f"map-{uuid.uuid4().hex[:12]}"
+        map_id
+        or str(data.get("map_id") or data.get("id") or "")
+        or f"map-{uuid.uuid4().hex[:12]}"
     )
     return ArgumentMap(map_id=resolved_map_id, nodes=nodes, edges=edges)
 
@@ -308,7 +326,8 @@ def to_aifdb_json(argument_map: ArgumentMap) -> dict[str, Any]:
         row.update(n.metadata)
         nodes.append(row)
     edges = [
-        {"edgeID": e.edge_id, "fromID": e.from_id, "toID": e.to_id} for e in argument_map.edges
+        {"edgeID": e.edge_id, "fromID": e.from_id, "toID": e.to_id}
+        for e in argument_map.edges
     ]
     return {"map_id": argument_map.map_id, "nodes": nodes, "edges": edges}
 
@@ -418,7 +437,9 @@ def _qualified(map_id: str, local_id: str) -> str:
     return f"aif:{map_id}:{local_id}"
 
 
-def import_argument_map(argument_map: ArgumentMap, *, engine: Any = None) -> dict[str, Any]:
+def import_argument_map(
+    argument_map: ArgumentMap, *, engine: Any = None
+) -> dict[str, Any]:
     """Write an AIF argument map into the KG via the shared ChangeEnvelope/
     ingest path (CONCEPT:AU-KG.ingest.change-envelope) — the SAME
     ``ingest_graph_slice`` primitive every native connector uses
@@ -441,7 +462,11 @@ def import_argument_map(argument_map: ArgumentMap, *, engine: Any = None) -> dic
     """
     violations = validate_argument_map(argument_map)
     if violations:
-        return {"status": "rejected", "map_id": argument_map.map_id, "violations": violations}
+        return {
+            "status": "rejected",
+            "map_id": argument_map.map_id,
+            "violations": violations,
+        }
 
     from ..ingestion.envelope_ingest import ingest_graph_slice
     from ..memory.native_ingest import native_authority

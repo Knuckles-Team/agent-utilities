@@ -251,7 +251,11 @@ class KubernetesActuator:
 
     def apply(self, request: ActionRequest) -> dict[str, Any]:
         if not self.available:
-            return {"ok": False, "dry_run": False, "detail": "kubectl CLI not available"}
+            return {
+                "ok": False,
+                "dry_run": False,
+                "detail": "kubectl CLI not available",
+            }
         target = request.target
         if not _SAFE_TARGET.match(target or ""):
             return {
@@ -271,9 +275,7 @@ class KubernetesActuator:
             image = str(request.params.get("image") or "")
             container = str(request.params.get("container") or target)
             if image:
-                ok, out = self._run(
-                    "set", "image", deployment, f"{container}={image}"
-                )
+                ok, out = self._run("set", "image", deployment, f"{container}={image}")
             else:
                 ok, out = self._run("rollout", "restart", deployment)
         elif kind == "rollback_service":
@@ -316,7 +318,9 @@ def get_fleet_actuator() -> FleetActuator:
         k8s = KubernetesActuator()
         if k8s.available:
             return k8s
-        logger.warning("FLEET_ACTUATOR=%s but no kubectl CLI — using dry-run", selection)
+        logger.warning(
+            "FLEET_ACTUATOR=%s but no kubectl CLI — using dry-run", selection
+        )
     return DryRunActuator()
 
 

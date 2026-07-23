@@ -37,10 +37,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from agent_utilities.knowledge_graph.retrieval.capability_index import (
-    compute_eligibility,
-)
-
 logger = logging.getLogger(__name__)
 
 

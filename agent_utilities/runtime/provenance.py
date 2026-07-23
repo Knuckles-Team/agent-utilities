@@ -106,7 +106,9 @@ def _observation_counts(observation: Any) -> dict[str, int | bool]:
         counts["applied"] = bool(getattr(observation, "applied", False))
     if kind == "screen":
         elements = getattr(observation, "elements", None)
-        counts["element_count"] = min(len(elements), 100_000) if isinstance(elements, list) else 0
+        counts["element_count"] = (
+            min(len(elements), 100_000) if isinstance(elements, list) else 0
+        )
     return counts
 
 

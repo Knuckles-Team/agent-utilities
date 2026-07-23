@@ -87,7 +87,9 @@ def _session_graph_and_tenant(tenant: str) -> tuple[str, str]:
 
 def _properties(
     message: dict[str, Any], *, tenant: str, recipient: str, now: float
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], BusInboxCommit]:
+) -> tuple[
+    dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any], BusInboxCommit
+]:
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
 
@@ -103,7 +105,9 @@ def _properties(
     outbox_id = f"mutationoutbox:bus:{digest}"
 
     privacy = PersistencePrivacyGuard()
-    clean_payload, payload_report = privacy.sanitize_text(str(message.get("payload") or ""))
+    clean_payload, payload_report = privacy.sanitize_text(
+        str(message.get("payload") or "")
+    )
     raw_meta = message.get("meta") or {}
     if isinstance(raw_meta, str):
         try:
@@ -205,11 +209,17 @@ def _properties(
         "attempt": 0,
         "created_at": now,
     }
-    return inbox, work, outcome, outbox, BusInboxCommit(
-        inbox_id=inbox_id,
-        work_item_id=work_item_id,
-        outcome_id=outcome_id,
-        outbox_id=outbox_id,
+    return (
+        inbox,
+        work,
+        outcome,
+        outbox,
+        BusInboxCommit(
+            inbox_id=inbox_id,
+            work_item_id=work_item_id,
+            outcome_id=outcome_id,
+            outbox_id=outbox_id,
+        ),
     )
 
 
@@ -220,8 +230,7 @@ def _already_committed(engine: Any, work_item_id: str) -> bool:
         return get_work_item(engine, work_item_id) is not None
     except Exception as exc:
         raise RuntimeError(
-            "bus inbox idempotency read failed "
-            f"(error_type={type(exc).__name__})"
+            f"bus inbox idempotency read failed (error_type={type(exc).__name__})"
         ) from None
 
 
@@ -289,8 +298,7 @@ def _outbox_status(engine: Any, outbox_id: str) -> str:
         return str(rows[0].get("status") or "") if rows else ""
     except Exception as exc:
         raise RuntimeError(
-            "bus outbox authority read failed "
-            f"(error_type={type(exc).__name__})"
+            f"bus outbox authority read failed (error_type={type(exc).__name__})"
         ) from None
 
 
@@ -298,7 +306,9 @@ def _outbox_exists(engine: Any, outbox_id: str) -> bool:
     return bool(_outbox_status(engine, outbox_id))
 
 
-def _commit_native_node(engine: Any, graph: str, node_id: str, props: dict[str, Any]) -> None:
+def _commit_native_node(
+    engine: Any, graph: str, node_id: str, props: dict[str, Any]
+) -> None:
     client = _native_client(engine)
     if client is None:
         raise RuntimeError("bus outbox requires the engine-native transaction surface")
@@ -383,7 +393,9 @@ def commit_message_to_work_item(
 
     client = _native_client(engine)
     if client is None:
-        raise RuntimeError("bus delivery requires the engine-native transaction surface")
+        raise RuntimeError(
+            "bus delivery requires the engine-native transaction surface"
+        )
     txn = client.txn.begin(graph=graph)
     client.txn.add_node(txn, result.inbox_id, inbox)
     client.txn.add_node(txn, result.work_item_id, work)

@@ -140,9 +140,7 @@ class EventLedger:
                 edge_type="OCCURRED_DURING",
             )
         except Exception as e:
-            logger.debug(
-                "Failed to link occurred_during edge (%s)", type(e).__name__
-            )
+            logger.debug("Failed to link occurred_during edge (%s)", type(e).__name__)
 
         # 3. Establish temporal lineage using 'was_derived_from'
         prev_id = self._last_event_ids.get(run_id)

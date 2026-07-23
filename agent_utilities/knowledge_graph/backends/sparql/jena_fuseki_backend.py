@@ -245,9 +245,7 @@ class JenaFusekiBackend(SparqlAdapter):
                     resp.status_code,
                 )
         except Exception as exc:
-            logger.warning(
-                "Could not create Fuseki dataset (%s)", type(exc).__name__
-            )
+            logger.warning("Could not create Fuseki dataset (%s)", type(exc).__name__)
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Store embedding vector (client-side; Fuseki has no native vector index)."""

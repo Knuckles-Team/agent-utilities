@@ -45,7 +45,9 @@ def _dashboard_capabilities(request: Request) -> set[str] | None:
             )
         )
     except Exception:
-        raise HTTPException(status_code=403, detail="dashboard capability required") from None
+        raise HTTPException(
+            status_code=403, detail="dashboard capability required"
+        ) from None
 
 
 async def _require_dashboard_read(request: Request) -> None:
@@ -63,7 +65,9 @@ def _require_dashboard_write(request: Request) -> None:
     if capabilities is not None and not capabilities.intersection(
         {"gateway:write", "gateway:admin", "admin"}
     ):
-        raise HTTPException(status_code=403, detail="dashboard write capability required")
+        raise HTTPException(
+            status_code=403, detail="dashboard write capability required"
+        )
 
 
 dashboard_router = APIRouter(

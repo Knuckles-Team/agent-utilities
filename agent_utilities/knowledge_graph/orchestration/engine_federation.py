@@ -89,9 +89,7 @@ class FederationMixin:
         """Return reference-only ontology declarations keyed by pseudonymous ID."""
         if not hasattr(self, "_external_ontologies"):
             return {}
-        return {
-            key: dict(value) for key, value in self._external_ontologies.items()
-        }
+        return {key: dict(value) for key, value in self._external_ontologies.items()}
 
     def ingest_external_entity_stub(
         self,

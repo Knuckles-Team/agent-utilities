@@ -98,9 +98,7 @@ async def _run_metric_isolated(source: str, trace: dict[str, Any]) -> float:
     code = f"{source}\nFINAL_VAR('__metric_score__', metric(trace))"
     router = SandboxRouter(default_sandboxes())
     chain = router.select(code)
-    env = SandboxEnv(
-        vars={"trace": trace}, helpers={"FINAL_VAR": final_var}
-    )
+    env = SandboxEnv(vars={"trace": trace}, helpers={"FINAL_VAR": final_var})
     last_rejection = False
     for backend in chain:
         try:
@@ -195,9 +193,7 @@ class OnlineScoringSampler:
         try:
             self.score_trace(trace_id)
         except Exception as exc:  # pragma: no cover - scoring must never crash the host
-            logger.debug(
-                "online score_trace failed (%s)", type(exc).__name__
-            )
+            logger.debug("online score_trace failed (%s)", type(exc).__name__)
 
     def score_trace(self, trace_id: str) -> list[Any]:
         """Score one trace: automation rules + matching regression assertions.
@@ -305,9 +301,7 @@ class OnlineScoringSampler:
                         metadata=clean_feedback["metadata"],
                     )
                 except Exception as exc:  # pragma: no cover
-                    logger.debug(
-                        "add_case feedback failed (%s)", type(exc).__name__
-                    )
+                    logger.debug("add_case feedback failed (%s)", type(exc).__name__)
         return written
 
     def _run_metric(self, metric: Metric, entry: dict[str, Any]) -> tuple[float, str]:
@@ -366,9 +360,7 @@ class OnlineScoringSampler:
             if callable(link):
                 link(trace_id, node.id, RegistryEdgeType.SCORED_BY)
         except Exception as exc:  # pragma: no cover - best-effort
-            logger.debug(
-                "online-score persist failed (%s)", type(exc).__name__
-            )
+            logger.debug("online-score persist failed (%s)", type(exc).__name__)
 
 
 __all__ = ["AutomationRule", "Metric", "OnlineScoringSampler"]

@@ -683,10 +683,7 @@ class RuleIngestor:
                     if not edge_data:
                         continue
                     for _, edata in edge_data.items():
-                        if (
-                            edata.get("relationship")
-                            == RegistryEdgeType.CONFLICTS_WITH
-                        ):
+                        if edata.get("relationship") == RegistryEdgeType.CONFLICTS_WITH:
                             # Find the conflicting rule in our result set
                             conflicting = next(
                                 (r for r in rules if r["id"] == neighbor),

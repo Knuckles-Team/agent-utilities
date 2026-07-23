@@ -583,9 +583,7 @@ class FailureAnalyzer:
                     graph_writer=self.graph_writer,
                 )
             except Exception as exc:  # noqa: BLE001
-                logger.debug(
-                    "ExecutionSummary persist failed (%s)", type(exc).__name__
-                )
+                logger.debug("ExecutionSummary persist failed (%s)", type(exc).__name__)
 
         return {
             "gap_concepts": gap_concepts,
@@ -633,9 +631,7 @@ class FailureAnalyzer:
         down, so the mistake is caught automatically thereafter.
         """
         safe_gaps = [_safe_gap(gap) for gap in gaps]
-        baselines = {
-            g["workflow"]: int(g.get("occurrences", 0)) for g in safe_gaps
-        }
+        baselines = {g["workflow"]: int(g.get("occurrences", 0)) for g in safe_gaps}
 
         def _check(_spec: Any) -> bool:
             self._record_feedback(safe_gaps)
@@ -764,9 +760,7 @@ class FailureAnalyzer:
             try:
                 self.feedback.record_correction(
                     "eval",
-                    target_id=_persistence_ref(
-                        "failure_signature", g.get("signature")
-                    ),
+                    target_id=_persistence_ref("failure_signature", g.get("signature")),
                     corrected_value="categorized_failure_does_not_recur",
                     reason="failure_gap_regression_case",
                 )

@@ -256,10 +256,7 @@ class AGEBackend(PostgreSQLBackend):
         # SQL literal; the graph name is a strict PostgreSQL/AGE identifier.
         graph_name = _require_age_graph_name(self._graph_name)
         quoted_cypher = _dollar_quote_cypher(inlined)
-        sql = (
-            f"SELECT * FROM cypher('{graph_name}', {quoted_cypher}) "
-            f"AS ({col_def})"
-        )
+        sql = f"SELECT * FROM cypher('{graph_name}', {quoted_cypher}) AS ({col_def})"
 
         def _run() -> tuple[list[Any], list[str]]:
             # CONCEPT:AU-KG.backend.authority-write-tail — the live authority-write path. Drive the raw-SQL
@@ -316,9 +313,7 @@ class AGEBackend(PostgreSQLBackend):
                     (graph_name,),
                 )
                 if cur.fetchone() is None:
-                    cur.execute(
-                        "SELECT ag_catalog.create_graph(%s)", (graph_name,)
-                    )
+                    cur.execute("SELECT ag_catalog.create_graph(%s)", (graph_name,))
                 # Embedding dim from the unified XDG config (kg_embedding_dim).
                 from agent_utilities.core.config import config
 

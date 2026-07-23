@@ -18,7 +18,11 @@ class SandboxExecutor:
 
     def _validate_invariants(self, code: str) -> bool:
         """Reject structurally dangerous constructs without claiming isolation."""
-        if not isinstance(code, str) or not code.strip() or len(code.encode("utf-8")) > 65_536:
+        if (
+            not isinstance(code, str)
+            or not code.strip()
+            or len(code.encode("utf-8")) > 65_536
+        ):
             return False
         try:
             tree = ast.parse(code, mode="exec")

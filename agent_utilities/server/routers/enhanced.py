@@ -31,7 +31,9 @@ def _enhanced_capabilities(request: Request) -> set[str] | None:
             )
         )
     except Exception:
-        raise HTTPException(status_code=403, detail="enhanced API capability required") from None
+        raise HTTPException(
+            status_code=403, detail="enhanced API capability required"
+        ) from None
 
 
 async def _require_enhanced_read(request: Request) -> None:
@@ -47,15 +49,20 @@ def _require_enhanced_write(request: Request) -> None:
     if capabilities is not None and not capabilities.intersection(
         {"enhanced:write", "kg:write", "kg:admin", "admin"}
     ):
-        raise HTTPException(status_code=403, detail="enhanced API write capability required")
+        raise HTTPException(
+            status_code=403, detail="enhanced API write capability required"
+        )
 
 
 def _request_owner(request: Request) -> str:
     claims: dict[str, Any] = getattr(request.state, "user_claims", None) or {}
-    identity = "\x00".join(
-        str(claims.get(key) or "")[:1024]
-        for key in ("tenant_id", "tenant", "sub", "client_id", "auth_type")
-    ) or "local"
+    identity = (
+        "\x00".join(
+            str(claims.get(key) or "")[:1024]
+            for key in ("tenant_id", "tenant", "sub", "client_id", "auth_type")
+        )
+        or "local"
+    )
     from agent_utilities.security.persistence_privacy import persistence_reference
 
     return persistence_reference("extract_owner", identity, namespace="enhanced-api")
@@ -137,12 +144,15 @@ async def list_kb():
             "knowledge_bases": [],
         }
     try:
-        rows = engine.query_cypher(
-            "MATCH (kb:KnowledgeBase) "
-            "RETURN kb.id AS id, kb.name AS name, kb.topic AS topic, "
-            "kb.description AS description, kb.article_count AS article_count, "
-            "kb.status AS status"
-        ) or []
+        rows = (
+            engine.query_cypher(
+                "MATCH (kb:KnowledgeBase) "
+                "RETURN kb.id AS id, kb.name AS name, kb.topic AS topic, "
+                "kb.description AS description, kb.article_count AS article_count, "
+                "kb.status AS status"
+            )
+            or []
+        )
     except Exception as exc:  # noqa: BLE001
         return {
             **public_error_payload(exc, logger=logger),
@@ -374,7 +384,9 @@ async def extract_submit(request: Request):
         rounds = int(body.get("rounds", 1))
         threshold = float(body.get("dedup_threshold", 0.90))
     except (TypeError, ValueError):
-        raise HTTPException(status_code=422, detail="invalid extraction options") from None
+        raise HTTPException(
+            status_code=422, detail="invalid extraction options"
+        ) from None
     if not math.isfinite(threshold):
         raise HTTPException(status_code=422, detail="invalid extraction options")
     try:
@@ -438,9 +450,7 @@ async def extract_status(job_id: str, request: Request):
     mgr = _extraction_manager()
     if mgr is None:
         return {"status": "unavailable"}
-    status = mgr.status(
-        _validated_job_id(job_id), owner_ref=_request_owner(request)
-    )
+    status = mgr.status(_validated_job_id(job_id), owner_ref=_request_owner(request))
     if status is None:
         raise HTTPException(status_code=404, detail="extraction job not found")
     return status
@@ -459,7 +469,9 @@ async def extract_jsonl(job_id: str, request: Request):
             _validated_job_id(job_id), owner_ref=_request_owner(request)
         )
     except KeyError:
-        raise HTTPException(status_code=404, detail="extraction job not found") from None
+        raise HTTPException(
+            status_code=404, detail="extraction job not found"
+        ) from None
     return PlainTextResponse(
         payload + "\n",
         media_type="application/x-ndjson",
@@ -474,11 +486,11 @@ async def extract_pause(job_id: str, request: Request):
     if mgr is None:
         return {"status": "unavailable"}
     try:
-        await mgr.pause(
-            _validated_job_id(job_id), owner_ref=_request_owner(request)
-        )
+        await mgr.pause(_validated_job_id(job_id), owner_ref=_request_owner(request))
     except KeyError:
-        raise HTTPException(status_code=404, detail="extraction job not found") from None
+        raise HTTPException(
+            status_code=404, detail="extraction job not found"
+        ) from None
     return {"status": "paused", "job_id": job_id}
 
 
@@ -489,11 +501,11 @@ async def extract_resume(job_id: str, request: Request):
     if mgr is None:
         return {"status": "unavailable"}
     try:
-        await mgr.resume(
-            _validated_job_id(job_id), owner_ref=_request_owner(request)
-        )
+        await mgr.resume(_validated_job_id(job_id), owner_ref=_request_owner(request))
     except KeyError:
-        raise HTTPException(status_code=404, detail="extraction job not found") from None
+        raise HTTPException(
+            status_code=404, detail="extraction job not found"
+        ) from None
     return {"status": "resumed", "job_id": job_id}
 
 

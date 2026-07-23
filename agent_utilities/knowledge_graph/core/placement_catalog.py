@@ -198,7 +198,9 @@ def _validate_answer(answer: Any, tenant: str, sub_key: str) -> PlacementRoute:
     try:
         route = PlacementRoute.model_validate(answer)
     except (TypeError, ValueError) as exc:
-        raise PlacementAuthorityError("engine returned an invalid placement route") from exc
+        raise PlacementAuthorityError(
+            "engine returned an invalid placement route"
+        ) from exc
     if route.authoritative is not True:
         raise PlacementAuthorityError("engine returned a non-authoritative route")
     if route.tenant_ref != tenant or route.partition_ref != sub_key:
@@ -230,7 +232,9 @@ def _request_authority(config: Any) -> tuple[str, dict[str, Any]]:
 
     session = current_session()
     if session is None or not getattr(session.actor, "authenticated", False):
-        raise PlacementAuthorityError("placement lookup requires an authenticated session")
+        raise PlacementAuthorityError(
+            "placement lookup requires an authenticated session"
+        )
     from .graph_compute import resolve_engine_auth
 
     return resolve_engine_auth(config), session.engine_verified_context()

@@ -319,9 +319,7 @@ class HarnessComponentRegistry:
                 logger.error("Registered-component rollback failed")
                 return False
         except Exception as e:
-            logger.error(
-                "Registered-component rollback failed (%s)", type(e).__name__
-            )
+            logger.error("Registered-component rollback failed (%s)", type(e).__name__)
             return False
 
     def get_current_manifest(self) -> ChangeManifest:

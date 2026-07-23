@@ -126,11 +126,19 @@ def lint_interfaces(registry: InterfaceRegistry) -> list[StyleIssue]:
                 )
             )
         issues.extend(
-            _typo_issues(" ".join(_split_words(iface.name)), interface=iface.name, label=iface.name)
+            _typo_issues(
+                " ".join(_split_words(iface.name)),
+                interface=iface.name,
+                label=iface.name,
+            )
         )
         if iface.description:
             issues.extend(
-                _typo_issues(iface.description, interface=iface.name, label=f"{iface.name}.description")
+                _typo_issues(
+                    iface.description,
+                    interface=iface.name,
+                    label=f"{iface.name}.description",
+                )
             )
 
         for prop in iface.properties:
@@ -145,10 +153,16 @@ def lint_interfaces(registry: InterfaceRegistry) -> list[StyleIssue]:
                     )
                 )
             issues.extend(
-                _typo_issues(" ".join(_split_words(prop.name)), interface=iface.name, label=label)
+                _typo_issues(
+                    " ".join(_split_words(prop.name)), interface=iface.name, label=label
+                )
             )
             if prop.description:
                 issues.extend(
-                    _typo_issues(prop.description, interface=iface.name, label=f"{label}.description")
+                    _typo_issues(
+                        prop.description,
+                        interface=iface.name,
+                        label=f"{label}.description",
+                    )
                 )
     return issues

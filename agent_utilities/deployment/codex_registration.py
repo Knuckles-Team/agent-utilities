@@ -118,7 +118,9 @@ def register_codex_graphos(
             runner=invoke,
         )
         if removed.returncode != 0:
-            raise CodexRegistrationError("Codex MCP registration could not be replaced.")
+            raise CodexRegistrationError(
+                "Codex MCP registration could not be replaced."
+            )
         status = "replaced"
     else:
         status = "registered"

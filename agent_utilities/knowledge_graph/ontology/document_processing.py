@@ -1060,9 +1060,7 @@ class DocumentProcessor:
         batched = _BatchedBackend(writer)
         if batched.bulk_available:
             for node in (document_node, *chunk_nodes):
-                props = {
-                    k: v for k, v in node.items() if k not in ("id", "node_type")
-                }
+                props = {k: v for k, v in node.items() if k not in ("id", "node_type")}
                 batched.add_node(node["id"], label=node["node_type"], **props)
             for e in edges:
                 props = {
@@ -1143,9 +1141,7 @@ class DocumentProcessor:
     @staticmethod
     def _write_node(writer: Any, node: dict[str, Any]) -> bool:
         try:
-            props = {
-                k: v for k, v in node.items() if k not in ("id", "node_type")
-            }
+            props = {k: v for k, v in node.items() if k not in ("id", "node_type")}
             writer.add_node(node["id"], label=node["node_type"], **props)
             return True
         except Exception as exc:  # noqa: BLE001

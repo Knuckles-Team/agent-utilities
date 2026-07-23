@@ -213,14 +213,11 @@ def setting_autostart(config: Any) -> bool:
     # Never autostart inside the unit suite — it pins the in-memory backend and
     # must not spawn a real engine process. Resolver tests explicitly remove
     # this harness-only flag when exercising the packaged lifecycle.
-    if (
-        setting("AGENT_UTILITIES_TESTING", "false").strip().lower()
-        in {
-            "1",
-            "true",
-            "yes",
-        }
-    ):
+    if setting("AGENT_UTILITIES_TESTING", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
         return False
     return True
 

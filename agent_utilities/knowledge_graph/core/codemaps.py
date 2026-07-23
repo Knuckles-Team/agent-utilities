@@ -26,7 +26,11 @@ def _safe_file_reference(value: object, *, namespace: str) -> str:
     """Keep repository-relative paths readable and replace host paths opaquely."""
     raw = str(value or "").replace("\\", "/")
     path = PurePosixPath(raw)
-    if path.is_absolute() or PureWindowsPath(str(value or "")).is_absolute() or ".." in path.parts:
+    if (
+        path.is_absolute()
+        or PureWindowsPath(str(value or "")).is_absolute()
+        or ".." in path.parts
+    ):
         return persistence_reference("codemap_file", raw, namespace=namespace)
     clean, _ = PersistencePrivacyGuard().sanitize_text(raw)
     return clean
@@ -77,7 +81,9 @@ def _sanitize_hierarchy(
             update={
                 "title": guard.sanitize_text(trace.title)[0],
                 "explanation": explanation,
-                "key_insights": [guard.sanitize_text(item)[0] for item in trace.key_insights],
+                "key_insights": [
+                    guard.sanitize_text(item)[0] for item in trace.key_insights
+                ],
                 "related_nodes": [
                     node_refs.setdefault(
                         node_id,
@@ -120,7 +126,9 @@ class CodemapGenerator:
     ) -> CodemapArtifact:
         """Generate a task-specific codemap."""
 
-        prompt_ref = persistence_reference("codemap_prompt", prompt, namespace="codemap")
+        prompt_ref = persistence_reference(
+            "codemap_prompt", prompt, namespace="codemap"
+        )
         workspace = getattr(self.kg, "repo_root", None)
         workspace_ref = (
             persistence_reference("codemap_workspace", workspace, namespace="codemap")
@@ -232,7 +240,9 @@ class CodemapGenerator:
         subgraph = await self.kg.extract_focused_subgraph(
             query=prompt, max_nodes=max_nodes
         )
-        prompt_ref = persistence_reference("codemap_prompt", prompt, namespace="codemap")
+        prompt_ref = persistence_reference(
+            "codemap_prompt", prompt, namespace="codemap"
+        )
         node_refs: dict[str, str] = {}
         nodes = [
             _sanitize_node(

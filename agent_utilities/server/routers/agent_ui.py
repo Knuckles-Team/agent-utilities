@@ -45,11 +45,15 @@ async def _require_agent_invoke(request: Request) -> None:
             )
         )
     except Exception:
-        raise HTTPException(status_code=403, detail="agent invocation capability required") from None
+        raise HTTPException(
+            status_code=403, detail="agent invocation capability required"
+        ) from None
     if not capabilities.intersection(
         {"agent:invoke", "model:invoke", "agent:admin", "admin"}
     ):
-        raise HTTPException(status_code=403, detail="agent invocation capability required")
+        raise HTTPException(
+            status_code=403, detail="agent invocation capability required"
+        )
 
 
 router = APIRouter(tags=["Agent UI"], dependencies=[Depends(_require_agent_invoke)])

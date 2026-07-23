@@ -143,7 +143,9 @@ class GraphCheckpointStore:
                         user_held=bool(n.get("user_held", False)),
                         params=params,
                         checkpoint=json.loads(n.get("checkpoint_json", "{}")),
-                        error=("payload unavailable after restart" if interrupted else ""),
+                        error=(
+                            "payload unavailable after restart" if interrupted else ""
+                        ),
                     )
                 )
             except Exception:  # noqa: BLE001 - skip a corrupt row, don't fail boot
@@ -304,7 +306,10 @@ class ExtractionJobManager:
             files = clean_files
             text = ""
         else:
-            if not isinstance(text, str) or len(text.encode("utf-8")) > _MAX_DOCUMENT_BYTES:
+            if (
+                not isinstance(text, str)
+                or len(text.encode("utf-8")) > _MAX_DOCUMENT_BYTES
+            ):
                 raise ValueError("extraction document exceeds its size boundary")
             text = guard.sanitize_text(text)[0]
 

@@ -544,9 +544,7 @@ def _safe_resume_token(
         not rendered
         or rendered != rendered.strip()
         or len(rendered.encode("utf-8")) > 4_096
-        or any(
-            ord(character) < 32 or ord(character) == 127 for character in rendered
-        )
+        or any(ord(character) < 32 or ord(character) == 127 for character in rendered)
     ):
         raise ExternalGraphIngestionError(f"External graph {label} is invalid")
     clean, report = privacy.sanitize_text(rendered)

@@ -301,7 +301,9 @@ class KGMapper:
             try:
                 self.engine.backend.execute(query, params)
             except Exception as exc:
-                logger.warning("OGM edge upsert failed: error_type=%s", type(exc).__name__)
+                logger.warning(
+                    "OGM edge upsert failed: error_type=%s", type(exc).__name__
+                )
 
         logger.debug("OGM edge upsert completed for type=%s", edge_type)
 
@@ -354,7 +356,11 @@ class KGMapper:
             List of hydrated Pydantic model instances.
         """
         label = resolve_label(model_cls.model_fields["type"].default)
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 10_000
+        ):
             raise ValueError("limit must be an integer between 1 and 10000")
         if where and not _SAFE_WHERE.fullmatch(where.strip()):
             raise ValueError(

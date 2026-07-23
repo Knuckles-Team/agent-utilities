@@ -115,7 +115,5 @@ class KvCacheConfig(BaseModel):
             timeout_s=setting("EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S", 2.0),
             max_connections=setting("EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS", 32),
             tls_profile=setting("EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE", None),
-            tls_profile_ref=setting(
-                "EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF", None
-            ),
+            tls_profile_ref=setting("EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF", None),
         )

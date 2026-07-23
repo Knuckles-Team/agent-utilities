@@ -269,7 +269,9 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
             allow_legacy_fragment_variables=False,
         )
     except (GraphQLError, RecursionError, TypeError, ValueError):
-        raise GraphQLDocumentError("GraphQL operation is not a valid document") from None
+        raise GraphQLDocumentError(
+            "GraphQL operation is not a valid document"
+        ) from None
 
     operations = [
         definition
@@ -279,9 +281,7 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     if len(operations) != 1 or operations[0].operation is not OperationType.QUERY:
         raise GraphQLDocumentError("GraphQL operation must be a read query")
     if any(
-        not isinstance(
-            definition, (OperationDefinitionNode, FragmentDefinitionNode)
-        )
+        not isinstance(definition, (OperationDefinitionNode, FragmentDefinitionNode))
         for definition in document.definitions
     ):
         raise GraphQLDocumentError("GraphQL operation contains unsupported definitions")
@@ -289,7 +289,9 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     selections = [
         selection
         for definition in document.definitions
-        for selection in (definition.selection_set.selections if definition.selection_set else ())
+        for selection in (
+            definition.selection_set.selections if definition.selection_set else ()
+        )
     ]
     while selections:
         selection = selections.pop()
@@ -715,21 +717,13 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                     for key, value in mapping.items()
                     if key.endswith("_path") and value not in (None, "")
                 ):
-                    raise GraphQLDocumentError(
-                        "GraphQL entity field path is invalid"
-                    )
+                    raise GraphQLDocumentError("GraphQL entity field path is invalid")
                 allowlist = mapping.get("property_allowlist")
-                if (
-                    not isinstance(allowlist, list)
-                    or len(allowlist) > 256
-                ):
+                if not isinstance(allowlist, list) or len(allowlist) > 256:
                     raise GraphQLDocumentError(
                         "GraphQL entity property allowlist is required"
                     )
-                if any(
-                    not _valid_field_path(field)
-                    for field in allowlist
-                ):
+                if any(not _valid_field_path(field) for field in allowlist):
                     raise GraphQLDocumentError(
                         "GraphQL entity property allowlist is invalid"
                     )
@@ -791,9 +785,12 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
         if isinstance(configured, str):
             profile_name = configured
         elif isinstance(configured, Mapping):
-            profile_name = str(
-                configured.get("profile_name") or configured.get("profile") or ""
-            ).strip() or None
+            profile_name = (
+                str(
+                    configured.get("profile_name") or configured.get("profile") or ""
+                ).strip()
+                or None
+            )
             profile_ref = str(configured.get("profile_ref") or "").strip() or None
             settings = configured.get("settings")
             if isinstance(settings, Mapping):
@@ -801,15 +798,9 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
             elif not profile_name and not profile_ref:
                 inline = configured
         elif configured is not None:
-            raise GraphQLDocumentError(
-                "GraphQL transport security profile is invalid"
-            )
-        profile_name = (
-            str(profile.get("tls_profile") or "").strip() or profile_name
-        )
-        profile_ref = (
-            str(profile.get("tls_profile_ref") or "").strip() or profile_ref
-        )
+            raise GraphQLDocumentError("GraphQL transport security profile is invalid")
+        profile_name = str(profile.get("tls_profile") or "").strip() or profile_name
+        profile_ref = str(profile.get("tls_profile_ref") or "").strip() or profile_ref
         try:
             self._resolved_tls = resolve_configured_tls_profile(
                 "GRAPHQL_DOCUMENT",
@@ -1644,8 +1635,7 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 baseline != versions,
                 prior_state.get("profile_digest") != profile_digest,
                 prior_state.get("governance") != governance_state,
-                prior_state.get("snapshot_authoritative")
-                != snapshot_authoritative,
+                prior_state.get("snapshot_authoritative") != snapshot_authoritative,
                 prior_state.get("allow_empty_snapshot") != allow_empty_snapshot,
             )
         )
