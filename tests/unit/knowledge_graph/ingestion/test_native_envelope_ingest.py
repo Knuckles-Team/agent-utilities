@@ -39,15 +39,23 @@ class _Changes:
         self.versions: dict[str, dict[str, object]] = {}
         self.cursors: dict[tuple[str, str], dict[str, object]] = {}
         self.applied: list[dict[str, object]] = []
+        self.batch_calls: list[list[dict[str, object]]] = []
         self.failures: list[Exception] = []
+        # Test knobs for the batch path: force a per-envelope status by index.
+        self.batch_conflict_index: int | None = None
+        self.batch_replayed_indices: set[int] = set()
+        self.cursor_reads = 0
+        self.content_version_reads = 0
 
     def get(self, envelope_id: str):
         return self.records.get(envelope_id)
 
     def content_version(self, object_id: str):
+        self.content_version_reads += 1
         return self.versions.get(object_id)
 
     def cursor(self, source: str, partition: str = ""):
+        self.cursor_reads += 1
         return self.cursors.get((source, partition))
 
     def apply(self, envelope: dict[str, object]):
@@ -80,6 +88,60 @@ class _Changes:
             "outbox_count": len(mutation["operations"]) + 2,
         }
 
+    def _project(self, envelope: dict[str, object]) -> None:
+        mutation = envelope["mutation"]
+        assert isinstance(mutation, dict)
+        for operation in mutation["operations"]:
+            method = operation["method"]
+            if method["method"] != "AddNode":
+                continue
+            params = method["params"]
+            self.nodes.values[params["node_id"]] = msgpack.unpackb(
+                params["properties_msgpack"], raw=False
+            )
+        version = envelope["content_version"]
+        assert isinstance(version, dict)
+        self.versions[str(version["object_id"])] = version
+        cursor = envelope.get("cursor")
+        if isinstance(cursor, dict):
+            self.cursors[(str(cursor["source"]), str(cursor["partition"]))] = cursor
+        self.records[str(envelope["envelope_id"])] = envelope
+
+    def apply_batch(self, envelopes: list[dict[str, object]]):
+        # ONE recorded batch round-trip for the whole page.
+        self.batch_calls.append(list(envelopes))
+        results: list[dict[str, object]] = []
+        for index, envelope in enumerate(envelopes):
+            mutation = envelope["mutation"]
+            assert isinstance(mutation, dict)
+            envelope_id = str(envelope["envelope_id"])
+            if (
+                self.batch_conflict_index is not None
+                and index == self.batch_conflict_index
+            ):
+                results.append(
+                    {
+                        "status": "conflict",
+                        "envelope_id": envelope_id,
+                        "error": "STALE_CONTENT_VERSION: injected",
+                    }
+                )
+                continue
+            replayed = index in self.batch_replayed_indices
+            if not replayed:
+                self._project(envelope)
+            results.append(
+                {
+                    "status": "idempotent_skip" if replayed else "applied",
+                    "envelope_id": envelope_id,
+                    "batch_id": mutation["batch_id"],
+                    "replayed": replayed,
+                    "projection_pending": False,
+                    "outbox_count": len(mutation["operations"]) + 2,
+                }
+            )
+        return results
+
 
 class _Rdf:
     def __init__(self) -> None:
@@ -94,13 +156,16 @@ class _Rdf:
 
 
 class _Client:
-    def __init__(self, *, supported: bool = True) -> None:
+    def __init__(self, *, supported: bool = True, batch_supported: bool = True) -> None:
         self.nodes = _Nodes()
         self.changes = _Changes(self.nodes)
         self.rdf = _Rdf()
         self.supported = supported
+        self.batch_supported = batch_supported
 
     def supports(self, operation: str) -> bool:
+        if operation == "ApplyChangeEnvelopes":
+            return self.supported and self.batch_supported
         return self.supported and operation in {
             "ApplyChangeEnvelope",
             "GetChangeCursor",
@@ -108,11 +173,13 @@ class _Client:
 
 
 class _Compute:
-    def __init__(self, graph: str, *, supported: bool = True) -> None:
+    def __init__(
+        self, graph: str, *, supported: bool = True, batch_supported: bool = True
+    ) -> None:
         self.graph_name = graph
         self.catalog_epoch = 3
         self.placement_group = 8
-        self.client = _Client(supported=supported)
+        self.client = _Client(supported=supported, batch_supported=batch_supported)
 
     def for_graph(self, graph: str):
         self.graph_name = graph
@@ -873,3 +940,101 @@ def test_ambient_valid_until_disabled_flag_leaves_tombstone_unstamped(
     assert result["status"] == "success"
     assert compute.client.nodes.values["object-1"]["archived"] is True
     assert "valid_to" not in compute.client.nodes.values["object-1"]
+
+
+# ── Batched envelope ingestion (W1.4) ─────────────────────────────────────────
+
+
+def _batch_envelope(obj: str, checkpoint: str) -> ChangeEnvelope:
+    return _envelope(
+        source_object_id=obj,
+        source_version=checkpoint,
+        checkpoint=checkpoint,
+        typed_payload={"id": obj, "type": "FixtureRecord", "name": f"rec-{obj}"},
+    )
+
+
+def test_ingest_envelopes_commits_page_in_one_batch_round_trip() -> None:
+    compute = _Compute("graph-batch")
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 6)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success"] * 5
+    # O(1) WRITE round-trips per page: ONE apply_batch, ZERO single applies.
+    assert len(compute.client.changes.batch_calls) == 1
+    assert len(compute.client.changes.batch_calls[0]) == 5
+    assert compute.client.changes.applied == []
+    # The page's source cursor is read ONCE (hoisted + chained), not per record.
+    assert compute.client.changes.cursor_reads == 1
+    for i in range(1, 6):
+        assert (
+            compute.client.nodes.values[f"object-{i}"]["tenant_id"] == "fixture-tenant"
+        )
+    # Sequential expected_graph_version per envelope so the shared transaction fences.
+    natives = compute.client.changes.batch_calls[0]
+    assert [n["mutation"]["expected_graph_version"] for n in natives] == [0, 1, 2, 3, 4]
+
+
+def test_ingest_envelopes_chains_cursor_across_the_page() -> None:
+    compute = _Compute("graph-cursor-chain")
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    module.ingest_envelopes(compute, envelopes)
+
+    natives = compute.client.changes.batch_calls[0]
+    # First envelope has no prior cursor; each later envelope chains expected_previous
+    # onto the immediately preceding envelope's committed position.
+    assert "expected_previous" not in natives[0]["cursor"]
+    assert natives[1]["cursor"]["expected_previous"] == natives[0]["cursor"]["position"]
+    assert natives[2]["cursor"]["expected_previous"] == natives[1]["cursor"]["position"]
+
+
+def test_ingest_envelopes_reports_idempotent_replay_as_skipped() -> None:
+    compute = _Compute("graph-replay")
+    compute.client.changes.batch_replayed_indices = {1}
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success", "skipped", "success"]
+    assert results[1]["watermark_advanced"] is False
+    assert results[1]["reason"] == "idempotent replay — envelope already applied"
+
+
+def test_ingest_envelopes_falls_back_to_per_record_when_batch_unsupported() -> None:
+    compute = _Compute("graph-fallback", batch_supported=False)
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success"] * 3
+    # No batch round-trip; the transparent per-record path is used instead.
+    assert compute.client.changes.batch_calls == []
+    assert len(compute.client.changes.applied) == 3
+
+
+def test_ingest_envelopes_matches_per_record_node_outcomes() -> None:
+    batch_compute = _Compute("graph-parity")
+    single_compute = _Compute("graph-parity")
+    batch_envs = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 5)]
+    single_envs = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 5)]
+
+    module.ingest_envelopes(batch_compute, batch_envs)
+    for envelope in single_envs:
+        module.ingest_envelope(single_compute, envelope)
+
+    # Byte-identical node outcomes between the batched and per-record paths.
+    assert batch_compute.client.nodes.values == single_compute.client.nodes.values
+
+
+def test_ingest_envelopes_reports_conflict_and_stops_the_batch_outcome() -> None:
+    compute = _Compute("graph-conflict")
+    compute.client.changes.batch_conflict_index = 2
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 5)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    # The engine per-envelope conflict surfaces as a failed status the caller can act
+    # on; the OCC loop retried the injected content-version conflict to exhaustion.
+    assert results[2]["status"] == "failed"

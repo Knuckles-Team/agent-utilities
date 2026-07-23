@@ -149,6 +149,13 @@ class _NativeAuthority:
 _NATIVE_LOCKS_GUARD = threading.Lock()
 _NATIVE_LOCKS: dict[tuple[str, str], threading.RLock] = {}
 _NATIVE_GRAPH_VERSIONS: dict[tuple[str, str], int] = {}
+
+# Sentinel telling `_native_material` to read the live source cursor itself (the
+# single-envelope path). The batch path reads the page's cursor ONCE and passes the
+# CHAINED position instead, because envelopes in a page apply sequentially inside ONE
+# transaction — a live per-record read would see the page-start cursor and STALE
+# every envelope after the first.
+_CURSOR_READ_LIVE = object()
 _NATIVE_OCC_MAX_ATTEMPTS = 8
 _NATIVE_OCC_BACKOFF_BASE_SECONDS = 0.001
 _NATIVE_OCC_BACKOFF_CAP_SECONDS = 0.01
@@ -1047,8 +1054,15 @@ def _native_material(
     *,
     expected_graph_version: int,
     created_at_ms: int,
+    chained_cursor_position: Any = _CURSOR_READ_LIVE,
 ) -> tuple[dict[str, Any], dict[str, int], list[str], bool]:
-    """Render the complete engine-native wire DTO from one OCC-fenced read."""
+    """Render the complete engine-native wire DTO from one OCC-fenced read.
+
+    ``chained_cursor_position`` is :data:`_CURSOR_READ_LIVE` for the single-envelope
+    path (reads the live source cursor here). The batch path passes the already-read,
+    client-chained current position (or ``None`` for no prior cursor) so it is not
+    re-read per envelope and the intra-batch cursor chain stays correct.
+    """
     client = authority.compute.client
     node_id, node_rows, links, raw_features, raw_evidence = _prepare_node_rows(
         client, envelope
@@ -1094,13 +1108,16 @@ def _native_material(
     if envelope.checkpoint:
         partition = _cursor_partition(envelope.source_instance)
         next_position = _typed_position(envelope.checkpoint, content=False)
-        current_cursor = client.changes.cursor(envelope.connector, partition)
-        current_position = (
-            current_cursor.get("position")
-            if isinstance(current_cursor, dict)
-            and isinstance(current_cursor.get("position"), dict)
-            else None
-        )
+        if chained_cursor_position is _CURSOR_READ_LIVE:
+            current_cursor = client.changes.cursor(envelope.connector, partition)
+            current_position = (
+                current_cursor.get("position")
+                if isinstance(current_cursor, dict)
+                and isinstance(current_cursor.get("position"), dict)
+                else None
+            )
+        else:
+            current_position = chained_cursor_position
         if current_position is None or _position_advances(
             next_position, current_position
         ):
@@ -1433,6 +1450,310 @@ def _apply_native_change_envelope(
         "watermark_advanced": bool(cursor_advanced and not replayed),
         "checkpoint": envelope.checkpoint,
     }
+
+
+def _batch_entry_result(
+    envelope: ChangeEnvelope,
+    engine_result: dict[str, Any],
+    counts: dict[str, int],
+    node_id: str | None,
+    cursor_advanced: bool,
+) -> dict[str, Any]:
+    """Map one engine per-envelope batch result onto the SAME result-dict shape the
+    single :func:`ingest_envelope` produces, so callers treat both paths identically."""
+    status = str(engine_result.get("status"))
+    if status == "applied":
+        replayed = False
+        out_status = "success"
+        reason: str | None = None
+    elif status == "idempotent_skip":
+        replayed = True
+        out_status = "skipped"
+        reason = "idempotent replay — envelope already applied"
+    else:
+        return {
+            "status": "failed",
+            "error": engine_result.get("error") or "change envelope conflict",
+            "native_atomic": True,
+            "envelope_id": envelope.envelope_id,
+            "idempotency_key": envelope.idempotency_key,
+            "connector": envelope.connector,
+            "operation": envelope.operation,
+            "node_id": node_id,
+            "watermark_advanced": False,
+            "checkpoint": envelope.checkpoint,
+        }
+    return {
+        "status": out_status,
+        "reason": reason,
+        "native_atomic": True,
+        "envelope_id": envelope.envelope_id,
+        "idempotency_key": envelope.idempotency_key,
+        "connector": envelope.connector,
+        "operation": envelope.operation,
+        "node_id": node_id,
+        "write_result": {
+            **counts,
+            "receipt": _filtered_receipt(engine_result, envelope),
+        },
+        "watermark_advanced": bool(cursor_advanced and not replayed),
+        "checkpoint": envelope.checkpoint,
+    }
+
+
+def _apply_native_change_envelopes(
+    authority: _NativeAuthority, session: Any, envelopes: list[ChangeEnvelope]
+) -> list[dict[str, Any]]:
+    """Commit a page of envelopes (all one graph) through native ``ApplyChangeEnvelopes``.
+
+    The whole page is ONE round-trip and ONE coalesced engine transaction. Envelopes
+    are given sequential ``expected_graph_version``s and a client-chained source cursor
+    (read once for the page) so the shared transaction's read-your-writes chain is
+    correct. Returns per-envelope result dicts in input order. A whole-batch version
+    conflict re-reads the authoritative version and retries (bounded), mirroring the
+    single-envelope OCC loop.
+    """
+    from ..core.session import use_session
+
+    client = authority.compute.client
+    scope = (str(session.tenant), str(session.graph))
+    with use_session(session), _native_lock(scope):
+        supports = getattr(client, "supports", None)
+        if not callable(supports) or not bool(supports("ApplyChangeEnvelopes")):
+            raise NativeChangeEnvelopeUnavailable(
+                "engine does not advertise ApplyChangeEnvelopes"
+            )
+        conflict_sequence: list[str] = []
+        for attempt in range(_NATIVE_OCC_MAX_ATTEMPTS):
+            expected = _NATIVE_GRAPH_VERSIONS.get(scope, 0)
+            # Read the page's source cursor ONCE, then chain it client-side across the
+            # sequentially-applied envelopes (a live per-record read would STALE the
+            # 2nd+ envelope inside the shared transaction).
+            partition = _cursor_partition(envelopes[0].source_instance)
+            page_cursor = client.changes.cursor(envelopes[0].connector, partition)
+            chained: Any = (
+                page_cursor.get("position")
+                if isinstance(page_cursor, dict)
+                and isinstance(page_cursor.get("position"), dict)
+                else None
+            )
+            natives: list[dict[str, Any]] = []
+            per_counts: list[dict[str, int]] = []
+            per_node: list[str | None] = []
+            per_cursor_advanced: list[bool] = []
+            per_governed: list[list[str]] = []
+            for offset, envelope in enumerate(envelopes):
+                created_at_ms = _observed_at_ms(envelope.observed_time)
+                native, counts, governed_ids, cursor_advanced = _native_material(
+                    authority,
+                    session,
+                    envelope,
+                    expected_graph_version=expected + offset,
+                    created_at_ms=created_at_ms,
+                    chained_cursor_position=chained,
+                )
+                natives.append(native)
+                per_counts.append(counts)
+                per_node.append(_resolve_identity(envelope)[0])
+                per_cursor_advanced.append(cursor_advanced)
+                per_governed.append(governed_ids)
+                if cursor_advanced and envelope.checkpoint:
+                    chained = _typed_position(envelope.checkpoint, content=False)
+
+            engine_results = client.changes.apply_batch(natives)
+            if not isinstance(engine_results, list) or len(engine_results) != len(
+                natives
+            ):
+                raise RuntimeError(
+                    "ApplyChangeEnvelopes returned a malformed result set"
+                )
+
+            # Find the ROOT failure (a non-aborted conflict) to decide whether an OCC
+            # retry can make progress. Sibling entries carry the atomic-batch abort note.
+            root_error: str | None = None
+            for result in engine_results:
+                if str(result.get("status")) == "conflict":
+                    error = str(result.get("error") or "")
+                    if not error.startswith("ABORTED_ATOMIC_GRAPH_BATCH"):
+                        root_error = error
+                        break
+            if root_error is not None:
+                conflict = _NATIVE_OCC_CONFLICT_RE.search(root_error)
+                stale = _STALE_GRAPH_VERSION_RE.search(root_error)
+                if conflict is not None:
+                    conflict_sequence.append(conflict.group(0).upper())
+                    if stale is not None:
+                        _NATIVE_GRAPH_VERSIONS[scope] = int(stale.group(1))
+                    if attempt + 1 < _NATIVE_OCC_MAX_ATTEMPTS:
+                        _native_occ_backoff(attempt)
+                        continue
+                    raise _NativeOccRetryBudgetExhausted(conflict_sequence)
+                if any(
+                    marker in root_error
+                    for marker in (
+                        "requires the authoritative redb backend",
+                        "requires a configured persistence backend",
+                        "Unknown method",
+                        "unknown method",
+                        "CHANGE_BATCH_UNAVAILABLE_UNDER_PLACEMENT",
+                    )
+                ):
+                    raise NativeChangeEnvelopeUnavailable(
+                        "engine lacks authoritative ApplyChangeEnvelopes"
+                    )
+
+            # Advance the tracked graph version by the number of applied (non-replay)
+            # envelopes so a subsequent page fences correctly.
+            applied = sum(
+                1 for result in engine_results if str(result.get("status")) == "applied"
+            )
+            if applied:
+                _NATIVE_GRAPH_VERSIONS[scope] = max(
+                    _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + applied
+                )
+
+            # Refresh the read-policy cache for governed objects that committed, each
+            # under ITS OWN envelope's source ACL/classification (a page may mix them).
+            from ...protocols.source_connectors.permission_sync import sync_access
+
+            for offset, envelope in enumerate(envelopes):
+                if str(engine_results[offset].get("status")) != "applied":
+                    continue
+                try:
+                    for object_id in sorted(set(per_governed[offset])):
+                        sync_access(
+                            object_id,
+                            envelope.source_acl,
+                            classification=envelope.classification,
+                        )
+                except Exception:  # noqa: BLE001 - durable policy stays fail-closed
+                    logger.warning("native policy cache refresh is pending")
+                    break
+
+            return [
+                _batch_entry_result(
+                    envelope,
+                    engine_results[offset],
+                    per_counts[offset],
+                    per_node[offset],
+                    per_cursor_advanced[offset],
+                )
+                for offset, envelope in enumerate(envelopes)
+            ]
+        raise _NativeOccRetryBudgetExhausted(conflict_sequence)
+
+
+def ingest_envelopes(
+    engine: Any, envelopes: list[ChangeEnvelope]
+) -> list[dict[str, Any]]:
+    """Commit a batch of external changes through native ``ApplyChangeEnvelopes``.
+
+    Batches the per-record :func:`ingest_envelope` flow: the whole page becomes ONE
+    engine round-trip and ONE coalesced transaction. Returns one result dict per input
+    envelope, in order, each with the SAME shape/status vocabulary the single path
+    produces (``success`` / ``skipped`` / ``failed`` / ``rejected``). A client-side
+    validation/privacy rejection stops the batch at that envelope (contiguous prefix),
+    preserving the break-on-first-failure watermark guarantee. An engine without the
+    batch method transparently falls back to the per-record path (logged once).
+    """
+    if isinstance(engine, NativeChangeEnvelopeEngineProxy):
+        engine = engine.authority
+    if not envelopes:
+        return []
+
+    results: list[dict[str, Any]] = [{} for _ in envelopes]
+    prepared: list[tuple[int, ChangeEnvelope]] = []
+    stopped_at: int | None = None
+    for index, envelope in enumerate(envelopes):
+        try:
+            gated = _privacy_gate(envelope)
+        except ValueError:
+            logger.warning("native ChangeEnvelope privacy gate rejected identity")
+            results[index] = {
+                "status": "rejected",
+                "reason": "persistence privacy gate rejected an unsafe identity",
+                "watermark_advanced": False,
+            }
+            stopped_at = index
+            break
+        violations = _validate_envelope(gated)
+        if violations:
+            results[index] = {
+                "status": "rejected",
+                "envelope_id": gated.envelope_id,
+                "idempotency_key": gated.idempotency_key,
+                "connector": gated.connector,
+                "operation": gated.operation,
+                "watermark_advanced": False,
+                "violations": violations,
+            }
+            stopped_at = index
+            break
+        prepared.append((index, gated))
+
+    # Envelopes AFTER the first rejection are not attempted — the contiguous-prefix
+    # watermark contract stops there.
+    if stopped_at is not None:
+        for index in range(stopped_at + 1, len(envelopes)):
+            results[index] = {
+                "status": "skipped_not_attempted",
+                "reason": "batch stopped at an earlier envelope",
+                "watermark_advanced": False,
+            }
+
+    if not prepared:
+        return results
+
+    try:
+        authority = _resolve_native_authority(engine)
+        authority, session = _native_session(authority, prepared[0][1])
+        batch_results = _apply_native_change_envelopes(
+            authority, session, [envelope for _, envelope in prepared]
+        )
+    except NativeChangeEnvelopeUnavailable:
+        logger.info(
+            "native ApplyChangeEnvelopes unavailable; falling back to per-record ingestion"
+        )
+        return [ingest_envelope(engine, envelope) for envelope in envelopes]
+    except (PermissionError, ValueError) as exc:
+        logger.warning("native ChangeEnvelope batch rejected (%s)", type(exc).__name__)
+        for index, envelope in prepared:
+            results[index] = {
+                "status": "rejected",
+                "error": type(exc).__name__,
+                "envelope_id": envelope.envelope_id,
+                "watermark_advanced": False,
+            }
+        return results
+    except _NativeOccRetryBudgetExhausted as exc:
+        logger.warning(
+            "native ChangeEnvelope batch OCC retry budget exhausted (conflict_sequence=%s)",
+            ",".join(exc.conflicts),
+        )
+        for index, envelope in prepared:
+            results[index] = {
+                "status": "failed",
+                "error": "NativeChangeEnvelopeConflictExhausted",
+                "envelope_id": envelope.envelope_id,
+                "watermark_advanced": False,
+            }
+        return results
+    except Exception as exc:  # noqa: BLE001 - never fall back after a native failure
+        logger.warning(
+            "native ChangeEnvelope batch commit failed (%s)", type(exc).__name__
+        )
+        for index, envelope in prepared:
+            results[index] = {
+                "status": "failed",
+                "error": type(exc).__name__,
+                "envelope_id": envelope.envelope_id,
+                "watermark_advanced": False,
+            }
+        return results
+
+    for (index, _envelope), result in zip(prepared, batch_results, strict=True):
+        results[index] = result
+    return results
 
 
 def read_change_cursor(
