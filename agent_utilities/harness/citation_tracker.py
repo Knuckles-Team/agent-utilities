@@ -22,7 +22,17 @@ logger = logging.getLogger(__name__)
 
 # Patterns for extracting citations from agent responses
 _KG_REF_PATTERN = re.compile(r"\[(?:KG|source|ref|node):\s*([^\]]+)\]", re.IGNORECASE)
-_CONCEPT_PATTERN = re.compile(r"CONCEPT:([A-Z]+-\d+(?:\.\d+)*)", re.IGNORECASE)
+# CONCEPT:AU-OS.governance.okf-cis-standard — matches both the legacy numeric id
+# scheme (``KG-2.63``) and the current OKF-CIS ``<SLUG>-<PILLAR>.<domain>.<concept>``
+# scheme (``AU-KG.memory.auto-similarity-memory-graph``); the pattern predated the
+# OKF-CIS migration and only ever matched the legacy form.
+_CONCEPT_PATTERN = re.compile(
+    r"CONCEPT:("
+    r"[A-Z]+-\d+(?:\.\d+)*"
+    r"|[A-Za-z]+-[A-Za-z]+(?:\.[A-Za-z0-9][\w-]*)+"
+    r")",
+    re.IGNORECASE,
+)
 _URL_PATTERN = re.compile(r"https?://[^\s\)\]\"'<>]+", re.IGNORECASE)
 _FILE_REF_PATTERN = re.compile(r"file:///[^\s\)\]\"'<>]+", re.IGNORECASE)
 _ARXIV_PATTERN = re.compile(r"(?:arXiv:\s*)?(\d{4}\.\d{4,5})", re.IGNORECASE)
