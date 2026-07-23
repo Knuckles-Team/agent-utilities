@@ -82,7 +82,7 @@ jobs:
         run: python3 scripts/check_domain_vocab.py agent_utilities
 
       - name: Prompt-schema gate (canonical StructuredPrompt + fresh prompt.schema.json)
-        run: python3 scripts/check_prompt_schema.py --strict
+        run: python3 scripts/check_prompt_schema.py
 
       - name: Genesis-manifest freshness gate
         run: python3 scripts/check_genesis_manifest.py

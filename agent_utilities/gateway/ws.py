@@ -116,9 +116,10 @@ async def dashboard_ws(ws: WebSocket) -> None:
                 host_values = header_values(b"host")
                 parsed_origin = urlsplit(next(iter(supplied)))
                 try:
-                    local_host = parsed_origin.hostname == "localhost" or ipaddress.ip_address(
-                        str(parsed_origin.hostname)
-                    ).is_loopback
+                    local_host = (
+                        parsed_origin.hostname == "localhost"
+                        or ipaddress.ip_address(str(parsed_origin.hostname)).is_loopback
+                    )
                 except ValueError:
                     local_host = False
                 local_same_origin = bool(
@@ -127,9 +128,7 @@ async def dashboard_ws(ws: WebSocket) -> None:
                     and parsed_origin.netloc.casefold()
                     == host_values[0].decode("ascii").casefold()
                 )
-            if not supplied or not (
-                supplied.issubset(configured) or local_same_origin
-            ):
+            if not supplied or not (supplied.issubset(configured) or local_same_origin):
                 raise PermissionError("origin rejected")
         identity = await authenticate_header_values(
             authorization=header_values(b"authorization"),
@@ -195,7 +194,10 @@ async def dashboard_ws(ws: WebSocket) -> None:
                         or not all(
                             isinstance(service, str)
                             and 1 <= len(service) <= 128
-                            and all(character.isalnum() or character in "-_.:" for character in service)
+                            and all(
+                                character.isalnum() or character in "-_.:"
+                                for character in service
+                            )
                             for service in services
                         )
                     ):

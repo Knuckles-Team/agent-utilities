@@ -1,6 +1,6 @@
 """graph_argument — AIF (Argument Interchange Format) MCP tool.
 
-CONCEPT:AU-KG.argumentation.aif.
+CONCEPT:AU-KG.epistemic.aif.
 
 One action-routed surface over
 :mod:`agent_utilities.knowledge_graph.argumentation.aif` — the typed AIF
@@ -151,7 +151,9 @@ def register_argument_tools(mcp: Any) -> None:
             default="grounded",
             description="Dung semantics for evaluate: grounded | preferred | stable.",
         ),
-        scheme_name: str = Field(default="", description="Scheme display name (add_scheme)."),
+        scheme_name: str = Field(
+            default="", description="Scheme display name (add_scheme)."
+        ),
         scheme_kind: str = Field(
             default="", description="inference | conflict | preference (add_scheme)."
         ),
@@ -183,7 +185,9 @@ def register_argument_tools(mcp: Any) -> None:
                 result = aif.to_aifdb_json(aif.export_argument_map(map_id))
             elif action_key == "evaluate":
                 argument_map = (
-                    _parse_map_json(argument_map_json, map_id) if argument_map_json else None
+                    _parse_map_json(argument_map_json, map_id)
+                    if argument_map_json
+                    else None
                 )
                 parsed_ids = json.loads(node_ids) if node_ids else []
                 if not isinstance(parsed_ids, list):

@@ -225,7 +225,9 @@ class XIngestionBridge:
                 importance_score=0.3,
                 timestamp=_now(),
             )
-        self.graph.add_edge(node_id, person_id, relationship=RegistryEdgeType.CREATED_BY_PERSON)
+        self.graph.add_edge(
+            node_id, person_id, relationship=RegistryEdgeType.CREATED_BY_PERSON
+        )
 
         # Link to extracted concepts via ABOUT edges
         for concept_name in classification.concepts:
@@ -240,7 +242,9 @@ class XIngestionBridge:
                     importance_score=0.5,
                     timestamp=_now(),
                 )
-            self.graph.add_edge(node_id, concept_id, relationship=RegistryEdgeType.ABOUT)
+            self.graph.add_edge(
+                node_id, concept_id, relationship=RegistryEdgeType.ABOUT
+            )
 
         # Create EvolutionCandidate if evolution potential is high
         evo_node_id = None
@@ -370,10 +374,9 @@ class XIngestionBridge:
                 # KBIngestionEngine creates articles with predictable IDs
                 for n in self.graph.nodes:
                     n_data = self.graph.nodes[n]
-                    if (
-                        n_data.get("node_type") == RegistryNodeType.ARTICLE
-                        and kb_name in str(n)
-                    ):
+                    if n_data.get(
+                        "node_type"
+                    ) == RegistryNodeType.ARTICLE and kb_name in str(n):
                         article_node_id = n
                         break
 

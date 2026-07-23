@@ -151,7 +151,7 @@ DEFAULT_POLICY: dict[str, Any] = {
         # (see tests/unit/knowledge_graph/test_skill_evolution.py::
         # test_winning_candidate_default_never_auto_promotes).
         {"kind": "promote_skill_version", "target": "*", "tier": TIER_APPROVAL},
-        # Unified evolution matrix (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+        # Unified evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate):
         # the native eg-program optimizer's system-prompt and MCP tool-description
         # candidates now flow through the SAME promotion gate as promote_skill_version
         # instead of being gated only by the bare KG_AGENT_AUTO_APPLY boolean

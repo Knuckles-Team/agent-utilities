@@ -225,16 +225,18 @@ class KBIngestionEngine:
                 if new_source and new_source.content_hash != old_hash:
                     logger.info("Re-ingesting changed knowledge source")
                     # Update the source node
-                    self.graph.nodes[source_id][
-                        "content_hash"
-                    ] = new_source.content_hash
+                    self.graph.nodes[source_id]["content_hash"] = (
+                        new_source.content_hash
+                    )
                     # Re-extract any articles compiled from this source
                     await self._process_source(
                         new_source, kb_id, kb_data.get("topic", ""), force=True
                     )
                     updated += 1
             except Exception as e:
-                logger.warning("Failed to update knowledge source (%s)", type(e).__name__)
+                logger.warning(
+                    "Failed to update knowledge source (%s)", type(e).__name__
+                )
 
         # Refresh the KB index
         await self._refresh_kb_index(kb_id)
@@ -523,7 +525,9 @@ class KBIngestionEngine:
             timestamp=_now(),
         )
         self.graph.add_node(source_id, **_canonical_node_dump(raw_node))
-        self.graph.add_edge(source_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
+        self.graph.add_edge(
+            source_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
+        )
 
         # Extract article with Pydantic AI (or fallback if LLM unavailable)
         kb_name = self.graph.nodes[kb_id].get("name", kb_id)
@@ -574,8 +578,12 @@ class KBIngestionEngine:
         article_dump = _canonical_node_dump(article_node)
         article_dump["content_hash"] = content_hash
         self.graph.add_node(article_id, **article_dump)
-        self.graph.add_edge(article_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
-        self.graph.add_edge(article_id, source_id, relationship=RegistryEdgeType.COMPILED_FROM)
+        self.graph.add_edge(
+            article_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
+        )
+        self.graph.add_edge(
+            article_id, source_id, relationship=RegistryEdgeType.COMPILED_FROM
+        )
         self.graph.add_edge(article_id, source_id, relationship=RegistryEdgeType.CITES)
 
         # Write KBConcept nodes
@@ -593,7 +601,9 @@ class KBIngestionEngine:
                 self.graph.add_edge(
                     concept_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
                 )
-            self.graph.add_edge(article_id, concept_id, relationship=RegistryEdgeType.ABOUT)
+            self.graph.add_edge(
+                article_id, concept_id, relationship=RegistryEdgeType.ABOUT
+            )
 
         # Write KBFact nodes
         for fact in extracted.facts:
@@ -615,7 +625,9 @@ class KBIngestionEngine:
             fact_dump = _canonical_node_dump(fact_node)
             fact_dump["content_hash"] = fact_hash
             self.graph.add_node(fact_id, **fact_dump)
-            self.graph.add_edge(fact_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
+            self.graph.add_edge(
+                fact_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
+            )
             self.graph.add_edge(fact_id, source_id, relationship=RegistryEdgeType.CITES)
 
         # Write BACKLINKS edges (deferred — titles may not exist yet)
@@ -689,13 +701,17 @@ class KBIngestionEngine:
             timestamp=_now(),
         )
         self.graph.add_node(index_id, **_canonical_node_dump(index_node))
-        self.graph.add_edge(index_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB)
+        self.graph.add_edge(
+            index_id, kb_id, relationship=RegistryEdgeType.BELONGS_TO_KB
+        )
 
         # Add INDEXES_KB edges to all articles
         for n in self.graph.predecessors(kb_id):
             if self.graph.nodes[n].get("node_type") == RegistryNodeType.ARTICLE:
                 if not self.graph.has_edge(index_id, n):
-                    self.graph.add_edge(index_id, n, relationship=RegistryEdgeType.INDEXES_KB)
+                    self.graph.add_edge(
+                        index_id, n, relationship=RegistryEdgeType.INDEXES_KB
+                    )
 
         if self.backend:
             self._persist_node(index_id)

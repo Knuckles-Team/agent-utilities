@@ -958,9 +958,9 @@ def prepare_langfuse_mcp_config(
         "LANGFUSE_CLIENT_CERT",
         "LANGFUSE_CLIENT_KEY",
     ):
-        value = trust_env.get(key)
-        if value:
-            child_env[key] = value
+        raw_value = trust_env.get(key)
+        if raw_value:
+            child_env[key] = raw_value
     child_env[_MATERIALIZED_TRUST_FLAG] = "true"
     child_env.pop("LANGFUSE_CA_BUNDLE_REF", None)
     child_env.pop("LANGFUSE_CA_BUNDLE", None)

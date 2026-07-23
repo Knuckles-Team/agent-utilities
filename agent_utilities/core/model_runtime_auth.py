@@ -42,9 +42,7 @@ class ModelRuntimeAuthError(ValueError):
 
 
 def _resolve(reference: str) -> str:
-    if not isinstance(reference, str) or not _REFERENCE_RE.fullmatch(
-        reference.strip()
-    ):
+    if not isinstance(reference, str) or not _REFERENCE_RE.fullmatch(reference.strip()):
         raise ModelRuntimeAuthError("model runtime reference is invalid")
     try:
         from agent_utilities.security.cli_secrets import (
@@ -53,9 +51,7 @@ def _resolve(reference: str) -> str:
 
         return resolve_runtime_secret_reference(reference.strip())
     except Exception:
-        raise ModelRuntimeAuthError(
-            "model runtime reference is unavailable"
-        ) from None
+        raise ModelRuntimeAuthError("model runtime reference is unavailable") from None
 
 
 def resolve_model_api_key(
@@ -64,6 +60,7 @@ def resolve_model_api_key(
     """Return one bounded API key from a direct runtime value or a reference."""
     if value and reference:
         raise ModelRuntimeAuthError("model authentication source is ambiguous")
+    resolved: str | None
     if reference:
         resolved = _resolve(reference)
     else:
@@ -78,8 +75,10 @@ def resolve_model_api_key(
         size = len(resolved.encode("utf-8"))
     except UnicodeError:
         raise ModelRuntimeAuthError("model credential is invalid") from None
-    if not resolved or size > 64 * 1024 or any(
-        character in resolved for character in "\x00\r\n"
+    if (
+        not resolved
+        or size > 64 * 1024
+        or any(character in resolved for character in "\x00\r\n")
     ):
         raise ModelRuntimeAuthError("model credential is invalid")
     return resolved
@@ -103,15 +102,12 @@ def validate_model_headers(value: Mapping[str, Any] | None) -> dict[str, str]:
             not _HEADER_NAME_RE.fullmatch(name)
             or lowered in _FORBIDDEN_HEADERS
             or any(
-                ord(character) < 32 or ord(character) == 127
-                for character in raw_value
+                ord(character) < 32 or ord(character) == 127 for character in raw_value
             )
         ):
             raise ModelRuntimeAuthError("model headers are invalid")
         try:
-            item_bytes = len(name.encode("ascii")) + len(
-                raw_value.encode("utf-8")
-            )
+            item_bytes = len(name.encode("ascii")) + len(raw_value.encode("utf-8"))
         except UnicodeError:
             raise ModelRuntimeAuthError("model headers are invalid") from None
         if item_bytes > 16 * 1024:

@@ -824,9 +824,7 @@ class ContextCompiler:
                         raise ValueError(
                             "cached bundle violates the persistence privacy contract"
                         )
-                    cached_bundle = ContextBundle.from_dict(
-                        cached_value
-                    )
+                    cached_bundle = ContextBundle.from_dict(cached_value)
                 except (
                     json.JSONDecodeError,
                     UnicodeDecodeError,
@@ -1055,9 +1053,10 @@ class ContextCompiler:
                     durable_source
                 )
                 encoded = json.dumps(durable_bundle, default=str).encode("utf-8")
-                prompt_copied = bool(query) and query.casefold() in encoded.decode(
-                    "utf-8"
-                ).casefold()
+                prompt_copied = (
+                    bool(query)
+                    and query.casefold() in encoded.decode("utf-8").casefold()
+                )
                 # Do not cache a redacted/degraded evidence bundle and do not
                 # persist any detected sensitive value. A miss changes only
                 # performance; mandatory compilation still returns the complete

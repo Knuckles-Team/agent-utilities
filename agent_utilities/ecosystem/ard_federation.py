@@ -172,9 +172,7 @@ class ArdFederationRelay:
             results = data.get("results") if isinstance(data, dict) else None
             return [r for r in (results or []) if isinstance(r, dict)]
         except Exception as exc:  # noqa: BLE001 — a down peer must not break the others
-            logger.warning(
-                "[ECO-4.97] ARD fan-out failed (%s)", type(exc).__name__
-            )
+            logger.warning("[ECO-4.97] ARD fan-out failed (%s)", type(exc).__name__)
             return []
 
 

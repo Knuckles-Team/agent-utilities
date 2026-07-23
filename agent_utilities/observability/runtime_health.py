@@ -551,9 +551,10 @@ def collect_health() -> dict[str, Any]:
             "generated_at": _now_iso(),
         }
 
-    checks = [
-        _run_bounded(name, lambda fn=fn, cfg=cfg: fn(cfg)) for name, fn in _CHECKS
-    ]
+    def _bind(fn: Callable[[Any], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
+        return lambda: fn(cfg)
+
+    checks = [_run_bounded(name, _bind(fn)) for name, fn in _CHECKS]
     overall = (
         "unhealthy" if any(c["status"] == "unhealthy" for c in checks) else "healthy"
     )

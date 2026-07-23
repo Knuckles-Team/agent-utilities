@@ -137,7 +137,9 @@ def metrics_url_from_base(base_url: str) -> str:
     path = parsed.path.rstrip("/")
     if path.endswith("/v1"):
         path = path[: -len("/v1")]
-    return urlunsplit((parsed.scheme.casefold(), parsed.netloc, f"{path}/metrics", "", ""))
+    return urlunsplit(
+        (parsed.scheme.casefold(), parsed.netloc, f"{path}/metrics", "", "")
+    )
 
 
 def parse_vllm_gauge(

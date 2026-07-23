@@ -91,7 +91,7 @@ def _pdf_worker(
         connection.close()
 
 
-def _stop_worker(process: multiprocessing.Process) -> None:
+def _stop_worker(process: multiprocessing.process.BaseProcess) -> None:
     process.join(timeout=0.2)
     if process.is_alive():
         process.terminate()

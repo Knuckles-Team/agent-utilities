@@ -891,6 +891,7 @@ _OPS_PRIVATE_METADATA_KEYS = frozenset(
 
 def _safe_ops_value(value: Any) -> Any:
     """Remove private fields and sanitize an ops record before persistence."""
+    filtered: Any
     if isinstance(value, dict):
         filtered = {
             key: _safe_ops_value(item)

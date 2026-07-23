@@ -79,7 +79,9 @@ def _loopback_bind(host: str) -> bool:
 
 
 def _bearer_token(request: web.Request) -> str:
-    scheme, separator, credential = request.headers.get("Authorization", "").partition(" ")
+    scheme, separator, credential = request.headers.get("Authorization", "").partition(
+        " "
+    )
     if separator and scheme.lower() == "bearer":
         return credential.strip()
     return ""
@@ -128,9 +130,7 @@ async def _handle(request: web.Request) -> web.Response:
                 timeout=_DELIVERY_TIMEOUT_SECONDS,
             )
         except Exception as exc:  # noqa: BLE001 — boundary is fail-closed + generic
-            logger.warning(
-                "alert-intake delivery failed (%s)", type(exc).__name__
-            )
+            logger.warning("alert-intake delivery failed (%s)", type(exc).__name__)
             return web.json_response(
                 {"ok": False, "error": "alert delivery failed"}, status=502
             )
@@ -144,7 +144,9 @@ async def serve_alert_intake(engine: Any, port: int) -> None:
         setting("MESSAGING_ALERT_INTAKE_ALLOW_REMOTE", "False") or "False"
     ).lower() in {"1", "true", "yes", "on"}
     if not _loopback_bind(host) and not allow_remote:
-        logger.error("messaging alert-intake disabled: non-loopback bind is not approved")
+        logger.error(
+            "messaging alert-intake disabled: non-loopback bind is not approved"
+        )
         return
 
     token_ref = str(setting("MESSAGING_ALERT_INTAKE_TOKEN_REF", "") or "").strip()

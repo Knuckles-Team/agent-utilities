@@ -237,7 +237,7 @@ def test_docs_gate_binds_graphos_surface_to_generated_capability_count():
     assert contract.check_graphos_surface_contract(current) == []
     assert contract.check_graphos_surface_contract(
         current,
-        capability_count=112,
+        capability_count=116,
     ) == ["GraphOS surface documentation is stale"]
 
 

@@ -17,9 +17,7 @@ from agent_utilities.core.config import setting
 from agent_utilities.models import AgentDeps
 
 
-def register_agent_tools(
-    agent: Any, graph_bundle: tuple | None = None
-) -> None:
+def register_agent_tools(agent: Any, graph_bundle: tuple | None = None) -> None:
     """Central aggregator for registering all Agent OS tools.
 
     Groups tools by domain and applies environment-based gating using
@@ -136,7 +134,9 @@ def register_agent_tools(
 
                 """
                 eq = getattr(ctx.deps, "graph_event_queue", None) if ctx.deps else None
-                from agent_utilities.graph import execute_graph as execute_graph_authority
+                from agent_utilities.graph import (
+                    execute_graph as execute_graph_authority,
+                )
 
                 # Forward runtime MCP toolsets and LLM config from AgentDeps so the graph uses alread-conencted servers and current credentials instead of None values baked in from the default config
                 runtime_toolsets = (

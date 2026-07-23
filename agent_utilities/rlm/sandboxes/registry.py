@@ -13,6 +13,7 @@ Backends are added here as the phases land (monty, docker, wasm); until a module
 from __future__ import annotations
 
 import logging
+from typing import TypedDict
 
 from agent_utilities.core.config import setting
 
@@ -21,7 +22,15 @@ from .base import Sandbox
 logger = logging.getLogger(__name__)
 
 
-def _container_options() -> dict[str, object]:
+class _ContainerOptions(TypedDict):
+    image: str
+    memory: str
+    cpus: str
+    pids_limit: int
+    timeout_secs: float
+
+
+def _container_options() -> _ContainerOptions:
     image = "python:3.12-slim"
     image_ref = str(setting("RLM_CONTAINER_IMAGE_REF", "") or "").strip()
     if image_ref:

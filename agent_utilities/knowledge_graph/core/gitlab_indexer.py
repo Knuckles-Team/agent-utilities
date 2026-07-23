@@ -18,7 +18,7 @@ tested without a live GitLab or engine; the thin live adapter is built in
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -424,7 +424,7 @@ class GitLabRestSource:
         return f"{self.config.url.rstrip('/')}/api/v4"
 
     @contextmanager
-    def _session(self) -> Iterable[Any]:
+    def _session(self) -> Iterator[Any]:
         from agent_utilities.core.http_client import create_requests_session
         from agent_utilities.core.transport_security import (
             resolve_configured_tls_profile,

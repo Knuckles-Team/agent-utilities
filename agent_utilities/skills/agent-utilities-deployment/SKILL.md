@@ -91,6 +91,14 @@ Classify the change before applying it:
   not add a permanent read-old/write-new path.
 - An ontology or object-schema migration belongs to
   `graph-modeling-and-mutation`; coordinate its deployment ordering here.
+- An orchestrator migration (one orchestrator to another, e.g. Swarm → Kubernetes)
+  delegates to `agent-os-genesis` (**migrate-mode**). Read its cutover runbook first —
+  `references/orchestrator-migration-cutover.md` (rationale in
+  `docs/architecture/orchestrator-migration-cutover.md`): pin the gateway's outbound
+  token URL to the in-cluster IdP (else every child MCP 401s), sync app+DB secrets
+  from the secret store via ExternalSecrets, preserve the canonical hostnames with a
+  **selective** DNS flip, and migrate each app+DB as a coupled unit (hold the app at
+  0 replicas until the DB is restored + verified).
 
 Capture current health and version state, back up durable data, validate the backup,
 stage the change, and preserve a rollback. Quiesce writers when the migration cannot

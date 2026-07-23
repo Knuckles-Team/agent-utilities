@@ -10,7 +10,12 @@ in the host process. Combined with the non-blocking inbound path (ECO-4.72) and 
 interactive inference slot (ORCH-1.59), this is what makes the messaging agent reliably
 responsive.
 
-Console entry point: ``agent-utilities-messaging``.
+Console entry point: ``agent-utilities-messaging``. The serving/shutdown body
+(:func:`run_forever`) is also reused, unchanged, by the ``graph-os`` entrypoint's
+in-process co-service supervisor
+(:mod:`agent_utilities.mcp.co_service_supervisor`) when messaging is configured —
+so the standalone process and the composed co-service share exactly one
+implementation of "connect the configured backends and serve until told to stop."
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import asyncio
 import logging
 import os
 import signal
+import threading
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -46,7 +52,7 @@ async def _serve(engine: Any, platforms: list[str]) -> None:
         router.register_backend(backend)
     router.set_default_handler(await create_planner_handler(engine))
     logger.info(
-        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging daemon serving backends %s",
+        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging serving backends %s",
         platforms,
     )
     await router.start()  # blocks on the per-backend listener tasks
@@ -69,18 +75,30 @@ def _validate_fleet_auth() -> None:
     )
 
 
-def _mint_process_session() -> Any:
-    """Mint this process's verified graph authority (mirrors ``ingest_worker.py``).
+def configured_platforms(engine: Any = None) -> list[str]:
+    """Platforms that are installed AND have real credentials configured.
 
-    The engine's tenant-routing (``resolve_routing_graph``) and its write-path
-    guard (``BrainGuardedBackend._verified_actor``) both require an ambient
-    :class:`~agent_utilities.security.brain_context.ActorContext` — Company
-    Brain enforcement is mandatory (CONCEPT:AU-KG.compute.data-is-private-its),
-    not opt-in. As a standalone process (not a served MCP/REST boundary) this
-    daemon must mint its OWN process identity before touching the engine —
-    exactly like ``knowledge_graph/ingest_worker.py`` and ``mcp/kg_server.py``'s
-    ``_mint_process_session`` do. Configure exactly one of ``KG_AUTH_TOKEN_REF``
-    or ``KG_IDENTITY_OAUTH2``.
+    A pure config read (delegates to :meth:`MessagingService.configured_platforms`,
+    which only inspects :class:`~agent_utilities.messaging.registry.MessagingRegistry` —
+    no engine access) so composition detection can call this BEFORE any engine or
+    process identity exists (CONCEPT:AU-ECO.messaging.messaging-reach-service-governed).
+    """
+    from agent_utilities.messaging.service import MessagingService
+
+    return MessagingService.instance(engine).configured_platforms()
+
+
+def mint_process_identity() -> Any:
+    """Mint this process's verified graph authority.
+
+    Copies the established pattern from ``kg_server.py``/``ingest_worker.py``
+    (``acquire_process_identity_token`` → ``mint_actor_from_token_sync`` →
+    ``mint_graph_session`` → ``engine_verified_context()``). Previously this daemon
+    called ``IntelligenceGraphEngine()``/``get_or_create()`` bare, with no process
+    identity wired at all — every real (non-``AGENT_UTILITIES_TESTING``) engine
+    construction requires a verified :class:`GraphSession` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement),
+    so the messaging daemon could never actually construct the engine in a real
+    deployment. This is that missing wiring.
     """
     from agent_utilities.core.config import config
     from agent_utilities.security.request_identity import (
@@ -93,12 +111,61 @@ def _mint_process_session() -> Any:
     actor = mint_actor_from_token_sync(token)
     session = mint_graph_session(actor)
     session.engine_verified_context()
-    logger.info("[ECO-4.75] messaging daemon: verified graph process authority minted.")
+    logger.info("Verified messaging process authority minted")
     return session
 
 
+def run_forever(engine: Any, platforms: list[str], stop_event: threading.Event) -> None:
+    """Blocking body: connect the configured backends and serve until ``stop_event``.
+
+    Owns its OWN event loop (asyncio state is not shareable across threads), so this
+    is safe to call either directly from the main thread of the standalone
+    ``agent-utilities-messaging`` process (:func:`main`, driven by OS signals) or from
+    a dedicated supervisor thread inside the ``graph-os`` entrypoint (driven by the
+    supervisor's own shutdown event) — the serving/shutdown logic is defined exactly
+    once and shared by both callers.
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    stop: asyncio.Future[None] = loop.create_future()
+
+    def _watch_stop() -> None:
+        stop_event.wait()
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(lambda: stop.done() or stop.set_result(None))
+
+    watcher = threading.Thread(
+        target=_watch_stop, daemon=True, name="MessagingStopWatch"
+    )
+    watcher.start()
+
+    tasks = [loop.create_task(_serve(engine, platforms))]
+    # Optional HTTP alert-intake (CONCEPT:AU-ECO.messaging.alert-intake): route external
+    # webhooks (uptime-kuma, Alertmanager, …) THROUGH the messaging stack so alerts inherit
+    # the one unified Telegram/Mattermost/… delivery instead of each tool wiring its own
+    # notifier. Opt-in via MESSAGING_ALERT_INTAKE_PORT; runs as an INDEPENDENT task so a
+    # failure here never affects the inbound listeners.
+    from agent_utilities.core.config import setting
+
+    _intake_port = setting("MESSAGING_ALERT_INTAKE_PORT", "")
+    if _intake_port:
+        from agent_utilities.messaging.alert_intake import serve_alert_intake
+
+        tasks.append(loop.create_task(serve_alert_intake(engine, int(_intake_port))))
+    logger.info(
+        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] messaging serving started."
+    )
+    try:
+        loop.run_until_complete(stop)
+    finally:
+        for _t in tasks:
+            _t.cancel()
+        loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+        loop.close()
+
+
 def main() -> None:
-    """Run the isolated messaging inbound daemon (CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs)."""
+    """Run the isolated messaging inbound daemon as a standalone process."""
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
@@ -111,66 +178,41 @@ def main() -> None:
     # behind its runtime reference and is resolved only at the outbound request.
     _validate_fleet_auth()
 
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    session = mint_process_identity()
     from agent_utilities.knowledge_graph.core.session import use_session
-    from agent_utilities.messaging.service import MessagingService
     from agent_utilities.security.brain_context import use_actor
 
-    session = _mint_process_session()
-
-    # Scope the whole process to this session's actor — engine construction
-    # (tenant-graph routing) and every subsequent graph write (provenance/
-    # authority arbitration) both require it. asyncio Tasks created below copy
-    # the ambient contextvars at creation time, so every inbound-message task
-    # inherits this same authority for the life of the process.
     with use_actor(session.actor), use_session(session):
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine,
+        )
+
         engine = IntelligenceGraphEngine.get_or_create()
-        platforms = MessagingService.instance(engine).configured_platforms()
+        platforms = configured_platforms(engine)
         if not platforms:
             logger.info(
                 "messaging daemon: no backend configured (set TELEGRAM_BOT_TOKEN). Exiting."
             )
             return
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        stop: asyncio.Future[None] = loop.create_future()
+        stop_event = threading.Event()
 
         def _shutdown(*_a: Any) -> None:
-            if not stop.done():
-                stop.set_result(None)
+            stop_event.set()
 
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
-                loop.add_signal_handler(sig, _shutdown)
-            except NotImplementedError:  # pragma: no cover — non-Unix
+                signal.signal(sig, _shutdown)
+            except (
+                ValueError,
+                OSError,
+            ):  # pragma: no cover — not main thread / unsupported
                 pass
 
-        tasks = [loop.create_task(_serve(engine, platforms))]
-        # Optional HTTP alert-intake (CONCEPT:AU-ECO.messaging.alert-intake): route external
-        # webhooks (uptime-kuma, Alertmanager, …) THROUGH the messaging stack so alerts inherit
-        # the one unified Telegram/Mattermost/… delivery instead of each tool wiring its own
-        # notifier. Opt-in via MESSAGING_ALERT_INTAKE_PORT; runs as an INDEPENDENT task so a
-        # failure here never affects the inbound listeners.
-        from agent_utilities.core.config import setting
-
-        _intake_port = setting("MESSAGING_ALERT_INTAKE_PORT", "")
-        if _intake_port:
-            from agent_utilities.messaging.alert_intake import serve_alert_intake
-
-            tasks.append(
-                loop.create_task(serve_alert_intake(engine, int(_intake_port)))
-            )
         logger.info(
             "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started."
         )
-        try:
-            loop.run_until_complete(stop)
-        finally:
-            for _t in tasks:
-                _t.cancel()
-            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
-            loop.close()
+        run_forever(engine, platforms, stop_event)
 
 
 if __name__ == "__main__":  # pragma: no cover

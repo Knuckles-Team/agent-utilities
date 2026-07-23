@@ -81,6 +81,7 @@ _SUB_PREFIX = "bussub:"
 # computes presence lazily from ``last_seen`` so no reaper process is needed for liveness.
 DEFAULT_STALE_AFTER_S = 90.0
 
+
 class AgentBus:
     """Presence registry + durable mailbox + pub/sub + work dispatch for agents.
 
@@ -223,9 +224,7 @@ class AgentBus:
             # Record WHY so the caller can surface it (CONCEPT:AU-ECO.bus.bus-register-under-served). A write that
             # does not land — e.g. an engine/ACL denial under the served profile
             # Mandatory authorization failures must not be swallowed as benign false.
-            self._last_write_error = (
-                f"{type(exc).__name__}: durable bus write rejected"
-            )
+            self._last_write_error = f"{type(exc).__name__}: durable bus write rejected"
             logger.warning(
                 "[ECO-4.84] add_node(%s) failed (%s)",
                 node_id,
@@ -296,7 +295,12 @@ class AgentBus:
         session_ref = bus_reference("session", session_id, tenant=tenant)
         actor_ref = bus_reference("actor", actor_id or agent_id, tenant=tenant)
         _unused, profile_json, _profile_report = sanitize_bus_content(
-            "", {"provider": provider, "kind": kind, "capabilities": list(capabilities or [])}
+            "",
+            {
+                "provider": provider,
+                "kind": kind,
+                "capabilities": list(capabilities or []),
+            },
         )
         # ``sanitize_bus_content`` intentionally returns only serialized clean
         # metadata. Decode it locally; raw profile inputs are never persisted.
@@ -548,10 +552,7 @@ class AgentBus:
         if not callable(query):
             raise RuntimeError("AgentBus subscription registry is unavailable")
         rows = list(
-            query(
-                "MATCH (s:BusSubscription {topic: $t}) RETURN s", {"t": topic}
-            )
-            or []
+            query("MATCH (s:BusSubscription {topic: $t}) RETURN s", {"t": topic}) or []
         )
         return sorted(
             {
@@ -895,9 +896,7 @@ class AgentBus:
                 )
             else:
                 try:
-                    mark_message_outbox_delivered(
-                        engine, message, tenant=tenant
-                    )
+                    mark_message_outbox_delivered(engine, message, tenant=tenant)
                 except Exception as exc:  # noqa: BLE001 - safe false-positive depth
                     logger.warning(
                         "AgentBus delivery committed but outbox completion is pending (%s)",
@@ -906,9 +905,7 @@ class AgentBus:
             committed += len(recipients)
         return committed
 
-    def _read_committed_inbox(
-        self, agent_id: str, *, since: int
-    ) -> dict[str, Any]:
+    def _read_committed_inbox(self, agent_id: str, *, since: int) -> dict[str, Any]:
         """Read committed inbox rows; the cursor is a durable-row offset."""
         query = getattr(self._resolve_engine(), "query_cypher", None)
         if not callable(query):
@@ -949,12 +946,8 @@ class AgentBus:
         """Read the durable send outbox entry for one message group."""
         from agent_utilities.messaging.bus_log import current_bus_tenant
 
-        group = bus_reference(
-            "message_group", group, tenant=current_bus_tenant()
-        )
-        rows = self._query(
-            "MATCH (o:BusOutbox {group_ref: $g}) RETURN o", {"g": group}
-        )
+        group = bus_reference("message_group", group, tenant=current_bus_tenant())
+        rows = self._query("MATCH (o:BusOutbox {group_ref: $g}) RETURN o", {"g": group})
         return [
             {
                 "msg_group": props.get("group_ref"),
@@ -1030,7 +1023,9 @@ class AgentBus:
                 meta_json=meta_json,
                 created=now,
             ):
-                delivered = [agent for agent in self._subscribers(topic) if agent != sender]
+                delivered = [
+                    agent for agent in self._subscribers(topic) if agent != sender
+                ]
                 mark_message_outbox_published(
                     self._resolve_engine(), wire_message, tenant=tenant
                 )
@@ -1080,7 +1075,9 @@ class AgentBus:
 
         tenant = current_bus_tenant()
         sender = bus_reference("agent", sender, tenant=tenant)
-        objective, _objective_meta, _privacy_report = sanitize_bus_content(objective, {})
+        objective, _objective_meta, _privacy_report = sanitize_bus_content(
+            objective, {}
+        )
         reason, _reason_meta, _reason_report = sanitize_bus_content(reason, {})
         decision = self._gate("bus.dispatch", objective[:80], sender, reason)
         if decision is not None and not decision.allowed:

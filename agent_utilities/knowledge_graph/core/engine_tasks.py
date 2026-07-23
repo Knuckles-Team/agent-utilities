@@ -446,20 +446,6 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     }.get(status, "unknown")
 
 
-# AU-P1-CL: ``_update_task_status``'s terminal-status arg -> the WorkItem
-# outcome committed through the claim-time shadow (when one exists). All
-# calls through ``_update_task_status`` are treated as non-retryable (the
-# APP-LEVEL retry/backoff/DLQ decision lives in ``_fail_or_retry_task``,
-# which commits through ``work_item.commit_result`` itself with
-# ``retryable=True`` and only calls back into ``_update_task_status`` once
-# IT has already decided the outcome is terminal — see that method).
-_INGEST_TERMINAL_STATUS_TO_WORK_ITEM: dict[str, str] = {
-    "completed": "succeeded",
-    "failed": "failed",
-    "cancelled": "cancelled",
-    "dead_letter": "failed",
-}
-
 # Enrichment pass sizing (config discipline): per-tick LLM-card batch budget. The
 # per-batch summarization concurrency is CPU/mem auto-sized via
 # compute_ingest_worker_count(); these batch caps are bounded constants, not env
@@ -949,16 +935,6 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._work_item_engine_cache = view
         return view
 
-    @property
-    def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
-        """Cached :class:`_ControlPlaneWorkItemEngine` view for the ingestion
-        queue's WorkItem shadow (AU-P1-CL — see that class's docstring)."""
-        view = getattr(self, "_work_item_engine_cache", None)
-        if view is None:
-            view = _ControlPlaneWorkItemEngine(self)
-            self._work_item_engine_cache = view
-        return view
-
     def unified_daemon_status(self) -> dict[str, Any]:
         """Status of the single consolidated background daemon (CONCEPT:AU-KG.coordination.embedder-breaker).
 
@@ -1359,25 +1335,6 @@ class TaskManagerMixin(GraphEngineProtocol):
                 )
         except Exception as e:  # noqa: BLE001
             logger.debug("dev-workspace reap skipped (%s)", type(e).__name__)
-
-    def _tick_package_install_ingest(self) -> None:
-        """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
-
-        Runs the ``package_install`` connector (:mod:`..ingestion.package_install_ingest`)
-        against the live engine — the same handler ``source_sync
-        source=package_install`` calls, so this scheduled tick and the on-demand
-        MCP/REST trigger share one implementation. Watermarked on the
-        ``install-manifest.json`` content hash, so a tick where nothing new was
-        installed since the last run is a cheap no-op.
-        """
-        try:
-            from agent_utilities.knowledge_graph.core.source_sync import sync_source
-
-            report = sync_source(self, "package_install", mode="delta")
-            if not report.get("skipped_unchanged"):
-                logger.info("package_install_ingest: %s", report)
-        except Exception as e:  # noqa: BLE001 — one job's failure never stops others
-            logger.debug("package_install_ingest tick error: %s", e)
 
     def _tick_package_install_ingest(self) -> None:
         """Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest).
@@ -5249,11 +5206,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 meta.get("edges_added", meta.get("edges_created", 0)) or 0
             )
             submitted = item.get("submitted_at")
-            completed = item.get("completed_at")
+            completed_at = item.get("completed_at")
             if isinstance(submitted, (int, float)) and isinstance(
-                completed, (int, float)
+                completed_at, (int, float)
             ):
-                c["duration_ms"] += max(0.0, (completed - submitted) * 1000.0)
+                c["duration_ms"] += max(0.0, (completed_at - submitted) * 1000.0)
         for c in cats.values():
             c["duration_ms"] = round(c["duration_ms"], 1)
         return cats

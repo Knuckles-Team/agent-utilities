@@ -12,7 +12,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from pydantic import Field
 
@@ -25,6 +25,16 @@ from agent_utilities.orchestration.response_format import (
 from agent_utilities.security.error_surface import public_error_json, public_error_text
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_sync_mode(value: Any) -> Literal["auto", "cdc", "snapshot"]:
+    """Widen a declared/user-supplied sync_mode string to its Literal type.
+
+    The actual validity check runs downstream (external_graph.py's ingestion
+    path raises on an unrecognized mode); this just gives the constructed
+    request object the type its dataclass field declares.
+    """
+    return cast(Literal["auto", "cdc", "snapshot"], str(value or "auto"))
 
 
 _MCP_REGISTRATION_MAX_BYTES = 128 * 1024
@@ -606,6 +616,7 @@ def _register_mcp_server(name: str, raw_definition: str) -> None:
         _validate_mcp_server_definition(existing_definition)
     servers[name.strip()] = definition
     _atomic_private_json_write(path, document)
+
 
 logger = logging.getLogger(__name__)
 
@@ -2138,12 +2149,12 @@ def register_analysis_tools(mcp):
                     to_markdown as _hf_md,
                 )
 
-                results = _hf_run()
+                hf_results = _hf_run()
                 return _json.dumps(
                     {
                         "status": "ok",
-                        "reproduced": sum(1 for r in results if r.claim_reproduced),
-                        "total": len(results),
+                        "reproduced": sum(1 for r in hf_results if r.claim_reproduced),
+                        "total": len(hf_results),
                         "results": [
                             {
                                 "name": r.name,
@@ -2152,9 +2163,9 @@ def register_analysis_tools(mcp):
                                 "lift": r.lift,
                                 "claim_reproduced": r.claim_reproduced,
                             }
-                            for r in results
+                            for r in hf_results
                         ],
-                        "markdown": _hf_md(results),
+                        "markdown": _hf_md(hf_results),
                     },
                     default=str,
                 )
@@ -3030,7 +3041,7 @@ def register_analysis_tools(mcp):
                             max_collection_items=int(
                                 declared.get("ingest_max_collection_items") or 10_000
                             ),
-                            sync_mode=str(declared.get("sync_mode") or "auto"),
+                            sync_mode=_coerce_sync_mode(declared.get("sync_mode")),
                             reconcile_deletions=bool(
                                 declared.get("reconcile_deletions", True)
                             ),
@@ -3357,7 +3368,7 @@ def register_analysis_tools(mcp):
                             connector_config.get("ingest_max_collection_items")
                             or 10_000
                         ),
-                        sync_mode=str(connector_config.get("sync_mode") or "auto"),
+                        sync_mode=_coerce_sync_mode(connector_config.get("sync_mode")),
                         reconcile_deletions=bool(
                             connector_config.get("reconcile_deletions", True)
                         ),

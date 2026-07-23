@@ -152,9 +152,7 @@ def _deterministic_develop_evaluation(
     )
 
 
-def _make_llm_judge_evaluator(
-    loop: dict[str, Any], threshold: float
-) -> GoalEvaluator:
+def _make_llm_judge_evaluator(loop: dict[str, Any], threshold: float) -> GoalEvaluator:
     """A rubric/LLM-judge evaluator for ``research`` / ``skill`` loops.
 
     Wraps :class:`agent_utilities.harness.g_eval.GEval` (logprob-weighted
@@ -188,10 +186,13 @@ def _make_llm_judge_evaluator(
                     False, 0.0, measured=False, detail="no model endpoint (degraded)"
                 )
             scorer = _ge.GEval(
-                task_introduction=objective or "Evaluate the loop result against its goal",
+                task_introduction=objective
+                or "Evaluate the loop result against its goal",
                 evaluation_criteria=criteria,
             )
-            score, reasoning = scorer.score(objective or str(lp.get("name", "")), output)
+            score, reasoning = scorer.score(
+                objective or str(lp.get("name", "")), output
+            )
         except Exception as exc:  # noqa: BLE001 — a judge error must never crash the loop
             logger.debug("goal evaluator (g-eval) failed: %s", exc)
             return GoalEvaluation(

@@ -172,24 +172,24 @@ def register_workflow_tools(mcp: Any) -> None:
             if action == "status":
                 if not workflow:
                     raise ValueError("workflow must contain the run/session id")
-                background = _WORKFLOW_TASKS.get(workflow)
-                if background is not None and not background.done():
+                status_task = _WORKFLOW_TASKS.get(workflow)
+                if status_task is not None and not status_task.done():
                     return json.dumps(
                         {"session_id": workflow, "status": "running"}, default=str
                     )
-                if background is not None:
+                if status_task is not None:
                     try:
-                        result = background.result()
+                        task_result = status_task.result()
                     except Exception as exc:
                         return public_error_text(exc)
-                    return json.dumps(result.to_dict(), default=str)
+                    return json.dumps(task_result.to_dict(), default=str)
 
                 from agent_utilities.workflows.runner import _active_workflows
 
-                result = _active_workflows.get(workflow)
-                if result is None:
+                stored_result = _active_workflows.get(workflow)
+                if stored_result is None:
                     return json.dumps({"session_id": workflow, "status": "not_found"})
-                return json.dumps(result.to_dict(), default=str)
+                return json.dumps(stored_result.to_dict(), default=str)
 
             if action == "export":
                 if not workflow:

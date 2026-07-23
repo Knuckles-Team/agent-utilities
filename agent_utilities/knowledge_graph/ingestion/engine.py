@@ -1215,7 +1215,9 @@ class IngestionEngine:
         try:
             from ..extraction.fact_extractor import ExtractedFact as _EF
 
-            add_node = write_target.add_node
+            add_node = getattr(write_target, "add_node", None)
+            if add_node is None:
+                return written
             for fact, grounding in grounded:
                 for surface, type_key in (
                     (fact.subject, "subject_type"),
@@ -2823,7 +2825,6 @@ class IngestionEngine:
                     ],
                     source_instance=str(connector_id),
                     checkpoint=final_checkpoint,
-                    backend=backend,
                 )
                 checkpoint_recorded = bool(
                     cursor_result.get("watermark_advanced", False)
@@ -3292,7 +3293,11 @@ class IngestionEngine:
                 sem = _asyncio.Semaphore(concurrency)
 
                 async def _disc(entry):
-                    if not discover or entry["name"] in self_names:
+                    if (
+                        not discover
+                        or entry["name"] in self_names
+                        or discover_fn is None
+                    ):
                         return entry, [], False
                     async with sem:
                         try:
@@ -3323,9 +3328,7 @@ class IngestionEngine:
                     if failed:
                         unavailable += 1
                         continue
-                    server_name = _neutral_mcp_alias(
-                        config_hash=entry["config_hash"]
-                    )
+                    server_name = _neutral_mcp_alias(config_hash=entry["config_hash"])
                     safe_tools, _privacy = sanitize_for_persistence(tools)
                     self.kg.ingest_mcp_server(
                         name=server_name,

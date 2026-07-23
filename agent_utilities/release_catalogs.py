@@ -128,7 +128,9 @@ def _skill_directories(skills_root: Path) -> tuple[str, ...]:
         try:
             skill_metadata = (child / "SKILL.md").lstat()
         except FileNotFoundError as exc:
-            raise ReleaseCatalogError("prebundled_skill_entry_missing_contract") from exc
+            raise ReleaseCatalogError(
+                "prebundled_skill_entry_missing_contract"
+            ) from exc
         except OSError as exc:
             raise ReleaseCatalogError("prebundled_skill_entry_uninspectable") from exc
         if stat.S_ISLNK(skill_metadata.st_mode) or not stat.S_ISREG(
@@ -153,7 +155,9 @@ def _skill_files(skill_root: Path) -> list[dict[str, str]]:
             try:
                 metadata = child.lstat()
             except OSError as exc:
-                raise ReleaseCatalogError("prebundled_skill_tree_uninspectable") from exc
+                raise ReleaseCatalogError(
+                    "prebundled_skill_tree_uninspectable"
+                ) from exc
             if stat.S_ISLNK(metadata.st_mode):
                 raise ReleaseCatalogError("prebundled_skill_symlink_rejected")
             if stat.S_ISDIR(metadata.st_mode):

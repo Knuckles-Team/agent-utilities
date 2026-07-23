@@ -146,6 +146,9 @@ class IntelligenceGraphEngine(
         self.graph = self.graph_compute
         self._compute_is_authority = self.graph_compute is backend_graph
         self._process_owned = True
+        # The process-owned root engine is its own root; a `for_graph()` view
+        # (below) is stamped with a pointer back to the engine that created it.
+        self._process_root: IntelligenceGraphEngine = self
 
         # CONCEPT:AU-KG.backend.schedule-on-control-graph — bind the sole native
         # WorkItem authority and :Schedule store. The single-client production

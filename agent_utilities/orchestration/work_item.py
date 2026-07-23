@@ -1566,9 +1566,7 @@ def work_item_view_of_task(engine: Any, task_id: str) -> dict[str, Any] | None:
     return {
         "work_item_id": task_id,
         "kind": "ingest_task",
-        "status": _TASK_STATUS_TO_WORK_ITEM.get(
-            raw_status, "submitted"
-        ),
+        "status": _TASK_STATUS_TO_WORK_ITEM.get(raw_status, "submitted"),
         "native_status": raw_status,
         "shim": True,
     }
@@ -1676,7 +1674,9 @@ def loop_work_item_id(loop_id: str) -> str:
     return f"workitem:loop:{loop_id}"
 
 
-def set_loop_statechart_instance_id(engine: Any, item_id: str, instance_id: str) -> None:
+def set_loop_statechart_instance_id(
+    engine: Any, item_id: str, instance_id: str
+) -> None:
     """Attach the Loop's ``eg-statechart`` instance id to its backing WorkItem (W2.5).
 
     ``Method::Statechart::Instantiate`` server-generates ``instance_id`` (no
@@ -1792,11 +1792,7 @@ def transition_loop_work_item(
         return heartbeat(engine, item_id, claim, now=now, lease_ttl_s=lease_ttl_s)
     if normalized == "orphaned":
         item = get_work_item(engine, item_id)
-        return bool(
-            item
-            and item.get("status")
-            in {"submitted", "ready"}
-        )
+        return bool(item and item.get("status") in {"submitted", "ready"})
     if normalized in {"cancelled", "canceled"} and claim is None:
         return cancel_work_item(
             engine, item_id, reason=error_ref or "cancelled", now=now

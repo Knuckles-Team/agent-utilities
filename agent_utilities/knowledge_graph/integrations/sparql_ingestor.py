@@ -25,7 +25,9 @@ def _sparql_iri(value: object) -> str:
     if (
         not 1 <= len(rendered) <= 2_048
         or parsed.scheme not in {"http", "https", "urn"}
-        or any(character.isspace() or character in '<>"{}|^`\\' for character in rendered)
+        or any(
+            character.isspace() or character in '<>"{}|^`\\' for character in rendered
+        )
         or any(ord(character) < 32 or ord(character) == 127 for character in rendered)
     ):
         raise ValueError("SPARQL IRI is invalid")
@@ -66,7 +68,9 @@ class FederatedSparqlIngestor:
             bindings = results.get("bindings", []) if isinstance(results, dict) else []
             return bindings if isinstance(bindings, list) else []
         except Exception as exc:
-            logger.error("SPARQL source query failed: error_type=%s", type(exc).__name__)
+            logger.error(
+                "SPARQL source query failed: error_type=%s", type(exc).__name__
+            )
             return []
 
     def ingest_entities(self, limit: int = 100) -> int:
@@ -75,7 +79,11 @@ class FederatedSparqlIngestor:
         Queries each endpoint for instances of known mapped classes, translates them
         to our native RegistryNode schema, and adds provenance tracking edges.
         """
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10_000:
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= 10_000
+        ):
             raise ValueError("limit must be an integer between 1 and 10000")
         total_ingested = 0
         for endpoint in self.endpoints:

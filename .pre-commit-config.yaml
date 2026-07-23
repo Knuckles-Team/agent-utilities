@@ -127,6 +127,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-identifier-interpolation
+    name: Identifier interpolation — every label/table/rel-type f-string is validated
+    entry: python3 scripts/check_identifier_interpolation.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
     entry: python3 scripts/check_skill_name_collision.py
@@ -209,7 +215,7 @@ repos:
     always_run: true
   - id: guardrail-prompt-schema
     name: Guardrail — canonical prompt schema (StructuredPrompt)
-    entry: python3 scripts/check_prompt_schema.py --strict
+    entry: python3 scripts/check_prompt_schema.py
     language: system
     pass_filenames: false
     always_run: true

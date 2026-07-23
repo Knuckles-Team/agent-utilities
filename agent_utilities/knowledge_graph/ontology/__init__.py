@@ -226,7 +226,12 @@ _LAZY_EXPORTS: dict[str, str] = {
     },
     **{
         name: "lifecycle"
-        for name in ("OntologyError", "OntologyLifecycle", "summarize", "validate_graph")
+        for name in (
+            "OntologyError",
+            "OntologyLifecycle",
+            "summarize",
+            "validate_graph",
+        )
     },
 }
 

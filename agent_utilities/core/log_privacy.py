@@ -37,7 +37,18 @@ def sanitize_log_text(value: str) -> str:
 
 def _sanitize_value(value: Any) -> Any:
     if isinstance(value, BaseException):
-        return type(value).__name__
+        # Sanitize the exception's MESSAGE; do not discard it. Collapsing an
+        # exception to its class name made every `logger.error("...(%s)", exc)`
+        # emit "RuntimeError: RuntimeError" — the privacy boundary silently
+        # destroying the one piece of information the log existed to carry.
+        # That turned real faults (a denied scope, a missing driver, an
+        # unreadable durable record) into indistinguishable noise and cost real
+        # debugging time. The message still goes through the SAME text
+        # sanitizer as any other string, so endpoints, paths, host:port pairs
+        # and emails are redacted exactly as before — the class name alone was
+        # never what made this safe.
+        rendered = sanitize_log_text(str(value))
+        return f"{type(value).__name__}: {rendered}" if rendered else type(value).__name__
     if isinstance(value, Path):
         return "<path>"
     if isinstance(value, str):

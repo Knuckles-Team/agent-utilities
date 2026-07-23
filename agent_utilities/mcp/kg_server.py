@@ -693,6 +693,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_feeds": "/graph/feeds",
     "graph_sandbox": "/graph/sandbox",
     "graph_runvcs": "/graph/runvcs",
+    "graph_claims": "/graph/claims",
 }
 
 # Immutable seed used by deterministic catalog generators. Runtime registrars
@@ -802,6 +803,14 @@ MINING_ACTIONS = (
     "forecast",
     "text",
     "subgraph",
+    "entity_resolve",
+    "causal_impact",
+    "process",
+    "root_cause",
+    "risk_propagation",
+    "ontology_gap",
+    "retrieval_quality",
+    "community",
 )
 
 
@@ -905,7 +914,15 @@ def _make_mining_endpoint(action: str):
     ``{sequences|source,min_support,algorithm,...}`` for sequence,
     ``{values,algorithm,horizon,...}`` for forecast,
     ``{docs|source,algorithm,k,...}`` for text,
-    ``{label,min_support,max_edges,algorithm,...}`` for subgraph) plus an
+    ``{label,min_support,max_edges,algorithm,...}`` for subgraph,
+    ``{records|vectors|source,threshold,...}`` for entity_resolve,
+    ``{series,control,intervention_index,...}`` for causal_impact,
+    ``{traces,process_id,...}`` for process,
+    ``{nodes,edges,scores,symptom,...}`` for root_cause,
+    ``{nodes,edges,seed,...}`` for risk_propagation,
+    ``{label,...}`` for ontology_gap,
+    ``{traces,k,...}`` for retrieval_quality,
+    ``{label,algorithm,...}`` for community) plus an
     optional ``graph``, and dispatches the SAME
     ``_execute_tool("graph_mine", action=<action>, ...)`` core as the MCP verb.
     """
@@ -1283,50 +1300,6 @@ async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONRespon
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
         return _external_error_response(e)
-
-
-async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='publish_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
-
-    Push the platform's authoritative bundled TBox to a Stardog triplestore, overwriting
-    the target named graph by default so an updated ontology updates the catalog.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="publish_stardog",
-            named_graph=body.get("named_graph", ""),
-            overwrite=bool(body.get("overwrite", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='import_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-import).
-
-    Consume the TBox already living in a Stardog database / named graph back into the
-    engine, activating it for reasoning.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="import_stardog",
-            named_graph=body.get("named_graph", ""),
-            activate=bool(body.get("activate", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
@@ -3281,6 +3254,7 @@ def _build_server(
         register_argument_tools,
         register_audit_tools,
         register_bus_tools,
+        register_claim_tools,
         register_compliance_tools,
         register_domain_ops_tools,
         register_engine_surface_tools,
@@ -3321,6 +3295,7 @@ def _build_server(
             register_ontology_tools,
             register_reach_tools,
             register_bus_tools,
+            register_claim_tools,
             register_secret_tools,
             register_engine_tools,
             register_engine_surface_tools,
@@ -3661,9 +3636,9 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         route(_path, _make_tool_endpoint(_tool), ["POST"])
 
     # Data-mining REST twins (CONCEPT:EG-KG.mining.frequent-itemset-mining) — one natural-body
-    # /api/mining/<action> endpoint per graph_mine action (associate|cluster|anomaly|
-    # classify_fit|classify_predict|reduce), each dispatching the SAME graph_mine
-    # _execute_tool core (surface parity).
+    # /api/mining/<action> endpoint per graph_mine action (the full 18-action surface —
+    # see MINING_ACTIONS), each dispatching the SAME graph_mine _execute_tool core
+    # (surface parity).
     if "graph_mine" in ACTION_TOOL_ROUTES:
         for _mine_action in MINING_ACTIONS:
             route(
@@ -3788,6 +3763,7 @@ def mcp_server() -> None:
     _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
     _start_process_authority_supervisor(bootstrap_session)
 
+    co_service_supervisor = None
     try:
         logger.info("Starting graph-os MCP server (transport=%s)", transport)
 
@@ -3807,10 +3783,34 @@ def mcp_server() -> None:
                 str(getattr(args, "auth_type", "none") or "none").lower() != "none"
             ),
         )
-        _start_engine_bootstrap(bootstrap_session)
 
+        # Stdout purity BEFORE any co-service can log a single line. On stdio,
+        # stdout IS the JSON-RPC channel — this monkeypatches builtins.print /
+        # warnings.showwarning process-wide, so it protects every co-service
+        # thread started below too, not just this one. No-op for network
+        # transports (they don't own stdout as a protocol channel).
         if transport == "stdio":
             protect_stdio_jsonrpc()
+
+        # Self-composing co-services, phase 1: the KG host daemon must be decided
+        # BEFORE the engine is constructed below so it can win (or lose) the
+        # host-lock race as the first constructor (see co_service_supervisor's
+        # module docstring for the exact "client role + no live host" detection).
+        from agent_utilities.mcp.co_service_supervisor import (
+            bring_up_host_daemon_if_needed,
+            start_co_services,
+        )
+
+        bring_up_host_daemon_if_needed()
+        _start_engine_bootstrap(bootstrap_session)
+
+        # Self-composing co-services, phase 2: messaging (config-detected — real
+        # platform credentials present) now that a real engine exists; agent-webui
+        # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
+        # started in-process.
+        co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
+
+        if transport == "stdio":
             mcp.run(transport="stdio")
         elif transport == "streamable-http":
             mcp.run(
@@ -3822,6 +3822,8 @@ def mcp_server() -> None:
         else:
             raise ValueError("graph-os transport must be 'stdio' or 'streamable-http'")
     finally:
+        if co_service_supervisor is not None:
+            co_service_supervisor.stop_all()
         _PROCESS_SESSION = None
         _stop_process_authority_supervisor()
         # Best-effort teardown of any lazily-mounted fleet children.

@@ -154,9 +154,7 @@ class InferenceEngine:
         # ``MATCH (a)-[:R]->(b)-[:R]->(c)`` path patterns, so transitive rules
         # must be derived by traversing the native graph directly.
         if not self.engine.backend or new_inferences == 0:
-            logger.info(
-                "InferenceEngine: running native topological inference."
-            )
+            logger.info("InferenceEngine: running native topological inference.")
 
             ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 

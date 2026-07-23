@@ -263,7 +263,7 @@ class ConfigManager:
                 svc_data = svc.model_dump(
                     mode="json",
                     exclude_defaults=True,
-                    exclude=_INLINE_CREDENTIAL_FIELDS,
+                    exclude=set(_INLINE_CREDENTIAL_FIELDS),
                 )
                 group_data["services"].append(svc_data)
             data["groups"].append(group_data)

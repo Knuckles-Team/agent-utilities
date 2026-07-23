@@ -85,8 +85,9 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_harness.ttl` | `…/kg/harness` | Agentic harness engineering (AHE). |
 | `ontology_hr.ttl` | `…/kg/hr` | Human-resources domain. |
 | `ontology_identity.ttl` | `…/kg/identity` | Identity / IdP / access entities. |
-| `ontology_infrastructure.ttl` | `https://agent-utilities.dev/ontology/infrastructure` | Runtime-agnostic infra topology (AU-OS.governance.reactive-multi-axis-budget). **Note:** legacy `agent-utilities.dev` IRI namespace (not `knuckles.team/kg`) — kept as-is to avoid a cross-graph rename ripple; still imported by the canonical ontology. |
+| `ontology_infrastructure.ttl` | `…/kg/infrastructure` | Runtime-agnostic infra topology (AU-OS.governance.reactive-multi-axis-budget). |
 | `ontology_medical.ttl` | `…/kg/medical` | Medical domain extension. |
+| `ontology_native_source_connector.ttl` | `…/kg/native_source_connector` | Generated OWL mirror of the native_source_connector connector manifest (every resource, relation, and field) — `scripts/generate_connector_manifests.py --connector native_source_connector` (AU-KG.ontology.connector-manifest-compiler). |
 | `ontology_orchestration.ttl` | `…/kg/orchestration` | Orchestration: skill proposals, workflow/process distillation. |
 | `ontology_personal.ttl` | `…/kg/personal` | Personal-knowledge domain. |
 | `ontology_sdd.ttl` | `…/kg/sdd` | Spec-driven development (Requirements, Features, TestCases). |

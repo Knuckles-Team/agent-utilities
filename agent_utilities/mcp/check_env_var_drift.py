@@ -359,6 +359,7 @@ def _env_names_from_tree(tree: ast.AST) -> set[str]:
             if name:
                 found.add(name)
 
+        value: ast.expr | None
         if isinstance(node, ast.Assign):
             targets = node.targets
             value = node.value

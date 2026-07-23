@@ -1594,6 +1594,86 @@ def _check_secrets() -> dict[str, Any]:
     )
 
 
+def _check_secrets_backend() -> dict[str, Any]:
+    """Flag a runtime secret reference whose scheme names a backend that the
+    *configured* ``SECRETS_BACKEND`` does not match.
+
+    ``SecretsClient.resolve_ref`` resolves every ``vault://``/``secret://``
+    reference through whichever backend is active — the scheme itself never
+    selects a backend (CONCEPT:AU-OS.config.secrets-authentication). So a
+    ``vault://`` reference silently resolves against the engine-backed
+    ``__secrets__`` store instead of the named Vault/OpenBao instance when
+    ``SECRETS_BACKEND != "vault"`` — and can even appear "resolved" if a
+    same-named key happens to exist in the wrong store, which is why this is a
+    *scheme/backend consistency* gate, independent of whether resolution
+    happens to succeed (``_check_secrets`` above only catches total failure).
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.deployment.config_generator import (
+            secret_reference_scheme_counts,
+        )
+
+        cfg = AgentConfig()
+        backend = str(getattr(cfg, "secrets_backend", None) or "engine")
+        counts = secret_reference_scheme_counts(cfg)
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "secrets_backend",
+            "fail",
+            f"secret reference scheme scan failed ({type(exc).__name__})",
+            remediation="repair AgentConfig construction or the configured secrets backend",
+            skill="agent-utilities-deployment",
+            data={"redacted": True},
+        )
+
+    vault_refs = counts.get("vault", 0)
+    engine_refs = counts.get("secret", 0)
+    data = {
+        "configured_backend": backend,
+        "vault_scheme_ref_count": vault_refs,
+        "secret_scheme_ref_count": engine_refs,
+        "redacted": True,
+    }
+
+    if vault_refs and backend != "vault":
+        return _result(
+            "secrets_backend",
+            "fail",
+            f"{vault_refs} vault:// reference(s) configured but SECRETS_BACKEND={backend!r}; "
+            "they resolve against the engine-backed store instead of Vault/OpenBao",
+            remediation=(
+                "Set SECRETS_BACKEND=vault so vault:// references resolve against the "
+                "actual Vault/OpenBao instance, or replace them with secret:// / env:// "
+                "references if the engine-backed store is genuinely intended."
+            ),
+            skill="secret-vault-manager",
+            data=data,
+        )
+
+    if engine_refs and backend == "vault":
+        return _result(
+            "secrets_backend",
+            "warn",
+            f"{engine_refs} secret:// reference(s) configured while SECRETS_BACKEND='vault' "
+            "(best-effort: secret:// does not itself guarantee the value lives in vault)",
+            remediation=(
+                "Confirm each secret:// reference's value genuinely lives in the "
+                "configured vault mount, or rename it vault:// for an explicit, "
+                "auditable scheme match."
+            ),
+            skill="secret-vault-manager",
+            data=data,
+        )
+
+    return _result(
+        "secrets_backend",
+        "ok",
+        f"secret reference schemes are consistent with SECRETS_BACKEND={backend!r}",
+        data=data,
+    )
+
+
 def _check_auth() -> dict[str, Any]:
     from agent_utilities.core.config import config, setting
     from agent_utilities.security.request_identity import (
@@ -1682,8 +1762,12 @@ def _check_outbound_auth() -> dict[str, Any]:
             f"outbound MCP child authentication is configured ({mode})",
             data={"mode": mode, "ready": True, "redacted": True},
         )
-    missing = status.get("missing") or ()
-    invalid = status.get("invalid") or ()
+    missing = status.get("missing") or []
+    invalid = status.get("invalid") or []
+    if not isinstance(missing, list):
+        missing = []
+    if not isinstance(invalid, list):
+        invalid = []
     return _result(
         "outbound_auth",
         "fail",
@@ -2745,7 +2829,7 @@ def _check_langfuse(live: bool = False) -> dict[str, Any]:
             or cfg.langfuse_kg_auto_ingest
         )
         executable_ready = langfuse_provider_contract_ready()
-        data = {
+        data: dict[str, Any] = {
             "enabled": enabled,
             "credential_pair_configured": public_input and secret_input,
             "credential_refs_configured": bool(
@@ -2945,7 +3029,7 @@ def _probe_native_optimizer_live() -> dict[str, Any]:
         },
     )
     attempt = try_native_optimization(engine, request)
-    out = {
+    out: dict[str, Any] = {
         "live_probed": True,
         "operational": attempt.disposition == "completed",
         "privacy_safe_payload": True,
@@ -3895,6 +3979,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "ingestion_coverage": _check_ingestion_coverage,
     "connector_coverage": _check_connector_coverage,
     "secrets": _check_secrets,
+    "secrets_backend": _check_secrets_backend,
     "auth": _check_auth,
     "outbound_auth": _check_outbound_auth,
     "skill_certification": _check_skill_certification,

@@ -159,6 +159,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
         from agent_utilities.core.embedding_failover import active_embedding_endpoint
         from agent_utilities.core.embedding_utilities import create_embedding_model
         from agent_utilities.core.model_concurrency import map_concurrent_sync
+        from agent_utilities.core.model_runtime_auth import resolve_model_api_key
 
         def _resolve_active() -> tuple[Any, Any]:
             """Resolve the ACTIVE endpoint + its cached client (CONCEPT:AU-KG.enrichment.each-call-resolves-active)."""
@@ -171,7 +172,7 @@ def make_embed_fn(batch_size: int | None = None) -> EmbedFn:
                 provider=endpoint.provider,
                 model=endpoint.model_id,
                 base_url=endpoint.base_url,
-                api_key=endpoint.api_key,
+                api_key=resolve_model_api_key(reference=endpoint.api_key_ref),
             )
             # Pin the model's internal batch so a chunk we hand it is ONE POST, not a
             # fan of DEFAULT_EMBED_BATCH_SIZE-sized sub-POSTs (the serial-POST symptom).

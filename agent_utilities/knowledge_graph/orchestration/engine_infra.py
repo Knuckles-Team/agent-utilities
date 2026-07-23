@@ -184,7 +184,9 @@ class InfrastructureEngineMixin(_Base):
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
         for alias, host_info, vars_dict in discovered:
-            ansible_host = host_info.get("ansible_host") or vars_dict.get("ansible_host")
+            ansible_host = host_info.get("ansible_host") or vars_dict.get(
+                "ansible_host"
+            )
             if not ansible_host:
                 continue
 
@@ -204,8 +206,11 @@ class InfrastructureEngineMixin(_Base):
                 ("capacity_tb", 1_000_000_000),
                 ("vram_gb", 1_000_000),
             ):
+                raw_value = merged_info.get(key)
+                if raw_value is None:
+                    continue
                 try:
-                    number = float(merged_info.get(key))
+                    number = float(raw_value)
                 except (TypeError, ValueError):
                     continue
                 if math.isfinite(number) and 0 < number <= upper:
@@ -311,7 +316,9 @@ class InfrastructureEngineMixin(_Base):
                     self._upsert_node("StorageArray", storage_id, s_storage)
 
                 # Add edge attached_storage
-                self.graph.add_edge(host_id, storage_id, relationship="attached_storage")
+                self.graph.add_edge(
+                    host_id, storage_id, relationship="attached_storage"
+                )
                 if self.backend:
                     self.backend.execute(
                         "MATCH (h:Host {id: $hid}), (s:StorageArray {id: $sid}) "

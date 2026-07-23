@@ -492,9 +492,7 @@ def _process_counts(marker: str) -> _ProcessCounts:
     )
 
 
-def _wait_for_terminal_process_gate(
-    marker: str, grace_seconds: int
-) -> _ProcessCounts:
+def _wait_for_terminal_process_gate(marker: str, grace_seconds: int) -> _ProcessCounts:
     """Wait for lifecycle-owned process teardown to become observable.
 
     MCP stdio children run in their own sessions.  GraphOS awaits their shutdown,

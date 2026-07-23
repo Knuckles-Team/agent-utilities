@@ -159,13 +159,16 @@ def resolve_provider_ontologies() -> list[tuple[str, Path]]:
         provider = assets.registration.name
         if provider == "agent-utilities":
             continue
-        asset_dir = resolve_managed_generation(
-            materialization_root / provider,
-            provider=provider,
-            leg="ontologies",
-            registration=assets.registration.digest,
-            source_manifest=assets.manifest,
-        ) or assets.source_root
+        asset_dir = (
+            resolve_managed_generation(
+                materialization_root / provider,
+                provider=provider,
+                leg="ontologies",
+                registration=assets.registration.digest,
+                source_manifest=assets.manifest,
+            )
+            or assets.source_root
+        )
         ttls = sorted(asset_dir.glob("*.ttl"))
         shapes = asset_dir / "shapes"
         if shapes.is_dir():

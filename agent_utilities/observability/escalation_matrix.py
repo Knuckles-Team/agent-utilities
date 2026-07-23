@@ -579,7 +579,9 @@ class EscalationGate:
                 },
             )
         except Exception as exc:  # noqa: BLE001 - optional sink, type-only log
-            logger.debug("escalation persist skipped: error_type=%s", type(exc).__name__)
+            logger.debug(
+                "escalation persist skipped: error_type=%s", type(exc).__name__
+            )
 
 
 def make_decision_provider(decisions: dict[str, Any]) -> Any:

@@ -108,6 +108,7 @@ def __getattr__(name: str) -> Any:
     globals()[name] = value
     return value
 
+
 __all__ = [
     # Assimilation empirical-parity benchmark suite (CONCEPT:AU-AHE.assimilation.empirical-parity-evidence-assimilation)
     "BenchmarkResult",

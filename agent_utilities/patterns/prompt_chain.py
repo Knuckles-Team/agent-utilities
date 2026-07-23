@@ -37,7 +37,9 @@ _MAX_BRANCH_EXPRESSION_BYTES = 4096
 _MAX_BRANCH_AST_NODES = 64
 
 
-def _evaluate_branch_condition(expression: str, output: str) -> bool | str | int | float:
+def _evaluate_branch_condition(
+    expression: str, output: str
+) -> bool | str | int | float:
     """Evaluate a small, side-effect-free branch expression language.
 
     Supported forms cover the declarative branch use case: comparisons against

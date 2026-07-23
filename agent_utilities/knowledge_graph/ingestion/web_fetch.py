@@ -90,9 +90,7 @@ def resolve_web_fetch(
         try:
             page = fn(url, timeout)
         except Exception as exc:  # noqa: BLE001 — try the next backend
-            logger.debug(
-                "web-fetch backend %s failed (%s)", name, type(exc).__name__
-            )
+            logger.debug("web-fetch backend %s failed (%s)", name, type(exc).__name__)
             page = None
         if page is not None and page.markdown.strip():
             return page

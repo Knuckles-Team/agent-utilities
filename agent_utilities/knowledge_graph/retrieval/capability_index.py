@@ -127,6 +127,7 @@ def _checked_artifact(path: Path, *, maximum_bytes: int) -> Path:
         raise ValueError("capability index artifact exceeds its safe bound")
     return path
 
+
 # Optional ANN backend — never a hard import.
 try:  # pragma: no cover - import guard
     import hnswlib  # type: ignore
@@ -1174,7 +1175,9 @@ class CapabilityIndex:
             path / "embeddings.npy",
             maximum_bytes=expected_vector_bytes + 1024 * 1024,
         )
-        if not isinstance(meta.get("embeddings_sha256"), str) or not secrets.compare_digest(
+        if not isinstance(
+            meta.get("embeddings_sha256"), str
+        ) or not secrets.compare_digest(
             _sha256_file(embeddings_path), meta["embeddings_sha256"]
         ):
             raise ValueError("capability index embedding digest is invalid")

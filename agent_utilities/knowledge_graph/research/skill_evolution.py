@@ -549,7 +549,7 @@ def run_reflact_cycle(
         promote as promote_gate,
     )
 
-    # The generalized gate (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+    # The generalized gate (CONCEPT:AU-AHE.harness.unified-promotion-gate):
     # evaluate_promotion(strict=True, min_delta=0) is byte-identical to the ported
     # skill_gate.evaluate_promotion comparison (candidate strictly beats incumbent),
     # and promote() consults action_policy under the SAME "promote_skill_version"
@@ -561,8 +561,12 @@ def run_reflact_cycle(
             artifact_kind="skill",
             artifact_id=skill_id,
             candidate_ref=candidate_id,
-            candidate_reward=RewardSignal(value=candidate_score, source="internal_corpus"),
-            incumbent_reward=RewardSignal(value=incumbent_score, source="internal_corpus"),
+            candidate_reward=RewardSignal(
+                value=candidate_score, source="internal_corpus"
+            ),
+            incumbent_reward=RewardSignal(
+                value=incumbent_score, source="internal_corpus"
+            ),
             source="loop_engine",
             reason=(
                 f"skill {skill_id} candidate {candidate_id} beats incumbent "

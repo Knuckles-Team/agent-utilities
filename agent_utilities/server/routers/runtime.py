@@ -110,7 +110,9 @@ def _require_runtime_capability(request: Request, *, mutate: bool) -> None:
             )
         )
     except Exception:
-        raise HTTPException(status_code=403, detail="runtime capability required") from None
+        raise HTTPException(
+            status_code=403, detail="runtime capability required"
+        ) from None
     required = {"runtime:execute", "runtime:admin", "admin"}
     if not mutate:
         required.add("runtime:read")
@@ -171,7 +173,9 @@ async def _reap_sessions() -> None:
     from agent_utilities.core.config import config
 
     cutoff = time.monotonic() - config.runtime_session_ttl_seconds
-    expired = [sid for sid, session in _SESSIONS.items() if session.last_access < cutoff]
+    expired = [
+        sid for sid, session in _SESSIONS.items() if session.last_access < cutoff
+    ]
     for sid in expired:
         session = _SESSIONS.pop(sid, None)
         if session is not None:
@@ -206,7 +210,9 @@ async def create_session(req: CreateSessionRequest, request: Request) -> dict[st
         ) >= max(1, config.runtime_max_sessions // 2):
             raise HTTPException(status_code=429, detail="runtime session limit reached")
         if req.image not in config.runtime_workspace_images:
-            raise HTTPException(status_code=403, detail="workspace image is not approved")
+            raise HTTPException(
+                status_code=403, detail="workspace image is not approved"
+            )
         sid = uuid.uuid4().hex
         backend = DockerWorkspace(
             run_id=sid,
@@ -357,9 +363,7 @@ def _run_provenance(run_id: str) -> dict[str, Any]:
 
         return sanitize_for_persistence(result)[0]
     except Exception as exc:  # noqa: BLE001 - KG optional
-        logger.debug(
-            "provenance query failed (exception_type=%s)", type(exc).__name__
-        )
+        logger.debug("provenance query failed (exception_type=%s)", type(exc).__name__)
         return {"trace_ref": "unavailable", "actions": [], "mutated": []}
 
 

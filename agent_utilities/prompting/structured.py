@@ -373,9 +373,7 @@ def render_ephemeral_demonstrations(
     )
     # Keep trace-derived values from terminating or introducing prompt delimiters.
     encoded = (
-        encoded.replace("<", r"\u003c")
-        .replace(">", r"\u003e")
-        .replace("`", r"\u0060")
+        encoded.replace("<", r"\u003c").replace(">", r"\u003e").replace("`", r"\u0060")
     )
     block = (
         "### GOVERNED EXECUTION EXEMPLARS\n"
@@ -556,8 +554,7 @@ class StructuredPrompt(BaseModel):
                 "optimized_instruction",
             }
             foreign_compiled_state = any(
-                str(key).endswith("_compiled_state")
-                and key != "program_compiled_state"
+                str(key).endswith("_compiled_state") and key != "program_compiled_state"
                 for key in value
             )
             if forbidden.intersection(value) or foreign_compiled_state:
@@ -604,8 +601,7 @@ class StructuredPrompt(BaseModel):
             return self.render()
         demonstrations = list(resolver(list(state.demonstration_refs)))
         if len(demonstrations) != len(state.demonstration_refs) or any(
-            not isinstance(demonstration, Mapping)
-            for demonstration in demonstrations
+            not isinstance(demonstration, Mapping) for demonstration in demonstrations
         ):
             raise RuntimeError("governed program demonstrations are unavailable")
         return render_ephemeral_demonstrations(self.render(), demonstrations)

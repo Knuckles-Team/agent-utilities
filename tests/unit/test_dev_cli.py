@@ -108,6 +108,74 @@ def test_install_uses_current_universal_skills_bridge_path(monkeypatch):
     assert str(fake_target) not in str(out)
 
 
+def test_main_graph_os_dispatches_straight_to_mcp_server(monkeypatch):
+    """``agent-utilities graph-os ...`` (what ``uvx agent-utilities graph-os``
+    runs) must call the real ``mcp_server()`` entrypoint directly — bypassing
+    this module's own argparse (subparsers can't losslessly forward arbitrary
+    flags like ``--transport``) and the generic JSON envelope other
+    subcommands print."""
+    calls: list[str] = []
+    fake_kg_server = types.ModuleType("agent_utilities.mcp.kg_server")
+    fake_kg_server.mcp_server = lambda: calls.append("mcp_server")
+    monkeypatch.setitem(sys.modules, "agent_utilities.mcp.kg_server", fake_kg_server)
+
+    rc = cli.main(["graph-os", "--transport", "stdio"])
+
+    assert rc == 0
+    assert calls == ["mcp_server"]
+
+
+def test_main_graph_os_prints_no_json_envelope(monkeypatch, capsys):
+    """graph-os owns stdout for its whole lifetime on stdio — the generic
+    ``json.dumps(out, ...)`` envelope every other subcommand prints must NOT
+    run for it."""
+    fake_kg_server = types.ModuleType("agent_utilities.mcp.kg_server")
+    fake_kg_server.mcp_server = lambda: None
+    monkeypatch.setitem(sys.modules, "agent_utilities.mcp.kg_server", fake_kg_server)
+
+    cli.main(["graph-os"])
+
+    assert capsys.readouterr().out == ""
+
+
+def test_main_deploy_plan_live_path(monkeypatch, capsys):
+    """LIVE-PATH: ``agent-utilities deploy-plan`` drives the real
+    ``agent_utilities.deployment.backends`` planner end to end (not a mock) and
+    emits its plan as the standard JSON envelope."""
+    from agent_utilities.mcp import co_service_supervisor as cosvc
+    from agent_utilities.messaging import daemon as messaging_daemon
+
+    monkeypatch.setattr(
+        messaging_daemon, "configured_platforms", lambda engine=None: []
+    )
+    monkeypatch.setattr(cosvc, "host_daemon_needed", lambda: False)
+
+    class _Cfg:
+        enable_web_ui = False
+
+    monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
+
+    rc = cli.main(
+        [
+            "--json",
+            "deploy-plan",
+            "--backend",
+            "container",
+            "--target",
+            "r510",
+            "--param",
+            "image=agent-utilities:test",
+        ]
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["backend"] == "container"
+    assert out["target"] == "r510"
+    assert out["live_capable"] is False
+    assert out["steps"][1]["fleet_call"]["server"] == "container-manager-mcp"
+    assert "agent-utilities:test" in out["artifacts"]["compose.yml"]
+
+
 def test_context_glossary_present():
     from pathlib import Path
 

@@ -1985,7 +1985,9 @@ class SynthesisEngine:
             **{k: v for k, v in payload.items() if k not in ("statement",)},
         )
         # Link proposal to real node
-        self.engine.graph.add_edge(proposal_id, real_node_id, relationship="PROMOTED_TO")
+        self.engine.graph.add_edge(
+            proposal_id, real_node_id, relationship="PROMOTED_TO"
+        )
         logger.info("Approved proposal %s → created %s", proposal_id, real_node_id)
         return True
 

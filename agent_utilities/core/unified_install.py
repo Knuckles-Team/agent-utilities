@@ -15,6 +15,7 @@ import os
 import secrets
 import shutil
 import stat
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -83,7 +84,9 @@ def _materialization_lock(root: Path) -> Iterator[None]:
 
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     if not _safe_directory(root):
-        raise ProviderOwnershipConflict("materialization root is not a regular directory")
+        raise ProviderOwnershipConflict(
+            "materialization root is not a regular directory"
+        )
     lock_path = root / _LOCK_FILE
     try:
         lock_info = lock_path.lstat()
@@ -98,7 +101,9 @@ def _materialization_lock(root: Path) -> Iterator[None]:
     try:
         info = os.fstat(descriptor)
         if not stat.S_ISREG(info.st_mode):
-            raise ProviderOwnershipConflict("materialization lock is not a regular file")
+            raise ProviderOwnershipConflict(
+                "materialization lock is not a regular file"
+            )
         opened_path = lock_path.lstat()
         if (
             _is_linklike(lock_path)
@@ -106,7 +111,7 @@ def _materialization_lock(root: Path) -> Iterator[None]:
             or opened_path.st_ino != info.st_ino
         ):
             raise ProviderOwnershipConflict("materialization lock changed during open")
-        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
             import msvcrt
 
             if info.st_size == 0:
@@ -120,7 +125,7 @@ def _materialization_lock(root: Path) -> Iterator[None]:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
     finally:
-        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
             import msvcrt
 
             try:
@@ -158,10 +163,10 @@ def _provider_root(root: Path, provider: str, leg: str) -> tuple[Path, bool]:
     created = False
     if destination.exists():
         if not _safe_directory(destination):
-            raise ProviderOwnershipConflict("provider destination is not a regular directory")
-        marker = read_managed_provider_marker(
-            destination, provider=provider, leg=leg
-        )
+            raise ProviderOwnershipConflict(
+                "provider destination is not a regular directory"
+            )
+        marker = read_managed_provider_marker(destination, provider=provider, leg=leg)
         if marker is None:
             raise ProviderOwnershipConflict("provider destination is operator-owned")
     else:
@@ -421,7 +426,12 @@ def install_unified() -> dict[str, Any]:
                     result[leg]["providers"] += int(active)
                     result[leg]["files"] += count
                     result[leg]["failed"] += int(not active)
-                except (OSError, shutil.Error, ProviderMaterializationError, ValueError) as exc:
+                except (
+                    OSError,
+                    shutil.Error,
+                    ProviderMaterializationError,
+                    ValueError,
+                ) as exc:
                     result[leg]["failed"] += 1
                     logger.warning(
                         "Provider materialization failed (exception_type=%s)",
@@ -439,7 +449,12 @@ def install_unified() -> dict[str, Any]:
                 )
                 result[leg]["providers"] += 1
                 result[leg]["files"] += count
-            except (OSError, shutil.Error, ProviderMaterializationError, ValueError) as exc:
+            except (
+                OSError,
+                shutil.Error,
+                ProviderMaterializationError,
+                ValueError,
+            ) as exc:
                 result[leg]["failed"] += 1
                 logger.warning(
                     "Hub materialization failed (exception_type=%s)", type(exc).__name__

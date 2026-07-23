@@ -388,9 +388,7 @@ class PolicyIngestor:
                         )
                     )
                 except Exception as exc:
-                    logger.debug(
-                        "Failed to embed policy (%s)", type(exc).__name__
-                    )
+                    logger.debug("Failed to embed policy (%s)", type(exc).__name__)
 
             self.engine.graph.add_node(node.id, **node.model_dump())
             if self.engine.backend:

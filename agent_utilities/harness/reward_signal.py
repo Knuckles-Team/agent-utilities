@@ -85,10 +85,12 @@ class RewardSource(Protocol):
     existing producer's math changes; this is a naming + provenance exercise.
     """
 
-    def reward_for(self, artifact_ref: str, example_ref: str) -> RewardSignal: ...
+    def reward_for(self, artifact_ref: str, _example_ref: str) -> RewardSignal: ...
 
 
-def blend(*signals: RewardSignal, weights: Sequence[float] | None = None) -> RewardSignal:
+def blend(
+    *signals: RewardSignal, weights: Sequence[float] | None = None
+) -> RewardSignal:
     """Confidence- and weight-aware blend of N :class:`RewardSignal`\\ s into one.
 
     Generalizes ``langfuse_signal.blend_reward`` (2-operand, weight-only) to N

@@ -308,7 +308,7 @@ def emit_saturation_signal(engine: Any, gauge: dict[str, Any]) -> str | None:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Cross-vector artifact-version lineage read (CONCEPT:AU-AHE.evolution.unified-artifact-lineage)
+# Cross-vector artifact-version lineage read (CONCEPT:AU-AHE.harness.unified-artifact-lineage)
 # ────────────────────────────────────────────────────────────────────────
 #: Every node label an :class:`~agent_utilities.models.knowledge_graph.ArtifactVersionNode`
 #: subclass is persisted under today. There is no single ``:ArtifactVersion``

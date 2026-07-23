@@ -201,7 +201,7 @@ class GraphBackend(ABC):
         read-only execution. Public query surfaces call this contract and fail
         closed for backends that expose only an ambiguous read/write command.
         """
-        raise NotImplementedError(
+        raise NotImplementedError(  # ABSTRACT-OK: fail-closed default for backends that cannot enforce read-only execution
             f"{type(self).__name__} does not expose a server-enforced read-only query"
         )
 

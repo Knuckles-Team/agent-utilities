@@ -404,7 +404,7 @@ class KafkaQueueBackend(QueueBackend):
                     self._pending_deliveries = []
                     remaining = int(self._producer.flush(_DELIVERY_TIMEOUT_S) or 0)
                     if remaining:
-                        failure = TimeoutError(
+                        failure: BaseException = TimeoutError(
                             "Kafka delivery barrier expired with records pending"
                         )
                         for pending in batch:

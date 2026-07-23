@@ -103,8 +103,7 @@ def load_trace_cursor(engine: Any, consumer: str) -> TraceCursor:
         )
     except Exception as exc:
         raise RuntimeError(
-            "trace cursor authority read failed "
-            f"(error_type={type(exc).__name__})"
+            f"trace cursor authority read failed (error_type={type(exc).__name__})"
         ) from None
     return TraceCursor.from_rows(
         [row for row in (rows or []) if isinstance(row, Mapping)]
@@ -154,8 +153,7 @@ def save_trace_cursor(
             )
         except Exception as exc:
             raise RuntimeError(
-                "trace cursor authority write failed "
-                f"(error_type={type(exc).__name__})"
+                f"trace cursor authority write failed (error_type={type(exc).__name__})"
             ) from None
         return completed
 

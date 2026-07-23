@@ -303,9 +303,7 @@ class MemoryEngine:
 
         from .hygiene import MemoryHygiene
 
-        logger.debug(
-            "compact_traces(threshold=%s) → KG-2.17 hygiene pass", threshold
-        )
+        logger.debug("compact_traces(threshold=%s) → KG-2.17 hygiene pass", threshold)
         report = MemoryHygiene(self.engine).run()
         return int(report.get("archived", 0)) + int(report.get("merged", 0))
 

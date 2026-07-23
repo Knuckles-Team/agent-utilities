@@ -231,9 +231,9 @@ class CognitiveScheduler:
 
         self._processes: dict[str, AgentProcess] = {}
         self._lock = asyncio.Lock()
-        self._queue: asyncio.PriorityQueue[
-            tuple[int, float, str]
-        ] = asyncio.PriorityQueue()
+        self._queue: asyncio.PriorityQueue[tuple[int, float, str]] = (
+            asyncio.PriorityQueue()
+        )
 
         # CONCEPT:AU-AHE.harness.multi-loop-convergence-monitor — Optional convergence monitor for multi-loop tasks
         self.convergence_monitor: ConvergenceMonitor | None = None
@@ -262,9 +262,7 @@ class CognitiveScheduler:
                 if num_nodes > 1:
                     return float(degree) / (num_nodes - 1)
         except Exception as e:
-            logger.debug(
-                "Failed to calculate graph centrality (%s)", type(e).__name__
-            )
+            logger.debug("Failed to calculate graph centrality (%s)", type(e).__name__)
 
         return 0.0
 

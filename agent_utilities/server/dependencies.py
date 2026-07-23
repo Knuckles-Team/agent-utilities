@@ -14,6 +14,7 @@ from .models import ReloadableApp
 
 logger = logging.getLogger(__name__)
 
+
 def setup_server_file_logging(workspace: str | None = None) -> str | None:
     """Configure a file handler for the root logger to capture all server logs."""
     from agent_utilities.core.workspace import WORKSPACE_DIR

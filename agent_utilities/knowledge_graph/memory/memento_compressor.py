@@ -143,7 +143,9 @@ def _raw_retention_cipher() -> _RawRetentionCipher | None:
     try:
         secret = _resolve_secret_reference(reference)
     except Exception:  # the reference/error can itself contain deployment details
-        logger.warning("Memento raw retention key could not be resolved; retention disabled")
+        logger.warning(
+            "Memento raw retention key could not be resolved; retention disabled"
+        )
         return None
     if not secret:
         return None
@@ -446,7 +448,9 @@ def _persist_memento(
                 }
             except Exception:
                 # Encryption is mandatory for this path. Never fall back to plaintext.
-                logger.warning("Memento raw-block encryption failed; retention disabled")
+                logger.warning(
+                    "Memento raw-block encryption failed; retention disabled"
+                )
                 block_id = None
                 block_props = None
 
@@ -760,7 +764,9 @@ def get_recent_mementos(
                     },
                 )
             except Exception:
-                logger.warning("Memento content could not be privacy-sanitized in place")
+                logger.warning(
+                    "Memento content could not be privacy-sanitized in place"
+                )
         records.append(
             {
                 "id": node_id,

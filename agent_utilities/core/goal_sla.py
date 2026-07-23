@@ -100,7 +100,9 @@ def _open_goals(engine: Any) -> list[dict[str, Any]]:
     }
     open_goals: list[dict[str, Any]] = []
     for goal in definitions:
-        item = _wi.get_work_item(engine, _wi.loop_work_item_id(str(goal.get("id") or "")))
+        item = _wi.get_work_item(
+            engine, _wi.loop_work_item_id(str(goal.get("id") or ""))
+        )
         status = status_view.get(str((item or {}).get("status") or ""))
         if status in _OPEN_STATUSES:
             open_goals.append({**goal, "status": status})

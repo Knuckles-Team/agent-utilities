@@ -310,6 +310,8 @@ class SpillBuffer:
                     "INSERT INTO spill (payload, created_at) VALUES (?, ?)",
                     (json.dumps(record, default=str), time.time()),
                 )
+                if cursor.lastrowid is None:
+                    return None
                 durable_id = int(cursor.lastrowid)
             return durable_id
         except Exception:  # noqa: BLE001 — never raise into the emit hot path

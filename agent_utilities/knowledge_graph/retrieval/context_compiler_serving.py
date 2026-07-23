@@ -109,16 +109,12 @@ def resolve_bundle_chat_client(
     http_client = create_http_client(
         timeout=timeout_s,
         verify=tls_profile.ssl_context,
-        headers=resolve_model_headers(
-            reference=cfg.headers_ref if cfg else None
-        ),
+        headers=resolve_model_headers(reference=cfg.headers_ref if cfg else None),
         auth=oauth2_auth,
     )
     client = OpenAI(
         base_url=resolved_base_url,
-        api_key=(
-            resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None
-        )
+        api_key=(resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None)
         or "oauth2-managed",
         http_client=http_client,
         timeout=timeout_s,
@@ -174,17 +170,13 @@ def resolve_bundle_async_chat_client(
     http_client = create_async_http_client(
         timeout=timeout_s,
         verify=tls_profile.ssl_context,
-        headers=resolve_model_headers(
-            reference=cfg.headers_ref if cfg else None
-        ),
+        headers=resolve_model_headers(reference=cfg.headers_ref if cfg else None),
         auth=oauth2_auth,
     )
     return (
         AsyncOpenAI(
             base_url=resolved_base_url,
-            api_key=(
-                resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None
-            )
+            api_key=(resolve_model_api_key(reference=cfg.api_key_ref) if cfg else None)
             or "oauth2-managed",
             http_client=http_client,
             timeout=timeout_s,

@@ -308,9 +308,7 @@ class FeedbackService:
                 )
                 created.append(case_id)
             except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug(
-                    "reads_avoided eval case failed (%s)", type(exc).__name__
-                )
+                logger.debug("reads_avoided eval case failed (%s)", type(exc).__name__)
         return CorrectionResult(
             "reads_avoided",
             capability_id,
@@ -464,9 +462,7 @@ class FeedbackService:
                 )
                 created.append(case_id)
             except Exception as exc:  # pragma: no cover - corpus optional
-                logger.debug(
-                    "action_outcome eval case failed (%s)", type(exc).__name__
-                )
+                logger.debug("action_outcome eval case failed (%s)", type(exc).__name__)
         return CorrectionResult(
             "action_outcome",
             action_id,
@@ -516,8 +512,7 @@ class FeedbackService:
                 "task": getattr(c, "query", "") or "",
                 "response": getattr(c, "expected_output", "") or "",
                 "example_ref": str(
-                    (getattr(c, "metadata", {}) or {}).get("program_example_ref")
-                    or ""
+                    (getattr(c, "metadata", {}) or {}).get("program_example_ref") or ""
                 ),
             }
             for c in cases

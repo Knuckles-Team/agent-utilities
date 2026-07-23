@@ -84,8 +84,8 @@ def register_evolution_tools(mcp: Any) -> None:
                     return json.dumps(
                         distiller.materialize(target), indent=2, default=str
                     )
-                report = distiller.run(draft=draft)
-                return json.dumps(report.to_dict(), indent=2, default=str)
+                distill_report = distiller.run(draft=draft)
+                return json.dumps(distill_report.to_dict(), indent=2, default=str)
 
             if action == "standardize":
                 from agent_utilities.knowledge_graph.standardization import (

@@ -87,7 +87,9 @@ def _ingest_markdown(
             condition="all operations",
             action="Adhere to core project governance and rules defined in constitution",
         )
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
     elif ".specify/tasks" in lower_path:
         node_id = f"task:{stem}"
@@ -97,7 +99,9 @@ def _ingest_markdown(
             task_id=stem,
             status="pending",
         )
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
     elif ".specify/specs" in lower_path:
         node_id = f"goal:{stem}"
@@ -107,12 +111,16 @@ def _ingest_markdown(
             goal_text=stem,
             status="active",
         )
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
     elif ".specify/design" in lower_path:
         node_id = f"doc:design:{stem}"
         graph.add_node(node_id, node_type=RegistryNodeType.DOCUMENT, title=stem)
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
     elif ".specify/memory" in lower_path:
         with open(file_path, encoding="utf-8") as f:
@@ -124,12 +132,16 @@ def _ingest_markdown(
             category="sdd_memory",
             content=content[:200],
         )
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
     elif ".specify/reports" in lower_path:
         node_id = f"doc:report:{stem}"
         graph.add_node(node_id, node_type=RegistryNodeType.DOCUMENT, title=stem)
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
 
     # Explicit CONCEPT tags
@@ -146,7 +158,9 @@ def _ingest_markdown(
             definition=desc,
             name=concept_id,
         )
-        graph.add_edge(node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN)
+        graph.add_edge(
+            node_id, file_node_id, relationship=RegistryEdgeType.MENTIONED_IN
+        )
         extracted += 1
 
     return extracted

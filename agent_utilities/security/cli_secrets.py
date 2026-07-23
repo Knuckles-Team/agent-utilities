@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from agent_utilities.core.config import setting
@@ -89,7 +90,7 @@ class RuntimeSecretReferenceAction(argparse.Action):
         self,
         _parser: argparse.ArgumentParser,
         namespace: argparse.Namespace,
-        values: str | list[str] | None,
+        values: str | Sequence[Any] | None,
         _option_string: str | None = None,
     ) -> None:
         if not isinstance(values, str):

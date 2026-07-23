@@ -104,9 +104,7 @@ def _persist_settings(values: dict[str, str]) -> str:
 def _resolve_dsn(connection_profile_ref: str | None) -> str:
     """Resolve a required Postgres DSN from the runtime connection profile."""
 
-    reference = connection_profile_ref or setting(
-        "GRAPH_DB_CONNECTION_PROFILE_REF", ""
-    )
+    reference = connection_profile_ref or setting("GRAPH_DB_CONNECTION_PROFILE_REF", "")
     if not reference:
         raise ValueError(
             "Postgres connection profile is not configured; inject "
@@ -206,8 +204,7 @@ def configure_backend(
         }
     values: dict[str, str] = {
         "GRAPH_DB_CONNECTION_PROFILE_REF": str(
-            connection_profile_ref
-            or setting("GRAPH_DB_CONNECTION_PROFILE_REF", "")
+            connection_profile_ref or setting("GRAPH_DB_CONNECTION_PROFILE_REF", "")
         ),
     }
     if enable_age:
