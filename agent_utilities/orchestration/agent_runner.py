@@ -531,9 +531,9 @@ async def run_agent(
     from agent_utilities.security.persistence_privacy import persistence_reference
 
     _model_ref = persistence_reference(
-        "model", config["agent_model"], namespace="orchestration-run"
+        "model", config.get("agent_model"), namespace="orchestration-run"
     )
-    _model_class = str(config["selected_model_class"])
+    _model_class = str(config.get("selected_model_class") or "")
     config["trace_evidence"] = _trace_evidence_for_run(
         model_ref=_model_ref,
         model_class=_model_class,
@@ -1450,9 +1450,9 @@ def _build_execution_config(
             recent_mementos = []
     if recent_mementos:
         memento_text = "\n\n---\n\n".join(recent_mementos)
-        tag_prompts["mementos"] = (
-            f"Past Context Mementos (Compressed State):\n{memento_text}"
-        )
+        tag_prompts[
+            "mementos"
+        ] = f"Past Context Mementos (Compressed State):\n{memento_text}"
 
     # CONCEPT:AU-KG.retrieval.task-start-kg-priming — prime the KG's synthesized view of the task's code area so the
     # run learns how it works (with file:line citations) before reaching for grep.

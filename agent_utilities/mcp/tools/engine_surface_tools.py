@@ -67,10 +67,7 @@ from agent_utilities.protocols.source_connectors.connectors.mcp_package import (
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     call_tool_once,
 )
-from agent_utilities.security.error_surface import (
-    public_error_json,
-    public_error_payload,
-)
+from agent_utilities.security.error_surface import public_error_payload
 
 # Candidate ``(sub_client_attr, method_attr)`` probe lists per logical action. The
 # engine build / client may expose the surface under any of several plausible
@@ -231,10 +228,25 @@ def _surface_error(
     code: str = "operation_failed",
     context: dict[str, Any] | None = None,
 ) -> str:
-    """Return a stable protocol failure without copying request metadata."""
+    """Return a stable protocol failure without copying UNTRUSTED request metadata.
 
-    del surface, action, context
-    return public_error_json(exc, code=code)
+    ``surface``/``action`` (and any ``context`` extras, e.g. ``delegated``/
+    ``available``) are values the CALLER already supplied to this same
+    invocation — not exception-controlled or otherwise untrusted data — so
+    merging them into the redacted payload lets a caller correlate which
+    surface/action failed (matching the success path's
+    ``{"surface", "action", "result"}`` shape) without reintroducing anything
+    :func:`~agent_utilities.security.error_surface.public_error_payload`
+    exists to keep out: the raw exception text/args, which stays fully
+    redacted (only ``type(exc).__name__`` is ever logged or returned).
+    """
+
+    payload = public_error_payload(exc, code=code, context=context)
+    if context:
+        payload.update(context)
+    payload["surface"] = surface
+    payload["action"] = action
+    return json.dumps(payload)
 
 
 def _resolve(client: Any, candidates: tuple[tuple[str, str], ...]) -> Any:

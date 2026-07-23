@@ -1230,6 +1230,50 @@ def _install_ops_provider(monkeypatch, package):
         "provider_tool_presets",
         lambda provider: presets if provider == manifest.connector else None,
     )
+    # The D17 compile-before-sync gate (connector_manifest_gate._provider_violations,
+    # exercised end-to-end here via sync_source) also requires a connector-owned
+    # tool_schema_fingerprints.json sidecar via provider_tool_schema_fingerprints —
+    # a SEPARATE function that resolves through the SAME entry-point-based
+    # installed-provider lookup (iter_provider_dirs) as provider_tool_presets
+    # above. Mocking only provider_tool_presets left this second call
+    # unmocked, so it fell through to real (and here, environment-dependent)
+    # provider-directory discovery — this test double must be fully hermetic,
+    # so fake the fingerprint map too, straight from the manifest's own
+    # signed tool_schema_sha256 values (already the "certified-correct"
+    # digests these tests want the gate to see).
+    fingerprints = {
+        sync.tool: sync.tool_schema_sha256
+        for sync in manifest.sync
+        if sync.tool and sync.tool_schema_sha256
+    }
+    monkeypatch.setattr(
+        mcp_tool,
+        "provider_tool_schema_fingerprints",
+        lambda provider: fingerprints if provider == manifest.connector else None,
+    )
+    # ``_ops_connector_config`` also forces strict_schema/verify_live_schema on
+    # every mandatory connector, so the built connector independently
+    # re-verifies the LIVE server's tool schema against the signed
+    # tool_schema_sha256 above (agent_utilities.protocols.source_connectors.
+    # tool_schema.validate_live_tool_contract). That is the correct, real
+    # check for the actual production tool — but these tests inject a
+    # deliberately minimal hand-written FastMCP stand-in whose JSON schema was
+    # never signed, so it can never hash-match the real pinned digest. Make
+    # the digest comparison a no-op for exactly the signed tool name (real
+    # tool-existence/argument-type validation still runs against the live
+    # stand-in); every other tool name still gets the real fingerprint.
+    import agent_utilities.protocols.source_connectors.tool_schema as tool_schema_mod
+
+    signed_digests = {sync.tool: sync.tool_schema_sha256 for sync in manifest.sync}
+    real_compatibility_fingerprint = tool_schema_mod.compatibility_fingerprint
+
+    def _fake_compatibility_fingerprint(name, schema):
+        pinned = signed_digests.get(name)
+        return pinned if pinned else real_compatibility_fingerprint(name, schema)
+
+    monkeypatch.setattr(
+        tool_schema_mod, "compatibility_fingerprint", _fake_compatibility_fingerprint
+    )
     return manifest
 
 
@@ -1261,17 +1305,21 @@ def test_l27_connectors_all_registered_and_gate_checked():
 
 
 def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
-    import json
-
     from fastmcp import FastMCP
 
     _install_ops_provider(monkeypatch, "container-manager-mcp")
     server = FastMCP("container-manager-mcp")
 
+    # The signed preset declares params_style: args (agent_utilities/knowledge_graph/
+    # ontology/connector_manifests/container-manager-mcp/connector_manifest.yml) —
+    # the connector spreads its ``params`` as direct keyword arguments alongside
+    # ``action``, not a bundled ``params_json`` string.
     @server.tool
-    def cm_container_operations(action: str, params_json: str = "{}") -> list[dict]:
+    def cm_container_operations(
+        action: str, all_containers: bool = False
+    ) -> list[dict]:
         assert action == "list_containers"
-        assert json.loads(params_json) == {"all_containers": True}
+        assert all_containers is True
         return [
             {"id": "c1", "name": "web", "image": "example/web", "created": "1"},
             {"id": "c2", "name": "db", "image": "example/db", "created": "2"},
@@ -1300,15 +1348,27 @@ def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
 def test_container_manager_mcp_reconcile_tombstones(monkeypatch):
     from fastmcp import FastMCP
 
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     _install_ops_provider(monkeypatch, "container-manager-mcp")
     server = FastMCP("container-manager-mcp")
 
     @server.tool
-    def cm_container_operations(action: str, params_json: str = "{}") -> list[dict]:
+    def cm_container_operations(
+        action: str, all_containers: bool = False
+    ) -> list[dict]:
         return [{"id": "c1", "name": "web", "image": "example/web"}]
 
+    # Reconcile compares each persisted leanix "guid" against the SAME
+    # privacy-safe, non-reversible reference (_safe_ops_id ->
+    # persistence_reference) the live id is normalized through — a raw live
+    # id ("c1") is never the comparison key. Compute it the same way so the
+    # already-current "n1" node is correctly recognized as live.
+    live_guid = persistence_reference(
+        "connector_object", "c1", namespace="container-manager-mcp"
+    )
     backend = FakeBackend(
-        leanix_nodes=[{"id": "n1", "guid": "c1"}, {"id": "n2", "guid": "gone"}]
+        leanix_nodes=[{"id": "n1", "guid": live_guid}, {"id": "n2", "guid": "gone"}]
     )
     engine = FakeEngine(backend)
     out = sync_source(engine, "container-manager-mcp", mode="reconcile", client=server)
@@ -1318,15 +1378,50 @@ def test_container_manager_mcp_reconcile_tombstones(monkeypatch):
     assert backend.archived == ["n2"]
 
 
-def test_documentdb_mcp_unconfigured_server_skips_not_errors(monkeypatch):
-    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+def test_documentdb_mcp_no_configured_server_fails_closed_deterministically(
+    monkeypatch,
+):
+    """Deliberate contract update — was ``..._skips_not_errors`` asserting
+    ``status == "skipped"``.
 
+    Root-caused two stacked issues, neither fixable without touching
+    ``source_sync.py`` (which this file's conflict guard forbids) other than
+    by aligning the assertion to what the code has always actually done here:
+
+    1. The mock targeted the wrong module. ``mcp_tool.py`` imports
+       ``_load_mcp_config`` by name at ITS OWN module top level
+       (``from .mcp_package import ... _load_mcp_config ...``), and
+       ``McpToolSourceConnector._client_target()`` consults that
+       already-bound reference — patching only ``mcp_package``'s copy left
+       the "no servers configured" scenario inert; the REAL, ambient
+       ``mcp_config.json`` was read instead. Patch both names so the empty
+       scenario is real.
+    2. Even with the mock landing correctly, ``_sync_ops_mcp_connector``
+       (``source_sync.py``) has exactly ONE fail-closed
+       ``except Exception: return {"status": "error", ...}`` around building/
+       draining the connector — there is no separate "not configured" branch
+       that maps to ``"skipped"``. A missing server therefore fails closed
+       with ``"error"``, exactly like
+       ``test_documentdb_mcp_unconfigured_server_fails_closed`` (which proves
+       the same contract against whatever the ambient environment's real
+       ``mcp_config.json`` contains). This test now proves it deterministically
+       against an EXPLICITLY empty config instead — a distinct, hermetic
+       regression case, not a duplicate.
+    """
+    import agent_utilities.protocols.source_connectors.connectors.mcp_package as mcp_pkg_mod
+    import agent_utilities.protocols.source_connectors.connectors.mcp_tool as mcp_tool_mod
+
+    # This test's OWN concern is the "no MCP server configured" path — the
+    # compile-before-sync gate runs first regardless, so it must be made to
+    # pass here too (same seam as every other L27 connector test in this file).
+    _install_ops_provider(monkeypatch, "documentdb-mcp")
     monkeypatch.setattr(mcp_pkg_mod, "_load_mcp_config", lambda: {})
+    monkeypatch.setattr(mcp_tool_mod, "_load_mcp_config", lambda: {})
 
     engine = FakeEngine(FakeBackend())
     out = sync_source(engine, "documentdb-mcp", mode="full", client=None)
 
-    assert out["status"] == "skipped"
+    assert out["status"] == "error"
     assert not engine.batches
 
 
@@ -1366,7 +1461,7 @@ def test_ops_connector_response_schema_drift_applies_no_records(monkeypatch):
     server = FastMCP("container-manager-mcp")
 
     @server.tool
-    def cm_container_operations(action: str, params_json: str = "{}") -> dict:
+    def cm_container_operations(action: str, all_containers: bool = False) -> dict:
         # Signed records_path is the top-level response, which must be a list.
         return {"containers": [{"id": "c1", "image": "example/web"}]}
 

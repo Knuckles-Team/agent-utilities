@@ -21,25 +21,58 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
     reset_company_brain,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession
-from agent_utilities.knowledge_graph.ontology.permissioning import clear_markings
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.knowledge_graph.ontology.permissioning import (
+    clear_markings,
+    use_marking_authority,
+)
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     ContextCompiler,
     compute_bundle_cache_key,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
 from agent_utilities.security.brain_context import ActorContext
+
+
+class _FakeMarkingStore:
+    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
+
+    ``ContextCompiler.compile`` runs every candidate through the policy
+    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), which resolves the
+    mandatory-marking store on every call — every test here needs one
+    installed even though none applies a marking directly.
+    """
+
+    @staticmethod
+    def execute(_query, _params):
+        return []
 
 
 @pytest.fixture(autouse=True)
 def _clean_state():
     reset_company_brain()
     clear_markings()
-    yield
+    with use_marking_authority(_FakeMarkingStore()):
+        _grant_public(_NODES)
+        yield
     reset_company_brain()
     clear_markings()
+
+
+def _grant_public(nodes: list[dict]) -> None:
+    """Grant a PUBLIC-classification ACL for every ``nodes[i]["id"]``.
+
+    ``enforce``'s ACL layer is fail-closed (AU-P0-4) — a node with no ACL is
+    denied outright; these synthetic nodes never exist in a real graph.
+    """
+    permissions = get_company_brain().permissions
+    for node in nodes:
+        permissions.set_acl(
+            NodeACL(node_id=node["id"], classification=DataClassification.PUBLIC)
+        )
 
 
 class FakeRetriever:
@@ -88,7 +121,10 @@ def _actor(**kw) -> ActorContext:
 def _session(*, policy_version: str = "v1", **kw) -> GraphSession:
     actor = _actor(**kw)
     return GraphSession(
-        actor=actor, tenant=actor.tenant_id, policy_version=policy_version
+        actor=actor,
+        tenant=actor.tenant_id,
+        policy_version=policy_version,
+        scopes=frozenset({"kg:read"}),
     )
 
 
@@ -167,17 +203,18 @@ def test_second_compile_reuses_bundle_via_kv_layer(monkeypatch):
 
     monkeypatch.setattr(ContextCompiler, "_max_similarity", _spy)
 
-    bundle1 = compiler.compile(
-        "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
-    )
-    assert bundle1.kv_cache_hit is False
-    assert bundle1.cache_key
-    first_call_count = calls["n"]
-    assert first_call_count > 0, "first compile should have run MMR scoring"
+    with use_session(session):
+        bundle1 = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
+        )
+        assert bundle1.kv_cache_hit is False
+        assert bundle1.cache_key
+        first_call_count = calls["n"]
+        assert first_call_count > 0, "first compile should have run MMR scoring"
 
-    bundle2 = compiler.compile(
-        "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
-    )
+        bundle2 = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
+        )
     assert bundle2.kv_cache_hit is True
     assert bundle2.cache_key == bundle1.cache_key
     assert calls["n"] == first_call_count, (
@@ -210,9 +247,11 @@ def test_second_compile_reuses_bundle_via_kv_layer(monkeypatch):
 
 def test_no_kv_backend_leaves_default_behavior_unchanged():
     compiler = ContextCompiler(FakeRetriever(_NODES))
-    bundle = compiler.compile(
-        "test query", session=_session(), top_k=2, candidate_pool=2
-    )
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2
+        )
     assert bundle.cache_key == ""
     assert bundle.kv_cache_hit is False
 
@@ -244,13 +283,15 @@ def test_different_evidence_set_does_not_false_reuse():
             "confidence": 0.7,
         },
     ]
+    _grant_public(other_nodes)
 
-    bundle_a = ContextCompiler(FakeRetriever(_NODES)).compile(
-        "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
-    )
-    bundle_b = ContextCompiler(FakeRetriever(other_nodes)).compile(
-        "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
-    )
+    with use_session(session):
+        bundle_a = ContextCompiler(FakeRetriever(_NODES)).compile(
+            "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
+        )
+        bundle_b = ContextCompiler(FakeRetriever(other_nodes)).compile(
+            "test query", session=session, top_k=2, candidate_pool=2, kv_backend=kv
+        )
 
     assert bundle_a.cache_key != bundle_b.cache_key
     assert bundle_a.kv_cache_hit is False
@@ -263,20 +304,24 @@ def test_different_policy_version_does_not_false_reuse():
     kv = FakeKVBackend()
     compiler = ContextCompiler(FakeRetriever(_NODES))
 
-    bundle_v1 = compiler.compile(
-        "test query",
-        session=_session(policy_version="v1"),
-        top_k=2,
-        candidate_pool=2,
-        kv_backend=kv,
-    )
-    bundle_v2 = compiler.compile(
-        "test query",
-        session=_session(policy_version="v2"),
-        top_k=2,
-        candidate_pool=2,
-        kv_backend=kv,
-    )
+    session_v1 = _session(policy_version="v1")
+    with use_session(session_v1):
+        bundle_v1 = compiler.compile(
+            "test query",
+            session=session_v1,
+            top_k=2,
+            candidate_pool=2,
+            kv_backend=kv,
+        )
+    session_v2 = _session(policy_version="v2")
+    with use_session(session_v2):
+        bundle_v2 = compiler.compile(
+            "test query",
+            session=session_v2,
+            top_k=2,
+            candidate_pool=2,
+            kv_backend=kv,
+        )
 
     assert bundle_v1.cache_key != bundle_v2.cache_key
     assert bundle_v1.kv_cache_hit is False
@@ -285,12 +330,13 @@ def test_different_policy_version_does_not_false_reuse():
 
     # Same policy version again *does* reuse — isolates policy_version as the
     # only thing that changed above.
-    bundle_v1_again = compiler.compile(
-        "test query",
-        session=_session(policy_version="v1"),
-        top_k=2,
-        candidate_pool=2,
-        kv_backend=kv,
-    )
+    with use_session(session_v1):
+        bundle_v1_again = compiler.compile(
+            "test query",
+            session=session_v1,
+            top_k=2,
+            candidate_pool=2,
+            kv_backend=kv,
+        )
     assert bundle_v1_again.cache_key == bundle_v1.cache_key
     assert bundle_v1_again.kv_cache_hit is True

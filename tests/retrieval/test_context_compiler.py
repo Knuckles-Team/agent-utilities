@@ -11,26 +11,45 @@ from __future__ import annotations
 import pytest
 
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
     reset_company_brain,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.ontology.permissioning import (
     Marking,
     apply_marking,
     clear_markings,
+    use_marking_authority,
 )
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     ContextCompiler,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
 from agent_utilities.security.brain_context import ActorContext
+
+
+class _FakeMarkingStore:
+    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
+
+    Mirrors the ``execute(query, params) -> list[dict]`` shape the real
+    process-owned graph store exposes. ``ContextCompiler.compile`` runs every
+    candidate through the policy ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted),
+    which resolves the mandatory-marking store on every call regardless of
+    whether a marking was ever applied — so every test here needs one
+    installed, not just the ones that call ``apply_marking`` directly.
+    """
+
+    @staticmethod
+    def execute(_query, _params):
+        return []
 
 
 @pytest.fixture(autouse=True)
 def _clean_state():
     reset_company_brain()
     clear_markings()
-    yield
+    with use_marking_authority(_FakeMarkingStore()):
+        yield
     reset_company_brain()
     clear_markings()
 
@@ -57,7 +76,26 @@ def _actor(**kw) -> ActorContext:
 
 def _session(**kw) -> GraphSession:
     actor = _actor(**kw)
-    return GraphSession(actor=actor, tenant=actor.tenant_id)
+    return GraphSession(
+        actor=actor, tenant=actor.tenant_id, scopes=frozenset({"kg:read"})
+    )
+
+
+def _grant_public(nodes: list[dict]) -> None:
+    """Grant a PUBLIC-classification ACL for every ``nodes[i]["id"]``.
+
+    ``ContextCompiler.compile`` runs every candidate through the real
+    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), whose ACL layer is fail-closed
+    (AU-P0-4 — a node with no ACL is denied outright). These synthetic test
+    nodes only exist in the fake retriever, never in a real graph, so they
+    need an explicit ACL; PUBLIC classification satisfies that layer without
+    interfering with whatever marking/role behavior the test is exercising.
+    """
+    permissions = get_company_brain().permissions
+    for node in nodes:
+        permissions.set_acl(
+            NodeACL(node_id=node["id"], classification=DataClassification.PUBLIC)
+        )
 
 
 # --------------------------------------------------------------------------
@@ -68,13 +106,26 @@ def _session(**kw) -> GraphSession:
 def test_compile_fits_within_token_budget():
     long_text = "word " * 400  # ~530 estimated tokens each
     nodes = [
-        {"id": f"n{i}", "type": "Doc", "name": f"Doc {i}", "description": long_text, "score": 0.9 - i * 0.01}
+        {
+            "id": f"n{i}",
+            "type": "Doc",
+            "name": f"Doc {i}",
+            "description": long_text,
+            "score": 0.9 - i * 0.01,
+        }
         for i in range(10)
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile(
-        "test query", session=_session(), top_k=10, candidate_pool=10, token_budget=1000
-    )
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query",
+            session=session,
+            top_k=10,
+            candidate_pool=10,
+            token_budget=1000,
+        )
     assert bundle.tokens_used <= bundle.token_budget
     assert len(bundle.items) < len(nodes)  # budget forced some drops
     assert bundle.dropped_budget > 0
@@ -106,8 +157,13 @@ def test_higher_evidence_quality_is_preferred():
             "score": 0.8,
         },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile("test query", session=_session(), top_k=2, candidate_pool=2)
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2
+        )
     by_id = {it.id: it for it in bundle.items}
     assert by_id["strong"].evidence_quality > by_id["weak"].evidence_quality
     assert by_id["strong"].composite_score > by_id["weak"].composite_score
@@ -133,8 +189,13 @@ def test_contested_claim_scored_lower():
             "contradiction_ids": ["other:1"],
         },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile("test query", session=_session(), top_k=2, candidate_pool=2)
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2
+        )
     by_id = {it.id: it for it in bundle.items}
     assert by_id["clean"].evidence_quality > by_id["contested"].evidence_quality
 
@@ -158,14 +219,17 @@ def test_fresher_claim_is_preferred():
             "timestamp": "2020-01-01T00:00:00Z",
         },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile(
-        "test query",
-        session=_session(),
-        top_k=2,
-        candidate_pool=2,
-        as_of="2026-07-10T00:00:00Z",
-    )
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query",
+            session=session,
+            top_k=2,
+            candidate_pool=2,
+            as_of="2026-07-10T00:00:00Z",
+        )
     by_id = {it.id: it for it in bundle.items}
     assert by_id["fresh"].freshness > by_id["stale"].freshness
     assert by_id["fresh"].composite_score > by_id["stale"].composite_score
@@ -177,19 +241,34 @@ def test_fresher_claim_is_preferred():
 
 
 def test_policy_restricted_item_dropped_for_unauthorized_actor():
-    apply_marking("restricted:1", Marking("pii", requires_audit=True))
-    nodes = [
-        {"id": "public:1", "type": "Doc", "name": "Public", "description": "Open info.", "score": 0.9},
-        {"id": "restricted:1", "type": "Doc", "name": "Secret", "description": "Sensitive info.", "score": 0.95},
-    ]
-    compiler = ContextCompiler(FakeRetriever(nodes))
     # A low-clearance actor holding no markings.
-    bundle = compiler.compile(
-        "test query",
-        session=_session(roles=("analyst",)),
-        top_k=5,
-        candidate_pool=5,
-    )
+    session = _session(roles=("analyst",))
+    with use_session(session):
+        apply_marking("restricted:1", Marking("pii", requires_audit=True))
+        nodes = [
+            {
+                "id": "public:1",
+                "type": "Doc",
+                "name": "Public",
+                "description": "Open info.",
+                "score": 0.9,
+            },
+            {
+                "id": "restricted:1",
+                "type": "Doc",
+                "name": "Secret",
+                "description": "Sensitive info.",
+                "score": 0.95,
+            },
+        ]
+        _grant_public(nodes)
+        compiler = ContextCompiler(FakeRetriever(nodes))
+        bundle = compiler.compile(
+            "test query",
+            session=session,
+            top_k=5,
+            candidate_pool=5,
+        )
     ids = {it.id for it in bundle.items}
     assert "restricted:1" not in ids
     assert "public:1" in ids
@@ -197,18 +276,33 @@ def test_policy_restricted_item_dropped_for_unauthorized_actor():
 
 
 def test_policy_cleared_actor_sees_restricted_item():
-    apply_marking("restricted:1", Marking("pii", requires_audit=True))
-    nodes = [
-        {"id": "public:1", "type": "Doc", "name": "Public", "description": "Open info.", "score": 0.9},
-        {"id": "restricted:1", "type": "Doc", "name": "Secret", "description": "Sensitive info.", "score": 0.95},
-    ]
-    compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile(
-        "test query",
-        session=_session(roles=("marking:pii",)),
-        top_k=5,
-        candidate_pool=5,
-    )
+    session = _session(roles=("marking:pii",))
+    with use_session(session):
+        apply_marking("restricted:1", Marking("pii", requires_audit=True))
+        nodes = [
+            {
+                "id": "public:1",
+                "type": "Doc",
+                "name": "Public",
+                "description": "Open info.",
+                "score": 0.9,
+            },
+            {
+                "id": "restricted:1",
+                "type": "Doc",
+                "name": "Secret",
+                "description": "Sensitive info.",
+                "score": 0.95,
+            },
+        ]
+        _grant_public(nodes)
+        compiler = ContextCompiler(FakeRetriever(nodes))
+        bundle = compiler.compile(
+            "test query",
+            session=session,
+            top_k=5,
+            candidate_pool=5,
+        )
     ids = {it.id for it in bundle.items}
     assert "restricted:1" in ids
     assert bundle.dropped_policy == 0
@@ -241,8 +335,13 @@ def test_bundle_returns_citations_and_proof_graph():
             "contradiction_ids": ["claim:c"],
         },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle = compiler.compile("test query", session=_session(), top_k=2, candidate_pool=2)
+    session = _session()
+    with use_session(session):
+        bundle = compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2
+        )
 
     assert len(bundle.citations) == len(bundle.items)
     assert any(c.source_refs for c in bundle.citations)
@@ -286,20 +385,32 @@ def test_mmr_reduces_redundancy():
             "score": 0.80,
         },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
+    session = _session()
 
     # Pure relevance (lambda=1.0): both near-duplicates always win over diverse.
-    bundle_relevance_only = compiler.compile(
-        "test query", session=_session(), top_k=2, candidate_pool=3, diversity_lambda=1.0
-    )
+    with use_session(session):
+        bundle_relevance_only = compiler.compile(
+            "test query",
+            session=session,
+            top_k=2,
+            candidate_pool=3,
+            diversity_lambda=1.0,
+        )
     ids_relevance_only = {it.id for it in bundle_relevance_only.items}
     assert ids_relevance_only == {"dup1", "dup2"}
 
     # MMR (lambda=0.5): the second near-duplicate is redundant against the
     # first, so the diverse item displaces it despite the lower raw score.
-    bundle_mmr = compiler.compile(
-        "test query", session=_session(), top_k=2, candidate_pool=3, diversity_lambda=0.5
-    )
+    with use_session(session):
+        bundle_mmr = compiler.compile(
+            "test query",
+            session=session,
+            top_k=2,
+            candidate_pool=3,
+            diversity_lambda=0.5,
+        )
     ids_mmr = {it.id for it in bundle_mmr.items}
     assert "diverse" in ids_mmr
     assert ids_mmr != ids_relevance_only
@@ -318,12 +429,27 @@ def test_mmr_reduces_redundancy():
 
 def test_decisions_log_is_observable_and_deterministic():
     nodes = [
-        {"id": "a", "type": "Doc", "name": "A", "description": "alpha content", "score": 0.9},
-        {"id": "b", "type": "Doc", "name": "B", "description": "beta content", "score": 0.5},
+        {
+            "id": "a",
+            "type": "Doc",
+            "name": "A",
+            "description": "alpha content",
+            "score": 0.9,
+        },
+        {
+            "id": "b",
+            "type": "Doc",
+            "name": "B",
+            "description": "beta content",
+            "score": 0.5,
+        },
     ]
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    bundle1 = compiler.compile("q", session=_session(), top_k=1, candidate_pool=2)
-    bundle2 = compiler.compile("q", session=_session(), top_k=1, candidate_pool=2)
+    session = _session()
+    with use_session(session):
+        bundle1 = compiler.compile("q", session=session, top_k=1, candidate_pool=2)
+        bundle2 = compiler.compile("q", session=session, top_k=1, candidate_pool=2)
 
     assert bundle1.decisions == bundle2.decisions
     assert [it.id for it in bundle1.items] == [it.id for it in bundle2.items]

@@ -568,14 +568,31 @@ def test_commit_then_transport_error_recovers_without_retry_or_backoff(
 def test_occ_backoff_uses_capped_full_jitter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verify the backoff's per-attempt CEILING SCHEDULE (exponential, capped).
+
+    ``_native_occ_backoff`` deliberately draws from a fresh
+    ``random.SystemRandom()`` instance per call (CSPRNG-quality full jitter —
+    NOT the globally-seedable module-level ``random.uniform``, so independent
+    connector processes can't retry in lockstep from a shared seed). That
+    means the module-level ``random.uniform`` is never called and can't be
+    monkeypatched to observe the draw; the injection seam is the
+    ``SystemRandom`` *class* itself, so patching it (rather than reaching into
+    ``envelope_ingest.py``) is enough to make the schedule observable and
+    deterministic without changing production behavior.
+    """
     ceilings: list[tuple[float, float]] = []
     sleeps: list[float] = []
 
-    def _upper_bound(lower: float, upper: float) -> float:
-        ceilings.append((lower, upper))
-        return upper
+    class _FakeSystemRandom:
+        """Records the (lower, upper) jitter bounds and returns the upper
+        bound deterministically, so this test proves the backoff computed the
+        right ceiling per attempt without depending on the actual CSPRNG draw."""
 
-    monkeypatch.setattr(module.random, "uniform", _upper_bound)
+        def uniform(self, lower: float, upper: float) -> float:
+            ceilings.append((lower, upper))
+            return upper
+
+    monkeypatch.setattr(module.random, "SystemRandom", _FakeSystemRandom)
     monkeypatch.setattr(module.time, "sleep", sleeps.append)
 
     for attempt in range(8):

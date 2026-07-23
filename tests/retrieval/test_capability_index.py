@@ -8,15 +8,41 @@ from __future__ import annotations
 
 import pytest
 
+from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
+    reset_company_brain,
+)
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
 from agent_utilities.knowledge_graph.retrieval.capability_index import (
     DEFAULT_CAPABILITY_CACHE_SIZE,
     CapabilityIndex,
     Designation,
 )
+from agent_utilities.models.company_brain import DataClassification, NodeACL
 from agent_utilities.numeric import xp as np
 
 DIM = 16
+
+
+@pytest.fixture(autouse=True)
+def _clean_company_brain():
+    reset_company_brain()
+    yield
+    reset_company_brain()
+
+
+def _grant_public(*node_ids: str) -> None:
+    """Grant a PUBLIC-classification ACL for each id.
+
+    ``KnowledgeGraph.designate`` runs its results through the real,
+    fail-closed ACL gate (AU-P0-4 — a node with no ACL is denied outright);
+    these synthetic capability-index entries never exist in a real graph.
+    """
+    permissions = get_company_brain().permissions
+    for node_id in node_ids:
+        permissions.set_acl(
+            NodeACL(node_id=node_id, classification=DataClassification.PUBLIC)
+        )
 
 
 def _unit(seed: int, dim: int = DIM) -> list[float]:
@@ -217,6 +243,7 @@ def test_facade_designate_delegates():
     # Same index object is exposed.
     assert kg.retrieval is idx
 
+    _grant_public("web_search", "serp_api", "web_fetch", "calculator", "python_exec")
     via_facade = kg.designate(_basis(0), required_caps=["web", "search"], k=5)
     via_index = idx.designate(_basis(0), required_caps=["web", "search"], k=5)
 
@@ -231,6 +258,7 @@ def test_facade_lazy_retrieval_when_none_provided():
     assert isinstance(kg.retrieval, CapabilityIndex)
     assert kg.designate(_basis(0), required_caps=None, k=5) == []
     kg.retrieval.add("t", _basis(0), ["web"])
+    _grant_public("t")
     out = kg.designate(_basis(0), required_caps=["web"], k=5)
     assert [d.id for d in out] == ["t"]
 
@@ -239,6 +267,7 @@ def test_facade_construction_is_side_effect_free():
     # Constructing the facade must not require any running service.
     kg = KnowledgeGraph(retrieval=_populated_index("numpy"))
     assert kg is not None
+    _grant_public("web_search", "serp_api", "web_fetch", "calculator", "python_exec")
     # retrieval works without ever touching store/compute/semantic.
     assert kg.designate(_basis(0), required_caps=["web"], k=10)
 
@@ -334,7 +363,9 @@ def test_policy_filter_excludes_ineligible_candidate():
     idx.add("cleared", _basis(0), ["web"], policy_tags=["gpu_allowed"])
     idx.add("uncleared", _basis(0, scale=0.99), ["web"])  # no policy tags at all
 
-    out = idx.designate(_basis(0), required_caps=None, required_policy_tags=["gpu_allowed"], k=5)
+    out = idx.designate(
+        _basis(0), required_caps=None, required_policy_tags=["gpu_allowed"], k=5
+    )
     ids = {d.id for d in out}
     assert ids == {"cleared"}
     assert "uncleared" not in ids
@@ -390,7 +421,9 @@ def test_combined_capability_tenant_policy_filters():
 # ---------------------------------------------------------------------------
 def test_explain_reports_eligible_candidate_features():
     idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
-    idx.add("tool", _basis(0), ["web", "search"], tenant="tenant-a", policy_tags=["cleared"])
+    idx.add(
+        "tool", _basis(0), ["web", "search"], tenant="tenant-a", policy_tags=["cleared"]
+    )
 
     report = idx.explain(
         "tool",

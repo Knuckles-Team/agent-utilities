@@ -11,13 +11,48 @@ from agent_utilities.core.contextual_model import (
     _already_compiled,
     create_context_agent,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession, ScopeError
+from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
+    reset_company_brain,
+)
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    ScopeError,
+    use_session,
+)
+from agent_utilities.knowledge_graph.ontology.permissioning import (
+    clear_markings,
+    use_marking_authority,
+)
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     ContextCompiler,
     compute_bundle_cache_key,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
 from agent_utilities.security.brain_context import ActorContext
+
+
+class _FakeMarkingStore:
+    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
+
+    ``ContextCompiler.compile`` runs every candidate through the policy
+    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), which resolves the
+    mandatory-marking store on every call.
+    """
+
+    @staticmethod
+    def execute(_query, _params):
+        return []
+
+
+@pytest.fixture(autouse=True)
+def _clean_state():
+    reset_company_brain()
+    clear_markings()
+    with use_marking_authority(_FakeMarkingStore()):
+        yield
+    reset_company_brain()
+    clear_markings()
 
 
 class _SpyEngine:
@@ -59,8 +94,9 @@ def _session(*, scopes: frozenset[str]) -> GraphSession:
 
 def test_scope_is_enforced_before_retrieval() -> None:
     engine = _SpyEngine()
-    with pytest.raises(ScopeError):
-        ContextCompiler(engine).compile("query", _session(scopes=frozenset()))
+    session = _session(scopes=frozenset())
+    with use_session(session), pytest.raises(ScopeError):
+        ContextCompiler(engine).compile("query", session)
     assert engine.called is False
 
 
@@ -98,11 +134,16 @@ def test_complete_cache_identity_separates_every_governance_axis() -> None:
 
 def test_prompt_echo_is_not_written_to_bundle_cache() -> None:
     cache = _MemoryKV()
-    ContextCompiler(_SpyEngine()).compile(
-        "private question",
-        _session(scopes=frozenset({"kg:read"})),
-        kv_backend=cache,
+    session = _session(scopes=frozenset({"kg:read"}))
+    get_company_brain().permissions.set_acl(
+        NodeACL(node_id="evidence-1", classification=DataClassification.PUBLIC)
     )
+    with use_session(session):
+        ContextCompiler(_SpyEngine()).compile(
+            "private question",
+            session,
+            kv_backend=cache,
+        )
     assert cache.values == {}
 
 

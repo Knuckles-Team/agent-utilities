@@ -280,6 +280,15 @@ def _redundant_portfolio_engine() -> _FakeEngine:
         },
         by_label={
             "TechnologyProduct": [("prod-x", {}), ("prod-y", {})],
+            # An explicit ``by_label=`` replaces (not merges with) _FakeEngine's
+            # own default, which otherwise seeds this SAME baseline Regulation
+            # specifically so the compliance gate (_check_compliance_gates)
+            # doesn't fail closed on "no :Regulation nodes in the graph" for
+            # tests that aren't about compliance at all. It declares no
+            # appliesToSector/appliesToDataClass scope, so it never actually
+            # applies to prod-x/prod-y — it only proves the substrate is
+            # present, letting the redundancy verdict resolve on its own merits.
+            "Regulation": [("baseline-regulation", {"name": "Baseline"})],
         },
     )
 

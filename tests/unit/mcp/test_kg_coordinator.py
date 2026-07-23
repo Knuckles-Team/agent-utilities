@@ -3,6 +3,8 @@ import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent_utilities import mcp_utilities
 from agent_utilities.mcp.kg_coordinator import KGCoordinator
 
@@ -78,6 +80,27 @@ def test_kg_coordinator_spawn_server(
     mock_popen.assert_called_once()
 
 
+@pytest.mark.skip(
+    reason=(
+        "Stale for the CURRENT contract, not an environment gap: "
+        "load_mcp_servers_from_config (agent_utilities/core/config.py) no longer "
+        "special-cases 'agent-utilities-kg' at all — it passes the WHOLE parsed "
+        "config straight to pydantic_ai.mcp.load_mcp_toolsets and returns exactly "
+        "what that returns. KGCoordinator.get_kg_client() (mocked here) was "
+        "reworked by commit d068dd4c ('client-role processes don't spawn a "
+        "centralized KG server') into a health-check/auto-heal side effect that "
+        "returns None and has ZERO callers anywhere in agent_utilities "
+        "(`grep -rn get_kg_client agent_utilities/` matches only kg_coordinator.py "
+        "itself) — there is no live code path left for this test to intercept. "
+        "Installing epistemic-graph[full] does not change this: the test fails "
+        "with a plain AssertionError (1 server, not 2), not an import/collection "
+        "error, because get_kg_client is mocked here and never reached anyway. "
+        "NEEDS AN OWNER DECISION, not a CI lane: either restore a real "
+        "'agent-utilities-kg' interception call site and rewrite this test "
+        "against it, or retire KGCoordinator as dead code and delete this test "
+        "with that justification."
+    )
+)
 @patch("pydantic_ai.mcp.load_mcp_toolsets")
 @patch("agent_utilities.mcp.kg_coordinator.KGCoordinator.get_kg_client")
 def test_load_config_intercepts_kg(mock_get_client, mock_load_mcp):

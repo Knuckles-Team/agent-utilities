@@ -7,10 +7,38 @@ no embedding model, no network, no running store.
 
 from __future__ import annotations
 
+import pytest
+
+from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
+    reset_company_brain,
+)
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+from agent_utilities.models.company_brain import DataClassification, NodeACL
 from agent_utilities.numeric import xp as np
 
 DIM = 16
+
+
+@pytest.fixture(autouse=True)
+def _clean_company_brain():
+    reset_company_brain()
+    yield
+    reset_company_brain()
+
+
+def _grant_public(*node_ids: str) -> None:
+    """Grant a PUBLIC-classification ACL for each id.
+
+    ``KnowledgeGraph.designate`` runs its results through the real,
+    fail-closed ACL gate (AU-P0-4 — a node with no ACL is denied outright);
+    these synthetic capability-index entries never exist in a real graph.
+    """
+    permissions = get_company_brain().permissions
+    for node_id in node_ids:
+        permissions.set_acl(
+            NodeACL(node_id=node_id, classification=DataClassification.PUBLIC)
+        )
 
 
 def _basis(i: int, dim: int = DIM, scale: float = 1.0) -> list[float]:
@@ -63,6 +91,7 @@ def test_populate_returns_count_skipping_missing_embeddings():
 def test_designate_after_population_returns_planted_id():
     kg = KnowledgeGraph(embedding_dim=DIM)
     kg.populate_capability_index(_nodes())
+    _grant_public("web_search", "web_fetch", "calculator", "bare")
 
     # Query the web_search neighbourhood, requiring "search" which only
     # web_search provides -> the planted relevant id must be designated.

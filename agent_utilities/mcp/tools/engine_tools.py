@@ -51,6 +51,7 @@ from __future__ import annotations
 import base64
 import inspect
 import json
+import logging
 import re
 import threading
 from typing import Any
@@ -59,6 +60,8 @@ from pydantic import Field
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.security.error_surface import public_error_json
+
+logger = logging.getLogger(__name__)
 
 # ── Domain → client sub-client class map ─────────────────────────────────────
 # domain name == the attribute on ``SyncEpistemicGraphClient`` == the REST sub-path.
@@ -137,7 +140,22 @@ def _discover_domains() -> dict[str, list[str]]:
     """
     try:
         from epistemic_graph import client as _client_mod
-    except Exception:  # noqa: BLE001 — engine client absent ⇒ register nothing
+    except Exception as exc:  # noqa: BLE001 — engine client absent ⇒ register nothing
+        # Degrade gracefully (a deployment with no engine client bound yet — e.g.
+        # `tiny` pre-bootstrap — must not crash the whole MCP process just
+        # because engine_<domain> introspection can't run), but LOUDLY: a silent
+        # `{}` here previously dropped every engine_<domain> tool (and every
+        # engine_<domain>_<method> verbose op scripts/gen_graphos_manifest.py
+        # derives from this dict) with zero visible signal, which is exactly
+        # what let a manifest regen on a box missing the `epistemic_graph`
+        # wheel/kernel silently ship a manifest with hundreds fewer entries.
+        logger.warning(
+            "engine surface discovery: 'epistemic_graph' client unavailable — "
+            "ALL engine_<domain> tools (and their verbose/manifest ops) will be "
+            "absent this run (exception_type=%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
         return {}
 
     out: dict[str, list[str]] = {}
