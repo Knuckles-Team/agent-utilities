@@ -13,12 +13,16 @@ Requires: pip install agent-utilities[postgresql]
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from typing import Any
 
 from agent_utilities.core.config import config, setting
+from agent_utilities.security.identifiers import (
+    SQL_IDENTIFIER_RE,
+    InvalidIdentifierError,
+    validate_sql_identifier,
+)
 
 from .base import GraphBackend
 
@@ -26,14 +30,20 @@ logger = logging.getLogger(__name__)
 
 # Embedding dimension from env (must match model output)
 _EMBEDDING_DIM = int(config.kg_embedding_dim or "768")
-_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
 def _require_sql_identifier(value: object) -> str:
-    rendered = str(value or "")
-    if not _SQL_IDENTIFIER.fullmatch(rendered):
-        raise ValueError("PostgreSQL identifier is invalid")
-    return rendered
+    """Validate a PostgreSQL identifier (table/column/schema/extension).
+
+    Thin, message-preserving shim over the shared
+    ``agent_utilities.security.identifiers`` gate — kept under this name
+    because :mod:`cypher_transpiler` and existing tests import it directly
+    from this module.
+    """
+    try:
+        return validate_sql_identifier(value, kind="table")
+    except InvalidIdentifierError as exc:
+        raise ValueError("PostgreSQL identifier is invalid") from exc
 
 
 def _pool_acquire_timeout_s() -> float:
@@ -279,7 +289,8 @@ class PostgreSQLBackend(GraphBackend):
                 # Enable extensions
                 for ext in ("vector", "pg_trgm"):
                     try:
-                        cur.execute(f"CREATE EXTENSION IF NOT EXISTS {ext}")
+                        safe_ext = validate_sql_identifier(ext, kind="extension")
+                        cur.execute(f"CREATE EXTENSION IF NOT EXISTS {safe_ext}")
                     except Exception as e:
                         logger.debug("Extension %s not available: %s", ext, e)
                         conn.rollback()
@@ -592,6 +603,7 @@ class PostgreSQLBackend(GraphBackend):
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     for tbl in sorted(self._known_tables):
+                        tbl = validate_sql_identifier(tbl, kind="table")
                         # Get searchable text columns
                         searchable = self._get_text_columns(cur, tbl)
                         cols_array = (
@@ -657,7 +669,7 @@ class PostgreSQLBackend(GraphBackend):
             return [
                 _require_sql_identifier(row[0])
                 for row in cur.fetchall()
-                if _SQL_IDENTIFIER.fullmatch(str(row[0] or ""))
+                if SQL_IDENTIFIER_RE.fullmatch(str(row[0] or ""))
             ]
         except Exception:
             return []
@@ -1014,6 +1026,7 @@ class PostgreSQLBackend(GraphBackend):
             return
 
         try:
+            table = validate_sql_identifier(table, kind="table")
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -1136,6 +1149,7 @@ class PostgreSQLBackend(GraphBackend):
             return
         for tbl in self._get_embedding_tables():
             try:
+                tbl = validate_sql_identifier(tbl, kind="table")
                 with self._conn() as conn:
                     with conn.cursor() as cur:
                         idx_name = f"idx_{tbl.lower()}_embedding_hnsw"
@@ -1163,6 +1177,7 @@ class PostgreSQLBackend(GraphBackend):
         if not self.pggraph_available:
             return []
         try:
+            seed_table = validate_sql_identifier(seed_table, kind="table")
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -1203,6 +1218,8 @@ class PostgreSQLBackend(GraphBackend):
         if not self.pggraph_available:
             return []
         try:
+            source_table = validate_sql_identifier(source_table, kind="table")
+            target_table = validate_sql_identifier(target_table, kind="table")
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
@@ -1316,6 +1333,7 @@ class PostgreSQLBackend(GraphBackend):
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     for tbl in self._known_tables:
+                        tbl = validate_sql_identifier(tbl, kind="table")
                         conditions = []
                         values: list[Any] = []
                         if max_age:
@@ -1384,6 +1402,7 @@ class PostgreSQLBackend(GraphBackend):
                     total_nodes = 0
                     for tbl in self._known_tables:
                         try:
+                            tbl = validate_sql_identifier(tbl, kind="table")
                             cur.execute(f'SELECT COUNT(*) FROM "{tbl}"')
                             total_nodes += cur.fetchone()[0]
                         except Exception:
@@ -1408,6 +1427,7 @@ class PostgreSQLBackend(GraphBackend):
             with self._conn() as conn:
                 with conn.cursor() as cur:
                     for tbl in self._known_tables:
+                        tbl = validate_sql_identifier(tbl, kind="table")
                         cur.execute(
                             f'SELECT 1 FROM "{tbl}" WHERE id = %s LIMIT 1',
                             (node_id,),
@@ -1437,7 +1457,7 @@ class PostgreSQLBackend(GraphBackend):
                     tables = [
                         _require_sql_identifier(r[0])
                         for r in cur.fetchall()
-                        if _SQL_IDENTIFIER.fullmatch(str(r[0] or ""))
+                        if SQL_IDENTIFIER_RE.fullmatch(str(r[0] or ""))
                         and (not self._known_tables or r[0] in self._known_tables)
                     ]
         except Exception:

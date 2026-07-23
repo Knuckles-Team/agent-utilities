@@ -354,6 +354,58 @@ def test_env_only_secret_inventory_never_constructs_durable_backend(monkeypatch)
     assert calls == 0
 
 
+# ── secret_reference_scheme_counts (SECRETS_BACKEND scheme/backend gate) ────
+
+
+def test_secret_reference_scheme_counts_buckets_by_scheme():
+    from agent_utilities.deployment.config_generator import (
+        secret_reference_scheme_counts,
+    )
+
+    counts = secret_reference_scheme_counts(
+        {
+            "top": "vault://apps/gitlab/token",
+            "nested": [
+                {"oauth2": {"client_secret": "secret://identity/client-secret"}},
+                {"other": "env://SOME_TOKEN"},
+            ],
+            "duplicate": "vault://apps/gitlab/token",
+            "not_a_ref": "just a plain string",
+            "number": 42,
+        }
+    )
+
+    assert counts == {"env": 1, "vault": 1, "secret": 1}
+
+
+def test_secret_reference_scheme_counts_empty_when_no_references():
+    from agent_utilities.deployment.config_generator import (
+        secret_reference_scheme_counts,
+    )
+
+    assert secret_reference_scheme_counts({"a": "b", "c": [1, 2, {"d": "e"}]}) == {
+        "env": 0,
+        "vault": 0,
+        "secret": 0,
+    }
+
+
+def test_secret_reference_scheme_counts_counts_repeated_scheme():
+    from agent_utilities.deployment.config_generator import (
+        secret_reference_scheme_counts,
+    )
+
+    counts = secret_reference_scheme_counts(
+        {
+            "a": "vault://apps/one/A",
+            "b": "vault://apps/two/B",
+            "c": "vault://apps/three/C",
+        }
+    )
+
+    assert counts == {"env": 0, "vault": 3, "secret": 0}
+
+
 def test_candidate_doctor_never_uses_ambient_secret_backend(
     tmp_path,
     monkeypatch,

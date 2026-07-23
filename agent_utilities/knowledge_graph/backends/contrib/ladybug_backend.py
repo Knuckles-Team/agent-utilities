@@ -28,6 +28,10 @@ _REL_TYPE_RE = re.compile(r"-\s*\[\s*\w*\s*:\s*`?(\w+)`?\s*\]\s*->")
 _LOCK_BACKOFF_MAX_S = 30.0
 
 from agent_utilities.core.config import setting
+from agent_utilities.security.identifiers import (
+    InvalidIdentifierError,
+    validate_identifier,
+)
 
 from ..base import GraphBackend
 
@@ -842,6 +846,7 @@ class LadybugBackend(GraphBackend):
         columns suffice). Must hold the connection lock; conn must be open."""
         if label in self._known_node_tables or self.conn is None:
             return
+        label = validate_identifier(label, kind="label")
         from agent_utilities.models.schema_definition import GENERIC_NODE_COLUMNS
 
         cols = ", ".join(f"`{n}` {t}" for n, t in GENERIC_NODE_COLUMNS.items())
@@ -860,6 +865,9 @@ class LadybugBackend(GraphBackend):
         key = (rel, src, dst)
         if key in self._known_rel_pairs or self.conn is None:
             return
+        rel = validate_identifier(rel, kind="relationship type")
+        src = validate_identifier(src, kind="label")
+        dst = validate_identifier(dst, kind="label")
         try:
             self.conn.execute(f"ALTER TABLE {rel} ADD FROM {src} TO {dst};")
         except Exception as e:  # noqa: BLE001
@@ -923,10 +931,11 @@ class LadybugBackend(GraphBackend):
             self._seed_schema_cache()
         for label in list(self._known_node_tables):
             try:
+                label = validate_identifier(label, kind="label")
                 res = self.conn.execute(
                     f"MATCH (n:{label} {{id: $id}}) RETURN n.id LIMIT 1", {"id": nid}
                 )
-            except Exception:  # noqa: BLE001 — table may not exist / transient
+            except Exception:  # noqa: BLE001 — table may not exist / transient / invalid label
                 continue
             rows = (
                 res.get_as_df().to_dict("records")
@@ -968,6 +977,13 @@ class LadybugBackend(GraphBackend):
         dst_label = self._resolve_node_label((params or {}).get(tidp))
         if not src_label or not dst_label:
             return query
+        try:
+            svar = validate_identifier(svar, kind="variable")
+            tvar = validate_identifier(tvar, kind="variable")
+            src_label = validate_identifier(src_label, kind="label")
+            dst_label = validate_identifier(dst_label, kind="label")
+        except InvalidIdentifierError:
+            return query
         self._ensure_rel_pair_unlocked(rel_m.group(1), src_label, dst_label)
         bound = re.sub(
             rf"MATCH\s*\(\s*{svar}\s*\{{",
@@ -992,10 +1008,17 @@ class LadybugBackend(GraphBackend):
 
         # 1. Create Node Tables
         for node in SCHEMA.nodes:
-            cols = ", ".join(
-                [f"`{name}` {dtype}" for name, dtype in node.columns.items()]
-            )
-            stmt = f"CREATE NODE TABLE IF NOT EXISTS {node.name} ({cols});"
+            try:
+                node_name = validate_identifier(node.name, kind="table")
+                col_names = {
+                    validate_identifier(name, kind="column"): dtype
+                    for name, dtype in node.columns.items()
+                }
+            except InvalidIdentifierError:
+                logger.warning("skipping node table with an invalid schema name")
+                continue
+            cols = ", ".join(f"`{name}` {dtype}" for name, dtype in col_names.items())
+            stmt = f"CREATE NODE TABLE IF NOT EXISTS {node_name} ({cols});"
             try:
                 self.conn.execute(stmt)
             except Exception as e:
@@ -1006,11 +1029,11 @@ class LadybugBackend(GraphBackend):
             # PK and embedding can't be added post-hoc; skip them. Mirrors the rel
             # ``properties`` ALTER below so an existing DB gains new columns (e.g.
             # the KG-2.9g code-symbol columns) instead of erroring on projection.
-            for cname, ctype in node.columns.items():
+            for cname, ctype in col_names.items():
                 if "PRIMARY KEY" in ctype.upper() or cname == "embedding":
                     continue
                 try:
-                    self.conn.execute(f"ALTER TABLE {node.name} ADD `{cname}` {ctype};")
+                    self.conn.execute(f"ALTER TABLE {node_name} ADD `{cname}` {ctype};")
                 except Exception:  # noqa: BLE001 — already present / unsupported → ignore
                     pass
 
@@ -1019,10 +1042,20 @@ class LadybugBackend(GraphBackend):
         # stamps/inferred flags) — Kuzu REL tables otherwise drop edge props, which
         # was a data-loss gap vs the schemaless backends (CONCEPT:AU-KG.query.vendor-agnostic-traversal parity).
         for rel in SCHEMA.edges:
-            conns = ", ".join(
-                [f"FROM {c['from']} TO {c['to']}" for c in rel.connections]
-            )
-            stmt = f"CREATE REL TABLE IF NOT EXISTS {rel.type} ({conns}, properties STRING);"
+            try:
+                rel_type = validate_identifier(rel.type, kind="relationship type")
+                connections = [
+                    (
+                        validate_identifier(c["from"], kind="label"),
+                        validate_identifier(c["to"], kind="label"),
+                    )
+                    for c in rel.connections
+                ]
+            except InvalidIdentifierError:
+                logger.warning("skipping rel table with an invalid schema name")
+                continue
+            conns = ", ".join(f"FROM {frm} TO {to}" for frm, to in connections)
+            stmt = f"CREATE REL TABLE IF NOT EXISTS {rel_type} ({conns}, properties STRING);"
             try:
                 self.conn.execute(stmt)
             except Exception as e:
@@ -1030,7 +1063,7 @@ class LadybugBackend(GraphBackend):
                     logger.warning(f"Rel table creation issue ({rel.type}): {e}")
             # Best-effort migration: add the column to pre-existing rel tables.
             try:
-                self.conn.execute(f"ALTER TABLE {rel.type} ADD properties STRING;")
+                self.conn.execute(f"ALTER TABLE {rel_type} ADD properties STRING;")
             except Exception:  # noqa: BLE001 — already present / unsupported → ignore
                 pass
 
@@ -1095,6 +1128,11 @@ class LadybugBackend(GraphBackend):
                 if vector_extension_loaded:
                     skip_reason: str | None = None
                     for table in embedding_tables:
+                        try:
+                            table = validate_identifier(table, kind="table")
+                        except InvalidIdentifierError as e:
+                            logger.warning("skipping invalid embedding table: %s", e)
+                            continue
                         idx_name = f"idx_{table.lower()}_embedding"
                         stmt = (
                             f"CALL CREATE_VECTOR_INDEX('{table}', "
@@ -1150,6 +1188,11 @@ class LadybugBackend(GraphBackend):
                 )
                 return
             for table in embedding_tables:
+                try:
+                    table = validate_identifier(table, kind="table")
+                except InvalidIdentifierError as e:
+                    logger.debug("skipping invalid embedding table: %s", e)
+                    continue
                 idx_name = f"idx_{table.lower()}_embedding"
                 try:
                     self.conn.execute(
@@ -1199,7 +1242,7 @@ class LadybugBackend(GraphBackend):
                 - min_importance: (float) Delete nodes with importance_score below this.
         """
         node_type = criteria.get("node_type", "")
-        label = f":{node_type}" if node_type else ""
+        label = f":{validate_identifier(node_type, kind='label')}" if node_type else ""
 
         where_clauses = []
         params = {}
