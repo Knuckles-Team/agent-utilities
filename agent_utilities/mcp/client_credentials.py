@@ -135,12 +135,19 @@ def _derive_token_url() -> str | None:
     # Provider-agnostic (CONCEPT:AU-OS.identity.resolve-token-endpoint-from):
     # resolve the token endpoint from the explicitly configured issuer's OIDC
     # discovery document instead of borrowing an inbound-verifier setting.
+    # ``OIDC_ISSUER`` may be a comma-separated multi-realm trust list (same
+    # convention as the inbound JWT verifier's multi-realm support), but this
+    # service's OWN outbound client-credentials identity is minted against
+    # exactly one issuer — the primary (first) one.
     issuer = _configured_text("OIDC_ISSUER")
     if not issuer:
         return None
+    primary_issuer = issuer.split(",", 1)[0].strip()
+    if not primary_issuer:
+        return None
     from agent_utilities.security.oidc_discovery import token_endpoint_for
 
-    return token_endpoint_for(issuer)
+    return token_endpoint_for(primary_issuer)
 
 
 def outbound_auth_configuration_status() -> dict[str, object]:

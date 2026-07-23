@@ -73,8 +73,12 @@ async def test_bridge_is_noop_without_claims():
 
     ctx = SimpleNamespace(auth=None)
     actor = await ActorContextMiddleware().on_call_tool(ctx, call_next)
-    # Unauthenticated → ambient SYSTEM_ACTOR unchanged (back-compat). Non-graph
-    # servers retain their own boundary; graph-os rejects the later tool call
-    # because no verified session was minted.
+    # No claims -> genuine no-op (no set_actor/reset_actor at all): whatever
+    # actor was already ambient is untouched. Non-graph servers retain their
+    # own boundary; graph-os rejects the later tool call because no verified
+    # session was minted. This suite's autouse ``isolate_graph_compute_engine``
+    # fixture (tests/conftest.py) binds an AUTHENTICATED ambient test actor for
+    # every test, so "ambient" here is not the unauthenticated default a
+    # production process with no configured auth would have — the no-op
+    # invariant itself (``actor == ambient``) is what this test proves.
     assert actor == ambient
-    assert actor.authenticated is False

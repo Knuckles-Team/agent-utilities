@@ -129,6 +129,15 @@ def fake_model(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "agent_utilities.core.model_factory.create_model", lambda *a, **k: object()
     )
+    # ``create_context_agent`` always routes its model through the real
+    # ``wrap_model_with_context`` (pydantic-ai's WrapperModel), which calls
+    # ``infer_model`` and rejects a bare test double — bypass it here, same
+    # pattern as
+    # ``test_context_compiler_mandatory.test_create_context_agent_governs_arbitrary_injected_model``.
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.wrap_model_with_context",
+        lambda model: model,
+    )
     # Fresh, policy-free registry so the in-menu emote is allowed (fail-open).
     EmoteRegistry._instance = None
 

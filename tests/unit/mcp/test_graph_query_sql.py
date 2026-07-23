@@ -89,7 +89,12 @@ def test_sql_scope_surfaces_engine_error(monkeypatch):
         cypher="DELETE FROM nodes", scope="sql", params="{}"
     ).model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
-    assert "error" in payload and "SELECT" in payload["error"]
+    # The standardized, privacy-safe operation-failure envelope
+    # (agent_utilities.security.error_surface) no longer echoes raw exception
+    # text — only a generic code + correlation_id.
+    assert payload["status"] == "failed"
+    assert payload["error"]["code"] == "operation_failed"
+    assert "SELECT" not in str(payload)
 
 
 # ── engine.sql() read-only guard + bridge (CONCEPT:AU-KG.query.read-only-sql-over) ──────────────────
@@ -120,7 +125,18 @@ class _Engine(QueryMixin):
         self.backend = backend
 
 
-def test_engine_sql_bridges_to_client():
+def test_engine_sql_bridges_to_client(monkeypatch):
+    # This test exercises only the bridge plumbing (backend.graph._client.
+    # query.sql) — bypass the row-level ACL/visibility filtering ``sql()``
+    # now applies afterward (KG-2.60's private-by-default owner/scope
+    # visibility, which would otherwise deny this synthetic unowned "n1" row
+    # outright); same convention as
+    # ``test_engine_query_control_routing.py``.
+    from agent_utilities.knowledge_graph.core import secured_reads
+
+    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor=None: rows)
+    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor=None: rows)
+
     rows = [{"id": "n1"}]
     eng = _Engine(_Backend(rows))
     assert eng.sql("SELECT id FROM nodes LIMIT 1") == rows

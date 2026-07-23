@@ -14,7 +14,7 @@ import pytest
 
 from agent_utilities.security import oidc_discovery
 
-ISS = "http://idp.test/realms/homelab"
+ISS = "https://idp.test/realms/homelab"  # non-loopback issuer requires HTTPS (AU-OS.identity)
 DOC = {
     "issuer": ISS,
     "jwks_uri": f"{ISS}/protocol/openid-connect/certs",
@@ -133,6 +133,7 @@ def test_server_factory_discovers_jwks(monkeypatch: pytest.MonkeyPatch) -> None:
         token_audience="agent-services",
         token_algorithm=None,
         token_secret=None,
+        token_secret_ref=None,
         token_public_key=None,
         required_scopes=None,
     )

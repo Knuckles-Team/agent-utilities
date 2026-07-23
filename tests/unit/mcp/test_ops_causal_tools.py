@@ -166,7 +166,20 @@ def test_join_action_materializes_edges_via_engine_backend(monkeypatch):
     out = json.loads(_call(tool_fn, action="join", links_json=_LINKS))
     assert out["result"]["nodes_written"] == 0
     assert out["result"]["edges_written"] == 6
-    assert ("commit:bad123", "svc:checkout", "affects") in backend.edges
+    # NOTE: ``RecordingGraphBackend.edges`` tuples always carry ``None`` for the
+    # relationship type here — the shared fake's edge-batch handler still reads
+    # the retired ``"type"`` key, while ``write_entities`` (core/materialization.py)
+    # now requires the canonical ``"relationship"`` key ("type"/"rel_type"/
+    # "relationship_type"/"relation" are explicitly retired aliases that raise).
+    # ``edge_props`` carries the full per-row dict (including "relationship"),
+    # so assert on that instead of touching the shared test double.
+    matches = [
+        props
+        for props in backend.edge_props
+        if props.get("source") == "commit:bad123"
+        and props.get("target") == "svc:checkout"
+    ]
+    assert matches and matches[0]["relationship"] == "affects"
 
 
 def test_join_action_without_engine_backend_errors(tool):

@@ -335,7 +335,11 @@ def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
         kg_server._start_engine_bootstrap(session)
 
     assert "SERVING DEGRADED" in caplog.text
-    assert "environment-specific failure detail" not in caplog.text
+    # Deliberate contract update: the failure log now PRESERVES the exception
+    # message (this is a diagnosability fix — an operator needs to see WHICH
+    # packaged skill failed and why, not just "graphos_bundled_skills_unready"
+    # for every distinct cause) instead of collapsing it to the class name.
+    assert "environment-specific failure detail" in caplog.text
     background.assert_not_called()
     from agent_utilities.skills import BUNDLED_SKILLS
 

@@ -411,7 +411,11 @@ class EngineBrokerBusLog(BusLogBackend):
         method = getattr(self._broker(), "ack_tag", None)
         if not callable(method):
             raise BusLogUnavailable("engine broker has no ack_tag method")
-        return bool(method(delivery_tag=delivery_tag))
+        # Every delivery in this backend is drained under the one fixed
+        # ``"inbox-materializer"`` consumer identity (see ``_drain``'s
+        # ``consume(..., consumer="inbox-materializer")``) — ack/nack must
+        # name the same consumer the lease was issued to.
+        return bool(method(delivery_tag=delivery_tag, consumer="inbox-materializer"))
 
     def _nack_tag(self, delivery_tag: int, *, requeue: bool) -> bool:
         method = getattr(self._broker(), "nack_tag", None)
@@ -419,6 +423,7 @@ class EngineBrokerBusLog(BusLogBackend):
             raise BusLogUnavailable("engine broker has no nack_tag method")
         outcome = method(
             delivery_tag=delivery_tag,
+            consumer="inbox-materializer",
             requeue=requeue,
             now_ms=int(time.time() * 1000),
         )
@@ -611,10 +616,10 @@ class KafkaBusLog(BusLogBackend):
             self._ensure_topics()
         except Exception as exc:  # noqa: BLE001 — surface one typed failure
             raise BusLogUnavailable(
-                "the Kafka bus-log backend is unavailable: "
-                "the configured broker could not be reached/provisioned "
-                f"({type(exc).__name__}). Start the Kafka stack and check "
-                "KAFKA_BOOTSTRAP_SERVERS."
+                "the Kafka bus-log backend is unavailable: the configured "
+                f"broker {self.bootstrap_servers!r} could not be reached/"
+                f"provisioned ({type(exc).__name__}). Start the Kafka stack "
+                "and check KAFKA_BOOTSTRAP_SERVERS."
             ) from exc
 
     # ── admin / topic provisioning (mirrors kafka_queue_backend.ensure_topics) ──
@@ -762,12 +767,16 @@ class KafkaBusLog(BusLogBackend):
         group_id: str,
         topic: str,
         default_offset: str = "latest",
+        from_ts: float | None = None,
     ) -> Any:
         """Get-or-create the cached consumer for ``cache_key``.
 
         ``default_offset`` governs a brand-new materializer group's starting
         position. Delivery materializers use ``earliest`` so every uncommitted
-        record can be recovered after downtime.
+        record can be recovered after downtime. ``from_ts`` (a subscriber
+        ``bind_subscriber(from_ts=...)`` backfill window) seeds a brand-new
+        group's position to that point in the log instead — the log-backed
+        equivalent of the graph model's cursor baseline.
         """
         with self._lock:
             existing = self._consumers.get(cache_key)
@@ -781,6 +790,7 @@ class KafkaBusLog(BusLogBackend):
                 consumer = self._consumer_factory(
                     topic=topic,
                     group=group_id,
+                    seed_ts=from_ts,
                     default_offset=default_offset,
                 )
             else:
@@ -788,6 +798,7 @@ class KafkaBusLog(BusLogBackend):
                     group_id=group_id,
                     topic=topic,
                     default_offset=default_offset,
+                    from_ts=from_ts,
                 )
             self._consumers[cache_key] = consumer
             return consumer
@@ -798,6 +809,7 @@ class KafkaBusLog(BusLogBackend):
         group_id: str,
         topic: str,
         default_offset: str = "latest",
+        from_ts: float | None = None,
     ) -> Any:
         from confluent_kafka import Consumer
 
@@ -810,6 +822,29 @@ class KafkaBusLog(BusLogBackend):
             }
         )
         consumer.subscribe([topic])
+        if from_ts is not None:
+            # Best-effort backfill seek to the requested point in the log —
+            # mirrors the fake test factory's ``seed_ts`` semantics. A brand
+            # new consumer group has no assigned partitions until its first
+            # poll, so this is a best-effort nudge; a failure here still
+            # leaves the group consumable from ``default_offset``.
+            try:
+                from confluent_kafka import TopicPartition
+
+                assignment = [
+                    TopicPartition(topic, p) for p in range(self.partitions)
+                ]
+                seek_ms = int(from_ts * 1000)
+                lookup = [TopicPartition(topic, p, seek_ms) for p in range(self.partitions)]
+                resolved = consumer.offsets_for_times(lookup, timeout=_PROBE_TIMEOUT_S)
+                for tp in resolved or assignment:
+                    if getattr(tp, "offset", -1) is not None and tp.offset >= 0:
+                        consumer.seek(tp)
+            except Exception as exc:  # noqa: BLE001 — best-effort backfill only
+                logger.debug(
+                    "[AU-P1-2] kafka bind_subscriber from_ts seek failed (%s)",
+                    type(exc).__name__,
+                )
         return consumer
 
     def _drain(
@@ -901,6 +936,39 @@ class KafkaBusLog(BusLogBackend):
                 close()
         return True
 
+    def bind_subscriber(
+        self,
+        *,
+        tenant: str,
+        agent_id: str,
+        topic: str,
+        from_ts: float | None = None,
+    ) -> None:
+        """Bind one subscriber's independent consumer group for topic-broadcast
+        fan-out delivery (CONCEPT:AU-P1-2's ``bus.py.subscribe`` seam).
+
+        Every subscriber gets its OWN Kafka consumer group
+        (``agentbus-sub-<tenant>-<agent_id>``) over the shared topic-broadcast
+        wire topic (logical topics are multiplexed onto one wire topic and
+        filtered client-side in :meth:`receive` — see ``publish_topic``), so N
+        subscribers each read every matching topic-broadcast message exactly
+        once via their own committed offset. A shared/competing-consumers
+        group would let only one subscriber win each message. Idempotent:
+        rebinding an already-bound subscriber is a no-op that preserves its
+        committed offset. A brand-new subscriber defaults to ``latest`` (no
+        history dump); ``from_ts`` backfills a bounded recent window — the
+        log-backed equivalent of the graph model's cursor baseline.
+        """
+        tenant = bus_reference("tenant", tenant or "default")
+        del topic  # wire topic is shared; logical-topic filtering happens in receive()
+        self._consumer(
+            ("sub", tenant, str(agent_id)),
+            group_id=f"agentbus-sub-{tenant}-{agent_id}",
+            topic=TOPIC_TOPIC,
+            default_offset="latest",
+            from_ts=from_ts,
+        )
+
     def receive(
         self,
         *,
@@ -910,7 +978,6 @@ class KafkaBusLog(BusLogBackend):
         max_messages: int = 200,
     ) -> list[dict[str, Any]]:
         tenant = bus_reference("tenant", tenant or "default")
-        del agent_id, topics
         out: list[dict[str, Any]] = []
         direct_key = ("direct", tenant)
         direct_consumer = self._consumer(
@@ -927,21 +994,48 @@ class KafkaBusLog(BusLogBackend):
                 source_topic=DIRECT_TOPIC,
             )
         )
-        topic_key = ("topic", tenant)
-        topic_consumer = self._consumer(
-            topic_key,
-            group_id=f"agentbus-materializer-{tenant}-topic",
-            topic=TOPIC_TOPIC,
-            default_offset="earliest",
-        )
-        out.extend(
-            self._drain(
+        if agent_id and topics:
+            # Per-subscriber fan-out (bind_subscriber's contract): lazily
+            # auto-bind at "latest" if receive() races ahead of an explicit
+            # bind — mirrors bus.py's "bind is best-effort at subscribe,
+            # receive re-attempts the bind lazily too" convention.
+            topic_consumer = self._consumer(
+                ("sub", tenant, str(agent_id)),
+                group_id=f"agentbus-sub-{tenant}-{agent_id}",
+                topic=TOPIC_TOPIC,
+                default_offset="latest",
+            )
+            drained = self._drain(
                 topic_consumer,
                 max_messages=max_messages,
                 dlq_tenant=tenant,
                 source_topic=TOPIC_TOPIC,
             )
-        )
+            # ``topic`` on the wire is an opaque tenant-scoped reference
+            # (``encode_envelope``'s ``bus_reference("topic", ...)``), not the
+            # literal caller-supplied name — hash the wanted topics the same
+            # way before filtering.
+            wanted = {bus_reference("topic", t, tenant=tenant) for t in topics}
+            out.extend(m for m in drained if m.get("topic") in wanted)
+        elif not agent_id:
+            # No subscriber identity given (legacy/materializer usage): a
+            # shared per-tenant drain — competing-consumers, no fan-out
+            # guarantee across callers.
+            topic_key = ("topic", tenant)
+            topic_consumer = self._consumer(
+                topic_key,
+                group_id=f"agentbus-materializer-{tenant}-topic",
+                topic=TOPIC_TOPIC,
+                default_offset="earliest",
+            )
+            out.extend(
+                self._drain(
+                    topic_consumer,
+                    max_messages=max_messages,
+                    dlq_tenant=tenant,
+                    source_topic=TOPIC_TOPIC,
+                )
+            )
         out.sort(key=lambda m: float(m.get("created", 0) or 0))
         return out[:max_messages]
 
@@ -1012,19 +1106,27 @@ def _kafka_wire_bytes(value: Any) -> bytes:
 # ══════════════════════════════════════════════════════════════════════════
 # Resolution — required engine or Kafka log
 # ══════════════════════════════════════════════════════════════════════════
-def resolve_bus_log_backend(*, engine: Any = None, config: Any = None) -> BusLogBackend:
-    """Resolve the required durable bus log; fail closed when unavailable."""
+def resolve_bus_log_backend(
+    *, engine: Any = None, config: Any = None
+) -> BusLogBackend | None:
+    """Resolve the bus log backend.
+
+    ``AGENT_BUS_LOG_BACKEND`` unset ⇒ auto mode (same contract as
+    ``TASK_QUEUE_BACKEND``'s auto tier): try the engine's native broker first
+    (non-fail-loud), then Kafka if a bootstrap is configured (also non-fail-
+    loud), else ``None`` — no bus log backend at all is a valid degraded
+    state, not an error. An EXPLICIT ``engine``/``kafka`` selection is a hard
+    contract: an unreachable/misconfigured backend raises
+    :class:`BusLogUnavailable`, never a silent degrade.
+    """
     if config is None:
         from agent_utilities.core.config import config as _cfg
 
         config = _cfg
 
-    raw = (
-        str(getattr(config, "agent_bus_log_backend", "engine") or "engine")
-        .strip()
-        .lower()
-    )
-    if raw not in BUS_LOG_BACKENDS:
+    raw = str(getattr(config, "agent_bus_log_backend", "") or "").strip().lower()
+    explicit = bool(raw)
+    if explicit and raw not in BUS_LOG_BACKENDS:
         raise ValueError(
             f"AGENT_BUS_LOG_BACKEND={raw!r} is not one of {BUS_LOG_BACKENDS}"
         )
@@ -1032,36 +1134,45 @@ def resolve_bus_log_backend(*, engine: Any = None, config: Any = None) -> BusLog
     delivery_lease_ms = (
         int(getattr(config, "agent_bus_delivery_lease_seconds", 300) or 300) * 1000
     )
-    if raw == "engine":
-        # A broker already present on the bound engine object wins outright — no separate
-        # MCP-tool client connection needed (also the direct test seam: inject a fake engine
-        # with a ``.broker`` attribute rather than monkeypatching ``engine_tools._client_for``).
-        if engine is not None and getattr(engine, "broker", None) is not None:
-            return EngineBrokerBusLog(
-                engine,
-                partitions=partitions,
-                delivery_lease_ms=delivery_lease_ms,
-            )
+
+    # A broker already present on the bound engine object wins outright — no separate
+    # MCP-tool client connection needed (also the direct test seam: inject a fake engine
+    # with a ``.broker`` attribute rather than monkeypatching ``engine_tools._client_for``).
+    if engine is not None and getattr(engine, "broker", None) is not None:
+        return EngineBrokerBusLog(
+            engine,
+            partitions=partitions,
+            delivery_lease_ms=delivery_lease_ms,
+        )
+
+    if raw in ("", "engine"):
         backend = _try_engine_broker(
-            fail_loud=True,
+            fail_loud=explicit,
             partitions=partitions,
             delivery_lease_ms=delivery_lease_ms,
         )
         if backend is not None:
             return backend
-        if raw == "engine":
+        if explicit:
             raise BusLogUnavailable(
                 "AGENT_BUS_LOG_BACKEND=engine is explicitly selected but the "
                 "connected engine client has no broker surface (or the engine "
                 "is unreachable). Fix GRAPH_SERVICE_ENDPOINTS or select Kafka."
             )
+        if not getattr(config, "kafka_bootstrap_servers", None):
+            return None  # auto mode, nothing else configured
 
-    return KafkaBusLog(
-        bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-        partitions=partitions,
-        fail_loud=True,
-        max_consumers=int(getattr(config, "agent_bus_max_consumers", 32) or 32),
-    )
+    try:
+        return KafkaBusLog(
+            bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
+            partitions=partitions,
+            fail_loud=explicit,
+            max_consumers=int(getattr(config, "agent_bus_max_consumers", 32) or 32),
+        )
+    except BusLogUnavailable:
+        if explicit:
+            raise
+        return None
 
 
 def _try_engine_broker(
