@@ -157,6 +157,7 @@ nav:
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
+      - Orchestrator Migration & Cutover (Swarm→k8s hardening): architecture/orchestrator-migration-cutover.md
       - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
       - Intent Surface (Seam 8 — condensed tool-surface collapse): architecture/intent-surface.md
       - Unified Agent Entrypoint (verified routing map): architecture/unified-agent-entrypoint.md

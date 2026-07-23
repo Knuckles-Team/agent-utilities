@@ -2432,6 +2432,7 @@ def _ingest_skill_capabilities(
     skip_names: frozenset[str] = frozenset(),
 ) -> int:
     """Persist provider skills as runnable resources without retaining paths."""
+    from agent_utilities.core.providers import is_skill_graph_reference_path
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         ingest_runnable_skill,
         skill_reference,
@@ -2445,7 +2446,11 @@ def _ingest_skill_capabilities(
     skill_files = (
         [root / "SKILL.md"]
         if (root / "SKILL.md").is_file()
-        else sorted(root.rglob("SKILL.md"))
+        else sorted(
+            skill_md
+            for skill_md in root.rglob("SKILL.md")
+            if not is_skill_graph_reference_path(skill_md, root)
+        )
     )
     for skill_md in skill_files:
         skill_dir = skill_md.parent
@@ -2608,7 +2613,7 @@ def _ready_bundled_skill_names(
     return frozenset(ready)
 
 
-def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
+def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     """Synchronously establish the packaged delegation contract before serving."""
     from agent_utilities.skills import BUNDLED_SKILLS
 
@@ -2639,7 +2644,6 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
                 len(BUNDLED_SKILLS),
                 sorted(frozenset(BUNDLED_SKILLS) - ready_after),
             )
-            raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
@@ -2652,12 +2656,20 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
             exc,
             exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
+        return {
+            "required": len(BUNDLED_SKILLS),
+            "already_ready": 0,
+            "ingested": 0,
+            "ready": 0,
+            "not_ready": sorted(BUNDLED_SKILLS),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "required": len(BUNDLED_SKILLS),
         "already_ready": len(ready_before),
         "ingested": ingested,
         "ready": len(ready_after),
+        "not_ready": sorted(frozenset(BUNDLED_SKILLS) - ready_after),
     }
 
 
@@ -2940,6 +2952,26 @@ def _stop_process_authority_supervisor() -> None:
     _PROCESS_AUTHORITY_THREAD = None
 
 
+_BUNDLED_SKILL_READINESS: dict[str, Any] = {}
+
+
+def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
+    """Publish packaged-skill readiness so /health can report it.
+
+    Readiness no longer gates boot, so it MUST be observable at runtime —
+    otherwise "serving degraded" is indistinguishable from "fully ready" to
+    anything outside the process, which is the silent-failure pattern this
+    codebase keeps getting bitten by.
+    """
+    _BUNDLED_SKILL_READINESS.clear()
+    _BUNDLED_SKILL_READINESS.update(report)
+
+
+def bundled_skill_readiness() -> dict[str, Any]:
+    """The last packaged-skill readiness report (empty before bootstrap runs)."""
+    return dict(_BUNDLED_SKILL_READINESS)
+
+
 def _start_engine_bootstrap(session: Any) -> None:
     """Establish critical skill readiness, then start noncritical services."""
     from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -2965,14 +2997,36 @@ def _start_engine_bootstrap(session: Any) -> None:
         # identically as "graphos_bundled_skills_unready", and `raise ... from
         # None` then discards the chained traceback too. The message and the
         # original traceback are what make the next failure diagnosable.
+        # Packaged-skill readiness is a CAPABILITY concern, not a correctness or
+        # security one, so it must not decide whether graph-os serves at all. A
+        # server that refuses to boot because some bundled skills did not ingest
+        # takes down every unrelated tool, the health surface, and the operator's
+        # ability to diagnose the very problem — the failure mode is far worse
+        # than running degraded. Record it, surface it in /health, keep serving.
         logger.error(
-            "GraphOS critical startup readiness failed (%s: %s)",
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
             type(exc).__name__,
             exc,
             exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
+        _set_bundled_skill_readiness(
+            {
+                "required": len(BUNDLED_SKILLS),
+                "ready": 0,
+                "not_ready": sorted(BUNDLED_SKILLS),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        return
 
+    _set_bundled_skill_readiness(readiness)
+    if readiness.get("not_ready"):
+        logger.error(
+            "GraphOS is SERVING DEGRADED: %d/%d packaged skills ready, not_ready=%s",
+            readiness.get("ready", 0),
+            readiness.get("required", 0),
+            readiness.get("not_ready"),
+        )
     logger.info(
         "GraphOS packaged-skill readiness established (%d/%d)",
         readiness["ready"],
@@ -3690,6 +3744,7 @@ def mcp_server() -> None:
     _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
     _start_process_authority_supervisor(bootstrap_session)
 
+    co_service_supervisor = None
     try:
         logger.info("Starting graph-os MCP server (transport=%s)", transport)
 
@@ -3709,10 +3764,34 @@ def mcp_server() -> None:
                 str(getattr(args, "auth_type", "none") or "none").lower() != "none"
             ),
         )
-        _start_engine_bootstrap(bootstrap_session)
 
+        # Stdout purity BEFORE any co-service can log a single line. On stdio,
+        # stdout IS the JSON-RPC channel — this monkeypatches builtins.print /
+        # warnings.showwarning process-wide, so it protects every co-service
+        # thread started below too, not just this one. No-op for network
+        # transports (they don't own stdout as a protocol channel).
         if transport == "stdio":
             protect_stdio_jsonrpc()
+
+        # Self-composing co-services, phase 1: the KG host daemon must be decided
+        # BEFORE the engine is constructed below so it can win (or lose) the
+        # host-lock race as the first constructor (see co_service_supervisor's
+        # module docstring for the exact "client role + no live host" detection).
+        from agent_utilities.mcp.co_service_supervisor import (
+            bring_up_host_daemon_if_needed,
+            start_co_services,
+        )
+
+        bring_up_host_daemon_if_needed()
+        _start_engine_bootstrap(bootstrap_session)
+
+        # Self-composing co-services, phase 2: messaging (config-detected — real
+        # platform credentials present) now that a real engine exists; agent-webui
+        # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
+        # started in-process.
+        co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
+
+        if transport == "stdio":
             mcp.run(transport="stdio")
         elif transport == "streamable-http":
             mcp.run(
@@ -3724,6 +3803,8 @@ def mcp_server() -> None:
         else:
             raise ValueError("graph-os transport must be 'stdio' or 'streamable-http'")
     finally:
+        if co_service_supervisor is not None:
+            co_service_supervisor.stop_all()
         _PROCESS_SESSION = None
         _stop_process_authority_supervisor()
         # Best-effort teardown of any lazily-mounted fleet children.

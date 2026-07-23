@@ -331,7 +331,7 @@ async def test_probe_server_records_unreachable(tmp_path):
     mux._open_one_session = AsyncMock(side_effect=_boom)  # type: ignore[method-assign]
     info = await mux.probe_server(CNT, timeout=1)
     assert info["tools"] == []
-    assert info["error"] == "OSError"
+    assert info["error"] == "OSError: connection refused"
 
 
 async def test_probe_server_uses_live_tools_when_mounted(tmp_path):
@@ -521,9 +521,12 @@ def test_format_probe_error_unwraps_exceptiongroup():
         [RuntimeError("HTTP 502 Bad Gateway"), RuntimeError("HTTP 502 Bad Gateway")],
     )
     msg = _format_probe_error(eg)
-    assert msg == "RuntimeError"
-    assert "HTTP 502 Bad Gateway" not in msg
-    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError"
+    # The leaf type AND its message are preserved (deduped across identical
+    # leaves) — a bare "RuntimeError" gives no diagnostic signal (this exact
+    # anti-pattern made the whole MCP fleet's outage undiagnosable).
+    assert msg == "RuntimeError: HTTP 502 Bad Gateway"
+    assert _format_probe_error(ConnectionError("refused")) == "ConnectionError: refused"
+    assert _format_probe_error(RuntimeError("")) == "RuntimeError"
 
 
 # --------------------------------------------------------------------------- #

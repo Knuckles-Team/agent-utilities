@@ -799,7 +799,15 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _format_probe_error(exc: BaseException) -> str:
-    """Render only stable leaf exception types from a probe failure."""
+    """Render leaf exception types **and their messages** from a probe failure.
+
+    Reporting only ``type(exc).__name__`` (the prior behavior) collapses every
+    distinct failure — a DNS error, a TLS failure, and a JWT issuer mismatch —
+    into the same bare "RuntimeError", making `find_tools`/`load_tools`/
+    `probe_catalog` undiagnosable from the caller's side. The leaf message is
+    the actual signal (e.g. an auth server's "issuer mismatch (got X, expected
+    Y)"), so it is included, truncated to a bounded length per leaf so one
+    verbose exception can't blow out the aggregate catalog response."""
     leaves: list[str] = []
 
     def _walk(e: BaseException) -> None:
@@ -810,7 +818,9 @@ def _format_probe_error(exc: BaseException) -> str:
             for sub in subs or []:
                 _walk(sub)
         else:
-            leaves.append(type(e).__name__)
+            name = type(e).__name__
+            msg = str(e).strip()
+            leaves.append(f"{name}: {msg[:300]}" if msg else name)
 
     _walk(exc)
     # de-dup while preserving order
@@ -1172,6 +1182,23 @@ class MCPMultiplexer:
                 or len(url) > 8_192
             ):
                 raise RuntimeError("Remote MCP child URL is invalid")
+            # Computed here (not just at the transport-pinning site below) so the
+            # scheme gate consults the SAME allowlist as the actual DNS-pinned
+            # egress: MCP_HTTP_ALLOWED_PRIVATE_HOSTS was already a config field
+            # for exactly this (mirroring OIDC_HTTP_ALLOWED_PRIVATE_HOSTS /
+            # MODEL_HTTP_ALLOWED_PRIVATE_HOSTS), but this gate never read it —
+            # so a deployment that legitimately reaches its MCP fleet over
+            # plain HTTP behind a TLS-terminating ingress (MCP_TLS_TERMINATED)
+            # could never declare that trust; it always hard-failed here first.
+            from agent_utilities.core.config import config as agent_config
+
+            child_private_hosts = cfg.get("allowed_private_hosts", [])
+            if not isinstance(child_private_hosts, list):
+                raise RuntimeError("Remote MCP child private-host policy is invalid")
+            allowed_private_hosts = [
+                *agent_config.mcp_http_allowed_private_hosts,
+                *(str(value) for value in child_private_hosts),
+            ]
             if (
                 parsed_url.scheme.lower() == "http"
                 and parsed_url.hostname.lower()
@@ -1179,6 +1206,7 @@ class MCPMultiplexer:
                     "localhost",
                     "127.0.0.1",
                     "::1",
+                    *(host.lower() for host in allowed_private_hosts),
                 }
             ):
                 raise RuntimeError("Remote MCP child requires HTTPS outside loopback")
@@ -1221,7 +1249,6 @@ class MCPMultiplexer:
                     validated_headers[name] = rendered
                 headers = validated_headers
 
-            from agent_utilities.core.config import config as agent_config
             from agent_utilities.core.http_client import create_async_http_client
             from agent_utilities.core.transport_security import (
                 resolve_configured_tls_profile,
@@ -1238,13 +1265,6 @@ class MCPMultiplexer:
             stack.callback(trust.cleanup)
             if trust.proxy_url:
                 raise RuntimeError("Remote MCP child cannot use an inline proxy")
-            child_private_hosts = cfg.get("allowed_private_hosts", [])
-            if not isinstance(child_private_hosts, list):
-                raise RuntimeError("Remote MCP child private-host policy is invalid")
-            allowed_private_hosts = [
-                *agent_config.mcp_http_allowed_private_hosts,
-                *(str(value) for value in child_private_hosts),
-            ]
 
             def _secure_httpx_factory(
                 headers: dict[str, str] | None = None,

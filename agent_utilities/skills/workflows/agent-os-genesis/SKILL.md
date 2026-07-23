@@ -185,6 +185,34 @@ plan lives **outside** this skill (single source of truth — do not duplicate h
 | Per-stack classification (133 orchestratable, 8 standalone) + the `k8s/` scaffolder | `inventory/k8s-migration/{ROADMAP.md,scaffold_k8s.py}` |
 | **Pre-change validation** (baseline every service + MCP; **arr-stack VPN-leak P0 gate**) | `inventory/k8s-migration/validation/` |
 | Owned public edge wired to the cluster (VPS Caddy → wg → ingress VIP) | `edge-ingress/K8S-INTEGRATION-PLAN.md` |
+| **Migrate-mode cutover runbook** (provider-neutral hardening — the 401/DNS/data-in-place traps + the coupled-unit sequence) | [`references/orchestrator-migration-cutover.md`](references/orchestrator-migration-cutover.md) (rationale: `docs/architecture/orchestrator-migration-cutover.md`) |
+
+**Migrate-mode hardening (learn these before the first stack moves — every one was a live outage):**
+1. **Gateway outbound token → pin to the in-cluster IdP.** The gateway mints a
+   client-credentials service token for every JWT-protected child; a failed mint
+   degrades to **no header → every child 401s**. On k8s, set `OIDC_TOKEN_URL` to the
+   in-cluster IdP Service (auto-discovery routes through the edge, which can 502
+   mid-migration). See `references/graph-os-fleet-gateway-auth.md`.
+2. **The cluster-driving MCP gets its own ServiceAccount + a scoped ClusterRole**
+   (workload/config/network/storage/CRD verbs, **no RBAC-write**) — the namespace
+   default SA 403s every call; `cluster-admin` over-grants.
+3. **App+DB secrets via ExternalSecrets from the secret store** — seed `<store>/<app>`
+   with an operator-run script (writes are gated), never hand-create Secrets; prefer an
+   explicit env allow-list over `envFrom`.
+4. **Preserve the canonical hostnames** — cluster Ingress with the SAME hostname + the
+   DNS authority → ingress VIP, automated with an ingress-watching DNS controller
+   (**e.g.** external-dns). **Flip DNS selectively (migrated hostnames only) — a global
+   wildcard flip breaks unmigrated services.** A post-cutover 401 is usually the
+   hostname still resolving to the OLD backend, not a bad token.
+5. **Edge cutover:** prefer flipping DNS over editing the edge; if you must edit, reach
+   the actual serving instance's mounted config, `validate`, curl THROUGH the edge, and
+   keep the old backend as rollback until verified.
+6. **Data-in-place:** `enableServiceLinks:false` for `<NAME>_*`-as-config apps;
+   node-pin hostPath to the data node; **Postgres via `pg_dump`/restore, not
+   file-copy**; hold the app at 0 replicas until the DB is restored; verify counts.
+7. **Coupled-unit sequence** per stack: deploy DB → hold app at 0 → restore + verify →
+   copy media → app to 1 → verify health → **flip DNS (not the edge)** → stop old
+   backend → re-verify with the old backend down.
 
 How it binds to the steps below:
 - **Step 0** `orchestrator: kubernetes` → **Step 5** `kubernetes-mesh-provisioner`

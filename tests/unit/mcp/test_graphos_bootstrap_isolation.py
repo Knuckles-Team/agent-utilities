@@ -303,9 +303,18 @@ def test_packaged_skill_readiness_blocks_background_bootstrap_and_preserves_auth
     assert background_started.is_set()
 
 
-def test_packaged_skill_readiness_failure_prevents_serving_and_is_controlled(
+def test_packaged_skill_readiness_failure_is_controlled_and_serves_degraded(
     caplog,
 ) -> None:
+    """Packaged-skill readiness is a capability concern, not a correctness or
+    security one: a failure must not raise and must not take the process
+    down. It is recorded (via ``bundled_skill_readiness()``, surfaced on
+    ``/health``) and logged loudly, but ``_start_engine_bootstrap`` returns
+    normally — the same "log loudly, keep serving" contract as the
+    ``DuplicateSkillIdentity`` sweep resilience in ``core/providers.py``.
+    Background/noncritical service startup still does not run this cycle
+    (it is gated behind readiness having been established at all).
+    """
     from agent_utilities.mcp import kg_server
 
     session = _verified_session()
@@ -321,13 +330,18 @@ def test_packaged_skill_readiness_failure_prevents_serving_and_is_controlled(
             "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",
             background,
         ),
-        pytest.raises(kg_server.GraphOSStartupReadinessError) as captured,
+        caplog.at_level("ERROR", logger="agent_utilities.mcp.kg_server"),
     ):
         kg_server._start_engine_bootstrap(session)
 
-    assert str(captured.value) == "graphos_bundled_skills_unready"
+    assert "SERVING DEGRADED" in caplog.text
     assert "environment-specific failure detail" not in caplog.text
     background.assert_not_called()
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    report = kg_server.bundled_skill_readiness()
+    assert report["ready"] == 0
+    assert sorted(report["not_ready"]) == sorted(BUNDLED_SKILLS)
 
 
 def test_noncritical_bootstrap_skips_packaged_skill_reingestion() -> None:
