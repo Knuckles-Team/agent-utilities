@@ -28,6 +28,11 @@ from .job_manager import (
     ExtractionJobManager,
     GraphCheckpointStore,
 )
+from .second_brain_sync import (
+    SecondBrainSyncResult,
+    iter_note_files,
+    sync_second_brain,
+)
 
 __all__ = [
     "FACT_EXTRACTION_PROMPT",
@@ -37,8 +42,11 @@ __all__ = [
     "ExtractionJobManager",
     "FactDeduper",
     "GraphCheckpointStore",
+    "SecondBrainSyncResult",
     "extract_facts",
     "facts_to_jsonl",
+    "iter_note_files",
     "parse_facts_incremental",
     "persist_facts",
+    "sync_second_brain",
 ]

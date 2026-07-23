@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.kb.entity_claim_extractor import (
     EntityClaimExtractor,
+    claim_node_id,
     extract_deterministic,
 )
 from agent_utilities.models.knowledge_graph import (
@@ -69,6 +70,26 @@ class TestDeterministicExtraction:
         assert len(result.entities) == 0
         assert len(result.claims) == 0
         assert len(result.relationships) == 0
+
+
+class TestClaimNodeId:
+    """Test `claim_node_id` — the content-addressed claim id convention."""
+
+    def test_deterministic_for_same_inputs(self):
+        a = claim_node_id("doc:note1", "the sky is blue")
+        b = claim_node_id("doc:note1", "the sky is blue")
+        assert a == b
+        assert a.startswith("claim:")
+
+    def test_differs_by_source(self):
+        a = claim_node_id("doc:note1", "the sky is blue")
+        b = claim_node_id("doc:note2", "the sky is blue")
+        assert a != b
+
+    def test_differs_by_text(self):
+        a = claim_node_id("doc:note1", "the sky is blue")
+        b = claim_node_id("doc:note1", "the sky is red")
+        assert a != b
 
 
 class TestClaimNode:
@@ -173,6 +194,24 @@ class TestEntityClaimExtractor:
             if str(d.get("type", "")).lower() == "claim"
         ]
         assert len(claim_nodes) >= 1
+
+    def test_reextracting_unchanged_content_upserts_not_duplicates(self, mock_engine):
+        """Re-running extraction over the SAME (source_id, content) must mint
+        the identical claim id (content-addressed, like the entity digest
+        above it) and upsert — never a second ClaimNode for the same claim."""
+        mock_engine.graph.add_node("doc:repeat", type="article", name="Repeat Doc")
+        extractor = EntityClaimExtractor(mock_engine)
+        content = "We recommend implementing tiered validation for all graph data."
+
+        extractor.extract_and_persist(content, source_id="doc:repeat")
+        extractor.extract_and_persist(content, source_id="doc:repeat")
+
+        claim_nodes = [
+            n
+            for n, d in mock_engine.graph.nodes(data=True)
+            if str(d.get("type", "")).lower() == "claim"
+        ]
+        assert len(claim_nodes) == 1
 
 
 class TestEdgeTypes:

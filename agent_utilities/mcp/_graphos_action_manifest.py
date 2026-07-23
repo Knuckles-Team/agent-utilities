@@ -1655,6 +1655,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_ingest", "action": "status", "name": "graph_ingest_status"},
     {"tool": "graph_ingest", "action": "sync", "name": "graph_ingest_sync"},
+    {
+        "tool": "graph_ingest",
+        "action": "sync_second_brain",
+        "name": "graph_ingest_sync_second_brain",
+    },
     {"tool": "graph_jobs", "action": "dispatch", "name": "graph_jobs_dispatch"},
     {"tool": "graph_jobs", "action": "status", "name": "graph_jobs_status"},
     {"tool": "graph_kvcache", "action": "contains", "name": "graph_kvcache_contains"},

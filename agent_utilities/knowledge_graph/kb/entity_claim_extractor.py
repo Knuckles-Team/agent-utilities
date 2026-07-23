@@ -29,7 +29,6 @@ import hashlib
 import logging
 import re
 import time
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
@@ -86,6 +85,22 @@ class ExtractionResult(BaseModel):
     claims: list[ExtractedClaim] = Field(default_factory=list)
     relationships: list[ExtractedRelationship] = Field(default_factory=list)
     source_id: str = ""
+
+
+def claim_node_id(source_id: str, claim_text: str) -> str:
+    """Content-addressed ``Claim`` node id for one ``(source_id, claim_text)`` pair.
+
+    Mirrors the entity digest convention two lines below in
+    :meth:`EntityClaimExtractor.extract_and_persist` (``entity:<sha256(name)>``)
+    so claims are idempotent the SAME way entities already are: re-running
+    extraction over unchanged content mints the identical id and upserts the
+    existing ``ClaimNode`` instead of minting a duplicate. Exported so a caller
+    that needs the id a just-extracted claim was persisted under (e.g. to
+    propose it into :class:`~agent_utilities.knowledge_graph.research.
+    claim_flywheel.ClaimFlywheel`) can recompute it without a follow-up query.
+    """
+    digest = hashlib.sha256(f"{source_id}:{claim_text}".encode()).hexdigest()[:32]
+    return f"claim:{digest}"
 
 
 # ---------------------------------------------------------------------------
@@ -283,9 +298,12 @@ class EntityClaimExtractor:
                 data = self.engine._serialize_node(node, label="Entity")
                 self.engine._upsert_node("Entity", entity_id, data)
 
-        # Persist claims to KG
+        # Persist claims to KG. Content-addressed (see `claim_node_id`) so
+        # re-extracting unchanged content upserts the same ClaimNode rather
+        # than minting a duplicate — the same idempotency the entities above
+        # already have via their own sha256(name) digest.
         for claim in result.claims:
-            claim_id = f"claim:{uuid.uuid4().hex}"
+            claim_id = claim_node_id(source_id, claim.claim_text)
 
             node = ClaimNode(  # type: ignore[assignment]
                 id=claim_id,

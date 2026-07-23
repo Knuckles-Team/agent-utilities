@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **`sync_second_brain` — one-call personal-notes sync (W3.9,
+  CONCEPT:AU-KG.enrichment.second-brain-note-sync).** The
+  `knowledge_graph/extraction/second_brain_sync.py` module sequences three
+  already-tested primitives over a notes directory into one call, exposed as
+  `graph_ingest action="sync_second_brain"` (target_path=notes dir/file,
+  corpus_name=corpus name, base_path=optional 'since' cursor): per note,
+  `fact_extractor.extract_facts`/`persist_facts` (evidence-spanned atomic
+  facts), `EntityClaimExtractor.extract_and_persist` (typed claims, each then
+  PROPOSED — never silently accepted — into the governed `ClaimFlywheel`
+  lifecycle the `graph_claims` MCP tool already drives), and
+  `ContradictionDetector` scanning each new claim against existing graph
+  content (`search_hybrid`, the SAME candidate retrieval
+  `graph_analyze action="contradictions"` uses) — a finding persists as a
+  propose-only `:BeliefRevisionProposal`, the EXACT node shape
+  `LoopController._run_belief_revision` already writes for its own periodic
+  pass, so any existing reader of that node type picks up a second-brain
+  contradiction with zero new UI. Content-hash idempotent per note
+  (`doc:second_brain:<sha256(text)[:16]>`): re-syncing an unchanged corpus
+  mints zero new facts/claims/proposals. No new extraction/inference logic —
+  thin composition only. Closes the "sharpest DONE/MISSING gap" the
+  surpass-6mo audit identified (`reports/surpass-6mo/04-five-intersections.md`
+  §5): the `second-brain-sync` universal-skill is rewired to drive this real
+  flow (see that repo's own CHANGELOG).
+- **`EntityClaimExtractor` claim ids are now content-addressed
+  (`claim_node_id`, `knowledge_graph/kb/entity_claim_extractor.py`).**
+  `extract_and_persist` minted a fresh `uuid.uuid4()` per claim on every call
+  — inconsistent with the entity digest two lines above it in the SAME
+  function, and non-idempotent (re-extracting unchanged content duplicated
+  ClaimNodes). `claim_node_id(source_id, claim_text)` mirrors the existing
+  entity convention (`sha256` digest) and is exported so a caller (e.g.
+  `sync_second_brain`) can recompute the id a just-persisted claim was minted
+  under without a follow-up query.
 - **`graph_ops_causal` findings become citable, revisable Claims (`as_claim`, W3.5).**
   `root_cause`/`blast_radius` gain an opt-in `as_claim=true` parameter: the
   call's finding is proposed through the SAME governed `ClaimFlywheel`
