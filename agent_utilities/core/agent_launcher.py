@@ -87,7 +87,7 @@ def launch_agent_in_terminal(
     if override and override_flag:
         cmd += f" {override_flag}"
 
-    final_session_name = session_name or f"agent_{uuid.uuid4().hex[:6]}"
+    final_session_name = session_name or f"agent_{uuid.uuid4().hex}"
 
     try:
         # Check if we are already inside a tmux session

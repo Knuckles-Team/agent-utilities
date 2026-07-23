@@ -11,10 +11,38 @@ Asserts:
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from agent_utilities.core.contextual_model import use_context_compiler_engine
 from agent_utilities.graph.planning import Planner
 from agent_utilities.models.graph import ExecutionStep, GraphPlan
+
+
+class _FakeEvidenceSource:
+    """Minimal stand-in for the ContextCompiler's evidence source.
+
+    ``create_context_agent`` (the sole application constructor for pydantic-ai
+    agents, see ``agent_utilities.core.contextual_model``) wraps every model in
+    a mandatory context boundary: an ``agent.run()`` call compiles an evidence
+    bundle from the process's configured ContextCompiler engine and fails
+    closed (``ContextCompilationError``) when none is installed — there is no
+    development bypass. Tests that exercise the real ``agent.run()`` path (as
+    opposed to only asserting on fallback behaviour) must install a source via
+    :func:`use_context_compiler_engine`, exactly as a real deployment installs
+    its ``IntelligenceGraphEngine``.
+    """
+
+    def search_hybrid(
+        self, query: str, *, top_k: int = 8, as_of: str | None = None
+    ) -> list[dict[str, Any]]:
+        del query, top_k, as_of
+        return []
+
+    def retrieve_epistemic_view(self, query: str, *, top_k: int = 8) -> dict[str, Any]:
+        del query, top_k
+        return {}
 
 
 # --- (a) facade import resolves ---------------------------------------------
@@ -50,7 +78,8 @@ def _test_model():
 @pytest.mark.asyncio
 async def test_decompose_with_injected_model():
     planner = Planner(model=_test_model())
-    plan = await planner.decompose("Build a CSV export feature")
+    with use_context_compiler_engine(_FakeEvidenceSource()):
+        plan = await planner.decompose("Build a CSV export feature")
     assert isinstance(plan, GraphPlan)
     assert len(plan.steps) == 3
     assert plan.steps[0].id == "step_1"
@@ -65,7 +94,8 @@ async def test_decompose_model_from_ctx():
         deps = _Deps()
 
     planner = Planner()
-    plan = await planner.decompose("Refactor the auth module", _Ctx())
+    with use_context_compiler_engine(_FakeEvidenceSource()):
+        plan = await planner.decompose("Refactor the auth module", _Ctx())
     assert isinstance(plan, GraphPlan)
     assert len(plan.steps) == 3
 
@@ -89,7 +119,8 @@ async def test_refine_single_shot():
         steps=[ExecutionStep(id="bad", description="wrong approach")],
         metadata={"goal": "Build a CSV export feature"},
     )
-    refined = await planner.refine(original, "Use streaming, not in-memory")
+    with use_context_compiler_engine(_FakeEvidenceSource()):
+        refined = await planner.refine(original, "Use streaming, not in-memory")
     assert isinstance(refined, GraphPlan)
     assert len(refined.steps) == 3
 

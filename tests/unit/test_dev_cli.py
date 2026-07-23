@@ -162,7 +162,7 @@ def test_main_deploy_plan_live_path(monkeypatch, capsys):
             "--backend",
             "container",
             "--target",
-            "r510",
+            "example-host",
             "--param",
             "image=agent-utilities:test",
         ]
@@ -170,7 +170,7 @@ def test_main_deploy_plan_live_path(monkeypatch, capsys):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["backend"] == "container"
-    assert out["target"] == "r510"
+    assert out["target"] == "example-host"
     assert out["live_capable"] is False
     assert out["steps"][1]["fleet_call"]["server"] == "container-manager-mcp"
     assert "agent-utilities:test" in out["artifacts"]["compose.yml"]

@@ -45,29 +45,31 @@ you loop over). The whole thing is built to need only this repo URL.
    into every agent tool on the host, wires the `graph-os` MCP server, and generates a
    complete config. For a curl-first machine:
    `curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh`.
-4. **Run the right skill to finish wiring.** `single-node-prod`/`tiny` →
-   **`agent-utilities-deployment`** (self-setup: full config → secrets → databases →
-   launch). `enterprise` → **`agent-os-genesis`** (bare-host Kubernetes/RKE2 — or
-   Swarm, if that `orchestrator` is chosen — → Vault-protocol(OpenBao)/DNS/Keycloak-
-   SSO/ingress → the *-mcp fleet from `deploy/mcp-fleet.registry.yml`). Loop the
-   `servers` and `components` in `genesis.yaml`; resolve secrets from OpenBao or `.env`.
+4. **Run `agent-utilities-deployment` to finish wiring.** It handles every profile:
+   self-setup for `tiny` and `single-node-prod` (full config → secrets → databases →
+   launch), plus bare-host Kubernetes/RKE2 (or Swarm, when selected), Vault-protocol(OpenBao),
+   DNS, Keycloak SSO, ingress, and the *-mcp fleet for `enterprise`. For complex enterprise
+   deployments, it may invoke **`agent-os-genesis`** (bare-host Kubernetes/RKE2 — or Swarm —
+   → Vault-protocol(OpenBao)/DNS/Keycloak-SSO/ingress → the *-mcp fleet from
+   `deploy/mcp-fleet.registry.yml`). Loop the `servers` and `components` in `genesis.yaml`;
+   resolve secrets through AgentConfig runtime references, OpenBao, or the configured
+   secret provider.
 5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** The very
-> first move (even before full deploy) is **`agent-utilities install-skills`**: it drops
-> the skill toolkit — including the **`agent-utilities` skill-graph** (the platform's own
-> reference manual) plus the `agent-utilities-deployment` / `agent-os-genesis` /
-> evolution / KG skills — into the calling agent tool and the agent-utilities XDG skills
-> dir, where agents auto-load them. `agent-utilities-doctor`'s `skills` check flags it if
-> absent. These skills are how an agent learns to drive the rest of the platform.
+> first move (even before full deploy) is **`agent-utilities install`**: it drops
+> ten domain workflow skills — spanning query, ingestion, modeling, research,
+> orchestration, runtime governance, engine modalities, development, deployment, and
+> evolution — into the calling agent tool and the agent-utilities XDG skills dir, where
+> agents auto-load them. `agent-utilities-doctor`'s `skills` check flags it if absent.
 
 | Profile | Infra | MCP fleet | Secrets | Skill |
 |---|---|---|---|---|
-| `tiny` | none (in-process) | none | `.env` | `agent-utilities-deployment` |
-| `single-node-prod` | Postgres/pg-age mirror (+Docker) | core connectors | OpenBao or `.env` | `agent-utilities-deployment` |
-| `enterprise` | Kubernetes(RKE2)/Swarm · Vault(OpenBao) · Keycloak SSO · DNS · ingress · observability | all connectors | OpenBao | `agent-os-genesis` |
+| `tiny` | bundled Rust engine child (in-process, private local transport) | none | AgentConfig references, `.env` | `agent-utilities-deployment` |
+| `single-node-prod` | bundled/shared Rust engine + optional Postgres/pg-age mirror (+Docker) | core connectors | OpenBao references or `.env` | `agent-utilities-deployment` |
+| `enterprise` | Kubernetes(RKE2)/Swarm · Vault(OpenBao) · Keycloak SSO · DNS · ingress · observability | all connectors | OpenBao (AgentConfig references) | `agent-utilities-deployment` |
 
 ## Working Discipline — think, simplify, stay surgical, verify (READ FIRST)
 
@@ -151,9 +153,9 @@ Before doing a task yourself, delegate it:
   `source_sync source=all mode=delta` first; close the loop with
   `graph_feedback correction_type=reads_avoided` (AU-AHE.evaluation.reads-avoided-feedback).
 - **Doing a task** an ingested skill / workflow / agent can already do →
-  `graph_orchestrate action=execute_agent` / `action=execute_workflow` on the
-  local LLM — the `agent-utilities-expert` agent for ecosystem work, or the right
-  ingested skill / workflow. The local qwen executes; you orchestrate. Reach the
+  `graph_orchestrate` for one named agent, `graph_agents` for a collective, or
+  `graph_workflows action=execute` for an ingested workflow on the local LLM.
+  The `agent-utilities-expert` handles ecosystem work. The local model executes; you orchestrate. Reach the
   rest of the fleet through the full `engine_<domain>` MCP surface + the
   multiplexer meta-tools (`find_tools` / `load_tools`).
 - **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
@@ -197,55 +199,46 @@ case itself next time. The goal is orchestrating completely off the harness.
   `core/owl_bridge.py` (+ SHACL gate) is the semantic layer over it. Writes fan out
   to optional durable **mirrors** under `backends/` (Postgres/pg-age primary;
   neo4j/falkordb/ladybug under `backends/contrib/`) for interop/BI/DR — there is
-  **no L0/L1/L2/L3 tier vocabulary**. Capability-aware `designate()` is now
-  **engine-native** (AU-P1-3): `retrieval/engine_capability_search.py` composes
-  capability/tenant/policy filters with the vector `Rank` leg in one
-  `query_unified` plan against the engine, falling back to native
-  `semantic_search` ANN + a bounded post-filter when the engine has no `query`
-  feature. `retrieval/capability_index.py` (`CapabilityIndex`, HNSW/numpy;
-  in-process) is now a **bounded, non-authoritative cache** kept fresh by CDC
-  deltas (`graph/reactive/engine_subscription.py`) rather than the source of
-  truth, used only as a dev/lean-engine fallback and for reward write-back
-  (`record_outcome`). General Cypher (label/property MATCH
-  + a real WHERE predicate + aggregates/`DISTINCT`) is executed by the **engine's
-  own native Cypher** (`GraphComputeEngine.query_cypher`, its `eg-query`
-  parser/executor) rather than a client-side regex interpreter (AU-P0-2,
-  `backends/epistemic_graph_backend.py`); a rejected/unsupported shape now raises
-  (`CypherEngineError`/`NotImplementedError`) instead of silently returning `[]`.
-  Two AU-specific shapes stay on typed engine methods because native routing
-  would give silently-wrong results: the virtual `id` node-identity accessor and
-  relationship-type traversal/merge (edges are keyed by `rel_type`, not the
-  engine's `relationship`/`type`).
-- **Session currency (emerging).** `knowledge_graph/core/session.py`
-  (`GraphSession`, AU-P0-1) wraps — does not replace — three today-ambient
-  authorities (`ActorContext`, the correlation traceparent, per-call policy) into
-  one explicit dataclass (`actor`/`tenant`/`scopes`/`graph`/`endpoint`/
-  `catalog_epoch`/`txn`/`policy_version`/`trace_context`). `from_ambient()`
-  bridges today's ambient state so existing callers are unaffected;
-  `use_session()`/`current_session()` mirror `use_actor()`/`current_actor()`;
-  `require_scope()` raises `ScopeError`. Threaded as a defaulted
-  `session: GraphSession | None = None` param through `facade.query`/
-  `designate`, `engine.add_node`/`add_edge`/`link_nodes`,
-  `engine_query.query_cypher`, and `media_store.store_media` — **not** every
-  internal writer yet (~40 remain unthreaded). It IS now consumed by both the
-  admin-scope gate on low-level engine tools (AU-P0-6, `_enforce_admin_scope`
-  checks `ActorContext` **and** `GraphSession` scopes, fail-closed) and
-  tenant-scoped authorization caches (AU-P0-5: `DerivedPropertyEngine`'s
-  read-through cache and the marking registry key on
-  tenant/actor/policy-version/schema/graph, defaulting to the ambient
-  `GraphSession`/actor so unscoped callers are unaffected). Tenant isolation is
-  now end-to-end for the caches above and for pooled Postgres/state-store
-  connections (`set_request_tenant` GUC wired into checkout, fail-closed on a
-  failed `SET`). Two things remain true: secured reads are still a Python
-  post-filter (`ontology/permissioning.enforce`, not pushed into SQL/Cypher),
-  and dispatch's `WorkItem`/lease plumbing doesn't consume `GraphSession`
-  directly (it uses its own CAS/fencing primitive). Engine placement is no
-  longer client-side-HRW-only: `knowledge_graph/core/placement_catalog.py`
-  (DIST-P2-2b) asks the engine's authoritative `PlacementCatalog` for a
-  graph/tenant's owning endpoint first, falling back to the static HRW ring
-  only when the catalog is disabled, unreachable, or the engine doesn't
-  advertise the route RPC — so today's deployments are unaffected but HRW is
-  now a fallback, not the authority.
+  **no numeric graph-storage hierarchy**. `retrieval/capability_index.py`
+  (`CapabilityIndex`, HNSW; process-local, not yet distributed) powers `designate()`
+  and reward write-back (`record_outcome`). Cypher is executed only by the
+  **engine's own native parser/executor** through explicit read/write wire modes.
+  `backends/epistemic_graph_backend.py` contains no regex matcher, graph scan,
+  traversal interpreter, aggregation evaluator, or mutation compiler. Typed
+  node writes persist the native identity as `id`; typed edges use the sole
+  `relationship` property. Raw batches are rejected and connector graphs commit
+  atomically through `ApplyChangeEnvelope`. Two AU-specific shapes stay on typed
+  engine methods because native routing would give silently-wrong results: the
+  virtual `id` node-identity accessor and relationship-type traversal/merge
+  (edges are keyed by `rel_type`, not the engine's `relationship`/`type`).
+- **Session currency (authoritative).** `knowledge_graph/core/session.py`
+  (`GraphSession`, AU-P0-1) is the single identity, tenant, scope, graph,
+  placement epoch, transaction, policy, audience, and trace currency for graph
+  work. It wraps three today-ambient authorities (`ActorContext`, the correlation
+  traceparent, per-call policy) into one explicit dataclass (`actor`/`tenant`/`scopes`/
+  `graph`/`endpoint`/`catalog_epoch`/`txn`/`policy_version`/`trace_context`).
+  MCP/REST dispatch and stdio process identity mint the immutable verified session
+  before graph code runs; caller payloads cannot construct or override it. `use_session()`
+  propagates it through async work, and `require_scope()` fails closed. `from_ambient()`
+  exists only for isolated in-process harnesses; served operations never synthesize
+  privileged authority. The sole local bootstrap is `graph-os --transport stdio` with
+  `DEPLOYMENT_PROFILE=tiny`, no `GRAPH_SERVICE_ENDPOINTS`, and neither external
+  process-identity source set. That path signs and validates a short-lived JWT with an
+  in-memory key as a one-time proof, uses neutral service claims, destroys the proof
+  key and token, and returns a process-lifetime session; it persists no user, host,
+  endpoint, filesystem identity, token, or proof material. Every network transport,
+  non-tiny profile, explicit engine endpoint, or configured external identity uses
+  exactly one external authority, and failure never falls back to the local bootstrap.
+  External stdio sessions carry one bounded, renewable, shared in-memory expiry lease.
+  Renewal accepts only the same subject, actor type, capabilities, tenant, authentication
+  state, and groups; drift is rejected, failed renewal is retried without extending the
+  lease, and all graph work fails closed after expiry. Only an explicit or identity-mapped
+  `kg:admin` grants graph administration; a generic `admin` role never does. Threaded as
+  a defaulted `session: GraphSession | None = None` param through `facade.query`/`designate`,
+  `engine.add_node`/`add_edge`/`link_nodes`, `engine_query.query_cypher`, and
+  `media_store.store_media`, with all internal writers fully threaded and consumed by
+  policy/routing authority with fail-closed admin-scope gate enforcement and tenant-scoped
+  authorization caches.
 - **Routing.** `graph/routing/` is a strategy package (`Router`/`RoutingStrategy`)
   stranglering the monolith `graph/_router_impl.py`; strategies under
   `routing/strategies/` (fast_path, workflow_context, policy). `graph/planning/`
@@ -268,70 +261,18 @@ case itself next time. The goal is orchestrating completely off the harness.
   routes (ObjectExplorer/Object/Vertex views).
 - **Connector ACL defaults are fail-closed (AU-P0-4).** An unknown/unconfigured
   connector ACL now defaults to `ExternalAccess.quarantined()` (deny-by-default,
-  `protocols/source_connectors/base.py`), never `.public()` — flip a deployment
-  back to the legacy public-by-default with `CONNECTOR_DEFAULT_PUBLIC=true`
-  (default `false`). `connector_manifest_gate.precheck_source` still silently
-  passes a source with no `connector_manifest.yml` UNLESS it's named in
-  `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` (opt-in allowlist, empty by default),
-  in which case a missing manifest fails closed. `source_sync._reconcile` never
+  `protocols/source_connectors/base.py`), never `.public()`. Every non-test connector
+  activation must resolve a signed capability manifest and pass its schema/tool/ontology
+  contract before records can be applied; no profile or source allowlist can bypass that
+  gate. Legacy fallback: flip a deployment back to public-by-default with
+  `CONNECTOR_DEFAULT_PUBLIC=true` (default `false`), though this is not recommended. The
+  `connector_manifest_gate.precheck_source` enforces manifest validation fail-closed
+  (opt-in allowlist `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` can name required enterprise
+  connectors, empty by default). `source_sync._reconcile` never
   tombstones on a failed/skipped live-id fetch, and only tombstones a genuinely
   empty snapshot for a source named in `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`
   (empty by default) — see [`configuration.md`](docs/architecture/configuration.md)
   and [`kg_connectors_and_ingestion.md`](docs/architecture/kg_connectors_and_ingestion.md).
-  A baked-in `MANDATORY_NAMED_CONNECTOR_SOURCES` (AU-P1-6, no env var, 12
-  identifiers — jira/confluence, gitlab, servicenow, leanix, langfuse,
-  tunnel_manager, microsoft-agent, container-manager-mcp, documentdb-mcp,
-  repository-manager, systems-manager, vector-mcp) is **unconditionally**
-  required to pass the manifest gate; every connector emits (or is bridged
-  into, via `ChangeEnvelope.from_connector_record`) the one canonical
-  `ChangeEnvelope` unit-of-change (`knowledge_graph/ingestion/change_envelope.py`,
-  AU-P1-5/6: identity/idempotency-key, provenance/lineage, bitemporal
-  timestamps, typed payload, ACL/classification/retention), consumed by one
-  atomic `ingest_envelope()` transaction (validate → resolve identity → write
-  → lineage+checkpoint → CDC → watermark, crash-resume safe).
-- **One engine-native `WorkItem` state machine (AU-P1-1).** `orchestration/work_item.py`
-  unifies the four independent status vocabularies (`:Task` ingestion queue,
-  `:AgentTask` dispatch, Loop/Goal, the dispatch envelope) onto one versioned
-  lifecycle (`submitted → ready → leased(fencing_token) → running(heartbeat,
-  attempt) → succeeded|failed|cancelled|dead_letter`), reusing the AU-P0-3
-  engine-native CAS/fencing primitive rather than a second claim mechanism.
-  The `:AgentTask`/agent-dispatch claim path can opt in via
-  `AGENT_CLAIM_BACKEND=workitem`; other subsystems get read-only
-  `WorkItemStatus` projections (shims, write paths unchanged) pending a full
-  migration.
-- **Distinct `AssetOccurrence` identity over deduped `Blob` (AU-P1-4).**
-  `memory/media_store.py` now keeps the identity chain
-  `Blob(digest) ← Rendition ← AssetOccurrence ← Message/Document`: only
-  immutable bytes dedup (`:Blob`), while every `store_media()` call mints a
-  distinct uuid-keyed `:AssetOccurrence` owning its own
-  source/tenant/owner/acl/event_time/retention/provenance — fixing the prior
-  bug where two different messages/tenants with identical bytes collapsed
-  onto one node and silently overwrote each other's provenance.
-- **Universal epistemic columns + policy-aware context compiler (Codex X-7,
-  CONCEPT:EPI-P3-1).** Retrieval results can now carry one common
-  `KnowledgeBatch`-shaped column set — `confidence`/`source_refs`/
-  `evidence_refs`/`proof_ids`/`contradiction_ids`/`policy_labels` (the
-  `"epistemic:contested"` label flags a disputed claim) — read by
-  `retrieval/context_compiler.py`'s `ContextCompiler`, which replaces the
-  ad-hoc "flatten hits into a text block" pattern with one selection/assembly
-  layer scoring relevance + MMR diversity + evidence quality + bi-temporal
-  freshness + token budget, then runs every candidate through the SAME
-  fine-grained permissioning gate the live read path uses
-  (`ontology/permissioning.enforce` — row-level drop, column-level
-  redaction) before returning a `ContextBundle`: citations, a `proof_graph` of
-  supports/contradicts/alternative-to edges, and a `decisions` log recording
-  every selection/rejection with its scores. A result missing the epistemic
-  columns degrades to a neutral prior — this is additive, not a breaking
-  schema change.
-- **Enterprise operations causal graph (Codex X-2, `graph_ops_causal` MCP
-  tool).** `knowledge_graph/enrichment/ops_causal_graph.py` joins
-  Langfuse trace → agent/tool/model → service → deploy → commit/MR →
-  incident/change → LeanIX capability → policy/control/evidence into one
-  causal graph; the `graph_ops_causal` tool (`mcp/tools/ops_causal_tools.py`)
-  routes `join`/`root_cause`/`blast_radius`/`change_risk`/`control_evidence`
-  actions over it, reusing the existing causal-reasoning engine
-  (`core/formal_reasoning_core.py`) rather than a new inference stack. See the
-  `graph-research-and-analysis` skill.
 - **Scale-out & autonomy planes (all opt-in; defaults stay zero-infra).**
   Identity: every gateway request is scoped to a server-minted JWT
   `ActorContext` with fail-closed permissioning and HMAC engine auth
@@ -416,7 +357,8 @@ unless it's a genuinely new domain registered into the ontology library + gate. 
 per-feature `.ttl`; don't redefine a class that already exists — extend it.
 
 **Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
-the graph-os MCP surface, the multiplexer, the ingest/dispatch workers, and ~62 `*-mcp` services. A
+the GraphOS MCP surface with its embedded fleet gateway, the ingest/dispatch workers, and ~62
+`*-mcp` services. A
 new capability is almost always **a new action/tool on an existing service**, or a **connector
 preset** (CONCEPT:AU-KG.ingest.mcp-tool-connector `mcp_tool` — external sources are declarative presets, NEVER new connector
 modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
@@ -484,69 +426,36 @@ field or `config.setting(...)`. (`setting()` lives in the dependency-free
 
 ## Secrets & credential retrieval — where they live, how to get them (READ before any auth/secret task)
 
-Secrets are **never stored in the repo** (`.env` holds non-secret defaults + the
-*names* of vars; the `.claude/` deny-rules block reading `.env`/secret files). When
-you need a real credential — to run, to debug an auth path, to reach a
-jwt-protected fleet server — retrieve it from its store; do not grep it out of
-another process's memory.
+Secrets are **never stored in the repo or durable AgentConfig**. XDG
+`config.json` stores only `env://`, `secret://`, or `vault://` references. The
+configured `SecretsClient` backend owns provider-specific addresses, mounts,
+namespaces, authentication, and secret paths; feature code must not call a secret
+provider's HTTP API or assume a deployment layout. Runtime orchestration may inject
+the referenced value into the process boundary, but code and reports never persist,
+echo, or infer it. Repository `.env` files are not a deployment configuration path.
 
-**Source of truth = OpenBao (Vault).** Runtime/fleet secrets live in **OpenBao at
-`openbao.arpa`** (`OPENBAO_URL=http://openbao.arpa` + `OPENBAO_TOKEN`). Retrieve via,
-in order of preference: the **`openbao-mcp`** MCP tools, the **`secret-vault-manager`**
-skill, or the raw API / `bao` CLI. Deployed stacks inject these into each service's env
-from OpenBao at deploy time (the `agents/*` connectors read their creds from env — e.g.
-`GITLAB_TOKEN`, `OPENBAO_TOKEN`, provider keys — never from a file).
+**MCP service-account auth (spawned-agent / GraphOS fleet gateway → jwt-protected fleet).**
+A server that calls a private fleet MCP (or a `graph_orchestrate` delegation
+spawn that binds one) must present an OIDC provider client-credentials bearer. The
+typed settings are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET_REF`, `OIDC_AUDIENCE`, and exactly configured
+`OIDC_TOKEN_URL` or `OIDC_ISSUER`. Durable configuration stores only the secret
+reference. `mcp/client_credentials.py` resolves it at request time, attaches the
+bearer to children, and fails closed when any required field is absent. Spawned
+agents inherit delegated authority through the same boundary.
 
-**Standardized KV layout (where every secret lives — READ THIS to find one fast).**
-App/service secrets are a **KV v2 engine mounted at `apps/`**, one path per service:
-
-> `apps/<service>` — e.g. `apps/ciso-assistant`, `apps/keycloak-mcp`,
-> `apps/agent-utilities/*`, `apps/mcp-multiplexer/*`, `apps/homelab/*`.
-
-- **API paths (KV v2):** read/write data at `apps/data/<service>`, metadata/list at
-  `apps/metadata/<service>`. CLI: `bao kv get apps/<service>` / `bao kv put apps/<service> KEY=VAL …`.
-  Raw: `curl -H "X-Vault-Token: $OPENBAO_TOKEN" $OPENBAO_URL/v1/apps/data/<service>`
-  (POST `{"data":{…}}` to write). List services: `LIST apps/metadata`.
-- **Policy / token:** the `OPENBAO_TOKEN` injected into each `*-mcp`/service stack
-  carries the **`agent-apps-rw`** policy = `create/read/update/delete` on `apps/data/*`
-  (+ list `apps/metadata/*`). It is scoped to `apps/` only — it **cannot** read
-  `sys/mounts`, other mounts (`secret/`), or its own policy doc, so a `403` there is
-  expected, not a misconfig. The token value lives in each deployed service's stack env
-  (e.g. the `openbao-mcp` service env), sourced from OpenBao at deploy.
-- **Convention for new services:** store secrets at `apps/<service>` with the same key
-  names used in the service's `.env`; the `.env` (homelab `services/*` plaintext
-  convention) and OpenBao are mirrors. A service's bootstrap/genesis step writes both
-  (see e.g. `services/ciso-assistant/bootstrap.sh`, genesis Step 14c).
-
-**MCP service-account auth (spawned-agent / multiplexer → jwt-protected fleet).**
-A server that calls a `*.arpa` fleet MCP (or a `graph_orchestrate execute_agent`
-spawn that binds one) must present a Keycloak client-credentials bearer. The
-controlling vars are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
-`OIDC_CLIENT_SECRET`, `OIDC_AUDIENCE`, `OIDC_TOKEN_URL` (`keycloak.arpa/.../token`).
-They are **injected into each MCP server's `env`**, not committed:
-- **Deployed fleet:** the stack env, sourced from OpenBao.
-- **Local Claude Code sessions:** the MCP server `env` block in `~/.claude.json`
-  (e.g. `mcpServers.mcp-multiplexer.env`). The mint path is
-  `mcp/client_credentials.py` (`bearer_header`/`get_token`); the multiplexer
-  attaches it to children and spawned agents inherit it
-  (`orchestration/agent_runner._spawn_auth_headers`, CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap/AU-OS.identity.so-jwt-protected-children).
-
-**To run/debug an authenticated path** (e.g. `execute_agent` against a `*.arpa`
-server): the creds must be present in the debug process's env — export them from
-OpenBao (`bao kv get`) or reuse the session MCP config — and set
-`MCP_CLIENT_AUTH=oidc-client-credentials`. A standalone debug `graph-os` also
-needs `KG_SERVED_PROFILE=0` to accept local unauthenticated inbound calls. Never
-echo a secret value into logs, command output, or a committed file.
-
-A reusable harness for this lives at **`scripts/dev_execute_agent.py`** — it runs
-one `execute_agent` against a named fleet server through a throwaway `graph-os`
-and prints the result + masked server stderr. It reads creds from
-``/tmp/oidc.env`` (or the env), which you populate from the store above; it holds
-no credential-store path itself. **Credential access stays human-gated by
-design**: in auto-accept mode the agent cannot read a secret or grant itself that
-access, so a human performs the one-time cred load (or pre-authorizes the
-specific command in their own `.claude/settings.local.json`). This boundary is
-intentional and is not something to engineer around.
+**To run/debug an authenticated path** (e.g. `execute_agent` against a remote
+server): configure `OIDC_CLIENT_SECRET_REF` for the selected secret provider in
+XDG AgentConfig and set the explicit client ID, audience, and issuer or token URL.
+Run the `outbound_auth` doctor check before launching the fleet. Network transports
+never accept an unauthenticated debug profile. The only credential-free graph
+process session is tiny, packaged-local GraphOS over stdio; all other boundaries
+require their configured external identity. Never echo a secret value into logs,
+command output, graph properties, traces, or a committed file. Use
+`scripts/validate_prebundled_skills_runtime.py` for the synthetic, read-only
+GraphOS delegation and trace proof; it retains only opaque evidence references.
+Unauthenticated HTTP liveness paths are status-only (`{"status":"ok"}`), carry
+`Cache-Control: no-store`, and expose no readiness, component, or topology data.
 
 ## Reward / preference / RL-method primitives (AU-AHE.optimization.telemetry-optimization) — conventions
 
@@ -703,22 +612,23 @@ agent-utilities is both the **hub** that discovers fleet-contributed skills/prom
 (`core/providers.py` → `agent_utilities.skill_providers` / `agent_utilities.prompt_providers`)
 **and**, like every `agents/*` package, a **contributor of its own** (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
-- Its unique skills live in **`agent_utilities/skills/`** (atomic skills at the top level,
-  the genesis workflow under `skills/workflows/agent-os-genesis/`, and the `agent-utilities`
-  skill-graph under `skills/skill_graphs/agent-utilities/`). They are declared via the single
+- Its ten domain workflow skills live directly in **`agent_utilities/skills/`**. Every skill
+  has a standard `SKILL.md`, an `agents/openai.yaml` interface, and an
+  `agents/graph-os.yaml` coverage sidecar. They are declared via the single
   `[project.entry-points."agent_utilities.skill_providers"]` = `agent_utilities.skills` group and
-  shipped through package-data `skills/**`, so `install-skills` (and the quick
-  `agent-utilities install-skills` command) drops them into the XDG skills dir exactly like any
-  other package. **Add a new AU-specific skill here**, not in universal-skills; generic/standalone
-  skills (and the authoring builders) stay in universal-skills.
+  shipped through package-data `skills/**`, so the `agent-utilities install`
+  command drops them into the XDG skills dir exactly like any
+  other package. Extend an existing workflow unless a truly distinct end-to-end domain requires
+  a new AU-specific skill; generic/standalone authoring skills stay in universal-skills.
 - The hub deliberately does **NOT** declare a `prompt_providers` entry-point for itself: its
   `prompts/*.json` are already the packaged BASE layer (`registry_builder._iter_prompt_sources`
   ingests them with bare `prompt:<name>` ids and `source: agent-utilities:base`). A self-pointing
   provider would re-ingest every base prompt under a second `prompt:agent-utilities/<name>`
   namespace — so it is intentionally one-sided vs the `agents/*` pattern.
 
-**MCP parity waiver.** The three FastMCP servers (`mcp/kg_server.py`, `mcp/multiplexer.py`,
-`mcp/harness_server.py`) already follow mcp-builder's **tool-surface** conventions: built via
+**MCP parity waiver.** GraphOS and the harness server (`mcp/kg_server.py`,
+`mcp/harness_server.py`) follow mcp-builder's **tool-surface** conventions, while
+`mcp/multiplexer.py` is GraphOS's internal fleet-loader implementation. They are built via
 `create_mcp_server` (`mcp/server_factory.py`), the graph-os surface via the one-call
 `register_tool_surface` (`mcp/verbose_tools.py`) owning `MCP_TOOL_MODE`, and every feature on the
 REST **and** MCP surface over one `_execute_tool` core. The hub explicitly **WAIVES** the
@@ -806,9 +716,9 @@ So the default for any non-trivial change is:
 1. **Work in a dedicated git worktree**, not the main checkout. The worktree is a *physically
    separate directory* on its own branch, immune to branch switches in the main clone:
    ```
-   git worktree add /home/apps/worktrees/<repo>-<topic> -b feat/<topic> main
+   git worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>-<topic> -b feat/<topic> main
    ```
-   Do all edits, builds, and tests under that path. (`/home/apps/worktrees/` is the convention.)
+   Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
    is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
 3. **Before merging back, sync `main` INTO your branch and resolve conflicts THERE, then
@@ -883,8 +793,8 @@ pip install .[all]
 pre-commit run --all-files
 
 # Execution Commands
-# agent-utilities-kg
-agent_utilities.mcp.kg_server:main
+# GraphOS
+graph-os
 
 # Run the native compute backend daemon
 cargo run -p epistemic-graph
@@ -952,7 +862,8 @@ async def my_tool(param: str) -> str:
 **Don't:**
 - Use `cd` commands in scripts; use absolute paths or relative to project root.
 - Add new dependencies to `dependencies` in `pyproject.toml` without checking `optional-dependencies` first.
-- Hardcode secrets; use environment variables or `.env` files.
+- Hardcode secrets or write repository `.env` files; use AgentConfig runtime
+  secret references.
 
 ## Safety & Boundaries
 **Always do:**
@@ -992,8 +903,8 @@ config, docs, lockfiles). The only hidden directories allowed at root are
 **Why:** scratch at the root leaks private paths/credentials, bloats the tree,
 breaks the anti-sprawl gate, and erodes a pristine codebase.
 
-**Where scratch goes instead:** `~/workspace/scratch/` (experiments),
-`~/workspace/reports/` (command output); tests go in `tests/` (pytest).
+**Where scratch goes instead:** the configured XDG state scratch directory
+(experiments) and report directory (command output); tests go in `tests/` (pytest).
 The `.gitignore` already blocks the scratch dirs above — do not force-add them.
 Before finishing a task, run `git status` and confirm no stray root files were added.
 
@@ -1039,23 +950,23 @@ is confirmed green. If a gate cannot pass, stop and explain; never disable or
 ## Working with Git Worktrees (multi-session)
 
 Multiple agents/sessions work the `agent-packages/*` repos concurrently. **Do not
-edit the canonical checkout** (`${WORKSPACE_ROOT}/agent-packages/<repo>`) — a
+edit the canonical checkout** (`agent-packages/<repo>`) — a
 background `repository-manager` sync can reset its working tree and discard
 uncommitted edits. Take your own git worktree on your own branch instead:
 
 ```bash
 # preferred — repository-manager MCP:
-rm_worktree add <repo> <your-branch>      # -> /home/apps/worktrees/<repo>/<your-branch>
+rm_worktree add <repo> <your-branch>      # -> ${XDG_STATE_HOME}/repository-worktrees/<repo>/<your-branch>
 
 # raw-git fallback:
 git -C agent-packages/<repo> checkout main
-git -C agent-packages/<repo> worktree add /home/apps/worktrees/<repo>/<branch> -b <branch>
+git -C agent-packages/<repo> worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>/<branch> -b <branch>
 ```
 
 Work in the worktree and **commit often** (commits survive a working-tree reset).
 Each session must use a **distinct branch** — git allows a branch in only one
 worktree, which is what keeps concurrent sessions from colliding. Worktrees live
-under `/home/apps/worktrees/` (outside the workspace scan, so the sync leaves them
+under `${XDG_STATE_HOME}/repository-worktrees/` (outside the workspace scan, so the sync leaves them
 alone).
 
 **Finishing work in a worktree** — run this sequence before calling it done:
@@ -1078,7 +989,7 @@ alone).
 
 ## Project Structure (generated)
 
-_Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are excluded; large directories are summarized._
+_Auto-generated by `scripts/gen_agents_md.py`. Only version-controlled paths are included; large directories are summarized._
 
 ```text
 ├── .github/
@@ -1086,15 +997,23 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │       ├── concept-governance.yml
 │       ├── guardrails.yml
 │       ├── pages.yml
-│       └── pipeline.yml
+│       ├── pipeline.yml
+│       └── security.yml
+├── .security/
+│   ├── authenticated_negative.py
+│   ├── repository_fuzz.py
+│   └── security-contract.json
 ├── .specify/
 │   ├── design/
 │   │   ├── ahe-3.12-longmemeval-harness/
 │   │   ├── ahe-3.13-layered-pre-emit-gate/
 │   │   ├── ahe-3.7-stateful-harness/
+│   │   ├── ahe-harness-unified-promotion-gate-domain-fix/
+│   │   ├── au-ahe-trace-derived-training-examples/
 │   │   ├── au-orch-sandbox-crossmodal-fork-fanout/
 │   │   ├── e5-skill-intelligence/
 │   │   ├── e6-dev-lifecycle-cli/
+│   │   ├── incident-brain/
 │   │   ├── kg-2-14-ground-truth-hierarchy/
 │   │   ├── kg-2-20-mementified-context-management/
 │   │   ├── kg-2.1-memory-consolidation/
@@ -1107,6 +1026,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── kg-2.7-research-assimilation/
 │   │   ├── kg-2.8-enrichment-interlinking/
 │   │   ├── kg-2.9-enterprise-os/
+│   │   ├── kg-epistemic-currency-facade-id/
 │   │   ├── latent-native-memory/
 │   │   ├── okf-skillgraph-roundtrip/
 │   │   ├── orch-1-32-kg-governed-swarm/
@@ -1119,6 +1039,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── orch-1.40-session-anchored-collections-and-channels/
 │   │   ├── os-5.11-run-scoped-tool-token/
 │   │   ├── os-5.33-developer-workspace-runtime/
+│   │   ├── x2-ops-causal-graph/
 │   │   ├── _template.md
 │   │   ├── kg-parallel-execution-plan.md
 │   │   └── README.md
@@ -1165,14 +1086,52 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── rlm-comparative-analysis-2026-06-14.md
 │   │   └── rlm-gepa-comparative-analysis.md
 │   └── specs/ (46 entries)
-├── agent_utilities/ (58 entries)
+├── agent_utilities/ (61 entries)
 ├── deploy/
 │   ├── k8s/
+│   │   ├── production-cell/
+│   │   ├── graphos-homelab-live-config-fix.yaml
 │   │   └── graphos.yaml
 │   ├── postgres/
 │   │   └── tenant_rls.sql
+│   ├── release/
+│   │   ├── __init__.py
+│   │   ├── certification-campaign.schema.json
+│   │   ├── certification-campaign.yml
+│   │   ├── compatibility-matrix.schema.json
+│   │   ├── compatibility-matrix.yml
+│   │   ├── component-provenance.schema.json
+│   │   ├── component-signature-bundle.schema.json
+│   │   ├── component-source-evidence.schema.json
+│   │   ├── connector-bundle-catalog.schema.json
+│   │   ├── connector-bundles.catalog.json
+│   │   ├── connector-live-certification-ledger.schema.json
+│   │   ├── exact-artifact-closure-evidence.schema.json
+│   │   ├── exact-local-gates-manifest.schema.json
+│   │   ├── exact-local-release-evidence.schema.json
+│   │   ├── exact-local-release-spec.schema.json
+│   │   ├── index-migration-catalog.schema.json
+│   │   ├── index-migrations.catalog.json
+│   │   ├── oci-scanner-attestation.schema.json
+│   │   ├── oci-vulnerability-database-attestation.schema.json
+│   │   ├── oci-vulnerability-scan-evidence.schema.json
+│   │   ├── operational-evidence.schema.json
+│   │   ├── prebundled-skill-catalog.schema.json
+│   │   ├── prebundled-skill-validation-evidence.schema.json
+│   │   ├── prebundled-skills.catalog.json
+│   │   ├── release-assembly.schema.json
+│   │   ├── release-configuration.schema.json
+│   │   ├── release-contract-resources.catalog.json
+│   │   ├── release-manifest.schema.json
+│   │   ├── release-migration-plan.schema.json
+│   │   ├── skill-validation-deployment-evidence.schema.json
+│   │   ├── skill-validation-deployment.schema.json
+│   │   ├── source-freeze-evidence.schema.json
+│   │   ├── source-freeze-gates.json
+│   │   └── source-freeze-gates.schema.json
 │   ├── swarm/
 │   │   └── graphos.stack.yml
+│   ├── __init__.py
 │   ├── action-policy.default.yml
 │   ├── mcp-fleet.registry.yml
 │   ├── README.md
@@ -1202,7 +1161,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   ├── pg-age.compose.yml
 │   └── README.md
 ├── docs/
-│   ├── architecture/ (86 entries)
+│   ├── architecture/ (99 entries)
 │   ├── examples/
 │   │   ├── workflows/
 │   │   ├── action-policy-postures.md
@@ -1221,7 +1180,14 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   ├── queue-dispatch-walkthrough.md
 │   │   ├── sharding-walkthrough.md
 │   │   └── workspace.yml
-│   ├── guides/ (76 entries)
+│   ├── guides/ (78 entries)
+│   ├── learn/
+│   │   ├── lessons/
+│   │   ├── index.md
+│   │   └── manifest.yaml
+│   ├── operations/
+│   │   ├── disaster-recovery.md
+│   │   └── production-cell-runbook.md
 │   ├── pillars/
 │   │   ├── 1_graph_orchestration/
 │   │   ├── 2_epistemic_knowledge_graph/
@@ -1249,10 +1215,28 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   │   └── unified-scheduling.md
 │   ├── reference/
 │   │   ├── palantir-foundry/
-│   │   └── metrics.md
+│   │   ├── documentation-catalog.md
+│   │   ├── metrics.md
+│   │   └── runtime-configuration.md
+│   ├── release/
+│   │   ├── compatibility-and-certification.md
+│   │   ├── connector-live-certification.md
+│   │   ├── exact-artifact-closure.md
+│   │   ├── exact-local-gates.md
+│   │   ├── exact-local-release.md
+│   │   ├── oci-layout-export.md
+│   │   ├── oci-vulnerability-scanning.md
+│   │   ├── skill-validation-certification.md
+│   │   ├── source-freeze-gates.md
+│   │   └── supply-chain-hardening.md
 │   ├── scaling/
 │   │   ├── capacity_model.md
-│   │   └── capacity_model.py
+│   │   ├── capacity_model.py
+│   │   ├── workload_contract.py
+│   │   └── workload_contract.yml
+│   ├── _vendor_eg_capability_ledger.json
+│   ├── capabilities-power.json
+│   ├── capabilities-power.md
 │   ├── capabilities.md
 │   ├── centralized_kg_coordination.md
 │   ├── comparative_analysis_palantir_aip.md
@@ -1263,7 +1247,9 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   ├── concepts.yaml
 │   ├── CONTEXT.md
 │   ├── deploy.md
+│   ├── ecosystem-capability-fleet.md
 │   ├── ecosystem.md
+│   ├── external_concepts.yaml
 │   ├── genesis.yaml
 │   ├── index.md
 │   ├── install.ps1
@@ -1275,6 +1261,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │   ├── overview.md
 │   ├── owl_kg_synergies.md
 │   ├── README.md
+│   ├── reliability_matrix.md
 │   ├── start-here.md
 │   └── workflow-kg-synergy.md
 ├── examples/
@@ -1297,9 +1284,8 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 │       └── README.md
 ├── reports/
 │   └── w4-concept-hierarchy-dryrun.md
-├── scripts/ (94 entries)
-├── tests/ (227 entries)
-├── .bumpversion.cfg
+├── scripts/ (138 entries)
+├── tests/ (243 entries)
 ├── .codespellignore
 ├── .dockerignore
 ├── .env.example
@@ -1310,6 +1296,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 ├── .security-audit-allow.txt
 ├── AGENTS.head.md
 ├── AGENTS.md
+├── build_backend.py
 ├── CHANGELOG.md
 ├── CLAUDE.md
 ├── CONTRIBUTING.md
@@ -1336,7 +1323,7 @@ _Auto-generated by `scripts/gen_agents_md.py`. Build/cache directories are exclu
 Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
 
 ```bash
-agent-utilities --json concept reserve --ns KG-2   # or a package prefix, e.g. KEY
+agent-utilities --json concept reserve --id AU-KG.ingest.semantic-concept
 ```
 
 Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordination.md`](docs/concept_coordination.md).
@@ -1344,17 +1331,18 @@ Full protocol (ledger, merge=union, reconcile, MCP/REST): [`docs/concept_coordin
 
 ## Concept Reference (generated)
 
-_Auto-generated from `docs/concepts.yaml` (single source of truth). 961 concepts across 8 pillars._
+_Auto-generated from `docs/concepts.yaml` (single source of truth). 1036 concepts across 9 pillars._
 
 | Pillar | Count | Domains |
 |:------|:---:|:------|
-| **AU-AHE** | 110 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
-| **AU-ECO** | 110 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
-| **AU-KG** | 403 | backend, compute, coordination, domains, enrichment, etl, evolution, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
-| **AU-ORCH** | 189 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session |
-| **AU-OS** | 123 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
+| **AU-AHE** | 118 | assimilation, evaluation, harness, optimization, org, reward, rlm, sdd, trainer |
+| **AU-ECO** | 121 | bus, connector, interop, mcp, messaging, multiplexer, reactions, toolkit, ui |
+| **AU-KG** | 438 | audit, backend, compute, coordination, domains, enrichment, epistemic, etl, evolution, identity, ingest, maintenance, memory, mining, ontology, query, research, retrieval, sharding, storage, temporal, txn |
+| **AU-ORCH** | 197 | adapter, dispatch, execution, optimization, org, planning, reactive, routing, runvcs, sandbox, scheduling, session, twin |
+| **AU-OS** | 132 | audit, config, context, deployment, governance, host, identity, observability, safety, scaling, state |
 | **EG-AHE** | 1 | harness |
-| **EG-KG** | 24 | backend, compute, domains, enrichment, graphlearn, ingest, memory, mining, query, sharding, storage, txn |
+| **EG-KG** | 27 | backend, compute, domains, enrichment, epistemic, graphlearn, ingest, memory, mining, ontology, query, sharding, storage, txn |
 | **EG-ORCH** | 1 | routing |
+| **EG-OS** | 1 | deployment |
 
 _Full id list + code paths: `docs/concepts.yaml`._

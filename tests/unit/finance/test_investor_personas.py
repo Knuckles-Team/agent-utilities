@@ -290,7 +290,7 @@ def test_seed_financial_debate_team_persists_via_write_batch():
     backend = _FakeBackend()
     nodes, edges = seed_financial_debate_team(backend)
     assert nodes > 0 and edges > 0
-    assert backend.nodes["team:financial-debate"]["type"] == "Team"
+    assert backend.nodes["team:financial-debate"]["node_type"] == "Team"
     rels = {(s, t, r) for s, t, r in backend.edges}
     # Persona is a MEMBER_OF_TEAM and REPORTS_TO the risk officer.
     assert (

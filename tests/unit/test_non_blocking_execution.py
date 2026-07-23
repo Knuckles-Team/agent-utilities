@@ -90,14 +90,21 @@ def test_chat_profile_stays_under_reply_budget(monkeypatch: pytest.MonkeyPatch) 
     assert chat_small.router_timeout <= 8.0
 
 
-def test_build_execution_config_applies_chat_profile() -> None:
+def test_build_execution_config_applies_chat_profile(monkeypatch) -> None:
     """The chat profile's bounded node timeouts reach the graph config (CONCEPT:AU-ORCH.execution.chat-profile-timeouts)."""
     from agent_utilities.core.config import (
         DEFAULT_GRAPH_ROUTER_TIMEOUT,
         DEFAULT_GRAPH_VERIFIER_TIMEOUT,
+        ChatModelConfig,
+        config,
     )
     from agent_utilities.orchestration.agent_runner import _build_execution_config
 
+    monkeypatch.setattr(
+        config,
+        "chat_models",
+        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+    )
     meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
 
     chat_cfg = _build_execution_config(
@@ -115,10 +122,16 @@ def test_build_execution_config_applies_chat_profile() -> None:
     assert task_cfg["verifier_timeout"] == DEFAULT_GRAPH_VERIFIER_TIMEOUT
 
 
-def test_build_execution_config_injects_code_context_prime() -> None:
+def test_build_execution_config_injects_code_context_prime(monkeypatch) -> None:
     """The task-start code_context prime reaches the run's tag_prompts (CONCEPT:AU-KG.retrieval.synthesized-cited-answer)."""
+    from agent_utilities.core.config import ChatModelConfig, config
     from agent_utilities.orchestration.agent_runner import _build_execution_config
 
+    monkeypatch.setattr(
+        config,
+        "chat_models",
+        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+    )
     meta: dict[str, Any] = {"type": "unknown", "capabilities": [], "tools": []}
     cfg = _build_execution_config(
         None,
@@ -367,8 +380,14 @@ async def test_resolve_agent_runs_off_the_event_loop(
     import asyncio
     import threading
 
+    from agent_utilities.core.config import ChatModelConfig, config
     from agent_utilities.orchestration import agent_runner
 
+    monkeypatch.setattr(
+        config,
+        "chat_models",
+        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+    )
     main_thread = threading.get_ident()
     resolve_threads: list[int] = []
 
@@ -413,8 +432,14 @@ async def test_passthrough_agent_skips_resolution(
     """CONCEPT:AU-ORCH.execution.passthrough-identity — the universal ``messaging-assistant`` is a pass-through identity:
     even on a non-trivial (resolve_agent=True) turn it must NOT hit ``_resolve_agent_from_kg``
     (that ~21 s semantic search both wastes time and mis-binds it to ``prepare_messages``)."""
+    from agent_utilities.core.config import ChatModelConfig, config
     from agent_utilities.orchestration import agent_runner
 
+    monkeypatch.setattr(
+        config,
+        "chat_models",
+        [ChatModelConfig(id="synthetic-standard", provider="openai", intelligence_level="normal")],
+    )
     called: list[str] = []
 
     def _resolver(engine: Any, name: str) -> dict[str, Any]:

@@ -139,7 +139,7 @@ class PersonaEvaluation:
             f"{self.archetype} verdict on this name: {self.verdict.upper()} "
             f"(score {self.score:.0%}). Passes: {', '.join(passed) or 'none'}. "
             f"Fails: {', '.join(failed) or 'none'}. "
-            "(source: persona_heuristics KG-2.28)"
+            "(source: persona_heuristics CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment)"
         )
 
 

@@ -166,7 +166,7 @@ disclosure, not a compatibility alias over the former granular startup table.
 | Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent to the exact current capability; mutating verbs preview before execution. |
 | Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `multiplexer_status` | Discover, expose, retract, and inspect exact tools without permanently filling model context. |
 
-The generated Capability Power Descriptor catalog currently contains **111
+The generated Capability Power Descriptor catalog currently contains **114
 public capabilities**. Their granular MCP and REST actions remain current and
 fully governed, but are hidden from the initial model context. `find_tools`
 ranks the catalog, `load_tools` exposes only the selected exact tools for the

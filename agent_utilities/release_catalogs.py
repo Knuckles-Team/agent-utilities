@@ -18,6 +18,16 @@ _MAX_SKILL_FILE_BYTES = 16 * 1024 * 1024
 _MAX_SKILL_TREE_BYTES = 64 * 1024 * 1024
 _TRANSIENT_DIRECTORIES = frozenset({"__pycache__"})
 _TRANSIENT_SUFFIXES = frozenset({".pyc", ".pyo"})
+# Permanent, non-skill infrastructure that lives alongside the pre-bundled skill
+# directories under ``agent_utilities/skills/`` but is not itself a top-level
+# skill contract (no ``SKILL.md``): ``fleet_harness`` is the validation-harness
+# Python package; ``skill_graphs``/``workflows`` are one-level-deeper CONTAINER
+# directories nesting their own skills (e.g. ``skill_graphs/agent-utilities/``),
+# not skills themselves. Distinct from ``_TRANSIENT_DIRECTORIES`` — these are not
+# build artifacts, so they get their own named set rather than being lumped in.
+_NON_SKILL_INFRASTRUCTURE_DIRECTORIES = frozenset(
+    {"fleet_harness", "skill_graphs", "workflows"}
+)
 
 
 class ReleaseCatalogError(ValueError):
@@ -123,7 +133,10 @@ def _skill_directories(skills_root: Path) -> tuple[str, ...]:
             raise ReleaseCatalogError("prebundled_skill_symlink_rejected")
         if not stat.S_ISDIR(metadata.st_mode):
             continue
-        if child.name in _TRANSIENT_DIRECTORIES:
+        if (
+            child.name in _TRANSIENT_DIRECTORIES
+            or child.name in _NON_SKILL_INFRASTRUCTURE_DIRECTORIES
+        ):
             continue
         try:
             skill_metadata = (child / "SKILL.md").lstat()

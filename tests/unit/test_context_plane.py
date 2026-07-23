@@ -17,8 +17,12 @@ _CANON = "/home/agent-user/workspace/agent-packages/agent-utilities/x.py"
 # ── E1: shared source-path util ───────────────────────────────────────────────
 @pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_source_paths_normalize_and_repo_of():
-    assert normalize_path("/au/agent_utilities/x.py") == _CANON.replace(
-        "x.py", "agent_utilities/x.py"
+    # CONCEPT:AU-KG.retrieval.every-usage-published-symbol — the ``/au/`` mount alias
+    # folds to a portable ``repo://`` URI (host-independent), not a homelab-specific
+    # absolute path.
+    assert (
+        normalize_path("/au/agent_utilities/x.py")
+        == "repo://agent-utilities/agent_utilities/x.py"
     )
     assert normalize_path(_CANON) == _CANON
     assert repo_of(_CANON) == "agent-utilities"
@@ -31,27 +35,28 @@ def test_source_paths_normalize_and_repo_of():
 
 # ── A3: ops diagnosis over live-shaped task data ──────────────────────────────
 class FakeOpsEngine:
-    def query_cypher(self, cypher, params):
-        if "WHERE t.status IN ['pending','running']" in cypher:
-            return [
-                {"lane": "ingestion", "status": "pending", "n": 113},
-                {"lane": "ingestion", "status": "running", "n": 3},
-                {"lane": "maint", "status": "pending", "n": 175},
-                {"lane": "maint", "status": "running", "n": 2},
-            ]
-        if "WHERE t.status IN ['failed','dead_letter']" in cypher:
-            return [{"lane": "maint", "status": "dead_letter", "n": 250}]
-        if "t.status = 'dead_letter'" in cypher:
-            return [{"id": "task:abc", "lane": "maint", "tkind": "scheduled_job"}]
-        if "count(t) AS n" in cypher:  # whole-queue status counts
-            return [
-                {"status": "pending", "n": 336},
-                {"status": "running", "n": 6},
-                {"status": "dead_letter", "n": 250},
-                {"status": "failed", "n": 283},
-                {"status": "completed", "n": 1340},
-            ]
-        return []
+    """Reproduces ``engine_tasks.py``'s ``list_tasks``/``lane_metrics`` shapes
+    (CONCEPT:AU-KG.retrieval.ops-context migrated off raw Cypher onto these two typed
+    engine primitives) with the same live-shaped numbers the old Cypher-query fake
+    encoded: whole-queue status totals + a per-lane pending/running snapshot."""
+
+    def list_tasks(self):
+        def _jobs(n, status):
+            return [{"job_id": f"{status}-{i}"} for i in range(n)]
+
+        return {
+            "pending": _jobs(336, "pending"),
+            "running": _jobs(6, "running"),
+            "dead_letter": _jobs(250, "dead_letter"),
+            "failed": _jobs(283, "failed"),
+            "completed": _jobs(1340, "completed"),
+        }
+
+    def lane_metrics(self):
+        return {
+            "ingestion": {"pending": 113, "running": 3},
+            "maint": {"pending": 175, "running": 2},
+        }
 
 
 @pytest.mark.concept("AU-KG.retrieval.ops-context")
@@ -79,8 +84,11 @@ def test_diagnose_ops_why_focuses_named_lane():
 @pytest.mark.concept("AU-KG.retrieval.ops-context")
 def test_diagnose_ops_degrades_on_empty_engine():
     class Empty:
-        def query_cypher(self, c, p):
-            return []
+        def list_tasks(self):
+            return {}
+
+        def lane_metrics(self):
+            return {}
 
     res = diagnose_ops(Empty(), query="health")
     assert res["status"] == "ok"

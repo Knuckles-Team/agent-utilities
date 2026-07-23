@@ -17,6 +17,17 @@ from agent_utilities.knowledge_graph.backends.base import GraphBackend
 _NODE_MERGE = re.compile(r"MERGE \(n:")
 _EDGE_MERGE = re.compile(r"MERGE \(s\)-\[r:")
 
+# The materialization core's canonical relationship-type key is "relationship"
+# (CONCEPT:AU-KG.ingest.enterprise-source-extractor — "type"/"rel_type" are retired
+# aliases write_entities() now rejects); direct add_edge() callers still pass
+# "rel_type". Check every known spelling so this fake never silently records a
+# None relation type regardless of which write path a test exercises.
+def _edge_relationship(row: dict[str, Any]) -> Any:
+    for key in ("relationship", "rel_type", "relationship_type", "type"):
+        if row.get(key) is not None:
+            return row[key]
+    return None
+
 
 class RecordingGraphBackend(GraphBackend):
     """Records UNWIND node/edge MERGE writes into ``.nodes`` (id → props, id
@@ -41,7 +52,11 @@ class RecordingGraphBackend(GraphBackend):
             self.nodes[params["id"]] = {k: v for k, v in params.items() if k != "id"}
         elif _EDGE_MERGE.search(query) and "source" in params:
             self.edges.append(
-                (params.get("source"), params.get("target"), params.get("type"))
+                (
+                    params.get("source"),
+                    params.get("target"),
+                    _edge_relationship(params),
+                )
             )
             self.edge_props.append({k: v for k, v in params.items()})
         return []
@@ -53,7 +68,7 @@ class RecordingGraphBackend(GraphBackend):
         elif _EDGE_MERGE.search(query):
             for row in batch:
                 self.edges.append(
-                    (row.get("source"), row.get("target"), row.get("type"))
+                    (row.get("source"), row.get("target"), _edge_relationship(row))
                 )
                 self.edge_props.append({k: v for k, v in row.items()})
         return []
@@ -65,7 +80,7 @@ class RecordingGraphBackend(GraphBackend):
         self.nodes[node_id] = {k: v for k, v in props.items()}
 
     def add_edge(self, source: Any, target: Any, **props: Any) -> None:
-        self.edges.append((source, target, props.get("rel_type")))
+        self.edges.append((source, target, _edge_relationship(props)))
         self.edge_props.append({k: v for k, v in props.items()})
 
     def add_embedding(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover
