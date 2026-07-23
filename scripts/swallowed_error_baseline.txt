@@ -64,9 +64,9 @@ agent_utilities/core/workspace_config.py:222
 agent_utilities/deployment/certification_oidc.py:447
 agent_utilities/deployment/certification_oidc.py:456
 agent_utilities/deployment/doctor.py:4121
-agent_utilities/deployment/skill_validation.py:557
-agent_utilities/deployment/skill_validation.py:564
-agent_utilities/deployment/skill_validation.py:604
+agent_utilities/deployment/skill_validation.py:558
+agent_utilities/deployment/skill_validation.py:565
+agent_utilities/deployment/skill_validation.py:605
 agent_utilities/domains/finance/exchange_bridge.py:145
 agent_utilities/domains/finance/features.py:127
 agent_utilities/domains/finance/regime_detector.py:12
@@ -415,8 +415,8 @@ agent_utilities/knowledge_graph/ingestion/engine.py:1789
 agent_utilities/knowledge_graph/ingestion/engine.py:2258
 agent_utilities/knowledge_graph/ingestion/engine.py:2293
 agent_utilities/knowledge_graph/ingestion/engine.py:3309
-agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:672
-agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1628
+agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:679
+agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1955
 agent_utilities/knowledge_graph/ingestion/gpu_slot_scheduler.py:158
 agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:81
 agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:86
@@ -572,7 +572,7 @@ agent_utilities/mcp/server_factory.py:1875
 agent_utilities/mcp/tools/analysis_tools.py:590
 agent_utilities/mcp/tools/analysis_tools.py:597
 agent_utilities/mcp/tools/analysis_tools.py:3901
-agent_utilities/mcp/tools/engine_surface_tools.py:1553
+agent_utilities/mcp/tools/engine_surface_tools.py:1565
 agent_utilities/mcp/tools/write_ingest_tools.py:505
 agent_utilities/mcp/verbose_tools.py:539
 agent_utilities/mcp/verbose_tools.py:627
@@ -586,7 +586,7 @@ agent_utilities/messaging/bus.py:1117
 agent_utilities/messaging/bus_log.py:525
 agent_utilities/messaging/bus_log.py:674
 agent_utilities/messaging/coalescer.py:66
-agent_utilities/messaging/daemon.py:206
+agent_utilities/messaging/daemon.py:210
 agent_utilities/messaging/router.py:772
 agent_utilities/messaging/router.py:901
 agent_utilities/messaging/voice.py:134
@@ -721,9 +721,9 @@ agent_utilities/server/routers/commands.py:479
 agent_utilities/server/routers/commands.py:497
 agent_utilities/server/routers/enhanced.py:95
 agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py:283
-agent_utilities/skills/runtime_validation.py:1716
-agent_utilities/skills/runtime_validation.py:1763
-agent_utilities/skills/runtime_validation.py:1834
+agent_utilities/skills/runtime_validation.py:1731
+agent_utilities/skills/runtime_validation.py:1778
+agent_utilities/skills/runtime_validation.py:1849
 agent_utilities/tools/codebase_map_tools.py:193
 agent_utilities/tools/codebase_map_tools.py:234
 agent_utilities/tools/dynamic_tool_orchestrator.py:68

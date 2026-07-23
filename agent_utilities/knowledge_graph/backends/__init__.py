@@ -378,7 +378,7 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 continue
         try:
             member = _build_member(spec)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — cause-preserving, see comment below
             # An optional mirror is NOT allowed to take the operational
             # authority (or any other mirror) down with it — isolate the
             # failure here, right at its source, and keep going. Log the real
@@ -402,6 +402,12 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 # as every other error log in this codebase (e.g. kg_server.py's
                 # `_ingest_skill_capabilities`). Pre-stringifying here would still
                 # render fine but bypasses that shared sanitizer for this value.
+                # (The ``# noqa: BLE001`` above is for scripts/check_swallowed_errors.py:
+                # its heuristic flags any call whose args contain
+                # ``type(exc).__name__`` unless it ALSO contains a wrapped
+                # ``str(exc)``/``repr(exc)`` — a separate bare ``exc`` arg in the
+                # same call, as here, doesn't register as the override even though
+                # it is the real, fully cause-preserving reference.)
                 exc,
                 exc_info=True,
             )

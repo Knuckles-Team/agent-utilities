@@ -1716,7 +1716,13 @@ def ingest_envelopes(
         )
         return [ingest_envelope(engine, envelope) for envelope in envelopes]
     except (PermissionError, ValueError) as exc:
-        logger.warning("native ChangeEnvelope batch rejected (%s)", type(exc).__name__)
+        # Log the real cause, not just the exception type: type(exc).__name__
+        # alone would be the exact swallowed-error antipattern
+        # scripts/check_swallowed_errors.py exists to catch. Pass exc itself
+        # (not a second, redundant type(exc).__name__ arg) -- core/log_privacy.py's
+        # _sanitize_value already renders a raw exception as "Type: message"
+        # while still redacting paths/etc.
+        logger.warning("native ChangeEnvelope batch rejected (%s)", exc)
         for index, envelope in prepared:
             results[index] = {
                 "status": "rejected",
