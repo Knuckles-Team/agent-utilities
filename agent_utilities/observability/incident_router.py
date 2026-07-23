@@ -26,6 +26,12 @@ gates an actual live ticket create/update; otherwise (or for the default
 proposed — writes a ``:Ticket`` node + ``:hasTicket`` edge on the incident, so
 the graph tracks asset ↔ incident ↔ ticket end to end even when no
 system-of-record is reachable.
+
+W3.5 ops-causal claim tie-in (CONCEPT:AU-KG.enrichment.ops-causal-graph): the
+routed ticket body (:func:`_incident_body`) cites an optional
+``incident["claim_id"]`` right after ``root_cause_layer`` when the caller has
+set one — a minimal field pass-through, not a new correlation, see that
+function's docstring.
 """
 
 import logging
@@ -63,11 +69,28 @@ def _summary_text(incident: dict[str, Any]) -> str:
 
 
 def _incident_body(incident: dict[str, Any]) -> str:
+    """The routed ticket's body text — cites the incident's ``root_cause_layer``.
+
+    Ops-causal claim tie-in (W3.5, CONCEPT:AU-KG.enrichment.ops-causal-graph): a
+    pure field pass-through, not a redesign. When the root cause this incident
+    cites was ALSO minted as a governed Claim elsewhere (e.g.
+    ``graph_ops_causal ... as_claim=true``), the caller can carry that id
+    through by setting ``incident["claim_id"]`` before routing — if present,
+    it is cited right after ``root_cause_layer`` so the ticket points at the
+    same citable, revisable finding rather than only a free-text layer name.
+    Never fabricated: no correlation is invented here, and existing callers
+    that never set ``claim_id`` get byte-identical output.
+    """
+    claim_line = ""
+    claim_id = incident.get("claim_id")
+    if claim_id:
+        claim_line = f"claim_id: {claim_id}\n"
     return (
         f"entity: {incident.get('entity')}\n"
         f"layers: {', '.join(incident.get('layers') or [])}\n"
         f"signals: {', '.join(incident.get('signals') or [])}\n"
         f"root_cause_layer: {incident.get('root_cause_layer')}\n"
+        f"{claim_line}"
         f"severity: {incident.get('severity')}\n"
         f"opened_at: {incident.get('opened_at')}\n\n"
         f"{incident.get('summary') or ''}"

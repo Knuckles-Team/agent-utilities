@@ -212,6 +212,26 @@ def test_erpnext_adapter_live_creates_issue(monkeypatch):
     assert out == {"ticket_id": "ISS-0001", "url": "", "status": "created"}
 
 
+def test_incident_body_includes_claim_id_when_present():
+    """W3.5 ops-causal claim tie-in (CONCEPT:AU-KG.enrichment.ops-causal-graph):
+    a pure field pass-through — the ticket body cites `claim_id` right after
+    `root_cause_layer` only when the caller set one on the incident dict
+    (e.g. `graph_ops_causal ... as_claim=true` minted one for this root
+    cause)."""
+    with_claim = {**_INCIDENT, "claim_id": "claim:ops_causal:root_cause:trace:1"}
+    body = router._incident_body(with_claim)
+    assert "claim_id: claim:ops_causal:root_cause:trace:1\n" in body
+    assert body.index("root_cause_layer:") < body.index("claim_id:")
+
+
+def test_incident_body_omits_claim_id_when_absent_byte_identical():
+    """Existing incidents (no `claim_id` key) get byte-identical body text —
+    a minimal pass-through, never a redesign of the existing report."""
+    assert "claim_id" not in _INCIDENT
+    body = router._incident_body(_INCIDENT)
+    assert "claim_id" not in body
+
+
 def test_close_ticket_updates_status_and_ticket_node(monkeypatch):
     cap = _Capture()
     monkeypatch.setattr(native_ingest, "ingest_entities", cap)
