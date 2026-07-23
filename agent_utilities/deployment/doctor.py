@@ -2725,7 +2725,7 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
 def _check_langfuse(live: bool = False) -> dict[str, Any]:
     """Validate Langfuse statically, or prove its live privacy-safe paths."""
     try:
-        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.core.config import AgentConfig, setting
         from agent_utilities.observability.langfuse_trust import (
             LangfuseTrustError,
             configure_langfuse_trust,
@@ -2736,8 +2736,16 @@ def _check_langfuse(live: bool = False) -> dict[str, Any]:
         )
 
         cfg = AgentConfig()
-        public_input = bool(cfg.langfuse_public_key_ref)
-        secret_input = bool(cfg.langfuse_secret_key_ref)
+        # A strict secret reference is preferred, but the direct
+        # LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY pair — the names
+        # langfuse_agent.auth reads for the standalone agent/MCP server — is
+        # accepted too; see langfuse_credentials_configured().
+        public_input = bool(cfg.langfuse_public_key_ref) or bool(
+            setting("LANGFUSE_PUBLIC_KEY", "")
+        )
+        secret_input = bool(cfg.langfuse_secret_key_ref) or bool(
+            setting("LANGFUSE_SECRET_KEY", "")
+        )
         enabled = bool(
             cfg.langfuse_mcp_enabled
             or cfg.kg_failure_evolution
@@ -2780,8 +2788,10 @@ def _check_langfuse(live: bool = False) -> dict[str, Any]:
                 "fail",
                 "Langfuse credential configuration is incomplete",
                 remediation=(
-                    "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF; "
-                    "resolve their material only at the runtime boundary."
+                    "Configure LANGFUSE_PUBLIC_KEY_REF and LANGFUSE_SECRET_KEY_REF "
+                    "(resolved only at the runtime boundary), or the direct "
+                    "LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY pair used by "
+                    "langfuse-agent."
                 ),
                 data=data,
             )
