@@ -299,9 +299,13 @@ class PostgresTaskQueue(QueueBackend):
         )
 
     def _insert(self, conn: Any, item: dict[str, Any]) -> None:
-        tenant_ref, fairness_ref, priority, deadline, enqueued_at = (
-            self._schedule_fields(item)
-        )
+        (
+            tenant_ref,
+            fairness_ref,
+            priority,
+            deadline,
+            enqueued_at,
+        ) = self._schedule_fields(item)
         queue_table = validate_sql_identifier(self.queue_table, kind="table")
         conn.execute(
             f"""

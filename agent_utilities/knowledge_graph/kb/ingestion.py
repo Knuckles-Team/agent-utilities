@@ -224,9 +224,9 @@ class KBIngestionEngine:
                 if new_source and new_source.content_hash != old_hash:
                     logger.info("Re-ingesting changed knowledge source")
                     # Update the source node
-                    self.graph.nodes[source_id]["content_hash"] = (
-                        new_source.content_hash
-                    )
+                    self.graph.nodes[source_id][
+                        "content_hash"
+                    ] = new_source.content_hash
                     # Re-extract any articles compiled from this source
                     await self._process_source(
                         new_source, kb_id, kb_data.get("topic", ""), force=True

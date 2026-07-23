@@ -385,7 +385,7 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
                             continue
                     masked[key] = mask_opaque_identities(item)
                 return masked
-            if isinstance(value, (list, tuple, set, frozenset)):
+            if isinstance(value, list | tuple | set | frozenset):
                 return [mask_opaque_identities(item) for item in value]
             return value
 

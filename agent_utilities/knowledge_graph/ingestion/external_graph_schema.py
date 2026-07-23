@@ -83,9 +83,11 @@ def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 class SecretStore(Protocol):
     """Small secret-store surface used by the proposal workflow."""
 
-    def get(self, key: str) -> str | None: ...
+    def get(self, key: str) -> str | None:
+        ...
 
-    def set(self, key: str, value: str, **metadata: Any) -> None: ...
+    def set(self, key: str, value: str, **metadata: Any) -> None:
+        ...
 
 
 class RemoteEpistemicGraphReadAdapter:
@@ -265,7 +267,8 @@ class GraphQLDiscoveredSchema:
 class GraphQLExecutor(Protocol):
     def __call__(
         self, document: str, variables: Mapping[str, Any]
-    ) -> Mapping[str, Any]: ...
+    ) -> Mapping[str, Any]:
+        ...
 
 
 _GRAPHQL_INTROSPECTION = """
@@ -373,9 +376,7 @@ class GraphQLDiscoveryAdapter:
         if len(operations) != 1 or operations[0].operation is not OperationType.QUERY:
             raise ExternalGraphSchemaError("GraphQL discovery probe must be read-only")
         if any(
-            not isinstance(
-                definition, (OperationDefinitionNode, FragmentDefinitionNode)
-            )
+            not isinstance(definition, OperationDefinitionNode | FragmentDefinitionNode)
             for definition in parsed.definitions
         ):
             raise ExternalGraphSchemaError("GraphQL discovery probe is invalid")
@@ -658,11 +659,13 @@ class DiscoveryAdapter(Protocol):
 
     capabilities: BackendCapabilities
 
-    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema: ...
+    def discover(self, engine: Any, *, max_types: int) -> DiscoveredSchema:
+        ...
 
     def generated_queries(
         self, *, identity_property: str | None = None
-    ) -> tuple[str, str]: ...
+    ) -> tuple[str, str]:
+        ...
 
 
 def _rows(value: Any) -> list[dict[str, Any]]:
@@ -1230,7 +1233,7 @@ def governed_semantic_mapping_enricher(bundle: Any) -> Mapping[str, str]:
         temperature=0,
     )
     choices = getattr(response, "choices", None)
-    if not isinstance(choices, (list, tuple)) or len(choices) != 1:
+    if not isinstance(choices, list | tuple) or len(choices) != 1:
         raise ExternalGraphSchemaError("semantic mapper returned no single result")
     message = getattr(choices[0], "message", None)
     content = getattr(message, "content", None)
