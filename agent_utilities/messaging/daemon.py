@@ -129,10 +129,14 @@ def run_forever(engine: Any, platforms: list[str], stop_event: threading.Event) 
     asyncio.set_event_loop(loop)
     stop: asyncio.Future[None] = loop.create_future()
 
+    def _resolve_stop() -> None:
+        if not stop.done():
+            stop.set_result(None)
+
     def _watch_stop() -> None:
         stop_event.wait()
         if not loop.is_closed():
-            loop.call_soon_threadsafe(lambda: stop.done() or stop.set_result(None))
+            loop.call_soon_threadsafe(_resolve_stop)
 
     watcher = threading.Thread(
         target=_watch_stop, daemon=True, name="MessagingStopWatch"
