@@ -23,9 +23,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+from agent_utilities.security.identifiers import validate_identifier
+
 from ..backends.base import is_durable_backend as _is_durable_backend
 
-_LABEL = "IngestManifest"
+_LABEL = validate_identifier("IngestManifest", kind="label")
 
 
 def _now() -> str:

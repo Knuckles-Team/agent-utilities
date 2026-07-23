@@ -22,13 +22,17 @@ import logging
 import re
 from typing import Any
 
+from agent_utilities.security.identifiers import (
+    InvalidIdentifierError,
+    validate_identifier,
+)
+
 from .base import GraphBackend, is_write
 
 logger = logging.getLogger(__name__)
 
 _PARAM_TOKEN_RE = re.compile(r"\$(\w+)")
 _CURRENT_TIMESTAMP_RE = re.compile(r"\bcurrent_timestamp\(\)", re.I)
-_CYPHER_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
 
 def _query_reference(query: str) -> str:
@@ -303,8 +307,13 @@ class EpistemicGraphBackend(GraphBackend):
         """Remove nodes selected by a native read followed by typed removals."""
         if not criteria:
             raise ValueError("prune criteria must not be empty")
-        if any(not _CYPHER_IDENTIFIER_RE.fullmatch(str(key)) for key in criteria):
-            raise ValueError("prune criteria contains an invalid property identifier")
+        try:
+            for key in criteria:
+                validate_identifier(key, kind="property")
+        except InvalidIdentifierError as exc:
+            raise ValueError(
+                "prune criteria contains an invalid property identifier"
+            ) from exc
         predicates = " AND ".join(f"n.{key} = ${key}" for key in criteria)
         rows = self.execute_read(
             f"MATCH (n) WHERE {predicates} RETURN n AS node_id",
