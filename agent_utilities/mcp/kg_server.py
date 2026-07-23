@@ -693,6 +693,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_feeds": "/graph/feeds",
     "graph_sandbox": "/graph/sandbox",
     "graph_runvcs": "/graph/runvcs",
+    "graph_claims": "/graph/claims",
 }
 
 # Immutable seed used by deterministic catalog generators. Runtime registrars
@@ -3253,6 +3254,7 @@ def _build_server(
         register_argument_tools,
         register_audit_tools,
         register_bus_tools,
+        register_claim_tools,
         register_compliance_tools,
         register_domain_ops_tools,
         register_engine_surface_tools,
@@ -3293,6 +3295,7 @@ def _build_server(
             register_ontology_tools,
             register_reach_tools,
             register_bus_tools,
+            register_claim_tools,
             register_secret_tools,
             register_engine_tools,
             register_engine_surface_tools,

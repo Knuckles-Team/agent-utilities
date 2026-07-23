@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **New `graph_claims` tool — the X-3 claim flywheel becomes directly callable.**
+  `knowledge_graph/research/claim_flywheel.py`'s governed five-state lifecycle
+  (`proposed -> validated -> accepted -> deprecated -> retracted`, `RETRACTED`
+  terminal/sticky) previously only fired as a side effect of a mining pass
+  (`loop_controller._run_insight_validation`/`_run_trace_mining`) — no MCP/REST
+  surface could directly `propose`/`validate`/`accept`/`deprecate`/`retract` one
+  claim. `mcp/tools/claim_tools.py` adds a standalone `graph_claims` tool
+  (`propose`/`validate`/`accept`/`deprecate`/`retract`/`get`/`list`, REST twin
+  `/graph/claims`) — thin dispatch only: every state-changing action FIRST passes
+  the fail-closed `ActionPolicy` gate (`orchestration/action_policy.py`, kind
+  `claim.<action>`, mirroring `graph_secret`'s `_gate` pattern) and only then calls
+  the real `ClaimFlywheel` method; a denied/queued decision blocks the mutation
+  without ever touching the flywheel. Provenance is inherited, not re-implemented:
+  `ActionPolicy.decide()`'s own `ActionDecision` audit write and `ClaimFlywheel`'s
+  own `ClaimLifecycleEvent` write both already exist upstream. Adds
+  `claim_flywheel.list_claims()` as the read-only enumeration companion behind
+  the new `list` action.
+- **`graph_runvcs`'s `twin_capture` gains the explicit-data capture path (X-8).**
+  The Seam-7 wiring pass had already reached `agent_digital_twin.
+  capture_twin_from_kg` (best-effort KG hydration) from `twin_capture`, but the
+  module's OWN canonical path — `capture_twin` (build a twin straight from a live
+  run's already-collected `tool_calls`/`model_exchanges`, never re-derived from
+  the KG) — stayed unreachable from either surface, and `policy_decisions`/
+  `evidence` (accepted by both capture functions, but "NEVER auto-discovered from
+  the KG" per the module's own docstring) were silently dropped by the tool
+  either way. `twin_capture` now takes `tool_calls`/`model_exchanges`/`budget`/
+  `work_item_ids` (routing to `capture_twin` when either is non-empty) and
+  forwards `policy_decisions`/`evidence` on BOTH paths.
 - **Light epistemic layer, default-on.** `KnowledgeGraph.query` / `GraphComputeEngine.
   query_unified` / `IntelligenceGraphEngine.uql` now attach the light epistemic envelope
   (`confidence`/`source_refs`/`evidence_refs`/`policy_labels`/`provenance`) onto every plain
