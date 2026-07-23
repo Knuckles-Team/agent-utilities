@@ -27,14 +27,14 @@ class _FakeBackend:
     def add_node(self, node_id: str, label: str = "", **props) -> None:
         self.nodes[node_id] = {"label": label, **props}
 
-    def add_edge(self, source: str, target: str, rel_type: str = "", **props) -> None:
-        self.edges.append((source, target, {"rel_type": rel_type, **props}))
+    def add_edge(self, source: str, target: str, relationship: str = "", **props) -> None:
+        self.edges.append((source, target, {"relationship": relationship, **props}))
 
     def nodes_by_label(self, label: str, limit: int = 0):
         return [
             (nid, p)
             for nid, p in self.nodes.items()
-            if p.get("type") == label or p.get("label") == label
+            if p.get("node_type") == label or p.get("label") == label
         ]
 
     def query_cypher(self, query: str, params: dict | None = None):
@@ -117,9 +117,9 @@ def test_ingest_builds_graph_and_coupling(tmp_path):
     assert out["commits_per_sec"] > 0
 
     # :Commit / :Author / :File nodes exist.
-    commits = [n for n in be.nodes.values() if n.get("type") == "Commit"]
-    authors = [n for n in be.nodes.values() if n.get("type") == "Author"]
-    files = {n["path"] for n in be.nodes.values() if n.get("type") == "File"}
+    commits = [n for n in be.nodes.values() if n.get("node_type") == "Commit"]
+    authors = [n for n in be.nodes.values() if n.get("node_type") == "Author"]
+    files = {n["path"] for n in be.nodes.values() if n.get("node_type") == "File"}
     assert len(commits) == 4
     assert len(authors) == 1 and authors[0]["email"] == "dev@example.com"
     assert {"a.py", "b.py", "c.py"} <= files
@@ -129,12 +129,12 @@ def test_ingest_builds_graph_and_coupling(tmp_path):
     assert a_node["commit_count"] == 3 and a_node["churn"] >= 3
 
     # Edge types: AUTHORED, PARENT (DAG), TOUCHED, and derived FILE_CHANGES_WITH.
-    rels = {e[2]["rel_type"] for e in be.edges}
+    rels = {e[2]["relationship"] for e in be.edges}
     assert {"AUTHORED", "PARENT", "TOUCHED", "FILE_CHANGES_WITH"} <= rels
-    coupling = [e for e in be.edges if e[2]["rel_type"] == "FILE_CHANGES_WITH"]
+    coupling = [e for e in be.edges if e[2]["relationship"] == "FILE_CHANGES_WITH"]
     coupled_pairs = {(e[0], e[1]) for e in coupling}
     assert ("file:a.py", "file:b.py") in coupled_pairs  # a & b co-change 3x
-    parents = [e for e in be.edges if e[2]["rel_type"] == "PARENT"]
+    parents = [e for e in be.edges if e[2]["relationship"] == "PARENT"]
     assert len(parents) == 3  # linear history
 
 

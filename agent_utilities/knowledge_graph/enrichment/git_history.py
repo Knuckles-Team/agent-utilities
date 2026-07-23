@@ -319,7 +319,7 @@ def ingest_commit_history(
         cid = f"commit:{c.sha}"
         batched.add_node(
             cid,
-            type="Commit",
+            label="Commit",
             sha=c.sha,
             message=c.subject,
             timestamp=c.timestamp,
@@ -335,7 +335,7 @@ def ingest_commit_history(
         aid = f"author:{c.author_email or c.author_name}"
         if aid not in authors_written:
             batched.add_node(
-                aid, type="Author", name=c.author_name, email=c.author_email
+                aid, label="Author", name=c.author_name, email=c.author_email
             )
             authors_written.add(aid)
         batched.add_edge(aid, cid, rel_type="AUTHORED")
@@ -360,7 +360,7 @@ def ingest_commit_history(
     for path, d in churn.items():
         batched.add_node(
             f"file:{path}",
-            type="File",
+            label="File",
             path=path,
             repo=repo_name,
             commit_count=d["commits"],
