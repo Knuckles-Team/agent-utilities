@@ -1,6 +1,6 @@
 """Argument Interchange Format (AIF) — argument-map objects + graph bridge.
 
-CONCEPT:AU-KG.argumentation.aif.
+CONCEPT:AU-KG.epistemic.aif.
 
 AIF (Rahwan & Reed, "The Argument Interchange Format"; AIFdb/arg-tech.org) is
 the community interchange standard for representing an argument as a graph of

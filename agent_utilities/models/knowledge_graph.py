@@ -1548,7 +1548,7 @@ class DatasetItemNode(RegistryNode):
 
 class ArtifactVersionNode(RegistryNode):
     """Generalized lifecycle contract for every content-addressed, evolvable
-    artifact version (CONCEPT:AU-AHE.evolution.unified-artifact-lineage) — skill
+    artifact version (CONCEPT:AU-AHE.harness.unified-artifact-lineage) — skill
     markdown, system prompt, MCP tool description, native ``eg-program`` revision.
 
     Generalizes :class:`SkillVersionNode`'s propose-only lifecycle contract

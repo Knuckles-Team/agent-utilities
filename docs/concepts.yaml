@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1015
+total_concepts: 1036
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -715,6 +715,22 @@ concepts:
   - AU-AHE.harness.kg-held-out-certification
   canonical_pillar: AU-AHE
   needs_curation: false
+- id: AU-AHE.harness.loop-exit-conditions
+  name: TURN CAP threading
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/graph/state.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/orchestration/loop_guards.py
+  doc: TURN CAP threading
+  dotted: AU-AHE.harness.loop-exit-conditions
+  aliases:
+  - AU-AHE.harness.loop-exit-conditions
+  canonical_pillar: AU-AHE
+  needs_curation: false
 - id: AU-AHE.harness.manifest-verify
   name: '** manifest-verify →'
   pillar: AU-AHE
@@ -1052,6 +1068,35 @@ concepts:
   - AU-AHE.harness.trading-team-seed
   canonical_pillar: AU-AHE
   needs_curation: false
+- id: AU-AHE.harness.unified-artifact-lineage
+  name: skill
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/research/evolution_state.py
+  - agent_utilities/models/knowledge_graph.py
+  doc: skill
+  dotted: AU-AHE.harness.unified-artifact-lineage
+  aliases:
+  - AU-AHE.harness.unified-artifact-lineage
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.harness.unified-promotion-gate
+  name: AU-AHE.harness.unified-promotion-gate
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/evolve_agent.py
+  - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/skill_evolution.py
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/orchestration/artifact_promotion.py
+  doc: AU-AHE.harness.unified-promotion-gate
+  dotted: AU-AHE.harness.unified-promotion-gate
+  aliases:
+  - AU-AHE.harness.unified-promotion-gate
+  canonical_pillar: AU-AHE
+  needs_curation: false
 - id: AU-AHE.harness.variant-pool
   name: ───────────────────────────────────
   pillar: AU-AHE
@@ -1316,6 +1361,18 @@ concepts:
   - AU-AHE.optimization.recursive-distillation-loop
   canonical_pillar: AU-AHE
   needs_curation: false
+- id: AU-AHE.optimization.skillopt-langfuse-signal
+  name: AU-AHE.optimization.skillopt-langfuse-signal
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/langfuse_skill_signal.py
+  doc: AU-AHE.optimization.skillopt-langfuse-signal
+  dotted: AU-AHE.optimization.skillopt-langfuse-signal
+  aliases:
+  - AU-AHE.optimization.skillopt-langfuse-signal
+  canonical_pillar: AU-AHE
+  needs_curation: false
 - id: AU-AHE.optimization.skillopt-native-reflact
   name: SkillOpt-native ReflACT skill-markdown evolution — versioned SkillVersion nodes,
     a benchmark-gated promotion decision (candidate must strictly beat the incumbent on
@@ -1350,6 +1407,19 @@ concepts:
   dotted: AU-AHE.optimization.telemetry-optimization
   aliases:
   - AU-AHE.optimization.telemetry-optimization
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.optimization.trace-derived-training-examples
+  name: closing the cohesive-loop gap
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/program_optimization.py
+  - agent_utilities/harness/trace_examples.py
+  doc: closing the cohesive-loop gap
+  dotted: AU-AHE.optimization.trace-derived-training-examples
+  aliases:
+  - AU-AHE.optimization.trace-derived-training-examples
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.optimization.workflow-distillation
@@ -1413,6 +1483,21 @@ concepts:
   - AU-AHE.reward.horizon-task-curriculum
   canonical_pillar: AU-AHE
   needs_curation: false
+- id: AU-AHE.reward.langfuse-evolution-signal
+  name: is the
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/eval_corpus.py
+  - agent_utilities/harness/langfuse_signal.py
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/knowledge_graph/research/claim_flywheel.py
+  doc: is the
+  dotted: AU-AHE.reward.langfuse-evolution-signal
+  aliases:
+  - AU-AHE.reward.langfuse-evolution-signal
+  canonical_pillar: AU-AHE
+  needs_curation: false
 - id: AU-AHE.reward.reward-dataset-primitives
   name: Reward / dataset primitives
   pillar: AU-AHE
@@ -1451,6 +1536,18 @@ concepts:
   dotted: AU-AHE.reward.this-is-read-back
   aliases:
   - AU-AHE.reward.this-is-read-back
+  canonical_pillar: AU-AHE
+  needs_curation: false
+- id: AU-AHE.reward.unified-reward-signal
+  name: AU-AHE.reward.unified-reward-signal
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/reward_signal.py
+  doc: AU-AHE.reward.unified-reward-signal
+  dotted: AU-AHE.reward.unified-reward-signal
+  aliases:
+  - AU-AHE.reward.unified-reward-signal
   canonical_pillar: AU-AHE
   needs_curation: false
 - id: AU-AHE.rlm.long-context-benchmark
@@ -3800,6 +3897,18 @@ concepts:
   - AU-KG.compute.engine-surface-manifest
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.compute.epistemic-operations-protocol
+  name: one current-only operations
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/protocols/epistemic_operations/__init__.py
+  doc: one current-only operations
+  dotted: AU-KG.compute.epistemic-operations-protocol
+  aliases:
+  - AU-KG.compute.epistemic-operations-protocol
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.compute.event-driven-sync
   name: Event-Driven Graph Synchronization
   pillar: AU-KG
@@ -5085,6 +5194,20 @@ concepts:
   - AU-KG.enrichment.worldview-subject-ontology
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.epistemic.aif
+  name: AU-KG.epistemic.aif
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/argumentation/__init__.py
+  - agent_utilities/knowledge_graph/argumentation/aif.py
+  - agent_utilities/mcp/tools/argument_tools.py
+  doc: AU-KG.epistemic.aif
+  dotted: AU-KG.epistemic.aif
+  aliases:
+  - AU-KG.epistemic.aif
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.etl.result-contract
   name: a validated
   pillar: AU-KG
@@ -5606,6 +5729,32 @@ concepts:
   dotted: AU-KG.ingest.external-graph-federation
   aliases:
   - AU-KG.ingest.external-graph-federation
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.external-graph-mapping-approval
+  name: AU-KG.ingest.external-graph-mapping-approval
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py
+  - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
+  doc: AU-KG.ingest.external-graph-mapping-approval
+  dotted: AU-KG.ingest.external-graph-mapping-approval
+  aliases:
+  - AU-KG.ingest.external-graph-mapping-approval
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ingest.external-graph-universal-discovery
+  name: AU-KG.ingest.external-graph-universal-discovery
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py
+  - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
+  doc: AU-KG.ingest.external-graph-universal-discovery
+  dotted: AU-KG.ingest.external-graph-universal-discovery
+  aliases:
+  - AU-KG.ingest.external-graph-universal-discovery
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ingest.external-tracker-ids
@@ -7238,6 +7387,22 @@ concepts:
   - AU-KG.ontology.manage-arbitrary
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ontology.object-path-finder
+  name: "finds the shortest path between two specific object ids and returns the hop-by-hop\
+  \ relationship chain \u2014 the object-agnostic generalization of the existing"
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/ontology/object_path.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: "finds the shortest path between two specific object ids and returns the hop-by-hop\
+  \ relationship chain \u2014 the object-agnostic generalization of the existing"
+  dotted: AU-KG.ontology.object-path-finder
+  aliases:
+  - AU-KG.ontology.object-path-finder
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ontology.one-source
   name: One source→
   pillar: AU-KG
@@ -7483,6 +7648,20 @@ concepts:
   - AU-KG.ontology.sampling-profile-coupling
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ontology.schema-graph-visualization
+  name: closes the gap analysed
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/ontology/schema_graph.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: closes the gap analysed
+  dotted: AU-KG.ontology.schema-graph-visualization
+  aliases:
+  - AU-KG.ontology.schema-graph-visualization
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ontology.schema-pack-lifecycle-audit
   name: Schema-Pack Lifecycle and Audit
   pillar: AU-KG
@@ -7523,6 +7702,18 @@ concepts:
   - AU-KG.ontology.semantic-subsumption
   canonical_pillar: AU-KG
   needs_curation: false
+- id: AU-KG.ontology.shacl-report-passthrough
+  name: AU-KG.ontology.shacl-report-passthrough
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  doc: AU-KG.ontology.shacl-report-passthrough
+  dotted: AU-KG.ontology.shacl-report-passthrough
+  aliases:
+  - AU-KG.ontology.shacl-report-passthrough
+  canonical_pillar: AU-KG
+  needs_curation: false
 - id: AU-KG.ontology.single-source-full-drain
   name: a single-source FULL drain of a LARGE corpus must NOT run inline
   pillar: AU-KG
@@ -7537,6 +7728,19 @@ concepts:
   dotted: AU-KG.ontology.single-source-full-drain
   aliases:
   - AU-KG.ontology.single-source-full-drain
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.standalone-generation
+  name: skips the live-ontology/synonym
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/gateway/ontology_api.py
+  - agent_utilities/knowledge_graph/extraction/schema_discovery.py
+  doc: skips the live-ontology/synonym
+  dotted: AU-KG.ontology.standalone-generation
+  aliases:
+  - AU-KG.ontology.standalone-generation
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.stardog-catalog-import
@@ -7565,6 +7769,19 @@ concepts:
   dotted: AU-KG.ontology.stardog-catalog-overwrite
   aliases:
   - AU-KG.ontology.stardog-catalog-overwrite
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.ontology.style-lint
+  name: flags interface/property naming-convention
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/style_lint.py
+  - agent_utilities/mcp/tools/ontology_tools.py
+  doc: flags interface/property naming-convention
+  dotted: AU-KG.ontology.style-lint
+  aliases:
+  - AU-KG.ontology.style-lint
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.ontology.submission-criteria-gate
@@ -7750,6 +7967,23 @@ concepts:
   dotted: AU-KG.query.intelligent-routing
   aliases:
   - AU-KG.query.intelligent-routing
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.query.knowledge-stream-consumer
+  name: additive; a build/transport without the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/epistemic_row.py
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/knowledge_stream.py
+  - agent_utilities/knowledge_graph/facade.py
+  - agent_utilities/mcp/tools/compliance_tools.py
+  doc: additive; a build/transport without the
+  dotted: AU-KG.query.knowledge-stream-consumer
+  aliases:
+  - AU-KG.query.knowledge-stream-consumer
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.query.object-graph-mapper
@@ -8570,6 +8804,24 @@ concepts:
   dotted: AU-KG.retrieval.graph-distillation-migration
   aliases:
   - AU-KG.retrieval.graph-distillation-migration
+  canonical_pillar: AU-KG
+  needs_curation: false
+- id: AU-KG.retrieval.graph-engineering-canonical-prompts
+  name: sourced from the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/distillation/deduplicator.py
+  - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+  - agent_utilities/knowledge_graph/pipeline/phases/community_reports.py
+  - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/graph_engineering_tools.py
+  - agent_utilities/prompts/canonical.py
+  doc: sourced from the
+  dotted: AU-KG.retrieval.graph-engineering-canonical-prompts
+  aliases:
+  - AU-KG.retrieval.graph-engineering-canonical-prompts
   canonical_pillar: AU-KG
   needs_curation: false
 - id: AU-KG.retrieval.hard-negative-mining
@@ -12154,6 +12406,19 @@ concepts:
   - AU-OS.config.source-credential-registry
   canonical_pillar: AU-OS
   needs_curation: false
+- id: AU-OS.config.two-surfaces-by-default
+  name: "\u2500\u2500"
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/observability/runtime_health.py
+  doc: "\u2500\u2500"
+  dotted: AU-OS.config.two-surfaces-by-default
+  aliases:
+  - AU-OS.config.two-surfaces-by-default
+  canonical_pillar: AU-OS
+  needs_curation: false
 - id: AU-OS.config.xai-social-credentials
   name: X/Grok social search needs xAI credentials
   pillar: AU-OS
@@ -12364,6 +12629,21 @@ concepts:
   dotted: AU-OS.deployment.infrastructure-blueprint-library
   aliases:
   - AU-OS.deployment.infrastructure-blueprint-library
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.deployment.liveness-vs-readiness-split
+  name: see the callers
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/gateway/api.py
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/observability/runtime_health.py
+  - agent_utilities/server/routers/core.py
+  doc: see the callers
+  dotted: AU-OS.deployment.liveness-vs-readiness-split
+  aliases:
+  - AU-OS.deployment.liveness-vs-readiness-split
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.deployment.modular-skill-prompt-contribution
@@ -12951,6 +13231,18 @@ concepts:
   dotted: AU-OS.identity.so-jwt-protected-children
   aliases:
   - AU-OS.identity.so-jwt-protected-children
+  canonical_pillar: AU-OS
+  needs_curation: false
+- id: AU-OS.observability.co-service-visibility
+  name: AU-OS.observability.co-service-visibility
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/observability/runtime_health.py
+  doc: AU-OS.observability.co-service-visibility
+  dotted: AU-OS.observability.co-service-visibility
+  aliases:
+  - AU-OS.observability.co-service-visibility
   canonical_pillar: AU-OS
   needs_curation: false
 - id: AU-OS.observability.deterministic-replay

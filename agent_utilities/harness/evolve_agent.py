@@ -602,7 +602,7 @@ class EvolveAgent:
         if not is_opaque_program_reference(component_ref, namespace="component"):
             component_ref = opaque_program_reference("component", edit.file_path)
 
-        # Unified evolution matrix (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+        # Unified evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate):
         # a candidate that beat baseline (``promote``, decided upstream by
         # ``should_promote`` — the comparison gate is NOT re-run here) must ALSO
         # clear the same operational veto every other promotion vector clears
@@ -779,7 +779,7 @@ class EvolveAgent:
             "trainset_size": trainset_size,
             "candidate_version_hash": version_hash,
             "auto_apply_eligible": bool(meta.get("auto_apply_eligible", True)),
-            # The action_policy veto's verdict (CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+            # The action_policy veto's verdict (CONCEPT:AU-AHE.harness.unified-promotion-gate)
             # — "" when the candidate never beat baseline (the gate was never
             # consulted; mirrors run_reflact_cycle's "a benchmark loss never
             # reaches action_policy").

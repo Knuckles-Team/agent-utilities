@@ -549,7 +549,7 @@ def run_reflact_cycle(
         promote as promote_gate,
     )
 
-    # The generalized gate (CONCEPT:AU-AHE.evolution.unified-promotion-gate):
+    # The generalized gate (CONCEPT:AU-AHE.harness.unified-promotion-gate):
     # evaluate_promotion(strict=True, min_delta=0) is byte-identical to the ported
     # skill_gate.evaluate_promotion comparison (candidate strictly beats incumbent),
     # and promote() consults action_policy under the SAME "promote_skill_version"

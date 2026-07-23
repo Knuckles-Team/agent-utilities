@@ -376,7 +376,7 @@ class GovernedAutoMerger:
         (the proposal id, so a queued/granted ``ActionApproval`` is SHARED
         with the publication step via the policy's per-kind+target dedup).
         Now built on the SAME generalized gate
-        (``artifact_promotion.promote``, CONCEPT:AU-AHE.evolution.unified-promotion-gate)
+        (``artifact_promotion.promote``, CONCEPT:AU-AHE.harness.unified-promotion-gate)
         ``run_reflact_cycle``'s ``promote_skill_version`` consult uses — a
         proposal has no candidate-vs-incumbent held-out score, so
         ``incumbent_reward=None`` skips the comparison leg and goes straight to

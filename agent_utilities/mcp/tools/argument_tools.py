@@ -1,6 +1,6 @@
 """graph_argument — AIF (Argument Interchange Format) MCP tool.
 
-CONCEPT:AU-KG.argumentation.aif.
+CONCEPT:AU-KG.epistemic.aif.
 
 One action-routed surface over
 :mod:`agent_utilities.knowledge_graph.argumentation.aif` — the typed AIF
