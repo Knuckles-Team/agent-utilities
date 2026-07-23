@@ -40,7 +40,9 @@ def test_image_generator_base64_response():
     def http(method, url, **kw):
         return _Resp(j={"image": base64.b64encode(b"PNGDATA").decode()})
 
-    img = ImageGenerator(http_fn=http).generate("a cat", steps=4)
+    img = ImageGenerator(http_fn=http, base_url="http://media-test.local").generate(
+        "a cat", steps=4
+    )
     assert img == b"PNGDATA"
 
 
@@ -49,7 +51,7 @@ def test_image_generator_raw_bytes_response():
     def http(method, url, **kw):
         return _Resp(content=b"RAWPNG", headers={"content-type": "image/png"})
 
-    img = ImageGenerator(http_fn=http).generate("a dog")
+    img = ImageGenerator(http_fn=http, base_url="http://media-test.local").generate("a dog")
     assert img == b"RAWPNG"
 
 
@@ -71,7 +73,9 @@ def test_speech_synthesizer_resolves_studio_speaker():
             )
         return _Resp(j=base64.b64encode(b"WAVDATA").decode())
 
-    wav = SpeechSynthesizer(http_fn=http).synthesize("hello")
+    wav = SpeechSynthesizer(http_fn=http, base_url="http://media-test.local").synthesize(
+        "hello"
+    )
     assert wav == b"WAVDATA"
     assert "studio_speakers" in seen and "tts" in seen
 
@@ -87,13 +91,17 @@ def test_video_generator_inline_and_job():
     def inline(method, url, **kw):
         return _Resp(j={"video": base64.b64encode(b"MP4").decode(), "status": "done"})
 
-    out = VideoGenerator(http_fn=inline).generate("a sunset")
+    out = VideoGenerator(http_fn=inline, base_url="http://media-test.local").generate(
+        "a sunset"
+    )
     assert out["video"] == b"MP4" and out["status"] == "done"
 
     def job(method, url, **kw):
         return _Resp(j={"job_id": "j1", "status": "running"})
 
-    out2 = VideoGenerator(http_fn=job).generate("a river")
+    out2 = VideoGenerator(http_fn=job, base_url="http://media-test.local").generate(
+        "a river"
+    )
     assert out2["job_id"] == "j1" and out2["video"] is None
 
 
@@ -104,7 +112,10 @@ def test_transcriber_openai_compatible():
         assert "file" in kw.get("files", {})
         return _Resp(j={"text": "hello there"})
 
-    assert Transcriber(http_fn=http).transcribe(b"AUDIO") == "hello there"
+    assert (
+        Transcriber(http_fn=http, base_url="http://media-test.local").transcribe(b"AUDIO")
+        == "hello there"
+    )
 
 
 @pytest.mark.concept("AU-ECO.toolkit.media-transcription-bridge")
@@ -169,7 +180,9 @@ def test_comfyui_client_workflow_image():
             return _Resp(content=b"PNGBYTES")
         return _Resp(j={})
 
-    img = ComfyUIClient(http_fn=http).generate_image("a cat", checkpoint="sd3.5_medium")
+    img = ComfyUIClient(http_fn=http, base_url="http://media-test.local").generate_image(
+        "a cat", checkpoint="sd3.5_medium"
+    )
     assert img == b"PNGBYTES"
 
 
@@ -201,7 +214,7 @@ def test_comfyui_backed_image_via_named_backend():
         return _Resp(content=b"IMG")
 
     # Drive the workflow client directly with the SD3.5 checkpoint preset.
-    out = ComfyUIClient(http_fn=http).generate_image(
+    out = ComfyUIClient(http_fn=http, base_url="http://media-test.local").generate_image(
         "sunset", checkpoint="sd3.5_medium", steps=28
     )
     assert out == b"IMG"

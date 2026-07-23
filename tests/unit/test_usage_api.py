@@ -86,37 +86,53 @@ def _seed(*, sid: str = "s1", tenant_id: str = ""):
     )
 
 
+def _verified_actor(tenant_id: str = "test-tenant") -> ActorContext:
+    """A verified, non-admin usage caller scoped to ``tenant_id`` — every served
+    usage query now requires an authenticated identity with a non-empty tenant
+    claim (:func:`~agent_utilities.usage.authorization.resolve_usage_tenant`)."""
+    return ActorContext(
+        actor_id="usage-tester",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("usage:read",),
+        tenant_id=tenant_id,
+        authenticated=True,
+    )
+
+
 def test_summary_and_breakdowns(client):
-    _seed()
-    s = client.get("/api/observability/summary").json()
-    assert s["session_count"] == 1
-    assert s["totals"]["input_tokens"] == 1000
-    assert s["totals"]["cost_usd"] > 0  # priced via catalog
+    _seed(tenant_id="test-tenant")
+    with use_actor(_verified_actor()):
+        s = client.get("/api/observability/summary").json()
+        assert s["session_count"] == 1
+        assert s["totals"]["input_tokens"] == 1000
+        assert s["totals"]["cost_usd"] > 0  # priced via catalog
 
-    models = client.get("/api/observability/by-model").json()
-    assert models[0]["key"] == "claude-opus-4-8"
+        models = client.get("/api/observability/by-model").json()
+        assert models[0]["key"] == "claude-opus-4-8"
 
-    tools = client.get("/api/observability/analytics/tools").json()
-    assert tools[0]["name"] == "Edit"
-    assert tools[0]["success_rate"] == 1.0
+        tools = client.get("/api/observability/analytics/tools").json()
+        assert tools[0]["name"] == "Edit"
+        assert tools[0]["success_rate"] == 1.0
 
 
 def test_sessions_and_detail(client):
-    _seed()
-    rows = client.get("/api/observability/sessions").json()
-    run_ref = rows[0]["id"]
-    assert run_ref.startswith("pref_run_")
-    detail = client.get(f"/api/observability/sessions/{run_ref}").json()
-    assert detail["session"]["id"] == run_ref
-    assert len(detail["messages"]) == 1
+    _seed(tenant_id="test-tenant")
+    with use_actor(_verified_actor()):
+        rows = client.get("/api/observability/sessions").json()
+        run_ref = rows[0]["id"]
+        assert run_ref.startswith("pref_run_")
+        detail = client.get(f"/api/observability/sessions/{run_ref}").json()
+        assert detail["session"]["id"] == run_ref
+        assert len(detail["messages"]) == 1
 
 
 def test_search_and_activity(client):
-    _seed()
-    hits = client.get("/api/observability/search", params={"q": "parser"}).json()
-    assert hits and hits[0]["session_id"].startswith("pref_run_")
-    cells = client.get("/api/observability/analytics/activity").json()
-    assert cells[0]["day_of_week"] == 2  # 2026-06-10 is a Wednesday
+    _seed(tenant_id="test-tenant")
+    with use_actor(_verified_actor()):
+        hits = client.get("/api/observability/search", params={"q": "parser"}).json()
+        assert hits and hits[0]["session_id"].startswith("pref_run_")
+        cells = client.get("/api/observability/analytics/activity").json()
+        assert cells[0]["day_of_week"] == 2  # 2026-06-10 is a Wednesday
 
 
 def test_upload_transport(client):
@@ -135,17 +151,18 @@ def test_upload_transport(client):
             )
         ],
     )
-    resp = client.post(
-        "/api/observability/sessions/upload",
-        params={"tenant_id": "acme"},
-        json=[bundle.model_dump()],
-    )
-    assert resp.json() == {"received": 1, "ingested": 1}
-    # The uploaded session is now queryable and tenant-scoped.
-    rows = client.get(
-        "/api/observability/sessions", params={"tenant_id": "acme"}
-    ).json()
-    assert any(r["id"].startswith("pref_run_") for r in rows)
+    with use_actor(_verified_actor(tenant_id="acme")):
+        resp = client.post(
+            "/api/observability/sessions/upload",
+            params={"tenant_id": "acme"},
+            json=[bundle.model_dump()],
+        )
+        assert resp.json() == {"received": 1, "ingested": 1}
+        # The uploaded session is now queryable and tenant-scoped.
+        rows = client.get(
+            "/api/observability/sessions", params={"tenant_id": "acme"}
+        ).json()
+        assert any(r["id"].startswith("pref_run_") for r in rows)
 
 
 def test_traces_gated_off_by_default(client):
@@ -176,5 +193,19 @@ def test_served_usage_queries_bind_to_verified_tenant(client, monkeypatch):
 
 
 def test_served_usage_rejects_missing_verified_identity(client, monkeypatch):
-    response = client.get("/api/observability/summary")
+    """An actor claim that exists but was never verified (``authenticated=False``)
+    must be rejected. Every test already runs inside the suite's own verified
+    ambient identity (``isolate_graph_compute_engine``, autouse) — a fully absent
+    actor context would raise ``IdentityRequiredError`` before the usage
+    authorization layer even runs, so the realistic "missing verified identity"
+    case to exercise here is an unauthenticated claim, not no claim at all."""
+    unauthenticated = ActorContext(
+        actor_id="unverified",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=(),
+        tenant_id="",
+        authenticated=False,
+    )
+    with use_actor(unauthenticated):
+        response = client.get("/api/observability/summary")
     assert response.status_code == 401

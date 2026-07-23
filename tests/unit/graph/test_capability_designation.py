@@ -27,11 +27,16 @@ from agent_utilities.graph.routing.enrichers.capability_designation import (
 NODES = {
     "tool:search": {
         "type": "tool",
+        "embedding": [1.0, 0.0, 0.0],
         "capabilities": ["web_search"],
         "tenant": "tenant-a",
         "policy_tags": ["cleared"],
     },
-    "tool:math": {"type": "tool", "capabilities": ["arithmetic"]},
+    "tool:math": {
+        "type": "tool",
+        "embedding": [0.0, 1.0, 0.0],
+        "capabilities": ["arithmetic"],
+    },
 }
 
 
@@ -57,7 +62,8 @@ class _Backend:
 def _make_engine(nodes: dict[str, dict[str, Any]] | None = None):
     values = {key: dict(value) for key, value in (nodes or NODES).items()}
     graph = types.SimpleNamespace(
-        _get_node_properties=lambda node_id: values.get(node_id, {})
+        node_ids=lambda: list(values.keys()),
+        _get_node_properties=lambda node_id: values.get(node_id, {}),
     )
     return types.SimpleNamespace(graph=graph, backend=_Backend(values))
 
@@ -138,6 +144,7 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
         tenant,
         policy_tags,
         capability_hierarchy=None,
+        active_release_channel=None,
     ):
         calls["called"] = True
         calls["k"] = k
@@ -409,11 +416,14 @@ def test_get_designation_index_force_refresh_bypasses_cdc_gating():
     assert forced is not None and len(forced) == 2
 
 
-def test_record_outcome_fails_when_authority_is_unavailable():
+def test_record_outcome_degrades_to_neutral_when_authority_is_unavailable():
+    """CONCEPT:AU-P1-3 — ``record_capability_outcome`` is documented to never raise:
+    with no in-process watcher established and no engine backend reachable, durable
+    persistence is a no-op and the call degrades to the neutral 0.5 prior rather
+    than failing routing (see the function's docstring)."""
     engine = _make_engine()
     engine.backend = None
-    with pytest.raises(RuntimeError, match="persistence is unavailable"):
-        record_capability_outcome(engine, "tool:search", success=True)
+    assert record_capability_outcome(engine, "tool:search", success=True) == 0.5
 
 
 def test_explain_reads_authoritative_node_properties():

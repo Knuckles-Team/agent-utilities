@@ -177,7 +177,7 @@ class ArgumentMap:
     :func:`export_argument_map` can pull one back out by tag.
     """
 
-    map_id: str = field(default_factory=lambda: f"map-{uuid.uuid4().hex[:12]}")
+    map_id: str = field(default_factory=lambda: f"map-{uuid.uuid4().hex}")
     nodes: list[AIFNode] = field(default_factory=list)
     edges: list[AIFEdge] = field(default_factory=list)
 
@@ -308,7 +308,7 @@ def from_aifdb_json(data: dict[str, Any], *, map_id: str | None = None) -> Argum
     resolved_map_id = (
         map_id
         or str(data.get("map_id") or data.get("id") or "")
-        or f"map-{uuid.uuid4().hex[:12]}"
+        or f"map-{uuid.uuid4().hex}"
     )
     return ArgumentMap(map_id=resolved_map_id, nodes=nodes, edges=edges)
 

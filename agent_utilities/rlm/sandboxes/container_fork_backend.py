@@ -127,7 +127,7 @@ class ContainerForkSandbox(ForkableSandbox):
             raise SandboxFatalError("docker/podman runtime unavailable")
         pool_dir = Path(tempfile.mkdtemp(prefix="rlm-cfork-pool-"))
         os.chmod(pool_dir, 0o777)  # nosec B103 — container uid may differ (rootless/userns)
-        name = f"rlm-cfork-{uuid.uuid4().hex[:12]}"
+        name = f"rlm-cfork-{uuid.uuid4().hex}"
         argv = [
             runtime, "run", "-d", "--name", name,
             "--label", f"{_SANDBOX_LABEL}={self.name}",
@@ -183,7 +183,7 @@ class ContainerForkSandbox(ForkableSandbox):
         runtime = parent.ref["runtime"]
         name = parent.ref["name"]
         pool_dir: Path = parent.ref["pool_dir"]
-        run_id = uuid.uuid4().hex[:12]
+        run_id = uuid.uuid4().hex
         run_dir = pool_dir / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         guest_data = f"/data/{run_id}"

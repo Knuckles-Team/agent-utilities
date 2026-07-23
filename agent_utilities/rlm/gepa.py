@@ -9,8 +9,8 @@ from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
 
+from ..core.contextual_model import create_context_agent
 from ..graph.client import create_or_merge_node
 from ..graph.state import GraphDeps
 from .config import RLMConfig
@@ -242,7 +242,7 @@ class ReflectiveMutator:
 
     def __init__(self, model: Any = "openai:gpt-4o-mini"):
         self.model = model
-        self.agent = Agent(
+        self.agent = create_context_agent(
             model=model,
             system_prompt=(
                 "You are an expert Evolutionary Prompt Mutator.\n"

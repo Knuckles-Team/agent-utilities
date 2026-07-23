@@ -415,11 +415,11 @@ and a Keycloak-protected `*-mcp` fleet, set the engine-connection + fleet-auth g
         "MCP_CONFIG": "${workspaceFolder}/mcp_config.json",
 
         "ENGINE_MODE": "remote",
-        "ENGINE_ENDPOINT": "tcp://10.0.0.10:9100",
+        "ENGINE_ENDPOINT": "tcp://engine-host.example:9100",
         "EPISTEMIC_GRAPH_AUTOSTART": "0",
 
         "MCP_CLIENT_AUTH": "oidc-client-credentials",
-        "OIDC_ISSUER": "http://keycloak.arpa/realms/homelab",
+        "OIDC_ISSUER": "https://idp.example.com/realms/agent-utilities",
         "OIDC_CLIENT_ID": "mcp-multiplexer",
         "OIDC_CLIENT_SECRET": "<from OpenBao: bao kv get apps/graph-os>",
         "OIDC_AUDIENCE": "agent-services"
@@ -437,7 +437,7 @@ anymore**.
 > (Claude Code, opencode, agents) use the **single-user stdio** form above: each spawns its
 > *own* local `graph-os` that performs the OIDC client-credentials flow (they can't mint the
 > gateway JWT themselves). Deployed/service clients use the **shared instance** at
-> `http://graph-os.arpa/mcp`. Both are the *same* graph-os where it matters — `ENGINE_MODE=remote`
+> `https://graph-os.example.com/mcp`. Both are the *same* graph-os where it matters — `ENGINE_MODE=remote`
 > + `ENGINE_ENDPOINT` point every client at the one shared engine, and `MCP_CONFIG` at the one
 > canonical fleet list. See [Consumption Models](docs/guides/consumption-models.md).
 
@@ -474,11 +474,11 @@ default. A minimal working config:
 ```json
 {
   "chat_models": [
-    {"id": "qwen/qwen3.6-27b", "provider": "openai", "base_url": "http://vllm.arpa/v1",
+    {"id": "qwen/qwen3.6-27b", "provider": "openai", "base_url": "http://llm-host.example.internal/v1",
      "tools_enabled": true, "can_route": true, "can_kg": true}
   ],
   "embedding_models": [
-    {"id": "nomic-embed-text-v2", "provider": "openai", "base_url": "http://vllm-embed.arpa/v1"}
+    {"id": "nomic-embed-text-v2", "provider": "openai", "base_url": "http://embed-host.example.internal/v1"}
   ]
 }
 ```

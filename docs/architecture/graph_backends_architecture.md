@@ -231,7 +231,7 @@ installed — and, for AGE and pg_search, preloaded:
 > peer of Neo4j/FalkorDB and the **richest mirror target** (full openCypher).
 
 **The curated image bundles all three.** `services/pg-age/` builds
-`registry.arpa/pg-age` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
+`your-registry.example/pg-age` **FROM `paradedb/paradedb:latest` (PostgreSQL 18)** — which
 already ships `vector` + `pg_search` — and adds **Apache AGE 1.7.0** (the release
 that introduced PG18 support). The stack `command` sets
 `shared_preload_libraries=pg_search,pg_cron,pg_stat_statements,age` and
@@ -354,7 +354,7 @@ third-party graph as a data source — not just for mirroring:
 
 ```jsonc
 // KG_CONNECTIONS entry — role + a secret reference (kept out of config.json)
-{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687",
+{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.example.internal:7687",
  "user":"neo4j","password":"vault://agents/kg/neo4j#password","role":"read"}
 ```
 
@@ -389,9 +389,9 @@ export GRAPH_BACKEND=fanout
 export GRAPH_AUTHORITY=epistemic_graph
 export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
 export KG_CONNECTIONS='[
-  {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.arpa:5432/agent_kg"},
-  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.arpa:7687","user":"neo4j","password":"…"},
-  {"name":"team-falkor","backend":"falkordb","host":"falkordb.arpa","port":6379}
+  {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.example.internal:5432/agent_kg"},
+  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.example.internal:7687","user":"neo4j","password":"…"},
+  {"name":"team-falkor","backend":"falkordb","host":"falkordb.example.internal","port":6379}
 ]'
 ```
 

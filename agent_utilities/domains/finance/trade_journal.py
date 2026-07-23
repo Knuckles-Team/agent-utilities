@@ -141,7 +141,7 @@ class TraderProfile:
             f"PnL-ratio {self.profit_loss_ratio:.2f}, "
             f"max-drawdown {self.max_drawdown:.0f}, "
             f"avg-hold {self.avg_holding_days:.1f}d. Biases: {bias_str}. "
-            "(source: trade_journal auditor KG-2.26)"
+            "(source: trade_journal auditor CONCEPT:AU-KG.domains.trade-journal-bias-auditor)"
         )
 
 

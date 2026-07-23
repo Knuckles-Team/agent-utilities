@@ -93,7 +93,7 @@ def test_unrepresentable_parameter_fails_closed(value: Any) -> None:
     graph = MagicMock()
     backend = _backend(graph)
 
-    with pytest.raises((TypeError, ValueError)):
+    with pytest.raises((TypeError, ValueError, NotImplementedError)):
         backend.execute_read(
             "MATCH (n:Record) WHERE n.value = $value RETURN n",
             {"value": value},

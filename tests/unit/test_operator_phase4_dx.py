@@ -38,11 +38,10 @@ def test_record_gotcha_pins_node_with_normalized_path():
     )
     assert res.applied
     node = next(iter(backend.nodes.values()))
-    assert node["type"] == "Gotcha"
-    # path normalized off the /au mount
-    assert node["path"].startswith(
-        "/home/agent-user/workspace/agent-packages/agent-utilities/"
-    )
+    assert node["node_type"] == "Gotcha"
+    # path normalized off the /au mount to the portable repo:// URI
+    # (CONCEPT:AU-KG.retrieval.every-usage-published-symbol)
+    assert node["path"].startswith("repo://agent-utilities/")
     assert "hangs" in node["note"]
 
 

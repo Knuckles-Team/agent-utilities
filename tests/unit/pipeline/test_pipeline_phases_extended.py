@@ -1021,6 +1021,12 @@ def test_embedding_generate_batch_http_success(
     """_generate_embedding_batch happy path."""
     from agent_utilities.knowledge_graph.pipeline.phases import embedding
 
+    monkeypatch.setattr(
+        "agent_utilities.core.config.DEFAULT_EMBEDDING_BASE_URL", "http://test-embed/v1"
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.config.DEFAULT_EMBEDDING_MODEL_ID", "test-embed-model"
+    )
     fake_response = MagicMock()
     fake_response.raise_for_status.return_value = None
     fake_response.json.return_value = {
@@ -1046,6 +1052,12 @@ def test_embedding_generate_batch_http_sorts_by_index(
     """Data rows are sorted by 'index' before extracting embeddings."""
     from agent_utilities.knowledge_graph.pipeline.phases import embedding
 
+    monkeypatch.setattr(
+        "agent_utilities.core.config.DEFAULT_EMBEDDING_BASE_URL", "http://test-embed/v1"
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.config.DEFAULT_EMBEDDING_MODEL_ID", "test-embed-model"
+    )
     fake_response = MagicMock()
     fake_response.raise_for_status.return_value = None
     fake_response.json.return_value = {

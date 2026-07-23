@@ -14,10 +14,16 @@ import time
 import pytest
 
 from agent_utilities.gateway import fleet
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
 @pytest.fixture
 def session_db(tmp_path, monkeypatch):
+    """The swarm supervisory plane is an admin-only fleet-wide surface
+    (CONCEPT:AU-OS.safety.ontological-guardrail / OS-5.14): its ``_tenant_scope`` guard bypasses
+    per-tenant row filtering entirely for a verified privileged (``admin``) actor,
+    which is what every handler here is meant to be exercised as."""
     db = tmp_path / "sessions.db"
     conn = sqlite3.connect(str(db))
     conn.executescript(fleet._sessions._SQLITE_DDL)
@@ -37,7 +43,15 @@ def session_db(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.setattr(fleet._sessions, "_get_db_path", lambda: db)
     monkeypatch.setattr(fleet._sessions, "_rehydrated", True)
-    return db
+    admin = ActorContext(
+        actor_id="fleet-admin",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("admin",),
+        tenant_id="ops-admin",
+        authenticated=True,
+    )
+    with use_actor(admin):
+        yield db
 
 
 class _Req:
