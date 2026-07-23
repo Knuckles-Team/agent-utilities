@@ -122,7 +122,7 @@ class DatabaseConnector(LoadConnector, PollConnector):
             raise ValueError("DatabaseConnector max_rows is invalid")
         if not 1 <= max_rows <= 9_999:
             raise ValueError("DatabaseConnector max_rows is out of range")
-        fields = (id_field, title_field, text_field)
+        fields: tuple[str, ...] = (id_field, title_field, text_field)
         if updated_field:
             fields = (*fields, updated_field)
         if watermark_param:

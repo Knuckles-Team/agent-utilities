@@ -15,6 +15,7 @@ import os
 import secrets
 import shutil
 import stat
+import sys
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -110,7 +111,7 @@ def _materialization_lock(root: Path) -> Iterator[None]:
             or opened_path.st_ino != info.st_ino
         ):
             raise ProviderOwnershipConflict("materialization lock changed during open")
-        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
             import msvcrt
 
             if info.st_size == 0:
@@ -124,7 +125,7 @@ def _materialization_lock(root: Path) -> Iterator[None]:
             fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
     finally:
-        if os.name == "nt":  # pragma: no cover - exercised by Windows CI
+        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
             import msvcrt
 
             try:

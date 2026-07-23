@@ -190,15 +190,17 @@ class ContainerForkSandbox(ForkableSandbox):
         sock_path = run_dir / "bridge.sock"
         server: asyncio.AbstractServer | None = None
         try:
+            bridge_token = _bridge.new_bridge_token()
             _bridge.write_inputs(
                 run_dir,
                 code,
                 vars_payload=env.vars,
                 tool_sources=env.tool_sources,
                 helpers=env.helpers,
+                bridge_token=bridge_token,
                 runner_data_dir=guest_data,  # injected script (container can't import the pkg)
             )
-            server = await _bridge.start_bridge(sock_path, env.helpers)
+            server = await _bridge.start_bridge(sock_path, env.helpers, bridge_token)
             os.chmod(run_dir, 0o777)  # nosec B103 — container uid may differ
             with contextlib.suppress(FileNotFoundError):
                 os.chmod(sock_path, 0o777)  # nosec B103 — bridge socket must accept container uid

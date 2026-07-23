@@ -214,6 +214,8 @@ class FirecrackerSandbox(ForkableSandbox):
         tag = dict(spec.extra).get("snapshot", self.snapshot_tag)
         try:
             snaps = self._client.request("GET", "/v1/snapshots")
+            if not isinstance(snaps, dict):
+                raise SandboxFatalError("forkd returned an invalid snapshot listing")
             tags = {
                 s.get("tag")
                 for s in (snaps.get("snapshots") or snaps.get("items") or [])
@@ -256,6 +258,8 @@ class FirecrackerSandbox(ForkableSandbox):
             res = self._client.request(
                 "POST", f"/v1/sandboxes/{child_id}/eval", {"code": code}
             )
+            if not isinstance(res, dict):
+                raise SandboxFatalError("forkd returned an invalid eval response")
             return SandboxResult(
                 updated_vars={},
                 stdout=str(res.get("stdout", res.get("result", ""))),
