@@ -113,7 +113,6 @@ def test_staged_production_profile_revalidates_source_permissions(
 @pytest.mark.parametrize(
     ("raw", "error_class"),
     [
-        ('{"unknown_projection":"value"}', "UnknownKeyError"),
         (
             '{"MCP_TOOL_MODE":"intent","mcp_tool_mode":"verbose"}',
             "AmbiguousKeyError",
@@ -124,7 +123,7 @@ def test_staged_production_profile_revalidates_source_permissions(
         ),
     ],
 )
-def test_xdg_config_rejects_unknown_duplicate_or_ambiguous_keys(
+def test_xdg_config_rejects_duplicate_or_ambiguous_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     raw: str,
@@ -141,6 +140,34 @@ def test_xdg_config_rejects_unknown_duplicate_or_ambiguous_keys(
 
     assert caught.value.error_class == error_class
     assert str(tmp_path) not in str(caught.value)
+
+
+def test_xdg_config_preserves_unmodelled_keys_verbatim_non_blocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A key that is neither an ``AgentConfig`` field nor retired (e.g. a stray
+    connector/service setting, or a genuine typo) is NOT rejected at load time —
+    ``config.json`` is the documented source for dynamic ``config.setting()``
+    keys too. It is preserved verbatim; a typo instead surfaces (non-blocking)
+    via ``agent_utilities.deployment.config_generator.unknown_configuration_keys``.
+    """
+    config_file = tmp_path / "config.json"
+    config_file.write_text('{"unknown_projection":"value"}', encoding="utf-8")
+    config_file.chmod(0o600)
+    monkeypatch.setenv("APP_PROFILE", "production")
+    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
+
+    # Does not raise.
+    ch._load_xdg_json_config()
+
+    from agent_utilities.deployment.config_generator import (
+        unknown_configuration_keys,
+    )
+
+    assert unknown_configuration_keys({"unknown_projection": "value"}) == [
+        "unknown_projection"
+    ]
 
 
 def test_configuration_reader_rejects_oversize_and_unstable_sources(

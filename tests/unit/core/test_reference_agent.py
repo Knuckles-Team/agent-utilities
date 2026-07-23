@@ -17,7 +17,7 @@ class TestBasicAgent:
         """Test that a basic agent can be created."""
         from agent_utilities import create_agent
 
-        agent, _ = create_agent(tag_prompts={"test": "test"}, name="TestBasicAgent")
+        agent, _ = create_agent(name="TestBasicAgent")
         assert agent is not None
         assert agent.name == "TestBasicAgent"
 
@@ -30,7 +30,6 @@ class TestGraphAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            tag_prompts={"test": "test"},
             name="TestGraphAgent",
             skill_types=["universal", "graphs"],
         )
@@ -46,9 +45,7 @@ class TestMCPAgent:
         from agent_utilities import create_agent
 
         # Should create agent even if config doesn't exist
-        agent, _ = create_agent(
-            tag_prompts={"test": "test"}, name="TestMCPAgent", skill_types=["universal"]
-        )
+        agent, _ = create_agent(name="TestMCPAgent", skill_types=["universal"])
         assert agent is not None
         assert agent.name == "TestMCPAgent"
 
@@ -61,7 +58,6 @@ class TestKnowledgeGraphAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            tag_prompts={"test": "test"},
             name="TestKnowledgeGraphAgent",
             skill_types=["universal", "graphs"],
         )
@@ -77,7 +73,6 @@ class TestProtocolAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            tag_prompts={"test": "test"},
             name="TestProtocolAgent",
             skill_types=["universal"],
         )
@@ -93,7 +88,6 @@ class TestMemoryAgent:
         from agent_utilities import create_agent
 
         agent, _ = create_agent(
-            tag_prompts={"test": "test"},
             name="TestMemoryAgent",
             skill_types=["universal"],
         )

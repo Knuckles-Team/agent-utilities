@@ -486,13 +486,18 @@ def test_outbound_auth_doctor_reports_redacted_readiness(monkeypatch):
 
 
 def test_outbound_auth_doctor_fails_closed_on_missing_audience(monkeypatch):
+    # The real ``outbound_auth_configuration_status`` always returns
+    # ``missing``/``invalid`` as genuine ``list`` objects (it builds them via
+    # ``.extend()``/``.append()``) — ``_check_outbound_auth`` type-checks for
+    # exactly that shape and silently treats anything else (e.g. a tuple) as
+    # empty, so the mock must match the real contract's type, not just value.
     monkeypatch.setattr(
         "agent_utilities.mcp.client_credentials.outbound_auth_configuration_status",
         lambda: {
             "mode": "oidc-client-credentials",
             "ready": False,
-            "missing": ("OIDC_AUDIENCE",),
-            "invalid": (),
+            "missing": ["OIDC_AUDIENCE"],
+            "invalid": [],
             "redacted": True,
         },
     )
