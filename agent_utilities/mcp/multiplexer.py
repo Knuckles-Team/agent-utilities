@@ -799,7 +799,15 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _format_probe_error(exc: BaseException) -> str:
-    """Render only stable leaf exception types from a probe failure."""
+    """Render leaf exception types **and their messages** from a probe failure.
+
+    Reporting only ``type(exc).__name__`` (the prior behavior) collapses every
+    distinct failure — a DNS error, a TLS failure, and a JWT issuer mismatch —
+    into the same bare "RuntimeError", making `find_tools`/`load_tools`/
+    `probe_catalog` undiagnosable from the caller's side. The leaf message is
+    the actual signal (e.g. an auth server's "issuer mismatch (got X, expected
+    Y)"), so it is included, truncated to a bounded length per leaf so one
+    verbose exception can't blow out the aggregate catalog response."""
     leaves: list[str] = []
 
     def _walk(e: BaseException) -> None:
@@ -810,7 +818,9 @@ def _format_probe_error(exc: BaseException) -> str:
             for sub in subs or []:
                 _walk(sub)
         else:
-            leaves.append(type(e).__name__)
+            name = type(e).__name__
+            msg = str(e).strip()
+            leaves.append(f"{name}: {msg[:300]}" if msg else name)
 
     _walk(exc)
     # de-dup while preserving order
