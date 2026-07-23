@@ -297,7 +297,7 @@ def test_orchestrator_proves_zero_one_zero_and_reaps_candidate(
         "report = args[args.index('--report') + 1]\n"
         "evidence = args[args.index('--evidence') + 1]\n"
         "open(report, 'w', encoding='utf-8').write('# synthetic\\n')\n"
-        "payload = {'cases': [{} for _ in range(20)], 'result': {'status': 'pass'}}\n"
+        "payload = {'cases': [{} for _ in range(26)], 'result': {'status': 'pass'}}\n"
         "open(evidence, 'w', encoding='utf-8').write(json.dumps(payload) + '\\n')\n",
     )
     _write_executable(readiness, "raise SystemExit(0)\n")

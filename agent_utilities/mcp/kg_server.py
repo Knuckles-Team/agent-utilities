@@ -2519,7 +2519,7 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
     from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
     from agent_utilities.skills import BUNDLED_SKILLS
 
-    if len(BUNDLED_SKILLS) != 10 or len(set(BUNDLED_SKILLS)) != 10:
+    if len(BUNDLED_SKILLS) != 13 or len(set(BUNDLED_SKILLS)) != 13:
         raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
     root = Path(__file__).resolve().parents[1] / "skills"
     guard = PersistencePrivacyGuard()

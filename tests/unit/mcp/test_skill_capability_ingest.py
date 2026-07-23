@@ -215,16 +215,15 @@ def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch)
     engine = RecordingEngine()
 
     # Scoped to exactly the packaged/boot-critical skills: `agent_utilities/skills/`
-    # also holds atomic skills that are NOT bundled (e.g. agent-utilities-self-
-    # evolution, autonomous-contribution) and the `skill_graphs` reference corpus
-    # (excluded by `is_skill_graph_reference_path`) — an unscoped call ingests all
-    # of the former too, which is correct for a real boot but not what this test
-    # is asserting about the 10 BUNDLED_SKILLS specifically.
+    # also holds the `skill_graphs` reference corpus (excluded by
+    # `is_skill_graph_reference_path`) — an unscoped call ingests those too,
+    # which is correct for a real boot but not what this test is asserting
+    # about the BUNDLED_SKILLS set specifically.
     assert (
         kg_server._ingest_skill_capabilities(
             engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
         )
-        == 10
+        == len(BUNDLED_SKILLS)
     )
 
     resources = {
@@ -232,7 +231,7 @@ def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch)
         for node_id, node in engine.nodes.items()
         if node.get("type") == "CallableResource"
     }
-    assert len(resources) == 10
+    assert len(resources) == len(BUNDLED_SKILLS)
     for name, (resource_id, node) in resources.items():
         assert resource_id == f"resource:skill:{name}"
         assert node["instruction_digest"] == runnable_skill_digest(
@@ -264,7 +263,7 @@ def test_bundled_skill_readiness_is_idempotent(monkeypatch):
         kg_server._ingest_skill_capabilities(
             engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
         )
-        == 10
+        == len(BUNDLED_SKILLS)
     )
     ingest = MagicMock(wraps=kg_server._ingest_skill_capabilities)
     monkeypatch.setattr(kg_server, "_ingest_skill_capabilities", ingest)
@@ -272,10 +271,10 @@ def test_bundled_skill_readiness_is_idempotent(monkeypatch):
     readiness = kg_server._ensure_bundled_skills_ready(engine)
 
     assert readiness == {
-        "required": 10,
-        "already_ready": 10,
+        "required": len(BUNDLED_SKILLS),
+        "already_ready": len(BUNDLED_SKILLS),
         "ingested": 0,
-        "ready": 10,
+        "ready": len(BUNDLED_SKILLS),
         "not_ready": [],
     }
     ingest.assert_not_called()
@@ -291,7 +290,7 @@ def test_bundled_skill_readiness_uses_governed_query_boundary(monkeypatch):
         kg_server._ingest_skill_capabilities(
             engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
         )
-        == 10
+        == len(BUNDLED_SKILLS)
     )
     governed_query = MagicMock(wraps=engine.query_cypher)
     engine.query_cypher = governed_query
@@ -304,7 +303,7 @@ def test_bundled_skill_readiness_uses_governed_query_boundary(monkeypatch):
         engine, kg_server._bundled_skill_contract()[1]
     )
 
-    assert len(ready) == 10
+    assert len(ready) == len(BUNDLED_SKILLS)
     governed_query.assert_called_once()
     engine.backend.execute.assert_not_called()
 
@@ -319,7 +318,7 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
         kg_server._ingest_skill_capabilities(
             engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
         )
-        == 10
+        == len(BUNDLED_SKILLS)
     )
     missing = BUNDLED_SKILLS[-1]
     engine.nodes.pop(f"resource:skill:{missing}")
@@ -329,10 +328,10 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
     readiness = kg_server._ensure_bundled_skills_ready(engine)
 
     assert readiness == {
-        "required": 10,
-        "already_ready": 9,
+        "required": len(BUNDLED_SKILLS),
+        "already_ready": len(BUNDLED_SKILLS) - 1,
         "ingested": 1,
-        "ready": 10,
+        "ready": len(BUNDLED_SKILLS),
         "not_ready": [],
     }
     ingest.assert_called_once()
@@ -364,7 +363,7 @@ def test_ensure_bundled_skills_ready_reaches_full_readiness_on_first_boot(
     monkeypatch,
 ):
     """The exact first-boot path: a brand-new tenant graph with NOTHING
-    ingested yet must reach 10/10 bundled-skill readiness from ONE
+    ingested yet must reach full bundled-skill readiness from ONE
     ``_ensure_bundled_skills_ready`` call against the REAL packaged
     ``agent_utilities/skills/`` tree — not a pre-seeded idempotency check
     (``test_bundled_skill_readiness_is_idempotent`` above already covers the
@@ -415,7 +414,7 @@ def test_ready_bundled_skill_names_rejects_content_drifted_stored_node(
         kg_server._ingest_skill_capabilities(
             engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
         )
-        == 10
+        == len(BUNDLED_SKILLS)
     )
 
     drifted = BUNDLED_SKILLS[0]

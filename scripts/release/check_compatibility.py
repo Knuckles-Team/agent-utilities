@@ -42,6 +42,7 @@ _SOURCE_FREEZE_DIGEST = re.compile(r"^(?!0{64}$)[a-f0-9]{64}$")
 _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = (
+    "contribution",
     "deployment",
     "development",
     "engine",
@@ -52,6 +53,8 @@ _SKILL_NAMES = (
     "query",
     "research",
     "runtime",
+    "self-evolution",
+    "source-integration",
 )
 _SKILL_CASE_IDS = tuple(
     f"{skill}-{mode}" for skill in _SKILL_NAMES for mode in ("delegated", "direct")
@@ -96,6 +99,8 @@ _CURRENT_COMPONENT_VERSIONS = {
     "index-migrations": "1",
 }
 _CURRENT_CONNECTOR_ENTRIES = 65
+_CURRENT_PREBUNDLED_SKILL_ENTRIES = 13
+_CURRENT_PREBUNDLED_SKILL_CASES = 26
 _CURRENT_RUNTIME_CONTRACT = {
     "pythonVersion": "3.12",
     "baseImage": (
@@ -1299,9 +1304,12 @@ def validate_compatibility_matrix(matrix: dict[str, Any]) -> dict[str, Any]:
         raise CompatibilityError(
             "connector catalog must contain exactly the configured provider fleet"
         )
-    if int(components["prebundled-skills"].get("exactEntries") or 0) != 10:
+    if (
+        int(components["prebundled-skills"].get("exactEntries") or 0)
+        != _CURRENT_PREBUNDLED_SKILL_ENTRIES
+    ):
         raise CompatibilityError(
-            "pre-bundled skill catalog must contain exactly ten skills"
+            "pre-bundled skill catalog must contain exactly the configured skill fleet"
         )
     if components["ontology-lock"].get("canonicalization") != "urdna2015-sha256":
         raise CompatibilityError("ontology lock canonicalization is not exact")
@@ -1775,9 +1783,9 @@ def validate_prebundled_skill_matrix(
         field="skill validation catalog",
     )
     if catalog != {
-        "skillCount": 10,
+        "skillCount": _CURRENT_PREBUNDLED_SKILL_ENTRIES,
         "skillCatalogDigest": skill_catalog_digest,
-        "testCaseCount": 20,
+        "testCaseCount": _CURRENT_PREBUNDLED_SKILL_CASES,
         "testCatalogDigest": expected["testCatalogDigest"],
         "caseCatalogDigest": expected["caseCatalogDigest"],
     }:
@@ -1785,7 +1793,7 @@ def validate_prebundled_skill_matrix(
     cases = evidence.get("cases")
     if (
         not isinstance(cases, list)
-        or len(cases) != 20
+        or len(cases) != _CURRENT_PREBUNDLED_SKILL_CASES
         or tuple(
             str(case.get("caseId") or "") for case in cases if isinstance(case, dict)
         )
@@ -1873,10 +1881,10 @@ def validate_prebundled_skill_matrix(
     result = evidence.get("result")
     if result != {
         "status": "pass",
-        "passedCases": 20,
-        "totalCases": 20,
-        "fullyPassedSkills": 10,
-        "totalSkills": 10,
+        "passedCases": _CURRENT_PREBUNDLED_SKILL_CASES,
+        "totalCases": _CURRENT_PREBUNDLED_SKILL_CASES,
+        "fullyPassedSkills": _CURRENT_PREBUNDLED_SKILL_ENTRIES,
+        "totalSkills": _CURRENT_PREBUNDLED_SKILL_ENTRIES,
     }:
         raise CompatibilityError("skill validation result is not an exact pass")
     privacy = evidence.get("privacy")
@@ -2157,7 +2165,7 @@ def validate_skill_validation_lifecycle(
     if evidence.get("validation") != {
         "exitCode": 0,
         "evidenceDigest": validation_evidence_digest,
-        "caseCount": 20,
+        "caseCount": _CURRENT_PREBUNDLED_SKILL_CASES,
     }:
         raise CompatibilityError("skill validation lifecycle evidence binding differs")
     privacy = evidence.get("privacy")

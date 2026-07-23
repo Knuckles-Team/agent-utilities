@@ -650,7 +650,7 @@ def test_source_gate_binds_runtime_and_release_certification_surfaces(
     assert check_skill_validation_certification.main() == 0
     assert capsys.readouterr().out == (
         "skill certification source gate: PASS "
-        "(10 skills, 20 cases, 3 skill schemas, 4 release schemas)\n"
+        "(13 skills, 26 cases, 3 skill schemas, 4 release schemas)\n"
     )
 
 
@@ -781,7 +781,7 @@ def test_standalone_verifier_cross_binds_running_engine_and_validation_file(
         reaped=True,
         validator_exit_code=0,
         validation_evidence_digest=runtime_validation._digest_bytes(validation_payload),
-        validation_case_count=20,
+        validation_case_count=runtime_validation._CASE_COUNT,
         error_code=None,
     )
     lifecycle = runtime_validation.sign_and_verify_evidence(

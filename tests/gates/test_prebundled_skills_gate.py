@@ -22,7 +22,7 @@ from agent_utilities.skills.validation import (
 
 
 def test_prebundled_skill_suite_is_valid():
-    assert len(EXPECTED_SKILLS) == 10
+    assert len(EXPECTED_SKILLS) == 13
     assert validate() == []
 
 

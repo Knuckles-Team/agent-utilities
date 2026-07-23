@@ -101,7 +101,7 @@ def write_catalog(path: Path, payload: bytes, *, prefix: str) -> None:
 def _safe_skill_names(skill_names: Iterable[str]) -> tuple[str, ...]:
     names = tuple(sorted(skill_names))
     if (
-        len(names) != 10
+        len(names) != 13
         or len(names) != len(set(names))
         or any(
             not name
@@ -218,7 +218,7 @@ def prebundled_skill_catalog(
     *,
     skill_names: Iterable[str] = BUNDLED_SKILLS,
 ) -> dict[str, Any]:
-    """Build the exact, content-addressed ten-skill release catalog."""
+    """Build the exact, content-addressed thirteen-skill release catalog."""
 
     names = _safe_skill_names(skill_names)
     if _skill_directories(skills_root) != names:
@@ -249,7 +249,7 @@ def prebundled_skill_catalog_bytes(
     *,
     skill_names: Iterable[str] = BUNDLED_SKILLS,
 ) -> bytes:
-    """Render the exact retained bytes for the ten-skill catalog."""
+    """Render the exact retained bytes for the thirteen-skill catalog."""
 
     return canonical_json_bytes(
         prebundled_skill_catalog(skills_root, skill_names=skill_names)

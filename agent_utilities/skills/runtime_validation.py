@@ -48,6 +48,7 @@ from agent_utilities.security.persistence_privacy import (
     PersistencePrivacyGuard,
     persistence_reference,
 )
+from agent_utilities.skills import BUNDLED_SKILLS
 from agent_utilities.skills.validation import (
     FORWARD_MATRIX,
     SKILLS_ROOT,
@@ -68,6 +69,8 @@ _TRACE_TOOL_ERROR_RETRY_DELAY_SECONDS = 0.25
 _PARENT_INGESTION_POLL_DELAY_SECONDS = 0.25
 _DIRECT_MAX_OUTPUT_TOKENS = 1024
 _MAX_REPORT_BYTES = 1_000_000
+_SKILL_COUNT = len(BUNDLED_SKILLS)
+_CASE_COUNT = _SKILL_COUNT * 2
 _PASS = "pass"
 _FAIL = "fail"
 _NA = "not-applicable"
@@ -268,7 +271,10 @@ def _case_contract(case: ValidationCase) -> dict[str, Any]:
 def _test_catalog_evidence(cases: list[ValidationCase]) -> dict[str, Any]:
     matrix = yaml.safe_load(FORWARD_MATRIX.read_text(encoding="utf-8"))
     contracts = [_case_contract(case) for case in cases]
-    if len(contracts) != 20 or len({item["id"] for item in contracts}) != 20:
+    if (
+        len(contracts) != _CASE_COUNT
+        or len({item["id"] for item in contracts}) != _CASE_COUNT
+    ):
         raise RuntimeError("test_catalog_not_exact")
     case_digests = {
         item["id"]: _digest_bytes(_canonical_bytes(item)) for item in contracts
@@ -2130,8 +2136,8 @@ def build_evidence(
     result_by_id = {result.case_id: result for result in results}
     expected_ids = {case.case_id for case in cases}
     if (
-        len(results) != 20
-        or len(result_by_id) != 20
+        len(results) != _CASE_COUNT
+        or len(result_by_id) != _CASE_COUNT
         or set(result_by_id) != expected_ids
     ):
         raise RuntimeError("runtime_case_set_not_exact")
@@ -2215,19 +2221,23 @@ def build_evidence(
             "metadataOnlyObservability": True,
         },
         "catalog": {
-            "skillCount": 10,
+            "skillCount": _SKILL_COUNT,
             "skillCatalogDigest": prebundled_skill_catalog_digest(SKILLS_ROOT),
-            "testCaseCount": 20,
+            "testCaseCount": _CASE_COUNT,
             "testCatalogDigest": catalog["testCatalogDigest"],
             "caseCatalogDigest": catalog["caseCatalogDigest"],
         },
         "cases": evidence_cases,
         "result": {
-            "status": _PASS if passed == 20 and fully_passed == 10 else _FAIL,
+            "status": (
+                _PASS
+                if passed == _CASE_COUNT and fully_passed == _SKILL_COUNT
+                else _FAIL
+            ),
             "passedCases": passed,
-            "totalCases": 20,
+            "totalCases": _CASE_COUNT,
             "fullyPassedSkills": fully_passed,
-            "totalSkills": 10,
+            "totalSkills": _SKILL_COUNT,
         },
         "privacy": {
             "containsPrompts": False,

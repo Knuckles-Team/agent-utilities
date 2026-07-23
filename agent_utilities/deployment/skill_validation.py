@@ -30,6 +30,7 @@ from agent_utilities.deployment.certification_oidc import (
     EphemeralLoopbackOidcAuthority,
 )
 from agent_utilities.skills.runtime_validation import (
+    _CASE_COUNT,
     _digest_bytes,
     _external_command,
     load_matrix,
@@ -654,7 +655,7 @@ def _lifecycle_subject(
         and reaped
         and validator_exit_code == 0
         and validation_evidence_digest is not None
-        and validation_case_count == 20
+        and validation_case_count == _CASE_COUNT
         and error_code is None
     )
 
@@ -934,12 +935,12 @@ def run_deployment(
             raise DeploymentError("validation_evidence_invalid") from exc
         if (
             not isinstance(validation_cases, list)
-            or len(validation_cases) != 20
+            or len(validation_cases) != _CASE_COUNT
             or not isinstance(validation_result, dict)
             or validation_result.get("status") != "pass"
         ):
             raise DeploymentError("validation_evidence_invalid")
-        validation_case_count = 20
+        validation_case_count = _CASE_COUNT
         renewable_credentials_proven = authority.prove_renewable()
         identity_token_mint_count = authority.token_mint_count
         if not renewable_credentials_proven or identity_token_mint_count < 2:

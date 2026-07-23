@@ -209,7 +209,7 @@
         "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.27.1"}, "kind": {"const": "oci"}}}]},
         "langfuse-agent": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.0.3"}, "kind": {"const": "oci"}}}]},
         "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 65}}}]},
-        "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 10}}}]},
+        "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 13}}}]},
         "ontology-lock": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]},
         "index-migrations": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]}
       }

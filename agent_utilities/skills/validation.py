@@ -361,8 +361,8 @@ def validate() -> list[str]:
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
     errors: list[str] = []
-    if len(EXPECTED_SKILLS) != 10:
-        errors.append("canonical taxonomy must contain exactly 10 workflow skills")
+    if len(EXPECTED_SKILLS) != 13:
+        errors.append("canonical taxonomy must contain exactly 13 workflow skills")
     if actual != EXPECTED_SKILLS:
         errors.append(
             "skill inventory mismatch: "

@@ -95,7 +95,10 @@ def main() -> int:
         if any(scripts.get(name) != target for name, target in expected_assets.items()):
             raise RuntimeError("certification_asset_entry_point_invalid")
         _defaults, cases = load_matrix()
-        if len(BUNDLED_SKILLS) != 10 or len(cases) != 20:
+        if (
+            len(BUNDLED_SKILLS) != check_compatibility._CURRENT_PREBUNDLED_SKILL_ENTRIES
+            or len(cases) != check_compatibility._CURRENT_PREBUNDLED_SKILL_CASES
+        ):
             raise RuntimeError("skill_campaign_cardinality_invalid")
         if not all(case.read_only for case in cases):
             raise RuntimeError("skill_campaign_mutation_invalid")
@@ -263,7 +266,9 @@ def main() -> int:
         return 1
     print(
         "skill certification source gate: PASS "
-        "(10 skills, 20 cases, 3 skill schemas, 4 release schemas)"
+        f"({check_compatibility._CURRENT_PREBUNDLED_SKILL_ENTRIES} skills, "
+        f"{check_compatibility._CURRENT_PREBUNDLED_SKILL_CASES} cases, "
+        "3 skill schemas, 4 release schemas)"
     )
     return 0
 

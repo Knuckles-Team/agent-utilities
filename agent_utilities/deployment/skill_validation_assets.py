@@ -33,7 +33,11 @@ from agent_utilities.deployment.certification_oidc import (
     validated_token_ttl_seconds,
 )
 from agent_utilities.release_catalogs import prebundled_skill_catalog_digest
+from agent_utilities.skills import BUNDLED_SKILLS
 from agent_utilities.skills.validation import SKILLS_ROOT
+
+_SKILL_COUNT = len(BUNDLED_SKILLS)
+_CASE_COUNT = _SKILL_COUNT * 2
 
 if TYPE_CHECKING:
     from agent_utilities.deployment.skill_validation import SkillValidationDeployment
@@ -1084,9 +1088,9 @@ def verify_certification_documents(
     _defaults, cases = load_matrix()
     catalogs = _test_catalog_evidence(cases)
     expected_catalog = {
-        "skillCount": 10,
+        "skillCount": _SKILL_COUNT,
         "skillCatalogDigest": prebundled_skill_catalog_digest(SKILLS_ROOT),
-        "testCaseCount": 20,
+        "testCaseCount": _CASE_COUNT,
         "testCatalogDigest": catalogs["testCatalogDigest"],
         "caseCatalogDigest": catalogs["caseCatalogDigest"],
     }
@@ -1094,7 +1098,7 @@ def verify_certification_documents(
         raise CertificationAssetError("validation_catalog_binding_mismatch")
     evidence_cases = validation.get("cases")
     expected_cases = {case.case_id: case for case in cases}
-    if not isinstance(evidence_cases, list) or len(evidence_cases) != 20:
+    if not isinstance(evidence_cases, list) or len(evidence_cases) != _CASE_COUNT:
         raise CertificationAssetError("validation_case_binding_mismatch")
     for item in evidence_cases:
         if not isinstance(item, dict):
@@ -1160,7 +1164,7 @@ def verify_certification_documents(
     if (
         not isinstance(lifecycle_validation, dict)
         or lifecycle_validation.get("evidenceDigest") != _digest(validation_payload)
-        or lifecycle_validation.get("caseCount") != 20
+        or lifecycle_validation.get("caseCount") != _CASE_COUNT
         or lifecycle.get("result") != "pass"
     ):
         raise CertificationAssetError("lifecycle_validation_binding_mismatch")

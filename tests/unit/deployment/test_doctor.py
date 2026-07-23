@@ -1803,7 +1803,7 @@ def test_skills_check_accepts_the_complete_consolidated_suite(tmp_path, monkeypa
     result = D._check_skills()
 
     assert result["status"] == "ok"
-    assert result["data"]["required"] == 10
+    assert result["data"]["required"] == len(BUNDLED_SKILLS)
     assert str(tmp_path) not in json.dumps(result)
 
 

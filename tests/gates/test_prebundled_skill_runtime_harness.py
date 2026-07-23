@@ -21,6 +21,8 @@ from pydantic import BaseModel, ValidationError
 import agent_utilities.skills.runtime_validation as runtime_harness
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.skills.runtime_validation import (
+    _CASE_COUNT,
+    _SKILL_COUNT,
     CaseResult,
     SemanticOutput,
     TraceRecord,
@@ -1059,7 +1061,7 @@ def test_report_publication_fails_closed_without_posix_guarantees(
 def test_runtime_matrix_has_two_read_only_cases_per_skill() -> None:
     defaults, cases = load_matrix()
     assert defaults["sequential"] is True
-    assert len(cases) == 20
+    assert len(cases) == _CASE_COUNT
     assert all(case.read_only for case in cases)
     assert all(f"skill://{case.skill}" in case.task for case in cases)
     assert all(not case.allowed_tools for case in cases if case.mode == "direct")
@@ -1316,9 +1318,9 @@ def test_exact_all_mode_evidence_is_strict_schema_valid_and_content_free(
     Draft202012Validator(schema).validate(signed)
 
     assert calls == ["SYNTHETIC_SIGNER_COMMAND", "SYNTHETIC_VERIFIER_COMMAND"]
-    assert signed["catalog"]["skillCount"] == 10
-    assert signed["catalog"]["testCaseCount"] == 20
-    assert len(signed["cases"]) == 20
+    assert signed["catalog"]["skillCount"] == _SKILL_COUNT
+    assert signed["catalog"]["testCaseCount"] == _CASE_COUNT
+    assert len(signed["cases"]) == _CASE_COUNT
     assert all(case["langfuse"]["matchCount"] == 1 for case in signed["cases"])
     assert all(
         case["parentKnowledgeGraph"]["matchCount"] == 1 for case in signed["cases"]

@@ -129,9 +129,9 @@ pytest tests/unit/test_gateway_mcp_parity.py -q
 ```
 
 Run the skill-creator validator once for every retained directory after changing
-skill prose or interface metadata. The gate additionally checks the exact ten-skill
+skill prose or interface metadata. The gate additionally checks the exact thirteen-skill
 taxonomy, standard frontmatter, both sidecars, the 500-line ceiling, sensitive-data
-patterns, and the 20-case forward matrix.
+patterns, and the 26-case forward matrix.
 
 For an ad hoc diagnostic against an already deployed GraphOS endpoint, run direct
 or delegated mode without release evidence:

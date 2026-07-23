@@ -10,11 +10,11 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.schema.json",
-      "sha256": "e16317dc96ee624a2c326e966ff83edcaa418059413f34f5696d83d8b11e9b7c"
+      "sha256": "292c8c939483db588c999c11ad95ba53fae29604fd9ed1dcb8330a6c63fbcc97"
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "3a23cf9dd002d0e15b082f0d156dd6d37e09385a33fbc072b4658a90d6a7a571"
+      "sha256": "88639921f68f3207772f7d15d75384bd8438c2f85fe9902874b698568ba2468a"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
@@ -82,15 +82,15 @@
     },
     {
       "path": "deploy/release/prebundled-skill-catalog.schema.json",
-      "sha256": "b59055cabcaa6a2d1a7c7fecd5775404a4577702f51382d1a7b743170801246b"
+      "sha256": "b4a9821ed45208f5b06ca0e30ef2003e80b95676045c5fc640fd03f7f3e535b8"
     },
     {
       "path": "deploy/release/prebundled-skill-validation-evidence.schema.json",
-      "sha256": "55f0669f453c90d25cf303bd5614f8355feb3321193fd92a0a96e46929b9ffc7"
+      "sha256": "78c636791bd5e4b2e44dc197b5e30bcc4f89a254f10d636ec97a2403da76ef4f"
     },
     {
       "path": "deploy/release/prebundled-skills.catalog.json",
-      "sha256": "014b53469958453b6ebca8bb3bc07c2ce71920cfb3b429c1c45347574a9f1455"
+      "sha256": "781954dc85f70ec40bdf76f4458be54931abdb9c0566087d16ca94b1b52d5ba3"
     },
     {
       "path": "deploy/release/release-assembly.schema.json",
@@ -102,7 +102,7 @@
     },
     {
       "path": "deploy/release/release-manifest.schema.json",
-      "sha256": "add4e4f62b3c4227416d44af56d4978a1ac617761c7b2f71640fc01ee22200f9"
+      "sha256": "d984071701bfa6df46ec01992c92f83cfa2c316f96e3960bd8875cb130be9157"
     },
     {
       "path": "deploy/release/release-migration-plan.schema.json",
@@ -110,7 +110,7 @@
     },
     {
       "path": "deploy/release/skill-validation-deployment-evidence.schema.json",
-      "sha256": "1a24f65b13f8e8415448acc291c2a95fde54bfdddcf1e20b1b8c99722137474a"
+      "sha256": "b8f19a1e6147c4290c38654cb208cab964c8de9f98f7ea1a2d0f7761b03ee1c6"
     },
     {
       "path": "deploy/release/skill-validation-deployment.schema.json",

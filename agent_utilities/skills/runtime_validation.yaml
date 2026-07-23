@@ -165,6 +165,54 @@ cases:
     expected_routes: [graph_orchestrate, graph_research, focused_tests]
     allowed_tools: [graph_query, graph_research]
     read_only: true
+  - id: self-evolution-direct
+    skill: agent-utilities-self-evolution
+    mode: direct
+    model_class: economy
+    task: Use $agent-utilities-self-evolution at skill://agent-utilities-self-evolution to survey unresolved synthetic research topics and draft a bounded scan plan, without ingesting a paper, running comparative analysis, or generating an SDD plan.
+    expected_routes: [topic_detection, wiring_sweep]
+    allowed_tools: []
+    read_only: true
+  - id: self-evolution-delegated
+    skill: agent-utilities-self-evolution
+    mode: delegated
+    model_class: standard
+    task: Use $agent-utilities-self-evolution at skill://agent-utilities-self-evolution to produce a review-only coordination plan that separates synthetic research ingestion, comparative analysis, mining-flywheel discovery, and SDD plan generation into independent steps.
+    expected_routes: [graph_orchestrate, graph_research, graph_mine]
+    allowed_tools: [graph_mine, graph_research]
+    read_only: true
+  - id: source-integration-direct
+    skill: agent-utilities-source-integration
+    mode: direct
+    model_class: economy
+    task: Use $agent-utilities-source-integration at skill://agent-utilities-source-integration to preview the discovery and dry-run mirror readiness of one synthetic external source connector, without configuring credentials, syncing, or backfeeding.
+    expected_routes: [source_connector, source_sync]
+    allowed_tools: []
+    read_only: true
+  - id: source-integration-delegated
+    skill: agent-utilities-source-integration
+    mode: delegated
+    model_class: standard
+    task: Use $agent-utilities-source-integration at skill://agent-utilities-source-integration to produce a review-only decomposition of onboarding one synthetic external source into credential configuration, metamodel discovery, mirror ingest, scheduled delta sync, and gated backfeed review.
+    expected_routes: [graph_orchestrate, source_connector, source_sync]
+    allowed_tools: [source_connector, source_sync]
+    read_only: true
+  - id: contribution-direct
+    skill: autonomous-contribution
+    mode: direct
+    model_class: economy
+    task: Use $autonomous-contribution at skill://autonomous-contribution to classify one synthetic locally-evolved artifact's verification telemetry and draft a bounded contribution-readiness summary, without branching, committing, or opening a pull request.
+    expected_routes: [artifact_packaging, telemetry_check]
+    allowed_tools: []
+    read_only: true
+  - id: contribution-delegated
+    skill: autonomous-contribution
+    mode: delegated
+    model_class: standard
+    task: Use $autonomous-contribution at skill://autonomous-contribution to produce a review-only plan that separates synthetic artifact formatting, branch and commit staging, and pull-request submission, holding for human maintainer review before merge.
+    expected_routes: [graph_orchestrate, spec_ticket]
+    allowed_tools: [spec_ticket]
+    read_only: true
 privacy_assertions:
   forbid_persisted:
     - credential

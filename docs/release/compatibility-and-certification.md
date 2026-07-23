@@ -353,9 +353,9 @@ migration is not transferable.
 The skill catalog also requires fresh, signed JSON runtime validation evidence for the
 exact release. The release gate reconstructs the current test and case catalogs from
 the installed runtime-validation contract and requires their exact digests. It then
-requires the exact ordered set of all 20 checked-in cases (direct and
-GraphOS-delegated for each of the ten skills), the exact skill/mode/model-class/case
-digest for each case, 20/20 passing cases, and 10/10 fully passing skills. Every check
+requires the exact ordered set of all 26 checked-in cases (direct and
+GraphOS-delegated for each of the thirteen skills), the exact skill/mode/model-class/case
+digest for each case, 26/26 passing cases, and 13/13 fully passing skills. Every check
 must pass (with delegation marked not-applicable only for direct cases), references
 must be opaque, Langfuse lookup must be exact-name and metadata-only with one match,
 parent-KG readback must have one match, and every privacy flag must be false. Its

@@ -281,6 +281,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Previously `from_engine_wire` was implemented + unit-tested (D11) but had no caller anywhere
   on a real path. `envelope='raw'` (the default) stays byte-identical.
 
+### Removed
+- **Dead `RetryManager`/`RetryConfig`/`execute_shell_command` subsystem
+  (CONCEPT:AU-ORCH.execution.structured-retry-manager retired).** These lived in
+  `agent_utilities/security/execution_stability_engine.py` alongside the still-live
+  `RepetitionGuard`/`RepetitionPolicy`/`DoomLoopDetector`, but had zero production
+  callers — only their own unit test (`tests/unit/test_retry_manager.py`, deleted)
+  exercised them. Removed the classes/function plus their RetryManager-only helper
+  types (`SuccessCheck`, `RetryResult`, `ShellCheckResult`, `RetryOutcome`) and
+  `DEFAULT_*`/`ENV_*` timeout constants, and dropped the now-unused `asyncio`/`os`/
+  `time`/`Field` imports. `execution_stability_engine.py` itself stays live
+  (`DoomLoopDetector` is imported by `research_subagent.py`, re-exported by
+  `security/__init__.py`, and registered as a service module).
+
+### Changed
+- **Pre-bundled skill catalog folded in 3 previously-undeclared skills
+  (10 → 13, CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage).** `agent-utilities-self-evolution`,
+  `agent-utilities-source-integration`, and `autonomous-contribution` already shipped as
+  real, invocable skill directories under `agent_utilities/skills/` but were absent from
+  `BUNDLED_SKILLS` and the signed golden catalog. Added them to `BUNDLED_SKILLS`, added
+  6 new forward-matrix cases (one direct + one delegated per skill) to
+  `agent_utilities/skills/runtime_validation.yaml`, and propagated the retained-fleet size
+  (13 skills / 26 cases) through every hardcoded "10/20" invariant across the release-
+  certification chain: `agent_utilities/release_catalogs.py`, `agent_utilities/skills/
+  runtime_validation.py`, `agent_utilities/deployment/skill_validation.py` +
+  `skill_validation_assets.py`, `agent_utilities/mcp/kg_server.py`'s
+  `_bundled_skill_contract`, `scripts/release/check_compatibility.py`, `scripts/
+  check_skill_validation_certification.py`, `deploy/release/compatibility-matrix.yml`, and
+  the `prebundled-skill-catalog`/`prebundled-skill-validation-evidence`/
+  `skill-validation-deployment-evidence`/`release-manifest`/`compatibility-matrix` JSON
+  schemas — regenerating `deploy/release/prebundled-skills.catalog.json` (verified
+  byte-identical across two runs of `scripts/release/generate_prebundled_skill_catalog.py`)
+  and re-synchronizing every dependent digest in `release-contract-resources.catalog.json`
+  and its pinned meta-digest in `scripts/release/check_release_wheel.py`. Left
+  alone: the pre-existing, unrelated `tests/gates/test_prebundled_skills_gate.py::
+  test_prebundled_skill_suite_is_valid` frontmatter/nested-skill_graphs failures (already
+  broken on main for all 13 skills, not caused by this change).
+
 ## [1.21.0] - 2026-07-11 — Epistemic OS Hardening: Phase 1–2 + Exceed (X-2/3/4/5/7/8)
 
 Builds on 1.20.0's Phase-0 trustworthy core. Phase 1 unifies Agent-OS work/identity/

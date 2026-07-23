@@ -113,7 +113,7 @@
       "properties": {
         "exitCode": {"type": ["integer", "null"], "minimum": -255, "maximum": 255},
         "evidenceDigest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
-        "caseCount": {"type": "integer", "minimum": 0, "maximum": 20}
+        "caseCount": {"type": "integer", "minimum": 0, "maximum": 26}
       }
     },
     "result": {"enum": ["pass", "fail"]},
@@ -165,7 +165,7 @@
               "dnsRebindingGuarded": {"const": true}
             }
           },
-          "validation": {"properties": {"exitCode": {"const": 0}, "evidenceDigest": {"$ref": "#/$defs/digest"}, "caseCount": {"const": 20}}},
+          "validation": {"properties": {"exitCode": {"const": 0}, "evidenceDigest": {"$ref": "#/$defs/digest"}, "caseCount": {"const": 26}}},
           "errorCode": {"const": null}
         }
       }
