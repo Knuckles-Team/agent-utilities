@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import default as email_policy
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import IO, Any, cast
 
 try:
     import fcntl
@@ -643,6 +643,14 @@ def _wheel_record_entries(
     return entries
 
 
+class _CaseSensitiveConfigParser(configparser.ConfigParser):
+    """A ConfigParser that preserves option-name case (entry_points.txt keys
+    are case-sensitive console-script names, not to be lowercased)."""
+
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
 def _wheel_generated_scripts(
     archive: zipfile.ZipFile, info_by_name: dict[str, zipfile.ZipInfo]
 ) -> frozenset[str]:
@@ -655,8 +663,7 @@ def _wheel_generated_scripts(
         raise ReleaseError("invalid-wheel-entry-points")
     try:
         payload = archive.read(candidates[0]).decode("utf-8")
-        parser = configparser.ConfigParser(interpolation=None, strict=True)
-        parser.optionxform = str
+        parser = _CaseSensitiveConfigParser(interpolation=None, strict=True)
         parser.read_string(payload)
     except (UnicodeDecodeError, configparser.Error) as exc:
         raise ReleaseError("invalid-wheel-entry-points") from exc
@@ -1033,30 +1040,33 @@ def _invoke_bounded(
                 _terminate_and_reap()
                 raise ReleaseError(f"{role}-timeout")
             for key, _mask in selector.select(min(remaining, 0.25)):
+                # Every fd registered above is one of process.stdout/stderr/stdin
+                # (real IO objects, never a bare int) — see the register() calls.
+                stream_obj = cast(IO[bytes], key.fileobj)
                 if key.data == "stdin":
                     try:
-                        written = os.write(key.fileobj.fileno(), input_view[:65_536])
+                        written = os.write(stream_obj.fileno(), input_view[:65_536])
                     except BlockingIOError:
                         continue
                     except BrokenPipeError:
                         written = 0
                     if written <= 0:
-                        selector.unregister(key.fileobj)
-                        key.fileobj.close()
+                        selector.unregister(stream_obj)
+                        stream_obj.close()
                         input_view = memoryview(b"")
                         continue
                     input_view = input_view[written:]
                     if not input_view:
-                        selector.unregister(key.fileobj)
-                        key.fileobj.close()
+                        selector.unregister(stream_obj)
+                        stream_obj.close()
                     continue
                 try:
-                    chunk = os.read(key.fileobj.fileno(), 65_536)
+                    chunk = os.read(stream_obj.fileno(), 65_536)
                 except BlockingIOError:
                     continue
                 if not chunk:
-                    selector.unregister(key.fileobj)
-                    key.fileobj.close()
+                    selector.unregister(stream_obj)
+                    stream_obj.close()
                     continue
                 buffers[str(key.data)].extend(chunk)
                 if sum(map(len, buffers.values())) > max_output_bytes:
@@ -1085,10 +1095,10 @@ def _invoke_bounded(
                 process.wait(timeout=1)
             except subprocess.TimeoutExpired:
                 pass
-            for stream in (process.stdin, process.stdout, process.stderr):
-                if stream is not None:
+            for cleanup_stream in (process.stdin, process.stdout, process.stderr):
+                if cleanup_stream is not None:
                     try:
-                        stream.close()
+                        cleanup_stream.close()
                     except OSError:
                         pass
 
@@ -1350,7 +1360,7 @@ def _normalize_venv_metadata(
         ).splitlines(keepends=True)
         normalized_lines: list[bytes] = []
         for line in lines:
-            lowered = line.casefold()
+            lowered = line.lower()
             newline = b"\n" if line.endswith(b"\n") else b""
             if lowered.startswith(b"home = "):
                 line = (
@@ -1589,18 +1599,18 @@ def _seal_release_tree(root: Path) -> None:
         for path in regular:
             mode = path.lstat().st_mode
             os.chmod(path, 0o555 if mode & 0o111 else 0o444, follow_symlinks=False)
-        for directory in directories:
-            is_descriptor_root = directory == root
+        for directory_entry in directories:
+            is_descriptor_root = directory_entry == root
             metadata = (
-                directory.stat(follow_symlinks=True)
+                directory_entry.stat(follow_symlinks=True)
                 if is_descriptor_root
-                else directory.lstat()
+                else directory_entry.lstat()
             )
-            if (not is_descriptor_root and directory.is_symlink()) or not stat.S_ISDIR(
-                metadata.st_mode
-            ):
+            if (
+                not is_descriptor_root and directory_entry.is_symlink()
+            ) or not stat.S_ISDIR(metadata.st_mode):
                 raise ReleaseError("release-seal-failed")
-            os.chmod(directory, 0o555, follow_symlinks=is_descriptor_root)
+            os.chmod(directory_entry, 0o555, follow_symlinks=is_descriptor_root)
     except OSError as exc:
         raise ReleaseError("release-seal-failed") from exc
 
@@ -2790,6 +2800,7 @@ def _command_proof(
     ):
         raise CommandProofError(f"{role}-failed", proof)
     proof["status"] = "passed"
+    doctor_checks_list = doctor_checks if isinstance(doctor_checks, list) else []
     summary = {
         "role": role,
         "exitCode": result.return_code,
@@ -2799,7 +2810,7 @@ def _command_proof(
             if role == "canary" and isinstance(canary_checks, dict)
             else (
                 (item["name"], item["status"])
-                for item in doctor_checks
+                for item in doctor_checks_list
                 if isinstance(item, dict)
             )
         ),
@@ -3117,10 +3128,14 @@ def _validate_evidence_semantics(evidence: dict[str, Any], spec: ReleaseSpec) ->
             or closure.get("symlinkCount") != 0
             or closure.get("specialFileCount") != 0
             or closure.get("nativeArtifactCount") != 2
-            or not isinstance(closure.get("dependencyEdgeCount"), int)
-            or closure.get("dependencyEdgeCount") < 1
-            or not isinstance(closure.get("releaseTreeEntryCount"), int)
-            or closure.get("releaseTreeEntryCount") < 1
+            or not isinstance(
+                dependency_edge_count := closure.get("dependencyEdgeCount"), int
+            )
+            or dependency_edge_count < 1
+            or not isinstance(
+                release_tree_entry_count := closure.get("releaseTreeEntryCount"), int
+            )
+            or release_tree_entry_count < 1
             or closure.get("immutableAfterProof") is not True
             or process_gate != {"beforePromotion": 0, "afterVerification": 0}
             or activation.get("rollback") != "not-required"
@@ -3146,8 +3161,13 @@ def _validate_evidence_semantics(evidence: dict[str, Any], spec: ReleaseSpec) ->
                 "graphosSha256",
                 "engineSha256",
             }
-            or not isinstance(certification.get("agentUtilitiesFileCount"), int)
-            or certification.get("agentUtilitiesFileCount") < 10
+            or not isinstance(
+                agent_utilities_file_count := certification.get(
+                    "agentUtilitiesFileCount"
+                ),
+                int,
+            )
+            or agent_utilities_file_count < 10
             or any(
                 not isinstance(certification.get(field), str)
                 or re.fullmatch(r"[a-f0-9]{64}", certification[field]) is None
@@ -3505,7 +3525,7 @@ def promote(
             pass
         return 0, signed_evidence
     except Exception as failure:  # noqa: BLE001 - rollback must cover every boundary
-        exc = (
+        resolved_error = (
             failure
             if isinstance(failure, ReleaseError)
             else ReleaseError("internal-error")
@@ -3554,7 +3574,7 @@ def promote(
                             _remove_journal(root_fd)
                 except ReleaseError:
                     pass
-        evidence["errorCode"] = exc.code
+        evidence["errorCode"] = resolved_error.code
         if candidate_root is not None:
             staged_copy = candidate_root / ".wheelhouse"
             try:

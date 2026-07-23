@@ -272,11 +272,11 @@ def _exact_keys(
     value: dict[str, Any],
     *,
     required: set[str],
-    optional: set[str] = frozenset(),
+    optional: set[str] | None = None,
     field: str,
 ) -> None:
     missing = required - set(value)
-    unknown = set(value) - required - optional
+    unknown = set(value) - required - (optional or set())
     if missing or unknown:
         raise CompatibilityError(
             f"{field} keys are not exact; missing={sorted(missing)}, unknown={sorted(unknown)}"
