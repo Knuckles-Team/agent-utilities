@@ -547,10 +547,34 @@ def test_collect_health_rollup_is_unhealthy_if_any_check_is_unhealthy(monkeypatc
 
     report = rh.collect_health()
 
+    # The REPORT stays truthful: any unhealthy check makes the rollup unhealthy.
     assert report["status"] == "unhealthy"
-    assert not rh.is_overall_healthy(report)
     assert {c["name"] for c in report["checks"]} == {"a", "b", "c"}
     assert "generated_at" in report
+    # READINESS is deliberately narrower than the rollup. It answers only "can
+    # this process serve requests", which depends on the engine it reads and
+    # writes through — not on optional co-services that run in their own
+    # deployments. Gating rotation on those turned one component's outage into a
+    # total one (a down messaging daemon pulled a serving graph-os out of the
+    # Service). Here "c" is unhealthy but is not the engine, so the process
+    # stays ready while the report still says unhealthy.
+    assert rh.is_overall_healthy(report)
+
+
+def test_readiness_is_false_when_the_engine_itself_is_unhealthy(monkeypatch):
+    monkeypatch.setattr(
+        rh,
+        "_CHECKS",
+        (
+            ("engine", lambda _cfg: {"name": "engine", "status": "unhealthy", "reason": "x"}),
+            ("messaging", lambda _cfg: {"name": "messaging", "status": "ok"}),
+        ),
+    )
+
+    report = rh.collect_health()
+
+    assert report["status"] == "unhealthy"
+    assert not rh.is_overall_healthy(report)
 
 
 def test_collect_health_rollup_is_healthy_when_only_ok_and_not_configured(monkeypatch):
