@@ -395,6 +395,46 @@ class TestAttachEpistemicColumns:
         assert captured["contradiction_count"] == 2
         assert captured["status"] == "contested"
 
+    def test_reaches_a_real_exported_span_with_the_correct_epistemic_status(
+        self, monkeypatch
+    ) -> None:
+        """X2 live-path proof: unlike the fake-telemetry test above (which
+        only pins the CALL ARGS), this drives the REAL ``TelemetryEngine.
+        annotate_epistemic`` through an in-memory exporter — catching the
+        real bug this closed: ``status`` was validated against the
+        run-status vocabulary, silently collapsing every real "contested"/
+        "confirmed"/"low_confidence" epistemic status to "unknown" on export."""
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+            InMemorySpanExporter,
+        )
+
+        monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("test-epistemic-row")
+
+        rows = [{"id": "n1"}]
+
+        def fetch(ids: list[str]) -> list[dict]:
+            return [
+                {
+                    "id": "n1",
+                    "confidence": 0.9,
+                    "policy_labels": [],
+                    "contradiction_ids": ["claim:a", "claim:b"],
+                }
+            ]
+
+        with tracer.start_as_current_span("kg.query") as span:
+            attach_epistemic_columns(rows, fetch)
+
+        assert span.attributes["epistemic.status"] == "contested"
+        assert span.attributes["epistemic.contradiction_count"] == 2
+        assert span.attributes["epistemic.confidence"] == 0.9
+
     def test_never_clobbers_a_property_the_row_already_carries(self) -> None:
         # A caller-selected `RETURN n.confidence AS confidence` column is a
         # real property, not the injected epistemic default — must survive.

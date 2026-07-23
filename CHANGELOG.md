@@ -125,6 +125,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flag-gated `KG_AMBIENT_EPISTEMIC` (default ON) with a per-source CSV
   opt-out (`KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`) — flag off reproduces
   pre-W3.4 behavior byte-for-byte.
+- **Standalone OTLP trace exporter, wired to gen_ai/epistemic spans (W3.8/X2).**
+  The surpass-6mo audit found no OTEL exporter path actually reachable in AU
+  despite `TelemetryEngine`/`annotate_epistemic` already stamping
+  `epistemic.*`/`gen_ai.*` span attributes — the hooks that would have driven a
+  span (`on_graph_start`/`on_response`/`on_graph_end`) were never called on any
+  live path, so the attributes had nothing to attach to. This closes that gap
+  end-to-end, configured purely by the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/
+  `OTEL_SERVICE_NAME`/`OTEL_TRACES_EXPORTER` env vars (unset ⇒ unchanged
+  zero-overhead no-op):
+  - `run_agent` (`orchestration/agent_runner.py`) now opens one `graph.run` span
+    per execution via `TelemetryEngine.on_graph_start`, closed by
+    `_record_execution_trace` (every exit path — success/degraded/failed/
+    enterprise) via `on_graph_end`, carrying `gen_ai.system`,
+    `gen_ai.request.model`, and `gen_ai.response.tool_call_count` when
+    available. The graph-execution path (`orchestration/engine.py`'s
+    `AgentOrchestrationEngine.execute_graph`) additionally feeds real token
+    counts via `on_response` (`gen_ai.usage.input_tokens`/`output_tokens`),
+    reusing the SAME `token_usage`/`model` extraction already feeding the
+    Langfuse exporter and usage recorder.
+  - The engine-RPC client (`knowledge_graph/core/graph_compute.py`'s
+    `_SessionRoutedAsyncClient._send` — the sole choke point for every engine
+    RPC, sync and async) gets one span per call (`engine.<Method>`) via a
+    single `@_traced_rpc` decorator, attributed with `engine.method` +
+    `engine.graph` only — never `params` (no payloads/secrets).
+  - Fixed two real semconv/vocabulary bugs uncovered while wiring this up:
+    `annotate_epistemic`'s `status` was being validated against the
+    run-status vocabulary (`_STATUS_VALUES`), silently collapsing every real
+    `"confirmed"`/`"contested"`/`"low_confidence"` epistemic status to
+    `"unknown"` — split into its own `_EPISTEMIC_STATUS_VALUES`/
+    `_epistemic_status_label`. `gen_ai.request.model_ref`/
+    `epistemic.policy_label_refs` (opaque hashes) are now `gen_ai.request.model`/
+    `epistemic.policy_labels` (plain values) — model identifiers and
+    controlled-vocabulary policy tags are names, not secrets, and the opaque
+    hash defeated the entire point of a generic gen_ai dashboard/APM keying on
+    the real semconv attribute.
+  - `opentelemetry-sdk`/`opentelemetry-exporter-otlp-proto-http` are a new
+    optional `agent-utilities[otel]` extra (import-guarded everywhere; the base
+    install, `[mcp]`, and `[serving]` are unaffected). `[logfire]` already
+    carries the same two packages transitively for the existing Logfire/
+    Langfuse pipeline — `[otel]` is for a deployment that wants ONLY plain OTLP
+    export (e.g. a k8s Tempo/Alloy collector) without Logfire's heavier chain.
+  - `TelemetryEngine`'s OTLP pipeline is now triggered eagerly at process
+    bootstrap (`mcp/kg_server.py`'s `mcp_server()`, `server/app.py`'s
+    `app_factory()`) instead of staying fully lazy behind hooks nothing called
+    — one initialization site per surface, never per-request.
+  - `reports/wave3/otel-env-fragment.yaml` (workspace-root `reports/`, not
+    committed to this repo — see its own `/reports/` gitignore rule): prepared
+    (not applied) k8s env fragment pointing graph-os + a representative MCP
+    pod at the cluster's OTLP endpoint, with a note that the Alloy DaemonSet/
+    Tempo stack ingests it.
 - **`graph_ops_causal` findings become citable, revisable Claims (`as_claim`, W3.5).**
   `root_cause`/`blast_radius` gain an opt-in `as_claim=true` parameter: the
   call's finding is proposed through the SAME governed `ClaimFlywheel`

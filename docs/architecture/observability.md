@@ -49,6 +49,44 @@ failures and arbitrary `4xx` responses are failures. Generic collectors have no
 portable authenticated read endpoint and are reported as unproven rather than
 being inferred healthy from an HTTP status.
 
+### Standalone OTLP exporter — gen_ai/epistemic span attrs (X2)
+
+A SECOND, independent trace pipeline — `agent_utilities.observability.
+TelemetryEngine` — is configured PURELY by the standard OTel env vars
+(`OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` / `OTEL_TRACES_EXPORTER`,
+falling back to the engine's own `EPISTEMIC_GRAPH_OBS_ADDR` collector), with no
+dependency on `ENABLE_OTEL` or Logfire. It exists for a plain OTLP collector
+(e.g. this cluster's k8s LGTM stack, where a Grafana Alloy DaemonSet ingests
+traces into Tempo) that needs no Langfuse-style Basic-Auth header pair. Both
+pipelines can run at once (harmless, just duplicated export); unset env vars on
+either leave it a clean, zero-overhead no-op — today's behavior.
+
+`opentelemetry-sdk` + the OTLP/HTTP exporter are import-guarded everywhere;
+install the `agent-utilities[otel]` extra for this pipeline alone, or
+`[logfire]`/`[serving]` (which already carry both transitively).
+
+Triggered once at process bootstrap — `mcp/kg_server.py`'s `mcp_server()` and
+`server/app.py`'s `app_factory()` — never per-request. What it exports:
+
+- **One span per `run_agent` execution** (`orchestration/agent_runner.py`,
+  `graph.run`) — `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.
+  input_tokens`/`output_tokens` (graph-execution path), `gen_ai.response.
+  tool_call_count`.
+- **One span per engine RPC** (`knowledge_graph/core/graph_compute.py`'s
+  `_SessionRoutedAsyncClient._send`, the sole choke point for every RPC) —
+  `engine.method` + `engine.graph` only, never the request `params`.
+- **Epistemic attrs on whichever span is active** during retrieval/context
+  assembly (`knowledge_graph/core/epistemic_row.py`, `knowledge_graph/
+  retrieval/context_compiler.py`) — `epistemic.confidence`/`status`/
+  `contradiction_count`/`policy_labels`.
+
+Redaction is structural, not content-filtered: attributes are names/ids/counts
+only (a plain model identifier or controlled-vocabulary policy tag, never
+prompt text or row content); a run/agent id is always an opaque
+`persistence_reference` hash, and the query is stamped only as `query_length`.
+See `reports/wave3/otel-env-fragment.yaml` (workspace-root `reports/`, not
+committed to this repo) for the prepared, unapplied k8s env fragment.
+
 ## Per-MCP metrics (one change, whole fleet)
 
 `create_mcp_server` mounts `GET /metrics` locally and a
