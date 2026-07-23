@@ -223,6 +223,15 @@ platform enforces a wall deadline and terminates the worker on expiry. See
   `ExtractionJobManager`; scheduler in
   `knowledge_graph/ingestion/gpu_slot_scheduler.py`; reader in
   `protocols/source_connectors/connectors/reader.py`.
+- **Second-brain sync** (CONCEPT:AU-KG.enrichment.second-brain-note-sync,
+  `graph_ingest action=sync_second_brain`,
+  `knowledge_graph/extraction/second_brain_sync.py`) is a thin one-call
+  composition over a personal notes corpus: `extract_facts`/`persist_facts`
+  per note, then `kb.entity_claim_extractor.EntityClaimExtractor` (claims
+  PROPOSED into the governed `ClaimFlywheel`) and
+  `adaptation.contradiction_detector.ContradictionDetector` (a finding
+  persists as a propose-only `:BeliefRevisionProposal`). See the
+  `second-brain-sync` universal-skill for the full workflow.
 
 ## Design choices (and what we deliberately did not copy)
 
