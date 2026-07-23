@@ -85,7 +85,7 @@ class RewardSource(Protocol):
     existing producer's math changes; this is a naming + provenance exercise.
     """
 
-    def reward_for(self, artifact_ref: str, example_ref: str) -> RewardSignal: ...
+    def reward_for(self, artifact_ref: str, _example_ref: str) -> RewardSignal: ...
 
 
 def blend(

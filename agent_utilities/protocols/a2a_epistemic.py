@@ -1375,7 +1375,7 @@ class EpistemicGraphA2ABroker(Broker):
         )
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+    async def __aexit__(self, exc_type: Any, _exc_value: Any, traceback: Any) -> None:
         self._active = False
         task = self._reconcile_task
         self._reconcile_task = None
