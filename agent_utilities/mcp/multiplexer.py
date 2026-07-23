@@ -1588,8 +1588,9 @@ class MCPMultiplexer:
             except LangfuseTrustError as exc:
                 native = None
                 logger.error(
-                    "Native Langfuse MCP disabled: %s configuration invalid",
+                    "Native Langfuse MCP disabled: %s configuration invalid (%s)",
                     exc.category,
+                    str(exc),
                 )
             if native is not None:
                 runtime_materialized_configs.add(id(native))
@@ -1623,8 +1624,9 @@ class MCPMultiplexer:
                     cfg = attest_runtime_child_config(cfg)
                 except LangfuseTrustError as exc:
                     logger.error(
-                        "Langfuse MCP entry disabled: %s configuration invalid",
+                        "Langfuse MCP entry disabled: %s configuration invalid (%s)",
                         exc.category,
+                        str(exc),
                     )
                     continue
             self._catalog[str(server_name)] = cfg

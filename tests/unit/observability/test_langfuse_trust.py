@@ -14,6 +14,7 @@ from cryptography.x509.oid import NameOID
 from agent_utilities.observability.langfuse_trust import (
     LangfuseTrustError,
     configure_langfuse_trust,
+    langfuse_credentials_configured,
     langfuse_parent_kg_ingestion_enabled,
     langfuse_provider_contract_ready,
     native_langfuse_mcp_config,
@@ -178,6 +179,77 @@ def test_credentials_reject_redaction_and_template_sentinels(sentinel: str) -> N
             resolver=values.get,
         )
     assert sentinel not in str(caught.value)
+
+
+def test_resolve_credentials_accepts_direct_key_pair_langfuse_agent_reads() -> None:
+    """langfuse_agent.auth.get_client reads LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY
+    directly; agent-utilities' resolver must accept the same names so one
+    configured pair serves both the standalone agent and the MCP fleet."""
+    public_key, secret_key = resolve_langfuse_credentials(
+        environ={
+            "LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic",
+            "LANGFUSE_SECRET_KEY": "sk-lf-synthetic",
+        }
+    )
+
+    assert public_key == "pk-lf-synthetic"
+    assert secret_key == "sk-lf-synthetic"
+
+
+def test_resolve_credentials_prefers_ref_over_direct_value_when_both_set() -> None:
+    public_key, secret_key = resolve_langfuse_credentials(
+        environ={
+            "LANGFUSE_PUBLIC_KEY_REF": "secret://observability/public-key",
+            "LANGFUSE_SECRET_KEY_REF": "secret://observability/secret-key",
+            "LANGFUSE_PUBLIC_KEY": "stale-direct-public",
+            "LANGFUSE_SECRET_KEY": "stale-direct-secret",
+        },
+        resolver={
+            "secret://observability/public-key": "synthetic-public",
+            "secret://observability/secret-key": "synthetic-secret",
+        }.get,
+    )
+
+    assert public_key == "synthetic-public"
+    assert secret_key == "synthetic-secret"
+
+
+def test_resolve_credentials_rejects_incomplete_direct_pair() -> None:
+    with pytest.raises(LangfuseTrustError, match="langfuse_credentials_missing"):
+        resolve_langfuse_credentials(
+            environ={"LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic"}
+        )
+
+
+def test_resolve_credentials_rejects_sentinel_direct_value() -> None:
+    with pytest.raises(LangfuseTrustError, match="langfuse_credentials_invalid"):
+        resolve_langfuse_credentials(
+            environ={
+                "LANGFUSE_PUBLIC_KEY": "YOUR_LANGFUSE_PUBLIC_KEY",
+                "LANGFUSE_SECRET_KEY": "sk-lf-synthetic",
+            }
+        )
+
+
+def test_credentials_configured_true_for_direct_pair_without_refs() -> None:
+    assert (
+        langfuse_credentials_configured(
+            environ={
+                "LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic",
+                "LANGFUSE_SECRET_KEY": "sk-lf-synthetic",
+            }
+        )
+        is True
+    )
+
+
+def test_credentials_configured_false_for_partial_direct_pair() -> None:
+    assert (
+        langfuse_credentials_configured(
+            environ={"LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic"}
+        )
+        is False
+    )
 
 
 def test_single_root_and_independent_root_store_are_valid() -> None:
@@ -386,6 +458,33 @@ def test_mcp_launcher_uses_canonical_default_host_with_credential_refs() -> None
     )
 
     assert config["env"]["LANGFUSE_HOST"] == "https://cloud.langfuse.com"
+
+
+def test_mcp_launcher_resolves_remote_entry_with_no_env_block_via_direct_keys() -> (
+    None
+):
+    """Reproduces the graph-os fleet-catalog gap: a durable ``langfuse-mcp``
+    entry with NO ``env`` block (e.g. a remote streamable-http child) must
+    still admit successfully when the *parent process* environment carries
+    only the direct LANGFUSE_PUBLIC_KEY/LANGFUSE_SECRET_KEY pair -- no
+    LANGFUSE_PUBLIC_KEY_REF/LANGFUSE_SECRET_KEY_REF required."""
+    config = prepare_langfuse_mcp_config(
+        {
+            "transport": "streamable-http",
+            "url": "http://langfuse-mcp.example.test/mcp",
+            "disabled": False,
+        },
+        environ={
+            "LANGFUSE_HOST": "https://langfuse.example.test",
+            "LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic",
+            "LANGFUSE_SECRET_KEY": "sk-lf-synthetic",
+        },
+    )
+
+    assert config["env"]["LANGFUSE_HOST"] == "https://langfuse.example.test"
+    assert config["env"]["LANGFUSE_PUBLIC_KEY"] == "pk-lf-synthetic"
+    assert config["env"]["LANGFUSE_SECRET_KEY"] == "sk-lf-synthetic"
+    assert config["transport"] == "streamable-http"
 
 
 def test_mcp_launcher_rejects_noncanonical_host_input() -> None:
