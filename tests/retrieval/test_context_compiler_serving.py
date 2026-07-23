@@ -23,10 +23,14 @@ from typing import Any
 import pytest
 
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
     reset_company_brain,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession
-from agent_utilities.knowledge_graph.ontology.permissioning import clear_markings
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.knowledge_graph.ontology.permissioning import (
+    clear_markings,
+    use_marking_authority,
+)
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     DEFAULT_BUNDLE_SYSTEM_PREAMBLE,
     ContextCompiler,
@@ -35,17 +39,44 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
     resolve_bundle_chat_client,
 )
-from agent_utilities.models.company_brain import ActorType
+from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
 from agent_utilities.security.brain_context import ActorContext
+
+
+class _FakeMarkingStore:
+    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
+
+    ``ContextCompiler.compile`` runs every candidate through the policy
+    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), which resolves the
+    mandatory-marking store on every call.
+    """
+
+    @staticmethod
+    def execute(_query, _params):
+        return []
 
 
 @pytest.fixture(autouse=True)
 def _clean_state():
     reset_company_brain()
     clear_markings()
-    yield
+    with use_marking_authority(_FakeMarkingStore()):
+        yield
     reset_company_brain()
     clear_markings()
+
+
+def _grant_public(nodes: list[dict]) -> None:
+    """Grant a PUBLIC-classification ACL for every ``nodes[i]["id"]``.
+
+    ``enforce``'s ACL layer is fail-closed (AU-P0-4) — a node with no ACL is
+    denied outright; these synthetic nodes never exist in a real graph.
+    """
+    permissions = get_company_brain().permissions
+    for node in nodes:
+        permissions.set_acl(
+            NodeACL(node_id=node["id"], classification=DataClassification.PUBLIC)
+        )
 
 
 class FakeRetriever:
@@ -63,7 +94,12 @@ def _session() -> GraphSession:
         tenant_id="tenant-test",
         authenticated=True,
     )
-    return GraphSession(actor=actor, tenant="tenant-test", policy_version="v1")
+    return GraphSession(
+        actor=actor,
+        tenant="tenant-test",
+        policy_version="v1",
+        scopes=frozenset({"kg:read"}),
+    )
 
 
 _NODES_A = [
@@ -100,8 +136,13 @@ _NODES_B = [
 
 
 def _compile(nodes: list[dict]) -> Any:
+    _grant_public(nodes)
     compiler = ContextCompiler(FakeRetriever(nodes))
-    return compiler.compile("test query", session=_session(), top_k=2, candidate_pool=2)
+    session = _session()
+    with use_session(session):
+        return compiler.compile(
+            "test query", session=session, top_k=2, candidate_pool=2
+        )
 
 
 # --------------------------------------------------------------------------
@@ -227,18 +268,20 @@ def test_bundle_chat_completion_two_calls_same_bundle_share_stable_prefix():
 
 
 def test_resolve_bundle_chat_client_requires_configured_endpoint(monkeypatch):
-    from agent_utilities.core import config as config_module
+    # ``config`` (an ``AgentConfigProxy``) forwards attribute access to its
+    # live ``AgentConfig`` snapshot via ``__getattr__``/``__setattr__`` — the
+    # proxy class itself carries no ``default_chat_model`` attribute to patch,
+    # so the property must be patched on the real settings class instead.
+    from agent_utilities.core.config import AgentConfig
 
-    monkeypatch.setattr(
-        type(config_module.config), "default_chat_model", property(lambda self: None)
-    )
+    monkeypatch.setattr(AgentConfig, "default_chat_model", property(lambda self: None))
 
     with pytest.raises(RuntimeError, match="configured chat-model base URL"):
         resolve_bundle_chat_client()
 
 
 def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
-    from agent_utilities.core import config as config_module
+    from agent_utilities.core.config import AgentConfig
 
     class _FakeChatModelConfig:
         id = "qwen/qwen3.6-27b"
@@ -250,7 +293,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
     monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
 
     monkeypatch.setattr(
-        type(config_module.config),
+        AgentConfig,
         "default_chat_model",
         property(lambda self: _FakeChatModelConfig()),
     )
@@ -262,7 +305,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
 
 
 def test_resolve_bundle_chat_client_resolves_configured_lite_tier(monkeypatch):
-    from agent_utilities.core import config as config_module
+    from agent_utilities.core.config import AgentConfig
 
     class _FakeChatModelConfig:
         id = "synthetic-lite-model"
@@ -274,7 +317,7 @@ def test_resolve_bundle_chat_client_resolves_configured_lite_tier(monkeypatch):
     lite = _FakeChatModelConfig()
     monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
     monkeypatch.setattr(
-        type(config_module.config),
+        AgentConfig,
         "resolve_chat_model_config",
         lambda self, model=None: lite if model == "lite" else None,
     )
@@ -287,7 +330,7 @@ def test_resolve_bundle_chat_client_resolves_configured_lite_tier(monkeypatch):
 
 
 def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
-    from agent_utilities.core import config as config_module
+    from agent_utilities.core.config import AgentConfig
 
     class _FakeChatModelConfig:
         id = "some-other-model"
@@ -299,7 +342,7 @@ def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
     monkeypatch.setenv("TEST_CONTEXT_MODEL_API_KEY", "synthetic-runtime-material")
 
     monkeypatch.setattr(
-        type(config_module.config),
+        AgentConfig,
         "default_chat_model",
         property(lambda self: _FakeChatModelConfig()),
     )

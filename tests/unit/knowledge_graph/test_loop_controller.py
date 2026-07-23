@@ -21,10 +21,28 @@ class _StubEngine:
         self.backend = object()  # no semantic_search → acquire returns []
 
     def query_cypher(self, q: str, params: dict | None = None) -> list[dict[str, Any]]:
+        params = params or {}
         if "ADDRESSED_BY" in q and "RETURN c.id AS id" in q and "name" not in q:
             return [{"id": i} for i in self._addressed]
         if "MATCH (c:Concept) RETURN c.id AS id, c.name AS name" in q:
-            return [{"id": i, "name": n} for i, n in self._concepts]
+            # active_loops() (research/loops.py) generalizes unresolved_topics()
+            # and requires each Concept row to carry loop_kind so it can
+            # classify research/develop/skill loops — every concept here is a
+            # plain research topic.
+            return [
+                {"id": i, "name": n, "loop_kind": "research"} for i, n in self._concepts
+            ]
+        if "MATCH (w:WorkItem" in q:
+            # active_loops() backs every Concept with a WorkItem
+            # (orchestration/work_item.py get_work_item) to track its
+            # goal_loop lifecycle — a bare id/name Concept has no backing
+            # WorkItem of its own, so synthesize a minimal always-active one
+            # keyed by the SAME deterministic id get_work_item looks up
+            # (loop_work_item_id: "workitem:loop:<concept id>").
+            item_id = str(params.get("id") or "")
+            if item_id.startswith("workitem:loop:"):
+                return [{"id": item_id, "kind": "goal_loop", "status": "active"}]
+            return []
         return []
 
     def link_nodes(self, source_id, target_id, rel_type, properties=None):
@@ -78,7 +96,28 @@ def test_run_breadth_self_configures_from_workspace_yml(monkeypatch):
     assert not rep.get("skipped")
 
 
-def test_run_one_cycle_intake_only_propose_only():
+def test_run_one_cycle_intake_only_propose_only(monkeypatch):
+    # _acquire_resolve (loop_controller.py) builds one embedder per cycle and
+    # pings it via bounded_embed BEFORE the per-topic loop. The hermetic unit
+    # suite has no reachable embedding endpoint (tests/unit/conftest.py's
+    # autouse _hermetic_embeddings fixture blocks create_embedding_model), so
+    # the real ping fails closed and appends an "embedding endpoint
+    # unavailable" entry to report["errors"] — never reaching the deeper path
+    # this test means to exercise (resolve is a no-op because THIS STUB
+    # ENGINE's backend has no semantic_search, a separate, later check inside
+    # acquire_for_topic). Stub a reachable-but-inert embedder — the same seam
+    # test_workflow_compiler_embed_resilience.py's ``_patch_embed`` uses — so
+    # the ping succeeds and semantic_search's absence is what makes resolve
+    # a no-op, not an unreachable endpoint.
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        lambda *_a, **_k: lambda texts: [[0.1, 0.2, 0.3] for _ in texts],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.research.search.bounded_embed",
+        lambda _embed_fn, _text, _timeout: [0.1, 0.2, 0.3],
+    )
+
     eng = _StubEngine(concepts=[("c:1", "A"), ("c:2", "B")], addressed=[])
     # acquire returns [] (no semantic_search) → resolve does nothing, but the
     # cycle must complete cleanly and stay propose-only.
@@ -465,10 +504,12 @@ def test_run_belief_revision_never_calls_update_on_the_live_belief():
     LoopController(eng)._run_belief_revision()
     assert not hasattr(eng, "update_node")
     assert all(
-        node_id.startswith("BeliefRevisionProposal:")
+        node_id.startswith("BeliefRevisionProposal:") for node_id, _ in eng.added_nodes
+    )
+    assert all(
+        "belief:a" != node_id and "belief:b" != node_id
         for node_id, _ in eng.added_nodes
     )
-    assert all("belief:a" != node_id and "belief:b" != node_id for node_id, _ in eng.added_nodes)
 
 
 def test_run_belief_revision_respects_propose_only_false():

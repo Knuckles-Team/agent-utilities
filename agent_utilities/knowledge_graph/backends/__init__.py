@@ -394,11 +394,15 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 name,
                 backend_type,
                 type(exc).__name__,
-                # str(exc), not exc: core/log_privacy.py collapses a BaseException
-                # passed as a logging arg down to its class name, which would emit
-                # "ImportError: ImportError" and destroy the actual cause. The text
-                # sanitizer still redacts paths.
-                str(exc),
+                # Pass the exception OBJECT, not str(exc): core/log_privacy.py's
+                # `_sanitize_value` no longer collapses a BaseException log arg
+                # down to just its class name (that WAS the historical bug this
+                # comment used to work around) — it now sanitizes and KEEPS the
+                # message (`f"{type(exc).__name__}: {sanitized_message}"`), same
+                # as every other error log in this codebase (e.g. kg_server.py's
+                # `_ingest_skill_capabilities`). Pre-stringifying here would still
+                # render fine but bypasses that shared sanitizer for this value.
+                exc,
                 exc_info=True,
             )
             _record_mirror_status(

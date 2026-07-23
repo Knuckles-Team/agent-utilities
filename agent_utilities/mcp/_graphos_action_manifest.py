@@ -251,6 +251,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_edges", "action": "has", "name": "engine_edges_has"},
     {"tool": "engine_edges", "action": "invalidate", "name": "engine_edges_invalidate"},
     {"tool": "engine_edges", "action": "list", "name": "engine_edges_list"},
+    {"tool": "engine_edges", "action": "list_page", "name": "engine_edges_list_page"},
     {"tool": "engine_edges", "action": "properties", "name": "engine_edges_properties"},
     {
         "tool": "engine_edges",
@@ -1439,6 +1440,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "what_changed",
         "name": "graph_epistemic_what_changed",
     },
+    {
+        "tool": "graph_epistemic",
+        "action": "what_would_invalidate",
+        "name": "graph_epistemic_what_would_invalidate",
+    },
+    {"tool": "graph_epistemic", "action": "why_not", "name": "graph_epistemic_why_not"},
     {"tool": "graph_etl", "action": "lineage", "name": "graph_etl_lineage"},
     {"tool": "graph_etl", "action": "list", "name": "graph_etl_list"},
     {"tool": "graph_evaluate", "action": None, "name": "graph_evaluate"},
@@ -1504,6 +1511,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "verify_action",
         "name": "graph_governance_verify_action",
     },
+    {"tool": "graph_incident", "action": "ack", "name": "graph_incident_ack"},
     {
         "tool": "graph_incident",
         "action": "correlate",
@@ -1511,6 +1519,8 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "graph_incident", "action": "get", "name": "graph_incident_get"},
     {"tool": "graph_incident", "action": "list", "name": "graph_incident_list"},
+    {"tool": "graph_incident", "action": "resolve", "name": "graph_incident_resolve"},
+    {"tool": "graph_incident", "action": "timeline", "name": "graph_incident_timeline"},
     {
         "tool": "graph_ingest",
         "action": "agent_toolkit",
