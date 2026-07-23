@@ -16,7 +16,7 @@ class FakeBackend:
         self.nodes[node_id] = props
 
     def add_edge(self, source, target, **props):
-        self.edges.append((source, target, props.get("rel_type")))
+        self.edges.append((source, target, props.get("relationship")))
 
 
 def _parse_fn_factory():
@@ -78,7 +78,7 @@ def test_pipeline_writes_typed_nodes_edges_and_flags_needs_work(tmp_path):
     assert summary.tests_needing_work == 1
     assert summary.covers_edges == 1
     # Test node carries metrics + needs_work + issues evidence (id is file::name).
-    tnode = next(n for n in backend.nodes.values() if n.get("type") == "Test")
+    tnode = next(n for n in backend.nodes.values() if n.get("node_type") == "Test")
     assert tnode["name"] == "test_x"
     assert tnode["needs_work"] is True
     assert "MockHeavyTest" in tnode["issues"]
@@ -186,7 +186,7 @@ def test_pipeline_enriches_patterns_features_and_cards(tmp_path):
     assert "AbstractBaseClass" in abc_node["patterns"]
     assert abc_node["summary"] == "does a thing"
     # Feature node + PART_OF_FEATURE edges written
-    assert any(n.get("type") == "Feature" for n in backend.nodes.values())
+    assert any(n.get("node_type") == "Feature" for n in backend.nodes.values())
     assert any(rel == "PART_OF_FEATURE" for _, _, rel in backend.edges)
 
 
@@ -265,7 +265,7 @@ def test_pipeline_mints_capabilities_and_realizes_edges(tmp_path):
     assert summary.capabilities_pushed == 1
     # A provisional BusinessCapability node + a REALIZES edge were written.
     assert any(
-        n.get("type") == "BusinessCapability" and n.get("provisional") is True
+        n.get("node_type") == "BusinessCapability" and n.get("provisional") is True
         for n in backend.nodes.values()
     )
     assert any(rel == "REALIZES" for _, _, rel in backend.edges)
@@ -336,7 +336,7 @@ class PropBackend:
         self.nodes[node_id] = props
 
     def add_edge(self, source, target, **props):
-        rel = props.pop("rel_type", None)
+        rel = props.pop("relationship", None)
         self.edges.append((source, target, rel, props))
 
 
@@ -454,7 +454,7 @@ def test_pipeline_extracts_routes_from_decorators(tmp_path):
     assert summary.routes == 1
     assert summary.serves_edges == 1
     assert any(
-        n.get("type") == "Route" and n.get("path") == "/users"
+        n.get("node_type") == "Route" and n.get("path") == "/users"
         for n in backend.nodes.values()
     )
     assert any(e[2] == "SERVES" and e[1] == "route:GET:/users" for e in backend.edges)
@@ -470,7 +470,7 @@ def test_pipeline_extracts_iac_resources(tmp_path):
     summary = pipe.enrich(tmp_path)
 
     assert summary.resources == 1
-    res = next(n for n in backend.nodes.values() if n.get("type") == "Resource")
+    res = next(n for n in backend.nodes.values() if n.get("node_type") == "Resource")
     assert res["kind"] == "container_image"
     assert res["base_image"] == "python:3.12-slim"
 
