@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-23T07:47:49Z",
-  "row_count": 357,
+  "cached_at": "2026-07-23T12:16:46Z",
+  "row_count": 362,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -55,6 +55,17 @@
       "method": "AddTriples",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "AnalyticsJob": {
+      "audited": "false",
+      "authz_action": "jobs:write",
+      "durability": "JobsRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "AnalyticsJob",
+      "mutates": "~true",
+      "note": "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway",
       "txn_participation": "Atomic"
     },
     "AppendStep": {
@@ -2081,6 +2092,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "GetEdgesPage": {
+      "audited": "false",
+      "authz_action": "edge:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetEdgesPage",
+      "mutates": "false",
+      "note": "",
+      "txn_participation": "Snapshot"
+    },
     "GetLedger": {
       "audited": "false",
       "authz_action": "ledger:read",
@@ -2366,6 +2388,17 @@
       "mutates": "true",
       "note": "opaque prepared/committed session-control MutationBatch",
       "txn_participation": "Saga"
+    },
+    "KnowledgeStream": {
+      "audited": "false",
+      "authz_action": "query:stream",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "KnowledgeStream",
+      "mutates": "false",
+      "note": "one RequestContext/RLS/placement-bound stream with the sole native Arrow IPC projection for all seven query families",
+      "txn_participation": "Snapshot"
     },
     "KvCas": {
       "audited": "false",
@@ -3357,6 +3390,17 @@
       "note": "request-scoped opaque session-control receipt prevents acknowledgement-lost duplicate sends",
       "txn_participation": "Saga"
     },
+    "ServedModality": {
+      "audited": "true",
+      "authz_action": "modality:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "false",
+      "method": "ServedModality",
+      "mutates": "~true",
+      "note": "runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch",
+      "txn_participation": "Atomic"
+    },
     "SetPose": {
       "audited": "true",
       "authz_action": "scene:write",
@@ -3454,6 +3498,17 @@
       "method": "StartTrajectory",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "Statechart": {
+      "audited": "false",
+      "authz_action": "statechart:write",
+      "durability": "StatechartRedb",
+      "emits_cdc": "false",
+      "idempotent": "false",
+      "method": "Statechart",
+      "mutates": "~true",
+      "note": "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)",
       "txn_participation": "Atomic"
     },
     "StreamCommitOffset": {

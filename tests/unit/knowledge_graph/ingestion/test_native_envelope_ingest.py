@@ -706,3 +706,170 @@ def test_missing_native_shacl_capability_fails_closed_before_write() -> None:
     assert result["error"] == "NativeChangeEnvelopeUnavailable"
     assert compute.client.changes.applied == []
     assert compute.client.nodes.values == {}
+
+
+# ── W3.4 ambient epistemics: valid-time mapped from the source's own timestamp
+# (CONCEPT:AU-KG.temporal.ambient-connector-valid-time) ──────────────────────
+
+
+def _stub_setting(overrides: dict):
+    def _stub(key, default=None, cast=None):
+        return overrides.get(key, default)
+
+    return _stub
+
+
+def test_ambient_valid_time_stamps_valid_from_from_event_time() -> None:
+    """A record whose connector reported an ``event_time`` lands with
+    ``valid_from`` set to that exact instant — no per-connector code change."""
+    compute = _Compute("graph-ambient-valid-from")
+    envelope = _envelope(event_time="2026-02-01T00:00:00+00:00")
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    assert (
+        compute.client.nodes.values["object-1"]["valid_from"]
+        == "2026-02-01T00:00:00+00:00"
+    )
+
+
+def test_ambient_valid_time_prefers_explicit_valid_time_over_event_time() -> None:
+    """``valid_time`` (the fact's own asserted domain validity, e.g. a backdated
+    ticket) wins over ``event_time`` when both are present."""
+    compute = _Compute("graph-ambient-valid-time-precedence")
+    envelope = _envelope(
+        event_time="2026-02-01T00:00:00+00:00",
+        valid_time="2025-11-15T00:00:00+00:00",
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    assert (
+        compute.client.nodes.values["object-1"]["valid_from"]
+        == "2025-11-15T00:00:00+00:00"
+    )
+
+
+def test_ambient_valid_time_writes_nothing_when_source_has_no_timestamp() -> None:
+    """A source with no usable modification/creation timestamp gets NO
+    ``valid_from`` at all — the ambient-epistemics contract never fabricates one."""
+    compute = _Compute("graph-ambient-no-timestamp")
+    envelope = _envelope()
+    assert envelope.event_time is None and envelope.valid_time is None
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    assert "valid_from" not in compute.client.nodes.values["object-1"]
+
+
+def test_ambient_valid_time_disabled_flag_reproduces_legacy_behavior(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``KG_AMBIENT_EPISTEMIC=false`` writes byte-identical legacy rows: a
+    record WITH a real ``event_time`` still gets no ``valid_from``."""
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        _stub_setting({"KG_AMBIENT_EPISTEMIC": False}),
+    )
+    compute = _Compute("graph-ambient-flag-off")
+    envelope = _envelope(event_time="2026-02-01T00:00:00+00:00")
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    assert "valid_from" not in compute.client.nodes.values["object-1"]
+
+
+def test_ambient_valid_time_per_source_disable_overrides_global_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A source named in ``KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`` opts out even
+    while the global default stays ON."""
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        _stub_setting(
+            {
+                "KG_AMBIENT_EPISTEMIC": True,
+                "KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES": "fixture-connector,other",
+            }
+        ),
+    )
+    compute = _Compute("graph-ambient-per-source-off")
+    envelope = _envelope(event_time="2026-02-01T00:00:00+00:00")
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    assert "valid_from" not in compute.client.nodes.values["object-1"]
+
+
+def test_ambient_valid_until_closes_on_delete_using_event_time() -> None:
+    """A delete/tombstone with a real ``event_time`` closes ``valid_to`` at that
+    supersession instant — the read path's ``valid_from <= as_of < valid_to``
+    window now has a real upper bound instead of staying open forever."""
+    compute = _Compute("graph-ambient-delete")
+    upsert = module.ingest_envelope(
+        compute, _envelope(event_time="2026-01-01T00:00:00+00:00")
+    )
+    assert upsert["status"] == "success"
+
+    delete_envelope = _envelope(
+        operation="delete",
+        event_time="2026-03-01T00:00:00+00:00",
+        typed_payload=None,
+        source_version="2",
+        checkpoint="2",
+    )
+    result = module.ingest_envelope(compute, delete_envelope)
+
+    assert result["status"] == "success"
+    assert compute.client.nodes.values["object-1"]["archived"] is True
+    assert (
+        compute.client.nodes.values["object-1"]["valid_to"]
+        == "2026-03-01T00:00:00+00:00"
+    )
+
+
+def test_ambient_valid_until_falls_back_to_observed_time_on_delete() -> None:
+    """A delete with no source-reported ``event_time`` still closes ``valid_to``
+    — using ``observed_time`` (this system's own, always-populated observation
+    instant), never a fabricated value."""
+    compute = _Compute("graph-ambient-delete-observed")
+    delete_envelope = _envelope(
+        operation="delete",
+        typed_payload=None,
+        observed_time="2026-04-01T00:00:00.000000Z",
+    )
+    assert delete_envelope.event_time is None
+
+    result = module.ingest_envelope(compute, delete_envelope)
+
+    assert result["status"] == "success"
+    assert (
+        compute.client.nodes.values["object-1"]["valid_to"]
+        == "2026-04-01T00:00:00.000000Z"
+    )
+
+
+def test_ambient_valid_until_disabled_flag_leaves_tombstone_unstamped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Flag off: a delete still tombstones the row, but with no ``valid_to`` —
+    exactly the pre-W3.4 shape."""
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        _stub_setting({"KG_AMBIENT_EPISTEMIC": False}),
+    )
+    compute = _Compute("graph-ambient-delete-flag-off")
+    delete_envelope = _envelope(
+        operation="delete", event_time="2026-03-01T00:00:00+00:00", typed_payload=None
+    )
+
+    result = module.ingest_envelope(compute, delete_envelope)
+
+    assert result["status"] == "success"
+    assert compute.client.nodes.values["object-1"]["archived"] is True
+    assert "valid_to" not in compute.client.nodes.values["object-1"]

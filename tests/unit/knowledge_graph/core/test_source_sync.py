@@ -1375,3 +1375,141 @@ def test_ops_connector_response_schema_drift_applies_no_records(monkeypatch):
 
     assert out["status"] == "error"
     assert not engine.batches
+
+
+# ── W3.4 ambient epistemics: one Activity + one summary Claim per sync run ──
+# (CONCEPT:AU-KG.ingest.ambient-connector-provenance)
+
+
+class _ActivityFakeEngine(FakeEngine):
+    """``FakeEngine`` + a captured ``add_node`` surface for the provenance
+    Activity/Claim writes ``_ingest_entities_via_envelope`` makes directly
+    (outside the ``ingest_envelope``/``capture_envelope`` fixture path)."""
+
+    def __init__(self, backend):
+        super().__init__(backend)
+        self.nodes: dict[str, dict] = {}
+        self.node_calls: list[tuple[str, str]] = []
+
+    def add_node(self, node_id, node_type, properties=None):
+        self.node_calls.append((node_id, str(node_type)))
+        merged = dict(self.nodes.get(node_id) or {})
+        merged.update(properties or {})
+        self.nodes[node_id] = merged
+
+
+def _stub_setting(overrides: dict):
+    def _stub(key, default=None, cast=None):
+        return overrides.get(key, default)
+
+    return _stub
+
+
+def test_ingest_entities_via_envelope_records_one_activity_and_claim_per_sync_run():
+    """A 2-record sync run gets exactly ONE Activity node (created + updated)
+    and ONE summary Claim — never one per row — and each record's own envelope
+    carries a ``derived_from`` link to that Activity."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    eng = _ActivityFakeEngine(FakeBackend())
+    entities = [
+        {"id": "e1", "type": "Widget", "name": "one", "updatedAt": "2026-01-01"},
+        {"id": "e2", "type": "Widget", "name": "two", "updatedAt": "2026-01-02"},
+    ]
+
+    ok, failed = ss._ingest_entities_via_envelope(eng, "acme", entities)
+
+    assert (ok, failed) == (2, 0)
+    activity_ids = {
+        nid for nid, kind in eng.node_calls if kind == "provenance_activity"
+    }
+    assert len(activity_ids) == 1
+    activity_id = next(iter(activity_ids))
+    # Called twice: once "running" before the batch, once with final counts after.
+    assert eng.node_calls.count((activity_id, "provenance_activity")) == 2
+    assert eng.nodes[activity_id]["connector"] == "acme"
+    assert eng.nodes[activity_id]["status"] == "ok"
+    assert eng.nodes[activity_id]["recordCount"] == 2
+    assert eng.nodes[activity_id]["failedCount"] == 0
+
+    claim_ids = [nid for nid, kind in eng.node_calls if kind == "Claim"]
+    assert len(claim_ids) == 1
+    claim_props = eng.nodes[claim_ids[0]]
+    assert "2 record" in claim_props["claim_text"]
+    assert "acme" in claim_props["claim_text"]
+    assert claim_props["confidence"] == 1.0
+    assert claim_props["is_verified"] is True
+    assert activity_id in claim_props["source_ids"]
+
+    # Every entity's own envelope carried a derived_from edge to the Activity,
+    # committed atomically with that entity's own write (no extra round trip).
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert sum(1 for r in rels if r.get("type") == "derived_from") == 2
+    assert all(
+        r.get("target") == activity_id for r in rels if r.get("type") == "derived_from"
+    )
+
+
+def test_ingest_entities_via_envelope_flag_off_writes_no_activity_or_claim(
+    monkeypatch,
+):
+    """``KG_AMBIENT_EPISTEMIC=false`` reproduces pre-W3.4 behavior byte-for-byte:
+    entities still sync, but no Activity/Claim node and no ``derived_from`` link
+    are written at all."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        _stub_setting({"KG_AMBIENT_EPISTEMIC": False}),
+    )
+    eng = _ActivityFakeEngine(FakeBackend())
+    entities = [
+        {"id": "e1", "type": "Widget", "name": "one", "updatedAt": "2026-01-01"}
+    ]
+
+    ok, failed = ss._ingest_entities_via_envelope(eng, "acme", entities)
+
+    assert (ok, failed) == (1, 0)
+    assert eng.node_calls == []
+    rels = [r for _d, _e, rl in eng.batches for r in (rl or [])]
+    assert not any(r.get("type") == "derived_from" for r in rels)
+
+
+def test_ingest_entities_via_envelope_per_source_override_disables_one_connector(
+    monkeypatch,
+):
+    """The global flag stays ON, but ``KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES``
+    names this connector — it opts out while an unnamed connector would not."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting",
+        _stub_setting(
+            {
+                "KG_AMBIENT_EPISTEMIC": True,
+                "KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES": "acme,other-source",
+            }
+        ),
+    )
+    eng = _ActivityFakeEngine(FakeBackend())
+    entities = [
+        {"id": "e1", "type": "Widget", "name": "one", "updatedAt": "2026-01-01"}
+    ]
+
+    ok, failed = ss._ingest_entities_via_envelope(eng, "acme", entities)
+
+    assert (ok, failed) == (1, 0)
+    assert eng.node_calls == []
+
+
+def test_ingest_entities_via_envelope_no_entities_writes_no_activity():
+    """An empty batch (nothing to sync this pass) mints no Activity/Claim —
+    there is no run to summarize."""
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+
+    eng = _ActivityFakeEngine(FakeBackend())
+
+    ok, failed = ss._ingest_entities_via_envelope(eng, "acme", [])
+
+    assert (ok, failed) == (0, 0)
+    assert eng.node_calls == []

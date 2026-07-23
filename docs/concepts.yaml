@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1018
+total_concepts: 1020
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3361,6 +3361,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: the agent-utilities checkout
+- id: AU-KG.ingest.ambient-connector-provenance
+  name: '**'
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/etl/lineage.py
+  doc: '**'
 - id: AU-KG.ingest.applying-agents-md-batch
   name: applying the AGENTS.md *batch-never-per-element* rule to
   pillar: AU-KG
@@ -4664,13 +4672,13 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/research_objects.py
   doc: AU-KG.ontology.kg-2
 - id: AU-KG.ontology.kg-3
-  name: AU-KG.ontology.kg-3
+  name: CONCEPT
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/etl/lineage.py
   - agent_utilities/mcp/tools/ontology_tools.py
-  doc: AU-KG.ontology.kg-3
+  doc: CONCEPT
 - id: AU-KG.ontology.knowledge-packs
   name: Knowledge Packs
   pillar: AU-KG
@@ -5943,6 +5951,14 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   doc: the write-back companion to the read-only XDG loader, so a
+- id: AU-KG.temporal.ambient-connector-valid-time
+  name: the ambient-epistemics
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/bitemporal.py
+  - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+  doc: the ambient-epistemics
 - id: AU-KG.temporal.bi-temporal-memory-layers
   name: Bi-Temporal Memory Layers. The three Quarq memory layers
   pillar: AU-KG
@@ -5953,10 +5969,13 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/writeback/core.py
   - agent_utilities/knowledge_graph/enrichment/writeback/findings.py
   - agent_utilities/knowledge_graph/enrichment/writeback/inventory.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/egeria.py
+  - agent_utilities/knowledge_graph/enrichment/writeback/sinks/servicenow.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_pack.py
+  - agent_utilities/observability/portfolio_intelligence.py
   doc: Bi-Temporal Memory Layers. The three Quarq memory layers
 - id: AU-KG.temporal.cross-agent-provenance
   name: Cross-Agent Context Provenance
@@ -8944,19 +8963,22 @@ concepts:
   - agent_utilities/kvcache/remote_backend.py
   doc: over a small HTTP surface
 - id: EG-KG.epistemic.truth-maintenance
-  name: stamp the matrix
+  name: Seam 3 follow-up, W3.2
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/graph/routing/enrichers/capability_designation.py
+  - agent_utilities/knowledge_graph/adaptation/tms_revalidation.py
   - agent_utilities/knowledge_graph/assimilation/feature_matrix.py
   - agent_utilities/knowledge_graph/core/engine.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/research/candidate_insight.py
   - agent_utilities/knowledge_graph/research/claim_flywheel.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/research/placement_mining.py
-  doc: stamp the matrix
+  - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+  doc: Seam 3 follow-up, W3.2
 - id: EG-KG.graphlearn.link-predictor
   name: a pure-Rust KAN
   pillar: EG-KG

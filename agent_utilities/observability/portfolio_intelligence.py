@@ -942,7 +942,7 @@ def _work_note_text(outcome: dict[str, Any]) -> str:
 
 
 def _route_writeback(
-    request: dict[str, Any], outcome: dict[str, Any]
+    request: dict[str, Any], outcome: dict[str, Any], *, as_of: str | None = None
 ) -> dict[str, Any]:
     """Backfeed the recommendation to the source ticket (design Sec 4 step 5) —
     fail-closed, dry-run-first, config-driven backend selection
@@ -950,7 +950,15 @@ def _route_writeback(
     :func:`.incident_router.get_adapter`. A non-``none`` backend only places a
     LIVE call when its own enable flag is set (``SERVICENOW_ENABLE_WRITE`` for
     ``servicenow`` — reused, not a new write gate); otherwise the intended
-    work-note is previewed and returned, never applied."""
+    work-note is previewed and returned, never applied.
+
+    ``as_of`` (X5, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers) is the KG-state
+    instant this recommendation was computed from (:func:`run_trm_assessment`
+    passes its own ``runTimestamp``) — threaded onto ``run_writeback`` so the
+    ServiceNow work-note (and the returned proposal/manifest) records WHEN the
+    KG state that produced this verdict was current, not just that a verdict
+    was reached.
+    """
     backend = str(setting("TRM_WRITEBACK_BACKEND", "none") or "none").strip().lower()
     if backend != "servicenow":
         return {"backend": "none", "status": "graph-only"}
@@ -963,6 +971,7 @@ def _route_writeback(
     out = run_writeback(
         "servicenow",
         dry_run=dry_run,
+        as_of=as_of,
         work_notes=[
             {
                 "table": table,
@@ -976,12 +985,18 @@ def _route_writeback(
 
 
 def _write_assessment(
-    request_id: str, candidate_id: str, outcome: dict[str, Any]
+    request_id: str, candidate_id: str, outcome: dict[str, Any], *, as_of: str
 ) -> dict[str, int] | None:
     """Persist ``:Assessment`` -> ``:ComparisonCriterion``/``:Recommendation``
     (design Sec 1b) through the shared native-ingest writer — the same path
     :mod:`.incident_router`/:mod:`.lifecycle_orchestrator` write typed nodes
-    through."""
+    through.
+
+    ``as_of`` is the SAME instant :func:`run_trm_assessment` passes to
+    :func:`_route_writeback` (X5), so the persisted ``:Assessment``'s own
+    ``runTimestamp`` and the backfed work-note agree on exactly when this
+    verdict's KG state was current.
+    """
     from agent_utilities.knowledge_graph.memory.native_ingest import ingest_entities
 
     assessment_id = f"{request_id}:assessment"
@@ -992,7 +1007,7 @@ def _write_assessment(
             "type": "Assessment",
             "assessmentScore": outcome.get("assessmentScore", 0.0),
             "financialDelta": outcome.get("financialDelta", 0.0),
-            "runTimestamp": _now_iso(),
+            "runTimestamp": as_of,
         },
         {
             "id": recommendation_id,
@@ -1076,14 +1091,24 @@ def run_trm_assessment(
     3. Backfeeds the verdict to the source ticket via :func:`_route_writeback`
        (fail-closed, dry-run-first — never skipped even when ``write=False``,
        since a dry-run preview is itself safe/report-only).
+
+    One ``as_of`` instant (X5, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers)
+    is computed ONCE and passed to both step 2 and step 3, so the persisted
+    ``:Assessment``'s ``runTimestamp`` and the backfed work-note's KG-state
+    stamp always agree on exactly when this verdict's KG state was current.
     """
     candidate_id = str(request.get("candidateId") or request.get("candidate_id") or "")
     request_id = str(request.get("id") or f"trm:request:{candidate_id or 'unknown'}")
 
     outcome = assess_candidate(request, engine=engine, weights=weights)
+    as_of = _now_iso()
 
-    written = _write_assessment(request_id, candidate_id, outcome) if write else None
-    writeback = _route_writeback({**request, "id": request_id}, outcome)
+    written = (
+        _write_assessment(request_id, candidate_id, outcome, as_of=as_of)
+        if write
+        else None
+    )
+    writeback = _route_writeback({**request, "id": request_id}, outcome, as_of=as_of)
 
     return {
         "requestId": request_id,

@@ -12,6 +12,14 @@ unaffected byte-for-byte) is threaded onto :class:`WritebackContext` and applied
 ``storage_time``/``event_time``/``valid_from``/``valid_to`` quadruple the read path already
 understands onto a mirrored record, so a later ``as_of`` query can answer "what did we mirror
 as valid at time T", not only "what is the current value."
+
+**X5 write-path closure (W3.4):** the above stamps the MIRRORED record's own KG-side
+validity; it says nothing about which KG-state instant the OUTBOUND write to the
+system-of-record was derived from. :func:`run_writeback` now also stamps every returned
+proposal with ``as_of`` (:func:`_stamp_proposals_as_of` — audit-trail coverage for every
+sink with no per-sink change), and the ServiceNow/Egeria sinks additionally embed
+``ctx.as_of`` into the LIVE payload itself (the ServiceNow ``work_notes`` text; Egeria's
+``additional_properties``) so the receiving system's own record carries it too.
 """
 
 from __future__ import annotations
@@ -212,6 +220,25 @@ def list_sinks() -> list[str]:
     return sorted(_SINKS)
 
 
+def _stamp_proposals_as_of(
+    proposals: list[dict[str, Any]], as_of: str | None
+) -> list[dict[str, Any]]:
+    """Attach ``as_of`` to each proposal — the write-path audit-trail twin of the
+    read path's long-standing ``as_of`` support (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers, X5).
+
+    A falsy ``as_of`` (the default when a caller doesn't supply one) returns
+    ``proposals`` unchanged, so every pre-existing caller sees byte-identical
+    output. An already-stamped proposal (a sink that sets its own ``as_of``) is
+    never overwritten. Never mutates the input list/dicts in place.
+    """
+    if not as_of:
+        return proposals
+    return [
+        {**p, "as_of": as_of} if isinstance(p, dict) and "as_of" not in p else p
+        for p in proposals
+    ]
+
+
 def run_writeback(
     target: str,
     *,
@@ -235,6 +262,16 @@ def run_writeback(
     :meth:`WritebackContext.stamp_external_id` call) on every mirrored record.
     Defaults to ``None`` ("now" at stamp time) so a caller that doesn't pass it
     behaves byte-for-byte as before this parameter existed.
+
+    **X5 write-path closure:** when ``as_of`` is supplied, it is ALSO stamped
+    onto every returned proposal (:func:`_stamp_proposals_as_of`) — including
+    a high-stakes sink's queued :class:`~.approval.ProposalQueue` entry — so
+    the outbound audit trail records the KG-state instant a backfeed derived
+    from, not just the mirrored record's own bitemporal validity. A sink may
+    additionally embed ``ctx.as_of`` directly into the LIVE payload it sends
+    (e.g. the ServiceNow/Egeria sinks); this function only guarantees the
+    audit-trail (proposal) side, which applies uniformly to every sink with no
+    per-sink change required.
     """
     sink = get_sink(target)
     if sink is None:
@@ -264,6 +301,7 @@ def run_writeback(
             return {"status": "error", "target": target, "error": str(e)}
         from .approval import ProposalQueue
 
+        preview.proposals = _stamp_proposals_as_of(preview.proposals, as_of)
         pid = ProposalQueue(backend=backend).enqueue(target, ops, preview.proposals)
         out = preview.as_dict()
         out.update(
@@ -272,6 +310,7 @@ def run_writeback(
                 "target": target,
                 "risk_tier": risk_tier,
                 "proposal_id": pid,
+                "as_of": as_of,
                 "hint": "high-stakes write queued; approve via graph_writeback action=approve",
             }
         )
@@ -282,6 +321,7 @@ def run_writeback(
     except Exception as e:  # noqa: BLE001 - never let one sink crash the surface
         logger.debug("writeback sink %s failed", target, exc_info=True)
         return {"status": "error", "target": target, "error": str(e)}
+    result.proposals = _stamp_proposals_as_of(result.proposals, as_of)
     out = result.as_dict()
     out["status"] = "completed"
     out["target"] = target

@@ -89,6 +89,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entity convention (`sha256` digest) and is exported so a caller (e.g.
   `sync_second_brain`) can recompute the id a just-persisted claim was minted
   under without a follow-up query.
+- **Ambient epistemics for connector ingestion, on by default (W3.4).**
+  Connector-ingested rows now carry epistemic value with no per-connector
+  code change: (1) **valid-time from source timestamps** — the envelope's own
+  `valid_time`/`event_time` (the source's reported modification/creation
+  timestamp, already populated from connectors' `updated_field`/version-field
+  conventions) maps onto the written row's bitemporal `valid_from`
+  (`envelope_ingest._stamp_ambient_valid_time`), and a delete/reconcile
+  tombstone closes `valid_to` at the supersession instant
+  (`_stamp_ambient_valid_until`) — never fabricated: a source with no usable
+  timestamp writes neither property, exactly the legacy shape. (2)
+  **Provenance/claim stamping** — `source_sync._ingest_entities_via_envelope`
+  (the shared migration tail ~20 connector handlers route through) now
+  records ONE PROV-O `:Activity` per sync run (`etl.lineage.
+  record_connector_sync_activity`, reusing the `PROVENANCE_AGENT` sibling
+  `RegistryNodeType.PROVENANCE_ACTIVITY` for its first live use) with every
+  synced row linked to it via a `derived_from` edge committed atomically in
+  the SAME `ApplyChangeEnvelope` transaction as the row's own write (no extra
+  round trip), plus ONE summary `:Claim` per run ("source X reported N
+  record(s) as of T", `etl.lineage.record_connector_sync_claim`) through the
+  same lightweight, directly-verified claim-persistence path
+  `orchestration.agent_dispatch_worker` already uses — never a `:Claim` per
+  row, and never the governed mining-flywheel lifecycle (reserved for
+  inferred findings needing review). (3) **Bitemporal writeback (X5)** — the
+  write-path twin of the read path's long-standing `as_of`: `run_writeback`
+  now stamps `as_of` onto every returned proposal
+  (`writeback.core._stamp_proposals_as_of`, including a high-stakes sink's
+  queued `ProposalQueue` entry) for every sink with no per-sink change, and
+  the ServiceNow (`work_notes` text) and Egeria (`additional_properties`)
+  sinks additionally embed it directly into the LIVE outbound payload;
+  `observability.portfolio_intelligence.run_trm_assessment` computes one
+  `as_of` and threads it to both the persisted `:Assessment`'s own
+  `runTimestamp` and the backfed ServiceNow TRM work-note, so both agree on
+  exactly which KG state the recommendation reflects. All three are
+  flag-gated `KG_AMBIENT_EPISTEMIC` (default ON) with a per-source CSV
+  opt-out (`KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`) — flag off reproduces
+  pre-W3.4 behavior byte-for-byte.
 - **`graph_ops_causal` findings become citable, revisable Claims (`as_claim`, W3.5).**
   `root_cause`/`blast_radius` gain an opt-in `as_claim=true` parameter: the
   call's finding is proposed through the SAME governed `ClaimFlywheel`

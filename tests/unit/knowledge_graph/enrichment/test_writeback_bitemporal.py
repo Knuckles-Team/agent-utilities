@@ -140,3 +140,141 @@ def test_push_findings_threads_as_of_through_to_run_writeback(monkeypatch):
 
     push_findings("gitlab", dry_run=True, as_of="2026-05-05T00:00:00+00:00")
     assert seen["as_of"] == "2026-05-05T00:00:00+00:00"
+
+
+# ── X5 write-path closure: as_of on the outbound proposal/payload (W3.4) ────
+
+
+class _ProposingSink:
+    """A minimal sink whose ``run`` always returns one proposal — isolates
+    :func:`~agent_utilities.knowledge_graph.enrichment.writeback.core._stamp_proposals_as_of`
+    from any real target system's payload shape."""
+
+    domain = "fakeproposing"
+    enable_flag = "FAKEPROPOSING_ENABLE_WRITE"
+
+    def run(self, ctx: WritebackContext, ops, *, dry_run: bool) -> WritebackResult:
+        result = WritebackResult(target=self.domain)
+        result.proposals.append({"op": "create", "name": "widget"})
+        return result
+
+
+def test_run_writeback_stamps_as_of_onto_every_proposal():
+    register_sink(_ProposingSink())
+    out = run_writeback(
+        "fakeproposing", dry_run=True, as_of="2026-06-03T00:00:00+00:00", creations=[]
+    )
+    assert out["proposals"][0]["as_of"] == "2026-06-03T00:00:00+00:00"
+
+
+def test_run_writeback_no_as_of_leaves_proposals_unstamped_byte_identical():
+    register_sink(_ProposingSink())
+    out = run_writeback("fakeproposing", dry_run=True, creations=[])
+    assert "as_of" not in out["proposals"][0]
+
+
+class _ServiceNowClient:
+    def __init__(self) -> None:
+        self.patched: list[dict] = []
+
+    def patch_table_record(self, *, table, table_record_sys_id, data):
+        self.patched.append({"table": table, "sys_id": table_record_sys_id, **data})
+
+
+def test_servicenow_work_notes_dry_run_proposal_carries_as_of():
+    out = run_writeback(
+        "servicenow",
+        dry_run=True,
+        as_of="2026-06-01T00:00:00+00:00",
+        work_notes=[{"table": "u_trm_request", "sys_id": "sys-1", "note": "hello"}],
+    )
+    assert out["status"] == "completed"
+    proposal = out["proposals"][0]
+    # Core-level audit-trail stamp (every sink, for free).
+    assert proposal["as_of"] == "2026-06-01T00:00:00+00:00"
+    # Sink-level: embedded directly into the ServiceNow-native audit field text.
+    assert "2026-06-01T00:00:00+00:00" in proposal["note"]
+
+
+def test_servicenow_work_notes_live_payload_carries_as_of(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.writeback.core.setting",
+        lambda key, default=None, cast=None: True,
+    )
+    client = _ServiceNowClient()
+    out = run_writeback(
+        "servicenow",
+        dry_run=False,
+        as_of="2026-06-01T00:00:00+00:00",
+        client=client,
+        work_notes=[{"table": "u_trm_request", "sys_id": "sys-1", "note": "hello"}],
+    )
+    assert out["status"] == "completed"
+    assert client.patched[0]["work_notes"] == (
+        "hello\n\n(KG state as of 2026-06-01T00:00:00+00:00)"
+    )
+
+
+def test_servicenow_work_notes_no_as_of_is_byte_identical():
+    client = _ServiceNowClient()
+    out = run_writeback(
+        "servicenow",
+        dry_run=True,
+        client=client,
+        work_notes=[{"table": "u_trm_request", "sys_id": "sys-1", "note": "hello"}],
+    )
+    assert out["proposals"][0]["note"] == "hello"
+    assert "as_of" not in out["proposals"][0]
+
+
+class _EgeriaClient:
+    def __init__(self) -> None:
+        self.created: list[dict] = []
+
+    def create_asset(self, asset_type, qn, name, *, description, additional_properties):
+        self.created.append(
+            {
+                "asset_type": asset_type,
+                "qn": qn,
+                "name": name,
+                "description": description,
+                "additional_properties": additional_properties,
+            }
+        )
+        return {"guid": "egeria-guid-1"}
+
+
+def test_egeria_create_asset_live_payload_carries_as_of(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.writeback.core.setting",
+        lambda key, default=None, cast=None: True,
+    )
+    client = _EgeriaClient()
+    out = run_writeback(
+        "egeria",
+        dry_run=False,
+        as_of="2026-06-02T00:00:00+00:00",
+        client=client,
+        creations=[{"type": "Application", "name": "Ledger"}],
+    )
+    assert out["status"] == "completed"
+    assert (
+        client.created[0]["additional_properties"]["as_of"]
+        == "2026-06-02T00:00:00+00:00"
+    )
+    assert client.created[0]["additional_properties"]["source"] == "graph-os"
+
+
+def test_egeria_create_asset_no_as_of_is_byte_identical(monkeypatch):
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.enrichment.writeback.core.setting",
+        lambda key, default=None, cast=None: True,
+    )
+    client = _EgeriaClient()
+    run_writeback(
+        "egeria",
+        dry_run=False,
+        client=client,
+        creations=[{"type": "Application", "name": "Ledger"}],
+    )
+    assert client.created[0]["additional_properties"] == {"source": "graph-os"}
