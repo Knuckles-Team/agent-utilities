@@ -199,8 +199,6 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     # killed. Threads propagate the current contextvars (actor/session) via to_thread.
     _TOOL_CALL_TIMEOUT_S = 320.0
 
-    import asyncio
-
     # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
     # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
     # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
@@ -239,9 +237,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     return await _guarded()
 
 
-def build_native_graphos_toolset(
-    tool_names: list[str], *, toolset_id: str
-) -> Any:
+def build_native_graphos_toolset(tool_names: list[str], *, toolset_id: str) -> Any:
     """Bind registered GraphOS tools for one governed in-process delegation.
 
     Native delegation must not connect GraphOS back to its own HTTP endpoint or
@@ -1287,50 +1283,6 @@ async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONRespon
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
         return _external_error_response(e)
-
-
-async def graph_ontology_publish_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='publish_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-overwrite).
-
-    Push the platform's authoritative bundled TBox to a Stardog triplestore, overwriting
-    the target named graph by default so an updated ontology updates the catalog.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="publish_stardog",
-            named_graph=body.get("named_graph", ""),
-            overwrite=bool(body.get("overwrite", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
-
-
-async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONResponse:
-    """REST twin of ``graph_ontology action='import_stardog'`` (CONCEPT:AU-KG.ontology.stardog-catalog-import).
-
-    Consume the TBox already living in a Stardog database / named graph back into the
-    engine, activating it for reasoning.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_ontology",
-            action="import_stardog",
-            named_graph=body.get("named_graph", ""),
-            activate=bool(body.get("activate", True)),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
 async def graph_write_chat_endpoint(request: Request) -> JSONResponse:

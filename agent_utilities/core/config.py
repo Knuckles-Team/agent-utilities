@@ -3431,9 +3431,7 @@ class AgentConfig(BaseSettings):
     # ``run_loop``, checked every iteration in the while-condition independent of
     # the per-substep timeouts. 0 = no overall deadline (only the turn cap /
     # per-substep timeouts apply).
-    kg_loop_max_duration_s: float = Field(
-        default=0.0, alias="KG_LOOP_MAX_DURATION_S"
-    )
+    kg_loop_max_duration_s: float = Field(default=0.0, alias="KG_LOOP_MAX_DURATION_S")
     # Exit 1 GOAL MET: rubric-score floor (0..1) at/above which a measured goal
     # evaluation counts as a real pass for research/skill loops.
     kg_loop_goal_eval_threshold: float = Field(
@@ -4697,20 +4695,6 @@ class AgentConfig(BaseSettings):
     signal in its own properties is still resolved regardless (safety auto-on,
     see `epistemic_row.should_attach_epistemic_columns`)."""
 
-    epistemic_light_default: bool = Field(
-        default=True, alias="KG_EPISTEMIC_LIGHT_DEFAULT"
-    )
-    """Attach the LIGHT epistemic envelope (confidence/source_refs/evidence_refs/
-    policy_labels/provenance — CONCEPT:AU-KB-CURRENCY) onto every plain read-path
-    row by default (Native by default). This is the cheap, ADDITIVE column-merge
-    (`epistemic_row.attach_epistemic_columns`) that keeps a caller's existing
-    `list[dict]` shape — never the heavy, type-changing `include_epistemic=True`
-    round trip (`EpistemicRow`), which stays opt-in. Set False only for a
-    deployment that must skip the extra batched `explain_provenance_by_ids`
-    round trip on every read; a row already showing a contested/low-confidence
-    signal in its own properties is still resolved regardless (safety auto-on,
-    see `epistemic_row.should_attach_epistemic_columns`)."""
-
     sparql_endpoints: list[str] = Field(
         default=["https://query.wikidata.org/sparql"], alias="SPARQL_ENDPOINTS"
     )
@@ -5549,9 +5533,9 @@ def _populate_lazy_config(
     _LAZY_CACHE["DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL"] = cfg.otel_exporter_otlp_protocol
 
     _LAZY_CACHE["DEFAULT_LANGFUSE_HOST"] = cfg.langfuse_host
-    _LAZY_CACHE[
-        "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"
-    ] = cfg.langfuse_dataset_capture_threshold
+    _LAZY_CACHE["DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD"] = (
+        cfg.langfuse_dataset_capture_threshold
+    )
 
     _LAZY_CACHE["DEFAULT_A2A_BROKER"] = cfg.a2a_broker
     _LAZY_CACHE["DEFAULT_A2A_STORAGE"] = cfg.a2a_storage
@@ -5632,9 +5616,9 @@ def _populate_lazy_config(
     _LAZY_CACHE["DEFAULT_SYNTHESIS_RATIO"] = cfg.synthesis_ratio
     _LAZY_CACHE["DEFAULT_AGENT_EXECUTION_TIMEOUT"] = cfg.agent_execution_timeout
     _LAZY_CACHE["DEFAULT_CIRCUIT_BREAKER_THRESHOLD"] = cfg.circuit_breaker_threshold
-    _LAZY_CACHE[
-        "DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"
-    ] = cfg.enable_progressive_synthesis
+    _LAZY_CACHE["DEFAULT_ENABLE_PROGRESSIVE_SYNTHESIS"] = (
+        cfg.enable_progressive_synthesis
+    )
 
     _LAZY_CACHE["MAX_UPLOAD_SIZE"] = cfg.max_upload_size
 
@@ -6475,14 +6459,14 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
 
                     # Suppress RequestsDependencyWarning in subprocesses
                     if "PYTHONWARNINGS" not in cfg["env"]:
-                        cfg["env"][
-                            "PYTHONWARNINGS"
-                        ] = "ignore:urllib3 (2.3.0) or chardet"
+                        cfg["env"]["PYTHONWARNINGS"] = (
+                            "ignore:urllib3 (2.3.0) or chardet"
+                        )
                     else:
                         if "ignore:urllib3" not in cfg["env"]["PYTHONWARNINGS"]:
-                            cfg["env"][
-                                "PYTHONWARNINGS"
-                            ] += ",ignore:urllib3 (2.3.0) or chardet"
+                            cfg["env"]["PYTHONWARNINGS"] += (
+                                ",ignore:urllib3 (2.3.0) or chardet"
+                            )
 
                     # Token forwarding: propagate user session token to
                     # MCP subprocesses for delegated authentication.

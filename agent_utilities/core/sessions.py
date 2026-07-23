@@ -100,38 +100,6 @@ def _sessions_tenant_predicate() -> tuple[str, tuple]:
     return " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')", (tenant,)
 
 
-def _ambient_session_tenant() -> str:
-    """The tenant a durable session/goal row is stamped with (AU-P0-5).
-
-    Delegates to the state-store's one ambient-tenant resolver (GraphSession
-    first, then the ambient actor) so the sessions store agrees with every
-    other Postgres-backed store sharing this pool. ``""`` (unrestricted /
-    commons) when nothing is scoped — unchanged from today's behaviour.
-    """
-    try:
-        from agent_utilities.core.state_store import ambient_state_tenant
-
-        return ambient_state_tenant()
-    except Exception:  # noqa: BLE001 — tenant stamping must never break intake
-        return ""
-
-
-def _sessions_tenant_predicate() -> tuple[str, tuple]:
-    """A ``sessions``-row WHERE fragment + params scoping to the ambient tenant.
-
-    Pushes the tenant check DOWN into the query (AU-P0-5) instead of fetching
-    every row and post-filtering in Python: an unscoped/system caller (ambient
-    tenant ``""``) gets the fragment ``""`` (unrestricted — today's exact
-    behaviour); a tenant-scoped caller gets rows for its own tenant PLUS
-    "commons" rows (``tenant_id`` unset/empty), mirroring the RLS convention
-    ``PostgreSQLBackend``/the state-store GUC already use.
-    """
-    tenant = _ambient_session_tenant()
-    if not tenant:
-        return "", ()
-    return " AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')", (tenant,)
-
-
 def _identity_metadata() -> dict:
     """Ambient ``{tenant_id, actor_id}`` for stamping into session metadata.
 
@@ -449,10 +417,7 @@ def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
     for r in rows or []:
         if isinstance(r, dict) and r.get("goal_id"):
             entry = _goal_row_to_entry(r)
-            entry["status"] = (
-                _goal_work_item_status(engine, goal_id)
-                or "submitted"
-            )
+            entry["status"] = _goal_work_item_status(engine, goal_id) or "submitted"
             return entry
     return None
 

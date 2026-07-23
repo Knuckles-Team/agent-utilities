@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -496,11 +497,7 @@ def migrate_config_file(
     plaintext_secrets = plaintext_secret_keys(cleaned)
     unknown_removed: list[str] = []
     if strip_unknown and unknown:
-        cleaned = {
-            k: v
-            for k, v in cleaned.items()
-            if str(k) not in set(unknown)
-        }
+        cleaned = {k: v for k, v in cleaned.items() if str(k) not in set(unknown)}
         unknown_removed = unknown
         unknown = []
 
@@ -604,9 +601,7 @@ def config_doctor(
             else {}
         )
         _plaintext_secrets = (
-            plaintext_secret_keys(_secret_raw)
-            if isinstance(_secret_raw, dict)
-            else []
+            plaintext_secret_keys(_secret_raw) if isinstance(_secret_raw, dict) else []
         )
     except Exception:  # noqa: BLE001 - privacy-safe: never surface a value or path
         _plaintext_secrets = []

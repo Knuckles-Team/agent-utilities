@@ -3816,10 +3816,6 @@ class WorkItemNode(RegistryNode):
         default=0.0,
         description="Unix timestamp when the lease was (re-)acquired",
     )
-    lease_expires_at: float = Field(
-        default=0.0,
-        description="Unix timestamp after which the lease is stale and re-claimable",
-    )
     status: str = Field(
         default="submitted",
         description=(
@@ -3909,120 +3905,6 @@ class WorkItemNode(RegistryNode):
     created_by: str = Field(
         default="", description="Opaque creator reference for a team assignment"
     )
-    created_at: float = Field(default=0.0)
-    updated_at: float = Field(default=0.0)
-    submitted_at: float = Field(default=0.0)
-    completed_at: float | None = Field(default=None)
-
-
-class WorkItemNode(RegistryNode):
-    """The ONE engine-native work-item state machine (AU-P1-1).
-
-    Consolidates the fragmented Goal/Task/AgentTask/Loop/dispatch status
-    vocabularies (see ``agent_utilities.orchestration.work_item`` module
-    docstring for the full reuse/migration/shim accounting) onto a single
-    versioned lifecycle::
-
-        submitted -> ready -> leased(fencing_token) -> running(heartbeat,attempt)
-            -> succeeded(result_ref) | failed(error_ref) | cancelled | dead_letter
-
-    Every mutating transition is arbitrated by the engine's atomic
-    ``compare_and_set_node_fields`` (the SAME CAS primitive
-    ``TaskManagerMixin._claim_next_task``/``research.loops.claim_loop`` already
-    use — AU-P1-1 reuses it rather than inventing a second claim mechanism),
-    so claim/lease/fencing/dependency-release/result-commit are all exactly-
-    once across hosts without an external lock. See
-    :mod:`agent_utilities.orchestration.work_item` for the full state-machine
-    implementation (submission, claim, heartbeat, commit, dependency release,
-    lease-expiry reaping, DLQ).
-    """
-
-    type: RegistryNodeType = RegistryNodeType.WORK_ITEM
-    tenant: str = Field(
-        default="", description="Owning tenant, for quota/fairness scoping"
-    )
-    kind: str = Field(
-        default="generic",
-        description=(
-            "Discriminator for the executing adapter, e.g. 'goal_loop' | "
-            "'orchestrator_task' | 'agent_task' | 'ingest_task' | 'generic'"
-        ),
-    )
-    status: str = Field(
-        default="submitted",
-        description=(
-            "submitted | ready | leased | running | succeeded | failed | "
-            "cancelled | dead_letter"
-        ),
-    )
-    payload_ref: str = Field(
-        default="",
-        description="Reference to the work body (goal/session id, task description id, ...) — never the body itself",
-    )
-    result_ref: str | None = Field(
-        default=None,
-        description="Reference to the committed result (never the result body)",
-    )
-    error_ref: str | None = Field(
-        default=None, description="Reference to the committed error/failure detail"
-    )
-    idempotency_key: str = Field(
-        default="",
-        description="Key gating exactly-once result commit; defaults to the item id",
-    )
-    depends_on: list[str] = Field(
-        default_factory=list,
-        description="Parent WorkItem ids that must succeed before this item is ready",
-    )
-    dep_count: int = Field(
-        default=0,
-        description="Remaining unresolved parent dependencies; atomically decremented on each parent's success",
-    )
-    downstream_ids: list[str] = Field(
-        default_factory=list,
-        description="Child WorkItem ids waiting on this item (reverse dependency index)",
-    )
-    prio_bucket: int = Field(
-        default=2,
-        description="Discrete claim priority bucket 0(critical)..3(background)",
-    )
-    deadline_unix: float | None = Field(
-        default=None, description="Unix deadline; past-deadline claims are expired"
-    )
-    budget: float | None = Field(
-        default=None, description="Cost/resource budget ceiling for this item"
-    )
-    resource_class: str = Field(
-        default="default", description="Claim partition, e.g. 'gpu' | 'default'"
-    )
-    fairness_group: str = Field(
-        default="", description="Fairness/round-robin scheduling group"
-    )
-    attempt: int = Field(default=0, description="Number of claim attempts so far")
-    max_attempts: int = Field(
-        default=3,
-        description="Attempts allowed before a retryable failure becomes dead_letter",
-    )
-    backoff_base_s: float = Field(
-        default=30.0, description="Base seconds for exponential retry backoff"
-    )
-    next_retry_at: float | None = Field(
-        default=None,
-        description="Unix time before which a 'ready' item is not claimable",
-    )
-    lease_owner: str | None = Field(
-        default=None, description="Current lease holder token (hostname:pid:role)"
-    )
-    lease_epoch: int = Field(
-        default=0, description="Monotonic fencing token; bumped on every (re)claim"
-    )
-    lease_expires_at: float | None = Field(
-        default=None, description="Unix time after which the lease is stale"
-    )
-    heartbeat_at: float | None = Field(
-        default=None, description="Last renewal timestamp from the executing worker"
-    )
-    correlation_id: str = Field(default="", description="Run-wide trace/correlation id")
     created_at: float = Field(default=0.0)
     updated_at: float = Field(default=0.0)
     submitted_at: float = Field(default=0.0)
