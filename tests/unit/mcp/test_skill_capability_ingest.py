@@ -203,11 +203,24 @@ def test_boot_skill_ingest_sanitizes_instruction_body(tmp_path, monkeypatch):
 
 
 def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch):
+    from agent_utilities.skills import BUNDLED_SKILLS
+
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
 
-    assert kg_server._ingest_skill_capabilities(engine, "agent-utilities", root) == 10
+    # Scoped to exactly the packaged/boot-critical skills: `agent_utilities/skills/`
+    # also holds atomic skills that are NOT bundled (e.g. agent-utilities-self-
+    # evolution, autonomous-contribution) and the `skill_graphs` reference corpus
+    # (excluded by `is_skill_graph_reference_path`) — an unscoped call ingests all
+    # of the former too, which is correct for a real boot but not what this test
+    # is asserting about the 10 BUNDLED_SKILLS specifically.
+    assert (
+        kg_server._ingest_skill_capabilities(
+            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+        )
+        == 10
+    )
 
     resources = {
         node["name"]: (node_id, node)
@@ -237,10 +250,17 @@ def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch)
 
 
 def test_bundled_skill_readiness_is_idempotent(monkeypatch):
+    from agent_utilities.skills import BUNDLED_SKILLS
+
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert kg_server._ingest_skill_capabilities(engine, "agent-utilities", root) == 10
+    assert (
+        kg_server._ingest_skill_capabilities(
+            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+        )
+        == 10
+    )
     ingest = MagicMock(wraps=kg_server._ingest_skill_capabilities)
     monkeypatch.setattr(kg_server, "_ingest_skill_capabilities", ingest)
 
@@ -251,15 +271,23 @@ def test_bundled_skill_readiness_is_idempotent(monkeypatch):
         "already_ready": 10,
         "ingested": 0,
         "ready": 10,
+        "not_ready": [],
     }
     ingest.assert_not_called()
 
 
 def test_bundled_skill_readiness_uses_governed_query_boundary(monkeypatch):
+    from agent_utilities.skills import BUNDLED_SKILLS
+
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert kg_server._ingest_skill_capabilities(engine, "agent-utilities", root) == 10
+    assert (
+        kg_server._ingest_skill_capabilities(
+            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+        )
+        == 10
+    )
     governed_query = MagicMock(wraps=engine.query_cypher)
     engine.query_cypher = governed_query
     engine.backend = MagicMock()
@@ -282,7 +310,12 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert kg_server._ingest_skill_capabilities(engine, "agent-utilities", root) == 10
+    assert (
+        kg_server._ingest_skill_capabilities(
+            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+        )
+        == 10
+    )
     missing = BUNDLED_SKILLS[-1]
     engine.nodes.pop(f"resource:skill:{missing}")
     ingest = MagicMock(wraps=kg_server._ingest_skill_capabilities)
@@ -295,18 +328,31 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
         "already_ready": 9,
         "ingested": 1,
         "ready": 10,
+        "not_ready": [],
     }
     ingest.assert_called_once()
     assert ingest.call_args.kwargs["include_names"] == frozenset({missing})
 
 
-def test_bundled_skill_readiness_failure_is_controlled(monkeypatch):
+def test_bundled_skill_readiness_failure_is_controlled(monkeypatch, caplog):
+    """A packaged-skill readiness shortfall is a CAPABILITY gap, not a reason
+    to refuse serving. It must not raise (that would take the whole server
+    down over some skills failing to ingest — the same class of bug as the
+    ``DuplicateSkillIdentity`` collision aborting the whole sweep); it is
+    logged loudly and reported back so ``/health`` and the caller can see
+    exactly which packaged skills are not ready.
+    """
     monkeypatch.setattr(kg_server, "_ingest_skill_capabilities", lambda *_a, **_k: 0)
 
-    with pytest.raises(kg_server.GraphOSStartupReadinessError) as captured:
-        kg_server._ensure_bundled_skills_ready(RecordingEngine())
+    with caplog.at_level("ERROR", logger="agent_utilities.mcp.kg_server"):
+        report = kg_server._ensure_bundled_skills_ready(RecordingEngine())
 
-    assert str(captured.value) == "graphos_bundled_skills_unready"
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    assert report["ready"] == 0
+    assert report["required"] == len(BUNDLED_SKILLS)
+    assert sorted(report["not_ready"]) == sorted(BUNDLED_SKILLS)
+    assert "readiness incomplete" in caplog.text
 
 
 def test_provider_resolution_ignores_unmarked_nested_xdg_root(tmp_path, monkeypatch):
@@ -376,8 +422,17 @@ def test_provider_resolution_accepts_marked_current_nested_provider(
 
 
 def test_flat_xdg_copy_conflicting_with_provider_identity_fails_closed(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, caplog
 ):
+    """An untrusted flat xdg-local skill claiming a provider-owned identity
+
+    must never be allowed to shadow or coexist with the trusted provider
+    skill ("fails closed" on the identity itself) — but it must also not take
+    down every OTHER unrelated skill with it. The provider-owned copy wins
+    (added first), the untrusted duplicate is dropped, and the collision is
+    logged loudly rather than raised, so one bad/malicious local file can no
+    longer deny the whole skill sweep (CONCEPT: sweep resilience).
+    """
     xdg_root = tmp_path / "xdg"
     xdg_skill = xdg_root / "runtime-audit"
     package_root = tmp_path / "package"
@@ -407,5 +462,132 @@ def test_flat_xdg_copy_conflicting_with_provider_identity_fails_closed(
         ),
     )
 
-    with pytest.raises(providers.DuplicateSkillIdentity):
-        providers.resolve_skill_provider_dirs()
+    with caplog.at_level("ERROR", logger="agent_utilities.core.providers"):
+        roots = providers.resolve_skill_provider_dirs()
+
+    matches = [(provider, root) for provider, root in roots if root.name == "runtime-audit"]
+    assert matches == [("canonical-provider", package_skill)]
+    assert "runtime-audit" in caplog.text
+    assert "canonical-provider" in caplog.text
+
+
+def test_resolve_skill_provider_dirs_exempts_skill_graph_reference_pages(
+    tmp_path, monkeypatch
+):
+    """A ``skill_type: graph`` reference page legitimately reuses the exact
+    ``name:`` of the atomic skill it documents — e.g. the packaged
+    ``agent-utilities`` skill-graph's "deployment" page
+    (``skill_graphs/agent-utilities/deployment/SKILL.md``) is itself named
+    ``agent-utilities-deployment``, matching the real atomic skill it
+    documents. This must never be flagged as a fleet-wide identity collision
+    (it is a KG-ingestion reference corpus, not an installable skill — the
+    same scoping as ``scripts/check_skill_name_collision.py``'s
+    ``skill_graphs``/``skill-graphs`` exclusion and the fleet harness's
+    ``_exempt_from_uniqueness``).
+
+    Regression test for the ``DuplicateSkillIdentity`` bug that took
+    ``agent-utilities-deployment``/``agent-utilities-development`` down at
+    graph-os boot ("SERVING DEGRADED: 8/10 packaged skills ready").
+    """
+    xdg_root = tmp_path / "xdg"
+    xdg_root.mkdir()
+    provider_root = tmp_path / "provider"
+    atomic_dir = provider_root / "shared-topic"
+    atomic_dir.mkdir(parents=True)
+    (atomic_dir / "SKILL.md").write_text(
+        "---\nname: shared-topic\nskill_type: skill\n---\nbody"
+    )
+    graph_page_dir = provider_root / "skill_graphs" / "some-graph" / "shared-topic"
+    graph_page_dir.mkdir(parents=True)
+    (graph_page_dir / "SKILL.md").write_text(
+        "---\nname: shared-topic\nskill_type: graph\n---\nbody"
+    )
+    monkeypatch.setattr("agent_utilities.core.paths.skills_dir", lambda: xdg_root)
+    manifest = providers.build_asset_manifest(provider_root, leg="skills")
+    registration = providers.ProviderRegistration(
+        name="topic-provider",
+        group=providers.SKILL_PROVIDER_GROUP,
+        target="topic.skills",
+        owner_name="topic-provider",
+        owner_version="1",
+        digest="c" * 64,
+        source_root=provider_root,
+        owned_paths=frozenset(
+            {"shared-topic/SKILL.md", "skill_graphs/some-graph/shared-topic/SKILL.md"}
+        ),
+    )
+    monkeypatch.setattr(
+        providers,
+        "current_provider_assets",
+        lambda _group: (
+            providers.ProviderAssets(registration, provider_root, manifest),
+        ),
+    )
+
+    roots = providers.resolve_skill_provider_dirs()
+
+    matches = [(provider, root) for provider, root in roots if root.name == "shared-topic"]
+    assert matches == [("topic-provider", atomic_dir)]
+
+
+def test_resolve_skill_provider_dirs_sweep_survives_one_collision(
+    tmp_path, monkeypatch, caplog
+):
+    """One colliding skill must not abort resolution of every OTHER skill.
+
+    Regression test for the bug where a single ``DuplicateSkillIdentity``
+    escaping the resolution loop aborted the WHOLE sweep, so graph-os went
+    from "10/10 packaged skills ready" to "SERVING DEGRADED: 8/10 ready" —
+    two unrelated, non-colliding skills were also reported not_ready because
+    the collision on two OTHER skills took the entire function down.
+    """
+    xdg_root = tmp_path / "xdg"
+    xdg_root.mkdir()
+    provider_a_root = tmp_path / "provider-a"
+    provider_b_root = tmp_path / "provider-b"
+    for root, name in (
+        (provider_a_root, "shared-name"),
+        (provider_b_root, "shared-name"),
+    ):
+        skill_dir = root / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(f"---\nname: {name}\n---\nbody")
+    unrelated_dir = provider_b_root / "unrelated-skill"
+    unrelated_dir.mkdir()
+    (unrelated_dir / "SKILL.md").write_text("---\nname: unrelated-skill\n---\nbody")
+
+    monkeypatch.setattr("agent_utilities.core.paths.skills_dir", lambda: xdg_root)
+
+    def _asset(name: str, root: Path, owned: frozenset[str]):
+        manifest = providers.build_asset_manifest(root, leg="skills")
+        registration = providers.ProviderRegistration(
+            name=name,
+            group=providers.SKILL_PROVIDER_GROUP,
+            target=f"{name}.skills",
+            owner_name=name,
+            owner_version="1",
+            digest=("d" if name == "provider-a" else "e") * 64,
+            source_root=root,
+            owned_paths=owned,
+        )
+        return providers.ProviderAssets(registration, root, manifest)
+
+    asset_a = _asset("provider-a", provider_a_root, frozenset({"shared-name/SKILL.md"}))
+    asset_b = _asset(
+        "provider-b",
+        provider_b_root,
+        frozenset({"shared-name/SKILL.md", "unrelated-skill/SKILL.md"}),
+    )
+    monkeypatch.setattr(
+        providers, "current_provider_assets", lambda _group: (asset_a, asset_b)
+    )
+
+    with caplog.at_level("ERROR", logger="agent_utilities.core.providers"):
+        roots = providers.resolve_skill_provider_dirs()
+
+    by_name = {root.name: (provider, root) for provider, root in roots}
+    assert by_name["unrelated-skill"][0] == "provider-b"  # survived the collision
+    assert by_name["shared-name"][0] == "provider-a"  # first in sorted order wins
+    assert "shared-name" in caplog.text
+    assert "provider-a" in caplog.text
+    assert "provider-b" in caplog.text

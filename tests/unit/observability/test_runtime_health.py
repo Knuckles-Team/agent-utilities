@@ -125,6 +125,18 @@ def _isolated_breaker_registry():
     eb.reset_breakers()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_mirror_build_status():
+    """``get_mirror_build_status()`` reads a process-wide registry other test
+    modules (e.g. ``test_mirror_set.py``) also populate — clear it so a
+    ``kg_mirrors`` test never sees another test's mirror names."""
+    from agent_utilities.knowledge_graph import backends as B
+
+    B._MIRROR_BUILD_STATUS.clear()
+    yield
+    B._MIRROR_BUILD_STATUS.clear()
+
+
 # --------------------------------------------------------------------------- #
 # 1. engine reachability — the core bug this task fixes
 # --------------------------------------------------------------------------- #
@@ -351,6 +363,143 @@ def test_stardog_mirror_configured_and_reachable_is_ok(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# 2b. kg_mirrors — optional kg_connections mirrors (CONCEPT:AU-KG.backend.mirror-health-repair)
+#
+# The availability bug this check exists for: a broken OPTIONAL mirror
+# (missing driver / unreachable host / bad credentials) used to crash the
+# whole graph-os server. The fix isolates the failure at its source
+# (``backends/__init__.py``'s ``_build_mirror_set``); this check makes that
+# failure OBSERVABLE. Critically, it must never report ``unhealthy`` — that
+# would pull graph-os out of Service routing over a dependency the
+# epistemic-graph engine authority does not need. It reports ``degraded``
+# instead: visible, but informational-only (never fails the rollup) — same
+# semantics ``not_configured`` already gets elsewhere in this module.
+# --------------------------------------------------------------------------- #
+def _configure_one_mirror(monkeypatch):
+    """``_resolve_mirror_target_names`` (like ``_build_mirror_set``) reads the
+    process-wide config singleton directly, not an injected ``cfg`` — mirrors
+    the exact pattern ``tests/unit/knowledge_graph/test_mirror_set.py`` already
+    uses for the same module.
+    """
+    from agent_utilities.core.config import config as live_cfg
+
+    monkeypatch.delenv("GRAPH_MIRROR_TARGETS", raising=False)
+    monkeypatch.setattr(live_cfg, "graph_mirror_targets", ["prod-neo4j"], raising=False)
+    monkeypatch.setattr(
+        live_cfg,
+        "kg_connections",
+        [{"name": "prod-neo4j", "backend": "neo4j"}],
+        raising=False,
+    )
+
+
+def test_kg_mirrors_not_configured_by_default():
+    """No ``GRAPH_MIRROR_TARGETS`` / mirror-role ``kg_connections`` entries at
+    all → informational ``not_configured``, matching every other optional
+    co-service check in this module."""
+    result = rh._check_kg_mirrors(AgentConfig())
+    assert result["status"] == "not_configured"
+
+
+def test_kg_mirrors_all_healthy_is_ok(monkeypatch):
+    from agent_utilities.knowledge_graph import backends as B
+
+    _configure_one_mirror(monkeypatch)
+    monkeypatch.setattr(
+        B, "_MIRROR_BUILD_STATUS", {"prod-neo4j": {"backend_type": "neo4j", "ok": True}}
+    )
+
+    result = rh._check_kg_mirrors(AgentConfig())
+
+    assert result["status"] == "ok"
+    assert result["detail"]["healthy"] == ["prod-neo4j"]
+    assert result["detail"]["failed"] == {}
+
+
+def test_kg_mirrors_broken_mirror_is_degraded_never_unhealthy(monkeypatch):
+    """THE requirement: a mirror that failed to construct is reported as
+    ``degraded`` detail — informational — NEVER ``unhealthy``. An optional
+    mirror going down must not pull graph-os out of Service routing.
+    """
+    from agent_utilities.knowledge_graph import backends as B
+
+    _configure_one_mirror(monkeypatch)
+    monkeypatch.setattr(
+        B,
+        "_MIRROR_BUILD_STATUS",
+        {
+            "prod-neo4j": {
+                "backend_type": "neo4j",
+                "ok": False,
+                "reason": "ImportError: Neo4j driver is not installed",
+            }
+        },
+    )
+
+    result = rh._check_kg_mirrors(AgentConfig())
+
+    assert result["status"] == "degraded"
+    assert result["status"] != "unhealthy"
+    assert "prod-neo4j" in result["detail"]["failed"]
+    assert "Neo4j driver is not installed" in result["detail"]["failed"]["prod-neo4j"]
+
+
+def test_kg_mirrors_degraded_check_never_flips_the_overall_rollup(monkeypatch):
+    """The whole point: even with a broken optional mirror, ``collect_health``'s
+    overall status must stay ``healthy`` (readiness is unaffected)."""
+    from agent_utilities.knowledge_graph import backends as B
+
+    _configure_one_mirror(monkeypatch)
+    monkeypatch.setattr(
+        B,
+        "_MIRROR_BUILD_STATUS",
+        {
+            "prod-neo4j": {
+                "backend_type": "neo4j",
+                "ok": False,
+                "reason": "ImportError: Neo4j driver is not installed",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        rh,
+        "_CHECKS",
+        (
+            ("kg_mirrors", rh._check_kg_mirrors),
+            ("a", lambda _cfg: {"name": "a", "status": "ok"}),
+        ),
+    )
+
+    report = rh.collect_health()
+
+    assert report["status"] == "healthy"
+    assert rh.is_overall_healthy(report)
+    kg_check = next(c for c in report["checks"] if c["name"] == "kg_mirrors")
+    assert kg_check["status"] == "degraded"
+
+
+def test_kg_mirrors_never_builds_or_reconnects_anything(monkeypatch):
+    """Pure read-only registry scan — the check itself must never trigger a
+    mirror (re)build (no driver import, no network I/O), matching the
+    ``messaging`` check's convention."""
+    from agent_utilities.knowledge_graph import backends as B
+
+    _configure_one_mirror(monkeypatch)
+
+    def _boom(*_a, **_k):
+        raise AssertionError("kg_mirrors health check must not build anything")
+
+    monkeypatch.setattr(B, "_build_mirror_set", _boom)
+    monkeypatch.setattr(B, "_build_member", _boom)
+
+    result = rh._check_kg_mirrors(AgentConfig())
+
+    # Configured, but no build has been observed yet in this process.
+    assert result["status"] == "ok"
+    assert result["detail"]["unobserved"] == ["prod-neo4j"]
+
+
+# --------------------------------------------------------------------------- #
 # 3. the hard structural guarantee: a broken/hung probe is NEVER "ok"
 # --------------------------------------------------------------------------- #
 def test_a_probe_that_raises_is_unhealthy_never_swallowed_to_ok():
@@ -398,10 +547,34 @@ def test_collect_health_rollup_is_unhealthy_if_any_check_is_unhealthy(monkeypatc
 
     report = rh.collect_health()
 
+    # The REPORT stays truthful: any unhealthy check makes the rollup unhealthy.
     assert report["status"] == "unhealthy"
-    assert not rh.is_overall_healthy(report)
     assert {c["name"] for c in report["checks"]} == {"a", "b", "c"}
     assert "generated_at" in report
+    # READINESS is deliberately narrower than the rollup. It answers only "can
+    # this process serve requests", which depends on the engine it reads and
+    # writes through — not on optional co-services that run in their own
+    # deployments. Gating rotation on those turned one component's outage into a
+    # total one (a down messaging daemon pulled a serving graph-os out of the
+    # Service). Here "c" is unhealthy but is not the engine, so the process
+    # stays ready while the report still says unhealthy.
+    assert rh.is_overall_healthy(report)
+
+
+def test_readiness_is_false_when_the_engine_itself_is_unhealthy(monkeypatch):
+    monkeypatch.setattr(
+        rh,
+        "_CHECKS",
+        (
+            ("engine", lambda _cfg: {"name": "engine", "status": "unhealthy", "reason": "x"}),
+            ("messaging", lambda _cfg: {"name": "messaging", "status": "ok"}),
+        ),
+    )
+
+    report = rh.collect_health()
+
+    assert report["status"] == "unhealthy"
+    assert not rh.is_overall_healthy(report)
 
 
 def test_collect_health_rollup_is_healthy_when_only_ok_and_not_configured(monkeypatch):

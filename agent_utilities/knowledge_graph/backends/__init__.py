@@ -34,12 +34,40 @@ Environment Variables:
 import json
 import logging
 import os
+import threading
 from collections.abc import Mapping
 from typing import Any
 
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
+
+# Most-recent per-mirror construction outcome (CONCEPT:AU-KG.backend.mirror-health-repair),
+# populated by ``_build_mirror_set`` on every fan-out build (startup and any
+# later rebuild). Read-only observability surface for
+# ``observability/runtime_health.py`` — reading it never triggers a mirror
+# (re)build or any network I/O of its own, matching the read-only-registry-scan
+# convention the ``messaging`` health check already uses.
+_MIRROR_STATUS_LOCK = threading.Lock()
+_MIRROR_BUILD_STATUS: dict[str, dict[str, Any]] = {}
+
+
+def get_mirror_build_status() -> dict[str, dict[str, Any]]:
+    """Read-only snapshot of ``{mirror_name: {"backend_type", "ok", "reason"}}``
+    for every optional kg_connections mirror the last fan-out build attempted.
+    Never builds or reconnects anything itself."""
+    with _MIRROR_STATUS_LOCK:
+        return {name: dict(v) for name, v in _MIRROR_BUILD_STATUS.items()}
+
+
+def _record_mirror_status(
+    name: str, backend_type: str, *, ok: bool, reason: str | None = None
+) -> None:
+    entry: dict[str, Any] = {"backend_type": backend_type, "ok": ok}
+    if reason:
+        entry["reason"] = reason
+    with _MIRROR_STATUS_LOCK:
+        _MIRROR_BUILD_STATUS[name] = entry
 
 
 # Postgres connection-pool sizing (config discipline): sensible bounded defaults
@@ -198,6 +226,7 @@ __all__ = [
     "create_backend",
     "get_active_backend",
     "set_active_backend",
+    "get_mirror_build_status",
 ]
 
 
@@ -258,12 +287,12 @@ def _build_member(spec: dict[str, Any]):
         _ACTIVE_BACKEND = saved
 
 
-def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
-    """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:AU-KG.backend.mirror-health-repair),
-    resolved against ``kg_connections``. Returns ``{}`` when none are configured.
-
-    Used by the ``fanout`` backend: every write that lands in the engine authority
-    is teed, losslessly, out to the named mirrors (e.g. pg-age / neo4j / falkordb).
+def _resolve_mirror_target_names() -> list[str]:
+    """Configured mirror names (``GRAPH_MIRROR_TARGETS`` + ``kg_connections``
+    entries with ``role="mirror"``, deduped) WITHOUT building anything — no
+    driver import, no network I/O. Shared by ``_build_mirror_set`` (the real
+    build) and the ``kg_mirrors`` health check (a read-only "what's configured"
+    view), so the two never disagree about what "configured" means.
     """
     from agent_utilities.core.config import config as _cfg
 
@@ -284,7 +313,28 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
         if t and t not in _seen:
             _seen.add(t)
             _deduped.append(t)
-    targets = _deduped
+    return _deduped
+
+
+def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Build ``{name: backend}`` for ``GRAPH_MIRROR_TARGETS`` (CONCEPT:AU-KG.backend.mirror-health-repair),
+    resolved against ``kg_connections``. Returns ``{}`` when none are configured.
+
+    Used by the ``fanout`` backend: every write that lands in the engine authority
+    is teed, losslessly, out to the named mirrors (e.g. pg-age / neo4j / falkordb).
+
+    Every mirror is OPTIONAL interop/BI/DR tooling — the epistemic-graph engine
+    is the one operational authority and never depends on any of these. A
+    single mirror that cannot be constructed (missing driver, unreachable host,
+    bad credentials, invalid profile ref, ...) is therefore isolated: it is
+    logged loudly (with the real cause and a traceback, not just its exception
+    type), recorded in ``get_mirror_build_status()`` for observability, and
+    skipped — it never aborts the other mirrors or the operational authority
+    build that called us.
+    """
+    from agent_utilities.core.config import config as _cfg
+
+    targets = _resolve_mirror_target_names()
     if not targets:
         return {}
     conn_specs: dict[str, dict[str, Any]] = {}
@@ -326,13 +376,44 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                     _role,
                 )
                 continue
-        member = _build_member(spec)
+        try:
+            member = _build_member(spec)
+        except Exception as exc:
+            # An optional mirror is NOT allowed to take the operational
+            # authority (or any other mirror) down with it — isolate the
+            # failure here, right at its source, and keep going. Log the real
+            # cause (message + traceback), never just the exception type: that
+            # anti-pattern has repeatedly hidden the actual reason ("ImportError:
+            # Neo4j driver is not installed", a bad host, bad credentials, an
+            # invalid connection_profile_ref, ...) behind an undiagnosable stack.
+            logger.error(
+                "kg_connections mirror '%s' (backend_type=%s) failed to "
+                "construct and is DEGRADED/SKIPPED — the epistemic-graph "
+                "engine authority and every other mirror are unaffected "
+                "(%s: %s)",
+                name,
+                backend_type,
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
+            _record_mirror_status(
+                name, backend_type, ok=False, reason=f"{type(exc).__name__}: {exc}"
+            )
+            continue
         if member is not None:
             mirrors[name] = member
+            _record_mirror_status(name, backend_type, ok=True)
         else:
             logger.warning(
                 "mirror '%s' unavailable (missing driver / unreachable); skipping.",
                 name,
+            )
+            _record_mirror_status(
+                name,
+                backend_type,
+                ok=False,
+                reason="backend factory returned None (missing driver / unavailable)",
             )
     return mirrors
 

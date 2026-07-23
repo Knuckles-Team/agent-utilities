@@ -199,8 +199,6 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     # killed. Threads propagate the current contextvars (actor/session) via to_thread.
     _TOOL_CALL_TIMEOUT_S = 320.0
 
-    import asyncio
-
     # Dispatch isolation (CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): most graph_*/
     # engine_* tools are SYNC and do blocking engine I/O. Running them inline blocks the ONE
     # gateway asyncio loop, so a single hung/misbehaving tool call (an uncompiled engine
@@ -239,9 +237,7 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     return await _guarded()
 
 
-def build_native_graphos_toolset(
-    tool_names: list[str], *, toolset_id: str
-) -> Any:
+def build_native_graphos_toolset(tool_names: list[str], *, toolset_id: str) -> Any:
     """Bind registered GraphOS tools for one governed in-process delegation.
 
     Native delegation must not connect GraphOS back to its own HTTP endpoint or
@@ -2480,6 +2476,7 @@ def _ingest_skill_capabilities(
     skip_names: frozenset[str] = frozenset(),
 ) -> int:
     """Persist provider skills as runnable resources without retaining paths."""
+    from agent_utilities.core.providers import is_skill_graph_reference_path
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         ingest_runnable_skill,
         skill_reference,
@@ -2493,7 +2490,11 @@ def _ingest_skill_capabilities(
     skill_files = (
         [root / "SKILL.md"]
         if (root / "SKILL.md").is_file()
-        else sorted(root.rglob("SKILL.md"))
+        else sorted(
+            skill_md
+            for skill_md in root.rglob("SKILL.md")
+            if not is_skill_graph_reference_path(skill_md, root)
+        )
     )
     for skill_md in skill_files:
         skill_dir = skill_md.parent
@@ -2656,7 +2657,7 @@ def _ready_bundled_skill_names(
     return frozenset(ready)
 
 
-def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
+def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     """Synchronously establish the packaged delegation contract before serving."""
     from agent_utilities.skills import BUNDLED_SKILLS
 
@@ -2687,7 +2688,6 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
                 len(BUNDLED_SKILLS),
                 sorted(frozenset(BUNDLED_SKILLS) - ready_after),
             )
-            raise GraphOSStartupReadinessError("graphos_bundled_skills_unready")
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
@@ -2700,12 +2700,20 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, int]:
             exc,
             exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
+        return {
+            "required": len(BUNDLED_SKILLS),
+            "already_ready": 0,
+            "ingested": 0,
+            "ready": 0,
+            "not_ready": sorted(BUNDLED_SKILLS),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "required": len(BUNDLED_SKILLS),
         "already_ready": len(ready_before),
         "ingested": ingested,
         "ready": len(ready_after),
+        "not_ready": sorted(frozenset(BUNDLED_SKILLS) - ready_after),
     }
 
 
@@ -2988,6 +2996,26 @@ def _stop_process_authority_supervisor() -> None:
     _PROCESS_AUTHORITY_THREAD = None
 
 
+_BUNDLED_SKILL_READINESS: dict[str, Any] = {}
+
+
+def _set_bundled_skill_readiness(report: dict[str, Any]) -> None:
+    """Publish packaged-skill readiness so /health can report it.
+
+    Readiness no longer gates boot, so it MUST be observable at runtime —
+    otherwise "serving degraded" is indistinguishable from "fully ready" to
+    anything outside the process, which is the silent-failure pattern this
+    codebase keeps getting bitten by.
+    """
+    _BUNDLED_SKILL_READINESS.clear()
+    _BUNDLED_SKILL_READINESS.update(report)
+
+
+def bundled_skill_readiness() -> dict[str, Any]:
+    """The last packaged-skill readiness report (empty before bootstrap runs)."""
+    return dict(_BUNDLED_SKILL_READINESS)
+
+
 def _start_engine_bootstrap(session: Any) -> None:
     """Establish critical skill readiness, then start noncritical services."""
     from agent_utilities.knowledge_graph.core.engine_tasks import (
@@ -3013,14 +3041,36 @@ def _start_engine_bootstrap(session: Any) -> None:
         # identically as "graphos_bundled_skills_unready", and `raise ... from
         # None` then discards the chained traceback too. The message and the
         # original traceback are what make the next failure diagnosable.
+        # Packaged-skill readiness is a CAPABILITY concern, not a correctness or
+        # security one, so it must not decide whether graph-os serves at all. A
+        # server that refuses to boot because some bundled skills did not ingest
+        # takes down every unrelated tool, the health surface, and the operator's
+        # ability to diagnose the very problem — the failure mode is far worse
+        # than running degraded. Record it, surface it in /health, keep serving.
         logger.error(
-            "GraphOS critical startup readiness failed (%s: %s)",
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
             type(exc).__name__,
             exc,
             exc_info=True,
         )
-        raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
+        _set_bundled_skill_readiness(
+            {
+                "required": len(BUNDLED_SKILLS),
+                "ready": 0,
+                "not_ready": sorted(BUNDLED_SKILLS),
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        )
+        return
 
+    _set_bundled_skill_readiness(readiness)
+    if readiness.get("not_ready"):
+        logger.error(
+            "GraphOS is SERVING DEGRADED: %d/%d packaged skills ready, not_ready=%s",
+            readiness.get("ready", 0),
+            readiness.get("required", 0),
+            readiness.get("not_ready"),
+        )
     logger.info(
         "GraphOS packaged-skill readiness established (%d/%d)",
         readiness["ready"],
