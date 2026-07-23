@@ -8,10 +8,13 @@ to each mixin.  At runtime this is never imported, avoiding circularity.
 """
 
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from .backends.base import GraphBackend
 from .core.graph_compute import GraphComputeEngine
+
+if TYPE_CHECKING:
+    from .core.session import GraphSession
 
 
 class _EngineProtocol(Protocol):
@@ -42,6 +45,9 @@ class _EngineProtocol(Protocol):
         target_id: str,
         rel_type: str,
         properties: dict[str, Any] | None = None,
+        ephemeral: bool = False,
+        *,
+        session: "GraphSession | None" = None,
     ) -> None: ...
 
     def add_node(

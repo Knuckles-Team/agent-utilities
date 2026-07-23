@@ -877,7 +877,12 @@ class KafkaBusLog(BusLogBackend):
         if (
             seek is not None
             and callable(seek)
-            and all(callable(value) for value in (topic, partition, offset))
+            and topic is not None
+            and callable(topic)
+            and partition is not None
+            and callable(partition)
+            and offset is not None
+            and callable(offset)
         ):
             try:
                 from confluent_kafka import TopicPartition
