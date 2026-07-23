@@ -47,7 +47,7 @@ single bounded lookup direct.
 | `graph_document_tree` | `build`, `structure` (token-cheap text-free table of contents), `content` (fetch cited char/page `ranges`), `retrieve` (tree-walk by relevance, `use_llm=true` tries LLM navigation first) | vectorless PageIndex-style retrieval for one long document — cited `start..end` ranges beat an embedder's recall ceiling; complements `graph_search`, doesn't replace it |
 | `graph_analyze` | `inspect`, `enrichment_coverage`, `process_writeback` (push KG intelligence to Camunda/ARIS, `target=camunda\|aris\|both`), `placement_plan` (workload placement), `infra_sweep`, `security_scan` | structural/ops analysis; code/research/eval/Q&A intents route to `graph_code`/`graph_research`/`graph_evaluate`/`graph_explain` instead |
 | `graph_explain` | `action=explain`/`context`, `target=<domain>:<intent>` (`code`, `ops` live task-queue, `deploy` is-my-change-live, `entity`/`tickets`/`process`), `target=domains` lists providers | the universal context plane — routes to the right domain provider and returns ONE cited answer |
-| `graph_epistemic` | `why` (=`explain_belief`), `status` (=`epistemic_status`), `what_changed`, `resolve_conflict` (argumentation-based resolution over contradicting claims) | purpose-named wrapper over the epistemic layers below — see "Epistemic answers" |
+| `graph_epistemic` | `why` (=`explain_belief`), `status` (=`epistemic_status`), `why_not` (=`epistemic_status`, projects its `why_not` field), `what_would_invalidate` (=`epistemic_status`, projects its `what_would_invalidate` field), `what_changed`, `resolve_conflict` (argumentation-based resolution over contradicting claims) | purpose-named wrapper over the epistemic layers below — see "Epistemic answers" |
 | `graph_search` | `mode`: `hybrid` (default), `hyde`, `deep`, `concept` (look up a `CONCEPT:ID`), `analogy`, `memory`, `discover`, `latent`, `rerank`, `adore`, `hard_negatives`, `chrono_ids`, **`compiled`**; `top_k`, `self_correct`, `as_of`, `target` (named/`all` connections) | `mode="compiled"` is the policy-aware context compiler — see "Compiled context bundles" |
 | `graph_search_synthesis` | `synthesize` (evidence subgraph + multi-hop question around an `answer_id`), `diagnose` (solver trajectories / FORT signatures) | |
 | `graph_federated_search` | fans a `query` across registered external graph `references`, capped by `top_k` | for ONE specific reference by id instead, use `graph_query(scope="federated")` |
@@ -79,6 +79,12 @@ feature-gated (call directly, or through the `graph_epistemic` wrapper above):
    invalidate it) and **`what_changed`** (a whole-graph bitemporal diff between two
    transaction times) — require the **opt-in `epistemic-tms` engine feature**, not in the
    default `full` build. A `{"error": ...}` means "capstone unavailable here," not a crash.
+   `epistemic_status`'s own `why_not` (why is this claim NOT believed — `Unknown` /
+   `InsufficientConfidence` / `Contradicted` / `Undecided`) and `what_would_invalidate`
+   (the minimal evidence set whose retraction would flip belief) fields are ALSO
+   reachable as their own dedicated `graph_epistemic` actions (`action="why_not"` /
+   `action="what_would_invalidate"`) — a purpose-named projection of the same call, not
+   a separate engine method.
 4. **`explain_policy`** — runs a search plan against both the caller's RLS-filtered view and
    the unfiltered one, returning `visible_ids`/`policy_denied_ids` — use when an expected row
    is missing and you need to know whether policy hid it.

@@ -20,10 +20,12 @@ from agent_utilities.mcp.tools.epistemic_tools import register_epistemic_tools
 class _CollectingMCP:
     def __init__(self) -> None:
         self.tools: dict[str, object] = {}
+        self.descriptions: dict[str, str] = {}
 
     def tool(self, *, name, description="", tags=None):  # noqa: ANN001
         def _deco(fn):
             self.tools[name] = fn
+            self.descriptions[name] = description
             return fn
 
         return _deco
@@ -154,3 +156,149 @@ def test_unknown_action(monkeypatch):
     out = json.loads(tool(action="bogus"))
     assert "error" in out
     assert calls == []
+
+
+# ── why_not / what_would_invalidate (W0.10) ─────────────────────────────────
+# Both project a field out of epistemic_status's OWN response rather than
+# calling a separate engine method (none exists on the wire — see the
+# epistemic_tools module docstring). The mocked response below is the REAL
+# wire shape (`EpistemicStatusResult` nests every field under a "status" key —
+# confirmed against `crates/eg-types/src/protocol.rs` /
+# `tests/advanced_crossmodal_roundtrip.rs` in the epistemic-graph engine repo),
+# not the flattened stand-in the other `status`-action tests above use.
+
+
+def test_why_not_and_what_would_invalidate_documented_in_description():
+    mcp = _CollectingMCP()
+    register_epistemic_tools(mcp)
+    description = mcp.descriptions["graph_epistemic"]
+    assert "'why_not'" in description
+    assert "'what_would_invalidate'" in description
+
+
+def test_why_not_action_dispatches_epistemic_status_and_projects_the_field(
+    monkeypatch,
+):
+    tool, calls = _register(
+        monkeypatch,
+        {
+            "epistemic_status": {
+                "status": {
+                    "claim": "claim:1",
+                    "believed": False,
+                    "confidence": 0.2,
+                    "why_not": {
+                        "claim": "claim:1",
+                        "reason": "InsufficientConfidence",
+                        "blockers": [],
+                        "competing": [],
+                        "confidence": 0.2,
+                    },
+                    "what_would_invalidate": None,
+                }
+            }
+        },
+    )
+    out = json.loads(tool(action="why_not", node_id="claim:1"))
+    assert out["surface"] == "epistemic"
+    assert out["action"] == "why_not"
+    assert out["engine_method"] == "epistemic_status"
+    assert out["result"] == {
+        "claim": "claim:1",
+        "reason": "InsufficientConfidence",
+        "blockers": [],
+        "competing": [],
+        "confidence": 0.2,
+    }
+    # dispatches the SAME engine call 'status' makes — no separate wire method.
+    assert calls == [("epistemic_status", {"node_id": "claim:1"})]
+
+
+def test_why_not_action_is_null_when_the_claim_is_believed(monkeypatch):
+    tool, _calls = _register(
+        monkeypatch,
+        {
+            "epistemic_status": {
+                "status": {"claim": "claim:1", "believed": True, "why_not": None}
+            }
+        },
+    )
+    out = json.loads(tool(action="why_not", node_id="claim:1"))
+    assert out["result"] is None
+
+
+def test_why_not_requires_node_id(monkeypatch):
+    tool, calls = _register(monkeypatch, {})
+    out = json.loads(tool(action="why_not", node_id=""))
+    assert "error" in out
+    assert calls == []
+
+
+def test_what_would_invalidate_action_projects_the_field(monkeypatch):
+    tool, calls = _register(
+        monkeypatch,
+        {
+            "epistemic_status": {
+                "status": {
+                    "claim": "claim:1",
+                    "believed": True,
+                    "what_would_invalidate": {
+                        "claim": "claim:1",
+                        "believed_now": True,
+                        "evidence_ids": ["ev:1"],
+                        "believed_after": False,
+                    },
+                }
+            }
+        },
+    )
+    out = json.loads(tool(action="what_would_invalidate", node_id="claim:1"))
+    assert out["action"] == "what_would_invalidate"
+    assert out["engine_method"] == "epistemic_status"
+    assert out["result"] == {
+        "claim": "claim:1",
+        "believed_now": True,
+        "evidence_ids": ["ev:1"],
+        "believed_after": False,
+    }
+    assert calls == [("epistemic_status", {"node_id": "claim:1"})]
+
+
+def test_what_would_invalidate_is_null_when_no_flip_exists(monkeypatch):
+    tool, _calls = _register(
+        monkeypatch,
+        {
+            "epistemic_status": {
+                "status": {"claim": "solo", "what_would_invalidate": None}
+            }
+        },
+    )
+    out = json.loads(tool(action="what_would_invalidate", node_id="solo"))
+    assert out["result"] is None
+
+
+def test_what_would_invalidate_requires_node_id(monkeypatch):
+    tool, calls = _register(monkeypatch, {})
+    out = json.loads(tool(action="what_would_invalidate", node_id=""))
+    assert "error" in out
+    assert calls == []
+
+
+def test_why_not_propagates_dispatch_error_without_projecting(monkeypatch):
+    """An engine-level failure (e.g. epistemic-tms not built) must surface as
+    the error dict, never be silently swallowed into a projected `None`."""
+    tool, _calls = _register(
+        monkeypatch, {"epistemic_status": RuntimeError("epistemic-tms not built")}
+    )
+    out = json.loads(tool(action="why_not", node_id="claim:1"))
+    assert "error" in out["result"]
+
+
+def test_what_would_invalidate_propagates_dispatch_error_without_projecting(
+    monkeypatch,
+):
+    tool, _calls = _register(
+        monkeypatch, {"epistemic_status": RuntimeError("epistemic-tms not built")}
+    )
+    out = json.loads(tool(action="what_would_invalidate", node_id="claim:1"))
+    assert "error" in out["result"]
