@@ -133,8 +133,8 @@ def _association_rule_id(
             encoded = value.encode("utf-8")
             digest.update(struct.pack("<Q", len(encoded)))
             digest.update(encoded)
-    for value in (support, confidence, lift):
-        digest.update(struct.pack("<d", value))
+    for metric in (support, confidence, lift):
+        digest.update(struct.pack("<d", metric))
     return f"eg:rule:{digest.hexdigest()}"
 
 
@@ -171,10 +171,12 @@ def _association_rules(
     count = len(normalized)
     minimum_count = max(1, math.ceil(min_support * max(count, 1)))
     vertical: dict[int, frozenset[int]] = {}
-    for item in range(len(labels)):
-        tids = frozenset(index for index, row in enumerate(normalized) if item in row)
+    for item_index in range(len(labels)):
+        tids = frozenset(
+            index for index, row in enumerate(normalized) if item_index in row
+        )
         if len(tids) >= minimum_count:
-            vertical[item] = tids
+            vertical[item_index] = tids
 
     itemsets: dict[tuple[int, ...], int] = {}
 
@@ -236,18 +238,18 @@ def _association_rules(
     )
     result: list[dict[str, Any]] = []
     for rule in rules:
-        antecedent = [labels[item] for item in rule.antecedent]
-        consequent = [labels[item] for item in rule.consequent]
+        antecedent_labels = [labels[item] for item in rule.antecedent]
+        consequent_labels = [labels[item] for item in rule.consequent]
         result.append(
             {
-                "antecedent": antecedent,
+                "antecedent": antecedent_labels,
                 "confidence": rule.confidence,
-                "consequent": consequent,
+                "consequent": consequent_labels,
                 "contradiction_ids": [],
                 "evidence_refs": [],
                 "id": _association_rule_id(
-                    antecedent,
-                    consequent,
+                    antecedent_labels,
+                    consequent_labels,
                     rule.support,
                     rule.confidence,
                     rule.lift,
