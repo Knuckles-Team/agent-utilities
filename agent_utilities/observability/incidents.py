@@ -90,6 +90,13 @@ _LAYER_PREFIXES: dict[str, str] = {
 DEFAULT_SEVERITY = "warning"
 _MULTI_LAYER_SEVERITY = "critical"
 
+# The graph_incident tool's ack/resolve state transitions (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation
+# follow-up) — a small, deliberately non-validated status vocabulary (no
+# ClaimFlywheel-style legal-transition machine: an incident is either open,
+# acknowledged, or resolved, and any of the three may be set again).
+STATUS_ACKNOWLEDGED = "acknowledged"
+STATUS_RESOLVED = "resolved"
+
 # root_cause_layer -> (proposed action, owning package, rationale) for
 # propose_remediation. REPORT-ONLY: this never executes anything.
 _REMEDIATION_BY_LAYER: dict[str, tuple[str, str, str]] = {
@@ -316,6 +323,141 @@ def correlate_incidents(*, window_s: int = 300, days: int = 1) -> list[dict[str,
         if cluster:
             incidents.append(_synthesize_and_write(asset, cluster, open_signatures))
     return incidents
+
+
+def get_incident(incident_id: str, *, engine: Any = None) -> dict[str, Any] | None:
+    """Read one ``:Incident`` node's stored properties by id.
+
+    Reuses the SAME engine accessor (:func:`health_ingest._engine`) and
+    per-label scan-and-filter idiom :func:`_open_incident_signatures` already
+    uses for its own dedupe read. Best-effort: ``None`` with no reachable
+    engine or an unknown ``incident_id``.
+    """
+    eng = engine or health_ingest._engine()
+    if eng is None:
+        return None
+    try:
+        rows = eng.get_nodes_by_label("Incident", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug("incident read failed for %s: %s", incident_id, e)
+        return None
+    for node_id, props in rows:
+        if node_id == incident_id and isinstance(props, dict):
+            return {"id": node_id, **props}
+    return None
+
+
+def get_incident_evidence(
+    incident_id: str, *, engine: Any = None
+) -> dict[str, Any] | None:
+    """The ``:HealthAnomaly`` group :func:`correlate_incidents` clustered into
+    ``incident_id``, plus its affected entity ids.
+
+    The ``:Incident`` node itself stores no anomaly/entity LIST property —
+    :func:`agent_utilities.observability.health_ingest.ingest_incident` links
+    them only as graph edges (``correlatesAnomaly``/``affectsEntity``), so
+    this resolves them from the engine's neighbor read rather than a node
+    property. Anomaly ids are the standing ``health:anomaly:...`` namespace
+    (:func:`agent_utilities.observability.health_ingest.ingest_health_anomaly`);
+    every other neighbor is an affected entity. Anomalies are returned
+    oldest-observed-first, which doubles as the incident's timeline.
+
+    Best-effort: ``None`` with no reachable engine; an incident with no
+    resolvable neighbors (e.g. a backend with no ``get_neighbors``, or one
+    genuinely evidence-free) returns ``{"anomalies": [], "entities": []}``.
+    """
+    eng = engine or health_ingest._engine()
+    if eng is None:
+        return None
+    try:
+        neighbor_ids = set(eng.get_neighbors(incident_id) or [])
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "incident evidence: neighbor read failed for %s: %s", incident_id, e
+        )
+        neighbor_ids = set()
+    anomalies: list[dict[str, Any]] = []
+    if neighbor_ids:
+        try:
+            rows = eng.get_nodes_by_label("HealthAnomaly", 0) or []
+        except Exception as e:  # noqa: BLE001
+            logger.debug("incident evidence: anomaly read failed: %s", e)
+            rows = []
+        anomalies = [
+            {"id": node_id, **props}
+            for node_id, props in rows
+            if node_id in neighbor_ids and isinstance(props, dict)
+        ]
+        anomalies.sort(key=lambda a: str(a.get("observedAt") or ""))
+    entities = sorted(neighbor_ids - {a["id"] for a in anomalies})
+    return {"anomalies": anomalies, "entities": entities}
+
+
+# stored (camelCase, as ingest_incident WRITES them) -> ingest_incident's own
+# INPUT contract (snake_case, as it READS them) — the mapping
+# :func:`set_incident_status` needs to round-trip an existing incident's
+# fields through :func:`health_ingest.ingest_incident` unchanged, since the
+# write and read shapes deliberately differ (see that function's docstring).
+def _incident_input_from_stored(
+    incident_id: str, props: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "id": incident_id,
+        "kind": props.get("kind"),
+        "summary": props.get("summary"),
+        "layers": props.get("layers"),
+        "signals": props.get("signals"),
+        "severity": props.get("severity"),
+        "root_cause_layer": props.get("rootCauseLayer"),
+        "signature": props.get("signature"),
+        "status": props.get("status"),
+        "opened_at": props.get("observedAt"),
+        "acked_at": props.get("ackedAt"),
+        "acked_by": props.get("ackedBy"),
+        "resolved_at": props.get("resolvedAt"),
+        "resolved_by": props.get("resolvedBy"),
+    }
+
+
+def set_incident_status(
+    incident_id: str, status: str, *, actor: str = "", engine: Any = None
+) -> dict[str, int] | None:
+    """Transition an existing ``:Incident``'s status, provenance-stamped.
+
+    The ``graph_incident`` tool's ``ack``/``resolve`` actions call this AFTER
+    their ActionPolicy gate allows the mutation — this function itself does
+    not gate, it only writes. Reuses
+    :func:`agent_utilities.observability.health_ingest.ingest_incident` 1:1
+    for the write: reads the incident's current stored properties, maps them
+    back onto ``ingest_incident``'s input contract (:func:`_incident_input_from_stored`)
+    so every existing field round-trips instead of being blanked, then
+    overlays only ``status`` plus a who/when stamp for THIS transition
+    (``acked_at``/``acked_by`` for :data:`STATUS_ACKNOWLEDGED`,
+    ``resolved_at``/``resolved_by`` for :data:`STATUS_RESOLVED`) — prior
+    provenance (e.g. an earlier ack) survives a later resolve.
+
+    Deliberately narrow: never touches the ``entities``/``anomalies`` edges
+    (only :func:`correlate_incidents` writes those) and never mutates
+    anything but the ``:Incident`` node itself — no ticket/remediation/
+    infrastructure side effect. Best-effort: ``None`` with no reachable
+    engine or an unknown ``incident_id``.
+    """
+    eng = engine or health_ingest._engine()
+    if eng is None:
+        return None
+    current = get_incident(incident_id, engine=eng)
+    if current is None:
+        return None
+    updated = _incident_input_from_stored(incident_id, current)
+    updated["status"] = status
+    now = health_ingest._now()
+    if status == STATUS_ACKNOWLEDGED:
+        updated["acked_at"] = now
+        updated["acked_by"] = actor or updated.get("acked_by")
+    elif status == STATUS_RESOLVED:
+        updated["resolved_at"] = now
+        updated["resolved_by"] = actor or updated.get("resolved_by")
+    return health_ingest.ingest_incident(updated)
 
 
 def _proposed_action(root_cause_layer: str, signals: list[str]) -> dict[str, str]:
