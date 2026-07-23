@@ -126,7 +126,9 @@ def _list_incidents(*, status: str, severity: str, limit: int) -> dict[str, Any]
         if severity_filter and str(props.get("severity") or "") != severity_filter:
             continue
         items.append({"id": node_id, **props})
-    items.sort(key=lambda i: str(i.get("opened_at") or ""), reverse=True)
+    items.sort(
+        key=lambda i: str(i.get("observedAt") or i.get("opened_at") or ""), reverse=True
+    )
     bounded = items[: max(0, int(limit))]
     return {
         "surface": "incident",

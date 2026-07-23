@@ -87,15 +87,15 @@ def test_list_returns_open_incidents_newest_first(monkeypatch):
         [
             (
                 "health:incident:storage-node-a:1",
-                {"status": "open", "opened_at": "2026-07-01T00:00:00Z"},
+                {"status": "open", "observedAt": "2026-07-01T00:00:00Z"},
             ),
             (
                 "health:incident:analysis-node-a:2",
-                {"status": "closed", "opened_at": "2026-07-05T00:00:00Z"},
+                {"status": "closed", "observedAt": "2026-07-05T00:00:00Z"},
             ),
             (
                 "health:incident:compute-node-b:3",
-                {"status": "open", "opened_at": "2026-07-10T00:00:00Z"},
+                {"status": "open", "observedAt": "2026-07-10T00:00:00Z"},
             ),
         ]
     )
@@ -114,7 +114,7 @@ def test_list_returns_open_incidents_newest_first(monkeypatch):
 def test_list_no_status_filter_returns_all(monkeypatch):
     engine = _FakeEngine(
         [
-            ("i1", {"status": "open", "opened_at": "2026-07-01T00:00:00Z"}),
+            ("i1", {"status": "open", "observedAt": "2026-07-01T00:00:00Z"}),
             ("i2", {"status": "closed", "opened_at": "2026-07-02T00:00:00Z"}),
         ]
     )
@@ -172,7 +172,7 @@ def test_list_filters_by_severity(monkeypatch):
                 {
                     "status": "open",
                     "severity": "critical",
-                    "opened_at": "2026-07-01T00:00:00Z",
+                    "observedAt": "2026-07-01T00:00:00Z",
                 },
             ),
             (
