@@ -394,7 +394,11 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 name,
                 backend_type,
                 type(exc).__name__,
-                exc,
+                # str(exc), not exc: core/log_privacy.py collapses a BaseException
+                # passed as a logging arg down to its class name, which would emit
+                # "ImportError: ImportError" and destroy the actual cause. The text
+                # sanitizer still redacts paths.
+                str(exc),
                 exc_info=True,
             )
             _record_mirror_status(
