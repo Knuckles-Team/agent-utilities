@@ -1682,8 +1682,12 @@ def _check_outbound_auth() -> dict[str, Any]:
             f"outbound MCP child authentication is configured ({mode})",
             data={"mode": mode, "ready": True, "redacted": True},
         )
-    missing = status.get("missing") or ()
-    invalid = status.get("invalid") or ()
+    missing = status.get("missing") or []
+    invalid = status.get("invalid") or []
+    if not isinstance(missing, list):
+        missing = []
+    if not isinstance(invalid, list):
+        invalid = []
     return _result(
         "outbound_auth",
         "fail",
@@ -2745,7 +2749,7 @@ def _check_langfuse(live: bool = False) -> dict[str, Any]:
             or cfg.langfuse_kg_auto_ingest
         )
         executable_ready = langfuse_provider_contract_ready()
-        data = {
+        data: dict[str, Any] = {
             "enabled": enabled,
             "credential_pair_configured": public_input and secret_input,
             "credential_refs_configured": bool(
@@ -2945,7 +2949,7 @@ def _probe_native_optimizer_live() -> dict[str, Any]:
         },
     )
     attempt = try_native_optimization(engine, request)
-    out = {
+    out: dict[str, Any] = {
         "live_probed": True,
         "operational": attempt.disposition == "completed",
         "privacy_safe_payload": True,

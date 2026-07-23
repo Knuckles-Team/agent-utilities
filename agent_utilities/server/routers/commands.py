@@ -125,6 +125,7 @@ async def execute_slash_command(payload: dict, request: Request):
             elif backend is None:
                 response_md = "Graph backend not active — cannot run search."
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
                     rows = (
                         engine.query_cypher(
@@ -190,6 +191,7 @@ async def execute_slash_command(payload: dict, request: Request):
                     "Graph backend not active — no live counts available."
                 )
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
                     node_rows = (
                         engine.query_cypher("MATCH (n) RETURN count(n) AS c") or []
@@ -229,6 +231,7 @@ async def execute_slash_command(payload: dict, request: Request):
                     "Knowledge Graph backend not active — no knowledge bases available."
                 )
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
                     rows = (
                         engine.query_cypher(
@@ -263,6 +266,7 @@ async def execute_slash_command(payload: dict, request: Request):
             elif backend is None:
                 response_md = "Knowledge Graph backend not active — cannot search."
             else:
+                assert engine is not None  # backend is only set when engine is
                 try:
                     rows = (
                         engine.query_cypher(

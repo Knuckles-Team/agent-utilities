@@ -1253,7 +1253,7 @@ class GraphComputeEngine:
         self.endpoint = endpoint
         auth_secret = resolved.auth_secret
         idle_shutdown_secs = resolved.idle_shutdown_secs
-        connect_kwargs = {
+        connect_kwargs: dict[str, Any] = {
             "auth_secret": auth_secret,
             "graph_name": graph_name,
             "verified_context": _transport_only_verified_context(),
@@ -2497,9 +2497,9 @@ class GraphComputeEngine:
                 or row.get("model_profile_ref") is not None
                 or row.get("plan_ref") is None
                 or row.get("selected") is not False
-                or len(row.get("plan_step_kinds")) != 1
+                or len(row.get("plan_step_kinds") or []) != 1
                 or row["plan_step_kinds"][0] not in _PROGRAM_PLAN_STEP_KINDS
-                or len(row.get("plan_executors")) != 1
+                or len(row.get("plan_executors") or []) != 1
                 or row["plan_executors"][0] not in _PROGRAM_PLAN_EXECUTORS
                 or not row.get("plan_input_refs")
                 or not row.get("plan_output_refs")

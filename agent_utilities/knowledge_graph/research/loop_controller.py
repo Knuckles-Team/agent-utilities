@@ -2666,6 +2666,7 @@ class LoopController:
             if is_terminal(status):
                 if status is LoopStatus.COMPLETED:
                     if measured_pass:
+                        assert verdict is not None  # measured_pass implies this
                         return _finish(
                             LoopStatus.COMPLETED,
                             reason=(
@@ -3134,6 +3135,7 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
     import shutil
     import signal
     import subprocess
+    import sys
     import tempfile
     import time
     from pathlib import Path
@@ -3204,7 +3206,7 @@ def _default_develop_runner(cmd: str, cwd: str) -> tuple[bool, str]:
                 "stderr": subprocess.STDOUT,
                 "shell": False,
             }
-            if os.name == "nt":
+            if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             else:
                 popen_kwargs["start_new_session"] = True

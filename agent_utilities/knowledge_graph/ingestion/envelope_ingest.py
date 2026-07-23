@@ -592,6 +592,8 @@ def _position_advances(next_value: dict[str, Any], prior: dict[str, Any]) -> boo
     left = next_value.get("value")
     right = prior.get("value")
     if kind in {"sequence", "timestamp_millis"}:
+        if left is None or right is None:
+            return False
         try:
             return int(left) > int(right)
         except (TypeError, ValueError):
@@ -617,11 +619,15 @@ def _checkpoint_from_position(position: Any) -> str | None:
     kind = position.get("kind")
     value = position.get("value")
     if kind == "sequence":
+        if value is None:
+            return None
         try:
             return str(int(value))
         except (TypeError, ValueError):
             return None
     if kind == "timestamp_millis":
+        if value is None:
+            return None
         try:
             parsed = datetime.fromtimestamp(int(value) / 1000, tz=UTC)
         except (TypeError, ValueError, OverflowError):
@@ -649,7 +655,7 @@ def _content_position(
     if isinstance(prior, dict):
         kind = prior.get("kind")
         value = prior.get("value")
-        if kind in {"sequence", "timestamp_millis"}:
+        if kind in {"sequence", "timestamp_millis"} and value is not None:
             try:
                 return {"kind": kind, "value": int(value) + 1}
             except (TypeError, ValueError):

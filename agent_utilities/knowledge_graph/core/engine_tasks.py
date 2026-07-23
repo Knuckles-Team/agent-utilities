@@ -934,16 +934,6 @@ class TaskManagerMixin(GraphEngineProtocol):
             self._work_item_engine_cache = view
         return view
 
-    @property
-    def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
-        """Cached :class:`_ControlPlaneWorkItemEngine` view for the ingestion
-        queue's WorkItem shadow (AU-P1-CL — see that class's docstring)."""
-        view = getattr(self, "_work_item_engine_cache", None)
-        if view is None:
-            view = _ControlPlaneWorkItemEngine(self)
-            self._work_item_engine_cache = view
-        return view
-
     def unified_daemon_status(self) -> dict[str, Any]:
         """Status of the single consolidated background daemon (CONCEPT:AU-KG.coordination.embedder-breaker).
 
@@ -5215,11 +5205,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 meta.get("edges_added", meta.get("edges_created", 0)) or 0
             )
             submitted = item.get("submitted_at")
-            completed = item.get("completed_at")
+            completed_at = item.get("completed_at")
             if isinstance(submitted, (int, float)) and isinstance(
-                completed, (int, float)
+                completed_at, (int, float)
             ):
-                c["duration_ms"] += max(0.0, (completed - submitted) * 1000.0)
+                c["duration_ms"] += max(0.0, (completed_at - submitted) * 1000.0)
         for c in cats.values():
             c["duration_ms"] = round(c["duration_ms"], 1)
         return cats
