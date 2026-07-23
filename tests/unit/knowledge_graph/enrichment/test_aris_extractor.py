@@ -110,4 +110,4 @@ def test_persists_through_write_batch():
     batch = extract({"client": FakeArisClient()})
     n, e = write_batch(backend, batch)
     assert n == len(batch.nodes) and e == len(batch.edges)
-    assert backend.nodes["aris_object:M1:r1"]["type"] == "BusinessTask"
+    assert backend.nodes["aris_object:M1:r1"]["node_type"] == "BusinessTask"

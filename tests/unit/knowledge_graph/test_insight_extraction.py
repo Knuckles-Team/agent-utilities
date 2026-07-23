@@ -88,9 +88,9 @@ def test_pipeline_persists_intelligence(tmp_path, monkeypatch):
     _concepts, _edges, summary = pipe.enrich_documents([tmp_path / "call.md"])
 
     assert summary.intelligence_nodes == 4
-    types = {p.get("type") for p in backend.nodes.values()}
+    types = {p.get("label") for p in backend.nodes.values()}
     assert {"Insight", "Fact", "Framework", "Playbook"} <= types
     # playbook steps were JSON-serialized as a scalar property
-    pb = next(p for p in backend.nodes.values() if p.get("type") == "Playbook")
+    pb = next(p for p in backend.nodes.values() if p.get("label") == "Playbook")
     assert json.loads(pb["steps"]) == ["Acknowledge", "Show exit path"]
     assert any(rel == "DERIVED_FROM" for _, _, rel in backend.edges)

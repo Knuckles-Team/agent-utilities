@@ -92,7 +92,7 @@ def test_odoo_write_batch_persists():
     backend = FakeBackend()
     n, e = write_batch(backend, batch)
     assert n == 2 and e == 1
-    assert backend.nodes["odoo_customer:7"]["type"] == "Customer"
+    assert backend.nodes["odoo_customer:7"]["node_type"] == "Customer"
 
 
 # ── registry discovery (Wire-First) ──────────────────────────────────────────

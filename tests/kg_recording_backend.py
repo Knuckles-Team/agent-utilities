@@ -41,7 +41,11 @@ class RecordingGraphBackend(GraphBackend):
             self.nodes[params["id"]] = {k: v for k, v in params.items() if k != "id"}
         elif _EDGE_MERGE.search(query) and "source" in params:
             self.edges.append(
-                (params.get("source"), params.get("target"), params.get("type"))
+                (
+                    params.get("source"),
+                    params.get("target"),
+                    params.get("relationship"),
+                )
             )
             self.edge_props.append({k: v for k, v in params.items()})
         return []
@@ -53,7 +57,7 @@ class RecordingGraphBackend(GraphBackend):
         elif _EDGE_MERGE.search(query):
             for row in batch:
                 self.edges.append(
-                    (row.get("source"), row.get("target"), row.get("type"))
+                    (row.get("source"), row.get("target"), row.get("relationship"))
                 )
                 self.edge_props.append({k: v for k, v in row.items()})
         return []

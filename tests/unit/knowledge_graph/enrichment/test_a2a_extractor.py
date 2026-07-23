@@ -138,8 +138,8 @@ def test_write_batch_persists():
     backend = FakeBackend()
     n, e = write_batch(backend, batch)
     assert n == 5 and e == 3
-    assert backend.nodes["a2a:weather-agent"]["type"] == "A2AAgentCard"
-    assert backend.nodes["skill:a2a:weather-agent:forecast"]["type"] == "Skill"
+    assert backend.nodes["a2a:weather-agent"]["node_type"] == "A2AAgentCard"
+    assert backend.nodes["skill:a2a:weather-agent:forecast"]["node_type"] == "Skill"
     assert (
         "a2a:weather-agent",
         "skill:a2a:weather-agent:forecast",

@@ -57,10 +57,10 @@ class FakeEngine:
         for entity in entities:
             row = dict(entity)
             node_id = row.pop("id")
-            node_type = row.pop("type")
+            node_type = row.pop("node_type")
             self.add_node(node_id, node_type, properties=row)
         for edge in relationships or []:
-            self.link_nodes(edge["source"], edge["target"], edge["type"])
+            self.link_nodes(edge["source"], edge["target"], edge["relationship"])
         return {"status": "success"}
 
 
@@ -161,7 +161,9 @@ def test_sync_source_routes_fleet_to_handler():
     engine = FakeEngine()
     res = sync_source(engine, "fleet", mode="full", client=CATALOG)
     assert res["status"] == "ok"
-    assert res["tools_written"] == 3
+    # Non-canonical connector diagnostics are namespaced under `details` by the
+    # EtlResult wire contract (CONCEPT:AU-KG.etl.result-contract).
+    assert res["details"]["tools_written"] == 3
 
 
 def test_derive_tool_mode_classifies_variant():

@@ -118,7 +118,7 @@ def test_persist_writes_workflow_and_orchestrates_edges():
     backend = FakeBackend()
     n, e = persist(backend, d, name="order-graph")
 
-    assert backend.nodes["workflow:order-graph"]["type"] == "Workflow"
+    assert backend.nodes["workflow:order-graph"]["node_type"] == "Workflow"
     assert n == 1
     rels = {r for _, _, r in backend.edges}
     assert rels == {"ORCHESTRATES"}

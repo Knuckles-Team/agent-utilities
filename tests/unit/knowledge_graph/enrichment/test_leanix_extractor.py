@@ -161,7 +161,7 @@ def test_write_batch_persists_to_backend():
     n, e = write_batch(backend, batch)
 
     assert n == 5
-    assert backend.nodes["app:a1"]["type"] == "Application"
+    assert backend.nodes["app:a1"]["node_type"] == "Application"
     assert backend.nodes["app:a1"]["externalToolId"] == "a1"
     assert ("app:a1", "capability:c1", "REL_APPLICATION_TO_BUSINESS_CAPABILITY") in (
         backend.edges

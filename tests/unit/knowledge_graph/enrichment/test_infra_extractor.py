@@ -127,9 +127,9 @@ def test_write_batch_persists_via_fake_backend():
 
     assert n == len(batch.nodes)
     assert e == len(batch.edges)
-    assert backend.nodes["server:analysis-node-a"]["type"] == "Server"
+    assert backend.nodes["server:analysis-node-a"]["node_type"] == "Server"
     assert backend.nodes["server:analysis-node-a"]["hostname"] == "analysis-node-a"
-    assert backend.nodes["service:graph-store"]["type"] == "Service"
+    assert backend.nodes["service:graph-store"]["node_type"] == "Service"
     assert (
         "service:graph-store",
         "server:analysis-node-a",

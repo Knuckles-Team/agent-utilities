@@ -59,7 +59,7 @@ def test_persist_as_runnable_writes_callable_resource():
     n, e = persist_as_runnable(backend, spec)
     assert n == 1 and e == 1
     node = backend.nodes["resource:agent:kg-bot"]
-    assert node["type"] == "CallableResource"
+    assert node["node_type"] == "CallableResource"
     assert node["resource_type"] == "AGENT_SKILL"
     assert ("resource:agent:kg-bot", "tool:graph_query", "USES_TOOL") in backend.edges
 

@@ -97,7 +97,7 @@ def test_write_batch_persists_to_backend():
 
     assert n == len(batch.nodes)
     assert e == len(batch.edges)
-    assert backend.nodes["dashboard:dash1"]["type"] == "Dashboard"
+    assert backend.nodes["dashboard:dash1"]["node_type"] == "Dashboard"
     assert ("panel:dash1:1", "dashboard:dash1", "PART_OF") in backend.edges
     assert ("panel:dash1:1", "service:pggraph", "MONITORS") in backend.edges
 

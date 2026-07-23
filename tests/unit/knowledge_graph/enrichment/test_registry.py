@@ -52,7 +52,7 @@ def test_write_batch_persists_nodes_and_edges():
     backend = FakeBackend()
     n, e = write_batch(backend, batch)
     assert n == 2 and e == 1
-    assert backend.nodes["server:analysis-node-a"]["type"] == "Server"
+    assert backend.nodes["server:analysis-node-a"]["node_type"] == "Server"
     assert backend.nodes["server:analysis-node-a"]["hostname"] == "analysis-node-a"
     assert (
         "service:pggraph",

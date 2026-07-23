@@ -76,12 +76,12 @@ def test_rule_correction_persists_and_then_enforced():
     )
     assert res.applied
     # A correction node + a source_rule node were written, linked by 'corrects'.
-    types = {p["type"] for p in backend.nodes.values()}
+    types = {p["node_type"] for p in backend.nodes.values()}
     assert "correction" in types and "source_rule" in types
     assert any(rel == "corrects" for _, _, rel in backend.edges)
 
     # Build the rule dict the way load_active_rules would, and prove it bites.
-    rule = next(p for p in backend.nodes.values() if p["type"] == "source_rule")
+    rule = next(p for p in backend.nodes.values() if p["node_type"] == "source_rule")
     rules = [{"kind": rule["kind"], "target": rule["target"]}]
     desigs = [FakeDesignation("tool:bad", 0.99), FakeDesignation("tool:ok", 0.4)]
     out = apply_governance_rules(desigs, rules)

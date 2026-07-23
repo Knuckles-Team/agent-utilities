@@ -138,7 +138,7 @@ def test_write_batch_persists_to_backend():
     n, e = write_batch(backend, batch)
     assert n == len(batch.nodes)
     assert e == len(batch.edges)
-    assert backend.nodes["employee:HR-EMP-001"]["type"] == "Employee"
-    assert backend.nodes["orgunit:Engineering"]["type"] == "OrgUnit"
+    assert backend.nodes["employee:HR-EMP-001"]["node_type"] == "Employee"
+    assert backend.nodes["orgunit:Engineering"]["node_type"] == "OrgUnit"
     assert ("order:SO-0001", "customer:CUST-001", "PLACED_BY") in backend.edges
     assert ("employee:HR-EMP-001", "orgunit:Engineering", "MEMBER_OF") in backend.edges

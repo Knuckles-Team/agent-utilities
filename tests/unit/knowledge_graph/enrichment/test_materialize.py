@@ -49,7 +49,7 @@ def test_materialize_submits_extractor_batch_to_native_boundary(monkeypatch):
     assert n >= 1
     assert submitted["engine"] is engine
     assert submitted["connector"] == "camunda"
-    assert submitted["entities"][0]["type"] == "BusinessProcess"
+    assert submitted["entities"][0]["node_type"] == "BusinessProcess"
 
 
 def test_none_backend_is_noop_but_runs():

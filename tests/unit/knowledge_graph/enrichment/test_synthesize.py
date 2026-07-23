@@ -177,9 +177,9 @@ def test_persist_synthesis_writes_nodes_and_edges():
 
     assert nodes > 0 and edges > 0
     # nodes landed
-    assert backend.nodes["agent:retriever-bot"]["type"] == "Agent"
-    assert backend.nodes["team:kg-squad"]["type"] == "Team"
-    assert backend.nodes["prompt:retriever-v2"]["type"] == "Prompt"
+    assert backend.nodes["agent:retriever-bot"]["node_type"] == "Agent"
+    assert backend.nodes["team:kg-squad"]["node_type"] == "Team"
+    assert backend.nodes["prompt:retriever-v2"]["node_type"] == "Prompt"
     # edges landed
     rels = {(s, t, r) for s, t, r in backend.edges}
     assert ("agent:retriever-bot", "tool:graph-query", "USES_TOOL") in rels

@@ -129,7 +129,7 @@ def test_write_batch_persists():
 
     assert n == 5
     assert e == 4
-    assert backend.nodes["incident:abc111"]["type"] == "Incident"
+    assert backend.nodes["incident:abc111"]["node_type"] == "Incident"
     assert backend.nodes["ci:ci-mail"]["name"] == "mail-server-01"
     assert ("incident:abc111", "ci:ci-mail", "AFFECTS") in backend.edges
     assert ("change:chg777", "person:bob", "ASSIGNED_TO") in backend.edges

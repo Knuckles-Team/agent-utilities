@@ -27,7 +27,7 @@ def test_agent_spec_to_graph():
     b = agent_to_batch(a)
     backend = FakeBackend()
     write_batch(backend, b)
-    assert backend.nodes["agent:retriever-bot"]["type"] == "Agent"
+    assert backend.nodes["agent:retriever-bot"]["node_type"] == "Agent"
     rels = {(s.split(":")[0], t, r) for s, t, r in backend.edges}
     assert ("agent", "tool:graph-query", "USES_TOOL") in rels
     assert ("agent", "skill:graph-ingestion-and-integration", "HAS_SKILL") in rels
@@ -45,7 +45,7 @@ def test_team_hierarchy_defaults_to_lead():
     b = team_to_batch(t)
     backend = FakeBackend()
     write_batch(backend, b)
-    assert backend.nodes["team:kg-squad"]["type"] == "Team"
+    assert backend.nodes["team:kg-squad"]["node_type"] == "Team"
     reports = {(s, t_) for s, t_, r in backend.edges if r == "REPORTS_TO"}
     # non-lead members report to lead
     assert ("agent:retriever", "agent:lead") in reports
