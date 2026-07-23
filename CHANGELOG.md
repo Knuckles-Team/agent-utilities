@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **`graph_ops_causal` findings become citable, revisable Claims (`as_claim`, W3.5).**
+  `root_cause`/`blast_radius` gain an opt-in `as_claim=true` parameter: the
+  call's finding is proposed through the SAME governed `ClaimFlywheel`
+  lifecycle `graph_claims action="propose"` uses — the SAME fail-closed
+  `ActionPolicy` gate (`kind="claim.propose"`, the `_gate` pattern
+  `claim_tools.py`/`secret_tools.py` already use), never a second lifecycle. A
+  denied gate never blocks the read-only analysis — it only adds a
+  `claim_denied` note; on success the minted `claim_id` (+ `claim_transition`)
+  is returned alongside the answer. Exactly ONE structured, one-line Claim is
+  proposed per call — claim text summarizes the top root-cause candidate (or
+  the blast radius's downstream reach), evidence refs are every trace/
+  incident/service node id the causal walk actually touched (persisted as
+  real `DERIVED_FROM` edges via the same `candidate_insight.
+  register_claim_materialization` seam every mining family uses), confidence
+  is the top candidate's own `path_strength` for `root_cause` (never `score`,
+  which is documented as a tie-breaker) or a documented conservative default
+  (0.4) for `blast_radius` (which has no per-node score), and each claim
+  carries PROV-O generator tagging (`was_generated_by`/`generated_at_time`
+  metadata). Distinct from — and independent of — the existing
+  `materialize_claims` (W2 wire-up #3), which unconditionally/ungoverned
+  writes one raw `:Claim` per above-floor ranked candidate; `as_claim` is the
+  governed, citable/revisable, ActionPolicy-gated counterpart. Minimal
+  incident-brain tie-in: `observability/incident_router._incident_body` now
+  cites an optional `incident["claim_id"]` right after `root_cause_layer`
+  when the caller has set one — a pure field pass-through, byte-identical
+  when absent.
 - **New `graph_claims` tool — the X-3 claim flywheel becomes directly callable.**
   `knowledge_graph/research/claim_flywheel.py`'s governed five-state lifecycle
   (`proposed -> validated -> accepted -> deprecated -> retracted`, `RETRACTED`

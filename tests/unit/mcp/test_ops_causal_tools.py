@@ -74,6 +74,7 @@ def _call(tool_fn, **overrides):
         incident_history_json="[]",
         now=0.0,
         materialize_claims=True,
+        as_claim=False,
     )
     defaults.update(overrides)
     return tool_fn(**defaults)
@@ -284,4 +285,233 @@ def test_blast_radius_action_never_materializes_claims(monkeypatch):
         _call(tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS)
     )
     assert "claims_materialized" not in out
+    assert engine.nodes == {}
+
+
+# --------------------------------------------------------------------------- #
+# W3.5 — ``as_claim`` opt-in: propose ONE finding through the SAME governed
+# ClaimFlywheel lifecycle ``graph_claims propose`` uses, ActionPolicy-gated
+# exactly like ``claim_tools._gate`` (CONCEPT:AU-KG.enrichment.ops-causal-graph,
+# CONCEPT:AU-KG.evolution.mining-flywheel).
+# --------------------------------------------------------------------------- #
+
+
+def test_as_claim_false_leaves_response_byte_identical(monkeypatch):
+    """Default (``as_claim=False``) behavior is unchanged: no claim_id/
+    claim_transition/claim_denied/claim_error key appears for either action,
+    even with a live engine present (i.e. NOT merely because as_claim's own
+    ``engine is not None`` guard never fires)."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    root_cause_out = json.loads(
+        _call(
+            tool_fn,
+            action="root_cause",
+            node_id="trace:1",
+            links_json=_LINKS,
+            materialize_claims=False,
+            as_claim=False,
+        )
+    )
+    blast_radius_out = json.loads(
+        _call(
+            tool_fn,
+            action="blast_radius",
+            node_id="commit:bad123",
+            links_json=_LINKS,
+            as_claim=False,
+        )
+    )
+    for out in (root_cause_out, blast_radius_out):
+        for key in (
+            "claim_id",
+            "claim_transition",
+            "claim_denied",
+            "claim_error",
+            "claim_write_errors",
+        ):
+            assert key not in out, f"{key} leaked into as_claim=False response"
+    assert root_cause_out["result"][0]["node_id"] == "commit:bad123"
+    assert engine.nodes == {}  # no write happened at all
+
+
+def test_root_cause_as_claim_proposes_exactly_one_claim_with_evidence_ids(
+    monkeypatch,
+):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        "agent_utilities.mcp.tools.ops_causal_tools._gate",
+        lambda kind, target, reason: (
+            True,
+            {"decision": "allow", "tier": "auto", "reason": "test"},
+        ),
+    )
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="root_cause",
+            node_id="trace:1",
+            links_json=_LINKS,
+            materialize_claims=False,  # isolate as_claim from the OLDER W2 path
+            as_claim=True,
+        )
+    )
+    assert out["claim_id"] == "claim:ops_causal:root_cause:trace:1"
+    assert out["claim_transition"]["to_state"] == "proposed"
+    assert out["claim_transition"]["from_state"] == ""
+
+    # Exactly one Claim was written — never one-per-ranked-candidate like the
+    # older materialize_claims path. (A second node, the flywheel's own
+    # ClaimLifecycleEvent audit record, is expected — that's the lifecycle
+    # trail itself, not a second claim.)
+    claim_nodes = [nid for nid, (label, _p) in engine.nodes.items() if label == "Claim"]
+    assert claim_nodes == ["claim:ops_causal:root_cause:trace:1"]
+    label, props = engine.nodes["claim:ops_causal:root_cause:trace:1"]
+    assert label == "Claim"
+    assert props["status"] == "proposal"
+    assert props["is_verified"] is False
+    assert props["claim_type"] == "finding"
+    assert "commit:bad123" in props["claim_text"]  # the structured one-liner
+
+    # Evidence refs: every node id the root-cause causal walk actually
+    # touched (the seed + every ranked candidate's own path — commit:bad123
+    # AND policy:pci are both topological-source roots of trace:1 in
+    # _LINKS), not just the top candidate's two endpoints.
+    assert set(props["source_ids"]) == {
+        "trace:1",
+        "commit:bad123",
+        "svc:checkout",
+        "agent:checkout",
+        "policy:pci",
+    }
+    # DERIVED_FROM provenance edges to each evidence id (register_claim_
+    # materialization — the SAME shared seam every other claim producer uses).
+    derived_targets = {t for _s, t, rel in engine.edges if rel == "DERIVED_FROM"}
+    assert derived_targets == set(props["source_ids"])
+
+    # Confidence = the top candidate's own path_strength (never the
+    # tie-breaker `score`) — an unbroken, unweighted chain is 1.0.
+    assert props["confidence"] == pytest.approx(1.0)
+
+    # PROV-O generator tagging.
+    assert props["metadata"]["finding_type"] == "OpsCausalFinding"
+    assert props["metadata"]["ops_causal_action"] == "root_cause"
+    assert props["metadata"]["was_generated_by"] == "mcp:graph_ops_causal"
+    assert props["metadata"]["generated_at_time"]  # non-empty ISO timestamp
+
+
+def test_blast_radius_as_claim_proposes_exactly_one_claim_with_evidence_ids(
+    monkeypatch,
+):
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        "agent_utilities.mcp.tools.ops_causal_tools._gate",
+        lambda kind, target, reason: (
+            True,
+            {"decision": "allow", "tier": "auto", "reason": "test"},
+        ),
+    )
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="blast_radius",
+            node_id="commit:bad123",
+            links_json=_LINKS,
+            as_claim=True,
+        )
+    )
+    assert out["claim_id"] == "claim:ops_causal:blast_radius:commit:bad123"
+    assert out["claim_transition"]["to_state"] == "proposed"
+
+    label, props = engine.nodes["claim:ops_causal:blast_radius:commit:bad123"]
+    assert label == "Claim"
+    assert props["status"] == "proposal"
+    assert set(props["source_ids"]) == {
+        "commit:bad123",
+        "svc:checkout",
+        "incident:INC001",
+        "agent:checkout",
+        "trace:1",
+    }
+    # blast_radius has no per-node score — documented conservative default.
+    assert props["confidence"] == pytest.approx(0.4)
+    assert props["metadata"]["ops_causal_action"] == "blast_radius"
+    assert props["metadata"]["was_generated_by"] == "mcp:graph_ops_causal"
+
+
+def test_as_claim_denied_policy_returns_analysis_with_claim_denied_note(
+    monkeypatch,
+):
+    """A denied ActionPolicy verdict must never block the read-only answer —
+    it only adds a ``claim_denied`` note, and nothing is ever written."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        "agent_utilities.mcp.tools.ops_causal_tools._gate",
+        lambda kind, target, reason: (
+            False,
+            {"decision": "queue_approval", "tier": "approval_required"},
+        ),
+    )
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="root_cause",
+            node_id="trace:1",
+            links_json=_LINKS,
+            materialize_claims=False,
+            as_claim=True,
+        )
+    )
+    # The read-only analysis is fully intact.
+    assert out["result"][0]["node_id"] == "commit:bad123"
+    assert out["result"][0]["is_root"] is True
+    # The denial is surfaced, never silently swallowed.
+    assert out["claim_denied"]["decision"] == "queue_approval"
+    # Nothing was proposed and nothing was written.
+    assert "claim_id" not in out
+    assert engine.nodes == {}
+
+
+def test_as_claim_no_findings_proposes_nothing(monkeypatch):
+    """as_claim=true on an analysis with no findings (no causal ancestors for
+    this seed) never fabricates a claim."""
+    mcp = _CollectingMCP()
+    register_ops_causal_tools(mcp)
+    engine = _ClaimRecordingEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    tool_fn = mcp.tools["graph_ops_causal"]
+
+    # commit:bad123 is a topological source in _LINKS — it has no ancestors.
+    out = json.loads(
+        _call(
+            tool_fn,
+            action="root_cause",
+            node_id="commit:bad123",
+            links_json=_LINKS,
+            materialize_claims=False,
+            as_claim=True,
+        )
+    )
+    assert out["result"] == []
+    assert "claim_id" not in out
+    assert "claim_denied" not in out
     assert engine.nodes == {}
