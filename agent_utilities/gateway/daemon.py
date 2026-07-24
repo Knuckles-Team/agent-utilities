@@ -38,6 +38,13 @@ def start_host_daemon() -> Any:
     with _lock:
         if _engine is not None:
             return _engine
+        # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 3) — fail closed at
+        # startup when delegated identity is on but no run-token signing secret resolves, so the
+        # daemon refuses to boot (config-contract) instead of failing lazily on the first spawn.
+        # No-op in the shipped `warn`/`off` posture.
+        from agent_utilities.security.run_token import require_token_secret
+
+        require_token_secret()
         # The gateway process is the authoritative daemon host.
         os.environ["KG_DAEMON_ROLE"] = "host"
         from agent_utilities.knowledge_graph.core.engine import (
