@@ -7,6 +7,13 @@ from pathlib import Path
 
 MAX_SCAN_BYTES = 8 * 1024 * 1024
 
+# The justified-convention marker for a line-level false-positive suppression:
+# a "sanitizer:ignore"-style comment followed by a non-empty reason after a
+# -/—/: separator. Mirrors check_swallowed_errors.py's `# noqa: BLE001 —
+# <reason>` convention ("document why", not just "silence the check") — a
+# bare marker with no reason is deliberately NOT accepted.
+SANITIZER_IGNORE_RE = re.compile(r"#\s*sanitizer:ignore\s*[-—:]\s*\S")
+
 # Config
 # llms.txt is the deliberate root-level AI entry index (llms-txt convention,
 # like robots.txt) shipped by the docs/day-0 work — not garbage.
@@ -244,6 +251,8 @@ def scan_repository(repo_path: Path):
             lines = content.splitlines()
 
             for idx, line in enumerate(lines, 1):
+                if SANITIZER_IGNORE_RE.search(line):
+                    continue
                 for label, pattern in SECRET_PATTERNS:
                     for match in pattern.findall(line):
                         match_str = match[0] if isinstance(match, tuple) else match

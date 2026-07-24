@@ -132,7 +132,7 @@ fail-closed ACL gate all see it. Under `KG_AUTH_REQUIRED=1`, any
 ## 3. The same call with curl
 
 ```bash
-TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlbW8ta2V5LTEi..."  # from your IdP  # sanitizer:ignore
+TOKEN="eyJhbGciOiJSUzI1NiIsImtpZCI6ImRlbW8ta2V5LTEi..."  # from your IdP  # sanitizer:ignore — truncated example JWT, not a real token
 curl -s http://localhost:9000/api/graph/query \
   -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \

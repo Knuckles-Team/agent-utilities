@@ -459,7 +459,7 @@ def test_seeded_secret_like_value_never_appears_in_exported_spans(
     (``test_annotate_epistemic_never_requires_its_own_provider``) — this
     test's job is everything that MUST stay opaque no matter its content."""
     telemetry, exporter = _telemetry_with_in_memory_exporter(monkeypatch)
-    secret = "sk-live-AKIAFAKESECRETVALUE0123456789ABCDEF"  # nosec B105 - test fixture, not a real credential
+    secret = "sk-live-AKIAFAKESECRETVALUE0123456789ABCDEF"  # nosec B105 - test fixture, not a real credential  # sanitizer:ignore — synthetic value, verifies telemetry redacts it
 
     telemetry.on_graph_start(run_id=secret, agent_id=secret, query=secret)
     telemetry.annotate_epistemic(
