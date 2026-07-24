@@ -91,7 +91,9 @@ def test_registered_on_graphos_tool_table():
 
 
 def test_root_cause_action(tool):
-    out = json.loads(_call(tool, action="root_cause", node_id="trace:1", links_json=_LINKS))
+    out = json.loads(
+        _call(tool, action="root_cause", node_id="trace:1", links_json=_LINKS)
+    )
     assert out["surface"] == "ops_causal"
     assert out["action"] == "root_cause"
     result = out["result"]
@@ -298,7 +300,9 @@ def test_materialize_root_cause_claims_direct_deny_retracts_flywheel():
     assert label == "Claim" and props["status"] == "proposal"  # never suppressed
     assert governance[claim_id]["decision"] == "deny"
 
-    events = sorted(engine.by_label("ClaimLifecycleEvent"), key=lambda e: e["timestamp"])
+    events = sorted(
+        engine.by_label("ClaimLifecycleEvent"), key=lambda e: e["timestamp"]
+    )
     claim_events = [e for e in events if e["claim_id"] == claim_id]
     assert [e["to_state"] for e in claim_events] == ["proposed", "retracted"]
 
@@ -378,7 +382,9 @@ def test_blast_radius_action_never_materializes_claims(monkeypatch):
     tool_fn = mcp.tools["graph_ops_causal"]
 
     out = json.loads(
-        _call(tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS)
+        _call(
+            tool_fn, action="blast_radius", node_id="commit:bad123", links_json=_LINKS
+        )
     )
     assert "claims_materialized" not in out
     assert "claims_governance" not in out
@@ -490,7 +496,9 @@ def test_root_cause_materialize_claims_denial_is_logged_with_actor_and_action(
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
     tool_fn = mcp.tools["graph_ops_causal"]
 
-    with caplog.at_level("WARNING", logger="agent_utilities.mcp.tools.ops_causal_tools"):
+    with caplog.at_level(
+        "WARNING", logger="agent_utilities.mcp.tools.ops_causal_tools"
+    ):
         json.loads(
             _call(tool_fn, action="root_cause", node_id="trace:1", links_json=_LINKS)
         )
