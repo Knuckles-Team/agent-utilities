@@ -75,7 +75,7 @@ THIS, contributing only how it receives the bytes.
 EG-X1).** Storing an ``:AssetOccurrence`` records *that* some bytes occurred; it says
 nothing about *where inside those bytes* a claim's evidence sits. epistemic-graph's
 own evidence-graph (``eg_epistemic::evidence.rs``, feature ``evidence-graph``) already
-resolves that from an ``:Evidence``-role node's ``evidence_span``/``occurrence_id``/
+resolves that from an ``:Evidence``-role node's ``evidence_locus``/``occurrence_id``/
 ``blob_ref`` properties via ``Method::ExplainEvidence`` — the SAME typed-node-by-
 convention ``SourceObject -> AssetOccurrence -> Blob`` identity chain this module's
 docstring describes above, just not previously linked to a located locus. Before this,
@@ -84,28 +84,36 @@ name the occurrence but never recover the exact page/box/span.
 :meth:`MediaStore.store_document_page_evidence` closes that gap for the document
 modality: it stores the media (as :meth:`store_media` always has), then ALSO writes a
 ``:SourceObject`` node for the owning document, an ``:Evidence`` node carrying a
-``PageBox`` ``EvidenceSpan`` locus plus the occurrence/blob identity chain, and —
-when a ``claim_id`` is given — the SAME ``relationship_type: "SUPPORTS"`` edge
-convention ``eg_epistemic``'s own claim materialization
-(``src/server/handlers/mining.rs::materialize_claim``) writes. No new engine
-write endpoint was needed: the generic ``nodes.add``/``edges.add`` RPCs the rest of
-this module already uses are sufficient to produce the EXACT property/edge shape
-``BeliefGraph::from_graph_view`` decodes — the resolver is entirely engine-side and is
-reused unchanged (see ``crates/eg-epistemic/tests/x1_evidence_chain.rs`` for the
-engine's own acceptance test of that decode path, and
-``tests/unit/knowledge_graph/test_media_store_evidence_spine.py`` for this module's
-half of the round-trip). Opt-in by construction: nothing about :meth:`store_media`
-changes, and a caller that never calls :meth:`store_document_page_evidence` writes
-nothing extra. Scoped to ONE modality (document page-box) end-to-end; the SAME
-pattern (an ``:Evidence`` node's ``evidence_span`` set to the modality's own
-``EvidenceSpan`` variant, plus ``occurrence_id``/``blob_ref``) extends unchanged to
-the other ten loci ``eg_modality::EvidenceSpan`` defines (image region, audio/video
+governed ``eg_modality::EvidenceLocus`` (a ``PageRegion`` ``EvidenceAddress`` plus the
+required ``id``/``subject``/``policy_ref``/``derivation_ref`` identity envelope) plus
+the occurrence/blob identity chain, and — when a ``claim_id`` is given — the SAME
+``relationship_type: "SUPPORTS"`` edge convention ``eg_epistemic``'s own claim
+materialization (``src/server/handlers/mining.rs::materialize_claim``) writes. No new
+engine write endpoint was needed: the generic ``nodes.add``/``edges.add`` RPCs the
+rest of this module already uses are sufficient to produce the EXACT property/edge
+shape ``BeliefGraph::from_graph_view`` decodes — the resolver is entirely engine-side
+and is reused unchanged (see ``crates/eg-epistemic/tests/x1_au_occurrence_chain.rs``
+for the engine's own acceptance test of an externally-authored locus in this EXACT
+shape, and ``tests/unit/knowledge_graph/test_media_store_evidence_spine.py`` for this
+module's half of the round-trip). Opt-in by construction: nothing about
+:meth:`store_media` changes, and a caller that never calls
+:meth:`store_document_page_evidence` writes nothing extra. Scoped to ONE modality
+(document page-box) end-to-end; the SAME pattern (an ``:Evidence`` node's
+``evidence_locus`` set to a governed ``EvidenceLocus`` wrapping the modality's own
+``EvidenceAddress`` variant, plus ``occurrence_id``/``blob_ref``) extends unchanged to
+the other ten loci ``eg_modality::EvidenceAddress`` defines (image region, audio/video
 segment, table cell range, code symbol, …) — see ``docs/architecture/
-evidence_spine_convergence.md``.
+evidence_spine_convergence.md``. ``policy_ref``/``derivation_ref`` are locally
+synthesized (deterministic from the evidence node's own id) rather than pointing at a
+real policy/derivation registry — no such registry is reachable from this module today,
+and neither field is cross-validated by the plain-node decode path this module uses
+(only the stricter ``ArtifactBundle::validate()``, used by the served modality-ingest
+path, cross-checks them).
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 import uuid
@@ -317,6 +325,62 @@ class MediaStore:
         if tenant_salt:
             return f"{_BLOB_PREFIX}{tenant_salt}:{digest}"
         return f"{_BLOB_PREFIX}{digest}"
+
+    @staticmethod
+    def _opaque_hex(*parts: str) -> str:
+        """A deterministic 64-char lowercase-hex token for an ``eg_modality::
+        OpaqueRef`` (CONCEPT:AU-KG.identity.evidence-spine-convergence), keyed from
+        arbitrary caller-supplied identifiers (a file path, a symbol name, a
+        trace/span id, a row id, …) that the governed identity layer forbids
+        representing verbatim (``OpaqueRef`` accepts only lowercase hex — raw
+        paths/names/endpoints are never protocol data, per
+        ``crates/eg-modality/src/artifact.rs``'s module docs). Stable across calls
+        with the same inputs, so re-ingesting the same symbol/row/span yields the
+        same opaque reference rather than a fresh one each time."""
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _governed_locus(
+        locus_kind: str,
+        address: dict[str, Any],
+        *,
+        evidence_id: str,
+        occurrence_id: str,
+    ) -> dict[str, Any]:
+        """Build the EXACT ``eg_modality::EvidenceLocus`` wire shape
+        ``eg_epistemic::evidence.rs``'s ``decode_locus``/``BeliefGraph::
+        from_graph_view`` decode off an ``:Evidence`` node's ``evidence_locus``
+        property (CONCEPT:AU-KG.identity.evidence-spine-convergence, EG-X1) —
+        the same shape ``crates/eg-epistemic/tests/x1_au_occurrence_chain.rs``
+        proves an externally-authored locus must match: ``id``/``subject``/
+        ``policy_ref``/``derivation_ref`` (each an ``eg:<namespace>:<hex-token>``
+        opaque reference; ``subject`` additionally carries its own ``kind``) plus
+        an ``address`` internally tagged with ``kind`` = the Rust
+        ``EvidenceAddress`` variant's ``snake_case`` name.
+
+        ``locus_kind``: the Rust ``EvidenceAddress`` variant tag (e.g.
+        ``"table_cell_range"``, ``"code_symbol"``) — NOT the informal PascalCase
+        name used in this module's own docstrings/prose.
+        ``address``: the variant's OWN fields only (no redundant identifying
+        field like a document/table/image id — that identity already lives in
+        ``subject``/the owning ``:SourceObject``'s ``about`` property).
+        ``evidence_id``/``occurrence_id``: this module's own ``evidence:<hex>``/
+        ``occurrence:<hex>`` node ids — their hex suffixes are reused as the
+        locus's own opaque token (already a valid, unique, irreversible token;
+        minting a second independent one would add nothing).
+        """
+        locus_token = evidence_id.rsplit(":", 1)[-1]
+        occurrence_token = occurrence_id.rsplit(":", 1)[-1]
+        return {
+            "id": f"eg:locus:{locus_token}",
+            "subject": {
+                "kind": "occurrence",
+                "id": f"eg:occurrence:{occurrence_token}",
+            },
+            "address": {"kind": locus_kind, **address},
+            "policy_ref": f"eg:policy:{locus_token}",
+            "derivation_ref": f"eg:derivation:{locus_token}",
+        }
 
     def _blob_exists(self, blob_id: str) -> bool:
         """Whether a ``:Blob`` node for ``blob_id`` already exists in this graph."""
@@ -614,9 +678,11 @@ class MediaStore:
            <document_id>``, upserted once — a repeat call for the same
            ``document_id`` reuses it) plus a structural ``hasOccurrence`` edge to
            the new ``:AssetOccurrence``.
-        2. An ``:Evidence`` node carrying the located ``PageBox``
-           ``eg_modality::EvidenceSpan`` locus (as the externally-tagged
-           ``{"PageBox": {...}}`` shape ``BeliefGraph::from_graph_view`` decodes)
+        2. An ``:Evidence`` node carrying the located ``PageRegion``
+           ``eg_modality::EvidenceAddress`` wrapped in a governed
+           ``EvidenceLocus`` (the ``{"id", "subject", "address", "policy_ref",
+           "derivation_ref"}`` shape ``BeliefGraph::from_graph_view`` decodes off
+           the node's ``evidence_locus`` property — see :meth:`_governed_locus`)
            plus ``occurrence_id``/``blob_ref`` — the SAME identity-chain
            convention ``eg_epistemic::evidence`` documents — and a structural
            ``extractedFrom`` edge back to the occurrence.
@@ -691,16 +757,18 @@ class MediaStore:
             "type": "Evidence",
             "about": document_id,
             "confidence": float(confidence),
-            "evidence_span": {
-                "PageBox": {
-                    "document_id": document_id,
+            "evidence_locus": self._governed_locus(
+                "page_region",
+                {
                     "page": int(page),
                     "x": float(x),
                     "y": float(y),
                     "width": float(width),
                     "height": float(height),
-                }
-            },
+                },
+                evidence_id=evidence_id,
+                occurrence_id=stored.occurrence_id,
+            ),
             "occurrence_id": stored.occurrence_id,
             "blob_ref": stored.blob_id,
             "created_at": now,
@@ -747,7 +815,8 @@ class MediaStore:
         data: bytes,
         *,
         about_id: str,
-        evidence_span: dict[str, Any],
+        locus_kind: str,
+        address: dict[str, Any],
         media_type: str,
         mime_type: str,
         source: str,
@@ -759,9 +828,9 @@ class MediaStore:
         """Shared through-write skeleton for every ``store_<locus>_evidence``
         method below — the SAME ``:SourceObject -> :AssetOccurrence -> :Blob`` +
         ``:Evidence`` chain :meth:`store_document_page_evidence` writes for
-        ``PageBox`` (CONCEPT:AU-KG.identity.evidence-spine-convergence), generalized over
-        ``evidence_span`` (the caller-built externally-tagged locus dict) and
-        ``about_id`` (whichever locus field identifies the owning artifact).
+        ``PageRegion`` (CONCEPT:AU-KG.identity.evidence-spine-convergence),
+        generalized over ``locus_kind``/``address`` (see :meth:`_governed_locus`)
+        and ``about_id`` (whichever locus field identifies the owning artifact).
         Not itself part of the public API — see the per-locus wrappers.
         """
         stored = self.store_media(
@@ -805,7 +874,12 @@ class MediaStore:
             "type": "Evidence",
             "about": about_id,
             "confidence": float(confidence),
-            "evidence_span": evidence_span,
+            "evidence_locus": self._governed_locus(
+                locus_kind,
+                address,
+                evidence_id=evidence_id,
+                occurrence_id=stored.occurrence_id,
+            ),
             "occurrence_id": stored.occurrence_id,
             "blob_ref": stored.blob_id,
             "created_at": now,
@@ -834,7 +908,7 @@ class MediaStore:
             stored.occurrence_id,
             stored.blob_id,
             evidence_id,
-            next(iter(evidence_span)),
+            locus_kind,
             claim_id or "-",
         )
         return EvidenceLocus(
@@ -870,13 +944,8 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=document_id,
-            evidence_span={
-                "DocumentSpan": {
-                    "document_id": document_id,
-                    "start": int(start),
-                    "end": int(end),
-                }
-            },
+            locus_kind="character_range",
+            address={"start": int(start), "end": int(end)},
             media_type="document_span",
             mime_type=mime_type,
             source=source,
@@ -912,14 +981,12 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=table_id,
-            evidence_span={
-                "TableCellRange": {
-                    "table_id": table_id,
-                    "row_start": int(row_start),
-                    "row_end": int(row_end),
-                    "col_start": int(col_start),
-                    "col_end": int(col_end),
-                }
+            locus_kind="table_cell_range",
+            address={
+                "row_start": int(row_start),
+                "row_end": int(row_end),
+                "col_start": int(col_start),
+                "col_end": int(col_end),
             },
             media_type="table_cell_range",
             mime_type=mime_type,
@@ -956,14 +1023,12 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=image_id,
-            evidence_span={
-                "ImageRegion": {
-                    "image_id": image_id,
-                    "x": float(x),
-                    "y": float(y),
-                    "width": float(width),
-                    "height": float(height),
-                }
+            locus_kind="image_region",
+            address={
+                "x": float(x),
+                "y": float(y),
+                "width": float(width),
+                "height": float(height),
             },
             media_type="image_region",
             mime_type=mime_type,
@@ -999,13 +1064,8 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=audio_id,
-            evidence_span={
-                "AudioSegment": {
-                    "audio_id": audio_id,
-                    "start_ms": int(start_ms),
-                    "end_ms": int(end_ms),
-                }
-            },
+            locus_kind="audio_range",
+            address={"start_ms": int(start_ms), "end_ms": int(end_ms)},
             media_type="audio_segment",
             mime_type=mime_type,
             source=source,
@@ -1038,13 +1098,8 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=video_id,
-            evidence_span={
-                "VideoShot": {
-                    "video_id": video_id,
-                    "start_ms": int(start_ms),
-                    "end_ms": int(end_ms),
-                }
-            },
+            locus_kind="video_time_range",
+            address={"start_ms": int(start_ms), "end_ms": int(end_ms)},
             media_type="video_shot",
             mime_type=mime_type,
             source=source,
@@ -1078,13 +1133,8 @@ class MediaStore:
         return self._store_located_evidence(
             data,
             about_id=video_id,
-            evidence_span={
-                "VideoFrameRange": {
-                    "video_id": video_id,
-                    "start_frame": int(start_frame),
-                    "end_frame": int(end_frame),
-                }
-            },
+            locus_kind="frame_range",
+            address={"start_frame": int(start_frame), "end_frame": int(end_frame)},
             media_type="video_frame_range",
             mime_type=mime_type,
             source=source,
@@ -1114,17 +1164,15 @@ class MediaStore:
         (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: a timeseries/anomaly-detection
         path that already has the ``metric``/``start_ms``/``end_ms`` it flagged —
         wire this in wherever an anomaly's supporting window is materialized.
+        ``metric`` names the series (it becomes ``about``/the owning
+        ``:SourceObject`` — the Rust ``MetricWindow`` address itself is purely the
+        time window, with no series-name field of its own).
         """
         return self._store_located_evidence(
             data,
             about_id=metric,
-            evidence_span={
-                "MetricWindow": {
-                    "metric": metric,
-                    "start_ms": int(start_ms),
-                    "end_ms": int(end_ms),
-                }
-            },
+            locus_kind="metric_window",
+            address={"start_ms": int(start_ms), "end_ms": int(end_ms)},
             media_type="metric_window",
             mime_type=mime_type,
             source=source,
@@ -1154,17 +1202,18 @@ class MediaStore:
         (CONCEPT:AU-KG.identity.evidence-spine-convergence). Natural producer: a database/SQL source
         connector (``agent_utilities/protocols/source_connectors``) that already
         tracks row identity + a transaction/version stamp — wire this in
-        alongside that connector's row-change capture.
+        alongside that connector's row-change capture. The Rust ``RowVersion``
+        address's ``row_ref`` is a governed ``OpaqueRef``, never a raw table/row
+        identifier — it is a deterministic opaque token keyed from ``table``
+        and ``row_id`` (see :meth:`_opaque_hex`), not those strings verbatim.
         """
         return self._store_located_evidence(
             data,
             about_id=f"{table}:{row_id}",
-            evidence_span={
-                "RowVersion": {
-                    "table": table,
-                    "row_id": row_id,
-                    "version": int(version),
-                }
+            locus_kind="row_version",
+            address={
+                "row_ref": f"eg:row:{self._opaque_hex(table, row_id)}",
+                "version": int(version),
             },
             media_type="row_version",
             mime_type=mime_type,
@@ -1199,18 +1248,21 @@ class MediaStore:
         ``graph-query-and-explanation`` skill) already resolves
         ``file_path``/``symbol``/line ranges — wire this in alongside that
         symbol extraction to make a code-derived claim cite its exact
-        function/class.
+        function/class. The Rust ``CodeSymbol`` address's ``revision_ref``/
+        ``symbol_ref`` are governed ``OpaqueRef``s, never a raw file path or
+        symbol name — each is a deterministic opaque token keyed from
+        ``file_path`` (``revision_ref``) and ``file_path``+``symbol``
+        (``symbol_ref``, see :meth:`_opaque_hex`), not those strings verbatim.
         """
         return self._store_located_evidence(
             data,
             about_id=file_path,
-            evidence_span={
-                "CodeSymbol": {
-                    "file_path": file_path,
-                    "symbol": symbol,
-                    "start_line": int(start_line),
-                    "end_line": int(end_line),
-                }
+            locus_kind="code_symbol",
+            address={
+                "revision_ref": f"eg:revision:{self._opaque_hex(file_path)}",
+                "symbol_ref": f"eg:symbol:{self._opaque_hex(file_path, symbol)}",
+                "start_line": int(start_line),
+                "end_line": int(end_line),
             },
             media_type="code_symbol",
             mime_type=mime_type,
@@ -1241,16 +1293,20 @@ class MediaStore:
         carries a ``GraphSession.trace_context`` (every session-bound write in this
         module does) — wire this in wherever a claim is derived from an
         observed trace span rather than a static artifact (e.g. an
-        observability/RunTrace ingestion path).
+        observability/RunTrace ingestion path). The Rust ``TraceSpan`` address's
+        ``trace_ref``/``span_ref`` are governed ``OpaqueRef``s: rather than assume
+        every caller's ``trace_id``/``span_id`` already happens to be valid
+        lowercase hex (true for W3C/OTel ids, not guaranteed for every source),
+        each is a deterministic opaque token keyed from the given id (see
+        :meth:`_opaque_hex`), not the raw id verbatim.
         """
         return self._store_located_evidence(
             data,
             about_id=trace_id,
-            evidence_span={
-                "TraceSpan": {
-                    "trace_id": trace_id,
-                    "span_id": span_id,
-                }
+            locus_kind="trace_span",
+            address={
+                "trace_ref": f"eg:trace:{self._opaque_hex(trace_id)}",
+                "span_ref": f"eg:span:{self._opaque_hex(trace_id, span_id)}",
             },
             media_type="trace_span",
             mime_type=mime_type,
