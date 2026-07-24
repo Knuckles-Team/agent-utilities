@@ -875,6 +875,121 @@ def test_engine_doctor_never_returns_endpoint_or_socket_material(monkeypatch):
     assert "/private/machine" not in rendered
 
 
+def _multi_endpoint_engine_config(monkeypatch, *, discovery_ready: bool | None):
+    """Shared fixture for the ADR-1 / W1.1 inverted multi-contact engine check
+    (`reports/wave1/ADR-scale-trio.md` §ADR-1 decision 5): 2 reachable
+    contacts, NO static `GRAPH_RAFT_GROUP_ENDPOINTS`, mode=remote so the only
+    remaining decision is discovery reachability. `discovery_ready=None`
+    leaves `discovery_reachable` unpatched (asserts it is never even called
+    when the fast path — a static map — makes the probe unnecessary; not used
+    by these two tests but documents the contract)."""
+    cfg = SimpleNamespace(graph_raft_group_endpoints={})
+    resolved = SimpleNamespace(
+        mode="remote",
+        endpoint="tls://coordinator.invalid:9443",
+        autostart_allowed=False,
+        idle_shutdown_secs=0,
+    )
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.shard_topology.default_graph_name",
+        lambda _cfg: "default",
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.shard_topology.shard_topology_status",
+        lambda *_args, **_kwargs: {
+            "mode": "sharded",
+            "endpoints": [
+                {"endpoint": "tls://a.invalid:9443", "reachable": True},
+                {"endpoint": "tls://b.invalid:9443", "reachable": True},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.engine_resolver.resolve_engine",
+        lambda *_args, **_kwargs: resolved,
+    )
+    if discovery_ready is not None:
+        monkeypatch.setattr(
+            "agent_utilities.knowledge_graph.core.placement_catalog.discovery_reachable",
+            lambda *_args, **_kwargs: discovery_ready,
+        )
+    return cfg
+
+
+def test_engine_doctor_fails_when_discovery_unreachable_and_no_static_map(
+    monkeypatch,
+):
+    """The inverted check's FAIL leg: multi-contact, no override, and
+    engine-authoritative discovery answers from nobody -- the failure mode is
+    now "discovery unreachable", not "map missing"."""
+    _multi_endpoint_engine_config(monkeypatch, discovery_ready=False)
+
+    result = D._check_engine()
+
+    assert result["status"] == "fail"
+    assert "discovery" in result["message"].lower()
+    assert result["data"]["cluster_topology_discovery_ready"] is False
+
+
+def test_engine_doctor_ok_when_discovery_reachable_and_no_static_map(monkeypatch):
+    """The inverted check's OK leg: multi-contact + no static map is fine
+    once `ClusterMembers` answers from a seed -- ADR-1's whole point."""
+    _multi_endpoint_engine_config(monkeypatch, discovery_ready=True)
+
+    result = D._check_engine()
+
+    assert result["status"] == "ok"
+    assert result["data"]["cluster_topology_discovery_ready"] is True
+
+
+def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
+    monkeypatch,
+):
+    """A configured static override answers the multi-contact question by
+    itself -- the (authenticated, more expensive) discovery probe is never
+    invoked."""
+    cfg = SimpleNamespace(
+        graph_raft_group_endpoints={"0": "tls://mapped.invalid:9443"}
+    )
+    resolved = SimpleNamespace(
+        mode="remote",
+        endpoint="tls://coordinator.invalid:9443",
+        autostart_allowed=False,
+        idle_shutdown_secs=0,
+    )
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.shard_topology.default_graph_name",
+        lambda _cfg: "default",
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.shard_topology.shard_topology_status",
+        lambda *_args, **_kwargs: {
+            "mode": "sharded",
+            "endpoints": [
+                {"endpoint": "tls://a.invalid:9443", "reachable": True},
+                {"endpoint": "tls://b.invalid:9443", "reachable": True},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.engine_resolver.resolve_engine",
+        lambda *_args, **_kwargs: resolved,
+    )
+    probed = []
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.placement_catalog.discovery_reachable",
+        lambda *args, **kwargs: probed.append(True) or True,
+    )
+
+    result = D._check_engine()
+
+    assert result["status"] == "ok"
+    assert probed == []
+    assert result["data"]["cluster_topology_discovery_ready"] is None
+
+
 def _skill_certification_config(
     root: Path, *, complete: bool = True
 ) -> SimpleNamespace:

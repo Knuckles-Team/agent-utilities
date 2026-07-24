@@ -47,6 +47,15 @@ _coupled_handlers_installed = False
 
 
 _MAX_LEDGER_ENTRY_BYTES = 8 * 1024 * 1024
+# ADR-1 / W1.1 bounded placement-route reconnect (`reports/wave1/ADR-scale-trio.md`
+# §ADR-1 decision 3): a fixed, small retry budget for a routed endpoint that
+# fails to CONNECT (as opposed to `StaleRouteError`, which already retries
+# once with a fresh epoch). Three attempts with doubling jittered backoff from
+# a 200ms base covers one Raft election timeout (default ~150-300ms heartbeat,
+# seconds-scale worst case) without a caller-tunable knob -- there is no
+# correct universal value an operator would set differently per deployment.
+_MAX_ROUTE_RECONNECT_ATTEMPTS = 3
+_ROUTE_RECONNECT_BASE_DELAY_S = 0.2
 _OPAQUE_PROGRAM_REF = re.compile(
     r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
 )
@@ -522,10 +531,11 @@ class _SessionRoutedAsyncClient:
             )
 
         import asyncio
+        import random
 
         from epistemic_graph.client import StaleRouteError
 
-        from .placement_catalog import resolve_placement
+        from .placement_catalog import invalidate, resolve_placement
 
         route = await asyncio.to_thread(
             resolve_placement,
@@ -539,41 +549,92 @@ class _SessionRoutedAsyncClient:
             catalog_epoch=int(route.epoch),
         )
         routed_params = self._route_bound_params(method, params, route)
-        try:
-            return await self._invoke_at(
-                route.endpoint,
-                method,
-                routed_params,
-                target,
-                idempotency_key,
-                routed_session,
-            )
-        except StaleRouteError:
-            # A stale response is guaranteed to be pre-commit. Refresh the
-            # authoritative catalog and retry exactly once with the same
-            # idempotency key and the new placement fence.
-            fresh = await asyncio.to_thread(
-                resolve_placement,
-                target,
-                self._route_endpoints,
-                self._route_config,
-                force_refresh=True,
-            )
-            fresh_session = session.with_route(
-                endpoint=fresh.endpoint,
-                placement_group=(
-                    int(fresh.group) if int(fresh.group or 0) > 0 else None
-                ),
-                catalog_epoch=int(fresh.epoch),
-            )
-            return await self._invoke_at(
-                fresh.endpoint,
-                method,
-                self._route_bound_params(method, params, fresh),
-                target,
-                idempotency_key,
-                fresh_session,
-            )
+        # ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
+        # §ADR-1 decision 3): a cached/returned route can point at a node that
+        # just died (the exact "kill the leader" failover case) -- a raw
+        # connect failure to `route.endpoint` is NOT a `StaleRouteError` (the
+        # engine never got to answer), so it needs its OWN retry leg:
+        # invalidate the stale cache entry, re-resolve via ANY configured
+        # contact (`resolve_placement`'s `_query_catalog` already tries every
+        # one in order, so a live coordinator is found even when the ORIGINAL
+        # endpoint is the one that died), and retry with jittered backoff,
+        # bounded so a genuinely dead cluster still surfaces an error.
+        connect_attempt = 0
+        while True:
+            try:
+                return await self._invoke_at(
+                    route.endpoint,
+                    method,
+                    routed_params,
+                    target,
+                    idempotency_key,
+                    routed_session,
+                )
+            except StaleRouteError:
+                # A stale response is guaranteed to be pre-commit. Refresh the
+                # authoritative catalog and retry exactly once with the same
+                # idempotency key and the new placement fence.
+                fresh = await asyncio.to_thread(
+                    resolve_placement,
+                    target,
+                    self._route_endpoints,
+                    self._route_config,
+                    force_refresh=True,
+                )
+                fresh_session = session.with_route(
+                    endpoint=fresh.endpoint,
+                    placement_group=(
+                        int(fresh.group) if int(fresh.group or 0) > 0 else None
+                    ),
+                    catalog_epoch=int(fresh.epoch),
+                )
+                return await self._invoke_at(
+                    fresh.endpoint,
+                    method,
+                    self._route_bound_params(method, params, fresh),
+                    target,
+                    idempotency_key,
+                    fresh_session,
+                )
+            except (ConnectionError, OSError) as exc:
+                connect_attempt += 1
+                if connect_attempt > _MAX_ROUTE_RECONNECT_ATTEMPTS:
+                    logger.warning(
+                        "placement-routed endpoint %s stayed unreachable after %d "
+                        "reconnect attempt(s) (%s); giving up",
+                        route.endpoint,
+                        _MAX_ROUTE_RECONNECT_ATTEMPTS,
+                        type(exc).__name__,
+                    )
+                    raise
+                logger.warning(
+                    "placement-routed endpoint %s unreachable (%s: %s); "
+                    "invalidating the cached route and re-resolving via any "
+                    "healthy seed (attempt %d/%d)",
+                    route.endpoint,
+                    type(exc).__name__,
+                    exc,
+                    connect_attempt,
+                    _MAX_ROUTE_RECONNECT_ATTEMPTS,
+                )
+                invalidate(target)
+                backoff = _ROUTE_RECONNECT_BASE_DELAY_S * (2 ** (connect_attempt - 1))
+                await asyncio.sleep(backoff + random.uniform(0, backoff))  # nosec B311 - jitter, not crypto
+                route = await asyncio.to_thread(
+                    resolve_placement,
+                    target,
+                    self._route_endpoints,
+                    self._route_config,
+                    force_refresh=True,
+                )
+                routed_session = session.with_route(
+                    endpoint=route.endpoint,
+                    placement_group=(
+                        int(route.group) if int(route.group or 0) > 0 else None
+                    ),
+                    catalog_epoch=int(route.epoch),
+                )
+                routed_params = self._route_bound_params(method, params, route)
 
     def _verified_tenant(self) -> str:
         """Return the tenant from the current verified graph authority.

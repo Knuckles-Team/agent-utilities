@@ -226,3 +226,108 @@ def test_first_failed_contact_uses_next_coordinator_without_guessing() -> None:
     )
     assert result.group == 2
     assert result.endpoint == "tls://group-two.invalid:9443"
+
+
+# ── ADR-1 / W1.1 engine-authoritative endpoint discovery ────────────────────
+# `reports/wave1/ADR-scale-trio.md` §ADR-1 decision 3: resolution order is
+# (a) a static GRAPH_RAFT_GROUP_ENDPOINTS entry as an explicit OVERRIDE (wins
+# when present), (b) PlacementRoute.endpoints (NEW -- no static config
+# needed), (c) the single-contact fallback (unchanged, covered above).
+
+
+def test_engine_endpoints_resolve_multi_contact_with_no_static_map() -> None:
+    """The exact gap ADR-1 closes: >1 contact used to hard-require
+    GRAPH_RAFT_GROUP_ENDPOINTS (`test_multi_endpoint_route_requires_explicit_
+    group_topology` above); now the engine's own discovered endpoints suffice."""
+    contacts = ["tls://coordinator-a.invalid:9443", "tls://coordinator-b.invalid:9443"]
+    answer = {
+        **_answer(group=7),
+        "endpoints": ["tls://leader.invalid:9443", "tls://follower.invalid:9443"],
+    }
+    result = resolve_placement(
+        "tenant:workspace",
+        contacts,
+        config=_Config(),  # no GRAPH_RAFT_GROUP_ENDPOINTS configured
+        client_factory=lambda _endpoint: _Client(answer, []),
+    )
+    assert result.endpoint == "tls://leader.invalid:9443"
+
+
+def test_static_override_wins_over_engine_endpoints_when_both_present() -> None:
+    """An explicit operator override always wins when configured -- the
+    escape hatch for a client that cannot reach the engine-discovered address
+    (NAT / ingress-only network boundary)."""
+    answer = {
+        **_answer(group=7),
+        "endpoints": ["tls://leader.invalid:9443"],
+    }
+    result = resolve_placement(
+        "tenant:workspace",
+        ["tls://seed.invalid:9443"],
+        config=_Config({"7": "tls://operator-override.invalid:9443"}),
+        client_factory=lambda _endpoint: _Client(answer, []),
+    )
+    assert result.endpoint == "tls://operator-override.invalid:9443"
+
+
+def test_empty_engine_endpoints_fall_back_to_single_contact() -> None:
+    """A single-node deployment (or a cluster with no self-reported member
+    yet) answers empty `endpoints` -- the unchanged single-contact fallback
+    still applies."""
+    answer = {**_answer(), "endpoints": []}
+    result = resolve_placement(
+        "tenant:workspace",
+        ["unix://engine.sock"],
+        config=_Config(),
+        client_factory=lambda _endpoint: _Client(answer, []),
+    )
+    assert result.endpoint == "unix://engine.sock"
+
+
+def test_engine_endpoints_reflect_the_current_leader_after_a_refresh() -> None:
+    """A `force_refresh` after a failover picks up the NEW leader-first
+    endpoint list -- the client-side half of ADR-1's "kill leader -> client
+    re-routes with zero config edits" acceptance criterion."""
+    contacts = ["tls://a.invalid:9443", "tls://b.invalid:9443"]
+    answers = iter(
+        [
+            {**_answer(group=1), "endpoints": ["tls://node-a.invalid:9443"]},
+            {**_answer(group=1), "endpoints": ["tls://node-b.invalid:9443"]},
+        ]
+    )
+
+    def factory(_endpoint: str) -> _Client:
+        return _Client(next(answers), [])
+
+    before = resolve_placement(
+        "tenant:workspace", contacts, config=_Config(), client_factory=factory
+    )
+    after = resolve_placement(
+        "tenant:workspace",
+        contacts,
+        config=_Config(),
+        force_refresh=True,
+        client_factory=factory,
+    )
+    assert before.endpoint == "tls://node-a.invalid:9443"
+    assert after.endpoint == "tls://node-b.invalid:9443"
+
+
+@pytest.mark.parametrize(
+    "endpoints",
+    [
+        "tls://not-a-list.invalid:9443",
+        [123],
+        [""],
+        [None],
+    ],
+)
+def test_malformed_engine_endpoints_fail_closed(endpoints: Any) -> None:
+    answer = {**_answer(), "endpoints": endpoints}
+    with pytest.raises(PlacementAuthorityError):
+        resolve_placement(
+            "tenant:workspace",
+            ["tls://coordinator.invalid:9443"],
+            config=_Config(),
+            client_factory=lambda _endpoint: _Client(answer, []),
+        )

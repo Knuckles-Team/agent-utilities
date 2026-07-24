@@ -51,6 +51,7 @@ __all__ = [
     "PlacementAuthorityError",
     "PlacementResult",
     "PlacementTopologyError",
+    "discovery_reachable",
     "invalidate",
     "resolve_placement",
     "split_tenant_key",
@@ -197,9 +198,31 @@ def _catalog_call(client: Any, tenant: str, sub_key: str, client_epoch: int) -> 
     return placement.route(tenant, sub_key, client_epoch=client_epoch)
 
 
-def _validate_answer(answer: Any, tenant: str, sub_key: str) -> PlacementRoute:
+def _validate_answer(
+    answer: Any, tenant: str, sub_key: str
+) -> tuple[PlacementRoute, tuple[str, ...]]:
+    """Validate the wire answer and split it into the schema-locked
+    ``PlacementRoute`` plus its ADR-1 ``endpoints`` extension.
+
+    ``endpoints`` (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, ADR-1 / W1.1) is deliberately
+    NOT part of ``agent_utilities.protocols.epistemic_operations.PlacementRoute``:
+    that schema-generated model is ``extra="forbid"`` (it is digest-pinned
+    against the authoritative catalog, shared verbatim with the engine's
+    cross-repo-locked DTO, which the engine itself documents as carrying "no
+    deployment endpoint material"). Feeding the raw wire dict straight into
+    ``model_validate`` would raise on the additive key, so it is stripped out
+    and returned separately instead.
+    """
+    if not isinstance(answer, dict):
+        raise PlacementAuthorityError("engine returned an invalid placement route")
+    endpoints_raw = answer.get("endpoints", [])
+    if not isinstance(endpoints_raw, list) or not all(
+        isinstance(e, str) and e for e in endpoints_raw
+    ):
+        raise PlacementAuthorityError("engine returned invalid placement endpoints")
+    core = {key: value for key, value in answer.items() if key != "endpoints"}
     try:
-        route = PlacementRoute.model_validate(answer)
+        route = PlacementRoute.model_validate(core)
     except (TypeError, ValueError) as exc:
         raise PlacementAuthorityError(
             "engine returned an invalid placement route"
@@ -210,19 +233,47 @@ def _validate_answer(answer: Any, tenant: str, sub_key: str) -> PlacementRoute:
         raise PlacementAuthorityError("engine returned a route for another partition")
     if route.fencing_token != route.group or (route.placed and route.epoch == 0):
         raise PlacementAuthorityError("engine returned an invalid placement fence")
-    return route
+    return route, tuple(endpoints_raw)
 
 
 def _map_endpoint(
     group: int,
     contacts: tuple[str, ...],
     config: Any,
+    route_endpoints: tuple[str, ...] = (),
 ) -> str:
+    """Resolve `group` to a client endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, ADR-1 / W1.1
+    resolution order):
+
+    (a) ``GRAPH_RAFT_GROUP_ENDPOINTS`` when it has an explicit entry for
+        `group` — an OPERATOR-CONFIGURED OVERRIDE always wins when present
+        (the same "explicit config beats an auto-detected default" contract
+        every other override in this codebase follows, e.g.
+        ``TenantCatalog``'s explicit shard assignment beating the FNV-1a
+        hash) — the deployment case this exists for is exactly one where
+        engine-discovered addresses are not reachable from this client (NAT,
+        an ingress-only network boundary, ...).
+    (b) `route_endpoints` (NEW) — the engine's own live, leader-first member
+        list for the resolved group (``PlacementRoute.endpoints``),
+        authoritative and requiring no static configuration at all.
+    (c) The single configured contact, unchanged.
+
+    Raises :class:`PlacementTopologyError` when none apply — multiple
+    contacts, no override, and no engine-discovered endpoints yet (e.g. no
+    cluster member has self-reported).
+    """
     topology = getattr(config, "graph_raft_group_endpoints", None) or {}
     if isinstance(topology, dict):
         target = topology.get(str(group), topology.get(group))
         if target:
+            logger.debug(
+                "using the static GRAPH_RAFT_GROUP_ENDPOINTS override for group %s "
+                "(engine-discovered endpoints, if any, were not used)",
+                group,
+            )
             return str(target)
+    if route_endpoints:
+        return route_endpoints[0]
     if len(contacts) == 1:
         return contacts[0]
     raise PlacementTopologyError(
@@ -288,9 +339,9 @@ def _query_catalog(
                     verified_context=verified_context,
                 )
             answer = _catalog_call(client, tenant, sub_key, client_epoch)
-            route = _validate_answer(answer, tenant, sub_key)
+            route, route_endpoints = _validate_answer(answer, tenant, sub_key)
             return PlacementResult(
-                endpoint=_map_endpoint(route.group, contacts, config),
+                endpoint=_map_endpoint(route.group, contacts, config, route_endpoints),
                 epoch=route.epoch,
                 group=route.group,
                 fencing_token=route.fencing_token,
@@ -319,6 +370,73 @@ def _query_catalog(
     raise PlacementAuthorityError(
         f"no configured engine returned an authoritative route ({failures} failed)"
     )
+
+
+def discovery_reachable(
+    endpoints: list[str] | tuple[str, ...],
+    config: Any = None,
+    *,
+    client_factory: Callable[[str], Any] | None = None,
+) -> bool:
+    """True when at least one of `endpoints` answers the engine's
+    ``ClusterMembers`` cluster-topology discovery RPC (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, ADR-1 /
+    W1.1 decision 5).
+
+    Backs the inverted `agent_utilities.deployment.doctor` engine check: a
+    multi-contact configuration with no static `GRAPH_RAFT_GROUP_ENDPOINTS`
+    map is now OK **iff** discovery answers from a seed — the failure mode
+    becomes "discovery unreachable", not "map missing". Tries each endpoint in
+    order (mirrors :func:`_query_catalog`'s try-every-contact discipline) and
+    returns on the first success; never raises — a probe result, not an
+    authoritative route. Respects the SAME hermetic testing guard as
+    :func:`resolve_placement`.
+    """
+    contacts = tuple(endpoint for endpoint in endpoints if endpoint)
+    if not contacts or _hermetic_testing_guard(client_factory):
+        return False
+    if config is None:
+        from agent_utilities.core.config import AgentConfig
+
+        config = AgentConfig()
+
+    auth_secret: str | None = None
+    verified_context: dict[str, Any] | None = None
+    if client_factory is None:
+        try:
+            auth_secret, verified_context = _request_authority(config)
+        except PlacementAuthorityError:
+            return False
+
+    for contact in contacts:
+        client = None
+        owns_client = client_factory is None
+        try:
+            if client_factory is not None:
+                client = client_factory(contact)
+            else:
+                assert auth_secret is not None and verified_context is not None
+                client = _default_connect(
+                    contact, auth_secret, config, verified_context=verified_context
+                )
+            topology = getattr(client, "cluster_topology", None)
+            if topology is None or not hasattr(topology, "members"):
+                continue
+            topology.members()
+            return True
+        except Exception as exc:  # noqa: BLE001 - try the next seed; a probe never raises
+            logger.debug(
+                "cluster-topology discovery probe failed for a configured contact "
+                "(%s: %s)",
+                type(exc).__name__,
+                str(exc),
+            )
+        finally:
+            if client is not None and owns_client:
+                try:
+                    client.close()
+                except Exception:  # noqa: BLE001 - best-effort teardown
+                    pass
+    return False
 
 
 def resolve_placement(

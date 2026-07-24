@@ -1251,6 +1251,9 @@ def _check_engine() -> dict[str, Any]:
         from agent_utilities.knowledge_graph.core.graph_compute import (
             engine_encryption_readiness,
         )
+        from agent_utilities.knowledge_graph.core.placement_catalog import (
+            discovery_reachable,
+        )
         from agent_utilities.knowledge_graph.core.shard_topology import (
             default_graph_name,
             shard_topology_status,
@@ -1269,6 +1272,20 @@ def _check_engine() -> dict[str, Any]:
     st["resolved_mode"] = resolved.mode
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
+    has_static_topology = bool(getattr(cfg, "graph_raft_group_endpoints", {}) or {})
+    # ADR-1 / W1.1 (`reports/wave1/ADR-scale-trio.md` §ADR-1 decision 5): a
+    # multi-contact configuration no longer HARD-requires the static map --
+    # probe whether engine-authoritative discovery (`ClusterMembers`) answers
+    # from a reachable seed instead. Only probed when it could actually change
+    # the verdict below (an authenticated RPC, unlike the cheap raw-connect
+    # `reachable` probe above), and never under the hermetic testing guard
+    # (`discovery_reachable` returns False there, same as every other doctor
+    # check that would otherwise dial a real socket in tests).
+    discovery_ready = (
+        discovery_reachable([e["endpoint"] for e in reachable], cfg)
+        if len(endpoints) > 1 and not has_static_topology
+        else None
+    )
     # Endpoint strings can contain hostnames, usernames, local socket paths, or
     # customer-specific topology names. Doctor is frequently copied into issue
     # reports and traces, so expose readiness counts only.
@@ -1280,6 +1297,7 @@ def _check_engine() -> dict[str, Any]:
         "placement_group_mapping_count": len(
             getattr(cfg, "graph_raft_group_endpoints", {}) or {}
         ),
+        "cluster_topology_discovery_ready": discovery_ready,
         "autostart_allowed": bool(resolved.autostart_allowed),
         "idle_shutdown_configured": bool(resolved.idle_shutdown_secs > 0),
         "durable_encryption": encryption,
@@ -1321,14 +1339,19 @@ def _check_engine() -> dict[str, Any]:
             data=redacted_status,
         )
 
-    if len(endpoints) > 1 and not getattr(cfg, "graph_raft_group_endpoints", {}):
+    if len(endpoints) > 1 and not has_static_topology and not discovery_ready:
         return _result(
             "engine",
             "fail",
-            "multiple coordinator contacts have no Raft group endpoint mapping",
+            "multiple coordinator contacts have no static Raft group endpoint "
+            "mapping, and engine-authoritative cluster-topology discovery "
+            "(ClusterMembers) did not answer from any reachable contact",
             remediation=(
-                "Configure GRAPH_RAFT_GROUP_ENDPOINTS as a group-to-endpoint JSON map, "
-                "or expose one stable coordinator contact. Clients never infer placement."
+                "Ensure at least one configured GRAPH_SERVICE_ENDPOINTS seed is a "
+                "live cluster member self-reported via NodeInfoUpsert (ADR-1 / "
+                "W1.1) and answering ClusterMembers, or configure "
+                "GRAPH_RAFT_GROUP_ENDPOINTS as an explicit group-to-endpoint "
+                "override map. Clients never infer placement."
             ),
             data=redacted_status,
         )
