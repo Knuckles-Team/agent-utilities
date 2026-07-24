@@ -414,6 +414,14 @@ def read_evolution_state(
 
     The operator's "make it transparent so I can steer" surface. Reused by the
     ``graph_loops(action="state")`` MCP tool and its REST twin.
+
+    ``artifact_versions`` folds in the unified promotion gate's cross-vector
+    lineage read (:func:`artifact_evolution_summary`, CONCEPT:AU-AHE.harness.unified-promotion-gate)
+    — every promoted artifact (skill/prompt version today), its status, and its
+    ``RewardSignal``-sourced reward, so the evolution MATRIX (not just the
+    research/distill/develop pipeline) is queryable from the SAME live surface
+    (Wire-First: the read existed and was unit-tested but had no live caller
+    until this wiring).
     """
     from .improvement_ledger import improvement_velocity
     from .spec_proposals import specs_summary
@@ -427,6 +435,9 @@ def read_evolution_state(
     gaps = _open_gaps_trend(engine)
     coverage = _ingestion_coverage_pct() if include_coverage else {"coverage_pct": None}
     specs = specs_summary(engine)
+    # artifact_evolution_summary is itself best-effort/never-raise (degrades to
+    # an empty-but-shaped reading) — no try/except needed, matching gaps/specs.
+    artifact_versions = artifact_evolution_summary(engine, limit=20)
 
     gauge = saturation_gauge(
         coverage_pct=coverage.get("coverage_pct"),
@@ -442,6 +453,7 @@ def read_evolution_state(
         "open_gaps": gaps,
         "ingestion_coverage": coverage,
         "specs": specs,
+        "artifact_versions": artifact_versions,
         "saturation": gauge,
         "steering": {
             "pause": "graph_schedules action=disable name=<evolution schedule>",
