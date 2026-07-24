@@ -198,6 +198,13 @@ def test_winning_candidate_default_never_auto_promotes(monkeypatch):
     assert len(versions) == 1
     assert versions[0]["status"] == "proposal"  # NOT active
     assert versions[0]["benchmark_score"] == 1.0
+    # The unified evolution matrix's generalized fields (CONCEPT:AU-AHE.harness.
+    # unified-promotion-gate) carry the SAME RewardSignal the promote() gate
+    # consulted — artifact_evolution_summary's cross-vector read queries THESE
+    # (not the skill-specific benchmark_score), so they must be real, not the
+    # unset default.
+    assert versions[0]["reward"] == 1.0
+    assert versions[0]["reward_source"] == "internal_corpus"
     # no SUPERSEDES edge written — promotion never happened
     assert eng.edges == []
 
@@ -224,7 +231,7 @@ def test_winning_candidate_promotes_when_policy_relaxed():
     assert any(
         target.endswith(":" + eng.by_type("skill_version")[0]["parent_hash"])
         for _, target, props in eng.edges
-        if props.get("relationship_type") == "SUPERSEDES"
+        if props.get("rel_type") == "SUPERSEDES"
     )
 
 

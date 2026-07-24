@@ -357,8 +357,20 @@ def _persist_skill_version(
     benchmark_task_count: int,
     reflect_notes: list[str],
     errors: list[str],
+    reward: float | None = None,
+    reward_source: str = "",
 ) -> None:
-    """Persist (or upsert) one ``:SkillVersion`` node. Best-effort; never raises."""
+    """Persist (or upsert) one ``:SkillVersion`` node. Best-effort; never raises.
+
+    ``reward``/``reward_source`` populate :class:`~agent_utilities.models.
+    knowledge_graph.ArtifactVersionNode`'s generalized fields (CONCEPT:AU-AHE.harness.unified-promotion-gate)
+    with the SAME :class:`~agent_utilities.harness.reward_signal.RewardSignal`
+    already computed for the ``promote()`` gate — ``benchmark_score`` keeps its
+    exact prior meaning/name (no existing reader changes), this is additive so
+    ``artifact_evolution_summary``'s cross-vector read (which queries the
+    generalized ``reward`` property, not the skill-specific ``benchmark_score``
+    one) sees a real value instead of the field's unset default.
+    """
     if engine is None:
         return
     try:
@@ -376,6 +388,8 @@ def _persist_skill_version(
             benchmark_score=benchmark_score,
             benchmark_task_count=benchmark_task_count,
             reflect_notes=list(reflect_notes),
+            reward=reward,
+            reward_source=reward_source,
         )
         props = node.model_dump()
         props.pop("id", None)
@@ -591,6 +605,8 @@ def run_reflact_cycle(
         benchmark_task_count=len(holdout_tasks),
         reflect_notes=patterns,
         errors=report["errors"],
+        reward=candidate_score,
+        reward_source="internal_corpus",
     )
 
     if not verdict.eligible:
@@ -617,6 +633,8 @@ def run_reflact_cycle(
             benchmark_task_count=len(holdout_tasks),
             reflect_notes=patterns,
             errors=report["errors"],
+            reward=candidate_score,
+            reward_source="internal_corpus",
         )
         report["promoted"] = True
     except Exception as e:  # noqa: BLE001
