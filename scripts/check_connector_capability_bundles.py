@@ -190,6 +190,17 @@ def _provider_owned_names(agents_root: Path) -> tuple[str, ...]:
     providers: list[str] = []
     for candidate in candidates:
         try:
+            candidate_metadata = candidate.lstat()
+        except OSError as exc:
+            raise ValueError("provider checkout entry cannot be inspected") from exc
+        if stat.S_ISLNK(candidate_metadata.st_mode) or not stat.S_ISDIR(
+            candidate_metadata.st_mode
+        ):
+            # A non-directory sibling (e.g. agents/AGENTS.md, the tree's own
+            # navigation index) cannot be a provider-owned connector checkout —
+            # skip it rather than probe a nested path under a file/symlink.
+            continue
+        try:
             (candidate / "connector_manifest.yml").lstat()
         except FileNotFoundError:
             continue
