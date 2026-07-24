@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1018
+total_concepts: 1019
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2027,6 +2027,14 @@ concepts:
   - agent_utilities/http/rate_limit.py
   - agent_utilities/http/redaction.py
   doc: Fleet HTTP Client Library
+- id: AU-KG.audit.graph-ownership-disposition
+  name: deterministic ownership disposition
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/maintenance/graph_ownership.py
+  - agent_utilities/knowledge_graph/maintenance/graph_ownership_apply.py
+  doc: deterministic ownership disposition
 - id: AU-KG.audit.hash-chain-verify
   name: routes to the engine
   pillar: AU-KG
@@ -8482,7 +8490,12 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/__init__.py
+  - agent_utilities/orchestration/agent_runner.py
+  - agent_utilities/orchestration/engine.py
+  - agent_utilities/server/app.py
   doc: Telemetry Engine
 - id: AU-OS.observability.unified-health-kernels
   name: AU-OS.observability.unified-health-kernels
