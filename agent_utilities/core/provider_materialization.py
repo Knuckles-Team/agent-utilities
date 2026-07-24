@@ -207,11 +207,19 @@ def _validate_marker(marker: ManagedProviderMarker) -> None:
         raise ValueError("provider materialization leg is unsupported")
     _require_digest(marker.registration_digest, "registration_digest")
     _require_digest(marker.content_digest, "content_digest")
-    if type(marker.active) is not bool:  # bool is intentionally exact here
+    if not isinstance(marker.active, bool):  # bool is intentionally exact here
         raise ValueError("active must be a boolean")
-    if type(marker.file_count) is not int or marker.file_count < 0:
+    if (
+        not isinstance(marker.file_count, int)
+        or isinstance(marker.file_count, bool)
+        or marker.file_count < 0
+    ):
         raise ValueError("file_count must be a non-negative integer")
-    if type(marker.byte_count) is not int or marker.byte_count < 0:
+    if (
+        not isinstance(marker.byte_count, int)
+        or isinstance(marker.byte_count, bool)
+        or marker.byte_count < 0
+    ):
         raise ValueError("byte_count must be a non-negative integer")
     if marker.file_count > MAX_PROVIDER_FILES or marker.byte_count > MAX_PROVIDER_BYTES:
         raise ValueError("provider marker exceeds materialization bounds")
@@ -292,7 +300,9 @@ def read_managed_provider_marker(
         )
         if not isinstance(raw, dict) or set(raw) != _MARKER_KEYS:
             return None
-        if type(raw.get("schema_version")) is not int:
+        if not isinstance(raw.get("schema_version"), int) or isinstance(
+            raw.get("schema_version"), bool
+        ):
             return None
         marker = ManagedProviderMarker(**raw)
         _validate_marker(marker)

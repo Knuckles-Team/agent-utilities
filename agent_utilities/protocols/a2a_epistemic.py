@@ -627,7 +627,8 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             value.get("record_kind") != _CONTEXT_RECORD_KIND
             or value.get("node_type") != "A2AContext"
             or value.get("tenant_ref") != self.runtime.tenant_ref
-            or type(value.get("revision")) is not int
+            or not isinstance(value.get("revision"), int)
+            or isinstance(value.get("revision"), bool)
             or value["revision"] < 0
             or not isinstance(value.get("payload"), list)
             or not _valid_payload_ref(value.get("payload_ref"))
@@ -645,13 +646,15 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             value.get("record_kind") != _TASK_RECORD_KIND
             or value.get("node_type") != "A2ATask"
             or value.get("tenant_ref") != self.runtime.tenant_ref
-            or type(value.get("revision")) is not int
+            or not isinstance(value.get("revision"), int)
+            or isinstance(value.get("revision"), bool)
             or value["revision"] < 0
             or not isinstance(value.get("payload"), dict)
             or not _valid_payload_ref(value.get("payload_ref"))
             or value["payload_ref"]
             != _payload_ref(value["payload"], tenant_key=self.runtime.tenant_key)
-            or type(value.get("context_revision")) is not int
+            or not isinstance(value.get("context_revision"), int)
+            or isinstance(value.get("context_revision"), bool)
             or value["context_revision"] < 0
             or not _valid_payload_ref(value.get("context_payload_ref"))
             or value.get("run_dispatch_state")
@@ -673,7 +676,8 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         if (tag is None) != (consumer is None) or (
             tag is not None
             and (
-                type(tag) is not int
+                not isinstance(tag, int)
+                or isinstance(tag, bool)
                 or tag <= 0
                 or not isinstance(consumer, str)
                 or not consumer
@@ -758,7 +762,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         created = await self.runtime.call(
             "nodes", "create_if_absent", context_id, initial
         )
-        if type(created) is not bool:
+        if not isinstance(created, bool):
             raise RuntimeError("native A2A create-if-absent returned an invalid result")
         properties = await self.runtime.call("nodes", "properties", context_id)
         record = self._context_record(properties)
@@ -835,7 +839,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             created = await self.runtime.call(
                 "nodes", "create_if_absent", task_id, properties
             )
-            if type(created) is not bool:
+            if not isinstance(created, bool):
                 raise RuntimeError(
                     "native A2A create-if-absent returned an invalid result"
                 )
@@ -954,7 +958,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             self._task_conditions(record),
             updates,
         )
-        if type(applied) is not bool or not applied:
+        if not isinstance(applied, bool) or not applied:
             raise A2AStorageConflict("A2A task update lost its execution fence")
         binding.expected_task_revision = revision + 1
         binding.expected_task_payload_ref = payload_ref
@@ -994,7 +998,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                     "cancel_dispatch_state": "pending",
                 },
             )
-            if type(applied) is not bool:
+            if not isinstance(applied, bool):
                 raise RuntimeError("native A2A CAS returned an invalid result")
             if applied:
                 return updated
@@ -1084,14 +1088,16 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                 self._task_conditions(task_record),
                 task_updates,
             )
-            if type(staged_context) is not bool or type(staged_task) is not bool:
+            if not isinstance(staged_context, bool) or not isinstance(
+                staged_task, bool
+            ):
                 raise RuntimeError(
                     "native A2A transaction staging returned invalid results"
                 )
             if not staged_context or not staged_task:
                 raise A2AStorageConflict("A2A transaction rejected an execution fence")
             result = await self.runtime.call("txn", "commit", txn_id)
-            if type(result) is not bool:
+            if not isinstance(result, bool):
                 raise RuntimeError(
                     "native A2A transaction commit returned an invalid result"
                 )
@@ -1274,7 +1280,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                 },
                 {field_name: state},
             )
-            if type(applied) is not bool:
+            if not isinstance(applied, bool):
                 raise RuntimeError("native A2A CAS returned an invalid result")
             if applied:
                 return
@@ -1445,9 +1451,10 @@ class EpistemicGraphA2ABroker(Broker):
         duplicate = result["duplicate"]
         delivered = result["delivered"]
         if (
-            type(confirmed) is not bool
-            or type(duplicate) is not bool
-            or type(delivered) is not int
+            not isinstance(confirmed, bool)
+            or not isinstance(duplicate, bool)
+            or not isinstance(delivered, int)
+            or isinstance(delivered, bool)
             or not confirmed
             or (duplicate and delivered != 0)
             or (not duplicate and delivered != 1)
@@ -1516,7 +1523,7 @@ class EpistemicGraphA2ABroker(Broker):
     @staticmethod
     def _delivery_tag(properties: dict[str, Any]) -> int:
         value = properties.get("delivery_tag")
-        if type(value) is not int or value <= 0:
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
             raise RuntimeError("native A2A broker delivery tag is invalid")
         return value
 
@@ -1665,7 +1672,7 @@ class EpistemicGraphA2ABroker(Broker):
                         now_ms=_now_ms(),
                         lease_ms=self.lease_ms,
                     )
-                    if type(renewed) is not bool or not renewed:
+                    if not isinstance(renewed, bool) or not renewed:
                         control.abort("lease_lost")
                         return
                     renew_at = loop.time() + renewal_interval
@@ -1714,7 +1721,11 @@ class EpistemicGraphA2ABroker(Broker):
             _node_id, properties = claimed
             tag = self._delivery_tag(properties)
             delivery_count = properties.get("delivery_count")
-            if type(delivery_count) is not int or delivery_count <= 0:
+            if (
+                not isinstance(delivery_count, int)
+                or isinstance(delivery_count, bool)
+                or delivery_count <= 0
+            ):
                 raise RuntimeError("native A2A broker delivery count is invalid")
             exhausts_retries = delivery_count >= self.max_delivery_count
             try:
@@ -1763,7 +1774,7 @@ class EpistemicGraphA2ABroker(Broker):
                 acknowledged = await self.runtime.call(
                     "broker", "ack_tag", tag, consumer=self._consumer
                 )
-                if type(acknowledged) is not bool or not acknowledged:
+                if not isinstance(acknowledged, bool) or not acknowledged:
                     raise RuntimeError(
                         "native A2A broker could not acknowledge its fenced delivery"
                     )
