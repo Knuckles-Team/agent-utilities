@@ -631,10 +631,25 @@ ACTION_TOOL_ROUTES["graph_search"] = "/graph/search"`). This is the one X-series
 item with the cleanest, most direct two-surface exposure — it rides an *existing*,
 already-surfaced tool's mode enum rather than needing a new registration at all.
 
-**Limitation, stated in the evolution roadmap as Seam 6:** the compiled bundle is
-not yet routed through the KV-cache layering path (LMCache), so "epistemic quality"
-and "serving latency" are not yet a single optimized path — that wiring is future
-work, not shipped here.
+**Update — Seam 6 shipped, then made the default (W3.7).** The evolution roadmap's
+Seam 6 gap ("the compiled bundle is not yet routed through the KV-cache layering
+path") is closed: `ContextCompiler.compile(kv_backend=...)` computes a stable
+cache-key from the bundle's evidence identity and reuses a previously-assembled
+bundle on a hit (`compute_bundle_cache_key`), `ContextBundle.as_prompt_messages`
+renders the bundle as a byte-stable prefix for vLLM's own automatic prefix cache,
+and `context_compiler_serving.py` is the governed wire that sends it. W3.7 went
+further and made this the **default context-assembly path for every delegated run**
+(`core/contextual_model.py::create_context_agent`/`wrap_model_with_context` — every
+Pydantic AI agent the orchestration graph constructs), with a
+`MODEL_CONTEXT_COMPILER_ENABLED` deployment-level escape hatch, and added the
+missing Seam-6 measurement: the `agent_utilities_context_compiler_kv_cache_
+requests_total` hit/miss counter and the `agent_utilities_context_compiler_ttft_
+seconds` histogram (labeled `path="delegated_run"` vs `path="bundle_chat_
+completion"` so the interactive and batch latency populations are distinguishable)
+— see [`../reference/metrics.md`](../reference/metrics.md). The KV backend itself
+(`agent_utilities.kvcache.EpistemicGraphKVBackend`, the remote/shared tier) remains
+opt-in, per `set_context_compiler_cache` — a genuinely expensive, network-dependent
+performance layer, not part of the mandatory compilation contract.
 
 ### 4.6 X-8 — Agent digital twin + deterministic replay
 

@@ -385,12 +385,16 @@ CONTEXT_COMPILER_KV_CACHE = _counter(
 )
 CONTEXT_COMPILER_TTFT = _histogram(
     "agent_utilities_context_compiler_ttft_seconds",
-    "bundle_chat_completion() wall-clock latency to the live chat endpoint — a "
-    "time-to-first-token PROXY for non-streaming calls (see "
-    "scripts/measure_bundle_kv_reuse.py for the token-level vLLM prefix-cache "
-    "signal this approximates), split by whether the bundle itself was served "
-    "from the Seam-6 KV cache (kv_cache_hit).",
-    ("kv_cache_hit",),
+    "Wall-clock latency of a governed model call using a compiled ContextCompiler "
+    "bundle — a time-to-first-token PROXY (see scripts/measure_bundle_kv_reuse.py "
+    "for the token-level vLLM prefix-cache signal this approximates), split by "
+    "whether the bundle itself was served from the Seam-6 KV cache (kv_cache_hit) "
+    "and by call-site population (path='bundle_chat_completion': background "
+    "enrichment/extraction calls via context_compiler_serving.bundle_chat_completion; "
+    "path='delegated_run': interactive execute_agent/execute_workflow model calls "
+    "via the mandatory contextual_model wrapper, CONCEPT:AU-KG.retrieval.context-compiler, W3.7) "
+    "so the two latency populations are never averaged together.",
+    ("kv_cache_hit", "path"),
 )
 KVCACHE_CLIENT_REQUESTS = _counter(
     "agent_utilities_kvcache_client_requests_total",
