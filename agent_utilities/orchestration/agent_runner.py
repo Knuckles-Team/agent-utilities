@@ -215,7 +215,9 @@ def _prepare_spawn_delegation(
     principal = _deleg.resolve_principal_identity()
     parent = _deleg.current_delegation()
     parent_chain = parent.chain if parent is not None else ()
-    ultimate = principal.principal or (parent.principal if parent else "") or "service:local"
+    ultimate = (
+        principal.principal or (parent.principal if parent else "") or "service:local"
+    )
 
     # Ceiling flows to the spawned agent's GraphState so apply_tool_scope can narrow tools.
     if principal.ceiling:
@@ -2257,7 +2259,9 @@ def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
             props.setdefault(
                 "delegation_chain",
                 [
-                    persistence_reference("actor", deleg.principal, namespace="run-trace")
+                    persistence_reference(
+                        "actor", deleg.principal, namespace="run-trace"
+                    )
                     if entry == deleg.principal
                     else entry
                     for entry in deleg.chain

@@ -629,9 +629,7 @@ def _intersect_principal_ceiling(
         return allowed
     delegation = current_delegation()
     mode = delegation.mode if delegation is not None else delegation_mode()
-    decision = enforce_ceiling(
-        allowed, ceiling, mode=mode, context="apply_tool_scope"
-    )
+    decision = enforce_ceiling(allowed, ceiling, mode=mode, context="apply_tool_scope")
     # A full ceiling denial (the spawn requested ONLY tools outside its principal's ceiling)
     # must FAIL CLOSED — an empty list here would otherwise read as "no restriction" in the
     # caller's ``if not allowed`` guard and silently open every tool. Raise the ceiling-violation

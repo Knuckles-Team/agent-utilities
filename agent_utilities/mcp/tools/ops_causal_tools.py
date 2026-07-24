@@ -611,9 +611,11 @@ def register_ops_causal_tools(mcp: Any) -> None:
                     now=now or None,
                 )
                 if materialize_claims and engine is not None:
-                    claims_materialized, claim_errors, claim_governance = (
-                        _materialize_root_cause_claims(engine, node_id, result)
-                    )
+                    (
+                        claims_materialized,
+                        claim_errors,
+                        claim_governance,
+                    ) = _materialize_root_cause_claims(engine, node_id, result)
                 if as_claim and engine is not None:
                     finding = _root_cause_claim_finding(node_id, result)
                     if finding is not None:
