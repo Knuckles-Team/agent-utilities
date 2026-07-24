@@ -254,6 +254,28 @@ def _native_call(engine: Any, name: str, request: Any) -> Any:
         ) from exc
 
 
+def _paced_claim_call(engine: Any, request: ClaimWorkItemRequest) -> Any:
+    """The engine-native ``claim_work_item`` call, paced per-priority-class
+    (W2.9 backpressure unification — CONCEPT:AU-ORCH.scheduling.claim-pacing-backpressure,
+    see :mod:`agent_utilities.orchestration.claim_pacing`'s module docstring for
+    the full unified model). :func:`claim_specific` and :func:`claim_next` are
+    the sole two "claiming" entry points into this verb, so wrapping HERE — not
+    at either call site — makes every current and future claim caller
+    pacing-aware natively, with zero caller-side changes anywhere.
+    """
+    from agent_utilities.orchestration import claim_pacing
+
+    claim_pacing.raise_if_paced()
+    try:
+        result = _native_call(engine, "claim_work_item", request)
+    except RuntimeError as exc:
+        if claim_pacing.is_busy_shed(exc):
+            claim_pacing.record_claim_shed()
+        raise
+    claim_pacing.record_claim_admitted()
+    return result
+
+
 def _claim_request(
     item: dict[str, Any] | None,
     *,
@@ -761,9 +783,8 @@ def claim_specific(
         raise WorkItemBackendUnavailable(
             f"WorkItem {item_id!r} has no tenant and is not claimable"
         )
-    native = _native_call(
+    native = _paced_claim_call(
         engine,
-        "claim_work_item",
         _claim_request(
             item,
             item_id=item_id,
@@ -799,9 +820,8 @@ def claim_next(
     """
     token = token or _default_token()
     now = now if now is not None else _now()
-    native = _native_call(
+    native = _paced_claim_call(
         engine,
-        "claim_work_item",
         _claim_request(
             None,
             item_id=None,

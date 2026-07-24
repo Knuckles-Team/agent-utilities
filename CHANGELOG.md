@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **Cluster-wide backpressure unification + the W2.4 priority claim (W2.9, CONCEPT:AU-ORCH.scheduling.claim-pacing-backpressure).**
+  Closes the seam between the engine's admission authority and the Python
+  WorkItem claim loop, which used to be disjoint layers — au kept draining
+  work the engine would shed. `GraphSession.engine_verified_context()`
+  (`knowledge_graph/core/session.py`) now joins the advisory `priority` claim
+  (the ambient `PriorityClass` contextvar) into the verified-context dict when
+  tagged, so an engine build carrying W2.4's `RequestContextClaims.priority`
+  can classify and shed by class; untagged callers are byte-for-byte
+  unchanged. **Deploy-ordering constraint (register W2.4-2):** every engine
+  reachable from a session must already carry a W2.4 build before an
+  agent-utilities build that sets this claim is deployed — an older engine's
+  `#[serde(deny_unknown_fields)]` rejects the whole request on the unknown
+  field. New `orchestration/claim_pacing.py`: `work_item.claim_specific`/
+  `claim_next` (the sole two claiming entry points, so every current and
+  future caller gets this natively) now detect a `BUSY: …` shed (the engine
+  has no dedicated exception type for this — matched on the wire message
+  prefix, so pacing works against any engine version), record it per
+  `PriorityClass`, and back off claiming that class (exponential, capped,
+  jittered — reusing `orchestration/resilience.compute_backoff`) instead of
+  hammering; a class recovers the instant the engine next answers normally.
+  Unified model documented in `docs/architecture/resource-priority-edict.md`.
+  Also fixes 3 pre-existing stale architectural-conformance guardrails in
+  `tests/unit/knowledge_graph/test_graph_client_authority.py` (B19/W2.1-4) that
+  asserted the absence of the now-legitimate `ingest_engine.py`/`engine_claim.py`
+  modules, and adds the missing engine-native `claim_work_item` verb to
+  `test_agent_dispatch_work_item_backend.py`'s engine test double.
 - **TMS live-wiring completion — Seam 3 closes the loop (W3.2, CONCEPT:EG-KG.epistemic.truth-maintenance).**
   The surpass-6mo audit (`reports/surpass-6mo/01-eg-epistemic-core.md` item 2)
   found the engine's truth-maintenance auto-registration real and shipped
