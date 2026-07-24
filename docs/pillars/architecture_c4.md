@@ -713,17 +713,17 @@ graph TD
         Utility["<b>agent-utilities</b><br/>(Python)"]
         Terminal["<b>agent-terminal-ui</b><br/>(Python/Textual)"]
         Web["<b>agent-webui</b><br/>(React/Next.js)"]
-        Genius["<b>geniusbot</b><br/>(Python/PySide6)"]
+        GeniusBot["<b>geniusbot</b><br/>(Python/PySide6)"]
     end
 
     subgraph Internal_Deps ["Internal Interface Layer"]
         direction LR
         Terminal -- depends on --> Utility
         Web -- interfaces with --> Utility
-        Genius -- interfaces with --> Utility
+        GeniusBot -- interfaces with --> Utility
         Terminal -. "gateway.Aggregator" .-> Utility
         Web -. "gateway.api + ws" .-> Utility
-        Genius -. "gateway.Aggregator" .-> Utility
+        GeniusBot -. "gateway.Aggregator" .-> Utility
     end
 
     subgraph External_Utility ["agent-utilities Dependencies"]
@@ -778,9 +778,9 @@ graph TD
     Web --> Tailwind
     Web --> Vite
 
-    Genius --> PySide
-    Genius --> QtCharts
-    Genius --> WebEngine
+    GeniusBot --> PySide
+    GeniusBot --> QtCharts
+    GeniusBot --> WebEngine
 ```
 
 ### C4 Container Diagram

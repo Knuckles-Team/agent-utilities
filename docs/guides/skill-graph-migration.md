@@ -62,8 +62,8 @@ live in a dedicated venv, pointed at via two env vars:
 
 ```bash
 # one-time: dedicated venv with crawl4ai (Playwright needs a browser)
-uv venv --python 3.12 /home/apps/.venvs/skillgraph-crawler
-uv pip install --python /home/apps/.venvs/skillgraph-crawler/bin/python crawl4ai
+uv venv --python 3.12 ~/.venvs/skillgraph-crawler
+uv pip install --python ~/.venvs/skillgraph-crawler/bin/python crawl4ai
 
 # Playwright has no bundled Chromium for some new OSes (e.g. Ubuntu 26.04); use system
 # Google Chrome by symlinking it into the path Playwright expects:
@@ -72,7 +72,7 @@ PWDIR=~/.cache/ms-playwright/chromium-1223/chrome-linux64
 mkdir -p "$PWDIR" && ln -sf /usr/bin/google-chrome "$PWDIR/chrome"
 
 # then tell the pipeline which interpreter + crawler script to use:
-export SKILL_GRAPH_CRAWLER_PYTHON=/home/apps/.venvs/skillgraph-crawler/bin/python
+export SKILL_GRAPH_CRAWLER_PYTHON=~/.venvs/skillgraph-crawler/bin/python
 export SKILL_GRAPH_CRAWLER=<universal-skills>/research/web-crawler/scripts/crawl.py
 export SKILL_GRAPH_CRAWL_TIMEOUT=900   # per-site wall-clock bound (default 900s)
 ```
@@ -115,7 +115,7 @@ in the job's environment:
 
 ```cron
 # /etc/cron.d/skill-graph-refresh — re-download + delta re-ingest nightly at 03:30
-30 3 * * *  apps  SKILL_GRAPH_CRAWLER_PYTHON=/home/apps/.venvs/skillgraph-crawler/bin/python \
+30 3 * * *  apps  SKILL_GRAPH_CRAWLER_PYTHON=~/.venvs/skillgraph-crawler/bin/python \
   SKILL_GRAPH_CRAWLER=/path/to/web-crawler/scripts/crawl.py SKILL_GRAPH_CRAWL_TIMEOUT=900 \
   /usr/bin/python3 -m agent_utilities.knowledge_graph.distillation.skill_graph_pipeline \
   refresh --root /path/to/skill-graphs/skill_graphs >> /var/log/skill-graph-refresh.log 2>&1

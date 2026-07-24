@@ -196,9 +196,14 @@ def classify_line(
     if persisted and not _NEUTRAL_URI_RE.search(persisted.group("value")):
         value = persisted.group("value").strip(" \t,;)}]\"'").casefold()
         field = persisted.group("field")
-        runtime_relative = field.isupper() and not re.match(
-            r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE
-        )
+        # A shell/template interpolation placeholder (``${WORKSPACE_ROOT}``, closing
+        # brace already stripped above) is resolved at runtime by whatever consumes
+        # the file, never a baked-in machine path — safe regardless of the field's
+        # own casing, same reasoning as the existing uppercase-field exemption.
+        is_template_placeholder = value.startswith("${")
+        runtime_relative = (
+            field.isupper() or is_template_placeholder
+        ) and not re.match(r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE)
         if value not in {"", "none", "null", "unset"} and not runtime_relative:
             categories.add("persisted machine path")
     if "persisted machine path" not in categories and _HOME_PATH_RE.search(line):

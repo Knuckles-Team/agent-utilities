@@ -260,7 +260,7 @@ Seed a bearer token (mirror to OpenBao `apps/epistemic-kvcache`), then start it:
 ```bash
 # on GB10 / via DOCKER_HOST
 export EPISTEMIC_GRAPH_KVCACHE_TOKEN="$(openssl rand -hex 32)"   # into services/vllm/.env
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+DOCKER_HOST=ssh://<ssh-user>@<gpu-host> \
   docker compose -f compose.kvcache.yml up -d
 
 # verify the KV surface
@@ -277,7 +277,7 @@ pre-compiled registry image; `compose.lmcache.yml` already references it:
 
 ```bash
 # ensure GB10 resolves the registry (once): 10.0.0.13 registry.arpa in /etc/hosts
-DOCKER_HOST=ssh://genius@10.0.0.18 docker pull registry.arpa/vllm-lmcache:latest
+DOCKER_HOST=ssh://<ssh-user>@<gpu-host> docker pull registry.arpa/vllm-lmcache:latest
 ```
 
 Offline / local build (no registry) — the in-tree `Dockerfile.lmcache` mirrors the
@@ -285,7 +285,7 @@ Offline / local build (no registry) — the in-tree `Dockerfile.lmcache` mirrors
 
 ```bash
 cd services/vllm
-DOCKER_HOST=ssh://genius@10.0.0.18 docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
+DOCKER_HOST=ssh://<ssh-user>@<gpu-host> docker build -f Dockerfile.lmcache -t vllm-openai:lmcache .
 ```
 
 Enable the override (recreates `vllm-llm` on the custom image — the windowed restart):
@@ -295,7 +295,7 @@ Enable the override (recreates `vllm-llm` on the custom image — the windowed r
 #   Path B (default): /etc/lmcache/lmcache.redis.yaml   (-> engine Redis wire :6379)
 #   Path A:           /etc/lmcache/lmcache.epistemic.yaml (-> EG-KG.backend.is-configured-so-co HTTP :9130)
 
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+DOCKER_HOST=ssh://<ssh-user>@<gpu-host> \
   docker compose -f compose.standalone.yml -f compose.lmcache.yml up -d vllm-llm
 ```
 
@@ -539,7 +539,7 @@ Redeploy the live service from the base compose only (drops the override, back t
 the untouched vLLM) — again a windowed restart:
 
 ```bash
-DOCKER_HOST=ssh://genius@10.0.0.18 \
+DOCKER_HOST=ssh://<ssh-user>@<gpu-host> \
   docker compose -f compose.standalone.yml up -d vllm-llm
 ```
 

@@ -256,8 +256,8 @@ AGENT_UTILITIES_TESTING= PYTHONPATH=. python3 scripts/scale/loadgen.py \
 This was **not** attempted on this shared box — it would require a live
 multi-node fleet this session does not have exclusive access to, and running
 it here would both overwhelm a shared host and produce a result this doc
-would then have to (falsely) call "demonstrated." Flagged for the R820
-testbed / a dedicated cluster window instead.
+would then have to (falsely) call "demonstrated." Flagged for a dedicated
+hardware testbed / a dedicated cluster window instead.
 
 ## 6. Summary
 

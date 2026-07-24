@@ -275,7 +275,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
     {
       "id": "qwen/qwen3.6-27b",
       "provider": "openai",
-      "base_url": "http://vllm.arpa/v1",
+      "base_url": "http://vllm.example.test/v1",
       "supports_json": false,
       "vision": true,
       "reasoning": true,
@@ -291,7 +291,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
     {
       "id": "text-embedding-nomic-embed-text-v2-moe",
       "provider": "openai",
-      "base_url": "http://vllm-embed.arpa/v1",
+      "base_url": "http://vllm-embed.example.test/v1",
       "parallel_instances": 4,
       "chunk_size": 768
     }
@@ -337,7 +337,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
 #### Per-Model Provider Routing
 
 The registry supports per-model `base_url` and `api_key` overrides, enabling configurations like:
-- **LM Studio local**: `base_url: "http://vllm.arpa/v1"` (your GPU server)
+- **LM Studio local**: `base_url: "http://vllm.example.test/v1"` (your GPU server)
 - **Official OpenAI**: `api_key: "sk-..."` (no `base_url` needed, hits api.openai.com)
 - **Ollama**: `base_url: "http://localhost:11434/v1"`, `api_key: "ollama"`
 - **Azure OpenAI**: `base_url: "https://my-resource.openai.azure.com"`, `api_key: "..."`
