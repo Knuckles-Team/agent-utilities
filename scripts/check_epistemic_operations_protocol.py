@@ -837,6 +837,37 @@ def _render_manifest(manifest: dict[str, Any]) -> str:
     return json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
 
 
+def _format_python_source(source: str) -> str:
+    """Pipe generated Python through ``ruff format`` so the on-disk artifact this
+    gate compares against is already canonical.
+
+    ``_render_python`` hardcodes single-quoted, unwrapped ``Literal[...]``
+    output; the repo's ruff-format hook (which is NOT excluded for this
+    generated module) rewrites it to double-quoted, 88-col-wrapped style on
+    every commit. Without this step the gate compared its own raw rendering
+    against the ruff-formatted file already on disk and reported drift on
+    every run regardless of whether the underlying schema content changed —
+    a false-positive loop, not real content drift. Formatting here keeps the
+    written/checked artifact idempotent under the repo's own formatter.
+    """
+    try:
+        result = subprocess.run(
+            ["ruff", "format", "--stdin-filename", str(AU_GENERATED), "-"],
+            input=source,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ProtocolGateError(f"ruff format is unavailable: {exc}") from exc
+    if result.returncode != 0:
+        raise ProtocolGateError(
+            f"ruff format rejected the generated epistemic_operations module: {result.stderr}"
+        )
+    return result.stdout
+
+
 def _git_common_sibling() -> Path | None:
     try:
         result = subprocess.run(
@@ -888,7 +919,7 @@ def _check_or_write(path: Path, expected: str, write: bool) -> None:
 
 def run(engine_root: Path | None, *, write: bool) -> dict[str, Any]:
     manifest, python_source = build_manifest()
-    _check_or_write(AU_GENERATED, _render_python(manifest), write)
+    _check_or_write(AU_GENERATED, _format_python_source(_render_python(manifest)), write)
     _assert_projection(
         manifest["bindings"],
         _python_fields(python_source),
