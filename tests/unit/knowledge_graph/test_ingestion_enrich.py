@@ -229,7 +229,7 @@ async def test_ingest_drains_enrichable_payloads_centrally(tmp_path, monkeypatch
 
     assert result.status == "success"
     assert calls and calls[0][1] == "prompt"  # the prompt payload was enriched
-    # The stub's return value doesn't include "topics" — _run_inline_enrich
+    # The fake's return value doesn't include "topics" — _run_inline_enrich
     # defaults it to 0 via counts.get("topics", 0) (CONCEPT:AU-KG.enrichment.topic-classification-topology).
     assert result.details["enrichment"] == {"concepts": 2, "facts": 3, "topics": 0}
 

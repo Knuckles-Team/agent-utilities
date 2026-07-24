@@ -127,7 +127,7 @@ async def test_gate_resumes_on_approval(_fake_agent, monkeypatch):
         "approve_gate", "approval:owner1", "satisfiedBy", {"decision": "approved"}
     )
 
-    # resume() reloads persisted state + re-drives from the gate. Stub the store load
+    # resume() reloads persisted state + re-drives from the gate. Patch the store load
     # to return the same plan (no live KG).
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.workflow_store.WorkflowStore.load_workflow",

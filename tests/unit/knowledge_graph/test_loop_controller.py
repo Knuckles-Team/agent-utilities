@@ -103,9 +103,9 @@ def test_run_one_cycle_intake_only_propose_only(monkeypatch):
     # autouse _hermetic_embeddings fixture blocks create_embedding_model), so
     # the real ping fails closed and appends an "embedding endpoint
     # unavailable" entry to report["errors"] — never reaching the deeper path
-    # this test means to exercise (resolve is a no-op because THIS STUB
+    # this test means to exercise (resolve is a no-op because THIS FAKE
     # ENGINE's backend has no semantic_search, a separate, later check inside
-    # acquire_for_topic). Stub a reachable-but-inert embedder — the same seam
+    # acquire_for_topic). Wire in a reachable-but-inert embedder — the same seam
     # test_workflow_compiler_embed_resilience.py's ``_patch_embed`` uses — so
     # the ping succeeds and semantic_search's absence is what makes resolve
     # a no-op, not an unreachable endpoint.

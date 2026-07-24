@@ -745,6 +745,7 @@ class GraphQLSourceAdapter:
 
     def close(self) -> None:
         """No persistent socket or resolved secret material is retained."""
+        return None
 
 
 _GRAPHQL_READ_BOOTSTRAP = """

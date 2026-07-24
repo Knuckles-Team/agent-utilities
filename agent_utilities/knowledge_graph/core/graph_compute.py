@@ -698,6 +698,7 @@ class _SessionRoutedAsyncClient:
 
     async def close(self) -> None:
         """A view never owns or closes the shared process transport."""
+        return None
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._base, name)
@@ -735,6 +736,7 @@ class _AsyncProcessClientView(_AsyncFromSyncView):
 
     async def close(self) -> None:
         """A process client view never owns the shared transport."""
+        return None
 
 
 def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:

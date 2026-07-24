@@ -592,7 +592,7 @@ def test_a_single_stale_candidate_probe_failure_does_not_stop_the_rest():
 
     # Force the cheap gate to report staleness WITHOUT exercising the
     # per-candidate probe below (that method is about to be made flaky, and
-    # this stub's own `stale_materializations` would otherwise call it too).
+    # this fake's own `stale_materializations` would otherwise call it too).
     eng.stale_materializations = lambda: ["eg:reasoning:placeholder"]  # type: ignore[method-assign]
 
     real_status = eng.materialization_status

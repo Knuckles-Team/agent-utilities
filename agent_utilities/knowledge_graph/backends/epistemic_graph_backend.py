@@ -327,6 +327,7 @@ class EpistemicGraphBackend(GraphBackend):
 
     def close(self) -> None:
         """Keep the shared process transport alive; graph views own no resource."""
+        return None
 
     def health_check(self) -> bool:
         """Return native service health."""

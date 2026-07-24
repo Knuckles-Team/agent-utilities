@@ -74,7 +74,7 @@ def _make_retriever(monkeypatch, *, breaker, embed_model) -> tuple[HybridRetriev
     engine = _StubEngine()
     retriever = HybridRetriever(engine, enable_rerank=False)
     # Bypass the lazy ``embed_model`` property (which would otherwise call the
-    # hermetic-test-blocked ``create_embedding_model``) with our stub directly.
+    # hermetic-test-blocked ``create_embedding_model``) with the test double directly.
     retriever._embed_model = embed_model
     retriever._embed_model_initialized = True
     monkeypatch.setattr(
@@ -123,7 +123,7 @@ def test_successful_embedding_records_breaker_success(monkeypatch):
     breaker = _StubBreaker(tripped=False)
     embed_model = _StubEmbedModel()
     retriever, engine = _make_retriever(monkeypatch, breaker=breaker, embed_model=embed_model)
-    # The stub engine has no ``.graph``, so ``_engine_vector_search`` returns no
+    # The fake engine has no ``.graph``, so ``_engine_vector_search`` returns no
     # candidates and retrieval degrades to keyword search via its OWN "no
     # semantic matches" branch (not the exception branch) — the embed call
     # itself still succeeded, which is what we're asserting here.

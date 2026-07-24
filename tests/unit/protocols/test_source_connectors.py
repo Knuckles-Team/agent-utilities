@@ -50,8 +50,8 @@ def test_native_connector_bundle_allows_zero_config_governance(monkeypatch, tmp_
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")
     # Production never bypasses the connector-manifest gate (CONCEPT:AU-P0-4);
     # a real signed bundle is required. Per ``precheck_source``'s own
-    # docstring, "development fixtures must inject a signed test bundle or
-    # stub this gate explicitly" — stub it the same way every other
+    # docstring, development fixtures must inject a signed test bundle or
+    # patch this gate explicitly — patch it the same way every other
     # governance-gated fixture in this repo does (see e.g.
     # ``test_gitlab_indexer.py``).
     monkeypatch.setattr(

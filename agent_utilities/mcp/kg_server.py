@@ -3184,7 +3184,7 @@ def _build_server(
     # otherwise-fine process (that would crash-loop the pod for something a
     # restart cannot fix). The body is the truthful, loud signal: real engine
     # reachability + circuit-breaker state, plus every configured co-service/
-    # dependency — never a stub that reports "ok" regardless of reality.
+    # dependency — never a placeholder that reports "ok" regardless of reality.
     #
     # ``/health/ready`` is READINESS: the SAME report, but its overall status
     # maps onto the HTTP status code (200 healthy / 503 unhealthy) so kubelet
