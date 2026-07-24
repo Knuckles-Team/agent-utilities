@@ -928,7 +928,7 @@ def test_engine_doctor_fails_when_discovery_unreachable_and_no_static_map(
     result = D._check_engine()
 
     assert result["status"] == "fail"
-    assert "discovery" in result["message"].lower()
+    assert "discovery" in result["detail"].lower()
     assert result["data"]["cluster_topology_discovery_ready"] is False
 
 
@@ -949,9 +949,7 @@ def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
     """A configured static override answers the multi-contact question by
     itself -- the (authenticated, more expensive) discovery probe is never
     invoked."""
-    cfg = SimpleNamespace(
-        graph_raft_group_endpoints={"0": "tls://mapped.invalid:9443"}
-    )
+    cfg = SimpleNamespace(graph_raft_group_endpoints={"0": "tls://mapped.invalid:9443"})
     resolved = SimpleNamespace(
         mode="remote",
         endpoint="tls://coordinator.invalid:9443",
