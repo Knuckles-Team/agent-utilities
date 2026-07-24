@@ -1692,6 +1692,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_loops", "action": "specs", "name": "graph_loops_specs"},
     {"tool": "graph_loops", "action": "state", "name": "graph_loops_state"},
     {"tool": "graph_loops", "action": "submit", "name": "graph_loops_submit"},
+    {
+        "tool": "graph_media_sidecar",
+        "action": "ingest_audio",
+        "name": "graph_media_sidecar_ingest_audio",
+    },
+    {
+        "tool": "graph_media_sidecar",
+        "action": "ingest_jpeg",
+        "name": "graph_media_sidecar_ingest_jpeg",
+    },
+    {
+        "tool": "graph_media_sidecar",
+        "action": "ingest_pdf",
+        "name": "graph_media_sidecar_ingest_pdf",
+    },
+    {
+        "tool": "graph_media_sidecar",
+        "action": "ingest_video",
+        "name": "graph_media_sidecar_ingest_video",
+    },
     {"tool": "graph_memory", "action": "link", "name": "graph_memory_link"},
     {"tool": "graph_memory", "action": "recall", "name": "graph_memory_recall"},
     {"tool": "graph_memory", "action": "store", "name": "graph_memory_store"},

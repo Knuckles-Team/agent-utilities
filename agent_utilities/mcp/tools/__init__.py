@@ -27,6 +27,7 @@ from agent_utilities.mcp.tools.graph_engineering_tools import (
 )
 from agent_utilities.mcp.tools.incident_tools import register_incident_tools
 from agent_utilities.mcp.tools.job_tools import register_job_tools
+from agent_utilities.mcp.tools.media_sidecar_tools import register_media_sidecar_tools
 from agent_utilities.mcp.tools.ontology_tools import register_ontology_tools
 from agent_utilities.mcp.tools.ops_causal_tools import register_ops_causal_tools
 from agent_utilities.mcp.tools.query_tools import register_query_tools
@@ -59,6 +60,7 @@ __all__ = [
     "register_epistemic_tools",
     "register_incident_tools",
     "register_job_tools",
+    "register_media_sidecar_tools",
     "register_compliance_tools",
     "register_rlm_tools",
     "register_workflow_tools",

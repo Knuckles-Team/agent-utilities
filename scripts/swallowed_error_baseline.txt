@@ -552,8 +552,8 @@ agent_utilities/mcp/kg_server.py:3010
 agent_utilities/mcp/kg_server.py:3082
 agent_utilities/mcp/kg_server.py:3087
 agent_utilities/mcp/kg_server.py:3099
-agent_utilities/mcp/kg_server.py:3778
-agent_utilities/mcp/kg_server.py:3860
+agent_utilities/mcp/kg_server.py:3780
+agent_utilities/mcp/kg_server.py:3862
 agent_utilities/mcp/multiplexer.py:63
 agent_utilities/mcp/multiplexer.py:68
 agent_utilities/mcp/multiplexer.py:840

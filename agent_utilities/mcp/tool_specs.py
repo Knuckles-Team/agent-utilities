@@ -85,6 +85,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ontology_link_materialize": ("write",),
         "ontology_leanix_sync": ("write",),
         "document_process": ("write",),
+        "graph_media_sidecar": ("write", "act"),
         "spec_ticket": ("write", "ask"),
         "engine_nodes": ("write", "ask"),
         "engine_edges": ("write",),

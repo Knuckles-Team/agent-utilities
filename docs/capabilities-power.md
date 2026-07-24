@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen_capability_power.py --write`; `scripts/check_cpd.py` gates drift in CI/pre-commit (CONCEPT:AU-KG.retrieval.capability-power-descriptor). Seam 8 Phase 1 — `plans/program-design-2026-07-11-epistemic-tool-routing.md` section 2b.
 >
-> 115 capabilities · generated 2026-07-24T15:44:23Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
+> 116 capabilities · generated 2026-07-24T15:44:23Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
 
 ## Index
 
@@ -73,6 +73,7 @@
 | [`graph_kvcache`](#capability-graph_kvcache) | manage | the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, driven through the | 5 | `/graph/kvcache` |
 | [`graph_learn`](#capability-graph_learn) | act, ask | a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whose learned | 2 | `/graphlearn/fit` |
 | [`graph_loops`](#capability-graph_loops) | act | The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-properties-carry). | 10 | `/graph/loops` |
+| [`graph_media_sidecar`](#capability-graph_media_sidecar) | write, act | Delegate a media artifact (PDF, JPEG) to a governed fleet sidecar for heavy decode (OCR / image | 4 | `/media/sidecar` |
 | [`graph_memory`](#capability-graph_memory) | write, ask | the engine's EG-318 memory surface: episodic→semantic memory, the spatial scene graph, and RL | 3 | `/graph/memory` |
 | [`graph_message`](#capability-graph_message) | act | bidirectional, cross-process, ordered message channel between an invoking agent and a spawned | 5 | `/graph/message` |
 | [`graph_mine`](#capability-graph_mine) | ask | the unified data-mining surface over the engine, compute-near-data (mining runs where the graph | 18 | `/mining/associate` |
@@ -2708,6 +2709,42 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 - `mine_discovery` (any): 'run' only: gate the discovery-flywheel mining stage (CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to config.kg_loop_mine_discovery (default True); explicit true/false overrides.
 - `placement_scan_limit` (integer): 'placement_control' only: provenance row-scan cap for the placement mining pass.
 - `placement_canary_tolerance` (number): 'placement_control' only: fraction the canary metric may regress by and still be promoted (SLO noise tolerance).
+
+**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+
+**Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
+
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-07-24T15:44:23Z'}*
+
+---
+
+### `graph_media_sidecar` { #capability-graph_media_sidecar }
+
+**graph media sidecar**
+
+Delegate a media artifact (PDF, JPEG) to a governed fleet sidecar for heavy decode (OCR / image analysis) the pure-Rust engine deliberately does not do in-process, and write the result back as an ArtifactBundle + EvidenceLocus chain + embeddings through the EXISTING evidence-spine surfaces (reports/wave4/ADR-media-sidecar.md). Actions: 'ingest_pdf' (stirlingpdf-mcp OCR -> pages/spans/OCR-word-boxes as PageBox/DocumentSpan/ImageRegion loci), 'ingest_jpeg' (data-science-mcp decode -> pHash/thumbnail/region loci). 'ingest_audio'/'ingest_video' are DESIGN STUBS this wave (the Whisper transcript-segment / keyframe+shot-boundary contracts are declared in agent_utilities/media/sidecar_contract.py but no adapter is wired yet) and return a clear not-implemented payload rather than raising. Every action is best-effort/never-raises: a delegation failure or malformed sidecar response returns available=false with error set, never an exception.
+
+- **Intent verbs:** write, act
+- **REST route:** `/media/sidecar`
+- **MCP tags:** delegation, evidence, gated, graph-os, granular, media
+- **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
+- **Cost/Latency:** unmeasured for this capability (no benchmark source)
+- **Reliability:** (unmeasured — no live engine reward reachable at generation time)
+
+**Does:**
+
+- `ingest_audio` → (no EG ledger match)
+- `ingest_jpeg` → (no EG ledger match)
+- `ingest_pdf` → (no EG ledger match)
+- `ingest_video` → (no EG ledger match)
+
+**Typed input:**
+
+- `action` (string): One of: ingest_audio, ingest_jpeg, ingest_pdf, ingest_video.
+- `artifact_id` (string): The document_id (PDF) or image_id (JPEG) this artifact is filed under.
+- `data_b64` (string): Base64-encoded artifact bytes.
+- `source` (string): Provenance source tag.
+- `provider` (string): Optional non-default sidecar capability key (see sidecar_contract.SIDECAR_CAPABILITIES), e.g. 'pdf_documents' to route PDF ingest through paperless-ngx-mcp instead of the default stirlingpdf-mcp.
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
