@@ -339,6 +339,39 @@ def _now() -> float:
     return time.time()
 
 
+def _delegation_still_live(*, now: float | None = None) -> bool:
+    """False only when an ENFORCED delegated credential has expired/been revoked.
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 6). A path with no active
+    delegation is always live. In ``warn`` mode an expired credential is logged but the lease
+    still renews (observe-before-enforce); only ``on`` mode fails the renewal so the spawn's
+    lease lapses at its next heartbeat — bounded-time revocation.
+    """
+    try:
+        from agent_utilities.security.delegation import (
+            current_delegation,
+            is_delegation_live,
+        )
+    except Exception:  # noqa: BLE001 — delegation layer optional
+        return True
+    delegation = current_delegation()
+    if delegation is None or is_delegation_live(delegation, now=now):
+        return True
+    if delegation.enforced:
+        logger.warning(
+            "[delegation] lease renewal DENIED: delegated credential for spawn %s expired/"
+            "revoked; the lease will lapse and the spawn is reaped (bounded-time revocation)",
+            delegation.agent_instance_id,
+        )
+        return False
+    logger.warning(
+        "[delegation] warn: delegated credential for spawn %s expired/revoked; the lease "
+        "WOULD be denied in `on` mode (renewing under legacy identity)",
+        delegation.agent_instance_id,
+    )
+    return True
+
+
 def new_work_item_id() -> str:
     """Full 128-bit id (AU-P0-3 discipline: no truncated/32-bit ids)."""
     return f"workitem:{uuid.uuid4().hex}"
@@ -743,8 +776,18 @@ def heartbeat(
     now: float | None = None,
     lease_ttl_s: float = DEFAULT_LEASE_TTL_S,
 ) -> bool:
-    """Renew a ``running`` item's lease, fenced on the claim's epoch."""
+    """Renew a ``running`` item's lease, fenced on the claim's epoch.
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 6) — when the running work
+    is a spawn under an ENFORCED delegation, the renewal first revalidates the delegated
+    credential's expiry. Revoking the caller (or the credential simply expiring) makes this
+    renewal fail, so the lease lapses and the reaper terminates the spawn at its next renewal —
+    bounded-time revocation without a separate kill channel. In ``warn`` mode the would-be
+    failure is logged but the lease still renews (legacy behavior); ``off`` is a no-op.
+    """
     now = now if now is not None else _now()
+    if not _delegation_still_live(now=now):
+        return False
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
     fencing_token = claim.get("fencing_token", claim.get("fence_token"))
     item = get_work_item(engine, item_id) or {}

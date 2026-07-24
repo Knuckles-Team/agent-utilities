@@ -237,14 +237,42 @@ def get_delegated_token(
         maximum=4_096,
     )
 
-    exchange_data = {
+    return _token_exchange(
+        token_endpoint,
+        subject_token=user_token,
+        audience=target_audience,
+        scopes=target_scopes,
+        client_auth=(oidc_client_id, oidc_client_secret),
+        timeout=timeout,
+    )
+
+
+def _token_exchange(
+    token_endpoint: str,
+    *,
+    subject_token: str,
+    audience: str,
+    scopes: str,
+    client_auth: tuple[str, str],
+    timeout: int,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    """POST one RFC 8693 token-exchange request and return the delegated ``access_token``.
+
+    Shared core for :func:`get_delegated_token` and :func:`exchange_token_for_agent` so the
+    exchange wire request has a single implementation (no drift between the two callers).
+    ``extra`` carries request-specific parameters (e.g. the acting-agent hint).
+    """
+    exchange_data: dict[str, Any] = {
         "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
-        "subject_token": user_token,
+        "subject_token": subject_token,
         "subject_token_type": "urn:ietf:params:oauth:token-type:access_token",
         "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-        "audience": target_audience,
-        "scope": target_scopes,
+        "audience": audience,
+        "scope": scopes,
     }
+    if extra:
+        exchange_data.update(extra)
 
     logger.info("Initiating RFC 8693 token exchange")
 
@@ -252,7 +280,7 @@ def get_delegated_token(
         payload = _post_token(
             token_endpoint,
             exchange_data,
-            auth=(oidc_client_id, oidc_client_secret),
+            auth=client_auth,
             timeout=timeout,
         )
         new_token = payload["access_token"]
@@ -267,6 +295,88 @@ def get_delegated_token(
     except Exception as e:
         logger.error("Token exchange failed (exception_type=%s)", type(e).__name__)
         raise RuntimeError("Token exchange failed") from None
+
+
+def exchange_token_for_agent(
+    agent_label: str,
+    *,
+    subject_token: str | None = None,
+    config: dict[str, Any] | None = None,
+    audience: str | None = None,
+    scopes: str | None = None,
+    timeout: int = 30,
+) -> str:
+    """Exchange the caller's token for one acting on behalf of a spawned agent (RFC 8693).
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — the *exchange* leg of the per-agent
+    on-behalf-of pipeline. The caller's token (``subject_token``, or the ambient user token
+    captured by ``UserTokenMiddleware``) is exchanged for a delegated access token whose logical
+    actor (``act``) chain appends ``agent:<name>`` — the spawned agent (``agent_label``, e.g.
+    ``agent:researcher:run-…``) as the acting party. The authoritative on-behalf-of chain is the
+    engine envelope's ``delegation`` array (built in :mod:`agent_utilities.security.delegation`);
+    this returns the exchanged token that rides the envelope's ``oidc_token`` field so the engine
+    cryptographically binds the *delegated* principal.
+
+    **Realm prerequisite (documented, not executed here):** the IdP realm must enable the
+    token-exchange grant for the confidential ``graph-os`` client — see the W1.10 Keycloak
+    staging checklist. Absent that, the exchange returns HTTP 400 and delegation stays legacy.
+
+    Raises
+    ------
+    ValueError
+        If no caller token is available or configuration is incomplete.
+    RuntimeError
+        If the token exchange request fails.
+    """
+    cfg = config or _get_default_config()
+    subject = subject_token or get_user_token()
+    if not subject:
+        raise ValueError(
+            "No caller token available for on-behalf-of exchange. Delegation requires the "
+            "MCP server configured with --auth-type oidc-proxy and --enable-delegation, and a "
+            "request carrying a Bearer token."
+        )
+
+    token_endpoint = cfg.get("token_endpoint")
+    if not token_endpoint:
+        raise ValueError(
+            "No token_endpoint configured. Ensure OIDC_CONFIG_URL is set and "
+            "--enable-delegation was passed at MCP startup."
+        )
+
+    oidc_client_id = cfg.get("oidc_client_id")
+    oidc_client_secret = cfg.get("oidc_client_secret")
+    if not oidc_client_id or not oidc_client_secret:
+        raise ValueError(
+            "OIDC client credentials missing. Set OIDC_CLIENT_ID and OIDC_CLIENT_SECRET."
+        )
+
+    label = _bounded_text(agent_label, field="acting-agent label", maximum=512)
+    target_audience = _bounded_text(
+        audience or cfg.get("audience"), field="delegation audience", maximum=2_048
+    )
+    target_scopes = _bounded_text(
+        scopes or cfg.get("delegated_scopes", "api"),
+        field="delegation scopes",
+        maximum=4_096,
+    )
+
+    logger.info("RFC 8693 on-behalf-of exchange for acting agent")
+    return _token_exchange(
+        token_endpoint,
+        subject_token=subject,
+        audience=target_audience,
+        scopes=target_scopes,
+        client_auth=(oidc_client_id, oidc_client_secret),
+        timeout=timeout,
+        # RFC 8693 §2.1: identify the acting party (the spawned agent) so the IdP records the
+        # delegation in the issued token's `act` claim (Keycloak reads this via a client-scope
+        # protocol mapper configured per the W1.10 checklist).
+        extra={
+            "actor_token_type": "urn:ietf:params:oauth:token-type:jwt",
+            "act_as": label,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

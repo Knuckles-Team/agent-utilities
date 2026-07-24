@@ -15,26 +15,76 @@ import base64
 import hashlib
 import hmac
 import json
-import os
+import secrets
 import time
 from dataclasses import dataclass
 
 from agent_utilities.core.config import setting
 
-# Per-process signing-secret fallback (dev/test); env-provided in production.
+# Per-process signing-secret fallback used ONLY when delegated identity is off (dev/test/
+# legacy). It is a RANDOM 256-bit value, minted once per process — NOT derived from the PID.
+# The previous PID-derived secret was forgeable (a PID is guessable and low-entropy), so any
+# process could reconstruct another's run-token signing key; it has been removed. When
+# delegation is enabled (``ENABLE_DELEGATED_IDENTITY=on``) there is NO fallback at all —
+# ``AGENT_UTILITIES_TOKEN_SECRET`` must resolve from the secrets backend or minting fails
+# closed (config-contract style, mirroring the engine's transport-secret requirement).
 _EPHEMERAL: bytes | None = None
 
 
+class RunTokenSecretUnavailable(RuntimeError):
+    """Raised when a run-token signing secret is required but not configured (fail-closed)."""
+
+
 def _secret() -> bytes:
-    """Signing secret (env-provided in production; ephemeral per-process fallback for dev/tests)."""
+    """Return the run-token signing secret.
+
+    Resolution order:
+
+    1. ``AGENT_UTILITIES_TOKEN_SECRET`` from the secrets backend / config — always preferred.
+    2. Otherwise, when ``ENABLE_DELEGATED_IDENTITY=on``, FAIL CLOSED
+       (:class:`RunTokenSecretUnavailable`): a delegated deployment must not sign run-scoped
+       authority with a process-local secret.
+    3. Otherwise (delegation off/warn), a random per-process ephemeral (stable within the
+       process so mint/validate agree; never persisted, never PID-derived).
+    """
     val = setting("AGENT_UTILITIES_TOKEN_SECRET")
     if val:
         return val.encode()
-    # Stable within a process so mint/validate agree; not persisted (dev/test default).
+
+    # Deferred import — delegation.py imports decode_token from here lazily, so keep this
+    # inside the function to avoid an import cycle at module load.
+    from agent_utilities.security.delegation import DelegationMode, delegation_mode
+
+    if delegation_mode() is DelegationMode.ON:
+        raise RunTokenSecretUnavailable(
+            "AGENT_UTILITIES_TOKEN_SECRET must resolve from the secrets backend when "
+            "ENABLE_DELEGATED_IDENTITY=on; the PID-derived fallback secret was removed as a "
+            "forgeable-secret risk. Configure the secret reference (e.g. OpenBao "
+            "apps/agent-utilities/*) before enabling delegated identity."
+        )
+
     global _EPHEMERAL
     if _EPHEMERAL is None:
-        _EPHEMERAL = hashlib.sha256(f"au-run-token:{os.getpid()}".encode()).digest()
+        _EPHEMERAL = secrets.token_bytes(32)
     return _EPHEMERAL
+
+
+def require_token_secret() -> None:
+    """Fail closed at startup when delegated identity is on but no signing secret resolves.
+
+    Wire this into a process/startup preflight so an ``ENABLE_DELEGATED_IDENTITY=on``
+    deployment refuses to start (rather than failing lazily on the first spawn) when
+    ``AGENT_UTILITIES_TOKEN_SECRET`` is absent. A no-op in ``off``/``warn`` mode.
+    """
+    from agent_utilities.security.delegation import DelegationMode, delegation_mode
+
+    if delegation_mode() is DelegationMode.ON and not setting(
+        "AGENT_UTILITIES_TOKEN_SECRET"
+    ):
+        raise RunTokenSecretUnavailable(
+            "ENABLE_DELEGATED_IDENTITY=on requires AGENT_UTILITIES_TOKEN_SECRET to resolve "
+            "from the secrets backend before startup (no PID-derived fallback exists)."
+        )
 
 
 @dataclass(slots=True)

@@ -601,6 +601,50 @@ def invoker_context_section(state: Any, *, window_tokens: int = 32768) -> str:
     )
 
 
+def _intersect_principal_ceiling(
+    state: Any, allowed: list[str] | None, tools: list[Any], toolsets: list[Any]
+) -> list[str] | None:
+    """Intersect the invoker's tool allow-list with the ultimate principal's capability ceiling.
+
+    CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation (decision 4). A spawn can never exceed
+    its ultimate human/service principal: the resolved ``invoker_allowed_tools`` is intersected
+    with ``invoker_capability_ceiling`` (the principal's ``base_capabilities()``). Delegated
+    ``on`` mode returns the narrowed set (tools exceeding the ceiling are dropped — surfaced by
+    the caller's existing empty-allow-list guard as a loud ceiling-violation denial); ``warn``
+    logs the would-be denials and returns the list unchanged; ``off``/no-ceiling is a no-op.
+    The narrowing is applied only to an explicit least-privilege list, so an unrestricted spawn
+    (governed by task-aware selection) is never accidentally emptied here — its principal ceiling
+    is still enforced on the wire envelope and the run-token scope.
+    """
+    ceiling = getattr(state, "invoker_capability_ceiling", None)
+    if not allowed or not ceiling:
+        return allowed
+    try:
+        from agent_utilities.security.delegation import (
+            current_delegation,
+            delegation_mode,
+            enforce_ceiling,
+        )
+    except Exception:  # noqa: BLE001 — delegation layer optional
+        return allowed
+    delegation = current_delegation()
+    mode = delegation.mode if delegation is not None else delegation_mode()
+    decision = enforce_ceiling(
+        allowed, ceiling, mode=mode, context="apply_tool_scope"
+    )
+    # A full ceiling denial (the spawn requested ONLY tools outside its principal's ceiling)
+    # must FAIL CLOSED — an empty list here would otherwise read as "no restriction" in the
+    # caller's ``if not allowed`` guard and silently open every tool. Raise the ceiling-violation
+    # loudly instead (only in enforcing ``on`` mode; ``warn`` leaves the request unchanged).
+    if decision.enforced and not decision.effective:
+        raise RuntimeError(
+            "delegation ceiling denied EVERY requested tool: the spawn requested "
+            f"{sorted(str(t) for t in allowed)[:8]} but its principal ceiling permits none "
+            "of them (a spawn can never exceed its ultimate principal's capabilities)"
+        )
+    return list(decision.effective)
+
+
 def apply_tool_scope(
     state: Any, tools: list[Any], toolsets: list[Any]
 ) -> tuple[list[Any], list[Any]]:
@@ -611,6 +655,7 @@ def apply_tool_scope(
     agent can ONLY call the allowed tools. Empty/None allow-list = no restriction.
     """
     allowed = getattr(state, "invoker_allowed_tools", None)
+    allowed = _intersect_principal_ceiling(state, allowed, tools, toolsets)
     if not allowed:
         return tools, toolsets
     allowed_set = {str(a) for a in allowed}
