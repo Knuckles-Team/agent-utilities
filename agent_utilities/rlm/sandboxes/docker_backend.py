@@ -229,7 +229,7 @@ class DockerSandbox(Sandbox):
             "--ipc",
             "none",
             "--tmpfs",
-            "/tmp:rw,noexec,nosuid,nodev,size=64m",
+            "/tmp:rw,noexec,nosuid,nodev,size=64m",  # nosec B108 — container-internal tmpfs mount arg (noexec/nosuid/nodev, 64m cap), not a host path
             "--ulimit",
             "nofile=128:128",
             "--ulimit",
