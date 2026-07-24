@@ -1,18 +1,6 @@
 ---
 name: agent-utilities-source-integration
 skill_type: skill
-aliases:
-  - source-integration
-  - connect-source
-  - leanix-integration
-  - leanix-sync
-  - mirror-leanix
-  - ea-integration
-  - process-integration
-  - camunda-aris-setup
-  - connect-camunda
-  - connect-aris
-  - connect-servicenow
 description: >
   One standardized, config-complete path to connect ANY external source to the
   agent-utilities Knowledge Graph — OWL/RDF-natively and bidirectionally. Covers the
@@ -26,19 +14,6 @@ description: >
   <source>", or "backfeed to <source>". Assumes a running graph-os. Do NOT use to deploy
   the platform from scratch (use agent-utilities-deployment) or for bare-host bootstrap
   (use agent-os-genesis).
-domain: infrastructure
-tags:
-  - knowledge-graph
-  - integration
-  - leanix
-  - camunda
-  - aris
-  - servicenow
-  - enterprise-architecture
-  - ontology
-  - sync
-requires:
-  - graph-os
 ---
 
 # Connect an External Source to the Knowledge Graph (standardized)
@@ -53,6 +28,21 @@ agent-utilities docs (linked in the matrix); this skill is the standard driver.
 > platform bootstrap. Connecting data sources is a **post-platform** step, so genesis
 > (and `agent-utilities-deployment`) **delegate here** instead. Run this after the
 > platform is up.
+
+## Workflow
+
+1. Confirm the source's credentials (Step 1 below) via `secret-vault-manager` or `config.json`.
+2. Query the metamodel for sources that expose one (LeanIX via `ontology_leanix_sync`); crosswalk-mapped sources (Camunda/ARIS/ServiceNow) skip straight to mirroring.
+3. Run `source_sync {"source":"<X>","mode":"full"}` to mirror the source into the KG.
+4. Track drift with `source_sync {"source":"<X>","mode":"delta"}` (and `mode=reconcile` for delta-capable sources), scheduled in `deploy/schedules.yml`.
+5. Use `graph_writeback {"target":"<X>", ...}` to optionally backfeed KG-derived knowledge, dry-run first — this step is fail-closed via the target's `*_ENABLE_WRITE` gate.
+
+Use the skill directly for a single source's configure-through-sync pass.
+Delegate a multi-source rollout (several sources onboarded in one session) so
+each source's steps run independently behind its own credential and
+`*_ENABLE_WRITE` boundary. Use an economy model for the routine discover/
+mirror/sync steps; escalate backfeed decisions (Step 5) when the proposed
+writes are ambiguous or the target system's blast radius is high.
 
 ## The standard spine
 

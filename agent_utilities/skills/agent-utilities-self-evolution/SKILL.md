@@ -13,11 +13,6 @@ description: >-
   Also includes AST-based wiring sweep for concept traceability, dead code detection,
   and import graph analysis. Triggers on "wiring sweep", "concept audit",
   "dead code analysis", "traceability check", "code health".
-license: MIT
-tags: [evolution, research, pipeline, automation, agent-workflow, sdd, wiring, audit]
-metadata:
-  author: Genius
-  version: '0.3.0'
 ---
 
 # Agent Utilities Evolution Skill
@@ -161,7 +156,15 @@ wiring). See `agent_utilities/knowledge_graph/research/loop_controller.py`
 `tests/unit/knowledge_graph/test_loop_controller.py` for the concrete call
 sequence and scope cuts (documented in the method docstring).
 
-## Execution Steps
+## Workflow
+
+Use the skill directly to run one bounded stage (e.g. a single topic-detection
+sweep or one wiring-sweep report). Delegate the full 7-step research →
+implementation pipeline or the background daemon cadence, keeping each stage's
+KG writes behind the same review boundary. Use an economy model for topic
+detection, relevance scoring, and report generation; escalate to a stronger
+model for comparative analysis and SDD plan generation, where the evidence
+quality directly drives what gets implemented.
 
 ### Step 1: Topic Detection (KG-First)
 
@@ -399,7 +402,7 @@ Execute the sweep:
 ```bash
 python /path/to/agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py \
     ${WORKSPACE_ROOT}/agent-packages/agent-utilities \
-    --output /tmp/wiring_sweep_report.md
+    --output wiring_sweep_report.md
 ```
 
 Then present the markdown report to the user and highlight:

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Utilities Self-Evolution"
+  short_description: "Run the research-to-implementation evolution pipeline"
+  default_prompt: "Use $agent-utilities-self-evolution to detect a hot research topic, ingest and compare it, and generate an SDD plan for implementation."

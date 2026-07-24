@@ -63,8 +63,17 @@ _PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("home-relative filesystem path", re.compile(r"~[/\\\\]")),
     ("literal IPv4 address", re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")),
     (
+        # Excludes the IANA-reserved documentation domains (RFC 2606/6761:
+        # example.com/.net/.org/.test), the RDF ecosystem's "ex" placeholder
+        # namespace convention, and an elided "…" placeholder segment (e.g.
+        # UQL/SPARQL syntax references illustrating <http://ex/Class> or
+        # <http://…/Class> IRIs) — none are a resolvable, leakable endpoint.
         "network endpoint",
-        re.compile(r"\b(?:https?|wss?|tcp|udp|ssh|unix)://", re.IGNORECASE),
+        re.compile(
+            r"\b(?:https?|wss?|tcp|udp|ssh|unix)://"
+            r"(?!ex/|example\.(?:com|net|org|test)\b|…)",
+            re.IGNORECASE,
+        ),
     ),
     (
         "private endpoint suffix",
@@ -118,12 +127,15 @@ def _validate_skill(skill_dir: Path) -> list[str]:
     if not skill_md.is_file():
         return [f"{name}: missing SKILL.md"]
     frontmatter, body = _frontmatter(skill_md)
-    if set(frontmatter) != {"name", "description"}:
+    if set(frontmatter) != {"name", "description", "skill_type"}:
         errors.append(
-            f"{name}: SKILL.md frontmatter must contain only name and description"
+            f"{name}: SKILL.md frontmatter must contain only name, description, "
+            "and skill_type"
         )
     if frontmatter.get("name") != name:
         errors.append(f"{name}: frontmatter name must match directory")
+    if frontmatter.get("skill_type") != "skill":
+        errors.append(f"{name}: frontmatter skill_type must be 'skill'")
     if not str(frontmatter.get("description") or "").strip():
         errors.append(f"{name}: description is empty")
     if len(skill_md.read_text(encoding="utf-8").splitlines()) >= 500:
@@ -369,10 +381,18 @@ def validate() -> list[str]:
             f"missing={sorted(EXPECTED_SKILLS - actual)} "
             f"unexpected={sorted(actual - EXPECTED_SKILLS)}"
         )
+    # Scoped to the canonical 13-skill subtree only: a SKILL.md nested under one
+    # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
+    # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
+    # hosts other, differently-shaped content outside this taxonomy — the
+    # agent-os-genesis workflow skill (skills/workflows/) and the agent-utilities
+    # skill-graph package (skills/skill_graphs/) — which this validator does not
+    # own and must not flag.
     nested = [
         path
         for path in SKILLS_ROOT.rglob("SKILL.md")
         if path.parent.parent != SKILLS_ROOT
+        and path.relative_to(SKILLS_ROOT).parts[0] in EXPECTED_SKILLS
     ]
     if nested:
         errors.append(
@@ -393,7 +413,10 @@ def main() -> int:
         for error in errors:
             print(f"  - {error}")
         return 1
-    print("Pre-bundled skill validation OK — 10 skills, 20 synthetic forward cases.")
+    print(
+        f"Pre-bundled skill validation OK — {len(EXPECTED_SKILLS)} skills, "
+        f"{2 * len(EXPECTED_SKILLS)} synthetic forward cases."
+    )
     return 0
 
 

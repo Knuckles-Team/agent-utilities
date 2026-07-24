@@ -1,0 +1,4 @@
+interface:
+  display_name: "Autonomous Contribution"
+  short_description: "Package and PR evolved skills/configs upstream"
+  default_prompt: "Use $autonomous-contribution to package this evolved artifact, open a branch and PR against agent-packages, and stop for human review before merge."

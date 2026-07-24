@@ -4,11 +4,6 @@ skill_type: skill
 description: >-
   Autonomous PR generator for contributing local evolutionary breakthroughs
   (TeamConfigs, Skills) back to the upstream agent-packages ecosystem.
-license: MIT
-tags: [evolution, pr, git, github, upstream]
-metadata:
-  author: Genius
-  version: '0.47.0'
 ---
 
 # Autonomous Contribution Skill
@@ -31,11 +26,17 @@ When preparing a Pull Request, you MUST ensure that the payload contains the man
 
 ## Workflow
 
-1. **Format Artifact**: Serialize the `TeamConfigNode` to JSON or format the `CallableResourceNode` metadata into a standard `SKILL.md` package. Ensure telemetry fields are embedded.
-2. **Branching**: Use `git_tools` to check out a new branch prefixed with `evolve/` (e.g., `evolve/team-config-12345` or `evolve/skill-new-feature`).
-3. **Commit**: Add the files and commit with a standard semantic commit message (e.g., `feat(evolution): add autonomous skill <name>`).
-4. **Push & PR**: Push the branch to the remote origin and use `github-tools` to open a Pull Request against the main branch. The PR body must clearly explain the performance metrics (e.g., `composite_score`) that justified the promotion.
+1. Create the artifact: serialize the `TeamConfigNode` to JSON or format the `CallableResourceNode` metadata into a standard `SKILL.md` package, embedding the telemetry fields above.
+2. Start a new branch prefixed with `evolve/` (e.g., `evolve/team-config-12345` or `evolve/skill-new-feature`) using `git_tools`.
+3. Add the files and commit with a standard semantic commit message (e.g., `feat(evolution): add autonomous skill <name>`).
+4. Use `github-tools` to push the branch to the remote origin and open a Pull Request against the main branch. The PR body must clearly explain the performance metrics (e.g., `composite_score`) that justified the promotion.
+
+Use the skill directly to package and open a single artifact's PR. Delegate a
+batch of several evolved artifacts so each is branched, committed, and opened
+independently, keeping every submission behind the same human-review boundary.
 
 ## Human-in-the-Loop
 
-Do not attempt to auto-merge the Pull Request. The central repository requires a human maintainer to review and approve all autonomous contributions before they are ingested globally via `engine_ingestion.py`.
+Do not attempt to auto-merge the Pull Request. The central repository requires a human maintainer to review and approve all autonomous contributions before they are ingested globally via `engine_ingestion.py`. Use an economy model for the routine
+packaging and formatting steps above; escalate to a stronger model only when the
+performance metrics justifying the promotion are ambiguous.
