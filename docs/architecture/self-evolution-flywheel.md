@@ -268,24 +268,34 @@ It returns a `PromptHardeningOutcome` (`status` = `applied` | `proposed` | `reje
 `EvolveAgent.apply_edits` is no longer a stub. For a `system_prompt` edit carrying a
 native reference-only compiled state it calls `_apply_prompt_edit`, which attaches that
 state to its `StructuredPrompt` file via `.save()` and commits it — but **only** when
-*both* hold:
+*all three* hold (CONCEPT:AU-AHE.harness.unified-promotion-gate — the unified evolution
+matrix's governance-bypass closure; see §8 below):
 
-- the candidate **beat baseline** (`edit.metadata["promote"]`), **and**
+- the candidate **beat baseline** (`edit.metadata["promote"]`);
 - the **`KG_AGENT_AUTO_APPLY`** gate is on (`config.kg_agent_auto_apply`, default `False`
-  / **shadow**).
+  / **shadow**) — this is a NECESSARY, no longer SUFFICIENT, condition; **and**
+- the SAME unified `action_policy.decide()` veto every other promotion vector passes —
+  `artifact_promotion.promote(..., PromotionCandidate(artifact_kind="prompt", ...,
+  policy_kind="promote_prompt_version"))` — whose shipped default tier
+  (`approval_required`) means a benchmark win + `KG_AGENT_AUTO_APPLY=true` ALONE still
+  does **not** apply; an operator must also relax that tier (or approve the queued
+  request). Before this closure, `KG_AGENT_AUTO_APPLY` alone was sufficient — weaker
+  governance than a skill-markdown promotion, which already went through
+  `action_policy.decide()`.
 
-Off-gate (the default) the cycle is **propose-only**: a queryable, git-diffable
-`ProposedPromptChange` audit record is written under `.specify/proposals/<id>.json`
-(plus a best-effort KG node) carrying opaque agent/component/evidence references,
-compiled metadata, the before/after metric, and the decision. It never stores raw trace
-examples, source-system identifiers, or a local path. The **live prompt is left
-untouched**. `EvolveAgent.approve_proposed_change(proposal_ref)` is the steerable reviewed
-apply path: a winning prompt can go live by review instead of by flipping the global gate.
-Approval verifies the proposal integrity reference, revalidates compiled metadata, binds
-the opaque component reference to the in-memory registry, and rejects workspace escapes.
-Background failure-cluster optimization is always review-only even when the global
-auto-apply gate is enabled; only the metric-scored per-agent hardening path can be marked
-automatically eligible.
+Off-gate (the default, or a `queue_approval`/`deny` verdict) the cycle is
+**propose-only**: a queryable, git-diffable `ProposedPromptChange` audit record is
+written under `.specify/proposals/<id>.json` (plus a best-effort KG node) carrying
+opaque agent/component/evidence references, compiled metadata, the before/after metric,
+and BOTH decisions (`apply_status` and the `action_decision` verdict). It never stores
+raw trace examples, source-system identifiers, or a local path. The **live prompt is
+left untouched**. `EvolveAgent.approve_proposed_change(proposal_ref)` is the steerable
+reviewed apply path: a winning prompt can go live by review instead of by flipping the
+global gate. Approval verifies the proposal integrity reference, revalidates compiled
+metadata, binds the opaque component reference to the in-memory registry, and rejects
+workspace escapes. Background failure-cluster optimization is always review-only even
+when the global auto-apply gate is enabled; only the metric-scored per-agent hardening
+path can be marked automatically eligible.
 
 The same boundary applies to round manifests. `persist_manifest` projects the operational
 `ChangeManifest` into a durable schema containing opaque round/edit/component/task/evidence
@@ -306,7 +316,9 @@ flowchart LR
     promote -- "no" --> rejected["rejected (audit only)"]
     promote -- "yes" --> gate{"KG_AGENT_AUTO_APPLY?"}
     gate -- "off (default)" --> proposed["ProposedPromptChange\n(.specify/proposals/) — held\n→ approve_proposed_change()"]
-    gate -- "on" --> applied["StructuredPrompt.save() + commit"]
+    gate -- "on" --> policy{"action_policy.decide\nkind=promote_prompt_version"}
+    policy -- "queue_approval / deny\n(shipped default)" --> proposed
+    policy -- "allow (operator-relaxed)" --> applied["StructuredPrompt.save() + commit"]
 ```
 
 This is the loop AGENTS.md points at: when you resolve an exception, the fix (a hardened
@@ -389,8 +401,9 @@ The few that exist:
 | `KG_LOOP_STANDARDIZE` (`config.kg_loop_standardize`) | — | enterprise standardization pass (needs a harvested estate) |
 | `KG_LOOP_DISCOVER` (`config.kg_loop_discover`) | off | opt-in research discovery/intake (external calls) |
 | **`KG_LOOP_AUTO_DEVELOP`** (`config.kg_loop_auto_develop`) | **`False`** | let the 24/7 loop auto-advance approved specs through the `spec_promotion` gate (review-first otherwise) |
-| **`KG_AGENT_AUTO_APPLY`** (`config.kg_agent_auto_apply`) | **`False`** (shadow) | let a hardened prompt that beat baseline be written live; off ⇒ propose-only |
+| **`KG_AGENT_AUTO_APPLY`** (`config.kg_agent_auto_apply`) | **`False`** (shadow) | NECESSARY but not SUFFICIENT: lets a hardened prompt that beat baseline be CONSIDERED for a live write; the `promote_prompt_version` ActionPolicy tier below must ALSO allow. Off ⇒ propose-only either way. |
 | `spec_promotion` ActionPolicy tier | `approval_required` | the governance tier on spec→develop promotion (`deploy/action-policy.default.yml`) |
+| `promote_prompt_version` / `promote_tool_description_version` / `promote_mined_claim` ActionPolicy tiers | `approval_required` | the SAME unified gate (§8) every promotion vector passes; `KG_AGENT_AUTO_APPLY` alone can no longer apply a prompt, and `graph_ops_causal`'s `materialize_claims` alone can no longer promote a mined claim |
 
 Non-flag tunables (module constants, intentionally **not** env vars):
 
@@ -437,6 +450,88 @@ graph_schedules action=disable name=<evolution schedule>   # pause
 agent that failed: run `EvolveAgent.harden_agent_prompt(agent_id, prompt_path)`. By
 default the winning candidate is **held** as a `ProposedPromptChange` under
 `.specify/proposals/` — review the before/after metric and approve it with
-`approve_proposed_change(proposal_id)` (or set `KG_AGENT_AUTO_APPLY` to let beats-baseline
-candidates land automatically). Either way an audit record and the manifest are written,
-so the hardening is never silent — and the next run self-handles the case you just fixed.
+`approve_proposed_change(proposal_id)` (or set `KG_AGENT_AUTO_APPLY` **and** relax the
+shipped `promote_prompt_version` ActionPolicy tier to let beats-baseline candidates land
+automatically — `KG_AGENT_AUTO_APPLY` alone is no longer sufficient, §8). Either way an
+audit record and the manifest are written, so the hardening is never silent — and the
+next run self-handles the case you just fixed.
+
+---
+
+## 8. The unified promotion gate + evolution matrix (CONCEPT:AU-AHE.harness.unified-promotion-gate)
+
+> Every artifact-mutation vector — skill markdown, prompt, mined claim, merged spec,
+> routing policy — funnels through the SAME contract: a provenance-carrying reward, ONE
+> comparison-then-governance gate, and a queryable version lineage. Modules:
+> `agent_utilities/harness/reward_signal.py`, `agent_utilities/orchestration/
+> artifact_promotion.py`, `agent_utilities/models/knowledge_graph.py`
+> (`ArtifactVersionNode`), `agent_utilities/knowledge_graph/research/evolution_state.py`.
+
+### The contract
+
+- **`RewardSignal`** (`value` in `[0, 1]`, `source`, `confidence`, `provenance_ref`,
+  `reason`) names the `[0, 1]`-clamped reward convention every producer in the codebase
+  already converged on independently (Langfuse blend, skill benchmark score, capability
+  EMA, ...) and adds WHO computed it. `blend()` generalizes the existing 2-operand
+  `langfuse_signal.blend_reward` to N confidence-weighted signals.
+- **`PromotionCandidate` / `promote()`** (`orchestration/artifact_promotion.py`) is the
+  ONE entry point every optimizer's promotion boundary calls: (1) `evaluate_promotion`
+  — the candidate-vs-incumbent comparison gate (skipped entirely when
+  `incumbent_reward=None`, the shape a comparison-less vector like a mined claim or a
+  golden-loop proposal uses — gated on quality + governance instead of a held-out
+  score), then (2) the SAME `action_policy.decide(kind=...)` veto every reserved-kind
+  call site already used, then (3) a caller-legible `PromotionVerdict`. It performs NO
+  KG writes itself and never raises (a policy-consult failure fails closed).
+- **`ArtifactVersionNode`** (`models/knowledge_graph.py`) generalizes
+  `SkillVersionNode`'s propose-only lifecycle contract to every vector:
+  `artifact_kind`/`artifact_id`/`status` (`proposal|active|rejected`)/`origin`/
+  **`reward`/`reward_source`** (the `RewardSignal` that gated this version, e.g.
+  `"internal_corpus"`)/`task_count`/`notes`/`transfer_scores`. `SkillVersionNode` /
+  `PromptVersionNode` are thin subclasses (additive fields, zero existing-caller
+  breakage — the strangler pattern, not a parallel v2 type).
+- **The matrix query** — `artifact_evolution_summary(engine, artifact_kind=None,
+  limit=200)` (`evolution_state.py`) is the cross-vector read: scans every
+  `ArtifactVersionNode` label, aggregates by `status` and `kind`, returns a drill-down
+  sample. It is folded into `read_evolution_state()`'s `artifact_versions` key, so it is
+  queryable from the SAME live surface every other steering read already uses —
+  `graph_loops action=state` (MCP) and its REST twin — with zero new tool/route code.
+
+### Migration status (5 promotion pipelines)
+
+| Reserved `kind` | Call site | On `promote()`? |
+|---|---|---|
+| `promote_skill_version` | `skill_evolution.run_reflact_cycle` | **Yes** (pre-existing) |
+| `merge_promotion` | `auto_merge.GovernedAutoMerger._consult_action_policy` | **Yes** (pre-existing) |
+| `promote_mined_claim` | `ops_causal_tools._materialize_root_cause_claims` (W2.7, closes B3) | **Yes** |
+| `promote_mined_claim` | `loop_controller._run_insight_validation` | No — direct `action_policy.decide()` (already governed, not a bypass; see migration shape) |
+| `route_policy_update` | `loop_controller._run_trace_mining` (via `trace_pattern_miner`) | No — direct `action_policy.decide()` |
+| `spec_promotion` | `spec_proposals.review_spec` / `auto_advance_specs` | No — direct `action_policy.decide()` |
+
+Two governance-bypass-closing vectors were also added directly onto the contract this
+wave (not part of the original 5, born from closing the `KG_AGENT_AUTO_APPLY` bypass,
+§4 above): `promote_prompt_version` (`evolve_agent._apply_prompt_edit`) and the reserved
+(currently uncalled — no `ComponentType.TOOL_DESCRIPTION` edit exists yet, so it stays
+unwired per Wire-First) `promote_tool_description_version`.
+
+**Migration shape for the 3 remaining direct-`action_policy.decide()` call sites** —
+mechanical, low-risk (same reserved kind, same shipped tier, same audit trail; only the
+call-site plumbing changes):
+
+1. Wrap the vector's own quality/confidence signal as a `RewardSignal` (e.g.
+   `CandidateInsight.confidence` → `RewardSignal(value=..., source="internal_corpus")`).
+2. Build a `PromotionCandidate(artifact_kind=<name>, artifact_id=<target>,
+   candidate_ref=<target>, candidate_reward=<the RewardSignal>, incumbent_reward=None,
+   policy_kind=<the existing reserved kind string>, source="loop_engine", reason=...)`
+   — `incumbent_reward=None` for all three (none compares a candidate against an
+   incumbent; each gates on quality + governance, the same shape `promote_mined_claim`
+   uses).
+3. Replace the hand-built `ActionRequest` + `action_policy.decide(...)` + manual
+   `decision.decision in ("allow", "allow_notify")` check with
+   `verdict = promote(engine, candidate); verdict.decision; verdict.approved`.
+4. Keep every existing side effect (flywheel transitions, `ProposalPublication`/
+   `ActionDecision` audit writes) exactly where it is — `promote()` is a decision
+   boundary, not a persistence layer; the caller still owns every write.
+
+Not required this wave (the 2 pre-existing `promote()` call sites already exceed the
+"migrate at least 2" bar); tracked here so the remaining 3 direct call sites move onto
+the shared contract in a follow-up rather than accumulating a second pattern.
