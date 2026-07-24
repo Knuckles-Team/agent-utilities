@@ -9,7 +9,8 @@ from typing import Protocol
 class IndexMigrationBackend(Protocol):
     """Authority operation required by the current index migration."""
 
-    def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int: ...
+    def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
+        ...
 
 
 @dataclass(frozen=True, slots=True)

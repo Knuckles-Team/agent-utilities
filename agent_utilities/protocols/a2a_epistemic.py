@@ -300,7 +300,7 @@ def _validated_json(adapter: TypeAdapter[_T], value: Any, *, label: str) -> _T:
 
 def _privacy_json(value: Any, *, label: str) -> Any:
     clean, report = sanitize_for_persistence(value)
-    if not isinstance(clean, (dict, list)):
+    if not isinstance(clean, dict | list):
         raise ValueError(f"{label} did not produce structured persistence material")
     if report.changed:
         raise ValueError(
@@ -1292,7 +1292,7 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
         cursor: str | None = None
         for row in rows:
             if (
-                not isinstance(row, (tuple, list))
+                not isinstance(row, tuple | list)
                 or len(row) != 2
                 or not isinstance(row[0], str)
             ):
@@ -1703,7 +1703,7 @@ class EpistemicGraphA2ABroker(Broker):
                 await anyio.sleep(self.poll_interval_ms / 1000)
                 continue
             if (
-                not isinstance(claimed, (tuple, list))
+                not isinstance(claimed, tuple | list)
                 or len(claimed) != 2
                 or not isinstance(claimed[0], str)
                 or not isinstance(claimed[1], dict)

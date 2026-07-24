@@ -362,12 +362,12 @@ class UniversalConnector:
         def visit(value: Any, depth: int) -> None:
             if depth > 12:
                 raise ValueError("database query parameters are too deeply nested")
-            if value is None or isinstance(value, (bool, int, float)):
+            if value is None or isinstance(value, bool | int | float):
                 budget[0] += 16
-            elif isinstance(value, (str, bytes, bytearray, memoryview)):
+            elif isinstance(value, str | bytes | bytearray | memoryview):
                 raw = value.encode("utf-8") if isinstance(value, str) else bytes(value)
                 budget[0] += len(raw)
-            elif isinstance(value, (dt.date, dt.time, decimal.Decimal, uuid.UUID)):
+            elif isinstance(value, dt.date | dt.time | decimal.Decimal | uuid.UUID):
                 budget[0] += 64
             elif isinstance(value, Mapping):
                 if len(value) > 1_000:
@@ -394,13 +394,13 @@ class UniversalConnector:
     def _bounded_cell_size(cls, value: Any, *, depth: int = 0) -> int:
         if depth > 12:
             raise RuntimeError("database result is too deeply nested")
-        if value is None or isinstance(value, (bool, int, float)):
+        if value is None or isinstance(value, bool | int | float):
             return 16
         if isinstance(value, str):
             size = len(value.encode("utf-8"))
-        elif isinstance(value, (bytes, bytearray, memoryview)):
+        elif isinstance(value, bytes | bytearray | memoryview):
             size = len(value)
-        elif isinstance(value, (dt.date, dt.time, decimal.Decimal, uuid.UUID)):
+        elif isinstance(value, dt.date | dt.time | decimal.Decimal | uuid.UUID):
             size = 64
         elif isinstance(value, Mapping):
             if len(value) > 10_000:
@@ -447,7 +447,7 @@ class UniversalConnector:
                 cls._safe_identifier(raw_key)
                 cls._validate_mongo_filter(item, depth=depth + 1)
         elif isinstance(value, Sequence) and not isinstance(
-            value, (str, bytes, bytearray, memoryview)
+            value, str | bytes | bytearray | memoryview
         ):
             if len(value) > 1_000:
                 raise ValueError("MongoDB filter has too many values")
@@ -455,19 +455,17 @@ class UniversalConnector:
                 cls._validate_mongo_filter(item, depth=depth + 1)
         elif not isinstance(
             value,
-            (
-                type(None),
-                bool,
-                int,
-                float,
-                str,
-                bytes,
-                bytearray,
-                dt.date,
-                dt.time,
-                decimal.Decimal,
-                uuid.UUID,
-            ),
+            type(None)
+            | bool
+            | int
+            | float
+            | str
+            | bytes
+            | bytearray
+            | dt.date
+            | dt.time
+            | decimal.Decimal
+            | uuid.UUID,
         ):
             raise ValueError("MongoDB filter value is unsupported")
 

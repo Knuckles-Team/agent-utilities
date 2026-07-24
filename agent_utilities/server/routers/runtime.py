@@ -78,7 +78,7 @@ def _bound_event_value(value: Any, *, depth: int = 0) -> Any:
             str(key)[:128]: _bound_event_value(item, depth=depth + 1)
             for key, item in list(value.items())[:64]
         }
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         return [_bound_event_value(item, depth=depth + 1) for item in value[:128]]
     return value
 
@@ -147,7 +147,7 @@ def _validate_action_bounds(action: Any) -> None:
             raise HTTPException(status_code=413, detail="action field too large")
     timeout = payload.get("timeout")
     if timeout is not None and (
-        not isinstance(timeout, (int, float))
+        not isinstance(timeout, int | float)
         or not math.isfinite(float(timeout))
         or not 1.0 <= float(timeout) <= 900.0
     ):

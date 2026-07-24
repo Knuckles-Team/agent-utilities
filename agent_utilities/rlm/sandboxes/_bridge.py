@@ -73,7 +73,7 @@ def _bounded_json_shape(value: Any) -> bool:
             stack.extend((item, depth + 1) for item in current.values())
         elif isinstance(current, list):
             stack.extend((item, depth + 1) for item in current)
-        elif not isinstance(current, (str, int, float, bool, type(None))):
+        elif not isinstance(current, str | int | float | bool | type(None)):
             return False
     return True
 
@@ -194,7 +194,7 @@ def read_result(run_dir: Path) -> tuple[str, str | None, bool]:
                 return "", None, False
             stdout = data.get("stdout", "")
             error = data.get("error")
-            if not isinstance(stdout, str) or not isinstance(error, (str, type(None))):
+            if not isinstance(stdout, str) or not isinstance(error, str | type(None)):
                 return "", None, False
             return stdout, error, True
         except Exception as exc:  # noqa: BLE001 - corrupt result == failed run

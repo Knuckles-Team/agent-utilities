@@ -48,7 +48,9 @@ def _sanitize_value(value: Any) -> Any:
         # and emails are redacted exactly as before — the class name alone was
         # never what made this safe.
         rendered = sanitize_log_text(str(value))
-        return f"{type(value).__name__}: {rendered}" if rendered else type(value).__name__
+        return (
+            f"{type(value).__name__}: {rendered}" if rendered else type(value).__name__
+        )
     if isinstance(value, Path):
         return "<path>"
     if isinstance(value, str):

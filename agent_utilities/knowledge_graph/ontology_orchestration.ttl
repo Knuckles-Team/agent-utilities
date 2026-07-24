@@ -433,3 +433,4 @@
 :Agent a owl:Class ;
     rdfs:label "Agent" ;
     rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
+

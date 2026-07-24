@@ -55,9 +55,9 @@ def _jsonable(value: Any) -> Any:
         value = value.model_dump(by_alias=True, exclude_none=True)
     if isinstance(value, Mapping):
         return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set, frozenset)):
+    if isinstance(value, list | tuple | set | frozenset):
         return [_jsonable(item) for item in value]
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if value is None or isinstance(value, str | int | float | bool):
         return value
     return str(value)
 
@@ -135,7 +135,7 @@ def _tool_list(result: Any) -> list[Any]:
     tools = _field(result, "tools")
     if tools is None:
         tools = result
-    if isinstance(tools, Iterable) and not isinstance(tools, (str, bytes, Mapping)):
+    if isinstance(tools, Iterable) and not isinstance(tools, str | bytes | Mapping):
         return list(tools)
     raise ToolSchemaContractError("MCP list_tools response has no tool list")
 

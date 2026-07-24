@@ -146,13 +146,13 @@ class DeploymentBackend(Protocol):
 
     name: BackendName
 
-    def plan(
-        self, *, target: str, engine: Any = None, **kwargs: Any
-    ) -> DeploymentPlan: ...
+    def plan(self, *, target: str, engine: Any = None, **kwargs: Any) -> DeploymentPlan:
+        ...
 
     def apply(
         self, plan: DeploymentPlan, *, dry_run: bool = True, **kwargs: Any
-    ) -> dict[str, Any]: ...
+    ) -> dict[str, Any]:
+        ...
 
 
 # ── in-process (the uvx / stdio / streamable-http case — REAL) ────────────────

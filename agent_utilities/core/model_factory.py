@@ -111,7 +111,7 @@ def _validated_http_options(
     """Bound model transport controls before any provider client is built."""
     if (
         isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
+        or not isinstance(timeout, int | float)
         or not math.isfinite(float(timeout))
         or not 0 < float(timeout) <= 3_600
     ):

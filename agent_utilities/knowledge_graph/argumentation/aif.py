@@ -565,7 +565,7 @@ def _decode_node_properties(raw: Any) -> dict[str, Any]:
 def _decode_edge_properties(raw: Any) -> dict[str, Any]:
     if isinstance(raw, dict):
         return raw
-    if isinstance(raw, (bytes, bytearray, list)):
+    if isinstance(raw, bytes | bytearray | list):
         try:
             import msgpack
 

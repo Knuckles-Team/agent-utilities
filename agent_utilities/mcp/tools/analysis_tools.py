@@ -2788,10 +2788,11 @@ def register_analysis_tools(mcp):
                                 declaration = _configured_external_graph_declaration(
                                     config_key
                                 )
-                                _policy, current_policy_digest = (
-                                    _resolved_external_mapping_policy(
-                                        store, declaration
-                                    )
+                                (
+                                    _policy,
+                                    current_policy_digest,
+                                ) = _resolved_external_mapping_policy(
+                                    store, declaration
                                 )
                                 status = mapping_profile_status(
                                     config_key,
@@ -3007,10 +3008,11 @@ def register_analysis_tools(mcp):
                     )
 
                     try:
-                        _runtime_policy, runtime_policy_digest = (
-                            _resolved_external_mapping_policy(
-                                create_secrets_client(), declared
-                            )
+                        (
+                            _runtime_policy,
+                            runtime_policy_digest,
+                        ) = _resolved_external_mapping_policy(
+                            create_secrets_client(), declared
                         )
                         request = ExternalGraphIngestionRequest(
                             connection=config_key,
@@ -3210,9 +3212,10 @@ def register_analysis_tools(mcp):
                 runtime_policy_digest = ""
                 if backend_kind != "graphql":
                     try:
-                        runtime_policy, runtime_policy_digest = (
-                            _resolved_external_mapping_policy(store, connector_config)
-                        )
+                        (
+                            runtime_policy,
+                            runtime_policy_digest,
+                        ) = _resolved_external_mapping_policy(store, connector_config)
                     except Exception as exc:
                         return json.dumps(
                             {

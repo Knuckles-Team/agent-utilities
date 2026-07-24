@@ -140,7 +140,7 @@ class _ForkdClient:
             response = safe_delete_json(url, **kwargs)
         else:
             raise ValueError("Unsupported forkd HTTP method")
-        if not isinstance(response, (dict, list)):
+        if not isinstance(response, dict | list):
             raise SourceEgressError(
                 "Forkd controller returned an invalid JSON envelope"
             )

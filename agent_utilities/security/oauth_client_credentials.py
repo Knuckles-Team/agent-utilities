@@ -403,7 +403,7 @@ class OAuthClientCredentialsProvider:
             )
         if (
             isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
+            or not isinstance(timeout, int | float)
             or not math.isfinite(float(timeout))
             or not 0 < float(timeout) <= 60
         ):
@@ -434,7 +434,7 @@ class OAuthClientCredentialsProvider:
         if token_auth_style not in {"body", "basic"}:
             raise ValueError("OAuth2 token authentication style is invalid")
         if (
-            not isinstance(extra_params, (dict, type(None)))
+            not isinstance(extra_params, dict | type(None))
             or len(extra_params or {}) > 32
         ):
             raise ValueError("OAuth2 extra parameters were rejected")

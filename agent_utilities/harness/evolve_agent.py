@@ -1276,9 +1276,9 @@ class EvolveAgent:
                 metadata["apply_status"] = apply_status
             compiled = edit.metadata.get("program_compiled_state")
             if compiled is not None:
-                metadata["program_compiled_state"] = (
-                    ProgramCompiledState.model_validate(compiled).model_dump()
-                )
+                metadata[
+                    "program_compiled_state"
+                ] = ProgramCompiledState.model_validate(compiled).model_dump()
             if metadata:
                 row["compiled_metadata"] = metadata
             persisted_edits.append(row)

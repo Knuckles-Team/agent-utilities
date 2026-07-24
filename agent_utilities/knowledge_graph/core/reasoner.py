@@ -63,7 +63,8 @@ class Reasoner(Protocol):
     name: str
     capability_tags: tuple[str, ...]
 
-    def reason(self, task: ReasoningTask) -> ReasoningResult: ...
+    def reason(self, task: ReasoningTask) -> ReasoningResult:
+        ...
 
 
 # ── built-in paradigms ───────────────────────────────────────────────

@@ -342,7 +342,7 @@ class PersistencePrivacyGuard:
                     item is None
                     or (isinstance(item, str) and not item)
                     or (
-                        isinstance(item, (dict, list, tuple, set, frozenset))
+                        isinstance(item, dict | list | tuple | set | frozenset)
                         and not item
                     )
                 )
@@ -363,9 +363,9 @@ class PersistencePrivacyGuard:
                     continue
                 clean[key] = self._sanitize(item, counts, (*context, field))
             return clean
-        if isinstance(value, (list, tuple, set, frozenset)):
+        if isinstance(value, list | tuple | set | frozenset):
             return [self._sanitize(item, counts, context) for item in value]
-        if isinstance(value, (int, float, bool)) or value is None:
+        if isinstance(value, int | float | bool) or value is None:
             return value
         # Never serialize an arbitrary object's repr: it commonly embeds memory
         # addresses, credentials, or machine-specific paths.

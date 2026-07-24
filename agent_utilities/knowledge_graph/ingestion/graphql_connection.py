@@ -209,7 +209,7 @@ def _reject_private_mapping_fields(value: Mapping[str, Any]) -> None:
                     "GraphQL mapping policy contains transport or credential material"
                 )
             pending.extend((item, depth + 1) for item in current.values())
-        elif isinstance(current, (list, tuple)):
+        elif isinstance(current, list | tuple):
             pending.extend((item, depth + 1) for item in current)
 
 

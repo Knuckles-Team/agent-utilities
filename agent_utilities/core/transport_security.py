@@ -181,7 +181,7 @@ def resolve_configured_tls_profile(
             for item in value.values():
                 project_references(item)
             return
-        if isinstance(value, (list, tuple)):
+        if isinstance(value, list | tuple):
             for item in value:
                 project_references(item)
             return

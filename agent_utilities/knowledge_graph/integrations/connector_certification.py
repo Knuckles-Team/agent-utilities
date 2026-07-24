@@ -274,7 +274,8 @@ class CertificationBundle:
 class CertificationDriver(Protocol):
     """Minimal live/runtime adapter; every response must be JSON-compatible."""
 
-    async def invoke(self, request: Mapping[str, Any]) -> dict[str, Any]: ...
+    async def invoke(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        ...
 
 
 @dataclass(slots=True)
@@ -996,7 +997,7 @@ def _bounded_json(raw: bytes, *, max_bytes: int) -> Any:
             if len(current) > 4096:
                 raise ValueError("JSON collection is invalid")
             stack.extend((item, depth + 1) for item in current)
-        elif current is not None and not isinstance(current, (str, int, float, bool)):
+        elif current is not None and not isinstance(current, str | int | float | bool):
             raise ValueError("JSON value is invalid")
         elif isinstance(current, float) and not math.isfinite(current):
             raise ValueError("JSON number is invalid")

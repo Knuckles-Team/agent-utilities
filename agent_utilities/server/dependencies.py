@@ -94,7 +94,7 @@ async def process_parts(parts: list[dict[str, Any]]) -> list[Any]:
                     continue
             else:
                 raw_bytes = img_data
-            if not isinstance(raw_bytes, (bytes, bytearray)):
+            if not isinstance(raw_bytes, bytes | bytearray):
                 logger.warning("Upload rejected: image content must be bytes")
                 continue
             raw_bytes = bytes(raw_bytes)

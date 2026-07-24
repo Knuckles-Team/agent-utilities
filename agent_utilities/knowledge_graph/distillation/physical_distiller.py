@@ -232,7 +232,7 @@ class PhysicalDistillationEngine:
             selected: ast.FunctionDef | ast.AsyncFunctionDef | None = None
             for node in ast.walk(tree):
                 if (
-                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
                     and node.name == function_name
                 ):
                     if selected is not None:

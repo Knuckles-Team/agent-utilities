@@ -281,7 +281,7 @@ def _validate_query_document(value: Any, *, allow_introspection: bool = False) -
     if len(operations) != 1 or operations[0].operation is not OperationType.QUERY:
         raise GraphQLDocumentError("GraphQL operation must be a read query")
     if any(
-        not isinstance(definition, (OperationDefinitionNode, FragmentDefinitionNode))
+        not isinstance(definition, OperationDefinitionNode | FragmentDefinitionNode)
         for definition in document.definitions
     ):
         raise GraphQLDocumentError("GraphQL operation contains unsupported definitions")
@@ -1745,9 +1745,15 @@ class GraphQLDocumentConnector(LoadConnector, PollConnector):
                 "source_kind": "graphql",
                 "embedding_handoff": True,
             }
-            access, classification, retention, legal_hold, tenant, schema, mapping = (
-                governance
-            )
+            (
+                access,
+                classification,
+                retention,
+                legal_hold,
+                tenant,
+                schema,
+                mapping,
+            ) = governance
             envelopes.append(
                 ChangeEnvelope(
                     connector="graphql_document",

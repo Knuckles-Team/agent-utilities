@@ -124,7 +124,7 @@ def _valid_limits(
         and 1 <= cpu_seconds <= MAX_PDF_CPU_SECONDS
         and isinstance(address_space_bytes, int)
         and 64 * 1024 * 1024 <= address_space_bytes <= MAX_PDF_ADDRESS_SPACE_BYTES
-        and isinstance(timeout_seconds, (int, float))
+        and isinstance(timeout_seconds, int | float)
         and math.isfinite(timeout_seconds)
         and 0 < timeout_seconds <= MAX_PDF_WALL_SECONDS
     )

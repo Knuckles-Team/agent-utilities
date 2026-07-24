@@ -58,12 +58,12 @@ def _evaluate_branch_condition(
         if isinstance(node, ast.Expression):
             return _node(node.body)
         if isinstance(node, ast.Constant) and isinstance(
-            node.value, (str, bool, int, float, type(None))
+            node.value, str | bool | int | float | type(None)
         ):
             return node.value
         if isinstance(node, ast.Name) and node.id == "output":
             return output
-        if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        if isinstance(node, ast.List | ast.Tuple | ast.Set):
             values = [_node(item) for item in node.elts]
             return (
                 values
@@ -128,7 +128,7 @@ def _evaluate_branch_condition(
         raise ValueError("Unsupported branch condition syntax")
 
     result = _node(tree)
-    if not isinstance(result, (bool, str, int, float)):
+    if not isinstance(result, bool | str | int | float):
         raise ValueError("Unsupported branch condition result")
     return result
 

@@ -295,7 +295,7 @@ def _validated_params(params: dict[str, Any] | None) -> dict[str, Any]:
     if len(selected) > HARD_MAX_QUERY_PARAMETERS:
         raise SourceEgressError("Source request contained too many query parameters")
     for raw_name, raw_value in selected.items():
-        values = raw_value if isinstance(raw_value, (list, tuple)) else (raw_value,)
+        values = raw_value if isinstance(raw_value, list | tuple) else (raw_value,)
         if len(values) > HARD_MAX_QUERY_PARAMETERS:
             raise SourceEgressError("Source query parameter contained too many values")
         rendered_name = str(raw_name)

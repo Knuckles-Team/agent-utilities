@@ -610,3 +610,4 @@ BFO:Process — unfolds over time.""" ;
 where, when, and under which profile (tiny/single-node-prod/enterprise).
 BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:subClassOf bfo:0000031 .
+

@@ -141,7 +141,7 @@ def _hardened_jwt_verifier(**kwargs: Any) -> Any:
             exp = claims.get("exp")
             if (
                 isinstance(exp, bool)
-                or not isinstance(exp, (int, float))
+                or not isinstance(exp, int | float)
                 or not math.isfinite(float(exp))
                 or float(exp) < now
             ):
@@ -152,7 +152,7 @@ def _hardened_jwt_verifier(**kwargs: Any) -> Any:
                     continue
                 if (
                     isinstance(value, bool)
-                    or not isinstance(value, (int, float))
+                    or not isinstance(value, int | float)
                     or not math.isfinite(float(value))
                     or float(value) > now + 30.0
                 ):
@@ -736,7 +736,7 @@ def _configure_auth(args: argparse.Namespace) -> Any:
 
                     if (
                         isinstance(expires_at, bool)
-                        or not isinstance(expires_at, (int, float))
+                        or not isinstance(expires_at, int | float)
                         or not math.isfinite(float(expires_at))
                     ):
                         raise ValueError("invalid expiry")

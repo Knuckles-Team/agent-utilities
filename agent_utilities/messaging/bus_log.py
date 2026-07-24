@@ -166,7 +166,8 @@ class BusLogBackend(ABC):
         payload: str,
         meta_json: str,
         created: float,
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
     @abstractmethod
     def publish_topic(
@@ -179,7 +180,8 @@ class BusLogBackend(ABC):
         payload: str,
         meta_json: str,
         created: float,
-    ) -> bool: ...
+    ) -> bool:
+        ...
 
     @abstractmethod
     def receive(
@@ -189,7 +191,8 @@ class BusLogBackend(ABC):
         agent_id: str,
         topics: list[str],
         max_messages: int = 200,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        ...
 
     @abstractmethod
     def ack(self, message: dict[str, Any]) -> bool:
@@ -202,12 +205,12 @@ class BusLogBackend(ABC):
         ...
 
     @abstractmethod
-    def read_dlq(
-        self, *, tenant: str, max_messages: int = 50
-    ) -> list[dict[str, Any]]: ...
+    def read_dlq(self, *, tenant: str, max_messages: int = 50) -> list[dict[str, Any]]:
+        ...
 
     @abstractmethod
-    def stats(self) -> dict[str, Any]: ...
+    def stats(self) -> dict[str, Any]:
+        ...
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -379,7 +382,7 @@ class EngineBrokerBusLog(BusLogBackend):
             if claimed is None:
                 break
             if (
-                not isinstance(claimed, (list, tuple))
+                not isinstance(claimed, list | tuple)
                 or len(claimed) != 2
                 or not isinstance(claimed[1], dict)
             ):
@@ -531,7 +534,7 @@ class EngineBrokerBusLog(BusLogBackend):
             if claimed is None:
                 break
             if (
-                not isinstance(claimed, (list, tuple))
+                not isinstance(claimed, list | tuple)
                 or len(claimed) != 2
                 or not isinstance(claimed[1], dict)
             ):
@@ -831,11 +834,11 @@ class KafkaBusLog(BusLogBackend):
             try:
                 from confluent_kafka import TopicPartition
 
-                assignment = [
-                    TopicPartition(topic, p) for p in range(self.partitions)
-                ]
+                assignment = [TopicPartition(topic, p) for p in range(self.partitions)]
                 seek_ms = int(from_ts * 1000)
-                lookup = [TopicPartition(topic, p, seek_ms) for p in range(self.partitions)]
+                lookup = [
+                    TopicPartition(topic, p, seek_ms) for p in range(self.partitions)
+                ]
                 resolved = consumer.offsets_for_times(lookup, timeout=_PROBE_TIMEOUT_S)
                 for tp in resolved or assignment:
                     if getattr(tp, "offset", -1) is not None and tp.offset >= 0:

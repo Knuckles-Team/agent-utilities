@@ -388,9 +388,9 @@ class AgenticEvolutionEngine:
                     self._decentralized_memory.reward(base_id, MemoryPool.EXPLORE, 1.0)
                 else:
                     self._decentralized_memory.reward(base_id, MemoryPool.EXPLOIT, 1.0)
-                report["decentralized_router"] = (
-                    self._decentralized_memory.router_stats(base_id)
-                )
+                report[
+                    "decentralized_router"
+                ] = self._decentralized_memory.router_stats(base_id)
 
             # b4-03 F4: push the cycle as a replay state, keyed by base_id so rare
             # (decisive) bases resurface preferentially for re-evaluation.

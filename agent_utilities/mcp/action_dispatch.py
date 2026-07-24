@@ -64,10 +64,10 @@ def parse_json_object(
 ) -> dict[str, Any]:
     """Parse one bounded JSON object without echoing caller input on failure."""
     if value is None or (
-        isinstance(value, (str, bytes, bytearray)) and not value.strip()
+        isinstance(value, str | bytes | bytearray) and not value.strip()
     ):
         return {}
-    if not isinstance(value, (str, bytes, bytearray)):
+    if not isinstance(value, str | bytes | bytearray):
         raise ValueError(f"{parameter} must be valid JSON")
     if len(value) > _MAX_JSON_OBJECT_INPUT:
         raise ValueError(

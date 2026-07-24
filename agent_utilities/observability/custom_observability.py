@@ -376,7 +376,7 @@ def _safe_attribute_value(key: str, value: Any) -> Any | None:
         if normalized in _SAFE_ATTRIBUTE_STRINGS:
             return normalized
         return _opaque_label(f"attribute_{key[:64]}", value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         cleaned = [_safe_attribute_value(key, item) for item in value[:64]]
         return [item for item in cleaned if item is not None]
     return None

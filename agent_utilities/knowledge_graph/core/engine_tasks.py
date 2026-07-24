@@ -5208,7 +5208,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     try:
                         completed = (
                             datetime.fromtimestamp(float(ca), UTC)
-                            if isinstance(ca, (int, float))
+                            if isinstance(ca, int | float)
                             else datetime.fromisoformat(str(ca))
                         )
                         if completed < cutoff:
@@ -5241,8 +5241,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             submitted = item.get("submitted_at")
             completed_at = item.get("completed_at")
-            if isinstance(submitted, (int, float)) and isinstance(
-                completed_at, (int, float)
+            if isinstance(submitted, int | float) and isinstance(
+                completed_at, int | float
             ):
                 c["duration_ms"] += max(0.0, (completed_at - submitted) * 1000.0)
         for c in cats.values():
@@ -5330,7 +5330,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 try:
                     completed_dt = (
                         datetime.fromtimestamp(float(ca), UTC)
-                        if isinstance(ca, (int, float))
+                        if isinstance(ca, int | float)
                         else datetime.fromisoformat(str(ca))
                     )
                     if completed_dt < cutoff:
@@ -5373,8 +5373,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             completed = r.get("completed_at")
             if (
                 dur <= 0
-                and isinstance(submitted, (int, float))
-                and isinstance(completed, (int, float))
+                and isinstance(submitted, int | float)
+                and isinstance(completed, int | float)
             ):
                 dur = max(0.0, (completed - submitted) * 1000.0)
             if dur > 0:
@@ -5421,7 +5421,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                     try:
                         bucket.append(
                             float(ts)
-                            if isinstance(ts, (int, float))
+                            if isinstance(ts, int | float)
                             else datetime.fromisoformat(str(ts)).timestamp()
                         )
                     except (ValueError, TypeError):

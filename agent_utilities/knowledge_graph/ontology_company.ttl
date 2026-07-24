@@ -105,6 +105,14 @@
         :AgentPerformDeepDiscoveryAndContextGathering,
         :AgentQuantResearchAnalyst .
 
+:WorkItem a owl:Class ;
+    rdfs:label "Work Item" ;
+    rdfs:comment """The sole writable runtime work-state authority. Native claims,
+leases, fencing, dependency release, retry scheduling, cancellation, and terminal
+commit govern its submitted/ready/leased/succeeded/failed/cancelled/dead_letter
+lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
 :actualValue a owl:DatatypeProperty ;
     rdfs:label "actual value" ;
     rdfs:domain :StrategicGoal ;
@@ -1446,14 +1454,6 @@ BFO:GenericallyDependentContinuant.""" ;
 :ToolGraphOs a :MCPServer ;
     rdfs:label "graph-os" .
 
-:WorkItem a owl:Class ;
-    rdfs:label "Work Item" ;
-    rdfs:comment """The sole writable runtime work-state authority. Native claims,
-leases, fencing, dependency release, retry scheduling, cancellation, and terminal
-commit govern its submitted/ready/leased/succeeded/failed/cancelled/dead_letter
-lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process.""" ;
-    rdfs:subClassOf bfo:0000015 .
-
 :StrategicGoal a owl:Class ;
     rdfs:label "Strategic Goal" ;
     rdfs:comment """A measurable company goal with KPI tracking.
@@ -1475,3 +1475,4 @@ and entity type. BFO:IndependentContinuant.""" ;
 :MCPServer a owl:Class ;
     rdfs:label "MCP Server" ;
     rdfs:subClassOf bfo:0000031 .
+

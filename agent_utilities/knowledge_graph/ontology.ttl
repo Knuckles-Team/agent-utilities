@@ -478,6 +478,12 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:range :Topic ;
     rdfs:subPropertyOf :hasTopic .
 
+:conceptId a owl:DatatypeProperty ;
+    rdfs:label "concept id" ;
+    rdfs:comment "The canonical OKF-CIS identifier of a governed concept." ;
+    rdfs:domain :Concept ;
+    rdfs:range xsd:string .
+
 :contains a owl:ObjectProperty ;
     rdfs:label "contains" ;
     rdfs:comment "A Place or container holding other entities. Inverse of locatedIn." ;
@@ -496,12 +502,6 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :dependsOn .
-
-:conceptId a owl:DatatypeProperty ;
-    rdfs:label "concept id" ;
-    rdfs:comment "The canonical OKF-CIS identifier of a governed concept." ;
-    rdfs:domain :Concept ;
-    rdfs:range xsd:string .
 
 :extends a owl:ObjectProperty ;
     rdfs:label "extends" ;
@@ -977,3 +977,4 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
+

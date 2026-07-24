@@ -102,4 +102,3 @@ def test_canonical_imports_every_registered_federated_iri():
     canonical = module._parse(module.CANONICAL)
 
     assert module._federated_iris() <= set(module._imports(canonical))
-

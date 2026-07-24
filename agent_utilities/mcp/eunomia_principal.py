@@ -95,9 +95,9 @@ def _apply_operator(
         if operator == enums.ConditionOperator.ENDS_WITH:
             return actual.endswith(expected)
     elif (
-        isinstance(expected, (int, float))
+        isinstance(expected, int | float)
         and not isinstance(expected, bool)
-        and isinstance(actual, (int, float))
+        and isinstance(actual, int | float)
         and not isinstance(actual, bool)
     ):
         if operator == enums.ConditionOperator.GREATER:

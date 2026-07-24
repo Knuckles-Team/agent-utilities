@@ -12,6 +12,44 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:AIFInformationNode a owl:Class ;
+    rdfs:label "AIF Information Node (I-node)" ;
+    rdfs:comment "AIF I-node — the propositional content (a claim, premise, or datum) asserted somewhere in an argument. Every AIFInformationNode IS a :Belief (a claim-with-confidence), so it is stored and reasoned over through the SAME Claim/Evidence/BeliefState machinery every other belief uses — AIF adds the typed interchange vocabulary on top, never a parallel store." ;
+    rdfs:subClassOf :AIFNode,
+        :Belief .
+
+:aifFulfills a owl:ObjectProperty ;
+    rdfs:label "fulfills" ;
+    rdfs:comment "Links an AIF S-node to the named :AIFScheme (inference/conflict/preference template) it instantiates." ;
+    rdfs:domain :AIFSchemeNode ;
+    rdfs:range :AIFScheme .
+
+:aifHasConclusion a owl:ObjectProperty ;
+    rdfs:label "has conclusion" ;
+    rdfs:comment "Links an AIF S-node to the node its scheme application concludes/outputs — the sole conclusion for RA/CA/TA/YA, or the preferred element for PA." ;
+    rdfs:domain :AIFSchemeNode ;
+    rdfs:range :AIFNode ;
+    owl:inverseOf :aifIsConclusionOf .
+
+:aifHasPremise a owl:ObjectProperty ;
+    rdfs:label "has premise" ;
+    rdfs:comment "Links an AIF S-node to one of the node(s) fed into its scheme application as input." ;
+    rdfs:domain :AIFSchemeNode ;
+    rdfs:range :AIFNode ;
+    owl:inverseOf :aifIsPremiseOf .
+
+:aifNodeText a owl:DatatypeProperty ;
+    rdfs:label "AIF node text" ;
+    rdfs:comment "The human-readable proposition text (I-node) or scheme display name (S-node) — mirrors the AIFdb JSON node \"text\" field verbatim for lossless import/export." ;
+    rdfs:domain :AIFNode ;
+    rdfs:range xsd:string .
+
+:aifSchemeName a owl:DatatypeProperty ;
+    rdfs:label "AIF scheme name" ;
+    rdfs:comment "The scheme's own display name (e.g. \"Default Inference\", \"Expert Opinion\", \"Default Conflict\", \"Default Preference\")." ;
+    rdfs:domain :AIFScheme ;
+    rdfs:range xsd:string .
+
 <http://knuckles.team/kg/argumentation> a owl:Ontology ;
     rdfs:label "AIF Argumentation Ontology" ;
     rdfs:comment """Argument Interchange Format (AIF) core ontology — I-nodes (information/
@@ -50,16 +88,6 @@ and docs/architecture/aif-argumentation.md.""" ;
     rdfs:comment "A named inference-scheme template (e.g. \"Default Inference\", Walton's \"Argument from Expert Opinion\") a :AIFRuleApplicationNode fulfils." ;
     rdfs:subClassOf :AIFScheme .
 
-:AIFInformationNode a owl:Class ;
-    rdfs:label "AIF Information Node (I-node)" ;
-    rdfs:comment "AIF I-node — the propositional content (a claim, premise, or datum) asserted somewhere in an argument. Every AIFInformationNode IS a :Belief (a claim-with-confidence), so it is stored and reasoned over through the SAME Claim/Evidence/BeliefState machinery every other belief uses — AIF adds the typed interchange vocabulary on top, never a parallel store." ;
-    rdfs:subClassOf :AIFNode,
-        :Belief .
-
-:AIFNode a owl:Class ;
-    rdfs:label "AIF Node" ;
-    rdfs:comment "Abstract root of the AIF Upper Ontology node hierarchy — either an :AIFInformationNode (I-node) or an :AIFSchemeNode (S-node). See the Argument Interchange Format specification (Rahwan & Reed / AIFdb, arg-tech.org)." .
-
 :AIFPreferenceApplicationNode a owl:Class ;
     rdfs:label "AIF Preference Application Node (PA)" ;
     rdfs:comment "AIF S-node instantiating a Preference Scheme — two or more compared :aifHasPremise alternatives, with the single :aifHasConclusion node marking the preferred one (the rest are dispreferred by construction). Consumed by aif.to_dung() to refine mutual attacks per preference-based argumentation (Amgoud & Cayrol) before the engine's grounded/preferred/stable computation." ;
@@ -75,41 +103,10 @@ and docs/architecture/aif-argumentation.md.""" ;
     rdfs:comment "AIF S-node instantiating an Inference Scheme — one or more :aifHasPremise nodes support the single :aifHasConclusion node. Import also writes a direct SUPPORTS edge from each premise to the conclusion so eg-epistemic's belief propagation and Dung argumentation see the same support natively (aif.to_dung())." ;
     rdfs:subClassOf :AIFSchemeNode .
 
-:AIFScheme a owl:Class ;
-    rdfs:label "AIF Scheme" ;
-    rdfs:comment "Abstract root of the AIF Forms Ontology — the named template (inference/conflict/preference) an :AIFSchemeNode instance fulfils via :aifFulfills." ;
-    rdfs:subClassOf bfo:0000031 .
-
-:AIFSchemeNode a owl:Class ;
-    rdfs:label "AIF Scheme Application Node (S-node)" ;
-    rdfs:comment "Abstract AIF S-node — the application of an :AIFScheme (RA/CA/PA, plus the AIF+ TA/YA extensions) linking :aifHasPremise input node(s) to a :aifHasConclusion output node." ;
-    rdfs:subClassOf :AIFNode,
-        bfo:0000031 .
-
 :AIFTransitionApplicationNode a owl:Class ;
     rdfs:label "AIF Transition Application Node (TA)" ;
     rdfs:comment "AIF+ dialogue-extension S-node — a transition-scheme application linking a prior dialogue state/locution (:aifHasPremise) to the resulting state/locution (:aifHasConclusion). See AIF+: Dialogue in the Argument Interchange Format (Reed et al.)." ;
     rdfs:subClassOf :AIFSchemeNode .
-
-:aifFulfills a owl:ObjectProperty ;
-    rdfs:label "fulfills" ;
-    rdfs:comment "Links an AIF S-node to the named :AIFScheme (inference/conflict/preference template) it instantiates." ;
-    rdfs:domain :AIFSchemeNode ;
-    rdfs:range :AIFScheme .
-
-:aifHasConclusion a owl:ObjectProperty ;
-    rdfs:label "has conclusion" ;
-    rdfs:comment "Links an AIF S-node to the node its scheme application concludes/outputs — the sole conclusion for RA/CA/TA/YA, or the preferred element for PA." ;
-    rdfs:domain :AIFSchemeNode ;
-    rdfs:range :AIFNode ;
-    owl:inverseOf :aifIsConclusionOf .
-
-:aifHasPremise a owl:ObjectProperty ;
-    rdfs:label "has premise" ;
-    rdfs:comment "Links an AIF S-node to one of the node(s) fed into its scheme application as input." ;
-    rdfs:domain :AIFSchemeNode ;
-    rdfs:range :AIFNode ;
-    owl:inverseOf :aifIsPremiseOf .
 
 :aifIsConclusionOf a owl:ObjectProperty ;
     rdfs:label "is conclusion of" ;
@@ -123,20 +120,24 @@ and docs/architecture/aif-argumentation.md.""" ;
     rdfs:domain :AIFNode ;
     rdfs:range :AIFSchemeNode .
 
-:aifNodeText a owl:DatatypeProperty ;
-    rdfs:label "AIF node text" ;
-    rdfs:comment "The human-readable proposition text (I-node) or scheme display name (S-node) — mirrors the AIFdb JSON node \"text\" field verbatim for lossless import/export." ;
-    rdfs:domain :AIFNode ;
-    rdfs:range xsd:string .
+:AIFScheme a owl:Class ;
+    rdfs:label "AIF Scheme" ;
+    rdfs:comment "Abstract root of the AIF Forms Ontology — the named template (inference/conflict/preference) an :AIFSchemeNode instance fulfils via :aifFulfills." ;
+    rdfs:subClassOf bfo:0000031 .
 
-:aifSchemeName a owl:DatatypeProperty ;
-    rdfs:label "AIF scheme name" ;
-    rdfs:comment "The scheme's own display name (e.g. \"Default Inference\", \"Expert Opinion\", \"Default Conflict\", \"Default Preference\")." ;
-    rdfs:domain :AIFScheme ;
-    rdfs:range xsd:string .
+:AIFNode a owl:Class ;
+    rdfs:label "AIF Node" ;
+    rdfs:comment "Abstract root of the AIF Upper Ontology node hierarchy — either an :AIFInformationNode (I-node) or an :AIFSchemeNode (S-node). See the Argument Interchange Format specification (Rahwan & Reed / AIFdb, arg-tech.org)." .
+
+:AIFSchemeNode a owl:Class ;
+    rdfs:label "AIF Scheme Application Node (S-node)" ;
+    rdfs:comment "Abstract AIF S-node — the application of an :AIFScheme (RA/CA/PA, plus the AIF+ TA/YA extensions) linking :aifHasPremise input node(s) to a :aifHasConclusion output node." ;
+    rdfs:subClassOf :AIFNode,
+        bfo:0000031 .
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :AIFRuleApplicationNode :AIFConflictApplicationNode :AIFPreferenceApplicationNode :AIFTransitionApplicationNode :AIFIllocutionaryApplicationNode ) .
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :AIFInferenceScheme :AIFConflictScheme :AIFPreferenceScheme ) .
+

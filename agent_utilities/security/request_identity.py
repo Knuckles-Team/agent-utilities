@@ -293,7 +293,7 @@ def actor_from_claims(claims: dict[str, Any]) -> ActorContext:
     credential_expires_at: int | None = None
     if "exp" in claims:
         raw_expiry = claims["exp"]
-        if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, (int, float)):
+        if isinstance(raw_expiry, bool) or not isinstance(raw_expiry, int | float):
             raise ValueError("validated identity has an invalid expiry claim")
         if raw_expiry < 0:
             raise ValueError("validated identity has an invalid expiry claim")

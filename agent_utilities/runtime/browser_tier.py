@@ -17,7 +17,8 @@ from .events import BrowseAction, BrowserObservation
 
 @runtime_checkable
 class BrowserDriver(Protocol):
-    async def browse(self, action: BrowseAction) -> BrowserObservation: ...
+    async def browse(self, action: BrowseAction) -> BrowserObservation:
+        ...
 
 
 class NullBrowserDriver:

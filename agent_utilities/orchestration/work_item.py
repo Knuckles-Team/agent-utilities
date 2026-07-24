@@ -149,9 +149,9 @@ DEFAULT_BACKOFF_BASE_S = 30.0
 #: downstream indexing, cancel) — mirrors ``engine_tasks._CLAIM_MAX_RETRIES``.
 _CAS_LOOP_MAX_RETRIES = 8
 _PROCESS_WORKER_TOKEN = f"worker:{uuid.uuid4().hex}"
-_loop_claims: contextvars.ContextVar[dict[str, dict[str, Any]] | None] = (
-    contextvars.ContextVar("work_item_loop_claims", default=None)
-)
+_loop_claims: contextvars.ContextVar[
+    dict[str, dict[str, Any]] | None
+] = contextvars.ContextVar("work_item_loop_claims", default=None)
 
 #: Fields returned by :func:`get_work_item` (everything but ``id``, which is
 #: always requested separately so the row is never empty on a hit).
