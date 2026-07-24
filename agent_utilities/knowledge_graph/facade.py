@@ -540,6 +540,74 @@ class KnowledgeGraph:
             self.compute, label, batch_size=batch_size, limit=limit
         )
 
+    def query_batches(
+        self,
+        query: str,
+        *,
+        family: str = "cross_modal",
+        batch_size: int = 512,
+        limit: int = 0,
+        params: bytes = b"",
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> Any | None:
+        """CONCEPT:AU-KG.query.knowledge-stream-consumer (Seam 1, the ``KnowledgeBatch``
+        bulk-throughput currency) — stream ``query``'s result as bounded, epistemic
+        Arrow ``RecordBatch`` pages over ``Method::KnowledgeStream``.
+
+        The COLUMNAR sibling of :meth:`query`'s ``include_epistemic=True`` /
+        :meth:`stream_epistemic_by_label`: instead of Python
+        :class:`~.core.epistemic_row.EpistemicRow` objects, it yields raw
+        ``pyarrow.RecordBatch`` pages (each ≤ ``batch_size`` rows) carrying the
+        engine's full epistemic schema — ``id``/``kind``/``score_*``/``confidence``/
+        ``evidence_*``/the bitemporal valid/tx window/``source_refs``/
+        ``policy_labels``/``transformation_ids``/``proof_ids``/``alternative_ids``/
+        ``contradiction_ids``/``blob_handle`` — so a caller hands results straight to
+        anything Arrow-speaking (Polars/pandas, DataFusion, a Parquet/distillation
+        export, a vectorized aggregation) and RSS stays FLAT across an arbitrarily
+        large scan, the whole reason the columnar currency exists. Never fabricates a
+        column the wire didn't carry.
+
+        ``family`` selects the ``KnowledgeStreamQuery`` family and how ``query`` is
+        read: ``"cross_modal"`` (default — ``query`` is UQL text, which subsumes
+        graph-pattern ``MATCH … |> …`` queries), ``"sql"`` (read-only SQL, with
+        optional msgpack ``params``), ``"rdf"``/``"sparql"`` (SPARQL, with optional
+        ``base_iri``/``type_convention``), or ``"graph"`` (``query`` is a node label
+        swept up to ``limit`` rows, ``limit=0`` ⇒ uncapped).
+
+        Returns ``None`` (never raises) when the compute engine exposes no
+        ``.knowledge`` streaming surface or ``pyarrow`` isn't installed (an optional
+        extra) — a caller falls back to its existing non-columnar read path. Degrades
+        cleanly to a short/empty stream on a non-epistemic backend; it never
+        fabricates rows.
+        """
+        from .core.knowledge_stream import pull_record_batches
+
+        selected = family.lower()
+        if selected in ("cross_modal", "uql", "cypher"):
+            wire_query: dict[str, Any] = {"family": "cross_modal", "text": str(query)}
+        elif selected == "sql":
+            wire_query = {
+                "family": "sql",
+                "query": str(query),
+                "params_msgpack": bytes(params),
+            }
+        elif selected in ("rdf", "sparql"):
+            wire_query = {
+                "family": "rdf",
+                "query": str(query),
+                "base_iri": str(base_iri),
+                "type_convention": str(type_convention),
+            }
+        elif selected == "graph":
+            wire_query = {"family": "graph", "label": str(query), "limit": int(limit)}
+        else:
+            raise ValueError(
+                f"query_batches: unknown family {family!r} "
+                "(use cross_modal/uql/cypher, sql, rdf/sparql, or graph)"
+            )
+        return pull_record_batches(self.compute, wire_query, batch_size=batch_size)
+
     def tenant_graph(self, tenant: str | None = None, base: str | None = None) -> str:
         """Resolve the per-tenant named graph (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw).
 

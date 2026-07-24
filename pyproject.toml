@@ -127,6 +127,16 @@ otel = [
 nats = [
     "nats-py>=2.15.0"
 ]
+# CONCEPT:AU-KG.query.knowledge-stream-consumer — decode the engine's bounded Arrow-IPC
+# `KnowledgeBatch` stream (`Method::KnowledgeStream`) into `pyarrow.RecordBatch`
+# pages. Optional so the base install stays light: `knowledge_stream._pyarrow()`
+# import-guards it and BOTH `KnowledgeGraph.query_batches` / `stream_epistemic_by_label`
+# degrade to `None` when it (or the engine's `.knowledge` surface) is absent — a caller
+# falls back to a non-columnar read. pyarrow >= 17 needs no numpy and no ML/CUDA wheel,
+# so it is dependency-discipline safe on the serving plane.
+pyarrow = [
+    "pyarrow>=17.0.0"
+]
 mcp = [
     "fastmcp>=3.4.4",
     # Schema-only dependency. The native middleware avoids eunomia-mcp's
@@ -425,7 +435,7 @@ test-backends = [
     "testcontainers>=4.14.2"
 ]
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging]>=1.0.0"]
+    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"

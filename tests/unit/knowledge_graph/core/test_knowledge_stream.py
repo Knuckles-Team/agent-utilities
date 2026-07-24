@@ -10,6 +10,8 @@ actually calling into this consumer end to end.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.core import knowledge_stream
 
 
@@ -22,12 +24,33 @@ class _FakeTable:
         return self._rows
 
 
+class _FakeSchema:
+    def __init__(self, names: list[str]) -> None:
+        self.names = names
+
+
+class _FakeRecordBatch:
+    """Minimal stand-in for ``pyarrow.RecordBatch`` — only the surface a caller of
+    :func:`pull_record_batches` reads (``schema.names``/``num_rows``/``to_pylist``)."""
+
+    def __init__(self, rows: list[dict], columns: list[str]) -> None:
+        self._rows = rows
+        self.num_rows = len(rows)
+        self.schema = _FakeSchema(columns)
+
+    def to_pylist(self) -> list[dict]:
+        return self._rows
+
+
 class _FakeReader:
     def __init__(self, table: _FakeTable) -> None:
         self._table = table
 
     def read_all(self) -> _FakeTable:
         return self._table
+
+    def __iter__(self):  # noqa: ANN204 — one RecordBatch per page (engine writes one)
+        yield _FakeRecordBatch(self._table._rows, self._table.column_names)
 
 
 class _FakeIpc:
@@ -264,3 +287,211 @@ def test_graph_compute_engine_stream_graph_confidence_delegates(monkeypatch):
         "label": "Claim",
         "limit": 5,
     }
+
+
+# ---------------------------------------------------------------------------
+# pull_record_batches — the COLUMNAR currency (yields pyarrow.RecordBatch)
+# ---------------------------------------------------------------------------
+
+
+def test_pull_record_batches_yields_bounded_batches_threading_the_cursor(monkeypatch):
+    page0_payload = b"page0"
+    page1_payload = b"page1"
+    cols = [
+        "id",
+        "kind",
+        "score_score",
+        "confidence",
+        "proof_ids",
+        "contradiction_ids",
+    ]
+    table_by_payload = {
+        page0_payload: _FakeTable(
+            [
+                _row("ref:a", "graph_row", 0.9, None),
+                _row("ref:b", "graph_row", 0.4, None),
+            ],
+            cols,
+        ),
+        page1_payload: _FakeTable(
+            [_row("ref:c", "graph_row", 0.6, None)], cols
+        ),
+    }
+    monkeypatch.setattr(
+        knowledge_stream, "_pyarrow", lambda: _FakePyarrow(table_by_payload)
+    )
+
+    cursor_page1 = {
+        "schema_version": 1,
+        "family": "graph",
+        "batch_size": 2,
+        "row_offset": 2,
+        "batch_index": 1,
+        "exhausted": False,
+    }
+    cursor_final = {**cursor_page1, "row_offset": 3, "batch_index": 2, "exhausted": True}
+    knowledge = _FakeKnowledgeClient(
+        pages=[
+            {
+                "schema_version": 1,
+                "family": "graph",
+                "projection": "arrow_ipc_v1",
+                "cursor": cursor_page1,
+                "payload": page0_payload,
+            },
+            {
+                "schema_version": 1,
+                "family": "graph",
+                "projection": "arrow_ipc_v1",
+                "cursor": cursor_final,
+                "payload": page1_payload,
+            },
+        ]
+    )
+    compute = _FakeCompute(knowledge=knowledge)
+
+    batches = list(
+        knowledge_stream.pull_record_batches(
+            compute, {"family": "graph", "label": "Claim", "limit": 0}, batch_size=2
+        )
+    )
+
+    # ONE RecordBatch per bounded page (never the whole result concatenated), each
+    # carrying the epistemic columns straight off the wire schema.
+    assert len(batches) == 2
+    assert [b.num_rows for b in batches] == [2, 1]
+    assert "proof_ids" in batches[0].schema.names
+    assert "contradiction_ids" in batches[0].schema.names
+    assert [r["id"] for r in batches[0].to_pylist()] == ["ref:a", "ref:b"]
+
+    # Same cursor-threading contract as the row path: two RPCs, cursor forwarded.
+    assert len(knowledge.calls) == 2
+    assert knowledge.calls[1]["cursor"] == cursor_page1
+
+
+def test_pull_record_batches_real_pyarrow_round_trip():
+    """Genuine Arrow-IPC decode (not a fake): the engine's bounded page bytes decode
+    back to a real ``pyarrow.RecordBatch`` carrying ``proof_ids``/``contradiction_ids``
+    — the columns the row path (``EpistemicRow``) also carries, proven end to end."""
+    pa = pytest.importorskip("pyarrow")
+    import pyarrow.ipc  # noqa: F401 — presence of the ipc submodule
+
+    table = pa.table(
+        {
+            "id": ["ref:a", "ref:b"],
+            "kind": ["graph_row", "graph_row"],
+            "score_score": pa.array([0.9, 0.4], type=pa.float32()),
+            "confidence": [0.82, 0.5],
+            "proof_ids": [["evidence:1", "claim:base"], []],
+            "contradiction_ids": [["claim:2"], []],
+        }
+    )
+    sink = pa.BufferOutputStream()
+    with pa.ipc.new_stream(sink, table.schema) as writer:
+        writer.write_table(table)
+    payload = sink.getvalue().to_pybytes()
+
+    knowledge = _FakeKnowledgeClient(
+        pages=[
+            {
+                "schema_version": 1,
+                "family": "graph",
+                "projection": "arrow_ipc_v1",
+                "cursor": {
+                    "schema_version": 1,
+                    "family": "graph",
+                    "batch_size": 512,
+                    "row_offset": 2,
+                    "batch_index": 1,
+                    "exhausted": True,
+                },
+                "payload": payload,
+            }
+        ]
+    )
+    compute = _FakeCompute(knowledge=knowledge)
+
+    batches = list(
+        knowledge_stream.pull_record_batches(
+            compute, {"family": "graph", "label": "Claim", "limit": 0}
+        )
+    )
+    assert len(batches) == 1
+    record_batch = batches[0]
+    assert isinstance(record_batch, pa.RecordBatch)
+    rows = record_batch.to_pylist()
+    assert rows[0]["proof_ids"] == ["evidence:1", "claim:base"]
+    assert rows[0]["contradiction_ids"] == ["claim:2"]
+    assert rows[1]["proof_ids"] == []
+
+
+def test_pull_record_batches_degrades_to_none(monkeypatch):
+    # No pyarrow -> None (never raises), so a caller falls back to a non-columnar path.
+    monkeypatch.setattr(knowledge_stream, "_pyarrow", lambda: None)
+    compute = _FakeCompute(knowledge=_FakeKnowledgeClient(pages=[]))
+    assert knowledge_stream.pull_record_batches(compute, {"family": "graph"}) is None
+
+    # No .knowledge streaming surface -> None (e.g. an older engine build).
+    monkeypatch.setattr(knowledge_stream, "_pyarrow", lambda: _FakePyarrow({}))
+    assert (
+        knowledge_stream.pull_record_batches(_FakeCompute(knowledge=None), {"family": "graph"})
+        is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# facade: KnowledgeGraph.query_batches — family -> wire-query mapping
+# ---------------------------------------------------------------------------
+
+
+def test_query_batches_builds_the_family_wire_query(monkeypatch):
+    from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+
+    captured: dict = {}
+
+    def _spy(compute, query, *, batch_size):  # noqa: ANN001, ANN202
+        captured["query"] = query
+        captured["batch_size"] = batch_size
+        return iter(())
+
+    monkeypatch.setattr(knowledge_stream, "pull_record_batches", _spy)
+
+    facade = KnowledgeGraph.__new__(KnowledgeGraph)
+    facade._compute = object()  # any sentinel; the spy ignores it
+
+    # Default family is cross_modal (UQL text — subsumes cypher-style MATCH queries).
+    list(facade.query_batches("MATCH (n) |> LIMIT 1"))
+    assert captured["query"] == {"family": "cross_modal", "text": "MATCH (n) |> LIMIT 1"}
+
+    # "cypher" and "uql" both route to the cross_modal UQL surface.
+    for alias in ("cypher", "uql"):
+        list(facade.query_batches("MATCH (n)", family=alias))
+        assert captured["query"]["family"] == "cross_modal"
+
+    list(facade.query_batches("SELECT 1", family="sql", params=b"\x90", batch_size=256))
+    assert captured["query"] == {
+        "family": "sql",
+        "query": "SELECT 1",
+        "params_msgpack": b"\x90",
+    }
+    assert captured["batch_size"] == 256
+
+    list(facade.query_batches("SELECT * WHERE { ?s ?p ?o }", family="sparql"))
+    assert captured["query"] == {
+        "family": "rdf",
+        "query": "SELECT * WHERE { ?s ?p ?o }",
+        "base_iri": "",
+        "type_convention": "",
+    }
+
+    list(facade.query_batches("Claim", family="graph", limit=7))
+    assert captured["query"] == {"family": "graph", "label": "Claim", "limit": 7}
+
+
+def test_query_batches_rejects_unknown_family():
+    from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+
+    facade = KnowledgeGraph.__new__(KnowledgeGraph)
+    facade._compute = object()
+    with pytest.raises(ValueError, match="unknown family"):
+        facade.query_batches("x", family="nope")
