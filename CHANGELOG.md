@@ -634,6 +634,17 @@ work; this release stacks on it. Staged locally, not yet pushed.)
 
 No unreleased changes.
 
+## [2.0.0] - 2026-07-23 — Major version establishment (fleet pin cascade)
+
+### Changed
+- **Version authority moved to 2.0.0** (`agent_utilities/_version.py`), coordinated
+  with a fleet-wide pin cascade: all agent-utilities pins across the dependent
+  ecosystem repos were widened to `>=2.0.0,<3.0.0` in the same operation so the
+  fleet stays installable. This entry establishes the 2.x line; feature content
+  accumulated since 1.27.1 remains under `[Unreleased]` and ships with the next
+  published release. Completion pass (provider-fleet floor, this entry, and
+  major-derived ceilings in `check_version_consistency.py`) landed 2026-07-23.
+
 ## [1.27.1] - 2026-07-18 — Exact release and connector hardening
 
 ### Added

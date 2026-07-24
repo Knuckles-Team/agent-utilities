@@ -66,7 +66,7 @@ def _provider(root: Path, name: str, *, requirement: str) -> Path:
 def test_validates_declared_provider_contract(tmp_path):
     module = _module()
     providers_root = tmp_path / "agents"
-    requirement = "agent-utilities[mcp]>=1.27.1,<2.0.0"
+    requirement = "agent-utilities[mcp]>=2.0.0,<3.0.0"
     _provider(providers_root, "alpha-agent", requirement=requirement)
     _provider(providers_root, "beta-mcp", requirement=requirement)
     workspace = _workspace(tmp_path / "workspace.yml", ("alpha-agent", "beta-mcp"))
@@ -121,10 +121,10 @@ def test_rejects_retired_extras_in_provider_dependency_surfaces(tmp_path):
     provider = _provider(
         providers_root,
         "sample-agent",
-        requirement="agent-utilities[agent,logfire]>=1.27.1,<2.0.0",
+        requirement="agent-utilities[agent,logfire]>=2.0.0,<3.0.0",
     )
     (provider / "requirements.txt").write_text(
-        "agent-utilities[engine,mcp]>=1.27.1,<2.0.0\n",
+        "agent-utilities[engine,mcp]>=2.0.0,<3.0.0\n",
         encoding="utf-8",
     )
     workspace = _workspace(tmp_path / "workspace.yml", ("sample-agent",))
@@ -146,7 +146,7 @@ def test_rejects_retired_dockerfile_runtime_claims(tmp_path):
     provider = _provider(
         providers_root,
         "sample-agent",
-        requirement="agent-utilities[mcp]>=1.27.1,<2.0.0",
+        requirement="agent-utilities[mcp]>=2.0.0,<3.0.0",
     )
     (provider / "docker" / "Dockerfile").write_text(
         "# agent-utilities[agent] includes pydantic-ai and DSPy.\n"
@@ -178,7 +178,7 @@ def test_rejects_misnested_license_in_author_metadata(tmp_path):
     provider = _provider(
         providers_root,
         "sample-agent",
-        requirement="agent-utilities[mcp]>=1.27.1,<2.0.0",
+        requirement="agent-utilities[mcp]>=2.0.0,<3.0.0",
     )
     pyproject = provider / "pyproject.toml"
     pyproject.write_text(

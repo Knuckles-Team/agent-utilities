@@ -161,14 +161,15 @@ def validate(root: Path = ROOT) -> list[str]:
     except (OSError, tomllib.TOMLDecodeError):
         findings.append("lock-metadata")
 
+    next_major = f"{int(version.split('.')[0]) + 1}.0.0"
     expected_text = {
         "README.md": f"*Version: {version}*",
         "CHANGELOG.md": f"## [{version}] - ",
         "scripts/install.sh": f"AGENT_UTILITIES_VERSION:-{version}",
         "scripts/install.ps1": f"AGENT_UTILITIES_VERSION) {{ $env:AGENT_UTILITIES_VERSION }} else {{ '{version}' }}",
-        "docs/ecosystem.md": f"agent-utilities>={version},<2.0.0",
-        "docs/guides/creating-an-agent.md": f"agent-utilities[agent-runtime]>={version},<2.0.0",
-        "docs/guides/building-mcp-servers.md": f"agent-utilities[agent-runtime]>={version},<2.0.0",
+        "docs/ecosystem.md": f"agent-utilities>={version},<{next_major}",
+        "docs/guides/creating-an-agent.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
+        "docs/guides/building-mcp-servers.md": f"agent-utilities[agent-runtime]>={version},<{next_major}",
     }
     for relative_path, marker in expected_text.items():
         try:
@@ -195,7 +196,7 @@ def validate(root: Path = ROOT) -> list[str]:
             findings.append(f"server-version:{relative_path}")
 
     try:
-        if _provider_floor(root) != frozenset({(">=", version), ("<", "2.0.0")}):
+        if _provider_floor(root) != frozenset({(">=", version), ("<", next_major)}):
             findings.append("provider-release-floor")
     except (OSError, SyntaxError, ValueError):
         findings.append("provider-release-floor")
@@ -238,11 +239,12 @@ def validate(root: Path = ROOT) -> list[str]:
                 continue
             if requirement.name.casefold() == "epistemic-graph":
                 engine_requirements.append(requirement)
+        engine_next_major = f"{int(engine_version.split('.')[0]) + 1}.0.0"
         if (
             len(engine_requirements) != 1
             or engine_requirements[0].extras != {"full"}
             or str(engine_requirements[0].specifier)
-            != f"<3.0.0,>={engine_version}"
+            != f"<{engine_next_major},>={engine_version}"
         ):
             findings.append("full-engine-dependency")
     except (KeyError, OSError, TypeError, yaml.YAMLError):

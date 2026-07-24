@@ -22,7 +22,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
 EXPECTED_PROVIDER_COUNT = 65
-REQUIRED_SPECIFIERS = frozenset({(">=", "1.27.1"), ("<", "2.0.0")})
+REQUIRED_SPECIFIERS = frozenset({(">=", "2.0.0"), ("<", "3.0.0")})
 _RETIRED_AGENT_UTILITIES_EXTRAS = frozenset({"agent", "engine"})
 
 _PROVIDER_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
