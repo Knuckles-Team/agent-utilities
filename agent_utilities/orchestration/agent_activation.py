@@ -1061,6 +1061,7 @@ def run_activation_worker_loop(
     stop_event: threading.Event,
     *,
     worker_id: str | None = None,
+    tenants: Sequence[str] | None = None,
     idle_sleep_s: float = 0.5,
     lease_ttl_s: float = _wi.DEFAULT_LEASE_TTL_S,
     heartbeat_interval_s: float = 30.0,
@@ -1072,31 +1073,48 @@ def run_activation_worker_loop(
     also the liveness signal), run it via :func:`process_one_activation`, repeat. No state
     is held between activations; N processes running this ARE the pool. ``max_activations``
     bounds the loop for tests/one-shot drains. Returns the number of activations processed.
+
+    The engine's native ``ClaimWorkItem`` is tenant-scoped (agent instances live in
+    per-tenant graphs, ADR-6 §4). ``tenants`` names the tenants this worker serves and is
+    round-robined so one worker drains many tenants fairly; ``None``/empty falls back to
+    the worker's ambient bound-session tenant (the single-tenant / session-bound default).
     """
     token = worker_id or _wi._default_token()
+    tenant_ring: list[str | None] = list(tenants) if tenants else [None]
     processed = 0
+    cursor = 0
     while not stop_event.is_set():
         if max_activations is not None and processed >= max_activations:
             break
-        try:
-            claim = _wi.claim_next(
-                engine,
-                resource_class=WORK_ITEM_KIND,
-                queue=WORK_ITEM_KIND,
-                token=token,
-                lease_ttl_s=lease_ttl_s,
-            )
-        except _wi.NativeWorkItemRequired:
-            raise
-        except Exception as exc:  # noqa: BLE001 — transient transport error: back off
-            logger.warning(
-                "[agents-as-data] claim error (%s); backing off", type(exc).__name__
-            )
-            stop_event.wait(2.0)
-            continue
+        claim = None
+        # One full pass over the tenant ring looking for a claimable activation.
+        for _ in range(len(tenant_ring)):
+            tenant = tenant_ring[cursor % len(tenant_ring)]
+            cursor += 1
+            try:
+                claim = _wi.claim_next(
+                    engine,
+                    resource_class=WORK_ITEM_KIND,
+                    queue=WORK_ITEM_KIND,
+                    tenant=tenant,
+                    token=token,
+                    lease_ttl_s=lease_ttl_s,
+                )
+            except _wi.NativeWorkItemRequired:
+                raise
+            except Exception as exc:  # noqa: BLE001 — transient transport error: back off
+                logger.warning(
+                    "[agents-as-data] claim error (%s); backing off",
+                    type(exc).__name__,
+                )
+                stop_event.wait(2.0)
+                claim = None
+                break
+            if claim is not None:
+                break
         if claim is None:
             if max_activations is not None:
-                break  # one-shot drain: nothing ready, we're done
+                break  # one-shot drain: nothing ready across all tenants, we're done
             stop_event.wait(idle_sleep_s)
             continue
         try:
@@ -1122,22 +1140,29 @@ def start_activation_worker_pool(
     engine: Any,
     *,
     worker_count: int = 1,
+    tenants: Sequence[str] | None = None,
     stop_event: threading.Event | None = None,
     lease_ttl_s: float = _wi.DEFAULT_LEASE_TTL_S,
 ) -> tuple[list[threading.Thread], threading.Event]:
     """Start ``worker_count`` stateless activation-worker threads; return (threads, stop).
 
     Thread-per-worker is the in-process pool; the k8s Deployment shape (W5.1) runs one
-    PROCESS per worker across the fleet — the loop is identical either way.
+    PROCESS per worker across the fleet — the loop is identical either way. ``tenants`` is
+    the set of per-tenant graphs the pool serves (ADR-6 §4).
     """
     stop = stop_event or threading.Event()
     threads: list[threading.Thread] = []
     base = _wi._default_token()
+    tenant_list = list(tenants) if tenants else None
     for i in range(max(1, worker_count)):
 
         def _runner(idx: int = i) -> None:
             run_activation_worker_loop(
-                engine, stop, worker_id=f"{base}:{idx}", lease_ttl_s=lease_ttl_s
+                engine,
+                stop,
+                worker_id=f"{base}:{idx}",
+                tenants=tenant_list,
+                lease_ttl_s=lease_ttl_s,
             )
 
         t = threading.Thread(
@@ -1176,6 +1201,16 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="Activation-worker threads on this host (default 1; activations are LLM-bound).",
     )
+    parser.add_argument(
+        "--tenant",
+        action="append",
+        default=None,
+        metavar="TENANT",
+        help=(
+            "A per-tenant graph this worker serves (repeatable). The native ClaimWorkItem "
+            "is tenant-scoped; omit to use the worker's bound-session tenant."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -1201,7 +1236,9 @@ def main(argv: list[str] | None = None) -> int:
             f"error_type={type(exc).__name__}\n",
         )
 
-    threads, stop = start_activation_worker_pool(engine, worker_count=args.workers)
+    threads, stop = start_activation_worker_pool(
+        engine, worker_count=args.workers, tenants=args.tenant
+    )
 
     def _handle(_signum: int, _frame: Any) -> None:
         logger.info("[agents-as-data] shutdown signal; draining")

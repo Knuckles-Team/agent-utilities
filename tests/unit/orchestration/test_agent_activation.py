@@ -59,7 +59,9 @@ class ActivationEngine(NativeEngine):
 
         if q.startswith("MATCH (a:AgentInstance)"):
             out = []
-            for nid, node in self.nodes.items():
+            # Snapshot via list(): atomic under the GIL, so a concurrent worker pool
+            # adding provenance/message nodes cannot raise "dict changed size".
+            for nid, node in list(self.nodes.items()):
                 if node.get("label") != aa._INSTANCE_LABEL:
                     continue
                 if "a.tenant = $tenant" in q and node.get("tenant") != params.get(
@@ -90,7 +92,7 @@ class ActivationEngine(NativeEngine):
             iid = params.get("iid")
             only_unconsumed = "m.consumed = false" in q
             out = []
-            for mid, node in self.nodes.items():
+            for mid, node in list(self.nodes.items()):
                 if node.get("label") != aa._MESSAGE_LABEL:
                     continue
                 if node.get("instance_id") != iid:
@@ -284,7 +286,7 @@ def test_e2e_message_to_activation_to_provenance_to_release(
 
     # 3) a stateless worker drains exactly one activation.
     stop = threading.Event()
-    processed = aa.run_activation_worker_loop(engine, stop, max_activations=1)
+    processed = aa.run_activation_worker_loop(engine, stop, tenants=["tenant-a"], max_activations=1)
     assert processed == 1
 
     # 4) the tool call ran under the identity chain + interactive QoS scope. The
@@ -324,7 +326,7 @@ def test_default_executor_acknowledges_mailbox_and_writes_provenance(
     aa.deliver_activation(engine, instance_id, message_ref="m1", source="timer")
     aa.deliver_activation(engine, instance_id, message_ref="m2", source="timer")
     stop = threading.Event()
-    aa.run_activation_worker_loop(engine, stop, max_activations=2)
+    aa.run_activation_worker_loop(engine, stop, tenants=["t"], max_activations=2)
     # Two activations queued but ONE drains the whole mailbox (coalescing): the second
     # finds it empty. Across both runs every message is acknowledged exactly once.
     tool_calls = engine.by_label(aa._TOOLCALL_LABEL)
@@ -418,7 +420,7 @@ def test_delegation_off_runs_legacy_identity_no_chain(
     )
     wid = aa.deliver_activation(engine, instance_id, message_ref="m", source="direct")
     stop = threading.Event()
-    aa.run_activation_worker_loop(engine, stop, max_activations=1)
+    aa.run_activation_worker_loop(engine, stop, tenants=["t"], max_activations=1)
     assert wi.get_work_item(engine, wid)["status"] == "succeeded"
     trace = engine.by_label(aa._RUNTRACE_LABEL)[0]
     assert trace["delegation_chain"] == []
