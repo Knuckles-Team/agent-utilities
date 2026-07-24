@@ -143,6 +143,74 @@ class _BridgeEngine:
             ]
         return []
 
+    # ── engine-native WorkItem verb (claim_specific/claim_agent_task_via_work_item
+    # require it unconditionally — "no scan/CAS fallback", work_item.py:779).
+    # Exact-id only (this file never exercises claim_next's queue scan), mirroring
+    # tests/unit/orchestration/test_work_item.py's NativeEngine.claim_work_item.
+    def claim_work_item(self, request: object) -> dict:
+        item_id = str(getattr(request, "work_item_id", "") or "")
+        node = self.nodes.get(item_id)
+        if node is None or node.get("type") != "WorkItem":
+            return self._negative_claim()
+        now = float(getattr(request, "now_ms", 0)) / 1000.0
+        status = node.get("status")
+        if status in {"leased", "running"}:
+            if float(node.get("lease_expires_at") or 0) >= now:
+                return self._negative_claim()
+        elif status != "ready":
+            return self._negative_claim()
+        attempt = int(node.get("attempt") or 0) + 1
+        max_attempts = int(node.get("max_attempts") or 1)
+        if attempt > max_attempts:
+            node.update(status="dead_letter", error_ref="lease_exhausted")
+            return self._negative_claim()
+        epoch = int(node.get("lease_epoch") or 0) + 1
+        lease_ms = getattr(request, "lease_ms", 0)
+        worker_ref = getattr(request, "worker_ref", "")
+        node.update(
+            status="leased",
+            lease_owner=worker_ref,
+            lease_epoch=epoch,
+            fencing_token=epoch,
+            attempt=attempt,
+            lease_expires_at=float(request.now_ms + lease_ms) / 1000.0,
+        )
+        return {
+            "schema_version": "1",
+            "claimed": True,
+            "reason": "claimed",
+            "work_item_id": item_id,
+            "kind": node.get("kind"),
+            "payload_ref": node.get("payload_ref"),
+            "lease_holder_ref": worker_ref,
+            "lease_epoch": epoch,
+            "fencing_token": epoch,
+            "lease_expires_at_ms": request.now_ms + lease_ms,
+            "attempt": attempt,
+            "max_attempts": max_attempts,
+            "tenant_in_flight": 1,
+            "changed_work_item_ids": [item_id],
+        }
+
+    @staticmethod
+    def _negative_claim() -> dict:
+        return {
+            "schema_version": "1",
+            "claimed": False,
+            "reason": "empty",
+            "work_item_id": None,
+            "kind": None,
+            "payload_ref": None,
+            "lease_holder_ref": None,
+            "lease_epoch": None,
+            "fencing_token": None,
+            "lease_expires_at_ms": None,
+            "attempt": None,
+            "max_attempts": None,
+            "tenant_in_flight": 0,
+            "changed_work_item_ids": [],
+        }
+
 
 @pytest.fixture(autouse=True)
 def _workitem_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -210,10 +278,7 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
 
     b_item_id = wi.agent_task_work_item_id("task-b")
     a_item_id = wi.agent_task_work_item_id("task-a")
-    assert (
-        wi.get_work_item(engine, b_item_id)["status"]
-        == "submitted"
-    )
+    assert wi.get_work_item(engine, b_item_id)["status"] == "submitted"
     assert b_item_id in wi.get_work_item(engine, a_item_id)["downstream_ids"]
 
     # A completes — B's dependency count hits zero atomically, in the same
@@ -222,19 +287,14 @@ def test_agent_task_cross_dependency_released_atomically_via_work_item_backend()
         engine, "task-a", agent_id="agent-1", executor=lambda claim: "a done"
     )
     assert outcome_a == "completed"
-    assert (
-        wi.get_work_item(engine, b_item_id)["status"] == "ready"
-    )
+    assert wi.get_work_item(engine, b_item_id)["status"] == "ready"
 
     # Now B is genuinely claimable and completes too.
     outcome_b = worker.execute_agent_task_turn(
         engine, "task-b", agent_id="agent-1", executor=lambda claim: "b done"
     )
     assert outcome_b == "completed"
-    assert (
-        wi.get_work_item(engine, b_item_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(engine, b_item_id)["status"] == "succeeded"
 
 
 def test_engine_claim_routes_through_the_work_item_bridge(
