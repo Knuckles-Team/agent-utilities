@@ -395,7 +395,7 @@ agent_utilities/knowledge_graph/extraction/readers_office.py:416
 agent_utilities/knowledge_graph/extraction/schema_discovery.py:164
 agent_utilities/knowledge_graph/extraction/schema_discovery.py:170
 agent_utilities/knowledge_graph/facade.py:222
-agent_utilities/knowledge_graph/facade.py:611
+agent_utilities/knowledge_graph/facade.py:679
 agent_utilities/knowledge_graph/governance_import.py:106
 agent_utilities/knowledge_graph/governance_import.py:116
 agent_utilities/knowledge_graph/governance_import.py:132

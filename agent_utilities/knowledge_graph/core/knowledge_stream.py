@@ -44,6 +44,7 @@ __all__ = [
     "KNOWLEDGE_STREAM_MAX_BATCH_SIZE",
     "available",
     "pull_knowledge_stream",
+    "pull_record_batches",
     "stream_graph_confidence",
 ]
 
@@ -184,11 +185,19 @@ def pull_knowledge_stream(
     return _stream(knowledge, pa, dict(query), batch_size=batch_size)
 
 
-def _stream(
-    knowledge: Any, pa: Any, query: dict[str, Any], *, batch_size: int
+def _iter_stream_pages(
+    knowledge: Any, query: dict[str, Any], *, page_size: int
 ) -> Iterator[dict[str, Any]]:
+    """Yield each ``KnowledgeStreamBatch`` wire page in turn, advancing the engine's
+    integrity-bound cursor until it reports ``exhausted``.
+
+    The ONE cursor/dispatch loop both the row-decoding (:func:`_stream`) and the
+    RecordBatch (:func:`_stream_record_batches`) currencies share — so resume
+    semantics and the degrade-on-RPC-error contract are identical for both. Yields
+    a short, honest prefix (logged at debug), never raises, on a mid-stream pull
+    error; a non-dict page ends the stream.
+    """
     cursor: dict[str, Any] | None = None
-    page_size = max(1, min(int(batch_size), KNOWLEDGE_STREAM_MAX_BATCH_SIZE))
     while True:
         try:
             batch = knowledge.pull(query, batch_size=page_size, cursor=cursor)
@@ -197,15 +206,86 @@ def _stream(
             return
         if not isinstance(batch, dict):
             return
+        yield batch
+        cursor = batch.get("cursor")
+        if not isinstance(cursor, dict) or cursor.get("exhausted"):
+            return
+
+
+def _clamp_page_size(batch_size: int) -> int:
+    """Mirror the engine's own ``request.batch_size.clamp(1, 65_536)``."""
+    return max(1, min(int(batch_size), KNOWLEDGE_STREAM_MAX_BATCH_SIZE))
+
+
+def _stream(
+    knowledge: Any, pa: Any, query: dict[str, Any], *, batch_size: int
+) -> Iterator[dict[str, Any]]:
+    page_size = _clamp_page_size(batch_size)
+    for page in _iter_stream_pages(knowledge, query, page_size=page_size):
         try:
-            rows = _decode_batch(pa, batch)
+            rows = _decode_batch(pa, page)
         except Exception as exc:  # noqa: BLE001 — a malformed page ends the stream
             logger.debug("knowledge_stream: Arrow decode failed for %r: %s", query, exc)
             return
         yield from rows
-        cursor = batch.get("cursor")
-        if not isinstance(cursor, dict) or cursor.get("exhausted"):
+
+
+def _stream_record_batches(
+    knowledge: Any, pa: Any, query: dict[str, Any], *, batch_size: int
+) -> Iterator[Any]:
+    """The bulk COLUMNAR currency: yield each bounded ``pyarrow.RecordBatch`` off the
+    stream WITHOUT decoding it to Python rows.
+
+    The engine writes one bounded Arrow batch per page (``batch_size`` rows,
+    ``knowledge_batch::write_arrow_ipc``), so at most one RecordBatch is resident at
+    a time — the flat-RSS property the row-decoding path gives up by materializing
+    every row into a Python dict. Each RecordBatch carries the full engine-native
+    epistemic schema (``id``/``kind``/``score_*``/``confidence``/``evidence_*``/the
+    bitemporal window/``source_refs``/``policy_labels``/``transformation_ids``/
+    ``proof_ids``/``alternative_ids``/``contradiction_ids``/``blob_handle``), never
+    fabricated.
+    """
+    page_size = _clamp_page_size(batch_size)
+    for page in _iter_stream_pages(knowledge, query, page_size=page_size):
+        payload = page.get("payload") if isinstance(page, dict) else None
+        if not payload:
+            continue
+        try:
+            reader = pa.ipc.open_stream(payload)
+            yield from reader
+        except Exception as exc:  # noqa: BLE001 — a malformed page ends the stream
+            logger.debug("knowledge_stream: Arrow read failed for %r: %s", query, exc)
             return
+
+
+def pull_record_batches(
+    compute: Any,
+    query: dict[str, Any],
+    *,
+    batch_size: int = _DEFAULT_BATCH_SIZE,
+) -> Iterator[Any] | None:
+    """Stream every Arrow ``RecordBatch`` a ``KnowledgeStreamQuery`` matches, one
+    bounded page at a time — the COLUMNAR sibling of :func:`pull_knowledge_stream`.
+
+    Yields raw ``pyarrow.RecordBatch`` objects (each ≤ ``batch_size`` rows, carrying
+    the engine's epistemic columns) instead of decoded Python row dicts, so a caller
+    handing results to anything Arrow-speaking (Polars/pandas/DataFusion, a
+    vectorized downstream aggregation, a Parquet export) keeps the data in its
+    columnar form and RSS stays flat across an arbitrarily large scan — the whole
+    point of the bulk-throughput currency. ``query`` is one of the seven
+    ``KnowledgeStreamQuery`` family dicts (see :func:`pull_knowledge_stream`).
+
+    Returns ``None`` — never raises, never returns a generator that raises on first
+    use — when the engine has no ``.knowledge`` streaming surface or ``pyarrow``
+    isn't installed, so a caller can synchronously fall back to a non-columnar path.
+    """
+    knowledge = _resolve_knowledge_client(compute)
+    if knowledge is None:
+        return None
+    pa = _pyarrow()
+    if pa is None:
+        return None
+    return _stream_record_batches(knowledge, pa, dict(query), batch_size=batch_size)
 
 
 def stream_graph_confidence(
