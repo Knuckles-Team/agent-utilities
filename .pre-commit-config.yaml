@@ -48,7 +48,12 @@ repos:
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.codespellignore"]
-    exclude: ^(tests/|test/|scripts/|script/|\.specify/)
+    # style_lint.py's _COMMON_TYPOS dict is DATA — the misspelled forms (teh,
+    # wich, recieve, ...) are its dictionary keys by design (it's the ontology
+    # naming-style linter's own typo table). Whitelisting those words globally
+    # in .codespellignore would blind codespell to the same real typos anywhere
+    # else in the tree, so exclude this one file by path instead.
+    exclude: ^(tests/|test/|scripts/|script/|\.specify/|agent_utilities/knowledge_graph/ontology/style_lint\.py$)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
