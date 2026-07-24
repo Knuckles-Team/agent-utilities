@@ -77,6 +77,8 @@ __all__ = [
     "defer_work_item",
     "reap_expired_leases",
     "tenant_in_flight_count",
+    "machine_state_distribution",
+    "find_status_machine_divergences",
     "execution_work_item_id",
     "claim_execution_work_item",
     "commit_execution_work_item",
@@ -465,6 +467,98 @@ def tenant_in_flight_count(engine: Any, tenant: str) -> int:
     if not rows:
         return 0
     return int(rows[0].get("c") or 0)
+
+
+# ── lifecycle statechart mirror: distribution + divergence (ADR-5 / W2.2) ──
+#
+# The engine writes a `machine_state` property onto each WorkItem node in the SAME
+# durable transaction as the authoritative `status` — its phase-1 statechart MIRROR
+# (co-located, so a crash can never split the two). These two read helpers surface that
+# projection: the state DISTRIBUTION (queryable via a plain grouped Cypher count) and a
+# DIVERGENCE sweep. The engine raises the primary divergence alarm the instant a
+# transition disagrees (a structured `tracing::warn!` + the
+# `epistemic_graph_statechart_divergence_total` counter); these are the after-the-fact,
+# queryable operator views over the same signal.
+
+
+def machine_state_distribution(
+    engine: Any, *, tenant: str | None = None
+) -> dict[str, int]:
+    """Return the WorkItem lifecycle-state distribution ``{machine_state: count}``.
+
+    Answers "how many work items are in each lifecycle state" as a grouped Cypher
+    ``count`` over the co-located statechart mirror's ``machine_state`` property — no
+    bespoke aggregation endpoint. ``tenant`` scopes the count to one tenant when given.
+    Items that predate the mirror (no ``machine_state`` yet) are excluded.
+    """
+    if tenant:
+        rows = _authority(engine).query_cypher(
+            f"MATCH (w:{_NODE_LABEL} {{tenant: $tenant}}) "
+            "WHERE w.machine_state IS NOT NULL "
+            "RETURN w.machine_state AS state, count(w) AS n",
+            {"tenant": tenant},
+        )
+    else:
+        rows = _authority(engine).query_cypher(
+            f"MATCH (w:{_NODE_LABEL}) WHERE w.machine_state IS NOT NULL "
+            "RETURN w.machine_state AS state, count(w) AS n",
+        )
+    distribution: dict[str, int] = {}
+    for row in rows or []:
+        state = row.get("state")
+        if state is None:
+            continue
+        distribution[str(state)] = int(row.get("n") or 0)
+    return distribution
+
+
+def find_status_machine_divergences(
+    engine: Any, *, tenant: str | None = None, limit: int = 200
+) -> list[dict[str, Any]]:
+    """Enumerate WorkItems whose authoritative ``status`` disagrees with the statechart
+    mirror's ``machine_state``, raising the au-side DIVERGENCE ALARM for each.
+
+    A non-empty result means a chart bug is live and the phase-2 authority flip must not
+    proceed until it is cleared. The dep-free Cypher subset compares a property to a
+    literal (not property-to-property), so the disagreement is filtered client-side after
+    reading the ``(id, status, machine_state)`` of every mirrored WorkItem. Returns the
+    divergent rows, capped at ``limit``.
+    """
+    if tenant:
+        rows = _authority(engine).query_cypher(
+            f"MATCH (w:{_NODE_LABEL} {{tenant: $tenant}}) "
+            "WHERE w.machine_state IS NOT NULL "
+            "RETURN w.id AS id, w.status AS status, w.machine_state AS machine_state "
+            "LIMIT $limit",
+            {"tenant": tenant, "limit": int(limit)},
+        )
+    else:
+        rows = _authority(engine).query_cypher(
+            f"MATCH (w:{_NODE_LABEL}) WHERE w.machine_state IS NOT NULL "
+            "RETURN w.id AS id, w.status AS status, w.machine_state AS machine_state "
+            "LIMIT $limit",
+            {"limit": int(limit)},
+        )
+    divergences: list[dict[str, Any]] = []
+    for row in rows or []:
+        status = row.get("status")
+        machine_state = row.get("machine_state")
+        if status is None or machine_state is None or status == machine_state:
+            continue
+        divergence = {
+            "id": row.get("id"),
+            "status": status,
+            "machine_state": machine_state,
+        }
+        divergences.append(divergence)
+        logger.warning(
+            "work_item statechart divergence: id=%s authoritative_status=%s "
+            "mirror_state=%s",
+            divergence["id"],
+            status,
+            machine_state,
+        )
+    return divergences
 
 
 # ── submit ───────────────────────────────────────────────────────────────
