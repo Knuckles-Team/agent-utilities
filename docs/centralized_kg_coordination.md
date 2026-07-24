@@ -9,7 +9,7 @@ alternate authorities.
 
 ```mermaid
 flowchart LR
-    Client[Agent, UI, or service]
+    Client["Agent, UI, or service"]
     Identity[Identity middleware]
     Session[Verified GraphSession]
     Query[graph_query / API graph query]
