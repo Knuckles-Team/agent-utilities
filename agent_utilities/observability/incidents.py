@@ -393,6 +393,213 @@ def get_incident_evidence(
     return {"anomalies": anomalies, "entities": entities}
 
 
+# ── B17 bridge: incident<->causal-claim id-space bridge ─────────────────────
+#
+# CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation /
+# CONCEPT:AU-KG.enrichment.ops-causal-graph. This module correlates
+# ``:HealthAnomaly`` rows into an ``:Incident`` keyed by a coarse
+# ``root_cause_layer`` STRING (see :func:`_root_cause_layer` — hardware / os /
+# orchestration / service / network), never a specific node id. Separately,
+# ``graph_ops_causal``'s root-cause/blast-radius findings
+# (``knowledge_graph.enrichment.ops_causal_graph``, materialized as ``:Claim``
+# nodes by ``mcp/tools/ops_causal_tools.py``) are keyed on real,
+# connector-ingested causal-chain node ids (a Langfuse trace, a
+# System/Container, a Commit, a ticket, ...) — a COMPLETELY different id
+# space. The two have never automatically bridged (B17):
+# ``incident_router.py``'s ``incident["claim_id"]`` field is an explicit,
+# documented pass-through only — "a minimal field pass-through, not a new
+# correlation" — the caller has to already know the claim id by hand.
+#
+# The two functions below close that gap for real, in both directions, with
+# one shared best-effort heuristic: an EXACT id match first (an ops-causal
+# evidence id that IS one of this incident's affected entities, or vice
+# versa), then a shared trailing ``:``-segment (:func:`_asset_key` — the SAME
+# heuristic this module already uses internally to join producer namespaces
+# like ``fan:host:node-a``/``systems:host:node-a`` on their shared
+# ``node-a``) as a fallback for "same physical asset, different id scheme".
+# Never a semantic guess beyond that.
+#
+# Governance note (W2.7 seam): neither direction filters a matched Claim's
+# ``status`` — an unpromoted ``status="proposal"`` finding is exactly as
+# citable as a promoted one (the epistemic substrate treats a proposal as
+# challengeable, not invisible). This worktree's HEAD predates W2.7's unified
+# ``promote()`` gate for ``ops_causal_tools._materialize_root_cause_claims``
+# (that branch is unmerged; here it still writes ungoverned — see that
+# function's docstring) — W2.7 changes how/whether a Claim gets WRITTEN, not
+# the persisted ``ClaimNode`` shape this read-side bridge matches against, so
+# neither function below needs to change when that gate lands.
+
+
+def related_causal_claims(
+    incident_id: str, *, engine: Any = None, limit: int = 20
+) -> list[dict[str, Any]]:
+    """B17: the ops-causal ``:Claim`` findings that concern the SAME asset(s)
+    as ``incident_id``'s correlated ``:HealthAnomaly`` group — the incident's
+    own citable causal evidence. See :func:`incidents_for_causal_claim` for
+    the reverse direction.
+
+    Best-effort: ``[]`` with no reachable engine, an unknown ``incident_id``,
+    or no matching Claim. Matches are sorted highest-confidence first.
+    """
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        _claim_evidence_ids,
+        _is_ops_causal_claim,
+    )
+
+    eng = engine or health_ingest._engine()
+    if eng is None:
+        return []
+    evidence = get_incident_evidence(incident_id, engine=eng)
+    if evidence is None:
+        return []
+    entity_ids = {str(e) for e in evidence.get("entities") or [] if e}
+    if not entity_ids:
+        return []
+    asset_keys = {_asset_key(e) for e in entity_ids}
+
+    try:
+        rows = eng.get_nodes_by_label("Claim", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "incident->causal-claim bridge: claim read failed for %s: %s",
+            incident_id,
+            e,
+        )
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for node_id, props in rows:
+        if not _is_ops_causal_claim(props):
+            continue
+        claim_evidence = _claim_evidence_ids(props)
+        id_overlap = entity_ids & claim_evidence
+        if id_overlap:
+            matches.append(
+                {
+                    "id": node_id,
+                    "match_kind": "id",
+                    "matched": sorted(id_overlap),
+                    **props,
+                }
+            )
+            continue
+        asset_overlap = asset_keys & {_asset_key(e) for e in claim_evidence}
+        if asset_overlap:
+            matches.append(
+                {
+                    "id": node_id,
+                    "match_kind": "asset",
+                    "matched": sorted(asset_overlap),
+                    **props,
+                }
+            )
+    matches.sort(key=lambda c: -(float(c.get("confidence") or 0.0)))
+    return matches[: max(0, int(limit))]
+
+
+#: Ops-causal TICKET-stage nodes (ServiceNow ``Incident``/GitLab ``Issue``/
+#: Jira ``Issue``, see ``ontology.ops_causal_crosswalk.OPS_CAUSAL_NODE_CROSSWALK``)
+#: carry the SAME graph label ``"Incident"`` as this module's cross-layer
+#: correlation Incident but a completely different id scheme and semantics.
+#: :func:`incidents_for_causal_claim` uses this prefix to tell them apart —
+#: every health-kernel node id follows ``health:<class>:<entityId>:<signal>
+#: [:<at>]`` (see :mod:`.health_ingest`'s module docstring), and this module
+#: mints every correlated Incident as ``health:incident:<asset>:<signature>``
+#: (:func:`_synthesize_and_write`) — a TICKET-stage node never starts with it.
+_HEALTH_INCIDENT_ID_PREFIX = "health:incident:"
+
+
+def incidents_for_causal_claim(
+    seed: str, *, engine: Any = None, limit: int = 20
+) -> list[dict[str, Any]]:
+    """B17 reverse direction: the cross-layer-correlation ``:Incident``s that
+    concern the same asset(s) as an ops-causal ``:Claim`` or seed node.
+
+    ``seed`` is either an already-materialized ops-causal Claim id (its
+    ``source_ids``/``extracted_from`` become the evidence set) or, when no
+    ``:Claim`` with that id exists, treated directly as one causal-chain node
+    id (e.g. a bare ``graph_ops_causal`` ``root_cause``/``blast_radius`` seed
+    ``node_id``) — so a caller can query this without first minting a claim
+    via ``as_claim=True``.
+
+    Deliberately SKIPS any ``:Incident``-labeled row that isn't one of THIS
+    module's own correlated incidents (see :data:`_HEALTH_INCIDENT_ID_PREFIX`)
+    — the ops-causal chain's own TICKET stage (a ServiceNow/Jira/GitLab
+    ticket) reuses the identical graph label for a different concept
+    entirely, and would otherwise produce false-positive matches purely from
+    sharing a label.
+
+    Best-effort: ``[]`` with no reachable engine, an empty/unknown ``seed``,
+    or no matching incident. O(N) engine reads (one per candidate incident,
+    to resolve its real ``affectsEntity`` neighbors via
+    :func:`get_incident_evidence` — the ``:Incident`` node itself stores no
+    entity-list property) — fine for an interactive/bounded bridge query, not
+    meant for a hot loop.
+    """
+    from agent_utilities.knowledge_graph.research.candidate_insight import (
+        _claim_evidence_ids,
+    )
+
+    if engine is None or not seed:
+        return []
+
+    evidence_ids = {str(seed)}
+    try:
+        claim_rows = engine.get_nodes_by_label("Claim", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "causal-claim->incident bridge: claim read failed for %s: %s", seed, e
+        )
+        claim_rows = []
+    for node_id, props in claim_rows:
+        if node_id == seed and isinstance(props, dict):
+            evidence_ids |= _claim_evidence_ids(props)
+            break
+    asset_keys = {_asset_key(e) for e in evidence_ids}
+
+    try:
+        incident_rows = engine.get_nodes_by_label("Incident", 0) or []
+    except Exception as e:  # noqa: BLE001 — read is best-effort
+        logger.debug(
+            "causal-claim->incident bridge: incident read failed for %s: %s", seed, e
+        )
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for node_id, props in incident_rows:
+        if not str(node_id).startswith(_HEALTH_INCIDENT_ID_PREFIX):
+            continue
+        if not isinstance(props, dict):
+            continue
+        resolved = get_incident_evidence(node_id, engine=engine) or {"entities": []}
+        entity_ids = {str(e) for e in resolved.get("entities") or [] if e}
+        if not entity_ids:
+            continue
+        id_overlap = evidence_ids & entity_ids
+        if id_overlap:
+            matches.append(
+                {
+                    "id": node_id,
+                    "match_kind": "id",
+                    "matched": sorted(id_overlap),
+                    **props,
+                }
+            )
+            continue
+        asset_overlap = asset_keys & {_asset_key(e) for e in entity_ids}
+        if asset_overlap:
+            matches.append(
+                {
+                    "id": node_id,
+                    "match_kind": "asset",
+                    "matched": sorted(asset_overlap),
+                    **props,
+                }
+            )
+    matches.sort(key=lambda i: str(i.get("observedAt") or ""), reverse=True)
+    return matches[: max(0, int(limit))]
+
+
 # stored (camelCase, as ingest_incident WRITES them) -> ingest_incident's own
 # INPUT contract (snake_case, as it READS them) — the mapping
 # :func:`set_incident_status` needs to round-trip an existing incident's

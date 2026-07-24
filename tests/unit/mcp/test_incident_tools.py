@@ -34,16 +34,23 @@ class _FakeEngine:
         incidents: list[tuple[str, dict]],
         anomalies: list[tuple[str, dict]] | None = None,
         neighbors: dict[str, list[str]] | None = None,
+        claims: list[tuple[str, dict]] | None = None,
     ):
         self._incidents = incidents
         self._anomalies = anomalies or []
         self._neighbors = neighbors or {}
+        # B17 bridge (related_causal_claims): the SAME engine handle
+        # graph_incident's get/timeline/related_claims actions already read
+        # Incident/HealthAnomaly through also serves the :Claim label scan.
+        self._claims = claims or []
 
     def get_nodes_by_label(self, label, limit=0):
-        assert label in ("Incident", "HealthAnomaly")
-        return (
-            list(self._anomalies) if label == "HealthAnomaly" else list(self._incidents)
-        )
+        assert label in ("Incident", "HealthAnomaly", "Claim")
+        if label == "HealthAnomaly":
+            return list(self._anomalies)
+        if label == "Claim":
+            return list(self._claims)
+        return list(self._incidents)
 
     def get_neighbors(self, node_id):
         return list(self._neighbors.get(node_id, []))
@@ -274,6 +281,147 @@ def test_timeline_orders_lifecycle_and_anomaly_events(monkeypatch):
         "incident_acknowledged",
         "incident_resolved",
     ]
+
+
+def _ops_causal_claim_row(claim_id: str, source_ids: list[str]) -> tuple[str, dict]:
+    return (
+        claim_id,
+        {
+            "id": claim_id,
+            "source_ids": source_ids,
+            "extracted_from": "trace:1",
+            "domain": "ops_causal",
+            "confidence": 0.8,
+            "claim_text": f"finding referencing {source_ids}",
+            "metadata": {
+                "finding_type": "OpsCausalFinding",
+                "generated_at_time": "2026-07-01T00:03:00Z",
+            },
+        },
+    )
+
+
+def test_timeline_cites_related_ops_causal_claims(monkeypatch):
+    """B17 bridge, live path through the SAME 'timeline' action: a
+    materialized ops-causal Claim whose evidence overlaps this incident's
+    affected entities shows up as a 'cites_causal_claim' event, interleaved
+    with the pre-existing lifecycle/anomaly events."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    claim_row = _ops_causal_claim_row(
+        "claim:ops_causal:root_cause:trace:1", ["fan:host:storage-node-a"]
+    )
+    engine = _FakeEngine(
+        [
+            (
+                incident_id,
+                {
+                    "status": "open",
+                    "summary": "storage-node-a stress",
+                    "observedAt": "2026-07-01T00:00:00Z",
+                },
+            )
+        ],
+        anomalies=[
+            (
+                "health:anomaly:storage-node-a:temp:t1",
+                {
+                    "entity": "fan:host:storage-node-a",
+                    "signal": "temp",
+                    "kind": "above-baseline",
+                    "observedAt": "2026-07-01T00:00:30Z",
+                },
+            )
+        ],
+        neighbors={
+            incident_id: [
+                "health:anomaly:storage-node-a:temp:t1",
+                "fan:host:storage-node-a",
+            ]
+        },
+        claims=[claim_row],
+    )
+    tool = _register(monkeypatch, engine)
+    out = json.loads(tool(action="timeline", incident_id=incident_id))
+    assert [e["kind"] for e in out["timeline"]] == [
+        "incident_opened",
+        "anomaly",
+        "cites_causal_claim",
+    ]
+    cited = out["timeline"][2]
+    assert cited["id"] == "claim:ops_causal:root_cause:trace:1"
+    assert cited["match_kind"] == "id"
+    assert cited["at"] == "2026-07-01T00:03:00Z"  # the claim's generated_at_time
+    assert cited["confidence"] == 0.8
+
+
+def test_timeline_without_related_claims_is_unaffected(monkeypatch):
+    """No matching Claim (or no Claim rows at all) -> the timeline is
+    byte-identical to before this bridge existed — same event kinds, same
+    order, no empty/fabricated citation entries."""
+    incident_id = "health:incident:storage-node-a:sig1"
+    engine = _FakeEngine(
+        [(incident_id, {"status": "open", "observedAt": "2026-07-01T00:00:00Z"})],
+        claims=[],
+    )
+    tool = _register(monkeypatch, engine)
+    out = json.loads(tool(action="timeline", incident_id=incident_id))
+    assert [e["kind"] for e in out["timeline"]] == ["incident_opened"]
+
+
+def test_related_claims_action_returns_matching_ops_causal_claims(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    claim_row = _ops_causal_claim_row(
+        "claim:ops_causal:root_cause:trace:1", ["cm:node:storage-node-a"]
+    )
+    engine = _FakeEngine(
+        [(incident_id, {"status": "open"})],
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+        claims=[claim_row],
+    )
+    tool = _register(monkeypatch, engine)
+    out = json.loads(tool(action="related_claims", incident_id=incident_id, limit=50))
+    assert out["surface"] == "incident"
+    assert out["action"] == "related_claims"
+    assert out["count"] == 1
+    assert out["claims"][0]["id"] == "claim:ops_causal:root_cause:trace:1"
+    assert out["claims"][0]["match_kind"] == "id"
+
+
+def test_related_claims_excludes_non_ops_causal_claims(monkeypatch):
+    incident_id = "health:incident:storage-node-a:sig1"
+    decoy = (
+        "claim:insight:other",
+        {
+            "id": "claim:insight:other",
+            "source_ids": ["cm:node:storage-node-a"],
+            "domain": "mining_flywheel",
+            "metadata": {"finding_type": "AssociationRule"},
+        },
+    )
+    engine = _FakeEngine(
+        [(incident_id, {"status": "open"})],
+        neighbors={incident_id: ["cm:node:storage-node-a"]},
+        claims=[decoy],
+    )
+    tool = _register(monkeypatch, engine)
+    out = json.loads(tool(action="related_claims", incident_id=incident_id, limit=50))
+    assert out["count"] == 0
+    assert out["claims"] == []
+
+
+def test_related_claims_requires_incident_id(monkeypatch):
+    tool = _register(monkeypatch, _FakeEngine([]))
+    out = json.loads(tool(action="related_claims", incident_id=""))
+    assert "error" in out
+
+
+def test_related_claims_no_engine(monkeypatch):
+    tool = _register(monkeypatch, None)
+    out = json.loads(
+        tool(action="related_claims", incident_id="health:incident:x:sig1")
+    )
+    assert out["error"] == "no reachable engine"
+    assert out["claims"] == []
 
 
 def test_timeline_requires_incident_id(monkeypatch):

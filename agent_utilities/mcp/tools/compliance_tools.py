@@ -55,6 +55,83 @@ _POSTURE_LABELS: tuple[str, ...] = (
     "SecurityException",
 )
 
+#: X4 — auth-posture / secrets-posture doctor checks folded into ``posture``
+#: (CONCEPT:AU-KG.enrichment.compliance-posture-rollup). Reuses
+#: ``agent_utilities.deployment.doctor.run_doctor``'s EXISTING checks
+#: verbatim — every one of them is already defensive (never raises) and
+#: already redacted where it could carry anything sensitive (each check's
+#: own ``data`` marks ``"redacted": True``; see their docstrings in
+#: ``doctor.py``) — no new auth/secrets probe or redaction logic here, only
+#: aggregation, same discipline as the rest of this module.
+_AUTH_POSTURE_CHECKS: tuple[str, ...] = (
+    "auth",
+    "outbound_auth",
+    "graph_authority",
+    "graph_identity",
+)
+_SECRETS_POSTURE_CHECKS: tuple[str, ...] = (
+    "secrets",
+    "secrets_backend",
+    "mcp_fleet_secrets",
+)
+
+
+def _doctor_posture(names: tuple[str, ...]) -> dict[str, Any]:
+    """One slice of :func:`agent_utilities.deployment.doctor.run_doctor` —
+    status/counts/checks only (the SAME already-redacted shape ``doctor``
+    itself returns). Best-effort: a failure to even reach the doctor module
+    degrades to a single ``error`` entry rather than breaking ``posture``.
+    """
+    try:
+        from agent_utilities.deployment.doctor import run_doctor
+
+        report = run_doctor(only=list(names))
+    except Exception as exc:  # noqa: BLE001 — one doctor slice must not break posture()
+        return {
+            "status": "error",
+            "counts": {"error": 1},
+            "checks": [
+                {
+                    "name": "doctor",
+                    "status": "error",
+                    "detail": f"doctor sweep failed ({type(exc).__name__})",
+                }
+            ],
+        }
+    return {
+        "status": report.get("status"),
+        "counts": report.get("counts"),
+        "checks": report.get("checks"),
+    }
+
+
+def _policy_version() -> dict[str, Any]:
+    """The currently-loaded ``ActionPolicy`` ruleset's own ``version`` field
+    (``deploy/action-policy.default.yml``'s ``version: 1``) — reuses
+    ``ActionPolicy``'s existing file resolution + mtime-cached parse
+    (CONCEPT:AU-OS.governance.action-policy-decision-point) verbatim, never a
+    second YAML reader. No engine is constructed/contacted — this only reads
+    which ruleset a NEW ``ActionPolicy()`` would load. Deliberately omits the
+    policy file's own filesystem path from the result (could be
+    host/user-identifying); only the version number, default tier name, and
+    rule count are reported.
+    """
+    try:
+        from agent_utilities.orchestration.action_policy import ActionPolicy
+
+        parsed = ActionPolicy()._load_file_policy()
+        defaults = parsed.get("defaults")
+        defaults = defaults if isinstance(defaults, dict) else {}
+        rules = parsed.get("rules")
+        rules = rules if isinstance(rules, list) else []
+        return {
+            "version": parsed.get("version"),
+            "default_tier": defaults.get("tier"),
+            "rule_count": len(rules),
+        }
+    except Exception as exc:  # noqa: BLE001 — a policy-version read must not break posture()
+        return {"error": f"policy version read failed ({type(exc).__name__})"}
+
 
 def _nodes_by_label(engine: Any, label: str) -> list[tuple[str, dict[str, Any]]]:
     """Best-effort ``get_nodes_by_label`` read — the SAME primitive
@@ -123,12 +200,22 @@ def _confidence_rollup(engine: Any, label: str) -> dict[str, Any] | None:
 
 def _posture() -> dict[str, Any]:
     engine = kg_server._get_engine()
+
+    # X4: policy version + auth/secrets posture reuse the existing
+    # agent-utilities-doctor checks and need no KG engine at all — computed
+    # regardless of engine availability, so a deployment with no reachable
+    # engine still gets SOME compliance signal instead of an all-or-nothing
+    # rollup.
+    result: dict[str, Any] = {
+        "surface": "compliance",
+        "action": "posture",
+        "policy_version": _policy_version(),
+        "auth_posture": _doctor_posture(_AUTH_POSTURE_CHECKS),
+        "secrets_posture": _doctor_posture(_SECRETS_POSTURE_CHECKS),
+    }
     if engine is None:
-        return {
-            "surface": "compliance",
-            "action": "posture",
-            "error": "IntelligenceGraphEngine not active",
-        }
+        result["error"] = "IntelligenceGraphEngine not active"
+        return result
 
     from agent_utilities.mcp.tools.audit_tools import _verify
 
@@ -153,13 +240,9 @@ def _posture() -> dict[str, Any]:
         if rollup is not None:
             confidence_rollup[label] = rollup
 
-    result: dict[str, Any] = {
-        "surface": "compliance",
-        "action": "posture",
-        "audit_ledger": audit,
-        "node_counts": node_counts,
-        "status_breakdown": status_breakdown,
-    }
+    result["audit_ledger"] = audit
+    result["node_counts"] = node_counts
+    result["status_breakdown"] = status_breakdown
     # CONCEPT:AU-KG.query.knowledge-stream-consumer — additive; a build/transport without the
     # streaming surface omits the key entirely rather than reporting an empty one.
     if confidence_rollup:
@@ -256,8 +339,15 @@ def register_compliance_tools(mcp: Any) -> None:
         description=(
             "Compliance posture rollup + redacted bulk export — an aggregation "
             "layer over primitives that already exist (no new compliance/"
-            "redaction logic). Actions: 'posture' (join the tamper-evident "
-            "hash-chained audit-ledger verify() report with node-count + "
+            "redaction logic). Actions: 'posture' (policy_version — the "
+            "active ActionPolicy ruleset's version/default_tier/rule_count; "
+            "auth_posture + secrets_posture — the SAME already-redacted "
+            "agent-utilities-doctor auth/outbound_auth/graph_authority/"
+            "graph_identity/secrets/secrets_backend/mcp_fleet_secrets checks, "
+            "sliced via run_doctor(only=[...]) — both reported even with no "
+            "reachable engine; PLUS, when an engine is active: the "
+            "tamper-evident hash-chained audit-ledger verify() report joined "
+            "with node-count + "
             "status-breakdown of the governance labels already ingested by the "
             "CISO Assistant extractor + TRM portfolio-intelligence engine — "
             "Control/Policy/Risk/ComplianceRequirement/ComplianceGate/"
