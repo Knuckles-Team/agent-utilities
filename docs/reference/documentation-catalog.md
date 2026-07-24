@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-342 publishable pages · 161 direct nav targets · 111 public capabilities · 650 action rows · 510 typed configuration fields · 318 runtime-only call-site inputs.
+350 publishable pages · 166 direct nav targets · 114 public capabilities · 694 action rows · 539 typed configuration fields · 335 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -10,6 +10,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [agent-utilities — Ubiquitous Language (CONTEXT)](../CONTEXT.md) — catalog
 - [Naming Conventions](../NAMING.md) — catalog
+- [Agent Utilities Documentation](../README.md) — catalog
 - [graph-os Capability Power Descriptors (generated)](../capabilities-power.md) — direct nav
 - [Capabilities — What an Agent Can Do](../capabilities.md) — direct nav
 - [Centralized knowledge-graph coordination](../centralized_kg_coordination.md) — catalog
@@ -26,7 +27,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [OKF-CIS concept IDs](../okf-cis.md) — catalog
 - [Agent Utilities — Concept Overview](../overview.md) — direct nav
 - [Complete OWL Ontology Sweep & Cross-Domain Synergy Blueprint](../owl_kg_synergies.md) — catalog
-- [Reliability validation matrix](../reliability_matrix.md) — catalog
+- [Reliability / Chaos Matrix](../reliability_matrix.md) — catalog
 - [Start Here — What agent-utilities Is & How to Use It](../start-here.md) — direct nav
 - [Workflow × Knowledge Graph Synergy Map](../workflow-kg-synergy.md) — catalog
 
@@ -49,7 +50,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler](../guides/cognitive-scheduler.md) — catalog
 - [Company Bootstrap Deployment Guide](../guides/company-bootstrap.md) — catalog
 - [Conductor Orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth to CONCEPT:AU-ORCH.planning.recursion-nesting-depth)](../guides/conductor-orchestration.md) — catalog
-- [Configuration](../guides/configuration.md) — direct nav
+- [Configuration Reference](../guides/configuration.md) — direct nav
 - [Consumption Models — Library vs MCP vs REST](../guides/consumption-models.md) — direct nav
 - [Creating an Agent with Python](../guides/creating-an-agent.md) — catalog
 - [Day-0 deployment](../guides/day0.md) — direct nav
@@ -100,6 +101,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Secure Jupyter Sandbox (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../guides/secure-sandbox.md) — catalog
 - [Self-Setup: deploy agent-utilities with every option considered](../guides/self-setup.md) — direct nav
 - [Single-GPU LLM serving — tuning for extraction throughput](../guides/single-gpu-llm-serving.md) — catalog
+- [Skill-Graph Migration Plan — updating all existing graphs to the KG-driven format](../guides/skill-graph-migration-plan.md) — catalog
+- [Skill-Graph Migration Runbook (legacy → unified KG-2.7 contract)](../guides/skill-graph-migration.md) — catalog
 - [Skill-Graph Acquisition — Robustness Ledger](../guides/skill-graph-robustness-ledger.md) — catalog
 - [Sovereign / Self-Hosted Epistemic Memory (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision)](../guides/sovereign-self-hosted.md) — direct nav
 - [Squeeze Evolve: Confidence-Gated Routing & Evolutionary Aggregation](../guides/squeeze-evolve-routing.md) — catalog
@@ -113,7 +116,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [Recipe: Stardog + pg-age database environments](../recipes/databases.md) — direct nav
 - [Recipe — Delta-based KG ingestion via the backends](../recipes/delta-ingestion.md) — direct nav
-- [Recipe — Enterprise multi-host](../recipes/enterprise.md) — direct nav
+- [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — direct nav
 - [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — direct nav
 - [Recipe — Single-node prod](../recipes/single-node-prod.md) — direct nav
 - [Recipe — Split-storage engine (fast-storage flavor)](../recipes/split-storage-engine.md) — catalog
@@ -128,7 +131,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Worked Example: Publishing an Evolution Proposal as a Reviewable Branch](../examples/evolution-publication.md) — direct nav
 - [Worked Example: Wiring Monitoring into Fleet Events](../examples/fleet-events-wiring.md) — direct nav
 - [Graph-OS MCP Server Examples](../examples/graph-os-mcp-examples.md) — direct nav
-- [Worked example: verified GraphOS authority](../examples/identity-jwt.md) — direct nav
+- [Worked Example: Minting and Validating a JWT for KGAUTHREQUIRED Mode](../examples/identity-jwt.md) — direct nav
 - [Worked Example: Consuming GraphOS over MCP](../examples/mcp-consumption.md) — direct nav
 - [Orchestration, Workflows & Ingestion Examples](../examples/mcp-orchestration-examples.md) — direct nav
 - [Worked Example: Scraping and Dashboarding the Platform](../examples/observability.md) — direct nav
@@ -141,8 +144,9 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — direct nav
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — direct nav
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — direct nav
-- [Agent Communication Bus](../architecture/agent_bus.md) — direct nav
+- [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — direct nav
 - [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md) — direct nav
+- [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — direct nav
 - [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — direct nav
 - [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — direct nav
 - [Autonomous Governance & Zero-Trust Consensus](../architecture/autonomous_governance_and_zero_trust.md) — catalog
@@ -162,12 +166,12 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — direct nav
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
-- [Authoritative engine placement and sharding](../architecture/engine_sharding.md) — direct nav
+- [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — direct nav
 - [Epistemic-columns currency (Seam 1) — consuming epistemic-graph's KnowledgeBatch](../architecture/epistemic-columns-currency.md) — catalog
 - [Epistemic Operations Protocol](../architecture/epistemic-operations-protocol.md) — direct nav
-- [Epistemic OS Hardening — historical program audit](../architecture/epistemic-os-hardening.md) — direct nav
+- [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — direct nav
 - [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — direct nav
 - [Event Sourcing and Query Routing Architecture](../architecture/event_sourcing_and_routing.md) — catalog
 - [Evidence-Spine Convergence (Seam 2)](../architecture/evidence_spine_convergence.md) — catalog
@@ -185,7 +189,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [In-House Training Substrate](../architecture/in_house_training_substrate.md) — direct nav
 - [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — direct nav
 - [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — direct nav
-- [GraphOS intent surface](../architecture/intent-surface.md) — direct nav
+- [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — direct nav
 - [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — direct nav
 - [Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — direct nav
 - [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — direct nav
@@ -213,6 +217,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — direct nav
 - [Optimization Campaign — Session Checkpoint (2026-06-19)](../architecture/optimization-campaign-checkpoint.md) — direct nav
 - [Orchestration Execution Seam — ingested capability → executed by a local LLM](../architecture/orchestration-execution-seam.md) — direct nav
+- [Orchestrator Migration & Cutover — hard-won hardening (provider-neutral)](../architecture/orchestrator-migration-cutover.md) — direct nav
 - [Runtime Org Dynamics — Recruiter, Work-Item DAG, Self-Grown Staff](../architecture/org-runtime.md) — direct nav
 - [OWL/RDF Layer — always-on, local, fast (CONCEPT:AU-KG.query.vendor-agnostic-traversal)](../architecture/owl_rdf_layer.md) — direct nav
 - [Perspectival Inquiry — STORM made native](../architecture/perspectival_inquiry.md) — direct nav
@@ -358,6 +363,12 @@ The detailed public capability/action contract is the [generated Capability Powe
 ## Scaling
 
 - [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — direct nav
+
+## Learn
+
+- [Ontology School](../learn/index.md) — direct nav
+- [Interfaces, Object Types, and Links](../learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md) — direct nav
+- [Your First UQL Pipeline](../learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md) — direct nav
 
 ## Operations
 

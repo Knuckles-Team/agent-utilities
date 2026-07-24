@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-527 typed fields · 318 runtime-only call-site inputs.
+539 typed fields · 335 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -30,14 +30,14 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `DEPLOYMENT_PROFILE` | `Literal` | `tiny` |
 | `CHAT_MODELS` | `list` | `unset` |
 | `EMBEDDING_MODELS` | `list` | `unset` |
-| `TLS_PROFILE` | `str \| None` | `unset` |
-| `TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `TLS_PROFILES_REF` | `str \| None` | `unset` |
-| `TLS_CA_BUNDLE_REF` | `str \| None` | `unset` |
-| `TLS_CLIENT_CERT_REF` | `str \| None` | `unset` |
-| `TLS_CLIENT_KEY_REF` | `str \| None` | `unset` |
-| `TLS_CLIENT_KEY_PASSWORD_REF` | `str \| None` | `unset` |
-| `TLS_PROXY_URL_REF` | `str \| None` | `unset` |
+| `TLS_PROFILE` | `Union` | `unset` |
+| `TLS_PROFILE_REF` | `Union` | `unset` |
+| `TLS_PROFILES_REF` | `Union` | `unset` |
+| `TLS_CA_BUNDLE_REF` | `Union` | `unset` |
+| `TLS_CLIENT_CERT_REF` | `Union` | `unset` |
+| `TLS_CLIENT_KEY_REF` | `Union` | `unset` |
+| `TLS_CLIENT_KEY_PASSWORD_REF` | `Union` | `unset` |
+| `TLS_PROXY_URL_REF` | `Union` | `unset` |
 | `TLS_SYSTEM_TRUST` | `bool` | `True` |
 | `TLS_TRUST_ENV` | `bool` | `True` |
 | `SOURCE_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
@@ -46,46 +46,46 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `SOURCE_HTTP_MAX_REDIRECTS` | `int` | `3` |
 | `SOURCE_HTTP_ALLOW_BROWSER_FETCH` | `bool` | `False` |
 | `EUNOMIA_TYPE` | `Literal` | `none` |
-| `EUNOMIA_POLICY_FILE` | `str \| None` | `unset` |
-| `EUNOMIA_REMOTE_URL` | `str \| None` | `unset` |
-| `EUNOMIA_API_KEY_REF` | `str \| None` | `unset` |
-| `EUNOMIA_TLS_PROFILE` | `str \| None` | `unset` |
-| `EUNOMIA_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `EUNOMIA_POLICY_FILE` | `Union` | `unset` |
+| `EUNOMIA_REMOTE_URL` | `Union` | `unset` |
+| `EUNOMIA_API_KEY_REF` | `Union` | `unset` |
+| `EUNOMIA_TLS_PROFILE` | `Union` | `unset` |
+| `EUNOMIA_TLS_PROFILE_REF` | `Union` | `unset` |
 | `EUNOMIA_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
 | `EUNOMIA_TIMEOUT_SECONDS` | `float` | `10.0` |
 | `EUNOMIA_MAX_RESPONSE_BYTES` | `int` | `1048576` |
 | `EUNOMIA_BULK_CHECK_MAX` | `int` | `100` |
 | `DATABASE_TYPE` | `Literal` | `epistemic_graph` |
-| `DB_HOST` | `str \| None` | `unset` |
-| `DB_PORT` | `int \| None` | `unset` |
-| `DBNAME` | `str \| None` | `unset` |
-| `DB_USERNAME_REF` | `str \| None` | `unset` |
-| `DB_PASSWORD_REF` | `str \| None` | `unset` |
-| `DOCUMENT_DIRECTORY` | `str \| None` | `unset` |
-| `POSTGRES_TLS_PROFILE` | `str \| None` | `unset` |
-| `POSTGRES_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `DB_HOST` | `Union` | `unset` |
+| `DB_PORT` | `Union` | `unset` |
+| `DBNAME` | `Union` | `unset` |
+| `DB_USERNAME_REF` | `Union` | `unset` |
+| `DB_PASSWORD_REF` | `Union` | `unset` |
+| `DOCUMENT_DIRECTORY` | `Union` | `unset` |
+| `POSTGRES_TLS_PROFILE` | `Union` | `unset` |
+| `POSTGRES_TLS_PROFILE_REF` | `Union` | `unset` |
 | `POSTGRES_REQUEST_TIMEOUT` | `int` | `30` |
 | `POSTGRES_MAX_POOL_SIZE` | `int` | `20` |
-| `QDRANT_API_KEY_REF` | `str \| None` | `unset` |
-| `QDRANT_TLS_PROFILE` | `str \| None` | `unset` |
-| `QDRANT_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `QDRANT_API_KEY_REF` | `Union` | `unset` |
+| `QDRANT_TLS_PROFILE` | `Union` | `unset` |
+| `QDRANT_TLS_PROFILE_REF` | `Union` | `unset` |
 | `QDRANT_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
 | `QDRANT_REQUEST_TIMEOUT` | `int` | `30` |
-| `MONGODB_URI_REF` | `str \| None` | `unset` |
-| `MONGODB_TLS_PROFILE` | `str \| None` | `unset` |
-| `MONGODB_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `MONGODB_URI_REF` | `Union` | `unset` |
+| `MONGODB_TLS_PROFILE` | `Union` | `unset` |
+| `MONGODB_TLS_PROFILE_REF` | `Union` | `unset` |
 | `MONGODB_REQUEST_TIMEOUT_MS` | `int` | `30000` |
 | `MONGODB_MAX_POOL_SIZE` | `int` | `20` |
-| `REDIS_CONNECTION_PROFILE_REF` | `str \| None` | `unset` |
-| `REDIS_TLS_PROFILE` | `str \| None` | `unset` |
-| `REDIS_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `REDIS_CONNECTION_PROFILE_REF` | `Union` | `unset` |
+| `REDIS_TLS_PROFILE` | `Union` | `unset` |
+| `REDIS_TLS_PROFILE_REF` | `Union` | `unset` |
 | `MODEL_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
-| `MODEL_TLS_PROFILE` | `str \| None` | `unset` |
-| `MODEL_TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `EMBEDDING_TLS_PROFILE` | `str \| None` | `unset` |
-| `EMBEDDING_TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `OAUTH2_TOKEN_TLS_PROFILE` | `str \| None` | `unset` |
-| `OAUTH2_TOKEN_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `MODEL_TLS_PROFILE` | `Union` | `unset` |
+| `MODEL_TLS_PROFILE_REF` | `Union` | `unset` |
+| `EMBEDDING_TLS_PROFILE` | `Union` | `unset` |
+| `EMBEDDING_TLS_PROFILE_REF` | `Union` | `unset` |
+| `OAUTH2_TOKEN_TLS_PROFILE` | `Union` | `unset` |
+| `OAUTH2_TOKEN_TLS_PROFILE_REF` | `Union` | `unset` |
 | `EXTERNAL_GRAPH_CONNECTORS` | `list` | `unset` |
 | `PROVIDER_CONFIGS` | `dict` | `unset` |
 
@@ -93,11 +93,11 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 | Environment key | Type | Default |
 |---|---|---|
-| `SKILL_CERT_RUNTIME_CONFIGURATION` | `str \| None` | `unset` |
-| `SKILL_CERT_RUNTIME_PROFILE` | `str \| None` | `unset` |
-| `SKILL_CERT_RELEASE_SPEC` | `str \| None` | `unset` |
-| `SKILL_CERT_PROMOTION_EVIDENCE` | `str \| None` | `unset` |
-| `SKILL_CERT_GRAPHOS_ENDPOINT` | `str \| None` | `unset` |
+| `SKILL_CERT_RUNTIME_CONFIGURATION` | `Union` | `unset` |
+| `SKILL_CERT_RUNTIME_PROFILE` | `Union` | `unset` |
+| `SKILL_CERT_RELEASE_SPEC` | `Union` | `unset` |
+| `SKILL_CERT_PROMOTION_EVIDENCE` | `Union` | `unset` |
+| `SKILL_CERT_GRAPHOS_ENDPOINT` | `Union` | `unset` |
 | `SKILL_CERT_GRAPHOS_COMMAND` | `list` | `unset` |
 | `SKILL_VALIDATION_EVIDENCE_SIGNER_COMMAND` | `list` | `unset` |
 | `SKILL_VALIDATION_EVIDENCE_VERIFIER_COMMAND` | `list` | `unset` |
@@ -109,9 +109,9 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `CERTIFICATION_MODE` | `Literal` | `disabled` |
-| `CERT_RELEASE_MANIFEST` | `str \| None` | `unset` |
-| `CERT_ARTIFACTS_DIR` | `str \| None` | `unset` |
-| `CERT_HARDWARE_CLASS` | `str \| None` | `unset` |
+| `CERT_RELEASE_MANIFEST` | `Union` | `unset` |
+| `CERT_ARTIFACTS_DIR` | `Union` | `unset` |
+| `CERT_HARDWARE_CLASS` | `Union` | `unset` |
 | `CERT_LOAD_COMMAND` | `list` | `unset` |
 | `CERT_METRICS_COMMAND` | `list` | `unset` |
 | `CERT_HOOK_COMMANDS` | `dict` | `unset` |
@@ -119,35 +119,35 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `CERT_FAULT_PROBE_COMMANDS` | `dict` | `unset` |
 | `CERT_EVIDENCE_SIGNER_COMMAND` | `list` | `unset` |
 | `CERT_EVIDENCE_VERIFIER_COMMAND` | `list` | `unset` |
-| `CERT_PROMETHEUS_URL` | `str \| None` | `unset` |
-| `CERT_PROMETHEUS_BEARER_TOKEN_REF` | `str \| None` | `unset` |
-| `CERT_PROMETHEUS_TLS_PROFILE` | `str \| None` | `unset` |
-| `CERT_PROMETHEUS_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `CERT_PROMETHEUS_URL` | `Union` | `unset` |
+| `CERT_PROMETHEUS_BEARER_TOKEN_REF` | `Union` | `unset` |
+| `CERT_PROMETHEUS_TLS_PROFILE` | `Union` | `unset` |
+| `CERT_PROMETHEUS_TLS_PROFILE_REF` | `Union` | `unset` |
 
 ## Provider API Keys (global fallbacks for ad-hoc model creation)
 
 | Environment key | Type | Default |
 |---|---|---|
-| `OPENAI_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `OPENAI_BASE_URL` | `str \| None` | `unset` |
-| `ANTHROPIC_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `GEMINI_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `GROQ_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `MISTRAL_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `HUGGING_FACE_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `DEEPSEEK_API_KEY` | `str \| None` | `explicit runtime process value only` |
-| `DEEPSEEK_BASE_URL` | `str \| None` | `unset` |
+| `OPENAI_API_KEY` | `Union` | `explicit runtime process value only` |
+| `OPENAI_BASE_URL` | `Union` | `unset` |
+| `ANTHROPIC_API_KEY` | `Union` | `explicit runtime process value only` |
+| `GEMINI_API_KEY` | `Union` | `explicit runtime process value only` |
+| `GROQ_API_KEY` | `Union` | `explicit runtime process value only` |
+| `MISTRAL_API_KEY` | `Union` | `explicit runtime process value only` |
+| `HUGGING_FACE_API_KEY` | `Union` | `explicit runtime process value only` |
+| `DEEPSEEK_API_KEY` | `Union` | `explicit runtime process value only` |
+| `DEEPSEEK_BASE_URL` | `Union` | `unset` |
 
 ## Messaging reach + agent KG layer (CONCEPT:AU-ECO.messaging.messaging-reach-service-governed–4.61)
 
 | Environment key | Type | Default |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | `str \| None` | `explicit runtime process value only` |
+| `TELEGRAM_BOT_TOKEN` | `Union` | `explicit runtime process value only` |
 | `MESSAGING_DEFAULT_PLATFORM` | `str` | `telegram` |
 | `MESSAGING_DEFAULT_CHANNEL` | `str` | `` |
-| `MESSAGING_ALERT_INTAKE_PORT` | `int \| None` | `unset` |
+| `MESSAGING_ALERT_INTAKE_PORT` | `Union` | `unset` |
 | `MESSAGING_ALERT_INTAKE_HOST` | `str` | `127.0.0.1` |
-| `MESSAGING_ALERT_INTAKE_TOKEN_REF` | `str \| None` | `unset` |
+| `MESSAGING_ALERT_INTAKE_TOKEN_REF` | `Union` | `unset` |
 | `MESSAGING_ALERT_INTAKE_ALLOW_REMOTE` | `bool` | `False` |
 | `MESSAGING_AGENT` | `str` | `` |
 | `MESSAGING_CLAUDE_TRIGGER` | `str` | `/claude` |
@@ -169,31 +169,31 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 | Environment key | Type | Default |
 |---|---|---|
-| `ARCHIVEBOX_URL` | `str \| None` | `unset` |
-| `INFRA_INVENTORY_PATH` | `str \| None` | `unset` |
+| `ARCHIVEBOX_URL` | `Union` | `unset` |
+| `INFRA_INVENTORY_PATH` | `Union` | `unset` |
 
 ## Media service endpoints
 
 | Environment key | Type | Default |
 |---|---|---|
-| `COMFYUI_URL` | `str \| None` | `unset` |
-| `XTTS_URL` | `str \| None` | `unset` |
-| `OPENAI_TTS_URL` | `str \| None` | `unset` |
-| `WHISPER_URL` | `str \| None` | `unset` |
-| `FASTER_WHISPER_URL` | `str \| None` | `unset` |
-| `FLUX_URL` | `str \| None` | `unset` |
-| `SD35_URL` | `str \| None` | `unset` |
-| `HUNYUAN_URL` | `str \| None` | `unset` |
-| `SVD_URL` | `str \| None` | `unset` |
+| `COMFYUI_URL` | `Union` | `unset` |
+| `XTTS_URL` | `Union` | `unset` |
+| `OPENAI_TTS_URL` | `Union` | `unset` |
+| `WHISPER_URL` | `Union` | `unset` |
+| `FASTER_WHISPER_URL` | `Union` | `unset` |
+| `FLUX_URL` | `Union` | `unset` |
+| `SD35_URL` | `Union` | `unset` |
+| `HUNYUAN_URL` | `Union` | `unset` |
+| `SVD_URL` | `Union` | `unset` |
 
 ## Graph / KG tuning knobs
 
 | Environment key | Type | Default |
 |---|---|---|
-| `GRAPH_TIMEOUT` | `str \| None` | `600000` |
-| `MAX_RECURSION_DEPTH` | `str \| None` | `2` |
-| `ROUTING_PERCENTILE` | `str \| None` | `50.0` |
-| `KG_EMBEDDING_DIM` | `str \| None` | `768` |
+| `GRAPH_TIMEOUT` | `Union` | `600000` |
+| `MAX_RECURSION_DEPTH` | `Union` | `2` |
+| `ROUTING_PERCENTILE` | `Union` | `50.0` |
+| `KG_EMBEDDING_DIM` | `Union` | `768` |
 | `KG_DEV_MODE` | `bool` | `False` |
 
 ## Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31)
@@ -201,7 +201,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `USAGE_DB_BACKEND` | `str` | `sqlite` |
-| `USAGE_DB_URI` | `str \| None` | `unset` |
+| `USAGE_DB_URI` | `Union` | `unset` |
 | `USAGE_TRACKING_ENABLED` | `bool` | `True` |
 | `USAGE_CONTENT_RETENTION` | `str` | `metadata` |
 | `PRICING_LITELLM_URL` | `str` | `https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` |
@@ -212,10 +212,10 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `DEFAULT_AGENT_NAME` | `str` | `Agent` |
 | `AGENT_DESCRIPTION` | `str` | `AI Agent` |
-| `AGENT_SYSTEM_PROMPT` | `str \| None` | `unset` |
-| `WORKSPACE_PATH` | `str \| None` | `unset` |
-| `EVOLUTION_STAGING_ROOT` | `str \| None` | `unset` |
-| `AGENT_UTILITIES_CONFIG_DIR` | `str \| None` | `unset` |
+| `AGENT_SYSTEM_PROMPT` | `Union` | `unset` |
+| `WORKSPACE_PATH` | `Union` | `unset` |
+| `EVOLUTION_STAGING_ROOT` | `Union` | `unset` |
+| `AGENT_UTILITIES_CONFIG_DIR` | `Union` | `unset` |
 | `HOST` | `str` | `127.0.0.1` |
 | `PORT` | `int` | `9000` |
 | `DEBUG` | `bool` | `False` |
@@ -226,49 +226,54 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENABLE_ACP` | `bool` | `False` |
 | `ACP_PORT` | `int` | `8001` |
 | `ACP_SESSION_ROOT` | `str` | `.acp-sessions` |
-| `MCP_URL` | `str \| None` | `unset` |
-| `MCP_CONFIG` | `str \| None` | `unset` |
+| `MCP_URL` | `Union` | `unset` |
+| `MCP_CONFIG` | `Union` | `unset` |
 | `MCP_FLEET_SECRET_REFS` | `dict` | `unset` |
 | `MCP_TOOL_MODE` | `Literal` | `intent` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
-| `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `str \| None` | `unset` |
+| `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `Union` | `unset` |
 | `AUTH_TYPE` | `Literal` | `none` |
-| `FASTMCP_SERVER_AUTH_JWT_JWKS_URI` | `str \| None` | `unset` |
-| `FASTMCP_SERVER_AUTH_JWT_ISSUER` | `str \| None` | `unset` |
-| `FASTMCP_SERVER_AUTH_JWT_AUDIENCE` | `str \| None` | `unset` |
-| `FASTMCP_SERVER_AUTH_JWT_ALGORITHM` | `str \| None` | `unset` |
-| `FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES` | `str \| None` | `unset` |
-| `FASTMCP_SERVER_AUTH_JWT_SECRET_REF` | `str \| None` | `unset` |
-| `MCP_TLS_CERTFILE` | `str \| None` | `unset` |
-| `MCP_TLS_KEYFILE` | `str \| None` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_JWKS_URI` | `Union` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_ISSUER` | `Union` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_AUDIENCE` | `Union` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_ALGORITHM` | `Union` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_REQUIRED_SCOPES` | `Union` | `unset` |
+| `FASTMCP_SERVER_AUTH_JWT_SECRET_REF` | `Union` | `unset` |
+| `MCP_TLS_CERTFILE` | `Union` | `unset` |
+| `MCP_TLS_KEYFILE` | `Union` | `unset` |
 | `MCP_TLS_TERMINATED` | `bool` | `False` |
-| `MCP_TRUSTED_PROXY_CIDRS` | `str \| None` | `unset` |
-| `MCP_ALLOWED_HOSTS` | `str \| None` | `unset` |
-| `MCP_ALLOWED_ORIGINS` | `str \| None` | `unset` |
+| `MCP_TRUSTED_PROXY_CIDRS` | `Union` | `unset` |
+| `MCP_ALLOWED_HOSTS` | `Union` | `unset` |
+| `MCP_ALLOWED_ORIGINS` | `Union` | `unset` |
 | `MCP_MAX_REQUEST_BYTES` | `int` | `4194304` |
 | `MCP_MAX_CONNECTIONS` | `int` | `128` |
 | `MCP_LISTEN_BACKLOG` | `int` | `256` |
-| `MCP_METRICS_TOKEN_REF` | `str \| None` | `unset` |
+| `MCP_METRICS_TOKEN_REF` | `Union` | `unset` |
 | `MAX_UPLOAD_SIZE` | `int` | `10485760` |
-| `AUTH_JWT_JWKS_URI` | `str \| None` | `unset` |
-| `AUTH_JWT_ISSUER` | `str \| None` | `unset` |
-| `AUTH_JWT_AUDIENCE` | `str \| None` | `unset` |
-| `KG_POLICY_VERSION` | `str \| None` | `unset` |
+| `AUTH_JWT_JWKS_URI` | `Union` | `unset` |
+| `AUTH_JWT_ISSUER` | `Union` | `unset` |
+| `AUTH_JWT_AUDIENCE` | `Union` | `unset` |
+
+## Knowledge Graph identity enforcement (CONCEPT:AU-OS.identity.authenticated-identity-enforcement)
+
+| Environment key | Type | Default |
+|---|---|---|
+| `KG_POLICY_VERSION` | `Union` | `unset` |
 | `AUTH_JWT_ALGORITHMS` | `list` | `unset` |
-| `IDENTITY_GROUP_CAPABILITY_MAP` | `dict[str, list[str]] \| None` | `unset` |
+| `IDENTITY_GROUP_CAPABILITY_MAP` | `Union` | `unset` |
 
 ## Knowledge Graph process identity
 
 | Environment key | Type | Default |
 |---|---|---|
-| `KG_AUTH_TOKEN_REF` | `str \| None` | `unset` |
-| `KG_IDENTITY_OAUTH2` | `dict[str, typing.Any] \| None` | `unset` |
+| `KG_AUTH_TOKEN_REF` | `Union` | `unset` |
+| `KG_IDENTITY_OAUTH2` | `Union` | `unset` |
 
 ## Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
 
 | Environment key | Type | Default |
 |---|---|---|
-| `FLEET_EVENTS_TOKEN_REF` | `str \| None` | `unset` |
+| `FLEET_EVENTS_TOKEN_REF` | `Union` | `unset` |
 
 ## Gateway middle-tier hardening (CONCEPT:AU-OS.observability.no-op-without-metrics)
 
@@ -304,37 +309,37 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `MCP_CLIENT_AUTH` | `Literal` | `none` |
-| `OIDC_CONFIG_URL` | `str \| None` | `unset` |
-| `OIDC_CLIENT_ID` | `str \| None` | `unset` |
-| `OIDC_CLIENT_SECRET_REF` | `str \| None` | `unset` |
-| `OIDC_AUDIENCE` | `str \| None` | `unset` |
-| `OIDC_ISSUER` | `str \| None` | `unset` |
-| `OIDC_TOKEN_URL` | `str \| None` | `unset` |
-| `OIDC_SCOPE` | `str \| None` | `unset` |
-| `MCP_BASIC_AUTH_USERNAME` | `str \| None` | `unset` |
-| `MCP_BASIC_AUTH_PASSWORD_REF` | `str \| None` | `unset` |
-| `OIDC_TLS_PROFILE` | `str \| None` | `unset` |
-| `OIDC_TLS_PROFILE_REF` | `str \| None` | `unset` |
+| `OIDC_CONFIG_URL` | `Union` | `unset` |
+| `OIDC_CLIENT_ID` | `Union` | `unset` |
+| `OIDC_CLIENT_SECRET_REF` | `Union` | `unset` |
+| `OIDC_AUDIENCE` | `Union` | `unset` |
+| `OIDC_ISSUER` | `Union` | `unset` |
+| `OIDC_TOKEN_URL` | `Union` | `unset` |
+| `OIDC_SCOPE` | `Union` | `unset` |
+| `MCP_BASIC_AUTH_USERNAME` | `Union` | `unset` |
+| `MCP_BASIC_AUTH_PASSWORD_REF` | `Union` | `unset` |
+| `OIDC_TLS_PROFILE` | `Union` | `unset` |
+| `OIDC_TLS_PROFILE_REF` | `Union` | `unset` |
 | `OIDC_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `unset` |
 | `ENABLE_DELEGATION` | `bool` | `False` |
-| `AUDIENCE` | `str \| None` | `unset` |
+| `AUDIENCE` | `Union` | `unset` |
 | `DELEGATED_SCOPES` | `str` | `api` |
 
 ## Vault Secrets Backend (CONCEPT:AU-OS.config.secrets-authentication)
 
 | Environment key | Type | Default |
 |---|---|---|
-| `SECRETS_VAULT_URL` | `str \| None` | `unset` |
+| `SECRETS_VAULT_URL` | `Union` | `unset` |
 | `SECRETS_VAULT_MOUNT` | `str` | `secret` |
 | `VAULT_AUTH_METHOD` | `str` | `auto` |
 | `VAULT_AUTH_MOUNT` | `str` | `jwt` |
-| `VAULT_ROLE` | `str \| None` | `unset` |
-| `VAULT_PATH_PREFIX` | `str \| None` | `unset` |
-| `ALLOWED_ORIGINS` | `str \| None` | `unset` |
+| `VAULT_ROLE` | `Union` | `unset` |
+| `VAULT_PATH_PREFIX` | `Union` | `unset` |
+| `ALLOWED_ORIGINS` | `Union` | `unset` |
 | `CORS_ALLOW_CREDENTIALS` | `bool` | `False` |
-| `ALLOWED_HOSTS` | `str \| None` | `unset` |
-| `SERVER_TLS_CERTFILE` | `str \| None` | `unset` |
-| `SERVER_TLS_KEYFILE` | `str \| None` | `unset` |
+| `ALLOWED_HOSTS` | `Union` | `unset` |
+| `SERVER_TLS_CERTFILE` | `Union` | `unset` |
+| `SERVER_TLS_KEYFILE` | `Union` | `unset` |
 | `SERVER_TLS_TERMINATED` | `bool` | `False` |
 | `SERVER_TRUSTED_PROXY_CIDRS` | `list` | `unset` |
 | `SERVER_MAX_CONNECTIONS` | `int` | `256` |
@@ -345,11 +350,11 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `RUNTIME_MAX_EVENTS` | `int` | `1000` |
 | `ROUTING_STRATEGY` | `str` | `hybrid` |
 | `GRAPH_PERSISTENCE_TYPE` | `str` | `file` |
-| `GRAPH_DB_CONNECTION_PROFILE_REF` | `str \| None` | `unset` |
-| `GRAPH_MIRROR_TARGETS` | `list[str] \| None` | `unset` |
+| `GRAPH_DB_CONNECTION_PROFILE_REF` | `Union` | `unset` |
+| `GRAPH_MIRROR_TARGETS` | `Union` | `unset` |
 | `CONTINUOUS_STARDOG_MIRROR` | `bool` | `False` |
-| `ASSET_MIRROR_TARGETS` | `list[str] \| None` | `unset` |
-| `TASK_QUEUE_BACKEND` | `str \| None` | `unset` |
+| `ASSET_MIRROR_TARGETS` | `Union` | `unset` |
+| `TASK_QUEUE_BACKEND` | `Union` | `unset` |
 | `KG_TASKS_PARTITIONS` | `int` | `6` |
 | `AGENT_TURNS_PARTITIONS` | `int` | `6` |
 | `AGENT_DISPATCH_MAX_DEPTH` | `int` | `100000` |
@@ -361,7 +366,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `AGENT_BUS_MAX_DEPTH` | `int` | `100000` |
 | `AGENT_BUS_MAX_TOPIC_SUBSCRIBERS` | `int` | `1024` |
 | `AGENT_BUS_DELIVERY_LEASE_SECONDS` | `int` | `300` |
-| `STATE_DB_URI` | `str \| None` | `unset` |
+| `STATE_DB_URI` | `Union` | `unset` |
 | `STATE_DB_POOL_SIZE` | `int` | `8` |
 | `KG_BREADTH_LIBRARY_ROOTS` | `str` | `` |
 | `KG_BREADTH_REPO_ROOTS` | `str` | `` |
@@ -373,6 +378,11 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_LOOP_MINE_DISCOVERY` | `bool` | `True` |
 | `KG_LOOP_BELIEF_REVISION` | `bool` | `True` |
 | `KG_LOOP_INSIGHT_VALIDATION` | `bool` | `True` |
+| `KG_LOOP_SKILL_EVOLUTION` | `bool` | `True` |
+| `KG_SKILL_EVOLUTION_LANGFUSE_TRAIN_DATASET` | `Union` | `unset` |
+| `KG_SKILL_EVOLUTION_LANGFUSE_HOLDOUT_DATASET` | `Union` | `unset` |
+| `KG_SKILL_EVOLUTION_LANGFUSE_SCORE_NAME` | `Union` | `unset` |
+| `KG_SKILL_EVOLUTION_LANGFUSE_WEIGHT` | `float` | `0.5` |
 | `KG_INSIGHT_AUTONOMY` | `bool` | `False` |
 | `KG_LOOP_AUTO_DEVELOP` | `bool` | `False` |
 | `KG_LOOP_ALLOW_HOST_VALIDATION` | `bool` | `False` |
@@ -380,17 +390,22 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `ENABLE_RLM` | `bool` | `False` |
 | `RLM_AUTO_TRIGGER` | `bool` | `False` |
 | `RLM_SANDBOX` | `str` | `auto` |
-| `RLM_CONTAINER_IMAGE_REF` | `str \| None` | `unset` |
+| `RLM_CONTAINER_IMAGE_REF` | `Union` | `unset` |
 | `RLM_CONTAINER_MEMORY` | `str` | `512m` |
 | `RLM_CONTAINER_CPUS` | `float` | `1.0` |
 | `RLM_CONTAINER_PIDS_LIMIT` | `int` | `256` |
 | `RLM_CONTAINER_TIMEOUT_SECONDS` | `float` | `120.0` |
 | `KG_LOOP_TRACE_MINING` | `bool` | `True` |
 | `KG_GOLDEN_AUTO_MERGE` | `bool` | `False` |
-| `KG_GOLDEN_MERGE_THRESHOLD` | `float \| None` | `unset` |
+| `KG_GOLDEN_MERGE_THRESHOLD` | `Union` | `unset` |
 | `EVOLUTION_WORKTREE_ROOT` | `str` | `` |
 | `KG_LOOP_INTERVAL` | `float` | `3600.0` |
 | `KG_LOOP_TOPICS` | `int` | `5` |
+| `KG_LOOP_NO_PROGRESS_WINDOW` | `int` | `3` |
+| `KG_LOOP_MAX_CONSECUTIVE_FAILURES` | `int` | `3` |
+| `KG_LOOP_MAX_DURATION_S` | `float` | `0.0` |
+| `KG_LOOP_GOAL_EVAL_THRESHOLD` | `float` | `0.7` |
+| `KG_LOOP_GOAL_EVAL_ENABLED` | `bool` | `True` |
 | `KG_RESEARCH_FEED` | `bool` | `True` |
 | `KG_RESEARCH_FEED_INTERVAL` | `float` | `1800.0` |
 | `KG_RSS_FEEDS` | `str` | `` |
@@ -411,8 +426,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_FUSEKI_PUBLISH` | `bool` | `False` |
 | `KG_FUSEKI_ENDPOINT` | `str` | `` |
 | `GRAPH_FUSEKI_DATASET` | `str` | `agent_kg` |
-| `GRAPH_FUSEKI_USER` | `str \| None` | `unset` |
-| `GRAPH_FUSEKI_PASSWORD_REF` | `str \| None` | `unset` |
+| `GRAPH_FUSEKI_USER` | `Union` | `unset` |
+| `GRAPH_FUSEKI_PASSWORD_REF` | `Union` | `unset` |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `float` | `3600.0` |
 | `KG_WORKFLOW_SHAPE_GATE` | `bool` | `True` |
 
@@ -420,7 +435,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 | Environment key | Type | Default |
 |---|---|---|
-| `FLEET_MCP_URL_TEMPLATE` | `str \| None` | `unset` |
+| `FLEET_MCP_URL_TEMPLATE` | `Union` | `unset` |
 | `ACTION_POLICY_PATH` | `str` | `` |
 | `FLEET_RECONCILER` | `bool` | `False` |
 | `FLEET_RECONCILER_INTERVAL` | `float` | `120.0` |
@@ -428,32 +443,34 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `FLEET_REGISTRY_PATH` | `str` | `` |
 | `FLEET_DESIRED_STATE_PATH` | `str` | `` |
 | `FLEET_ACTUATOR` | `str` | `dryrun` |
+| `FLEET_ACTUATOR_K8S_NAMESPACE` | `str` | `platform` |
 | `DEPLOY_WATCH_WINDOW` | `float` | `300.0` |
 | `DEPLOY_WATCH_POLL` | `float` | `15.0` |
 | `FLEET_AUTOSCALER` | `bool` | `False` |
 | `FLEET_AUTOSCALER_INTERVAL` | `float` | `60.0` |
-| `SCALING_PROMETHEUS_URL` | `str \| None` | `unset` |
-| `NATS_URL` | `str \| None` | `unset` |
+| `SCALING_PROMETHEUS_URL` | `Union` | `unset` |
+| `NATS_URL` | `Union` | `unset` |
 | `KAFKA_BOOTSTRAP_SERVERS` | `str` | `` |
 | `GRAPH_COMPUTE_BACKEND` | `str` | `rust` |
-| `GRAPH_SERVICE_ENDPOINTS` | `list[str] \| None` | `unset` |
-| `GRAPH_RAFT_GROUP_ENDPOINTS` | `dict[str, str] \| None` | `unset` |
-| `KG_CONNECTIONS` | `list[dict[str, typing.Any]] \| None` | `unset` |
-| `GITLAB_INSTANCES` | `list[dict[str, typing.Any]] \| None` | `unset` |
-| `JIRA_INSTANCES` | `list[dict[str, typing.Any]] \| None` | `unset` |
-| `CONFLUENCE_INSTANCES` | `list[dict[str, typing.Any]] \| None` | `unset` |
-| `PLANE_INSTANCES` | `list[dict[str, typing.Any]] \| None` | `unset` |
+| `GRAPH_SERVICE_ENDPOINTS` | `Union` | `unset` |
+| `GRAPH_RAFT_GROUP_ENDPOINTS` | `Union` | `unset` |
+| `KG_CONNECTIONS` | `Union` | `unset` |
+| `GITLAB_INSTANCES` | `Union` | `unset` |
+| `JIRA_INSTANCES` | `Union` | `unset` |
+| `CONFLUENCE_INSTANCES` | `Union` | `unset` |
+| `PLANE_INSTANCES` | `Union` | `unset` |
 | `KG_DEFAULT_GRAPH` | `str` | `__commons__` |
 | `GRAPH_SCHEMA_PACK` | `str` | `core` |
 | `KG_INGEST_SHARD_FANOUT` | `bool` | `False` |
-| `KG_RERANK_MODEL` | `str \| None` | `unset` |
-| `KG_RERANK_BASE_URL` | `str \| None` | `unset` |
-| `GRAPH_SERVICE_AUTH_SECRET` | `str \| None` | `explicit runtime process value only` |
-| `ENGINE_TLS_PROFILE` | `str \| None` | `unset` |
-| `ENGINE_TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `ENGINE_TLS_SERVER_NAME` | `str \| None` | `unset` |
+| `KG_RERANK_MODEL` | `Union` | `unset` |
+| `KG_RERANK_BASE_URL` | `Union` | `unset` |
+| `GRAPH_SERVICE_AUTH_SECRET` | `Union` | `explicit runtime process value only` |
+| `ENGINE_TLS_PROFILE` | `Union` | `unset` |
+| `ENGINE_TLS_PROFILE_REF` | `Union` | `unset` |
+| `ENGINE_TLS_SERVER_NAME` | `Union` | `unset` |
 | `ENGINE_LIFECYCLE` | `str` | `refcounted` |
 | `ENGINE_IDLE_SHUTDOWN_SECS` | `int` | `60` |
+| `PLACEMENT_CATALOG_ENABLED` | `bool` | `True` |
 | `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` | `int` | `256` |
 | `EPISTEMIC_GRAPH_LAZY_OPEN_PAGE_SIZE` | `int` | `4096` |
 | `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` | `int` | `250000` |
@@ -467,13 +484,13 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `EPISTEMIC_GRAPH_AST_MAX_TOTAL_BYTES` | `int` | `33554432` |
 | `EPISTEMIC_GRAPH_MODALITY_MAX_BUNDLE_BYTES` | `int` | `4194304` |
 | `EPISTEMIC_GRAPH_MODALITY_MAX_SOURCE_BYTES` | `int` | `16777216` |
-| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | `str \| None` | `unset` |
-| `EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT_REF` | `str \| None` | `unset` |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | `Union` | `unset` |
+| `EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT_REF` | `Union` | `unset` |
 | `EPISTEMIC_GRAPH_SQLITE_MAX_BYTES` | `int` | `268435456` |
 | `EPISTEMIC_GRAPH_SQLITE_MAX_ROWS` | `int` | `1000000` |
-| `EPISTEMIC_GRAPH_BACKUP_ROOT_REF` | `str \| None` | `unset` |
-| `GRAPH_OS_BACKUP_PRINCIPAL` | `str \| None` | `unset` |
-| `GRAPH_OS_BACKUP_TENANT` | `str \| None` | `unset` |
+| `EPISTEMIC_GRAPH_BACKUP_ROOT_REF` | `Union` | `unset` |
+| `GRAPH_OS_BACKUP_PRINCIPAL` | `Union` | `unset` |
+| `GRAPH_OS_BACKUP_TENANT` | `Union` | `unset` |
 | `GRAPHOS_BACKUP_RETENTION_COUNT` | `int` | `2` |
 | `EPISTEMIC_GRAPH_RESTORE_BIN` | `str` | `restore` |
 | `EPISTEMIC_GRAPH_SERVER_BIN` | `str` | `epistemic-graph-server` |
@@ -481,8 +498,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `COMPUTER_USE_DISPLAY` | `str` | `:1` |
 | `COMPUTER_USE_USER` | `str` | `sandbox` |
 | `COMPUTER_USE_HOME` | `str` | `` |
-| `GRAPH_OS_ANALYTICS_PRINCIPAL` | `str \| None` | `unset` |
-| `GRAPH_OS_ANALYTICS_TENANT` | `str \| None` | `unset` |
+| `GRAPH_OS_ANALYTICS_PRINCIPAL` | `Union` | `unset` |
+| `GRAPH_OS_ANALYTICS_TENANT` | `Union` | `unset` |
 | `EG_ANALYTICS_WORKER_CAPABILITIES` | `str` | `mining.association,pool:default` |
 | `EG_ANALYTICS_WORKER_SLOTS` | `int` | `1` |
 | `EG_ANALYTICS_WORKER_LEASE_MS` | `int` | `60000` |
@@ -496,39 +513,39 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `GRAPH_VERIFIER_TIMEOUT` | `float` | `300.0` |
 | `ENABLE_KG_EMBEDDINGS` | `bool` | `True` |
 | `KG_BACKUPS` | `int` | `3` |
-| `KG_INGESTION_WORKERS` | `int \| None` | `unset` |
+| `KG_INGESTION_WORKERS` | `Union` | `unset` |
 | `KG_LLM_CONCURRENCY` | `int` | `4` |
 | `KG_ANALYSIS_MAX_DEPTH` | `int` | `2` |
 | `KNOWLEDGE_GRAPH_SYNC_BACKGROUND` | `bool` | `True` |
 | `ENABLE_SDD_WATCHER` | `bool` | `True` |
-| `MODEL_REGISTRY_PATH` | `str \| None` | `unset` |
+| `MODEL_REGISTRY_PATH` | `Union` | `unset` |
 | `MODEL_ROLE_ROUTING` | `dict` | `unset` |
 | `KG_EPISTEMIC_LIGHT_DEFAULT` | `bool` | `True` |
 | `SPARQL_ENDPOINTS` | `list` | `["https://query.wikidata.org/sparql"]` |
-| `VLLM_BASE_URL` | `str \| None` | `unset` |
-| `KAFKA_TOPIC` | `str \| None` | `unset` |
+| `VLLM_BASE_URL` | `Union` | `unset` |
+| `KAFKA_TOPIC` | `Union` | `unset` |
 | `SECRETS_BACKEND` | `Literal` | `engine` |
-| `CUSTOM_SKILLS_DIRECTORY` | `str \| None` | `unset` |
-| `SKILL_TYPES` | `list[str] \| None` | `unset` |
+| `CUSTOM_SKILLS_DIRECTORY` | `Union` | `unset` |
+| `SKILL_TYPES` | `Union` | `unset` |
 | `ENABLE_OTEL` | `bool` | `False` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `str \| None` | `unset` |
-| `OTEL_EXPORTER_OTLP_HEADERS_REF` | `str \| None` | `unset` |
-| `OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF` | `str \| None` | `unset` |
-| `OTEL_EXPORTER_OTLP_SECRET_KEY_REF` | `str \| None` | `unset` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `Union` | `unset` |
+| `OTEL_EXPORTER_OTLP_HEADERS_REF` | `Union` | `unset` |
+| `OTEL_EXPORTER_OTLP_PUBLIC_KEY_REF` | `Union` | `unset` |
+| `OTEL_EXPORTER_OTLP_SECRET_KEY_REF` | `Union` | `unset` |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `str` | `http/protobuf` |
-| `OTEL_TLS_PROFILE` | `str \| None` | `unset` |
-| `OTEL_TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `LANGFUSE_PUBLIC_KEY_REF` | `str \| None` | `unset` |
-| `LANGFUSE_SECRET_KEY_REF` | `str \| None` | `unset` |
-| `LANGFUSE_PERSISTENCE_HMAC_KEY_REF` | `str \| None` | `unset` |
+| `OTEL_TLS_PROFILE` | `Union` | `unset` |
+| `OTEL_TLS_PROFILE_REF` | `Union` | `unset` |
+| `LANGFUSE_PUBLIC_KEY_REF` | `Union` | `unset` |
+| `LANGFUSE_SECRET_KEY_REF` | `Union` | `unset` |
+| `LANGFUSE_PERSISTENCE_HMAC_KEY_REF` | `Union` | `unset` |
 | `LANGFUSE_HOST` | `str` | `https://cloud.langfuse.com` |
-| `LANGFUSE_TLS_PROFILE` | `str \| None` | `unset` |
-| `LANGFUSE_TLS_PROFILE_REF` | `str \| None` | `unset` |
-| `LANGFUSE_CA_BUNDLE_REF` | `str \| None` | `unset` |
-| `LANGFUSE_CLIENT_CERT_REF` | `str \| None` | `unset` |
-| `LANGFUSE_CLIENT_KEY_REF` | `str \| None` | `unset` |
-| `LANGFUSE_CLIENT_KEY_PASSWORD_REF` | `str \| None` | `unset` |
-| `LANGFUSE_PROXY_URL_REF` | `str \| None` | `unset` |
+| `LANGFUSE_TLS_PROFILE` | `Union` | `unset` |
+| `LANGFUSE_TLS_PROFILE_REF` | `Union` | `unset` |
+| `LANGFUSE_CA_BUNDLE_REF` | `Union` | `unset` |
+| `LANGFUSE_CLIENT_CERT_REF` | `Union` | `unset` |
+| `LANGFUSE_CLIENT_KEY_REF` | `Union` | `unset` |
+| `LANGFUSE_CLIENT_KEY_PASSWORD_REF` | `Union` | `unset` |
+| `LANGFUSE_PROXY_URL_REF` | `Union` | `unset` |
 | `LANGFUSE_DATASET_CAPTURE_THRESHOLD` | `float` | `0.0` |
 | `LANGFUSE_LATENCY_BASELINE_SECONDS` | `float` | `60.0` |
 | `LANGFUSE_TOKEN_BASELINE` | `int` | `20000` |
@@ -536,14 +553,14 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `LANGFUSE_CAPTURE_CONTENT` | `bool` | `False` |
 | `LANGFUSE_KG_AUTO_INGEST` | `bool` | `False` |
 | `LANGFUSE_MCP_ENABLED` | `bool` | `False` |
-| `GOOGLE_WORKSPACE_OAUTH_CLIENT_ID` | `str \| None` | `unset` |
-| `GOOGLE_WORKSPACE_OAUTH_BROKER_URL` | `str \| None` | `unset` |
+| `GOOGLE_WORKSPACE_OAUTH_CLIENT_ID` | `Union` | `unset` |
+| `GOOGLE_WORKSPACE_OAUTH_BROKER_URL` | `Union` | `unset` |
 | `TRACE_EXPORT_ENABLED` | `bool` | `False` |
-| `PERSISTENCE_PRIVACY_DENY_TERMS_REF` | `str \| None` | `unset` |
-| `PERSISTENCE_IDENTITY_HMAC_KEY_REF` | `str \| None` | `unset` |
+| `PERSISTENCE_PRIVACY_DENY_TERMS_REF` | `Union` | `unset` |
+| `PERSISTENCE_IDENTITY_HMAC_KEY_REF` | `Union` | `unset` |
 | `MEMENTO_RAW_RETENTION_ENABLED` | `bool` | `False` |
 | `MEMENTO_RAW_RETENTION_POLICY` | `str` | `` |
-| `MEMENTO_RAW_ENCRYPTION_KEY_REF` | `str \| None` | `unset` |
+| `MEMENTO_RAW_ENCRYPTION_KEY_REF` | `Union` | `unset` |
 | `A2A_BROKER` | `Literal` | `epistemic_graph` |
 | `A2A_STORAGE` | `Literal` | `epistemic_graph` |
 | `A2A_BROKER_POLL_INTERVAL_MS` | `int` | `100` |
@@ -559,7 +576,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `A2A_DISPATCH_RECONCILE_INTERVAL_MS` | `int` | `1000` |
 | `A2A_DISPATCH_RECONCILE_LIMIT` | `int` | `64` |
 | `A2A_CANCELLATION_POLL_INTERVAL_MS` | `int` | `1000` |
-| `A2A_CONFIG` | `str \| None` | `unset` |
+| `A2A_CONFIG` | `Union` | `unset` |
 | `A2A_REFRESH_INTERVAL` | `int` | `300` |
 | `MAX_TOKENS` | `int` | `16384` |
 | `TEMPERATURE` | `float` | `0.7` |
@@ -567,13 +584,13 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `TIMEOUT` | `float` | `3600.0` |
 | `TOOL_TIMEOUT` | `float` | `3600.0` |
 | `PARALLEL_TOOL_CALLS` | `bool` | `True` |
-| `SEED` | `int \| None` | `unset` |
+| `SEED` | `Union` | `unset` |
 | `PRESENCE_PENALTY` | `float` | `0.0` |
 | `FREQUENCY_PENALTY` | `float` | `0.0` |
-| `LOGIT_BIAS` | `dict[str, float] \| None` | `unset` |
-| `STOP_SEQUENCES` | `list[str] \| None` | `unset` |
-| `EXTRA_HEADERS` | `dict[str, str] \| None` | `unset` |
-| `EXTRA_BODY` | `dict[str, typing.Any] \| None` | `unset` |
+| `LOGIT_BIAS` | `Union` | `unset` |
+| `STOP_SEQUENCES` | `Union` | `unset` |
+| `EXTRA_HEADERS` | `Union` | `unset` |
+| `EXTRA_BODY` | `Union` | `unset` |
 | `MIN_CONFIDENCE` | `float` | `0.4` |
 | `VALIDATION_MODE` | `bool` | `False` |
 | `APPROVAL_TIMEOUT` | `float` | `0.0` |
@@ -586,11 +603,11 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MAX_CONCURRENT_AGENTS` | `int` | `5` |
 | `AGENT_TOKEN_QUOTA` | `int` | `100000` |
 | `PREEMPTION_THRESHOLD_PCT` | `float` | `0.85` |
-| `AGENT_POLICIES_PATH` | `str \| None` | `unset` |
-| `PERMISSIONS_SIGNING_KEY_REF` | `str \| None` | `unset` |
-| `ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF` | `str \| None` | `unset` |
+| `AGENT_POLICIES_PATH` | `Union` | `unset` |
+| `PERMISSIONS_SIGNING_KEY_REF` | `Union` | `unset` |
+| `ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF` | `Union` | `unset` |
 | `ONTOLOGY_RELEASE_TRUSTED_PUBLIC_KEYS` | `str` | `` |
-| `SPECIALIST_REGISTRY_PATH` | `str \| None` | `unset` |
+| `SPECIALIST_REGISTRY_PATH` | `Union` | `unset` |
 
 ## Native Messaging Backend (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
@@ -600,37 +617,37 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MESSAGING_KG_INGEST` | `bool` | `True` |
 | `MESSAGING_KG_MEMORY_TYPE` | `str` | `episodic` |
 | `MESSAGING_ROUTE_TO_PLANNER` | `bool` | `True` |
-| `MESSAGING_DISCORD_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_SLACK_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_SLACK_APP_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_TELEGRAM_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_WHATSAPP_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_WHATSAPP_PHONE_NUMBER_ID` | `str \| None` | `unset` |
+| `MESSAGING_DISCORD_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_SLACK_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_SLACK_APP_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_TELEGRAM_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_WHATSAPP_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_WHATSAPP_PHONE_NUMBER_ID` | `Union` | `unset` |
 | `MESSAGING_WHATSAPP_USE_BUSINESS_API` | `bool` | `False` |
-| `MESSAGING_TEAMS_APP_ID` | `str \| None` | `unset` |
-| `MESSAGING_TEAMS_APP_SECRET` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_GOOGLECHAT_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_GOOGLEMEET_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_MATTERMOST_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_MATTERMOST_URL` | `str \| None` | `unset` |
-| `MESSAGING_MATRIX_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_MATRIX_HOMESERVER` | `str \| None` | `unset` |
-| `MESSAGING_MATRIX_USER_ID` | `str \| None` | `unset` |
-| `MESSAGING_IRC_SERVER` | `str \| None` | `unset` |
+| `MESSAGING_TEAMS_APP_ID` | `Union` | `unset` |
+| `MESSAGING_TEAMS_APP_SECRET` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_GOOGLECHAT_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_GOOGLEMEET_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_MATTERMOST_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_MATTERMOST_URL` | `Union` | `unset` |
+| `MESSAGING_MATRIX_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_MATRIX_HOMESERVER` | `Union` | `unset` |
+| `MESSAGING_MATRIX_USER_ID` | `Union` | `unset` |
+| `MESSAGING_IRC_SERVER` | `Union` | `unset` |
 | `MESSAGING_IRC_PORT` | `int` | `6667` |
 | `MESSAGING_IRC_NICKNAME` | `str` | `agent_bot` |
 | `MESSAGING_IRC_CHANNELS` | `list` | `unset` |
-| `MESSAGING_SIGNAL_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_LINE_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_TWITCH_TOKEN` | `str \| None` | `explicit runtime process value only` |
+| `MESSAGING_SIGNAL_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_LINE_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_TWITCH_TOKEN` | `Union` | `explicit runtime process value only` |
 | `MESSAGING_TWITCH_CHANNELS` | `list` | `unset` |
-| `MESSAGING_SYNOLOGY_WEBHOOK_URL` | `str \| None` | `unset` |
-| `MESSAGING_VOICECALL_APP_ID` | `str \| None` | `unset` |
-| `MESSAGING_VOICECALL_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_VOICECALL_FROM_NUMBER` | `str \| None` | `unset` |
-| `MESSAGING_NEXTCLOUD_URL` | `str \| None` | `unset` |
-| `MESSAGING_NEXTCLOUD_TOKEN` | `str \| None` | `explicit runtime process value only` |
-| `MESSAGING_NEXTCLOUD_APP_ID` | `str \| None` | `unset` |
+| `MESSAGING_SYNOLOGY_WEBHOOK_URL` | `Union` | `unset` |
+| `MESSAGING_VOICECALL_APP_ID` | `Union` | `unset` |
+| `MESSAGING_VOICECALL_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_VOICECALL_FROM_NUMBER` | `Union` | `unset` |
+| `MESSAGING_NEXTCLOUD_URL` | `Union` | `unset` |
+| `MESSAGING_NEXTCLOUD_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_NEXTCLOUD_APP_ID` | `Union` | `unset` |
 
 ## Parallel Engine (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)
 
@@ -668,6 +685,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `A2A_TOOLS` | 1 |
 | `ACTION_IRREVERSIBILITY_AVERSION` | 1 |
 | `AGENTS_ROOT` | 1 |
+| `AGENT_CLAIM_BACKEND` | 1 |
 | `AGENT_ID` | 2 |
 | `AGENT_INVENTORY_YAML` | 1 |
 | `AGENT_MCP_CONFIG_JSON` | 1 |
@@ -691,7 +709,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_MAX` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_PATH` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | 1 |
-| `AGENT_UTILITIES_TESTING` | 7 |
+| `AGENT_UTILITIES_TESTING` | 8 |
 | `AGENT_UTILITIES_TOKEN_SECRET` | 1 |
 | `APPDATA` | 1 |
 | `ARCHI_MODEL_PATH` | 1 |
@@ -728,6 +746,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `DISPLAY` | 1 |
 | `DOCKERHUB_NAMESPACE` | 1 |
 | `DOCKERHUB_NAMESPACES` | 1 |
+| `DURABLE_EXECUTION_DB` | 1 |
 | `EAR_TOKEN` | 1 |
 | `EAR_URL` | 1 |
 | `EMERALD_API_KEY` | 1 |
@@ -806,11 +825,13 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KEYCLOAK_REALM` | 1 |
 | `KEYCLOAK_URL` | 2 |
 | `KG_ADAPTIVE_CONCURRENCY` | 1 |
+| `KG_AMBIENT_EPISTEMIC` | 1 |
+| `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES` | 1 |
 | `KG_ASR_MODEL` | 1 |
 | `KG_CARD_MODEL` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
 | `KG_DAEMON_LOG_LEVEL` | 1 |
-| `KG_DAEMON_ROLE` | 4 |
+| `KG_DAEMON_ROLE` | 5 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
 | `KG_ENABLE_HARD_NEGATIVE_MINING` | 1 |
@@ -833,6 +854,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_RESEARCH_EXTERNAL` | 1 |
 | `KG_RETRIEVAL_QUALITY_GATE` | 1 |
 | `KG_SCHED_CODEBASE_CAP` | 1 |
+| `KG_SERVER_HOST` | 1 |
+| `KG_SERVER_PORT` | 1 |
 | `KG_STAGED_PIPELINE` | 1 |
 | `KG_STRICT_SOURCE_PARTITION` | 1 |
 | `KG_TRUST_HIERARCHY` | 1 |
@@ -846,6 +869,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `LADYBUG_DB_READ_ONLY` | 1 |
 | `LADYBUG_MAX_DB_SIZE` | 1 |
 | `LADYBUG_TRANSIENT_CONNECTIONS` | 1 |
+| `LANGFUSE_PUBLIC_KEY` | 1 |
+| `LANGFUSE_SECRET_KEY` | 1 |
 | `LEANIX_API_TOKEN` | 1 |
 | `LEANIX_TOKEN` | 2 |
 | `LEANIX_URL` | 2 |
@@ -901,6 +926,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `OPENMAINT_URL` | 1 |
 | `OTEL_EXPORTER_OTLP_HEADERS` | 2 |
 | `OTEL_SERVICE_NAME` | 2 |
+| `OTEL_TRACES_EXPORTER` | 1 |
 | `OWL_ALLOW_REMOTE_IMPORTS` | 1 |
 | `OWL_BACKEND` | 1 |
 | `OWL_DB_PATH` | 1 |
@@ -916,6 +942,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTIZ_URL` | 1 |
 | `PROVIDER` | 3 |
 | `PYTEST_CURRENT_TEST` | 1 |
+| `QUERY_ROUTER_L1_THRESHOLD` | 1 |
+| `QUERY_ROUTER_STRATEGY` | 1 |
 | `QWEN_IMAGE_URL` | 1 |
 | `REDPANDA_BROKERS` | 1 |
 | `REDPANDA_CONSUMER_GROUP` | 1 |
@@ -946,7 +974,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
 | `STARDOG_DATABASE` | 5 |
-| `STARDOG_ENDPOINT` | 5 |
+| `STARDOG_ENDPOINT` | 6 |
 | `STARDOG_PASSWORD` | 5 |
 | `STARDOG_PASSWORD_REF` | 1 |
 | `STARDOG_USER` | 5 |
@@ -954,6 +982,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |
 | `TECHNITIUM_URL` | 1 |
+| `TMUX` | 1 |
 | `TRANSPORT` | 1 |
 | `TRM_WRITEBACK_BACKEND` | 1 |
 | `TUNNEL_MANAGER_URL` | 1 |
@@ -978,8 +1007,13 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `VAULT_URL` | 1 |
 | `VERIFIER_REQUEST_LIMIT` | 1 |
 | `WAYLAND_DISPLAY` | 1 |
+| `WORKING_SET_EVICTION_RATIO` | 1 |
+| `WORKING_SET_MAX_EDGES` | 1 |
+| `WORKING_SET_MAX_NODES` | 1 |
+| `WORKING_SET_TTL_SECONDS` | 1 |
 | `WORKSPACE_TOOLS` | 1 |
 | `XDG_CONFIG_HOME` | 2 |
 | `XDG_RUNTIME_DIR` | 2 |
+| `XDG_STATE_HOME` | 1 |
 | `X_TOOLS` | 1 |
 | `kg_trust_hierarchy` | 1 |

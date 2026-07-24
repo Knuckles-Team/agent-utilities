@@ -50,7 +50,7 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 ### Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
 | Variable | Default | Description |
 |---|---|---|
-| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [secrets-auth.md](../5_agent_os_infrastructure/secrets-auth.md) |
+| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [Secrets & Authentication](../pillars/5_agent_os_infrastructure.md#secrets-authentication) |
 | `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | Path for SQLite secrets DB |
 | `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault & OpenBao |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault/OpenBao KV v2 mount point |
@@ -350,4 +350,4 @@ This allows configuring multiple models from the same provider hitting different
 2. API keys go directly in per-model entries via the `api_key` field
 3. Non-LLM environment variables (e.g., `GRAPH_BACKEND`, `OTEL_ENABLE_OTEL`) are now also configurable via `config.json`
 
-> **Full Documentation:** See [docs/models.md](docs/pillars/2_epistemic_knowledge_graph/models.md) for advanced schema options, local model fallbacks, and routing logic.
+> **Full Documentation:** See [models.md](models.md) for advanced schema options, local model fallbacks, and routing logic.

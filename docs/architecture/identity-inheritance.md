@@ -58,7 +58,7 @@ Four steps, each a small, composable module:
    `apply_tool_scope` (`agent_utilities/graph/executor.py`) intersects a
    spawned agent's tools against an invoker allow-list; k8s RBAC on an
    impersonated user/group narrows further still (see
-   [Deferred / roadmap](#deferred--roadmap)). The base capability ceiling
+   [Deferred / roadmap](#deferred-roadmap)). The base capability ceiling
    from step 2 is the widest the caller is ever seen at.
 
 ## Components + data flow
@@ -335,4 +335,4 @@ Enable the claims this normalizer reads, on the client used by callers:
 - [Configuration Reference & Flag Audit](configuration.md)
 - [OAuth/SSO — RFC 8693 delegation](../guides/oauth_sso.md) — the existing
   downstream-API token exchange referenced in
-  [Deferred / roadmap](#deferred--roadmap).
+  [Deferred / roadmap](#deferred-roadmap).

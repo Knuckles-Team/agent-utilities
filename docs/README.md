@@ -111,15 +111,15 @@ The Company Brain is the operational state layer that transforms the Knowledge G
 
 | Guide | Pillar | Path |
 |:------|:-------|:-----|
-| Architecture Deep-Dive | P1 | [pillars/1_graph_orchestration/architecture.md](pillars/1_graph_orchestration/architecture.md) |
-| Knowledge Graph | P2 | [pillars/2_epistemic_knowledge_graph/knowledge-graph.md](pillars/2_epistemic_knowledge_graph/knowledge-graph.md) |
-| Enterprise Ingestion | P2 | [pillars/2_epistemic_knowledge_graph/enterprise_ingestion.md](pillars/2_epistemic_knowledge_graph/enterprise_ingestion.md) |
-| AHE Architecture | P3 | [pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md](pillars/3_agentic_harness_engineering/AHE_ARCHITECTURE.md) |
-| Agent OS Architecture | P5 | [pillars/5_agent_os_infrastructure/agent-os-architecture.md](pillars/5_agent_os_infrastructure/agent-os-architecture.md) |
-| Permissions Kernel | P5 | [pillars/5_agent_os_infrastructure/permissions-kernel.md](pillars/5_agent_os_infrastructure/permissions-kernel.md) |
-| Configuration | P5 | [pillars/5_agent_os_infrastructure/configuration.md](pillars/5_agent_os_infrastructure/configuration.md) |
-| **Enterprise Entities** | P2 | [pillars/2_epistemic_knowledge_graph/enterprise_entities.md](pillars/2_epistemic_knowledge_graph/enterprise_entities.md) |
-| **Enterprise Agent Governance** | P4 | [pillars/4_ecosystem_peripherals.md#enterprise-agent-governance](pillars/4_ecosystem_peripherals.md#-enterprise-agent-governance-eco-416--eco-422) |
+| Architecture Deep-Dive | P1 | [pillars/1_graph_orchestration.md#architecture-orchestration-overview](pillars/1_graph_orchestration.md#architecture-orchestration-overview) |
+| Knowledge Graph | P2 | [pillars/2_epistemic_knowledge_graph.md](pillars/2_epistemic_knowledge_graph.md) |
+| Enterprise Ingestion | P2 | [pillars/2_epistemic_knowledge_graph.md#enterprise-architecture-scaling-hub-and-spoke-ingestion](pillars/2_epistemic_knowledge_graph.md#enterprise-architecture-scaling-hub-and-spoke-ingestion) |
+| AHE Architecture | P3 | [pillars/3_agentic_harness_engineering.md](pillars/3_agentic_harness_engineering.md) |
+| Agent OS Architecture | P5 | [pillars/5_agent_os_infrastructure.md](pillars/5_agent_os_infrastructure.md) |
+| Permissions Kernel | P5 | [pillars/5_agent_os_infrastructure.md#server-minted-identity-fail-closed-permissioning-conceptau-osidentityauthenticated-identity-enforcement](pillars/5_agent_os_infrastructure.md#server-minted-identity-fail-closed-permissioning-conceptau-osidentityauthenticated-identity-enforcement) |
+| Configuration | P5 | [pillars/5_agent_os_infrastructure.md#standardized-configuration](pillars/5_agent_os_infrastructure.md#standardized-configuration) |
+| **Enterprise Entities** | P2 | [pillars/2_epistemic_knowledge_graph.md#enterprise-core-ontology](pillars/2_epistemic_knowledge_graph.md#enterprise-core-ontology) |
+| **Enterprise Agent Governance** | P4 | [pillars/4_ecosystem_peripherals.md#enterprise-agent-governance-au-kgmemoryteam-startup-context-au-osgovernancepermission-policy](pillars/4_ecosystem_peripherals.md#enterprise-agent-governance-au-kgmemoryteam-startup-context-au-osgovernancepermission-policy) |
 | **Graph DB Deployment** | P2 | [guides/graph-db-deployment.md](guides/graph-db-deployment.md) |
 | **OWL Ontology & OS Synergies** | P2/P5 | [owl_kg_synergies.md](owl_kg_synergies.md) |
 | **Gateway Service Dashboard** | GW | [pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) |
