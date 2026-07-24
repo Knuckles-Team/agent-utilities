@@ -2,12 +2,17 @@
 
 Constructs the standard backend set for the router. Each backend is imported
 defensively: a backend whose optional dependency is missing (``pydantic-monty``, ``wasmtime``,
-the container manager) simply isn't constructed, and the router never sees it.
-Host-process and process-only execution are permanently excluded because neither
-confines filesystem, credentials, subprocesses, or network access.
+the container manager) simply isn't constructed, and the router never sees it. Every
+registered backend is real process/container/VM isolation EXCEPT ``local`` (in-process
+``exec``, ORCH-1.38), which is unconditional and deliberately last-ranked: it is the
+always-available floor the router falls back to only once every isolating backend above
+it is unavailable or has rejected the snippet (see ``local_backend.py``'s module
+docstring) — never removing it would leave the RLM loop with zero backends on a host
+with no monty/wasm/forkserver/docker/firecracker support.
 
-Backends are added here as the phases land (monty, docker, wasm); until a module exists the
-``try`` import is skipped, so this file is safe to ship before the others.
+Backends are added here as the phases land (monty, wasm, forkserver ORCH-1.87,
+container_fork ORCH-1.89, docker, firecracker); until a module exists the ``try``
+import is skipped, so this file is safe to ship before the others.
 """
 
 from __future__ import annotations
@@ -75,6 +80,28 @@ def default_sandboxes() -> list[Sandbox]:
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("wasm sandbox not registered: %s", type(exc).__name__)
 
+    # forkserver — process isolation via a warmed multiprocessing forkserver;
+    # cheaper isolated tier than docker, pricier than wasm (rank 15 vs 20/10).
+    try:
+        from .forkserver_backend import ForkServerSandbox
+
+        backends.append(
+            ForkServerSandbox(
+                timeout_secs=float(setting("RLM_CONTAINER_TIMEOUT_SECONDS", 120.0))
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - optional backend
+        logger.debug("forkserver sandbox not registered: %s", type(exc).__name__)
+
+    # container_fork — docker/podman exec into a warm, pooled container; warmer
+    # (cheaper) than cold docker, heavier than forkserver (rank 18).
+    try:
+        from .container_fork_backend import ContainerForkSandbox
+
+        backends.append(ContainerForkSandbox(**_container_options()))
+    except Exception as exc:  # noqa: BLE001 - optional backend
+        logger.debug("container_fork sandbox not registered: %s", type(exc).__name__)
+
     # docker / podman — full isolation, host callbacks via UDS bridge.
     try:
         from .docker_backend import DockerSandbox
@@ -94,4 +121,15 @@ def default_sandboxes() -> list[Sandbox]:
             backends.append(fc)
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("firecracker sandbox not registered: %s", type(exc).__name__)
+
+    # local (in-process exec) — the always-available floor (CONCEPT:AU-ORCH.sandbox.
+    # tiered-rlm-sandbox); NOT an isolation boundary, so it is registered last/
+    # worst-ranked and only reached when every isolating backend above is
+    # unavailable — guarantees the RLM loop is never left with zero backends.
+    try:
+        from .local_backend import LocalSandbox
+
+        backends.append(LocalSandbox())
+    except Exception as exc:  # noqa: BLE001 - optional backend
+        logger.debug("local sandbox not registered: %s", type(exc).__name__)
     return backends
