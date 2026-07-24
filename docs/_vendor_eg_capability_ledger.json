@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-23T12:16:46Z",
-  "row_count": 362,
+  "cached_at": "2026-07-24T14:48:52Z",
+  "row_count": 365,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -88,6 +88,17 @@
       "method": "ApplyChangeEnvelope",
       "mutates": "true",
       "note": "Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory",
+      "txn_participation": "Atomic"
+    },
+    "ApplyChangeEnvelopes": {
+      "audited": "true",
+      "authz_action": "ingest:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "true",
+      "idempotent": "true",
+      "method": "ApplyChangeEnvelopes",
+      "mutates": "true",
+      "note": "Batch envelope coordinator: one coalesced graph transaction per shard-partition; same policy class as ApplyChangeEnvelope",
       "txn_participation": "Atomic"
     },
     "ApplyLedger": {
@@ -562,6 +573,17 @@
       "mutates": "true",
       "note": "opaque prepared/committed session-control MutationBatch",
       "txn_participation": "Saga"
+    },
+    "ClusterMembers": {
+      "audited": "false",
+      "authz_action": "cluster:topology-read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ClusterMembers",
+      "mutates": "false",
+      "note": "ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader",
+      "txn_participation": "Snapshot"
     },
     "Commit": {
       "audited": "false",
@@ -2795,6 +2817,17 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "NodeInfoUpsert": {
+      "audited": "false",
+      "authz_action": "admin:cluster",
+      "durability": "ControlRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "NodeInfoUpsert",
+      "mutates": "true",
+      "note": "ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson)",
+      "txn_participation": "Saga"
     },
     "ObserveScreen": {
       "audited": "false",
