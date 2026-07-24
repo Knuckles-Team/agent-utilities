@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1019
+total_concepts: 1020
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -704,16 +704,18 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: skill
 - id: AU-AHE.harness.unified-promotion-gate
-  name: AU-AHE.harness.unified-promotion-gate
+  name: program issue register
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/evolve_agent.py
   - agent_utilities/knowledge_graph/research/auto_merge.py
+  - agent_utilities/knowledge_graph/research/evolution_state.py
   - agent_utilities/knowledge_graph/research/skill_evolution.py
+  - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/artifact_promotion.py
-  doc: AU-AHE.harness.unified-promotion-gate
+  doc: program issue register
 - id: AU-AHE.harness.variant-pool
   name: ───────────────────────────────────
   pillar: AU-AHE
@@ -6155,6 +6157,13 @@ concepts:
   code_paths:
   - agent_utilities/core/registry/service_adapter.py
   doc: Service registry initialized with
+- id: AU-ORCH.dispatch.agents-as-data-activation
+  name: ADR-6 / W2.3
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_activation.py
+  doc: ADR-6 / W2.3
 - id: AU-ORCH.dispatch.builtin-agent-templates
   name: makes the packaged expert personas *dispatchable* agents
   pillar: AU-ORCH
@@ -8329,6 +8338,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/gateway/daemon.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/state.py
   - agent_utilities/knowledge_graph/core/session.py

@@ -849,7 +849,8 @@ def process_one_activation(
     now = now if now is not None else time.time()
     work_item_id = str(claim["work_item_id"])
     item = _wi.get_work_item(engine, work_item_id) or {}
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    raw_metadata = item.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
     instance_id = str(metadata.get("agent_instance_id") or item.get("payload_ref") or "")
     node = get_agent_instance(engine, instance_id) if instance_id else None
     if node is None:

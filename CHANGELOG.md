@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **Agents-as-data activation layer + stateless worker loop (ADR-6 / W2.3,
+  CONCEPT:AU-ORCH.dispatch.agents-as-data-activation).** A dormant agent is a durable
+  `eg-statechart` `MachineInstance` (`dormant ⇄ active`) + a per-tenant graph node — no
+  thread/connection/heartbeat while dormant. `agent_utilities/orchestration/agent_activation.py`
+  composes the three existing stores (statecharts, WorkItem CAS, graphs) + one worker
+  loop: an event (`deliver_activation`) appends to the instance mailbox and submits a
+  WorkItem in the QoS lane derived from the activation **source** (direct⇒Interactive,
+  timer/orch/broker⇒Orch, cdc⇒Ingest); a stateless worker (`agent-activation-worker`, one
+  process = one worker) claims via the CAS lease (the liveness signal), drives the
+  instance `dormant → active`, runs the pluggable executor under the ADR-4 delegation
+  chain + W2.4 `priority_scope`, writes `:RunTrace`/`:ToolCall` provenance carrying the
+  chain, heartbeats **only while active** (renew + revalidate delegation = bounded-time
+  revocation), commits the WorkItem terminally, and releases the instance to `dormant`. A
+  dead worker's lease expires and the activation re-queues (bounded retries → dead_letter,
+  the ADR-5 machinery). Canonical template `AGENT_LIFECYCLE_DEF` mirrors eg's new
+  `agent_lifecycle_statechart.rs`. Local scale proof: **100 000 dormant instances @ ~1.54
+  KiB/inst + 1 000 concurrent activations, all touching only the M activated instances
+  (O(activations), not O(dormant)), peak RSS 283 MiB** (in-memory floor; the engine's
+  catalog/resident paging does strictly better). Docs:
+  `architecture/agents-as-data-activation.md`.
 - **TMS live-wiring completion — Seam 3 closes the loop (W3.2, CONCEPT:EG-KG.epistemic.truth-maintenance).**
   The surpass-6mo audit (`reports/surpass-6mo/01-eg-epistemic-core.md` item 2)
   found the engine's truth-maintenance auto-registration real and shipped
