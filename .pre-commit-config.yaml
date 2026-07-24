@@ -196,7 +196,15 @@ repos:
 - repo: https://github.com/IamTheFij/docker-pre-commit
   rev: f626253b23de45412865c07fd076ff95d4cd77a7 # v3.0.1
   hooks:
+  # `docker compose config` interpolates every compose file's env vars to
+  # validate them, which needs real deployment-time values (image digests,
+  # DB users, GRAPH_SERVICE_AUTH_SECRET, ...) that only exist in the actual
+  # deploy environment/secret store, never a bare dev/CI checkout. Same
+  # heavy/env-infra class as docs-build/wheel-build/backend-parity/
+  # guardrails-lean-parity above — staged manual/pre-push. Run it via:
+  #   pre-commit run docker-compose-check --hook-stage manual --all-files
   - id: docker-compose-check
+    stages: [manual, pre-push]
 - repo: local
   hooks:
   - id: security-sanitizer
@@ -272,10 +280,17 @@ repos:
     name: Guardrail — every Graph-OS verb has domain-skill coverage
     # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: every live
     # verb must be claimed explicitly in an agents/graph-os.yaml sidecar.
+    # Provider-asset resolution needs a reachable graph-os/engine (a bare
+    # checkout prints "Provider assets unavailable (error_code=
+    # source_unresolved)" for each source) -- same heavy/env-infra class as
+    # docs-build/wheel-build/backend-parity/guardrails-lean-parity above.
+    # Staged manual/pre-push. Run it via:
+    #   pre-commit run guardrail-kg-skill-coverage --hook-stage manual --all-files
     entry: python3 -m agent_utilities.mcp.skill_coverage
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   - id: guardrail-prebundled-skills
     name: Guardrail — consolidated pre-bundled skills stay valid
     entry: python3 scripts/check_prebundled_skills.py
