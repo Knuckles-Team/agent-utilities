@@ -152,7 +152,7 @@ def test_in_process_apply_live_actually_starts_messaging(monkeypatch):
 
 def test_container_plan_renders_valid_compose_yaml():
     plan = backends.ContainerBackend().plan(
-        target="r510", image="agent-utilities:1.2.3"
+        target="container-host", image="agent-utilities:1.2.3"
     )
     assert plan.backend == "container"
     assert plan.live_capable is False
@@ -166,7 +166,7 @@ def test_container_plan_renders_valid_compose_yaml():
     assert call.server == "container-manager-mcp"
     assert call.tool == "cm_compose_operations"
     assert call.args["action"] == "up"
-    assert call.args["host"] == "r510"
+    assert call.args["host"] == "container-host"
 
 
 def test_container_plan_includes_webui_when_configured(monkeypatch):
@@ -174,14 +174,14 @@ def test_container_plan_includes_webui_when_configured(monkeypatch):
         enable_web_ui = True
 
     monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
-    plan = backends.ContainerBackend().plan(target="r510")
+    plan = backends.ContainerBackend().plan(target="container-host")
     compose = yaml.safe_load(plan.artifacts["compose.yml"])
     assert "agent-webui" in compose["services"]
 
 
 def test_container_apply_never_executes_only_plans():
     b = backends.ContainerBackend()
-    plan = b.plan(target="r510")
+    plan = b.plan(target="container-host")
     out = b.apply(plan, dry_run=True)
     assert out["applied"] is False
     with pytest.raises(PlanOnlyBackendError):
