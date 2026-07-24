@@ -1716,6 +1716,111 @@ def register_engine_surface_tools(mcp) -> None:
     kg_server.ACTION_TOOL_ROUTES["graph_learn"] = "/graphlearn/fit"
 
     # ══════════════════════════════════════════════════════════════════
+    # graph_pipeline — composable ML pipeline surface (CONCEPT:EG-KG.mining.ml-pipeline)
+    # ══════════════════════════════════════════════════════════════════
+    @mcp.tool(
+        name="graph_pipeline",
+        description=(
+            "CONCEPT:EG-KG.mining.ml-pipeline — a composable train→eval→serve→predict "
+            "ML pipeline over a VERSIONED ':Model' artifact that GENERALIZES the KAN "
+            "one-off: a spec of 'feature steps → split → a pluggable model family'. "
+            "Families: 'classify' (node classification — gaussiannb/multinomialnb/knn/"
+            "logistic/svc), 'estimator' (regression — ridge/lasso/elasticnet/"
+            "decisiontree/randomforest/gradientboosting/adaboost/svr), 'graphlearn' "
+            "(the KAN link-predictor). Actions: "
+            "• train — fit over composed features, evaluate on a held-out split, and "
+            "persist a versioned :Model node. params: {name, spec:{features:[{step:"
+            "'embedding',method:'fastrp'|'node2vec',dim,...} | {step:'node_vector'} | "
+            "{step:'normalize'}], split:{test_ratio,shuffle,seed}, label_property, "
+            "model:{family,algorithm,params}}, source:{node_label,direction,relation,"
+            "limit} OR x:[[...]], y:[...], writeback}. Returns {name, version, model_id, "
+            "family, metrics:{train,test}, ...}. Re-running train bumps the version. "
+            "• eval — score a stored model (version; 0⇒served) against a labeled set → "
+            "{metrics}. "
+            "• serve — deploy version N as the served :ServedModel (predict-by-name "
+            "then resolves it). "
+            "• predict — apply a stored model to a source/x; writeback ⇒ :Prediction "
+            "nodes. Returns {rows:[{id,label|value,proba}], ...}. "
+            "• compare — diff two versions' held-out metrics → {metrics_a, metrics_b, "
+            "diff}. "
+            "Node classification: 'source' selects the subgraph, an 'embedding' feature "
+            "step builds structural node vectors (fastrp/node2vec), 'label_property' is "
+            "the per-node integer class. Heavy/deep training stays a data-science-mcp "
+            "job. REST twins: POST /api/pipeline/{train,eval,serve,predict,compare}. "
+            "Degrades cleanly on a no-ml-pipeline engine build."
+        ),
+        tags=[
+            "graph-os",
+            "engine",
+            "ml-pipeline",
+            "pipeline",
+            "node-classification",
+            "model-registry",
+        ],
+    )
+    def graph_pipeline(
+        action: str = Field(
+            default="train",
+            description="Pipeline action: 'train' | 'eval' | 'serve' | 'predict' | 'compare'.",
+        ),
+        params_json: str = Field(
+            default="{}",
+            description="JSON object of pipeline kwargs, e.g. "
+            '{"name":"community","spec":{"features":[{"step":"embedding",'
+            '"method":"fastrp","dim":32}],"split":{"test_ratio":0.3},'
+            '"label_property":"label","model":{"family":"classify",'
+            '"algorithm":"logistic"}},"source":{"node_label":"Person"}} (train); '
+            '{"name":"community","version":1} (serve); '
+            '{"name":"community","version":0,"source":{"node_label":"Person"},'
+            '"writeback":true} (predict); '
+            '{"name":"community","version_a":1,"version_b":2} (compare).',
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin action-router over the engine ML-pipeline surface (CONCEPT:EG-KG.mining.ml-pipeline)."""
+        # MCP verb → client method (the 'eval' alias maps to the client's evaluate()).
+        method_by_action = {
+            "train": "train",
+            "eval": "evaluate",
+            "evaluate": "evaluate",
+            "serve": "serve",
+            "predict": "predict",
+            "compare": "compare",
+        }
+        action = (action or "").strip().replace("-", "_").lower() or "train"
+        method = method_by_action.get(action)
+        if method is None:
+            return json.dumps(
+                {
+                    "surface": "pipeline",
+                    "error": f"unknown action {action!r} for graph_pipeline; choose one of "
+                    "train | eval | serve | predict | compare",
+                }
+            )
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return _surface_error(exc, surface="pipeline", code="invalid_request")
+        if not isinstance(params, dict):
+            return json.dumps(
+                {"surface": "pipeline", "error": "params_json must decode to an object"}
+            )
+        return _invoke(
+            surface="pipeline",
+            action=method,
+            graph=graph,
+            candidates=((("pipeline", method),)),
+            params=params,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_pipeline"] = graph_pipeline
+    # REST twin path: POST {prefix}/pipeline/train (natural-body mount in kg_server →
+    # the SAME _execute_tool core as the MCP verb).
+    kg_server.ACTION_TOOL_ROUTES["graph_pipeline"] = "/pipeline/train"
+
+    # ══════════════════════════════════════════════════════════════════
     # graph_fork — warm-fork / KV-cache fan-out (CONCEPT:AU-KG.coordination.warm-fork-fanout)
     # ══════════════════════════════════════════════════════════════════
     @mcp.tool(

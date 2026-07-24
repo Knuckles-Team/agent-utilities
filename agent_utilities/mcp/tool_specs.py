@@ -63,6 +63,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_mine": ("ask",),
         "graph_mine_deep": ("act", "ask"),
         "graph_learn": ("act", "ask"),
+        "graph_pipeline": ("act", "ask"),
         "engine_graphlearn": ("act", "ask"),
         "graph_ops_causal": ("why", "ask"),
         "graph_traces": ("ask", "why"),
