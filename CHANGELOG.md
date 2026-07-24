@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
+- **Fleet server self-registration + heartbeat (W2.5, CONCEPT:EG-KG.sharding.server-registry) —
+  the config-file sync is no longer graph-os's sole `:Server`-node writer.**
+  `mcp/server_factory.py`'s `create_mcp_server` now wires EVERY fleet MCP server
+  (via a FastMCP ASGI `lifespan`, proven to run under `stdio`/`streamable-http`/
+  `sse` alike — no per-server opt-in) to self-register + heartbeat directly with
+  the engine's new native push-registration RPC (`Method::RegisterServer`,
+  `epistemic-graph` W2.5) at startup, renewing its lease on a cadence well inside
+  the TTL (`MCP_FLEET_REGISTRATION_TTL_SECS`, default 300s; opt out with
+  `MCP_FLEET_REGISTRATION=false` for a run with no engine access). Best-effort:
+  an unreachable engine never crashes or blocks server startup, only logs and
+  retries. `knowledge_graph.core.engine_ingestion.ingest_mcp_server` (the
+  config-file sync) now becomes a RECONCILER-of-record: its `:Server` identity
+  write goes through the SAME `RegisterServer` RPC (a long, 24h reconciler TTL,
+  repairing drift / covering a never-self-registering third-party server)
+  instead of an unconditional raw Cypher `MERGE`, falling back to the legacy
+  `MERGE` only if the engine-native registry client is unreachable through this
+  backend. The engine's own periodic stale-lease reaper expires a dead
+  registration (a killed/crashed server that stopped heartbeating) and emits a
+  CDC event within one sweep interval of its lease lapsing.
+- **`oidc_token` forwarded onto the engine envelope (ADR-4 decision 5 / W2.1-1,
+  CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation).** `knowledge_graph.core.session.
+  GraphSession._apply_spawn_delegation` now forwards the ambient
+  `SpawnDelegation.oidc_token` (already built — `security/delegation.py`) onto
+  the `on`-mode delegation envelope's `oidc_token` claim, completing the
+  cross-repo wire: `epistemic_graph.client`'s `RequestContextClaims` gained the
+  optional claim this same wave (W2.1-1), so it no longer rejects it as
+  unsupported. A plain pass-through, not a signing concern — the token's own
+  RSA/JWKS signature is the trust anchor, verified independently by the engine.
 - **TMS live-wiring completion — Seam 3 closes the loop (W3.2, CONCEPT:EG-KG.epistemic.truth-maintenance).**
   The surpass-6mo audit (`reports/surpass-6mo/01-eg-epistemic-core.md` item 2)
   found the engine's truth-maintenance auto-registration real and shipped

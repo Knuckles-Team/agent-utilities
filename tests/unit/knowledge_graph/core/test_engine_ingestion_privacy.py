@@ -41,5 +41,8 @@ def test_mcp_resources_exclude_source_path_and_environment_values(monkeypatch) -
 
 
 def test_non_neutral_mcp_alias_becomes_opaque() -> None:
-    alias = _neutral_mcp_alias("/mnt/c/Users/agent-user/server", config_hash="a" * 64)
+    # Pre-existing drift (found while validating W2.5): `_neutral_mcp_alias`
+    # takes only the keyword-only `config_hash` (no path argument) -- this
+    # test predates that signature.
+    alias = _neutral_mcp_alias(config_hash="a" * 64)
     assert alias == "external-aaaaaaaaaaaa"
