@@ -230,6 +230,35 @@ class SkillNeologismDetector:
         return "-".join(words[:3]).lower().replace(".", "")
 
 
+def submit_skill_gap(engine: object, skill_gap: SkillGap) -> dict[str, object] | None:
+    """Cross-wire a detected :class:`SkillGap` into the canonical gap intake.
+
+    Wave-6 D1 (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle): the skill-coverage track
+    lived in a separate, non-cross-wired evolution engine. This folds it into the ONE
+    canonical ``:Gap`` — a skill gap becomes a first-class, leased, schedulable gap that
+    flows the SAME Gap→SDD→publish→resolved lifecycle as every other track. Severity is
+    higher the further the task is from any existing skill (``1 - similarity_score``).
+    (The larger full-engine convergence stays a follow-up, per the ADR.)
+    """
+    from ..research.gaps import SOURCE_SKILL, submit_gap
+
+    name = skill_gap.suggested_name or "skill"
+    statement = (
+        f"Missing skill coverage for: {skill_gap.task_text.strip()[:200]} "
+        f"(suggested skill '{name}')"
+    )
+    severity = max(0.3, min(1.0, 1.0 - float(skill_gap.similarity_score or 0.0)))
+    return submit_gap(
+        engine,
+        source=SOURCE_SKILL,
+        signature=name,
+        statement=statement,
+        domain="skill-coverage",
+        severity=severity,
+        evidence_refs=list(skill_gap.gap_keywords[:15]),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Skill Factory
 # ---------------------------------------------------------------------------

@@ -346,8 +346,32 @@ def file_gap_topic(
         logger.debug("gap concept persist failed (%s)", type(exc).__name__)
         return None
 
+    # Wave-6 D1 (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle): fold the production-failure
+    # track into the ONE canonical :Gap. Today this Concept is a transient topic never given
+    # a WorkItem/lease; submit_gap persists the canonical :Gap AND leases it, so a failure gap
+    # is a first-class, schedulable work item that flows the SAME Gap→SDD→publish→resolved
+    # lifecycle. Severity scales with how often the pattern recurred (expedites hot failures).
+    canonical_gap_id = ""
+    try:
+        from ..research.gaps import SOURCE_FAILURE, submit_gap
+
+        severity = min(1.0, 0.4 + 0.1 * float(pattern.count or 1))
+        canonical = submit_gap(
+            engine,
+            source=SOURCE_FAILURE,
+            signature=pattern.signature,
+            statement=f"Recurring production failure: {pattern.label}",
+            domain=pattern.name or "runtime",
+            severity=severity,
+            evidence_refs=list(pattern.trace_ids[:20]),
+        )
+        canonical_gap_id = (canonical or {}).get("id", "") if canonical else ""
+    except Exception as exc:  # noqa: BLE001 — canonical gap is best-effort
+        logger.debug("submit_gap for failure pattern failed (%s)", type(exc).__name__)
+
     return {
         "id": gap_id,
+        "gap_id": canonical_gap_id,
         "name": f"Failure: {pattern.label}",
         "signature": pattern.signature,
         "workflow": pattern.name,
