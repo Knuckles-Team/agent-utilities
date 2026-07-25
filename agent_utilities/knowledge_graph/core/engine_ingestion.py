@@ -10,8 +10,8 @@ MCP servers, A2A agent cards, and agent skills into the KG.
 import typing
 
 if typing.TYPE_CHECKING:
-    from ..backends.base import GraphBackend
     from .._engine_protocol import _EngineProtocol
+    from ..backends.base import GraphBackend
 
     _Base = _EngineProtocol
 else:
@@ -273,9 +273,9 @@ class IngestionMixin(_Base):
             except Exception as exc:
                 logger.warning(
                     "Server-registry reconcile via RegisterServer failed for "
-                    "%r, falling back to legacy MERGE (exception_type=%s)",
+                    "%r, falling back to legacy MERGE: %s",
                     name,
-                    type(exc).__name__,
+                    exc,
                 )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         backend.execute(

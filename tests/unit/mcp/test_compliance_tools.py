@@ -381,7 +381,7 @@ def test_posture_doctor_slice_degrades_on_import_failure(monkeypatch):
 # explain_belief returned (no raw config/env value ever reaches the output).
 # --------------------------------------------------------------------------- #
 
-_FAKE_SECRET = "sk-live-9f3e2b7a1c4d6e8f0a2b4c6d8e0f1a2b3c4d"  # nosec B105 - test fixture, not a real credential
+_FAKE_SECRET = "sk-live-9f3e2b7a1c4d6e8f0a2b4c6d8e0f1a2b3c4d"  # nosec B105 - test fixture, not a real credential  # sanitizer:ignore — synthetic value, verifies compliance export redacts it
 _FAKE_HOST_IDENTITY = "r510-prod.internal.arpa"
 
 

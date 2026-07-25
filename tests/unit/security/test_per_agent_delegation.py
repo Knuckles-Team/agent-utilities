@@ -293,7 +293,7 @@ def test_apply_spawn_delegation_forwards_oidc_token_when_enforced() -> None:
         run_id="run-1",
         principal="user:alice",
         mode=deleg.DelegationMode.ON,
-        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",  # sanitizer:ignore — synthetic fixture JWT, not a real token
     )
     context = {"principal": "user:alice", "agent_id": "user:alice", "delegation": []}
     with deleg.use_delegation(d):
@@ -334,7 +334,7 @@ def test_apply_spawn_delegation_never_forwards_oidc_token_unless_enforced(mode) 
         run_id="run-1",
         principal="user:alice",
         mode=mode,
-        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",  # sanitizer:ignore — synthetic fixture JWT, not a real token
     )
     context = {"principal": "user:alice", "agent_id": "user:alice", "delegation": []}
     with deleg.use_delegation(d):
@@ -372,7 +372,7 @@ def test_emitted_oidc_token_passes_engine_wire_validation() -> None:
         run_id="run-1",
         principal="user:alice",
         mode=deleg.DelegationMode.ON,
-        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",
+        oidc_token="eyJhbGciOiJSUzI1NiJ9.fixture.sig",  # sanitizer:ignore — synthetic fixture JWT, not a real token
     )
     envelope = {
         "principal": "user:alice",

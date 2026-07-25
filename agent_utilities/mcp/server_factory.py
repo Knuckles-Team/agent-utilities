@@ -1405,9 +1405,8 @@ async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) ->
             raise
         except Exception as exc:
             logger.debug(
-                "Fleet self-registration attempt failed, will retry "
-                "(exception_type=%s)",
-                type(exc).__name__,
+                "Fleet self-registration attempt failed, will retry: %s",
+                exc,
             )
         await asyncio.sleep(interval)
 
