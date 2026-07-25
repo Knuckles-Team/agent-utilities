@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-539 typed fields · 340 runtime-only call-site inputs.
+539 typed fields · 341 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -896,6 +896,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_ENABLED_TOOLS` | 1 |
 | `MCP_FLEET_REGISTRATION` | 1 |
 | `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |
+| `MCP_PUBLIC_BASE_URL` | 1 |
 | `MEDIA_TOOLS` | 1 |
 | `MESSAGING_INBOX_RETRY_S` | 1 |
 | `MESSAGING_REPLY_TIMEOUT` | 2 |

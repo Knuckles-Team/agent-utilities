@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import sys
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from agent_utilities._version import __version__
@@ -181,7 +181,11 @@ def _hardened_jwt_verifier(**kwargs: Any) -> Any:
             return logger.isEnabledFor(level)
 
     verifier = _Verifier(**kwargs)
-    verifier.logger = _PrivacyLogger()
+    # _PrivacyLogger is a deliberate duck-typed shim (redacts JWT-adjacent log
+    # content) satisfying the same debug/info/warning/error/isEnabledFor surface
+    # JWTVerifier calls -- not a real logging.Logger subclass, so it is cast
+    # rather than nominally typed.
+    verifier.logger = cast("logging.Logger", _PrivacyLogger())
     return verifier
 
 
@@ -214,6 +218,45 @@ def _validated_redirect_uris(value: str | None) -> list[str] | None:
     if not uris or len(uris) > 32:
         raise ValueError("redirect URI allowlist is invalid")
     return [_secure_auth_url(uri, field="redirect URI") for uri in uris]
+
+
+def _wrap_with_resource_metadata(
+    verifier: Any, args: argparse.Namespace, issuer_values: list[str]
+) -> Any:
+    """Compose *verifier* with RFC 9728 protected-resource metadata when a public
+    base URL is configured (CONCEPT:AU-OS.identity.protected-resource-metadata).
+
+    A bare ``TokenVerifier`` (what plain ``jwt`` auth builds) publishes zero OAuth
+    routes and never appends ``resource_metadata`` to its 401 challenge, so an
+    RFC 9728-aware MCP client (e.g. Claude Code) has no way to discover the
+    authorization server and refresh its own token — it is handed a static JWT
+    that silently expires. Wrapping the same verifier in ``RemoteAuthProvider``
+    adds the ``/.well-known/oauth-protected-resource`` route and the
+    ``resource_metadata`` challenge param with no change to token verification
+    itself (``RemoteAuthProvider.verify_token`` just delegates to *verifier*).
+
+    With no public base URL configured, *verifier* is returned unwrapped — today's
+    exact behavior, so this is additive and fully backward compatible.
+    """
+    import sys as _sys
+
+    base_url = str(getattr(args, "public_base_url", "") or "").strip()
+    if not base_url:
+        return verifier
+    try:
+        base_url = _secure_auth_url(base_url, field="MCP public base URL")
+    except ValueError:
+        logger.error("Error: MCP public base URL policy is invalid")
+        _sys.exit(1)
+
+    from fastmcp.server.auth import RemoteAuthProvider
+    from pydantic import AnyHttpUrl
+
+    return RemoteAuthProvider(
+        token_verifier=verifier,
+        authorization_servers=[AnyHttpUrl(u) for u in issuer_values],
+        base_url=base_url,
+    )
 
 
 def _is_loopback_bind(host: Any) -> bool:
@@ -506,6 +549,14 @@ def create_mcp_parser(
         help="Base URL for OIDC Proxy",
     )
     parser.add_argument(
+        "--public-base-url",
+        default=setting("MCP_PUBLIC_BASE_URL"),
+        help="Public base URL of this MCP server, used to advertise RFC 9728 "
+        "protected-resource metadata for JWT auth (e.g. https://graph-os.arpa) "
+        "so an RFC 9728-aware client can discover the authorization server and "
+        "refresh its own token instead of a static JWT",
+    )
+    parser.add_argument(
         "--remote-auth-servers",
         default=None,
         help="Comma-separated list of authorization servers for Remote OAuth",
@@ -628,6 +679,7 @@ def _configure_auth(args: argparse.Namespace) -> Any:
 
     from fastmcp.server.auth import OAuthProxy, RemoteAuthProvider
     from fastmcp.server.auth.oidc_proxy import OIDCProxy
+    from pydantic import AnyHttpUrl
 
     mcp_auth_config["enable_delegation"] = args.enable_delegation
     mcp_auth_config["audience"] = args.audience or mcp_auth_config["audience"]
@@ -918,7 +970,7 @@ def _configure_auth(args: argparse.Namespace) -> Any:
         )
         return RemoteAuthProvider(
             token_verifier=token_verifier,
-            authorization_servers=auth_servers,
+            authorization_servers=[AnyHttpUrl(u) for u in auth_servers],
             base_url=remote_base_url,
         )
     return None
@@ -1086,7 +1138,11 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
                 for _u, _i in zip(_jwks_uris, _issuers, strict=False)
             ]
             logger.info("JWT auth: native multi-issuer trust configured")
-            return _MultiIssuerVerifier(_verifiers, required_scopes=required_scopes)
+            return _wrap_with_resource_metadata(
+                _MultiIssuerVerifier(_verifiers, required_scopes=required_scopes),
+                args,
+                _issuers,
+            )
         except Exception as exc:
             logger.error(
                 "Failed to initialize multi-realm JWTVerifier (exception_type=%s)",
@@ -1095,7 +1151,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             _sys.exit(1)
 
     try:
-        return _hardened_jwt_verifier(
+        verifier = _hardened_jwt_verifier(
             jwks_uri=jwks_uri,
             public_key=public_key,
             issuer=issuer,
@@ -1103,6 +1159,7 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
             algorithm=algorithm or "RS256",
             required_scopes=required_scopes,
         )
+        return _wrap_with_resource_metadata(verifier, args, issuer_values)
     except Exception as exc:
         logger.error(
             "Failed to initialize JWTVerifier (exception_type=%s)",

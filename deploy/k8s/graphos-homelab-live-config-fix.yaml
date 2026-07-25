@@ -107,6 +107,14 @@ data:
   FASTMCP_SERVER_AUTH_JWT_JWKS_URI: "http://keycloak.platform.svc:8080/realms/homelab/protocol/openid-connect/certs"
   FASTMCP_SERVER_AUTH_JWT_ISSUER: "http://keycloak.arpa/realms/homelab"
   FASTMCP_SERVER_AUTH_JWT_AUDIENCE: "agent-services"
+  # --- RFC 9728 auto-refresh fix (reports/graphos-oauth-autorefresh.md) --
+  # Wraps the jwt verifier in RemoteAuthProvider so graph-os advertises
+  # /.well-known/oauth-protected-resource and a resource_metadata= challenge
+  # on every 401 -- the discovery hook an RFC 9728-aware MCP client (Claude
+  # Code) needs to find Keycloak and refresh its own token, instead of the
+  # static ~10h JWT baked into ~/.claude.json today. No effect unless set
+  # (agent_utilities/mcp/server_factory.py `_wrap_with_resource_metadata`).
+  MCP_PUBLIC_BASE_URL: "https://graph-os.arpa"  # was absent entirely
   # Outbound fleet auth (graph-os -> the rest of the *-mcp fleet it fronts) —
   # a SEPARATE concern from the inbound fix above; already correctly wired.
   MCP_CLIENT_AUTH: "oidc-client-credentials"
