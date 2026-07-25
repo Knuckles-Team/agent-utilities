@@ -17,7 +17,8 @@ stuck-loop guard, no eviction. This module holds the assembly so BOTH seams shar
 The reliability capabilities are safe to attach unconditionally: each one only acts
 when its own trigger fires (compaction only over budget, eviction only on an oversized
 tool result, the warner only near the token limit, the stuck-loop guard only on
-repeated identical tool calls), so a normal run is unaffected.
+repeated identical tool calls, KG-native audit only when a graph engine is present on
+``ctx.deps``), so a normal run is unaffected.
 """
 
 from typing import TYPE_CHECKING, Any, Literal
@@ -36,6 +37,7 @@ def default_runtime_capabilities(
     output_eviction: bool = True,
     eviction_threshold_chars: int = 80_000,
     memento_compaction: bool = True,
+    kg_audit: bool = True,
     include_checkpoints: bool = False,
     checkpoint_store: Any | None = None,
     checkpoint_frequency: Literal[
@@ -57,6 +59,7 @@ def default_runtime_capabilities(
     from .checkpointing import CheckpointMiddleware, InMemoryCheckpointStore
     from .context_warnings import ContextLimitWarner
     from .eviction import ToolOutputEviction
+    from .kg_audit_sink import AuditLog
     from .memento import MementoCompaction
     from .stuck_loop import StuckLoopDetection
     from .teams import TeamCapability
@@ -84,6 +87,13 @@ def default_runtime_capabilities(
     # message list never orphans a tool-call/tool-return pair.
     if memento_compaction:
         capabilities.append(MementoCompaction(max_tokens=max_context_tokens))
+
+    # CONCEPT:AU-KG.audit.kg-native-audit-sink — PA-R1.7: KG-native tool-call/run provenance
+    # (adopts the pydantic-ai-harness AuditSink abstraction). Default ON like every other
+    # capability here: its sink resolves ``ctx.deps.graph_engine`` lazily per run and no-ops
+    # when absent, so a normal run without a KG engine is unaffected.
+    if kg_audit:
+        capabilities.append(AuditLog())
 
     if include_checkpoints:
         store = checkpoint_store or InMemoryCheckpointStore()
