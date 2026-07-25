@@ -158,10 +158,10 @@ exactly like `store_document_page_evidence` — nothing about `store_media`/
 
 | Locus (`eg_modality::EvidenceAddress`) | `MediaStore` method | Producer wiring |
 |---|---|---|
-| `PageBox` | `store_document_page_evidence` | **Wired 2026-07-22 (pass 2)** — `readers_office.read_pptx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per slide, boxed to the deck's real `slide_width`/`slide_height`. The PDF text path (`extraction/pdf.py`) was surveyed and genuinely has no computed-and-discarded per-page box to wire: it deliberately isolates parsing in a killable, engine-less subprocess and joins ALL pages into one flat string, by design, for security isolation — no page boundary or box survives the pipe, so wiring it would require new computation, not just plumbing. |
-| `DocumentSpan` | `store_document_span_evidence` | Wired (pass 1, 2026-07-22) — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. |
+| `PageBox` | `store_document_page_evidence` | **Wired 2026-07-22 (pass 2)** — `readers_office.read_pptx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per slide, boxed to the deck's real `slide_width`/`slide_height`. The PDF text path (`extraction/pdf.py`) was surveyed and genuinely has no computed-and-discarded per-page box to wire: it deliberately isolates parsing in a killable, engine-less subprocess and joins ALL pages into one flat string, by design, for security isolation — no page boundary or box survives the pipe, so wiring it would require new computation, not just plumbing. **W4.6 (2026-07-24) adds a SECOND, sidecar-delegated PDF producer** — `agent_utilities/media/pdf_sidecar.py::ingest_pdf_via_sidecar` hands the PDF to a governed fleet OCR sidecar (default `stirlingpdf-mcp`; see `agent_utilities/media/sidecar_contract.py`) and writes one `PageBox` locus per returned page — a DIFFERENT, additive producer from `extraction/pdf.py`'s deliberately page-boundary-free subprocess, reached via the new `graph_media_sidecar` MCP tool rather than the passive ingestion funnel. |
+| `DocumentSpan` | `store_document_span_evidence` | Wired (pass 1, 2026-07-22) — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. **W4.6 (2026-07-24) adds a second producer**: `pdf_sidecar.py`, one locus per page covering that page's full sidecar-extracted text (the same "whole known extent" volume discipline `TableCellRange`/`PageBox` already use, not per-line/per-fact). |
 | `TableCellRange` | `store_table_cell_evidence` | Wired (pass 1, 2026-07-22) — `readers_office.read_xlsx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per worksheet covering its full used range. |
-| `ImageRegion` | `store_image_region_evidence` | Wired (pass 1, 2026-07-22), RapidOCR branch only — `readers_media._ocr_with_rapidocr` (`agent_utilities/knowledge_graph/extraction/readers_media.py`). The `pytesseract` branch (`_ocr_with_pytesseract`) never computes a box at all (`image_to_string` has no box output), so there is nothing to wire there without adding new computation — left unwired by design. |
+| `ImageRegion` | `store_image_region_evidence` | Wired (pass 1, 2026-07-22), RapidOCR branch only — `readers_media._ocr_with_rapidocr` (`agent_utilities/knowledge_graph/extraction/readers_media.py`). The `pytesseract` branch (`_ocr_with_pytesseract`) never computes a box at all (`image_to_string` has no box output), so there is nothing to wire there without adding new computation — left unwired by design. **W4.6 (2026-07-24) adds two more producers**, both sidecar-delegated (`agent_utilities/media/`, CONCEPT:AU-KG.ingest.media-sidecar-delegation): `pdf_sidecar.py` writes one locus per OCR word/line box a PDF sidecar returns (`image_id="<document_id>:page<n>"`, mirroring RapidOCR's own per-line granularity); `image_sidecar.py` writes one locus per detected region in a JPEG (a NEW modality — JPEG decode never had an AU producer before this wave). Both are fail-closed gated by the sidecar's declared `SidecarCapability.produces` (`sidecar_contract.assert_capable`) — a provider not declared for `ImageRegion` (e.g. the `pdf_documents`/paperless-ngx-mcp alternate) writes none, never a guess. |
 | `AudioSegment` | `store_audio_segment_evidence` | Wired (pre-existing, confirmed 2026-07-21) — `messaging/router.py`. |
 | `MetricWindow` | `store_metric_window_evidence` | **Wired 2026-07-22 (pass 2)** — new `observability/gateway_health.py`, driven from `GatewayMetricsMiddleware`'s already-computed per-request `duration` (`observability/gateway_metrics.py`). Bounded/claim-driven-equivalent by design: request durations distill into ONE `HealthTrendBuffer` window (5 min), and a write fires only when `health.detect_anomaly` actually flags that window against the gateway's own rolling baseline — never per request. This SAME wiring is also the first live caller anywhere in AU of `observability.health`'s anomaly kernel + `health_ingest.ingest_health_anomaly`, which pass 1 found was itself a fully-built, unwired kernel. |
 | `CodeSymbol` | `store_code_symbol_evidence` | **Wired 2026-07-22 (pass 2)** — `research/candidate_insight.py`'s `register_claim_materialization` (the ONE shared seam every real, floor-cleared `:Claim` from every finding family already passes through), via new `_persist_code_symbol_evidence`. Bounded/claim-driven: fires only when a claim's own `source_ids` resolve to a real, engine-stored `:Code`/`:Test` node — never per AST symbol on ingestion. `data` is the real text of the symbol's known start line, read back from the source file on disk (no fabricated `end_line` — the stored node doesn't carry one, and recovering it would need a second, language-specific re-parse this module deliberately avoids). |
@@ -309,7 +309,80 @@ Still not wired, re-surveyed this pass:
   `PySceneDetect`) for `VideoShot`, or exact frame-accurate seeking for
   `VideoFrameRange` — genuinely new capability, not a wiring gap, and
   explicitly out of scope for this seam-closure pass per the task's own
-  instruction not to build a video pipeline.
+  instruction not to build a video pipeline. **W4.6 (2026-07-24) declares —
+  but does not implement — the target contract**: `agent_utilities/media/
+  sidecar_contract.py`'s `SIDECAR_CAPABILITIES['video']` names the future
+  producer (a `data-science-mcp` keyframe/shot-boundary sidecar) and its
+  wire shape, so the capability that's missing is now a documented contract
+  stub, not an open question — see the section below and
+  `reports/issue-register.md`'s W4.6 entry.
+
+## The governed media-sidecar pattern (W4.6, CONCEPT:AU-KG.ingest.media-sidecar-delegation)
+
+`reports/wave4/ADR-media-sidecar.md` (HG-7) drew the engine's permanent
+boundary: heavy media decode (OCR, JPEG, MP3/AAC, H.264/VP9, Whisper) never
+runs in-engine or in AU's own Python process — it runs in a **governed fleet
+delegate agent**, reached the same way `graph_mine_deep` already reaches
+`data-science-mcp` for torch-dependent mining (CONCEPT:AU-KG.mining.dsm-forecast-delegation). W4.6
+standardizes that shape into ONE reusable component,
+`agent_utilities/media/sidecar_delegate.py::delegate_extract`, so every
+modality adapter (`pdf_sidecar.py`, `image_sidecar.py`, and future
+`audio_sidecar.py`/`video_sidecar.py`) shares one fleet-call/decode/
+provenance loop instead of reimplementing it:
+
+```mermaid
+flowchart LR
+    subgraph AU["agent-utilities (Python)"]
+        MCP["graph_media_sidecar MCP/REST tool"]
+        ADAPT["pdf_sidecar.py / image_sidecar.py\n(modality write-back mapping)"]
+        DEL["sidecar_delegate.delegate_extract\n(ONE reusable fleet-call loop)"]
+        CAP["sidecar_contract.py\nfail-closed capability manifest"]
+        MS["MediaStore\n(EXISTING ArtifactBundle/EvidenceLocus API)"]
+        MCP --> ADAPT --> DEL
+        DEL --> CAP
+        ADAPT --> MS
+    end
+
+    DEL -- "call_tool_once\n(digest + media_type + artifact_b64)" --> SC["Fleet sidecar\n(stirlingpdf-mcp / data-science-mcp / ...)"]
+    SC -- "decoded pages/regions/pHash/embeddings" --> DEL
+
+    MS --> EV[":Evidence loci\n(PageBox/DocumentSpan/ImageRegion)"]
+    ADAPT -- "record_media_sidecar_claim" --> CL[":Claim\n(confidence=1.0, is_verified=True)"]
+    EV -- "SUPPORTS" --> CL
+    DEL -- "record_media_sidecar_activity" --> ACT[":PROVENANCE_ACTIVITY"]
+
+    subgraph EG["epistemic-graph engine (Rust) — unchanged"]
+        BGV["BeliefGraph::from_graph_view()"]
+    end
+    EV -.decoded by.-> BGV
+    CL -.decoded by.-> BGV
+```
+
+Governance closes the loop the same way the page-box seam above does — no
+second resolver, no new engine write endpoint: `delegate_extract` records
+ONE PROV-O `:PROVENANCE_ACTIVITY` node per fleet call
+(`lineage.record_media_sidecar_activity`), the adapter records ONE
+directly-verified `:Claim` per artifact processed
+(`lineage.record_media_sidecar_claim` — confidence=1.0/is_verified=True,
+following `record_connector_sync_claim`'s established convention, NOT the
+governed mining-flywheel lifecycle reserved for inferred findings), and
+every per-locus `store_<locus>_evidence` write-back links that claim via
+`claim_id`, so `evidence_citations`'s existing SUPPORTS-walk makes a
+sidecar-produced locus challengeable through the standard why/why-not
+machinery with zero engine-side change. The capability manifest
+(`sidecar_contract.SIDECAR_CAPABILITIES`) is a fail-closed table of which
+sidecar may produce which locus kind — `assert_capable`/`is_capable` gate
+every write-back, so a provider not declared for a locus kind (e.g. the
+paperless-ngx-mcp PDF alternate, which has no word-box detail) writes none
+rather than guessing.
+
+Shipped this wave: PDF (via `stirlingpdf-mcp`, default) and JPEG (via
+`data-science-mcp`) — see `reports/issue-register.md`'s W4.6 entry for the
+exact locus/producer mapping and the two sidecar tools whose real
+implementation is a tracked follow-up (this wave proves the AU-side
+contract + write-back with the fleet call mocked at the seam, per the ADR's
+own testing directive). Audio/video are declared capability-manifest
+contract stubs only, no adapter.
 
 ## What remains for full convergence
 

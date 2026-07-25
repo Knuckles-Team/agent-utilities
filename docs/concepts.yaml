@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1022
+total_concepts: 1023
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3108,12 +3108,12 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/community_reports.py
   doc: AU-KG.enrichment.community-reports
 - id: AU-KG.enrichment.compliance-posture-rollup
-  name: AU-KG.enrichment.compliance-posture-rollup
+  name: Reuses
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/mcp/tools/compliance_tools.py
-  doc: AU-KG.enrichment.compliance-posture-rollup
+  doc: Reuses
 - id: AU-KG.enrichment.contextual-retrieval-enrichment
   name: situate each chunk within the document and embed context+chunk for better recall
   pillar: AU-KG
@@ -3129,7 +3129,9 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/research/candidate_insight.py
   - agent_utilities/mcp/tools/incident_tools.py
+  - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/observability/incidents.py
   doc: browse and drive the
 - id: AU-KG.enrichment.direction-repair
@@ -3200,8 +3202,10 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/enrichment/ops_causal_graph.py
   - agent_utilities/knowledge_graph/research/candidate_insight.py
+  - agent_utilities/mcp/tools/incident_tools.py
   - agent_utilities/mcp/tools/ops_causal_tools.py
   - agent_utilities/observability/incident_router.py
+  - agent_utilities/observability/incidents.py
   - agent_utilities/observability/repo_crosswalk.py
   doc: The fleet ingests the SAME git
 - id: AU-KG.enrichment.portfolio-intelligence
@@ -3346,6 +3350,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/etl/lineage.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
   - agent_utilities/knowledge_graph/extraction/readers_office.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
@@ -3783,6 +3788,19 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: ────────────────────────────
+- id: AU-KG.ingest.media-sidecar-delegation
+  name: CAS blob-ref input, fail-closed capability manifest, PROV-O governance
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/etl/lineage.py
+  - agent_utilities/mcp/tools/media_sidecar_tools.py
+  - agent_utilities/media/__init__.py
+  - agent_utilities/media/image_sidecar.py
+  - agent_utilities/media/pdf_sidecar.py
+  - agent_utilities/media/sidecar_contract.py
+  - agent_utilities/media/sidecar_delegate.py
+  doc: CAS blob-ref input, fail-closed capability manifest, PROV-O governance
 - id: AU-KG.ingest.mine-git-history-files
   name: mine git history for files that change together
   pillar: AU-KG
@@ -4394,6 +4412,8 @@ concepts:
   code_paths:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
+  - agent_utilities/media/sidecar_contract.py
+  - agent_utilities/media/sidecar_delegate.py
   doc: the deep-learning / heavy-Python family the
 - id: AU-KG.mining.foldback-typed-nodes
   name: Best-effort — never raises, since a foldback
@@ -5578,7 +5598,9 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/contextual_model.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+  - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/observability/__init__.py
   - agent_utilities/observability/gateway_metrics.py
@@ -5589,6 +5611,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/contextual_model.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/observability/__init__.py
@@ -6609,6 +6632,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/core/contextual_model.py
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/graph/executor.py
   - agent_utilities/graph/hierarchical_planner.py
@@ -8051,6 +8075,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/mcp/tools/compliance_tools.py
   - agent_utilities/observability/incidents.py
   - agent_utilities/orchestration/action_policy.py
   doc: Operational ActionPolicy decision point with per-action autonomy tiers, durable rate limits, maintenance
