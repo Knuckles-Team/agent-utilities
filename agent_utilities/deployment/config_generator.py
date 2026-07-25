@@ -17,6 +17,8 @@ itself up) shouldn't hand-copy a template or reason about each flag. This module
 Generation/validation operate only over the typed schema; they never invent an
 ad-hoc deployment setting. Keys are the canonical environment names from the
 typed schema, which the config loader uppercases into ``os.environ`` at startup.
+The one intentional exception is ``ENGINE_TOPOLOGY`` — see
+:data:`_ENGINE_TOPOLOGY_DEFAULTS`.
 """
 
 from __future__ import annotations
@@ -103,6 +105,20 @@ _PRODUCTION_READINESS_EXPECTED: dict[str, bool] = {
     **_SAFE_PROPOSE_ONLY_EVOLUTION,
 }
 
+# `genesis.yaml`'s per-profile `engine_topology` run-plan axis (unified-binary-program.md
+# W-E; full depth: agent_utilities/skills/workflows/agent-os-genesis/references/
+# engine-topology-and-hyperscaling.md), mirrored here so a generated config.json never
+# disagrees with genesis. DECLARED-DEFAULT/PASSTHROUGH ONLY: no AgentConfig field reads
+# ENGINE_TOPOLOGY yet (extra="ignore" makes this inert on load) and nothing selects the
+# in-process-vs-shared-engine transport based on it — that runtime switch is
+# unified-binary-program.md workstream W-A, still landing. Do not treat this as a live
+# behavioral toggle; promote it to a real typed field only once W-A wires a consumer.
+_ENGINE_TOPOLOGY_DEFAULTS: dict[str, str] = {
+    "tiny": "unified-in-process",
+    "single-node-prod": "unified-in-process",
+    "enterprise": "out-of-process-shared",
+}
+
 _PROFILE_PRESETS: dict[str, dict[str, Any]] = {
     "tiny": {
         # Zero-infra: with no GRAPH_SERVICE_ENDPOINTS, the authoritative packaged
@@ -110,12 +126,14 @@ _PROFILE_PRESETS: dict[str, dict[str, Any]] = {
         "APP_PROFILE": "dev",
         "DEPLOYMENT_PROFILE": "tiny",
         "SECRETS_BACKEND": "engine",
+        "ENGINE_TOPOLOGY": _ENGINE_TOPOLOGY_DEFAULTS["tiny"],
     },
     "single-node-prod": {
         # One host: the engine is the authority; pg-age is an async mirror (interop/
         # BI/DR). Gateway hardened, secrets in encrypted engine storage.
         "APP_PROFILE": "production",
         "DEPLOYMENT_PROFILE": "single-node-prod",
+        "ENGINE_TOPOLOGY": _ENGINE_TOPOLOGY_DEFAULTS["single-node-prod"],
         "GRAPH_DB_CONNECTION_PROFILE_REF": None,
         "GRAPH_MIRROR_TARGETS": ["age"],
         "GRAPH_SERVICE_ENDPOINTS": [],
@@ -149,6 +167,7 @@ _PROFILE_PRESETS: dict[str, dict[str, Any]] = {
         # Hand off multi-node wiring to the deployment workflow skill.
         "APP_PROFILE": "production",
         "DEPLOYMENT_PROFILE": "enterprise",
+        "ENGINE_TOPOLOGY": _ENGINE_TOPOLOGY_DEFAULTS["enterprise"],
         "GRAPH_DB_CONNECTION_PROFILE_REF": None,
         "GRAPH_MIRROR_TARGETS": ["age"],
         "GRAPH_SERVICE_ENDPOINTS": [],
@@ -874,6 +893,18 @@ def config_doctor(
             "applicable": norm != "tiny",
             "mismatched": sorted(readiness_mismatches),
             "redacted": True,
+        }
+    )
+
+    # 8. Declared-only note (never fails): genesis.yaml's engine_topology axis for
+    # this profile. No AgentConfig field or runtime switch consumes ENGINE_TOPOLOGY
+    # yet — see _ENGINE_TOPOLOGY_DEFAULTS — so this is informational, not a gate.
+    checks.append(
+        {
+            "check": "engine_topology",
+            "ok": True,
+            "declared_default": _ENGINE_TOPOLOGY_DEFAULTS.get(norm),
+            "wired": False,
         }
     )
 

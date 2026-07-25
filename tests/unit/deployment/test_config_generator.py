@@ -38,6 +38,12 @@ def test_generate_config_profile_presets():
     assert tiny["DEPLOYMENT_PROFILE"] == "tiny"
     assert snp["DEPLOYMENT_PROFILE"] == "single-node-prod"
     assert ent["DEPLOYMENT_PROFILE"] == "enterprise"
+    # genesis.yaml's engine_topology axis (unified-binary-program.md W-E), mirrored
+    # as a declared-default passthrough (see _ENGINE_TOPOLOGY_DEFAULTS) — no runtime
+    # switch reads this yet (W-A).
+    assert tiny["ENGINE_TOPOLOGY"] == "unified-in-process"
+    assert snp["ENGINE_TOPOLOGY"] == "unified-in-process"
+    assert ent["ENGINE_TOPOLOGY"] == "out-of-process-shared"
     assert not tiny.get("GRAPH_DB_CONNECTION_PROFILE_REF")  # zero-infra
     assert "GRAPH_DB_CONNECTION_PROFILE_REF" in snp
     assert snp["GRAPH_SERVICE_ENDPOINTS"] == []
@@ -299,6 +305,31 @@ def test_doctor_tiny_healthy(tmp_path):
     lease = next(c for c in rep["checks"] if c["check"] == "dispatch_lease_recovery")
     assert lease["ok"] is True
     assert lease["renew_interval_seconds"] < lease["claim_ttl_seconds"] <= 300.0
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected_topology"),
+    [
+        ("tiny", "unified-in-process"),
+        ("single-node-prod", "unified-in-process"),
+        ("enterprise", "out-of-process-shared"),
+    ],
+)
+def test_doctor_reports_declared_engine_topology(tmp_path, profile, expected_topology):
+    # Informational only — genesis.yaml's engine_topology axis has no runtime
+    # switch yet (unified-binary-program.md W-A), so this check always passes; it
+    # exists so a generated config.json and genesis.yaml can never silently
+    # disagree on the declared per-profile default.
+    out = tmp_path / "c.json"
+    write_config(profile, out)
+    rep = config_doctor(profile, out)
+    topology = next(c for c in rep["checks"] if c["check"] == "engine_topology")
+    assert topology == {
+        "check": "engine_topology",
+        "ok": True,
+        "declared_default": expected_topology,
+        "wired": False,
+    }
 
 
 def test_secret_reference_inventory_covers_nested_and_secret_scheme(monkeypatch):
