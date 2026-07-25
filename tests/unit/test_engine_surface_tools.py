@@ -963,3 +963,112 @@ def test_graph_mine_deep_missing_input_is_reported(tools):
         )
     )
     assert out["error"]["code"] == "operation_failed"
+
+
+# ── graph_pipeline (CONCEPT:EG-KG.mining.ml-pipeline — W4.4 composable ML pipeline) ──
+def test_graph_pipeline_registered_with_rest_twin(tools):
+    assert "graph_pipeline" in tools
+    assert kg_server.REGISTERED_TOOLS.get("graph_pipeline") is not None
+    assert kg_server.ACTION_TOOL_ROUTES.get("graph_pipeline") == "/pipeline/train"
+
+
+def test_graph_pipeline_train_dispatches(monkeypatch, tools):
+    """train forwards name/spec/source verbatim to client.pipeline.train."""
+    calls: list = []
+    pipeline = SimpleNamespace(train=_recording_method(calls, "train"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(pipeline=pipeline)
+    )
+    spec = {
+        "features": [{"step": "embedding", "method": "fastrp", "dim": 16}],
+        "label_property": "label",
+        "model": {"family": "classify", "algorithm": "logistic"},
+    }
+    out = json.loads(
+        tools["graph_pipeline"](
+            action="train",
+            params_json=json.dumps(
+                {"name": "community", "spec": spec, "source": {"node_label": "Person"}}
+            ),
+            graph="",
+        )
+    )
+    assert out["surface"] == "pipeline"
+    assert out["action"] == "train"
+    assert calls == [
+        (
+            "train",
+            {"name": "community", "spec": spec, "source": {"node_label": "Person"}},
+        )
+    ]
+
+
+def test_graph_pipeline_eval_alias_hits_evaluate(monkeypatch, tools):
+    """The MCP 'eval' verb maps to the client's evaluate() method."""
+    calls: list = []
+    pipeline = SimpleNamespace(evaluate=_recording_method(calls, "evaluate"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(pipeline=pipeline)
+    )
+    out = json.loads(
+        tools["graph_pipeline"](
+            action="eval",
+            params_json=json.dumps({"name": "community", "version": 1}),
+            graph="",
+        )
+    )
+    assert out["surface"] == "pipeline"
+    assert out["action"] == "evaluate"
+    assert calls == [("evaluate", {"name": "community", "version": 1})]
+
+
+def test_graph_pipeline_serve_predict_compare_dispatch(monkeypatch, tools):
+    calls: list = []
+    pipeline = SimpleNamespace(
+        serve=_recording_method(calls, "serve"),
+        predict=_recording_method(calls, "predict"),
+        compare=_recording_method(calls, "compare"),
+    )
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(pipeline=pipeline)
+    )
+    tools["graph_pipeline"](
+        action="serve", params_json=json.dumps({"name": "c", "version": 1}), graph=""
+    )
+    tools["graph_pipeline"](
+        action="predict",
+        params_json=json.dumps({"name": "c", "version": 0, "writeback": True}),
+        graph="",
+    )
+    tools["graph_pipeline"](
+        action="compare",
+        params_json=json.dumps({"name": "c", "version_a": 1, "version_b": 2}),
+        graph="",
+    )
+    assert [c[0] for c in calls] == ["serve", "predict", "compare"]
+    assert calls[0][1] == {"name": "c", "version": 1}
+    assert calls[1][1] == {"name": "c", "version": 0, "writeback": True}
+    assert calls[2][1] == {"name": "c", "version_a": 1, "version_b": 2}
+
+
+def test_graph_pipeline_unknown_action_is_reported(tools):
+    out = json.loads(
+        tools["graph_pipeline"](action="bogus", params_json="{}", graph="")
+    )
+    assert out["surface"] == "pipeline"
+    assert "unknown action" in out["error"]
+
+
+def test_graph_pipeline_degrades_when_surface_absent(monkeypatch, tools):
+    """A no-ml-pipeline engine build (client has no .pipeline) degrades cleanly."""
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client()
+    )
+    out = json.loads(
+        tools["graph_pipeline"](
+            action="train",
+            params_json=json.dumps({"name": "x", "spec": {}}),
+            graph="",
+        )
+    )
+    assert out["degraded"] is True

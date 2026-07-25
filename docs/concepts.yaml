@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1023
+total_concepts: 1024
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -9067,6 +9067,13 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: the unified data-mining surface
+- id: EG-KG.mining.ml-pipeline
+  name: a composable train→eval→serve→predict
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/engine_surface_tools.py
+  doc: a composable train→eval→serve→predict
 - id: EG-KG.ontology.resp2-resp3-codec-round
   name: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
   pillar: EG-KG
