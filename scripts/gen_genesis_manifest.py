@@ -51,7 +51,8 @@ _repo_manifest_summary = _repo_templates.manifest_summary
 # Kept here (not imported) so the generator runs without importing the package.
 PROFILES_META = {
     "tiny": {
-        "summary": "zero-infra, all-local (laptop / Raspberry Pi) — homelab quick start",
+        "summary": "zero-infra, all-local (laptop / Raspberry Pi) — ONE self-contained"
+        " graph-os binary (engine in-process); homelab quick start",
         "docker": False,
         # Embedded engine-encrypted __secrets__ graph (CONCEPT:AU-OS.identity.encrypted-secret-store) is the
         # default app-secret store; .env only carries the bootstrap model key +
@@ -66,17 +67,25 @@ PROFILES_META = {
         "ontology_host": "local",
         # The ONE full engine authority is AUTO-STARTED on demand by the single
         # resolver (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision) from
-        # the approved platform wheel. It is not in-process and not a cache: it is
-        # a detached, redb-authoritative durable engine, reference-counted
-        # (self-stops ~60s after the last client disconnects; set
-        # engine_lifecycle=persistent for a long-living engine). Every entrypoint
-        # on the host shares the one engine.
+        # the approved platform wheel: a detached, redb-authoritative durable
+        # engine, reference-counted (self-stops ~60s after the last client
+        # disconnects; set engine_lifecycle=persistent for a long-living engine).
+        # Every entrypoint on the host shares the one engine.
         "engine": "autostart",
         "engine_lifecycle": "refcounted",
         "engine_idle_shutdown_secs": 60,
+        # Two-shapes edict (au AGENTS.md "Engine transport", eg AGENTS.md
+        # two-shapes, reports/unified-binary-program.md): unified-in-process is
+        # the SELF-CONTAINED DEFAULT — one binary/process IS engine + KG +
+        # numeric kernel + messaging + gateway, no separate engine service to
+        # deploy or drift. (The PyO3 in-process binding is landing; today's
+        # autostart already gives one packaged, supervised engine per host with
+        # nothing separate to operate — externally the same no-drift contract.)
+        "engine_topology": "unified-in-process",
     },
     "single-node-prod": {
-        "summary": "one durable, secured host (Postgres/pg-age) + the core MCP connectors",
+        "summary": "one durable, secured host — ONE self-contained graph-os container"
+        " (engine in-process, no separate engine service) + the core MCP connectors",
         "docker": True,
         "secrets": "openbao-or-engine-encrypted",
         "servers": "core",
@@ -89,12 +98,17 @@ PROFILES_META = {
         "install_mode": "deploy-container",
         "idp": "keycloak",
         "ontology_host": "local",
-        # The same full engine runs as its own engine-as-a-DB image on the host.
+        # The same full engine runs consolidated INTO the one graph-os image —
+        # still a single container, no sidecar engine service to deploy/drift.
         "engine": "container",
+        # Same self-contained default as tiny — containerized, not split out.
+        "engine_topology": "unified-in-process",
     },
     "enterprise": {
         # Enterprise defaults are portable and contain no operator inventory.
-        "summary": "multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol secrets + Keycloak SSO/DNS/ingress/observability + all connectors)",
+        "summary": "multi-host Kubernetes (RKE2), full integration (OpenBao/Vault-protocol"
+        " secrets + Keycloak SSO/DNS/ingress/observability + all connectors); scale-out"
+        " engine behind N graph-os pods",
         "docker": True,
         "secrets": "openbao",
         "servers": "all",
@@ -113,12 +127,14 @@ PROFILES_META = {
         # valid `ontology_hosts` options for an operator who wants an external
         # triple store instead.
         "ontology_host": "local",
-        # Shared/remote full engine reached via GRAPH_SERVICE_ENDPOINTS; the
-        # `cluster` tier (node + multi-Raft replication + pgwire + distributed
-        # Pregel / cross-shard 2PC) runs as the engine-as-a-DB container —
-        # topology and replication are runtime configuration, not alternate
-        # artifacts; mirrors fan out.
+        # Shared/remote engine reached via GRAPH_SERVICE_ENDPOINTS, run as its
+        # own scaled service (the eg `cluster` cargo-feature build: multi-Raft
+        # HA + sharding) — mirrors fan out; topology and replication are
+        # runtime configuration, not alternate artifacts.
         "engine": "remote",
+        # HYPERSCALING shape (the enterprise default): N graph-os client pods
+        # behind the gateway, scaled (k8s HPA) independently of the engine.
+        "engine_topology": "out-of-process-shared",
     },
 }
 
@@ -147,6 +163,17 @@ RUN_PLAN = {
     # container = the engine-as-a-DB image (single-node-prod); remote = shared engine via
     # GRAPH_SERVICE_ENDPOINTS (enterprise).
     "engine": ["autostart", "container", "remote"],
+    # Two-shapes edict (au AGENTS.md "Engine transport", eg AGENTS.md two-shapes,
+    # reports/unified-binary-program.md) — orthogonal to `engine` above (that axis
+    # is WHERE/HOW the engine process is obtained; this one is the process-boundary
+    # SHAPE): `unified-in-process` = the SELF-CONTAINED DEFAULT, the Rust engine
+    # embedded in-process via PyO3 in the SAME binary as graph-os — one binary, no
+    # separate engine service to deploy/drift (tiny, single-node-prod).
+    # `out-of-process-shared` = the HYPERSCALING shape — graph-os talks to a
+    # shared, independently-scaled engine (the eg `cluster`/raft build, multi-Raft
+    # sharding) over UDS/TCP; N graph-os client pods behind the gateway, scaled via
+    # k8s HPA (enterprise default). Both shapes keep engine calls BATCHED.
+    "engine_topology": ["unified-in-process", "out-of-process-shared"],
     "install_modes": ["deploy-container", "deploy-baremetal", "use-existing", "skip"],
     # prod = PyPI image / uvx; dev = editable: `pip/uv install -e` (baremetal) OR the
     # package's compose.dev.yml source-mounted container (edits live on restart).
@@ -259,6 +286,10 @@ def build() -> dict:
             # auto-stops when idle — tiny default) vs persistent (long-living).
             "engine_lifecycle": meta.get("engine_lifecycle", "refcounted"),
             "engine_idle_shutdown_secs": meta.get("engine_idle_shutdown_secs", 60),
+            # Two-shapes axis (see run_plan.engine_topology): unified-in-process
+            # (self-contained default, tiny/single-node-prod) vs out-of-process-shared
+            # (hyperscaling, enterprise default).
+            "engine_topology": meta["engine_topology"],
         }
 
     return {
@@ -300,6 +331,25 @@ def build() -> dict:
             " ABI3 numeric kernel; runtime installation never compiles",
             "docker_image": "engine-as-a-DB image for"
             " container/remote shapes (single-node-prod, enterprise)",
+            # The two-shapes edict (CONCEPT AU-OS/EG-OS "engine transport two shapes";
+            # full detail: reports/unified-binary-program.md, eg AGENTS.md, and the
+            # agent-os-genesis skill's references/engine-topology-and-hyperscaling.md).
+            "topology": {
+                "values": ["unified-in-process", "out-of-process-shared"],
+                "unified-in-process": "SELF-CONTAINED DEFAULT (tiny, single-node-prod) —"
+                " the engine embeds in-process via PyO3 in the SAME binary/process as"
+                " graph-os (epistemic_graph.engine): one binary, one lifecycle, no"
+                " socket round-trip, no separate engine service to deploy or drift.",
+                "out-of-process-shared": "HYPERSCALING shape (enterprise default) —"
+                " graph-os talks to a shared, independently-scaled engine over"
+                " UDS/TCP (epistemic_graph.client, GIL-free); build the engine with"
+                " the eg `cluster` cargo feature (raft, multi-Raft sharding) and run"
+                " N graph-os client pods behind the gateway, scaled via k8s HPA"
+                " independently of the engine.",
+                "rule": "both shapes keep engine calls BATCHED (one call = one batch"
+                " op over graph-resident data, never a per-element Python loop) and"
+                " the engine's compute internals pure Rust.",
+            },
             # The embedded app-secret store (CONCEPT:AU-OS.identity.encrypted-secret-store): :Secret nodes in the
             # __secrets__ graph, values sealed by the engine's encryption-at-rest. The
             # encryption key is itself a genesis-provisioned secret (Step 8).

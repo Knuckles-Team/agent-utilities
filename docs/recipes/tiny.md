@@ -16,6 +16,15 @@ FalkorDB, Ladybug are optional write-only fan-out targets you do not configure
 here). The only thing you need is a model provider configured with a runtime
 credential reference or an approved local inference endpoint.
 
+> **Topology:** genesis names this shape `engine_topology: unified-in-process` — the
+> platform-wide default for `tiny`/`single-node-prod` (one self-contained graph-os,
+> no separate engine service). The PyO3 in-process binding that makes it literally
+> one process is landing; today this recipe's out-of-process child already delivers
+> the same "nothing separate to operate" contract. The scale-out alternative
+> (`out-of-process-shared`, [enterprise](enterprise.md)'s default) is documented in
+> the `agent-os-genesis` skill's
+> [engine topology + hyperscaling reference](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md).
+
 ## What runs
 
 | Component | How |
