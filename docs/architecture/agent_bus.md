@@ -234,7 +234,8 @@ flowchart LR
    is configured.
 
 Selection is `AGENT_BUS_LOG_BACKEND` (`engine|kafka|graph`, mirrors `TASK_QUEUE_BACKEND`): unset
-= auto (engine when `ENGINE_ENDPOINT` signals a configured engine, else Kafka when
+= auto (engine when the engine broker is reachable — local autostart or a configured
+`GRAPH_SERVICE_ENDPOINTS` remote — else Kafka when
 `TASK_QUEUE_BACKEND=kafka`/`KAFKA_BOOTSTRAP_SERVERS` is set, else the graph fallback — auto mode
 never attempts a real network connection with nothing configured, so zero-infra deployments and
 unit tests never pay a connect-timeout cost); an EXPLICIT value is a hard contract — `engine`/

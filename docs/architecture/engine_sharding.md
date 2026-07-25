@@ -45,9 +45,10 @@ explicit schemes.
 
 ## Operational semantics
 
-- **Autostart is local-only.** `EPISTEMIC_GRAPH_AUTOSTART=1` may spawn an
-  engine only for a local (`unix://`) endpoint. In sharded mode an
-  unreachable remote (`tcp://`) shard is a **fail-loud `ConnectionError`**
+- **Autostart is local-only.** Autostart is not an independent toggle — it is
+  derived purely from endpoint topology (`engine_resolver.setting_autostart`)
+  and may spawn an engine only for a local (`unix://`) endpoint. In sharded
+  mode an unreachable remote (`tcp://`) shard is a **fail-loud `ConnectionError`**
   naming the shard, the graph it owns, and the remediation — the same
   hard-contract convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task queue. Auto-starting a
   local stand-in would silently split that shard's graphs into invisible

@@ -947,11 +947,13 @@ can only self-refresh if it can *discover* the auth server:
 2. return `WWW-Authenticate: Bearer resource_metadata="https://graph-os.arpa/.well-known/oauth-protected-resource"`
    on 401. ★A bare `WWW-Authenticate: Bearer` tells the client nothing and is the failure mode.
 
-**Gotcha (`AUTH_TYPE=jwt` ships neither half):** the jwt path returns a bare `JWTVerifier`, whose
-FastMCP base class provides **no routes** and **no `resource_metadata`**. FastMCP already has a
-compliant `RemoteAuthProvider` — the fix is to wrap the existing verifier in it once
-`MCP_PUBLIC_BASE_URL` is set, not to implement OAuth. Plan:
-[`reports/graphos-oauth-autorefresh.md`](../../../../../reports/graphos-oauth-autorefresh.md).
+**Gotcha (`AUTH_TYPE=jwt` on its own ships neither half):** a bare `JWTVerifier` (FastMCP's base
+class) provides **no routes** and **no `resource_metadata`** by itself. The fix: set
+`MCP_PUBLIC_BASE_URL` to this instance's public URL (e.g. `https://graph-os.arpa`) —
+`server_factory.py`'s `_configure_jwt_auth()` then wraps the same verifier in FastMCP's
+compliant `RemoteAuthProvider` (`_wrap_with_resource_metadata()`) automatically; no separate
+OAuth implementation is needed. Leaving `MCP_PUBLIC_BASE_URL` unset is what reproduces the
+bare-`Bearer` failure mode above.
 
 **Gotcha (credential must be recoverable):** if a service account is used (headless/CI, no browser
 flow), its credentials belong in OpenBao under the `apps/` mount — e.g. `apps/claude-code` with
@@ -967,9 +969,8 @@ a trust gap from an outage before chasing the wrong fault.
 - Requires: `keycloak-mcp`, `openbao-mcp` (+ Step 1b CA trust on every client host)
 - Expected: `oauth-metadata-served, challenge-advertises-resource-metadata, client-config-tokenless, service-credential-in-openbao`
 - **Completion gate:** a token expiring MUST NOT require human intervention — verify by minting a
-  short-lived token and confirming the client recovers on its own. Full config, verification
-  commands and checklist:
-  [`reports/graphos-authenticated-mcp-config.md`](../../../../../reports/graphos-authenticated-mcp-config.md).
+  short-lived token and confirming the client recovers (re-authenticates via the 401 challenge)
+  on its own, with no human pasting a replacement token.
 
 ### Step 15: observability-and-backups
 [depends_on: Step 14]

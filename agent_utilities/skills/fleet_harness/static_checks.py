@@ -43,8 +43,8 @@ _CONFIG_FILENAME_RE = re.compile(r"`[\w.-]+\.(?:ya?ml|json|toml|ini|env)`")
 
 #: How far back (chars, no intervening blank line) a config-filename mention
 #: still plausibly governs a later naming-convention match, e.g. "...see
-#: `genesis.yaml` `engine` + per-profile `engine_tier`)." — `engine_tier` is a
-#: field in that file, referenced ~25 chars after it names the file.
+#: `genesis.yaml` `engine` + per-profile `engine_topology`)." — `engine_topology`
+#: is a field in that file, referenced ~25 chars after it names the file.
 _CONFIG_KEY_PROXIMITY_WINDOW = 200
 
 
@@ -57,7 +57,7 @@ def _looks_like_config_key_or_path(body: str, match: re.Match[str]) -> bool:
     ``object_*``) is also just... common English/technical vocabulary, so
     prose legitimately uses it for other things: a redb storage-volume name
     (``epistemic-graph-migrations``), a genesis run-plan YAML field
-    (``agent-os-genesis``'s ``engine_tier``/``ontology_host``). Rather than a
+    (``agent-os-genesis``'s ``engine_topology``/``ontology_host``). Rather than a
     hardcoded ignore-list of those specific strings (which would silently
     stop covering the NEXT tool-shaped config key or path fragment some other
     skill introduces), this checks the syntax immediately around the match
@@ -71,7 +71,7 @@ def _looks_like_config_key_or_path(body: str, match: re.Match[str]) -> bool:
     3. Preceded, within a short no-blank-line window, by a backtick-wrapped
        structured-config filename (``genesis.yaml``, ...) — subsequent
        naming-convention matches in that span read as that file's own field
-       names, e.g. ``see \\`genesis.yaml\\` ... \\`engine_tier\\``.
+       names, e.g. ``see \\`genesis.yaml\\` ... \\`engine_topology\\``.
 
     This intentionally does NOT try to resolve every ambiguous case (a
     heuristic that consulted a real non-tool registry — e.g. epistemic-

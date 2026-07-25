@@ -401,12 +401,16 @@ contract stubs only, no adapter.
   (it runs the actual engine decode/resolve code, just not over the wire).
   Standing up a dedicated `evidence-graph`-featured test engine (or folding
   `evidence-graph` into a test-only tier) is the natural follow-up.
-* **`tests/_test_engine.py`'s `BUILD_TIER = "pi-max"` fallback build path is
-  stale** relative to epistemic-graph's own tier retirement (EG-371: `pi`/
-  `pi-max`/`node` no longer exist as Cargo features — `full` **is** `default`
-  now) — a pre-existing drift unrelated to this seam, noted here because it's
-  exactly what would need fixing (or superseding) to add the live-engine test
-  above.
+* **Historical note (since resolved):** this bullet used to flag
+  `tests/_test_engine.py`'s `BUILD_TIER = "pi-max"` fallback build path as
+  stale drift relative to epistemic-graph's own tier retirement (EG-371:
+  `pi`/`pi-max`/`node` no longer exist as Cargo features — `full` **is**
+  `default` now, and the engine-selection axis at the deployment-config layer
+  is `engine_topology`, not a tier). That fallback path has since been
+  removed entirely — `resolve_engine_binary()` now resolves only an explicit
+  `EPISTEMIC_GRAPH_TEST_BINARY` override or the mandatory `epistemic-graph[full]`
+  wheel binary, with no build-tier axis at all. Nothing here blocks the
+  live-engine test above.
 
 ## W3.3 correction — the wire contract itself, and a twelfth locus kind
 
