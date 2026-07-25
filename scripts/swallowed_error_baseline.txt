@@ -6,10 +6,10 @@
 # preserving logging (pass the exception itself, not type(exc).__name__) while
 # staying best-effort, (b) re-raise where swallowing hides a genuine failure, or
 # (c) document a deliberate best-effort swallow with `# noqa: BLE001 — <reason>`.
-agent_utilities/agent/factory.py:379
-agent_utilities/agent/factory.py:413
-agent_utilities/agent/factory.py:545
-agent_utilities/agent/factory.py:678
+agent_utilities/agent/factory.py:366
+agent_utilities/agent/factory.py:400
+agent_utilities/agent/factory.py:539
+agent_utilities/agent/factory.py:600
 agent_utilities/agent/registry_builder.py:70
 agent_utilities/agent/registry_builder.py:76
 agent_utilities/agent/registry_builder.py:167
@@ -26,9 +26,9 @@ agent_utilities/core/leadership.py:139
 agent_utilities/core/leadership.py:150
 agent_utilities/core/model_capacity_autoscale.py:261
 agent_utilities/core/model_capacity_autoscale.py:805
-agent_utilities/core/model_factory.py:222
-agent_utilities/core/model_factory.py:518
-agent_utilities/core/model_factory.py:540
+agent_utilities/core/model_factory.py:223
+agent_utilities/core/model_factory.py:548
+agent_utilities/core/model_factory.py:570
 agent_utilities/core/provider_materialization.py:324
 agent_utilities/core/provider_materialization.py:328
 agent_utilities/core/provider_materialization.py:361
@@ -481,7 +481,7 @@ agent_utilities/knowledge_graph/research/change_publisher.py:854
 agent_utilities/knowledge_graph/research/change_publisher.py:929
 agent_utilities/knowledge_graph/research/change_publisher.py:984
 agent_utilities/knowledge_graph/research/evolution_state.py:158
-agent_utilities/knowledge_graph/research/loop_controller.py:3227
+agent_utilities/knowledge_graph/research/loop_controller.py:3252
 agent_utilities/knowledge_graph/research/spec_proposals.py:153
 agent_utilities/knowledge_graph/retrieval/active_reconstruction.py:301
 agent_utilities/knowledge_graph/retrieval/capability_index.py:95
@@ -559,16 +559,16 @@ agent_utilities/mcp/multiplexer.py:68
 agent_utilities/mcp/multiplexer.py:840
 agent_utilities/mcp/multiplexer.py:865
 agent_utilities/mcp/multiplexer.py:2545
-agent_utilities/mcp/server_factory.py:683
-agent_utilities/mcp/server_factory.py:750
-agent_utilities/mcp/server_factory.py:1004
-agent_utilities/mcp/server_factory.py:1090
-agent_utilities/mcp/server_factory.py:1106
-agent_utilities/mcp/server_factory.py:1186
-agent_utilities/mcp/server_factory.py:1600
-agent_utilities/mcp/server_factory.py:1871
-agent_utilities/mcp/server_factory.py:1913
-agent_utilities/mcp/server_factory.py:2004
+agent_utilities/mcp/server_factory.py:735
+agent_utilities/mcp/server_factory.py:802
+agent_utilities/mcp/server_factory.py:1056
+agent_utilities/mcp/server_factory.py:1146
+agent_utilities/mcp/server_factory.py:1163
+agent_utilities/mcp/server_factory.py:1243
+agent_utilities/mcp/server_factory.py:1657
+agent_utilities/mcp/server_factory.py:1928
+agent_utilities/mcp/server_factory.py:1970
+agent_utilities/mcp/server_factory.py:2061
 agent_utilities/mcp/tools/analysis_tools.py:590
 agent_utilities/mcp/tools/analysis_tools.py:597
 agent_utilities/mcp/tools/analysis_tools.py:3904
@@ -687,7 +687,7 @@ agent_utilities/security/persistence_privacy.py:235
 agent_utilities/security/sidecar_runtime.py:83
 agent_utilities/security/source_credentials.py:239
 agent_utilities/security/source_credentials.py:424
-agent_utilities/security/tool_guard.py:291
+agent_utilities/security/tool_guard.py:463
 agent_utilities/server/__init__.py:250
 agent_utilities/server/__init__.py:252
 agent_utilities/server/__init__.py:270
