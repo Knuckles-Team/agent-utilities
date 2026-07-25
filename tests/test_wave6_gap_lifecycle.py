@@ -54,6 +54,26 @@ class LifecycleEngine(FakeEngine):
         if m:
             lbl = m.group(1)
             return [{"n": dict(v)} for v in self.nodes.values() if v.get("type") == lbl]
+        # projected label scan (artifact_evolution_summary): MATCH (v:<Label>) RETURN v.id AS id, ...
+        m2 = re.search(r"MATCH \(v:(\w+)\) RETURN v\.", query)
+        if m2:
+            lbl = m2.group(1)
+            fields = (
+                "id",
+                "status",
+                "artifact_kind",
+                "skill_id",
+                "prompt_id",
+                "parent_hash",
+                "benchmark_score",
+                "reward",
+                "timestamp",
+            )
+            return [
+                {f: v.get(f) for f in fields}
+                for v in self.nodes.values()
+                if v.get("type") == lbl
+            ]
         # RESOLVES edge walk: (l)-[:RESOLVES]->(g:Gap) WHERE l.id = $id RETURN g.id
         if "[:RESOLVES]->" in query:
             lid = params.get("id")
