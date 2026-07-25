@@ -41,6 +41,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..knowledge_graph.research.gaps import SOURCE_AUDIT, submit_gap
+from ..security.identifiers import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -204,9 +205,10 @@ class AuditGapDetector:
         units: list[dict[str, Any]] = []
         seen: set[str] = set()
         for label in ("CodeUnit", "Symbol"):
+            safe_label = validate_identifier(label, kind="label")
             try:
                 rows = self.engine.query_cypher(
-                    f"MATCH (n:{label}) RETURN n LIMIT {int(limit)}"
+                    f"MATCH (n:{safe_label}) RETURN n LIMIT {int(limit)}"
                 )
             except Exception as exc:  # noqa: BLE001 — one label failing never blocks
                 logger.debug("audit read %s failed: %s", label, type(exc).__name__)
